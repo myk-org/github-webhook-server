@@ -1,0 +1,4 @@
+PyGithub
+flask
+python3-ngrok
+selenium
