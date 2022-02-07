@@ -36,6 +36,9 @@ services:
       - firefox
     environment:
       - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_OWNER=${GITHUB_OWNER}
+      - GITHUB_REPOSITORY=${GITHUB_REPOSITORY}
+      - FLASK_DEBUG=1
     ports:
       - "5151:5151"
     restart: unless-stopped
