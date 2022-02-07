@@ -5,7 +5,7 @@ services:
     container_name: ngrok
     environment:
       - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
-    command: http github_webhook_server:5151
+    command: http github_webhook_server:5000
     ports:
       - "4040:4040"
     restart: unless-stopped
@@ -40,5 +40,5 @@ services:
       - GITHUB_REPOSITORY=${GITHUB_REPOSITORY}
       - FLASK_DEBUG=1
     ports:
-      - "5151:5151"
+      - "5000:5000"
     restart: unless-stopped
