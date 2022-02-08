@@ -1,7 +1,7 @@
 import os
 
-from selenium import webdriver
 from github import Github
+from selenium import webdriver
 from urllib3.exceptions import MaxRetryError
 
 

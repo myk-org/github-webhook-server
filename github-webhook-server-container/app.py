@@ -3,8 +3,8 @@ import re
 
 import requests
 import yaml
-from github import Github
 from flask import Flask, request
+from github import Github
 
 app = Flask("github_webhook_server")
 app.logger.info("Starting github-webhook-server app")
@@ -177,15 +177,19 @@ class GutHubApi:
             app.logger.info("Processing set verified check pending")
             self.set_verify_check_pending(pull_request=pull_request)
 
-        if hook_action == "labeled":
-            if self.hook_data["label"]["name"].lower() == self.verified_label:
-                app.logger.info("Set verified check to success")
-                self.set_verify_check_success(pull_request=pull_request)
+        if (
+            hook_action == "labeled"
+            and self.hook_data["label"]["name"].lower() == self.verified_label
+        ):
+            app.logger.info("Set verified check to success")
+            self.set_verify_check_success(pull_request=pull_request)
 
-        if hook_action == "unlabeled":
-            if self.hook_data["label"]["name"].lower() == self.verified_label:
-                app.logger.info("Set verified check to pending")
-                self.set_verify_check_pending(pull_request=pull_request)
+        if (
+            hook_action == "unlabeled"
+            and self.hook_data["label"]["name"].lower() == self.verified_label
+        ):
+            app.logger.info("Set verified check to pending")
+            self.set_verify_check_pending(pull_request=pull_request)
 
 
 @app.route("/github_webhook", methods=["POST"])
