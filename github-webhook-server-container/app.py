@@ -87,12 +87,12 @@ class GutHubApi:
         self._add_label(obj=pull_request, label=label)
 
     def label_by_user_comment(self, issue, body):
-        user_requested_labels = re.findall(r"!(un-)?(\w+)", body)
+        user_requested_labels = re.findall(r"!(-)?(\w+)", body)
         if user_requested_labels:
             for user_requested_label in user_requested_labels:
                 _label = user_requested_label[1]
                 app.logger.info(f"Label requested by user: {_label}")
-                if user_requested_label[0] == "un-":
+                if user_requested_label[0] == "-":
                     label = self.obj_labels(obj=issue).get(_label.lower())
                     if label:
                         self._remove_label(obj=issue, label=label.name)
