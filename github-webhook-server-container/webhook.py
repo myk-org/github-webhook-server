@@ -17,6 +17,8 @@ def _get_firefox_driver():
 def create_webhook():
     github_owner = os.environ["GITHUB_OWNER"]
     github_repository = os.environ["GITHUB_REPOSITORY"]
+    github_token = os.getenv("GITHUB_TOKEN")
+    events = os.environ["GITHUB_EVENTS"].split(",")
     driver = _get_firefox_driver()
     driver.get("http://ngrok:4040/status")
     ngrok_url = driver.find_element(
@@ -24,17 +26,20 @@ def create_webhook():
         '//*[@id="app"]/div/div/div/div[1]/div[1]/ul/li[1]/div/table/tbody/tr[1]/td',
     ).text
     driver.close()
-    print(f"Creating webhook: {ngrok_url}/github_webhook")
     config = {"url": f"{ngrok_url}/github_webhook", "content_type": "json"}
-    gapi = Github(login_or_token=os.getenv("GITHUB_TOKEN"))
+    gapi = Github(login_or_token=github_token)
     repo = gapi.get_repo(f"{github_owner}/{github_repository}")
     for _hook in repo.get_hooks():
         if "ngrok.io" in _hook.config["url"]:
+            print(f"Deleting existing webhook: {_hook.config['url']}")
             _hook.delete()
 
-    repo.create_hook(
-        "web", config, ["push", "pull_request", "issue_comment"], active=True
+    print(
+        f"Creating webhook: {ngrok_url}/github_webhook for "
+        f"{github_owner}/{github_repository} "
+        f"with events: {events}"
     )
+    repo.create_hook("web", config, events, active=True)
 
 
 if __name__ == "__main__":

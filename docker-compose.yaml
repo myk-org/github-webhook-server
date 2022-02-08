@@ -1,10 +1,11 @@
+# All ${} taken from .env file, create .env file in root of project.
 version: "3.8"
 services:
   ngrok:
     image: ngrok/ngrok
     container_name: ngrok
     environment:
-      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN} # Needs free ngrok account.
     command: http github_webhook_server:5000
     ports:
       - "4040:4040"
@@ -36,9 +37,8 @@ services:
       - firefox
     environment:
       - GITHUB_TOKEN=${GITHUB_TOKEN}
-      - GITHUB_OWNER=${GITHUB_OWNER}
-      - GITHUB_REPOSITORY=${GITHUB_REPOSITORY}
-      - FLASK_DEBUG=1
-    ports:
-      - "5000:5000"
+      - GITHUB_OWNER=${GITHUB_OWNER} # ${GITHUB_OWNER}/${GITHUB_REPO} is the repo to watch.
+      - GITHUB_REPOSITORY=${GITHUB_REPOSITORY} # ${GITHUB_OWNER}/${GITHUB_REPO} is the repo to watch.
+      - FLASK_DEBUG=1 # Debug Flask server to get logs to console.
+      - GITHUB_EVENTS=push,pull_request,issue_comment # GitHubs event to listen to.
     restart: unless-stopped
