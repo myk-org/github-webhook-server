@@ -1,6 +1,7 @@
 # All ${} taken from .env file, create .env file in root of project.
 version: "3.8"
 services:
+  # ngrok is optional, used only if GITHUB_WEBHOOK_IP=ngrok in github_webhook_server container.
   ngrok:
     image: ngrok/ngrok
     container_name: ngrok
@@ -12,6 +13,7 @@ services:
     restart: unless-stopped
 
   firefox:
+    # firefox is optional, used only if ngrok is used.
     image: selenium/standalone-firefox:4.1.2-20220131
     container_name: firefox
     restart: unless-stopped
@@ -32,7 +34,7 @@ services:
   github_webhook_server:
     container_name: github_webhook_server
     build: github-webhook-server-container
-    depends_on:
+    depends_on: # Remove when passing GITHUB_WEBHOOK_IP != ngrok.
       - ngrok
       - firefox
     environment:
@@ -41,4 +43,5 @@ services:
       - GITHUB_REPOSITORY=${GITHUB_REPOSITORY} # ${GITHUB_OWNER}/${GITHUB_REPO} is the repo to watch.
       - FLASK_DEBUG=1 # Debug Flask server to get logs to console.
       - GITHUB_EVENTS=push,pull_request,issue_comment # GitHubs event to listen to.
+      - GITHUB_WEBHOOK_IP=ngrok # The IP/Domain to use for the webhook, pass ngrok to use ngrok domain for the webhook.
     restart: unless-stopped
