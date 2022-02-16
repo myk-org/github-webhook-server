@@ -38,7 +38,7 @@ services:
       - ngrok
       - firefox
     volumes:
-      - ./config.yaml:/config.yaml
+      - ./config.yaml:/config.yaml:Z
     environment:
       - FLASK_DEBUG=1 # Debug Flask server to get logs to console.
       - GITHUB_WEBHOOK_IP=ngrok # The IP/Domain to use for the webhook, pass ngrok to use ngrok domain for the webhook.
