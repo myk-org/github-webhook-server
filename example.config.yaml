@@ -1,0 +1,8 @@
+repositories:
+  openshift-python-wrapper:
+    name: RedHatQE/openshift-python-wrapper
+    token: <GITHIB TOKEN>
+    events:
+      - push
+      - pull_request
+      - issue_comment

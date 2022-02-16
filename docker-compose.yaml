@@ -37,11 +37,9 @@ services:
     depends_on: # Remove when passing GITHUB_WEBHOOK_IP != ngrok.
       - ngrok
       - firefox
+    volumes:
+      - ./config.yaml:/config.yaml
     environment:
-      - GITHUB_TOKEN=${GITHUB_TOKEN}
-      - GITHUB_OWNER=${GITHUB_OWNER} # ${GITHUB_OWNER}/${GITHUB_REPO} is the repo to watch.
-      - GITHUB_REPOSITORY=${GITHUB_REPOSITORY} # ${GITHUB_OWNER}/${GITHUB_REPO} is the repo to watch.
       - FLASK_DEBUG=1 # Debug Flask server to get logs to console.
-      - GITHUB_EVENTS=push,pull_request,issue_comment # GitHubs event to listen to.
       - GITHUB_WEBHOOK_IP=ngrok # The IP/Domain to use for the webhook, pass ngrok to use ngrok domain for the webhook.
     restart: unless-stopped
