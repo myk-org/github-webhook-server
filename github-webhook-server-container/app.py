@@ -17,6 +17,7 @@ class GutHubApi:
         self.api = Github(login_or_token=self.token)
         self.repository = self.api.get_repo(self.repository_full_name)
         self.verified_label = "verified"
+        self.size_label_prefix = "size/"
 
     def _repo_data_from_config(self):
         with open("/config.yaml") as fd:
@@ -92,7 +93,7 @@ class GutHubApi:
         else:
             _label = "XXL"
 
-        label = f"size/{_label}"
+        label = f"{self.size_label_prefix}{_label}"
         self._add_label(obj=pull_request, label=label)
 
     def label_by_user_comment(self, issue, body):
@@ -115,8 +116,17 @@ class GutHubApi:
                         self._add_label(obj=issue, label=label.name)
 
     def reset_labels(self, pull_request):
-        if self.obj_labels(obj=pull_request).get(self.verified_label.lower()):
-            return self._remove_label(obj=pull_request, label=self.verified_label)
+        pull_labels = self.obj_labels(obj=pull_request)
+        # Remove Verified label
+        if pull_labels.get(self.verified_label.lower()):
+            self._remove_label(obj=pull_request, label=self.verified_label)
+
+        # Remove size/ label
+        [
+            self._remove_label(pull_labels[lb].name)
+            for lb in pull_labels
+            if lb.startswith(self.size_label_prefix)
+        ]
 
     def set_verify_check_pending(self, pull_request):
         last_commit = self._get_last_commit(pull_request)
