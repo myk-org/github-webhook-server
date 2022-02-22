@@ -123,7 +123,7 @@ class GutHubApi:
 
         # Remove size/ label
         [
-            self._remove_label(pull_labels[lb].name)
+            self._remove_label(obj=pull_request, label=pull_labels[lb].name)
             for lb in pull_labels
             if lb.startswith(self.size_label_prefix)
         ]
