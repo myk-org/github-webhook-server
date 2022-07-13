@@ -3,6 +3,7 @@ import re
 import shlex
 import shutil
 import subprocess
+from contextlib import contextmanager
 
 import requests
 import yaml
@@ -11,6 +12,13 @@ from github import Github
 
 app = Flask("github_webhook_server")
 app.logger.info("Starting github-webhook-server app")
+
+
+@contextmanager
+def change_directory(directory):
+    old_cwd = os.getcwd()
+    yield os.chdir(directory)
+    os.chdir(old_cwd)
 
 
 class GutHubApi:
@@ -30,6 +38,7 @@ class GutHubApi:
         for repo, data in repos["repositories"].items():
             if repo == self.repository_name:
                 self.token = data["token"]
+                os.environ["GITHUB_TOKEN"] = self.token
                 self.repository_full_name = data["name"]
                 self.upload_to_pypi_enabled = data.get("upload_to_pypi")
                 self.pypi_token = data.get("pypi_token")
@@ -65,31 +74,75 @@ class GutHubApi:
 
     def _clone_repository(self):
         app.logger.info(f"Cloning repository: {self.repository_full_name}")
-        subprocess.check_output(shlex.split(f"git clone {self.repository.clone_url}"))
+        subprocess.check_output(
+            shlex.split(
+                f"git clone {self.repository.clone_url.replace('https://', f'https://{self.token}@')}"
+            )
+        )
+        subprocess.check_output(
+            shlex.split(
+                f"git config --global user.name '{self.repository.owner.login}'"
+            )
+        )
+        subprocess.check_output(
+            shlex.split(
+                f"git config --global user.email '{self.repository.owner.email}'"
+            )
+        )
+        with change_directory(self.repository.name):
+            subprocess.check_output(shlex.split("git remote update"))
+            subprocess.check_output(shlex.split("git fetch --all"))
 
-    def _checkout(self, tag):
-        os.chdir(self.repository.name)
-        app.logger.info(f"Checking out tag: {tag}")
-        subprocess.check_output(shlex.split(f"git checkout {tag}"))
+    def _checkout_tag(self, tag):
+        with change_directory(self.repository.name):
+            app.logger.info(f"Checking out tag: {tag}")
+            subprocess.check_output(shlex.split(f"git checkout {tag}"))
+
+    def _checkout_new_branch(self, source_branch, new_branch_name):
+        with change_directory(self.repository.name):
+            app.logger.info(
+                f"Checking out new branch: {new_branch_name} from {source_branch}"
+            )
+            subprocess.check_output(
+                shlex.split(f"git checkout -b {new_branch_name} origin/{source_branch}")
+            )
+
+    def _cherry_pick(
+        self, source_branch, new_branch_name, commit_hash, commit_msg, pull_request_url
+    ):
+        app.logger.info("Cherry picking")
+        with change_directory(self.repository.name):
+            subprocess.check_output(shlex.split(f"git cherry-pick {commit_hash}"))
+            subprocess.check_output(
+                shlex.split(f"git push -u origin {new_branch_name}")
+            )
+
+            subprocess.check_output(
+                shlex.split(
+                    f"hub pull-request -b {source_branch} -h {new_branch_name} "
+                    f"-l autocreated -m 'AUTO: {commit_msg}' -m {pull_request_url}"
+                )
+            )
 
     def upload_to_pypi(self):
-        app.logger.info("Start uploading to pypi")
-        os.environ["TWINE_USERNAME"] = "__token__"
-        os.environ["TWINE_PASSWORD"] = self.pypi_token
-        build_folder = "dist"
+        with change_directory(self.repository.name):
+            app.logger.info("Start uploading to pypi")
+            os.environ["TWINE_USERNAME"] = "__token__"
+            os.environ["TWINE_PASSWORD"] = self.pypi_token
+            build_folder = "dist"
 
-        _out = subprocess.check_output(
-            shlex.split(f"python -m build --sdist --outdir {build_folder}/")
-        )
-        dist_pkg = re.search(
-            r"Successfully built (.*.tar.gz)", _out.decode("utf-8")
-        ).group(1)
-        dist_pkg_path = os.path.join(build_folder, dist_pkg)
-        subprocess.check_output(shlex.split(f"twine check {dist_pkg_path}"))
-        app.logger.info(f"Uploading to pypi: {dist_pkg}")
-        subprocess.check_output(
-            shlex.split(f"twine upload {dist_pkg_path} --skip-existing")
-        )
+            _out = subprocess.check_output(
+                shlex.split(f"python -m build --sdist --outdir {build_folder}/")
+            )
+            dist_pkg = re.search(
+                r"Successfully built (.*.tar.gz)", _out.decode("utf-8")
+            ).group(1)
+            dist_pkg_path = os.path.join(build_folder, dist_pkg)
+            subprocess.check_output(shlex.split(f"twine check {dist_pkg_path}"))
+            app.logger.info(f"Uploading to pypi: {dist_pkg}")
+            subprocess.check_output(
+                shlex.split(f"twine upload {dist_pkg_path} --skip-existing")
+            )
 
     @property
     def repository_labels(self):
@@ -105,7 +158,7 @@ class GutHubApi:
             f"{self.repository.name}/main/OWNERS"
         )
         content = requests.get(owners_file_url).text
-        return yaml.safe_load(content)["reviewers"]
+        return yaml.safe_load(content).get("reviewers", [])
 
     def add_size_label(self, pull_request):
         size = pull_request.additions + pull_request.deletions
@@ -130,24 +183,18 @@ class GutHubApi:
         label = f"{self.size_label_prefix}{_label}"
         self._add_label(obj=pull_request, label=label)
 
-    def label_by_user_comment(self, issue, body):
-        user_requested_labels = re.findall(r"!(-)?(\w+)", body)
-        if user_requested_labels:
-            for user_requested_label in user_requested_labels:
-                _label = user_requested_label[1]
-                app.logger.info(f"Label requested by user: {_label}")
-                if (
-                    user_requested_label[0] == "-"
-                    or self.hook_data["action"] == "deleted"
-                ):
-                    label = self.obj_labels(obj=issue).get(_label.lower())
-                    if label:
-                        self._remove_label(obj=issue, label=label.name)
+    def label_by_user_comment(self, issue, user_request):
+        _label = user_request[1]
+        app.logger.info(f"Label requested by user: {_label}")
+        if user_request[0] == "-" or self.hook_data["action"] == "deleted":
+            label = self.obj_labels(obj=issue).get(_label.lower())
+            if label:
+                self._remove_label(obj=issue, label=label.name)
 
-                else:
-                    label = self.repository_labels.get(_label.lower())
-                    if label:
-                        self._add_label(obj=issue, label=label.name)
+        else:
+            label = self.repository_labels.get(_label.lower())
+            if label:
+                self._add_label(obj=issue, label=label.name)
 
     def reset_labels(self, pull_request):
         pull_labels = self.obj_labels(obj=pull_request)
@@ -199,9 +246,39 @@ class GutHubApi:
                 break
 
     def process_comment_webhook_data(self):
-        issue = self.repository.get_issue(self.hook_data["issue"]["number"])
-        app.logger.info("Processing label by user comment")
-        self.label_by_user_comment(issue=issue, body=self.hook_data["comment"]["body"])
+        issue_number = self.hook_data["issue"]["number"]
+        issue = self.repository.get_issue(issue_number)
+        user_requests = re.findall(r"!(-)?(.*)", self.hook_data["comment"]["body"])
+        for user_request in user_requests:
+            if "cherry-pick" in user_request[1]:
+                app.logger.info(f"Cherry-pick requested by user: {user_request[1]}")
+                pull_request = self.repository.get_pull(issue_number)
+                if not pull_request.is_merged():
+                    app.logger.info(
+                        f"Cherry-pick requested for unmerged PR: {pull_request.title} is not supported"
+                    )
+                    return
+
+                new_branch_name = (
+                    f"Auto-cherry-pick-{pull_request.head.ref.replace(' ', '-')}"
+                )
+                commit_hash = [commit for commit in pull_request.get_commits()][-1].sha
+                source_branch = user_request[1].split()[1]
+                self._clone_repository()
+                self._checkout_new_branch(
+                    source_branch=source_branch, new_branch_name=new_branch_name
+                )
+                self._cherry_pick(
+                    source_branch=source_branch,
+                    new_branch_name=new_branch_name,
+                    commit_hash=commit_hash,
+                    commit_msg=pull_request.title,
+                    pull_request_url=pull_request.html_url,
+                )
+                shutil.rmtree(self.repository.name)
+            else:
+                app.logger.info("Processing label by user comment")
+                self.label_by_user_comment(issue=issue, user_request=user_request)
 
     def process_pull_request_webhook_data(self):
         pull_request = self.repository.get_pull(self.hook_data["number"])
@@ -251,13 +328,11 @@ class GutHubApi:
         tag = re.search(r"refs/tags/?(.*)", self.hook_data["ref"])
         if tag:  # If push is to a tag (release created)
             if self.upload_to_pypi_enabled:
-                current_dir = os.getcwd()
                 tag_name = tag.group(1)
                 app.logger.info(f"Processing push for tag: {tag_name}")
                 self._clone_repository()
-                self._checkout(tag=tag_name)
+                self._checkout_tag(tag=tag_name)
                 self.upload_to_pypi()
-                os.chdir(current_dir)
                 shutil.rmtree(self.repository.name)
 
 
