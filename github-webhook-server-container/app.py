@@ -32,6 +32,7 @@ class GutHubApi:
                 self.token = data["token"]
                 self.repository_full_name = data["name"]
                 self.upload_to_pypi_enabled = data.get("upload_to_pypi")
+                self.pypi_token = data.get("pypi_token")
 
     @staticmethod
     def _get_labels_dict(labels):
@@ -72,9 +73,9 @@ class GutHubApi:
         subprocess.check_output(shlex.split(f"git checkout {tag}"))
 
     def upload_to_pypi(self):
-        app.logger.info("Uploading to pypi")
+        app.logger.info("Start uploading to pypi")
         os.environ["TWINE_USERNAME"] = "__token__"
-        os.environ["TWINE_PASSWORD"] = os.environ["INPUT_PYPI_TOKEN"]
+        os.environ["TWINE_PASSWORD"] = self.pypi_token
         build_folder = "dist"
 
         _out = subprocess.check_output(
@@ -85,6 +86,7 @@ class GutHubApi:
         ).group(1)
         dist_pkg_path = os.path.join(build_folder, dist_pkg)
         subprocess.check_output(shlex.split(f"twine check {dist_pkg_path}"))
+        app.logger.info(f"Uploading to pypi: {dist_pkg}")
         subprocess.check_output(
             shlex.split(f"twine upload {dist_pkg_path} --skip-existing")
         )
