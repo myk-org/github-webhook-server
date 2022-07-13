@@ -42,4 +42,5 @@ services:
     environment:
       - FLASK_DEBUG=1 # Debug Flask server to get logs to console.
       - GITHUB_WEBHOOK_IP=ngrok # The IP/Domain to use for the webhook, pass ngrok to use ngrok domain for the webhook.
+      - INPUT_PYPI_TOKEN=${INPUT_PYPI_TOKEN} # The Pypi token to use for the webhook.
     restart: unless-stopped

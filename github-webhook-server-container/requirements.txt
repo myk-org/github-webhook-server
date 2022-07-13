@@ -3,3 +3,5 @@ flask
 python3-ngrok
 selenium
 PyYaml
+build
+twine

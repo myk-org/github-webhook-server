@@ -1,4 +1,8 @@
+import os
 import re
+import shlex
+import shutil
+import subprocess
 
 import requests
 import yaml
@@ -27,6 +31,7 @@ class GutHubApi:
             if repo == self.repository_name:
                 self.token = data["token"]
                 self.repository_full_name = data["name"]
+                self.upload_to_pypi_enabled = data.get("upload_to_pypi")
 
     @staticmethod
     def _get_labels_dict(labels):
@@ -56,6 +61,33 @@ class GutHubApi:
     @staticmethod
     def _generate_issue_body(pull_request):
         return f"[Auto generated]\nNumber: [#{pull_request.number}]"
+
+    def _clone_repository(self):
+        app.logger.info(f"Cloning repository: {self.repository_full_name}")
+        subprocess.check_output(shlex.split(f"git clone {self.repository.clone_url}"))
+
+    def _checkout(self, tag):
+        os.chdir(self.repository.name)
+        app.logger.info(f"Checking out tag: {tag}")
+        subprocess.check_output(shlex.split(f"git checkout {tag}"))
+
+    def upload_to_pypi(self):
+        app.logger.info("Uploading to pypi")
+        os.environ["TWINE_USERNAME"] = "__token__"
+        os.environ["TWINE_PASSWORD"] = os.environ["INPUT_PYPI_TOKEN"]
+        build_folder = "dist"
+
+        _out = subprocess.check_output(
+            shlex.split(f"python -m build --sdist --outdir {build_folder}/")
+        )
+        dist_pkg = re.search(
+            r"Successfully built (.*.tar.gz)", _out.decode("utf-8")
+        ).group(1)
+        dist_pkg_path = os.path.join(build_folder, dist_pkg)
+        subprocess.check_output(shlex.split(f"twine check {dist_pkg_path}"))
+        subprocess.check_output(
+            shlex.split(f"twine upload {dist_pkg_path} --skip-existing")
+        )
 
     @property
     def repository_labels(self):
@@ -213,15 +245,33 @@ class GutHubApi:
             app.logger.info("Set verified check to pending")
             self.set_verify_check_pending(pull_request=pull_request)
 
+    def process_push_webhook_data(self):
+        tag = re.search(r"refs/tags/?(.*)", self.hook_data["ref"])
+        if tag:  # If push is to a tag (release created)
+            if self.upload_to_pypi_enabled:
+                current_dir = os.getcwd()
+                tag_name = tag.group(1)
+                app.logger.info(f"Processing push for tag: {tag_name}")
+                self._clone_repository()
+                self._checkout(tag=tag_name)
+                self.upload_to_pypi()
+                os.chdir(current_dir)
+                shutil.rmtree(self.repository.name)
+
 
 @app.route("/github_webhook", methods=["POST"])
 def process_webhook():
     app.logger.info("Processing webhook")
     gha = GutHubApi(hook_data=request.json)
-    if request.headers.get("X-GitHub-Event") == "issue_comment":
+    event_type = request.headers.get("X-GitHub-Event")
+    app.logger.info(f"Event type: {event_type}")
+    if event_type == "issue_comment":
         gha.process_comment_webhook_data()
 
-    if request.headers.get("X-GitHub-Event") == "pull_request":
+    if event_type == "pull_request":
         gha.process_pull_request_webhook_data()
+
+    if event_type == "push":
+        gha.process_push_webhook_data()
 
     return "Process done"
