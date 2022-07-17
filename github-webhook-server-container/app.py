@@ -184,7 +184,7 @@ class GutHubApi:
             self._add_label(obj=pull_request, label=label)
 
         else:
-            if label != current_size_label:
+            if label.lower() != current_size_label.lower():
                 self._remove_label(obj=pull_request, label=current_size_label)
                 self._add_label(obj=pull_request, label=label)
 
