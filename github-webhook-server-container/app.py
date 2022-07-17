@@ -211,12 +211,14 @@ class GutHubApi:
             if label:
                 self._add_label(obj=issue, label=label.name)
 
-    def reset_labels(self, pull_request):
-        if self.verified_job:
-            pull_labels = self.obj_labels(obj=pull_request)
-            # Remove Verified label
-            if pull_labels.get(self.verified_label.lower()):
-                self._remove_label(obj=pull_request, label=self.verified_label)
+    def reset_verify_label(self, pull_request):
+        app.logger.info(
+            f"{self.repository_name}: Processing reset verify label on new commit push"
+        )
+        pull_labels = self.obj_labels(obj=pull_request)
+        # Remove Verified label
+        if pull_labels.get(self.verified_label.lower()):
+            self._remove_label(obj=pull_request, label=self.verified_label)
 
     def set_verify_check_pending(self, pull_request):
         app.logger.info(
@@ -351,15 +353,13 @@ Available user actions:
                 else None,
             )
 
-            app.logger.info(
-                f"{self.repository_name}: Processing reset labels on new commits"
-            )
-            self.reset_labels(pull_request=pull_request)
             if self.verified_job:
+                self.reset_verify_label(pull_request=pull_request)
                 self.set_verify_check_pending(pull_request=pull_request)
 
-        if self.verified_job:
-            if self.hook_data["label"]["name"].lower() == self.verified_label:
+        if hook_action in ("labeled", "unlabeled"):
+            labeled = self.hook_data["label"]["name"].lower()
+            if self.verified_job and labeled == self.verified_label:
                 if hook_action == "labeled":
                     self.set_verify_check_success(pull_request=pull_request)
 
