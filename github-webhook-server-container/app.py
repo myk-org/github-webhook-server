@@ -30,6 +30,7 @@ class GutHubApi:
         self.repository = self.api.get_repo(self.repository_full_name)
         self.verified_label = "verified"
         self.size_label_prefix = "size/"
+        self.repo_path = os.path.join("/", self.repository.name)
 
     def _repo_data_from_config(self):
         with open("/config.yaml") as fd:
@@ -75,7 +76,8 @@ class GutHubApi:
         app.logger.info(f"Cloning repository: {self.repository_full_name}")
         subprocess.check_output(
             shlex.split(
-                f"git clone {self.repository.clone_url.replace('https://', f'https://{self.token}@')}"
+                f"git clone {self.repository.clone_url.replace('https://', f'https://{self.token}@')} "
+                f"{self.repo_path}"
             )
         )
         subprocess.check_output(
@@ -88,17 +90,17 @@ class GutHubApi:
                 f"git config --global user.email '{self.repository.owner.email}'"
             )
         )
-        with change_directory(self.repository.name):
+        with change_directory(self.repo_path):
             subprocess.check_output(shlex.split("git remote update"))
             subprocess.check_output(shlex.split("git fetch --all"))
 
     def _checkout_tag(self, tag):
-        with change_directory(self.repository.name):
+        with change_directory(self.repo_path):
             app.logger.info(f"{self.repository_name}: Checking out tag: {tag}")
             subprocess.check_output(shlex.split(f"git checkout {tag}"))
 
     def _checkout_new_branch(self, source_branch, new_branch_name):
-        with change_directory(self.repository.name):
+        with change_directory(self.repo_path):
             app.logger.info(
                 f"{self.repository_name}: Checking out new branch: {new_branch_name} from {source_branch}"
             )
@@ -110,7 +112,7 @@ class GutHubApi:
         self, source_branch, new_branch_name, commit_hash, commit_msg, pull_request_url
     ):
         app.logger.info(f"{self.repository_name}: Cherry picking")
-        with change_directory(self.repository.name):
+        with change_directory(self.repo_path):
             subprocess.check_output(shlex.split(f"git cherry-pick {commit_hash}"))
             subprocess.check_output(
                 shlex.split(f"git push -u origin {new_branch_name}")
@@ -124,7 +126,7 @@ class GutHubApi:
             )
 
     def upload_to_pypi(self):
-        with change_directory(self.repository.name):
+        with change_directory(self.repo_path):
             app.logger.info(f"{self.repository_name}: Start uploading to pypi")
             os.environ["TWINE_USERNAME"] = "__token__"
             os.environ["TWINE_PASSWORD"] = self.pypi_token
