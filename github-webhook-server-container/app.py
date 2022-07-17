@@ -54,14 +54,12 @@ class GutHubApi:
     def _get_last_commit(pull_request):
         return list(pull_request.get_commits())[-1]
 
-    @staticmethod
-    def _remove_label(obj, label):
-        app.logger.info(f"Removing label {label}")
+    def _remove_label(self, obj, label):
+        app.logger.info(f"{self.repository_name}: Removing label {label}")
         return obj.remove_from_labels(label)
 
-    @staticmethod
-    def _add_label(obj, label):
-        app.logger.info(f"Adding label {label}")
+    def _add_label(self, obj, label):
+        app.logger.info(f"{self.repository_name}: Adding label {label}")
         return obj.add_to_labels(label)
 
     @staticmethod
@@ -95,13 +93,13 @@ class GutHubApi:
 
     def _checkout_tag(self, tag):
         with change_directory(self.repository.name):
-            app.logger.info(f"Checking out tag: {tag}")
+            app.logger.info(f"{self.repository_name}: Checking out tag: {tag}")
             subprocess.check_output(shlex.split(f"git checkout {tag}"))
 
     def _checkout_new_branch(self, source_branch, new_branch_name):
         with change_directory(self.repository.name):
             app.logger.info(
-                f"Checking out new branch: {new_branch_name} from {source_branch}"
+                f"{self.repository_name}: Checking out new branch: {new_branch_name} from {source_branch}"
             )
             subprocess.check_output(
                 shlex.split(f"git checkout -b {new_branch_name} origin/{source_branch}")
@@ -110,7 +108,7 @@ class GutHubApi:
     def _cherry_pick(
         self, source_branch, new_branch_name, commit_hash, commit_msg, pull_request_url
     ):
-        app.logger.info("Cherry picking")
+        app.logger.info(f"{self.repository_name}: Cherry picking")
         with change_directory(self.repository.name):
             subprocess.check_output(shlex.split(f"git cherry-pick {commit_hash}"))
             subprocess.check_output(
@@ -126,7 +124,7 @@ class GutHubApi:
 
     def upload_to_pypi(self):
         with change_directory(self.repository.name):
-            app.logger.info("Start uploading to pypi")
+            app.logger.info(f"{self.repository_name}: Start uploading to pypi")
             os.environ["TWINE_USERNAME"] = "__token__"
             os.environ["TWINE_PASSWORD"] = self.pypi_token
             build_folder = "dist"
@@ -139,7 +137,7 @@ class GutHubApi:
             ).group(1)
             dist_pkg_path = os.path.join(build_folder, dist_pkg)
             subprocess.check_output(shlex.split(f"twine check {dist_pkg_path}"))
-            app.logger.info(f"Uploading to pypi: {dist_pkg}")
+            app.logger.info(f"{self.repository_name}: Uploading to pypi: {dist_pkg}")
             subprocess.check_output(
                 shlex.split(f"twine upload {dist_pkg_path} --skip-existing")
             )
@@ -192,7 +190,7 @@ class GutHubApi:
 
     def label_by_user_comment(self, issue, user_request):
         _label = user_request[1]
-        app.logger.info(f"Label requested by user: {_label}")
+        app.logger.info(f"{self.repository_name}: Label requested by user: {_label}")
         if user_request[0] == "-" or self.hook_data["action"] == "deleted":
             label = self.obj_labels(obj=issue).get(_label.lower())
             if label:
@@ -226,7 +224,9 @@ class GutHubApi:
         )
 
     def create_issue_for_new_pr(self, pull_request):
-        app.logger.info(f"Creating issue for new PR: {pull_request.title}")
+        app.logger.info(
+            f"{self.repository_name}: Creating issue for new PR: {pull_request.title}"
+        )
         self.repository.create_issue(
             title=self._generate_issue_title(pull_request),
             body=self._generate_issue_body(pull_request=pull_request),
@@ -237,10 +237,10 @@ class GutHubApi:
         for issue in self.repository.get_issues():
             if issue.body == self._generate_issue_body(pull_request=pull_request):
                 app.logger.info(
-                    f"Closing issue {issue.title} for PR: {pull_request.title}"
+                    f"{self.repository_name}: Closing issue {issue.title} for PR: {pull_request.title}"
                 )
                 issue.create_comment(
-                    f"Closing issue for PR: {pull_request.title}.\nPR was {hook_action}."
+                    f"{self.repository_name}: Closing issue for PR: {pull_request.title}.\nPR was {hook_action}."
                 )
                 issue.edit(state="closed")
                 break
@@ -251,11 +251,14 @@ class GutHubApi:
         user_requests = re.findall(r"!(-)?(.*)", self.hook_data["comment"]["body"])
         for user_request in user_requests:
             if "cherry-pick" in user_request[1]:
-                app.logger.info(f"Cherry-pick requested by user: {user_request[1]}")
+                app.logger.info(
+                    f"{self.repository_name}: Cherry-pick requested by user: {user_request[1]}"
+                )
                 pull_request = self.repository.get_pull(issue_number)
                 if not pull_request.is_merged():
                     app.logger.info(
-                        f"Cherry-pick requested for unmerged PR: {pull_request.title} is not supported"
+                        f"{self.repository_name}: Cherry-pick requested for unmerged PR: "
+                        f"{pull_request.title} is not supported"
                     )
                     return
 
@@ -277,28 +280,32 @@ class GutHubApi:
                 )
                 shutil.rmtree(self.repository.name)
             else:
-                app.logger.info("Processing label by user comment")
+                app.logger.info(
+                    f"{self.repository_name}: Processing label by user comment"
+                )
                 self.label_by_user_comment(issue=issue, user_request=user_request)
 
     def process_pull_request_webhook_data(self):
         pull_request = self.repository.get_pull(self.hook_data["number"])
         hook_action = self.hook_data["action"]
 
-        app.logger.info("Adding size label")
+        app.logger.info(f"{self.repository_name}: Adding size label")
         self.add_size_label(pull_request=pull_request)
 
         if hook_action == "opened":
-            app.logger.info("Adding PR owner as assignee")
+            app.logger.info(f"{self.repository_name}: Adding PR owner as assignee")
             pull_request.add_to_assignees(
                 self.hook_data["pull_request"]["user"]["login"]
             )
             for reviewer in self.reviewers:
                 if reviewer != pull_request.user.login:
-                    app.logger.info(f"Adding reviewer {reviewer}")
+                    app.logger.info(
+                        f"{self.repository_name}: Adding reviewer {reviewer}"
+                    )
                     pull_request.create_review_request([reviewer])
 
             self.create_issue_for_new_pr(pull_request=pull_request)
-            app.logger.info("Creating welcome comment")
+            app.logger.info(f"{self.repository_name}: Creating welcome comment")
             welcome_msg = """
 The following are automatically added:
  * Add reviewers from OWNER file (in the root of the repository) under reviewers section.
@@ -308,7 +315,7 @@ The following are automatically added:
 Available user actions:
  * To mark PR as verified add `!verified` to a PR comment, to un-verify add `!-verified` to a PR comment.
         Verified label removed on each new commit push.
- * To cherry pick a PR add `!cherry-pick <target branch to cherry-pick to>` to a PR comment.
+ * To cherry pick a merged PR add `!cherry-pick <target branch to cherry-pick to>` to a PR comment.
             """
             commit = self._get_last_commit(pull_request)
             commit.create_comment(welcome_msg)
@@ -319,23 +326,27 @@ Available user actions:
             )
 
         if hook_action == "synchronize":
-            app.logger.info("Processing reset labels on new commits")
+            app.logger.info(
+                f"{self.repository_name}: Processing reset labels on new commits"
+            )
             self.reset_labels(pull_request=pull_request)
-            app.logger.info("Processing set verified check pending")
+            app.logger.info(
+                f"{self.repository_name}: Processing set verified check pending"
+            )
             self.set_verify_check_pending(pull_request=pull_request)
 
         if (
             hook_action == "labeled"
             and self.hook_data["label"]["name"].lower() == self.verified_label
         ):
-            app.logger.info("Set verified check to success")
+            app.logger.info(f"{self.repository_name}: Set verified check to success")
             self.set_verify_check_success(pull_request=pull_request)
 
         if (
             hook_action == "unlabeled"
             and self.hook_data["label"]["name"].lower() == self.verified_label
         ):
-            app.logger.info("Set verified check to pending")
+            app.logger.info(f"{self.repository_name}: Set verified check to pending")
             self.set_verify_check_pending(pull_request=pull_request)
 
     def process_push_webhook_data(self):
@@ -343,7 +354,9 @@ Available user actions:
         if tag:  # If push is to a tag (release created)
             if self.upload_to_pypi_enabled:
                 tag_name = tag.group(1)
-                app.logger.info(f"Processing push for tag: {tag_name}")
+                app.logger.info(
+                    f"{self.repository_name}: Processing push for tag: {tag_name}"
+                )
                 self._clone_repository()
                 self._checkout_tag(tag=tag_name)
                 self.upload_to_pypi()
