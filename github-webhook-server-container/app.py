@@ -298,6 +298,17 @@ class GutHubApi:
                     pull_request.create_review_request([reviewer])
 
             self.create_issue_for_new_pr(pull_request=pull_request)
+            """
+The following are automatically added:
+ * Add reviewers from OWNER file (in the root of the repository) under reviewers section.
+ * Set PR size label.
+ * New issue is created for the PR.
+
+Available user actions:
+ * To mark PR as verified add `!verified` to a PR comment, to un-verify add `!-verified` to a PR comment.
+        Verified label removed on each new commit push.
+ * To cherry pick a PR add `!cherry-pick <target branch to cherry-pick to>` to a PR comment.
+            """
 
         if hook_action == "closed" or hook_action == "merged":
             self.close_issue_for_merged_or_closed_pr(
