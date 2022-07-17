@@ -42,6 +42,7 @@ class GutHubApi:
                 self.repository_full_name = data["name"]
                 self.upload_to_pypi_enabled = data.get("upload_to_pypi")
                 self.pypi_token = data.get("pypi_token")
+                self.verified_job = data.get("verified_job")
 
     @staticmethod
     def _get_labels_dict(labels):
@@ -201,12 +202,16 @@ class GutHubApi:
                 self._add_label(obj=issue, label=label.name)
 
     def reset_labels(self, pull_request):
-        pull_labels = self.obj_labels(obj=pull_request)
-        # Remove Verified label
-        if pull_labels.get(self.verified_label.lower()):
-            self._remove_label(obj=pull_request, label=self.verified_label)
+        if self.verified_job:
+            pull_labels = self.obj_labels(obj=pull_request)
+            # Remove Verified label
+            if pull_labels.get(self.verified_label.lower()):
+                self._remove_label(obj=pull_request, label=self.verified_label)
 
     def set_verify_check_pending(self, pull_request):
+        app.logger.info(
+            f"{self.repository_name}: Processing set verified check pending"
+        )
         last_commit = self._get_last_commit(pull_request)
         last_commit.create_status(
             state="pending",
@@ -215,6 +220,7 @@ class GutHubApi:
         )
 
     def set_verify_check_success(self, pull_request):
+        app.logger.info(f"{self.repository_name}: Set verified check to success")
         last_commit = self._get_last_commit(pull_request)
         last_commit.create_status(
             state="success",
@@ -339,23 +345,20 @@ Available user actions:
                 f"{self.repository_name}: Processing reset labels on new commits"
             )
             self.reset_labels(pull_request=pull_request)
-            app.logger.info(
-                f"{self.repository_name}: Processing set verified check pending"
-            )
-            self.set_verify_check_pending(pull_request=pull_request)
+            if self.verified_job:
+                self.set_verify_check_pending(pull_request=pull_request)
 
-        if (
+        if self.verified_job and (
             hook_action == "labeled"
             and self.hook_data["label"]["name"].lower() == self.verified_label
         ):
-            app.logger.info(f"{self.repository_name}: Set verified check to success")
+
             self.set_verify_check_success(pull_request=pull_request)
 
-        if (
+        if self.verified_job and (
             hook_action == "unlabeled"
             and self.hook_data["label"]["name"].lower() == self.verified_label
         ):
-            app.logger.info(f"{self.repository_name}: Set verified check to pending")
             self.set_verify_check_pending(pull_request=pull_request)
 
     def process_push_webhook_data(self):

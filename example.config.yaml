@@ -2,6 +2,7 @@ repositories:
   openshift-python-wrapper:
     name: RedHatQE/openshift-python-wrapper
     token: <GITHIB TOKEN>
+    verified_job: true
     events:
       - push
       - pull_request
