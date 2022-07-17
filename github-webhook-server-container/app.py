@@ -158,7 +158,7 @@ class GutHubApi:
         content = requests.get(owners_file_url).text
         return yaml.safe_load(content).get("reviewers", [])
 
-    def add_size_label(self, pull_request):
+    def add_size_label(self, pull_request, current_size_label=None):
         size = pull_request.additions + pull_request.deletions
         if size < 20:
             _label = "XS"
@@ -179,13 +179,8 @@ class GutHubApi:
             _label = "XXL"
 
         label = f"{self.size_label_prefix}{_label}"
-        current_size_label = [
-            label
-            for label in self.obj_labels(obj=pull_request)
-            if label.startswith(self.size_label_prefix)
-        ]
-        if current_size_label and label != current_size_label[0]:
-            self._remove_label(obj=pull_request, label=current_size_label[0])
+        if current_size_label and label != current_size_label:
+            self._remove_label(obj=pull_request, label=current_size_label)
             self._add_label(obj=pull_request, label=label)
 
     def label_by_user_comment(self, issue, user_request):
@@ -290,9 +285,9 @@ class GutHubApi:
         hook_action = self.hook_data["action"]
 
         app.logger.info(f"{self.repository_name}: Adding size label")
-        self.add_size_label(pull_request=pull_request)
 
         if hook_action == "opened":
+            self.add_size_label(pull_request=pull_request)
             app.logger.info(f"{self.repository_name}: Adding PR owner as assignee")
             pull_request.add_to_assignees(
                 self.hook_data["pull_request"]["user"]["login"]
@@ -326,6 +321,18 @@ Available user actions:
             )
 
         if hook_action == "synchronize":
+            current_size_label = [
+                label
+                for label in self.obj_labels(obj=pull_request)
+                if label.startswith(self.size_label_prefix)
+            ]
+            self.add_size_label(
+                pull_request=pull_request,
+                current_size_label=current_size_label[0]
+                if current_size_label
+                else None,
+            )
+
             app.logger.info(
                 f"{self.repository_name}: Processing reset labels on new commits"
             )
