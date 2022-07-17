@@ -2,6 +2,7 @@ import os
 
 import yaml
 from github import Github
+from github.GithubException import UnknownObjectException
 from selenium import webdriver
 from urllib3.exceptions import MaxRetryError
 
@@ -36,7 +37,12 @@ def create_webhook():
             events = data["events"]
             print(f"Creating webhook for {github_repository}")
             gapi = Github(login_or_token=github_token)
-            repo = gapi.get_repo(github_repository)
+            try:
+                repo = gapi.get_repo(github_repository)
+            except UnknownObjectException:
+                print(f"Repository {github_repository} not found or token invalid")
+                continue
+
             for _hook in repo.get_hooks():
                 if "ngrok.io" in _hook.config["url"]:
                     print(
