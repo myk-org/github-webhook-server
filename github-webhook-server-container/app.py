@@ -375,7 +375,7 @@ def process_webhook():
     app.logger.info("Processing webhook")
     gha = GutHubApi(hook_data=request.json)
     event_type = request.headers.get("X-GitHub-Event")
-    app.logger.info(f"Event type: {event_type}")
+    app.logger.info(f"{gha.repository_full_name} Event type: {event_type}")
     if event_type == "issue_comment":
         gha.process_comment_webhook_data()
 
