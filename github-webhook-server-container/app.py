@@ -181,7 +181,14 @@ class GutHubApi:
             _label = "XXL"
 
         label = f"{self.size_label_prefix}{_label}"
-        self._add_label(obj=pull_request, label=label)
+        current_size_label = [
+            label
+            for label in self.obj_labels(obj=pull_request)
+            if label.startswith(self.size_label_prefix)
+        ]
+        if current_size_label and label != current_size_label[0]:
+            self._remove_label(obj=pull_request, label=current_size_label[0])
+            self._add_label(obj=pull_request, label=label)
 
     def label_by_user_comment(self, issue, user_request):
         _label = user_request[1]
@@ -201,13 +208,6 @@ class GutHubApi:
         # Remove Verified label
         if pull_labels.get(self.verified_label.lower()):
             self._remove_label(obj=pull_request, label=self.verified_label)
-
-        # Remove size/ label
-        [
-            self._remove_label(obj=pull_request, label=pull_labels[lb].name)
-            for lb in pull_labels
-            if lb.startswith(self.size_label_prefix)
-        ]
 
     def set_verify_check_pending(self, pull_request):
         last_commit = self._get_last_commit(pull_request)
@@ -298,7 +298,8 @@ class GutHubApi:
                     pull_request.create_review_request([reviewer])
 
             self.create_issue_for_new_pr(pull_request=pull_request)
-            """
+            app.logger.info("Creating welcome comment")
+            welcome_msg = """
 The following are automatically added:
  * Add reviewers from OWNER file (in the root of the repository) under reviewers section.
  * Set PR size label.
@@ -309,6 +310,8 @@ Available user actions:
         Verified label removed on each new commit push.
  * To cherry pick a PR add `!cherry-pick <target branch to cherry-pick to>` to a PR comment.
             """
+            commit = self._get_last_commit(pull_request)
+            commit.create_comment(welcome_msg)
 
         if hook_action == "closed" or hook_action == "merged":
             self.close_issue_for_merged_or_closed_pr(
