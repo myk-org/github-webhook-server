@@ -179,9 +179,13 @@ class GutHubApi:
             _label = "XXL"
 
         label = f"{self.size_label_prefix}{_label}"
-        if current_size_label and label != current_size_label:
-            self._remove_label(obj=pull_request, label=current_size_label)
+        if not current_size_label:
             self._add_label(obj=pull_request, label=label)
+
+        else:
+            if label != current_size_label:
+                self._remove_label(obj=pull_request, label=current_size_label)
+                self._add_label(obj=pull_request, label=label)
 
     def label_by_user_comment(self, issue, user_request):
         _label = user_request[1]
@@ -283,8 +287,6 @@ class GutHubApi:
     def process_pull_request_webhook_data(self):
         pull_request = self.repository.get_pull(self.hook_data["number"])
         hook_action = self.hook_data["action"]
-
-        app.logger.info(f"{self.repository_name}: Adding size label")
 
         if hook_action == "opened":
             self.add_size_label(pull_request=pull_request)
