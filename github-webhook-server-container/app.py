@@ -272,7 +272,6 @@ class GutHubApi:
                 new_branch_name = (
                     f"Auto-cherry-pick-{pull_request.head.ref.replace(' ', '-')}"
                 )
-                commit_hash = self._get_last_commit(pull_request).sha
                 source_branch = user_request[1].split()[1]
                 self._clone_repository()
                 self._checkout_new_branch(
@@ -281,7 +280,7 @@ class GutHubApi:
                 self._cherry_pick(
                     source_branch=source_branch,
                     new_branch_name=new_branch_name,
-                    commit_hash=commit_hash,
+                    commit_hash=pull_request.merge_commit_sha,
                     commit_msg=pull_request.title,
                     pull_request_url=pull_request.html_url,
                 )
