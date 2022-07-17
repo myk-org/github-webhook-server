@@ -44,6 +44,7 @@ class GutHubApi:
                 self.upload_to_pypi_enabled = data.get("upload_to_pypi")
                 self.pypi_token = data.get("pypi_token")
                 self.verified_job = data.get("verified_job", True)
+                app.logger.info(f"verified_job: {self.verified_job}")
 
     @staticmethod
     def _get_labels_dict(labels):
