@@ -14,6 +14,10 @@ app = Flask("github_webhook_server")
 app.logger.info("Starting github-webhook-server app")
 
 
+class RepositoryNotFoundError(Exception):
+    pass
+
+
 @contextmanager
 def change_directory(directory):
     old_cwd = os.getcwd()
@@ -36,15 +40,18 @@ class GutHubApi:
         with open("/config.yaml") as fd:
             repos = yaml.safe_load(fd)
 
-        for repo, data in repos["repositories"].items():
-            if repo == self.repository_name:
-                self.token = data["token"]
-                os.environ["GITHUB_TOKEN"] = self.token
-                self.repository_full_name = data["name"]
-                self.upload_to_pypi_enabled = data.get("upload_to_pypi")
-                self.pypi_token = data.get("pypi_token")
-                self.verified_job = data.get("verified_job", True)
-                app.logger.info(f"verified_job: {self.verified_job}")
+        data = repos["repositories"].get(self.repository_name)
+        if not data:
+            raise RepositoryNotFoundError(
+                f"Repository {self.repository_name} not found in config file"
+            )
+
+        self.token = data["token"]
+        os.environ["GITHUB_TOKEN"] = self.token
+        self.repository_full_name = data["name"]
+        self.upload_to_pypi_enabled = data.get("upload_to_pypi")
+        self.pypi_token = data.get("pypi_token")
+        self.verified_job = data.get("verified_job", True)
 
     @staticmethod
     def _get_labels_dict(labels):
@@ -295,6 +302,7 @@ class GutHubApi:
     def process_pull_request_webhook_data(self):
         pull_request = self.repository.get_pull(self.hook_data["number"])
         hook_action = self.hook_data["action"]
+        app.logger.info(f"hook_action is: {hook_action}")
 
         if hook_action == "opened":
             self.add_size_label(pull_request=pull_request)
@@ -350,18 +358,13 @@ Available user actions:
             if self.verified_job:
                 self.set_verify_check_pending(pull_request=pull_request)
 
-        if self.verified_job and (
-            hook_action == "labeled"
-            and self.hook_data["label"]["name"].lower() == self.verified_label
-        ):
+        if self.verified_job:
+            if self.hook_data["label"]["name"].lower() == self.verified_label:
+                if hook_action == "labeled":
+                    self.set_verify_check_success(pull_request=pull_request)
 
-            self.set_verify_check_success(pull_request=pull_request)
-
-        if self.verified_job and (
-            hook_action == "unlabeled"
-            and self.hook_data["label"]["name"].lower() == self.verified_label
-        ):
-            self.set_verify_check_pending(pull_request=pull_request)
+                if hook_action == "unlabeled":
+                    self.set_verify_check_pending(pull_request=pull_request)
 
     def process_push_webhook_data(self):
         tag = re.search(r"refs/tags/?(.*)", self.hook_data["ref"])
