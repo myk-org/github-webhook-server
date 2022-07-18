@@ -141,8 +141,8 @@ class GutHubApi:
                     f"-h {new_branch_name} "
                     f"-l auto-cherry-pick "
                     f"-m 'auto-cherry-pick: [{source_branch}] {commit_msg}' "
-                    f"-m cherry-pick {pull_request_url} into {source_branch} "
-                    f"-m requested-by {user_login}"
+                    f"-m 'cherry-pick {pull_request_url} into {source_branch}' "
+                    f"-m 'requested-by {user_login}'"
                 )
             )
 
@@ -312,6 +312,9 @@ class GutHubApi:
                         commit_msg=pull_request.title,
                         pull_request_url=pull_request.html_url,
                         user_login=user_login,
+                    )
+                    issue.create_comment(
+                        f"Cherry-picked PR {pull_request.title} into {source_branch}"
                     )
                 finally:
                     shutil.rmtree(self.clone_repository_path)
