@@ -292,8 +292,8 @@ class GutHubApi:
                         f"{pull_request.title} is not supported"
                     )
                     app.logger.info(f"{self.repository_name}: {error_msg}")
-                    commit = self._get_last_commit(pull_request)
-                    commit.create_comment(error_msg)
+                    self._get_last_commit(pull_request)
+                    issue.create_comment(error_msg)
                     return
 
                 new_branch_name = (
