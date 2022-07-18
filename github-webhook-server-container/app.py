@@ -117,7 +117,13 @@ class GutHubApi:
             )
 
     def _cherry_pick(
-        self, source_branch, new_branch_name, commit_hash, commit_msg, pull_request_url
+        self,
+        source_branch,
+        new_branch_name,
+        commit_hash,
+        commit_msg,
+        pull_request_url,
+        user_login,
     ):
         app.logger.info(f"{self.repository_name}: Cherry picking")
         with change_directory(self.clone_repository_path):
@@ -129,7 +135,8 @@ class GutHubApi:
             subprocess.check_output(
                 shlex.split(
                     f"hub pull-request -b {source_branch} -h {new_branch_name} "
-                    f"-l autocreated -m 'AUTO: {commit_msg}' -m {pull_request_url}"
+                    f"-l auto-cherry-pick -m 'auto-cherry-pick: [{source_branch}] {commit_msg}' "
+                    f"-m cherry-pick {pull_request_url} into {source_branch} -m requested-by {user_login}"
                 )
             )
 
@@ -266,6 +273,7 @@ class GutHubApi:
         issue_number = self.hook_data["issue"]["number"]
         issue = self.repository.get_issue(issue_number)
         user_requests = re.findall(r"!(-)?(.*)", self.hook_data["comment"]["body"])
+        user_login = self.hook_data["sender"]["login"]
         for user_request in user_requests:
             if "cherry-pick" in user_request[1]:
                 app.logger.info(
@@ -280,7 +288,7 @@ class GutHubApi:
                     return
 
                 new_branch_name = (
-                    f"Auto-cherry-pick-{pull_request.head.ref.replace(' ', '-')}"
+                    f"auto-cherry-pick-{pull_request.head.ref.replace(' ', '-')}"
                 )
                 source_branch = user_request[1].split()[1]
                 self._clone_repository()
@@ -293,6 +301,7 @@ class GutHubApi:
                     commit_hash=pull_request.merge_commit_sha,
                     commit_msg=pull_request.title,
                     pull_request_url=pull_request.html_url,
+                    user_login=user_login,
                 )
                 shutil.rmtree(self.clone_repository_path)
             else:
