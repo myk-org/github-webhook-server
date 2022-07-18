@@ -287,10 +287,13 @@ class GutHubApi:
                 )
                 pull_request = self.repository.get_pull(issue_number)
                 if not pull_request.is_merged():
-                    app.logger.info(
-                        f"{self.repository_name}: Cherry-pick requested for unmerged PR: "
+                    error_msg = (
+                        f"Cherry-pick requested for unmerged PR: "
                         f"{pull_request.title} is not supported"
                     )
+                    app.logger.info(f"{self.repository_name}: {error_msg}")
+                    commit = self._get_last_commit(pull_request)
+                    commit.create_comment(error_msg)
                     return
 
                 new_branch_name = (
