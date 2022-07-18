@@ -125,7 +125,9 @@ class GutHubApi:
         pull_request_url,
         user_login,
     ):
-        app.logger.info(f"{self.repository_name}: Cherry picking")
+        app.logger.info(
+            f"{self.repository_name}: Cherry picking {commit_hash} into {source_branch}, requested by {user_login}"
+        )
         with change_directory(self.clone_repository_path):
             subprocess.check_output(shlex.split(f"git cherry-pick {commit_hash}"))
             subprocess.check_output(
@@ -134,9 +136,13 @@ class GutHubApi:
 
             subprocess.check_output(
                 shlex.split(
-                    f"hub pull-request -b {source_branch} -h {new_branch_name} "
-                    f"-l auto-cherry-pick -m 'auto-cherry-pick: [{source_branch}] {commit_msg}' "
-                    f"-m cherry-pick {pull_request_url} into {source_branch} -m requested-by {user_login}"
+                    f"hub pull-request "
+                    f"-b {source_branch} "
+                    f"-h {new_branch_name} "
+                    f"-l auto-cherry-pick "
+                    f"-m 'auto-cherry-pick: [{source_branch}] {commit_msg}' "
+                    f"-m cherry-pick {pull_request_url} into {source_branch} "
+                    f"-m requested-by {user_login}"
                 )
             )
 
@@ -291,19 +297,21 @@ class GutHubApi:
                     f"auto-cherry-pick-{pull_request.head.ref.replace(' ', '-')}"
                 )
                 source_branch = user_request[1].split()[1]
-                self._clone_repository()
-                self._checkout_new_branch(
-                    source_branch=source_branch, new_branch_name=new_branch_name
-                )
-                self._cherry_pick(
-                    source_branch=source_branch,
-                    new_branch_name=new_branch_name,
-                    commit_hash=pull_request.merge_commit_sha,
-                    commit_msg=pull_request.title,
-                    pull_request_url=pull_request.html_url,
-                    user_login=user_login,
-                )
-                shutil.rmtree(self.clone_repository_path)
+                try:
+                    self._clone_repository()
+                    self._checkout_new_branch(
+                        source_branch=source_branch, new_branch_name=new_branch_name
+                    )
+                    self._cherry_pick(
+                        source_branch=source_branch,
+                        new_branch_name=new_branch_name,
+                        commit_hash=pull_request.merge_commit_sha,
+                        commit_msg=pull_request.title,
+                        pull_request_url=pull_request.html_url,
+                        user_login=user_login,
+                    )
+                finally:
+                    shutil.rmtree(self.clone_repository_path)
             else:
                 app.logger.info(
                     f"{self.repository_name}: Processing label by user comment"
@@ -379,14 +387,16 @@ Available user actions:
         tag = re.search(r"refs/tags/?(.*)", self.hook_data["ref"])
         if tag:  # If push is to a tag (release created)
             if self.upload_to_pypi_enabled:
-                tag_name = tag.group(1)
-                app.logger.info(
-                    f"{self.repository_name}: Processing push for tag: {tag_name}"
-                )
-                self._clone_repository()
-                self._checkout_tag(tag=tag_name)
-                self.upload_to_pypi()
-                shutil.rmtree(self.clone_repository_path)
+                try:
+                    tag_name = tag.group(1)
+                    app.logger.info(
+                        f"{self.repository_name}: Processing push for tag: {tag_name}"
+                    )
+                    self._clone_repository()
+                    self._checkout_tag(tag=tag_name)
+                    self.upload_to_pypi()
+                finally:
+                    shutil.rmtree(self.clone_repository_path)
 
 
 @app.route("/github_webhook", methods=["POST"])
