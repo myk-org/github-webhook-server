@@ -260,7 +260,7 @@ class GutHubApi:
         self.repository.create_issue(
             title=self._generate_issue_title(pull_request),
             body=self._generate_issue_body(pull_request=pull_request),
-            assignee=pull_request.user,
+            assignee=pull_request.user.login,
         )
 
     def close_issue_for_merged_or_closed_pr(self, pull_request, hook_action):
