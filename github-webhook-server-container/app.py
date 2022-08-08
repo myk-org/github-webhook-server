@@ -81,6 +81,7 @@ class GutHubApi:
         return f"[Auto generated]\nNumber: [#{pull_request.number}]"
 
     def _clone_repository(self):
+        os.makedirs(self.clone_repository_path, exist_ok=True)
         app.logger.info(f"Cloning repository: {self.repository_full_name}")
         subprocess.check_output(
             shlex.split(
