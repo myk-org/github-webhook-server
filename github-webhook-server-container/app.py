@@ -35,6 +35,17 @@ class GutHubApi:
         self.verified_label = "verified"
         self.size_label_prefix = "size/"
         self.clone_repository_path = os.path.join("/", self.repository.name)
+        self.welcome_msg = """
+The following are automatically added:
+ * Add reviewers from OWNER file (in the root of the repository) under reviewers section.
+ * Set PR size label.
+ * New issue is created for the PR.
+
+Available user actions:
+ * To mark PR as verified add `!verified` to a PR comment, to un-verify add `!-verified` to a PR comment.
+        Verified label removed on each new commit push.
+ * To cherry pick a merged PR add `!cherry-pick <target branch to cherry-pick to>` to a PR comment.
+            """
 
     def _repo_data_from_config(self):
         with open("/config.yaml") as fd:
@@ -279,6 +290,10 @@ class GutHubApi:
     def process_comment_webhook_data(self):
         issue_number = self.hook_data["issue"]["number"]
         issue = self.repository.get_issue(issue_number)
+        body = self.hook_data["comment"]["body"]
+        if body == self.welcome_msg:
+            return
+
         user_requests = re.findall(r"!(-)?(.*)", self.hook_data["comment"]["body"])
         user_login = self.hook_data["sender"]["login"]
         for user_request in user_requests:
@@ -345,19 +360,8 @@ class GutHubApi:
 
             self.create_issue_for_new_pr(pull_request=pull_request)
             app.logger.info(f"{self.repository_name}: Creating welcome comment")
-            welcome_msg = """
-The following are automatically added:
- * Add reviewers from OWNER file (in the root of the repository) under reviewers section.
- * Set PR size label.
- * New issue is created for the PR.
 
-Available user actions:
- * To mark PR as verified add `!verified` to a PR comment, to un-verify add `!-verified` to a PR comment.
-        Verified label removed on each new commit push.
- * To cherry pick a merged PR add `!cherry-pick <target branch to cherry-pick to>` to a PR comment.
-            """
-            commit = self._get_last_commit(pull_request)
-            commit.create_comment(welcome_msg)
+            pull_request.create_issue_comment(self.welcome_msg)
 
         if hook_action == "closed" or hook_action == "merged":
             self.close_issue_for_merged_or_closed_pr(
