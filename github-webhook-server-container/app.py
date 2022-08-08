@@ -292,6 +292,9 @@ Available user actions:
         issue = self.repository.get_issue(issue_number)
         body = self.hook_data["comment"]["body"]
         if body == self.welcome_msg:
+            app.logger.info(
+                f"{self.repository_name}: Welcome message found in issue {issue.title}. Not processing"
+            )
             return
 
         user_requests = re.findall(r"!(-)?(.*)", self.hook_data["comment"]["body"])
