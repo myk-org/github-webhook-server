@@ -297,7 +297,7 @@ Available user actions:
             )
             return
 
-        user_requests = re.findall(r"!(-)?(.*)", self.hook_data["comment"]["body"])
+        user_requests = re.findall(r"!(-)?(.*)", body)
         user_login = self.hook_data["sender"]["login"]
         for user_request in user_requests:
             if "cherry-pick" in user_request[1]:
