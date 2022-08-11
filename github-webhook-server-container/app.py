@@ -459,7 +459,9 @@ Available user actions:
 
     def process_pull_request_review_webhook_data(self):
         if self.hook_data["action"] == "submitted":
-            pull_request = self.repository.get_pull(self.hook_data["number"])
+            pull_request = self.repository.get_pull(
+                self.hook_data["pull_request"]["number"]
+            )
             reviewer_label = (
                 f"{self.reviewed_by_prefix} {self.hook_data['review']['user']['login']}"
             )
