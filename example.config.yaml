@@ -7,3 +7,4 @@ repositories:
       - push
       - pull_request
       - issue_comment
+      - *  # all events
