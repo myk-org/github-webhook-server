@@ -143,7 +143,8 @@ Available user actions:
             _err_msg = _err.decode("utf-8")
             app.logger.error(f"{self.repository_name}: Cherry pick failed: {_err_msg}")
             issue.create_comment(
-                f"Cherry pick failed for {_commit_hash} to {_source_branch}: {_err_msg}"
+                f"**Manual cherry-pick is needed**\nCherry pick failed for "
+                f"{_commit_hash} to {_source_branch}:\n{_err_msg}\n"
             )
             return False
 
