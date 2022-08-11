@@ -137,6 +137,7 @@ Available user actions:
         commit_msg,
         pull_request_url,
         user_login,
+        issue,
     ):
         app.logger.info(
             f"{self.repository_name}: Cherry picking {commit_hash} into {source_branch}, requested by {user_login}"
@@ -147,17 +148,25 @@ Available user actions:
                 shlex.split(f"git push -u origin {new_branch_name}")
             )
 
-            subprocess.check_output(
-                shlex.split(
-                    f"hub pull-request "
-                    f"-b {source_branch} "
-                    f"-h {new_branch_name} "
-                    f"-l auto-cherry-pick "
-                    f"-m 'auto-cherry-pick: [{source_branch}] {commit_msg}' "
-                    f"-m 'cherry-pick {pull_request_url} into {source_branch}' "
-                    f"-m 'requested-by {user_login}'"
+            try:
+                subprocess.check_output(
+                    shlex.split(
+                        f"hub pull-request "
+                        f"-b {source_branch} "
+                        f"-h {new_branch_name} "
+                        f"-l auto-cherry-pick "
+                        f"-m 'auto-cherry-pick: [{source_branch}] {commit_msg}' "
+                        f"-m 'cherry-pick {pull_request_url} into {source_branch}' "
+                        f"-m 'requested-by {user_login}'"
+                    )
                 )
-            )
+            except subprocess.CalledProcessError as exp:
+                app.logger.error(
+                    f"{self.repository_name}: Cherry pick failed for {commit_hash}. EXP: {exp}"
+                )
+                issue.create_comment(
+                    f"Cherry pick failed for {commit_hash} to {source_branch}"
+                )
 
     def upload_to_pypi(self):
         with change_directory(self.clone_repository_path):
@@ -332,6 +341,7 @@ Available user actions:
                         commit_msg=pull_request.title,
                         pull_request_url=pull_request.html_url,
                         user_login=user_login,
+                        issue=issue,
                     )
                     issue.create_comment(
                         f"Cherry-picked PR {pull_request.title} into {source_branch}"
