@@ -167,6 +167,8 @@ Available user actions:
                 issue.create_comment(
                     f"Cherry pick failed for {commit_hash} to {source_branch}"
                 )
+                return False
+        return True
 
     def upload_to_pypi(self):
         with change_directory(self.clone_repository_path):
@@ -334,7 +336,7 @@ Available user actions:
                     self._checkout_new_branch(
                         source_branch=source_branch, new_branch_name=new_branch_name
                     )
-                    self._cherry_pick(
+                    if self._cherry_pick(
                         source_branch=source_branch,
                         new_branch_name=new_branch_name,
                         commit_hash=pull_request.merge_commit_sha,
@@ -342,10 +344,10 @@ Available user actions:
                         pull_request_url=pull_request.html_url,
                         user_login=user_login,
                         issue=issue,
-                    )
-                    issue.create_comment(
-                        f"Cherry-picked PR {pull_request.title} into {source_branch}"
-                    )
+                    ):
+                        issue.create_comment(
+                            f"Cherry-picked PR {pull_request.title} into {source_branch}"
+                        )
                 finally:
                     shutil.rmtree(self.clone_repository_path)
             else:
