@@ -34,7 +34,7 @@ def create_webhook():
         for repo, data in repos["repositories"].items():
             github_repository = data["name"]
             github_token = data["token"]
-            events = data["events"]
+            events = data.get("events", ["*"])
             print(f"Creating webhook for {github_repository}")
             gapi = Github(login_or_token=github_token)
             try:

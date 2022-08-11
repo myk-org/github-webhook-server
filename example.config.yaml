@@ -3,8 +3,7 @@ repositories:
     name: RedHatQE/openshift-python-wrapper
     token: <GITHIB TOKEN>
     verified_job: true
-    events:
+    events:  # To listen to all events do not send events
       - push
       - pull_request
       - issue_comment
-      - *  # all events
