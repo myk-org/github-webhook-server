@@ -35,6 +35,7 @@ class GutHubApi:
         self.verified_label = "verified"
         self.size_label_prefix = "size/"
         self.clone_repository_path = os.path.join("/", self.repository.name)
+        self.reviewed_by_prefix = "Reviewed By"
         self.welcome_msg = """
 The following are automatically added:
  * Add reviewers from OWNER file (in the root of the repository) under reviewers section.
@@ -410,9 +411,10 @@ Available user actions:
             )
 
         if hook_action == "synchronize":
+            all_labels = self.obj_labels(obj=pull_request)
             current_size_label = [
                 label
-                for label in self.obj_labels(obj=pull_request)
+                for label in all_labels
                 if label.startswith(self.size_label_prefix)
             ]
             self.add_size_label(
@@ -421,6 +423,11 @@ Available user actions:
                 if current_size_label
                 else None,
             )
+            reviewed_by_labels = [
+                label for label in all_labels if self.reviewed_by_prefix in label
+            ]
+            for _reviewed_label in reviewed_by_labels:
+                self._remove_label(obj=pull_request, label=_reviewed_label)
 
             if self.verified_job:
                 self.reset_verify_label(pull_request=pull_request)
@@ -450,6 +457,15 @@ Available user actions:
                 finally:
                     shutil.rmtree(self.clone_repository_path)
 
+    def process_pull_request_review_webhook_data(self):
+        if self.hook_data["action"] == "submitted":
+            pull_request = self.repository.get_pull(self.hook_data["number"])
+            reviewer_label = (
+                f"{self.reviewed_by_prefix} {self.hook_data['review']['user']['login']}"
+            )
+            if reviewer_label not in self.obj_labels(obj=pull_request):
+                self._add_label(obj=pull_request, label=reviewer_label)
+
 
 @app.route("/github_webhook", methods=["POST"])
 def process_webhook():
@@ -465,5 +481,8 @@ def process_webhook():
 
     if event_type == "push":
         gha.process_push_webhook_data()
+
+    if event_type == "pull_request_review":
+        gha.process_pull_request_review_webhook_data()
 
     return "Process done"
