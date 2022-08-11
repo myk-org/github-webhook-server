@@ -143,12 +143,12 @@ Available user actions:
             f"{self.repository_name}: Cherry picking {commit_hash} into {source_branch}, requested by {user_login}"
         )
         with change_directory(self.clone_repository_path):
-            subprocess.check_output(shlex.split(f"git cherry-pick {commit_hash}"))
-            subprocess.check_output(
-                shlex.split(f"git push -u origin {new_branch_name}")
-            )
-
             try:
+                subprocess.check_output(shlex.split(f"git cherry-pick {commit_hash}"))
+                subprocess.check_output(
+                    shlex.split(f"git push -u origin {new_branch_name}")
+                )
+
                 subprocess.check_output(
                     shlex.split(
                         f"hub pull-request "
