@@ -139,35 +139,59 @@ Available user actions:
         user_login,
         issue,
     ):
+        def _issue_from_err(_err, _commit_hash, _source_branch):
+            _err_msg = _err.decode("utf-8")
+            app.logger.error(f"{self.repository_name}: Cherry pick failed: {_err_msg}")
+            issue.create_comment(
+                f"Cherry pick failed for {_commit_hash} to {_source_branch}: {_err_msg}"
+            )
+            return False
+
         app.logger.info(
             f"{self.repository_name}: Cherry picking {commit_hash} into {source_branch}, requested by {user_login}"
         )
         with change_directory(self.clone_repository_path):
-            try:
-                subprocess.check_output(shlex.split(f"git cherry-pick {commit_hash}"))
-                subprocess.check_output(
-                    shlex.split(f"git push -u origin {new_branch_name}")
+            cherry_pick = subprocess.Popen(
+                shlex.split(f"git cherry-pick {commit_hash}"),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            _, err = cherry_pick.communicate()
+            if cherry_pick.returncode != 0:
+                return _issue_from_err(
+                    _err=err, _commit_hash=commit_hash, _source_branch=source_branch
                 )
 
-                subprocess.check_output(
-                    shlex.split(
-                        f"hub pull-request "
-                        f"-b {source_branch} "
-                        f"-h {new_branch_name} "
-                        f"-l auto-cherry-pick "
-                        f"-m 'auto-cherry-pick: [{source_branch}] {commit_msg}' "
-                        f"-m 'cherry-pick {pull_request_url} into {source_branch}' "
-                        f"-m 'requested-by {user_login}'"
-                    )
+            git_push = subprocess.Popen(
+                shlex.split(f"git push -u origin {new_branch_name}"),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            _, err = git_push.communicate()
+            if git_push.returncode != 0:
+                return _issue_from_err(
+                    _err=err, _commit_hash=commit_hash, _source_branch=source_branch
                 )
-            except subprocess.CalledProcessError as exp:
-                app.logger.error(
-                    f"{self.repository_name}: Cherry pick failed for {commit_hash}. EXP: {exp}"
+
+            pull_request_cmd = subprocess.Popen(
+                shlex.split(
+                    f"hub pull-request "
+                    f"-b {source_branch} "
+                    f"-h {new_branch_name} "
+                    f"-l auto-cherry-pick "
+                    f"-m 'auto-cherry-pick: [{source_branch}] {commit_msg}' "
+                    f"-m 'cherry-pick {pull_request_url} into {source_branch}' "
+                    f"-m 'requested-by {user_login}'"
+                ),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            _, err = pull_request_cmd.communicate()
+            if pull_request_cmd.returncode != 0:
+                return _issue_from_err(
+                    _err=err, _commit_hash=commit_hash, _source_branch=source_branch
                 )
-                issue.create_comment(
-                    f"Cherry pick failed for {commit_hash} to {source_branch}"
-                )
-                return False
+
         return True
 
     def upload_to_pypi(self):
