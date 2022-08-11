@@ -424,7 +424,9 @@ Available user actions:
                 else None,
             )
             reviewed_by_labels = [
-                label for label in all_labels if self.reviewed_by_prefix in label
+                label
+                for label in all_labels
+                if self.reviewed_by_prefix.lower() in label.lower()
             ]
             for _reviewed_label in reviewed_by_labels:
                 self._remove_label(obj=pull_request, label=_reviewed_label)
