@@ -93,8 +93,7 @@ Available user actions:
 
     def _clone_repository(self):
         app.logger.info(f"Cloning repository: {self.repository_full_name}")
-        if os.path.exists(self.clone_repository_path):
-            shutil.rmtree(self.clone_repository_path)
+        shutil.rmtree(self.clone_repository_path, ignore_errors=True)
 
         subprocess.check_output(
             shlex.split(
