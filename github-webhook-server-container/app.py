@@ -144,7 +144,7 @@ Available user actions:
             app.logger.error(f"{self.repository_name}: Cherry pick failed: {_err_msg}")
             issue.create_comment(
                 f"**Manual cherry-pick is needed**\nCherry pick failed for "
-                f"{_commit_hash} to {_source_branch}:\n{_err_msg}\n"
+                f"{_commit_hash} to {_source_branch}:\n{_err_msg}\nTo cherry-pick run: git cherry-pick {commit_hash}"
             )
             return False
 
