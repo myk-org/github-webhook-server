@@ -26,7 +26,7 @@ def create_webhook():
         driver.get("http://ngrok:4040/status")
         ngrok_url = driver.find_element(
             "xpath",
-            '//*[@id="app"]/div/div/div/div[1]/div[1]/ul/li[1]/div/table/tbody/tr[1]/td',
+            '//*[@id="app"]/div/div/div/div[1]/div[1]/ul/li/div/table/tbody/tr[1]/td',
         ).text
         driver.close()
         config = {"url": f"{ngrok_url}/github_webhook", "content_type": "json"}
