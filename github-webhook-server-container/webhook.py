@@ -14,7 +14,6 @@ def _get_firefox_driver():
         firefox_options.headless = True
         return webdriver.Remote("http://firefox:4444", options=firefox_options)
     except (ConnectionRefusedError, MaxRetryError):
-        print("Retrying to get firefox")
         return _get_firefox_driver()
 
 
