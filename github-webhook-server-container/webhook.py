@@ -18,24 +18,28 @@ def _get_firefox_driver():
         return _get_firefox_driver()
 
 
+def _get_ngrok_config():
+    driver = _get_firefox_driver()
+    try:
+        driver.get("http://ngrok:4040/status")
+        ngrok_url = driver.find_element(
+            "xpath",
+            '//*[@id="app"]/div/div/div/div[1]/div[1]/ul/li/div/table/tbody/tr[1]/td',
+        ).text
+        driver.close()
+        return {"url": f"{ngrok_url}/github_webhook", "content_type": "json"}
+    except NoSuchElementException:
+        print("Retrying to get ngrok configuration")
+        _get_ngrok_config()
+
+
 def create_webhook():
     with open("/config.yaml") as fd:
         repos = yaml.safe_load(fd)
 
     webhook_ip = os.environ.get("GITHUB_WEBHOOK_IP")
     if webhook_ip == "ngrok":
-        driver = _get_firefox_driver()
-        try:
-            driver.get("http://ngrok:4040/status")
-            ngrok_url = driver.find_element(
-                "xpath",
-                '//*[@id="app"]/div/div/div/div[1]/div[1]/ul/li/div/table/tbody/tr[1]/td',
-            ).text
-            driver.close()
-            config = {"url": f"{ngrok_url}/github_webhook", "content_type": "json"}
-        except NoSuchElementException:
-            print("Retrying to get ngrok configuration")
-            create_webhook()
+        config = _get_ngrok_config()
 
         for repo, data in repos["repositories"].items():
             github_repository = data["name"]
@@ -60,7 +64,7 @@ def create_webhook():
                 pass
 
             print(
-                f"Creating webhook: {ngrok_url or webhook_ip}/github_webhook for "
+                f"Creating webhook: {config['url'] or webhook_ip}/github_webhook for "
                 f"{github_repository} "
                 f"with events: {events}"
             )
