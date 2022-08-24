@@ -35,8 +35,8 @@ def create_webhook():
             github_token = data["token"]
             events = data.get("events", ["*"])
             print(f"Creating webhook for {github_repository}")
-            gapi = Github(login_or_token=github_token)
             try:
+                gapi = Github(login_or_token=github_token)
                 repo = gapi.get_repo(github_repository)
             except Exception as exp:
                 print(f"Repository {github_repository} failed to setup. {exp}")
