@@ -1,4 +1,5 @@
 import os
+import time
 
 import yaml
 from github import Github
@@ -23,6 +24,7 @@ def create_webhook():
     webhook_ip = os.environ.get("GITHUB_WEBHOOK_IP")
     if webhook_ip == "ngrok":
         driver = _get_firefox_driver()
+        time.sleep(10)
         driver.get("http://ngrok:4040/status")
         ngrok_url = driver.find_element(
             "xpath",
