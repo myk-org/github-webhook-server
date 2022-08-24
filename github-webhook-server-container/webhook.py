@@ -42,7 +42,7 @@ def create_webhook():
                 print(f"Repository {github_repository} failed to setup. {exp}")
                 continue
 
-            for _hook in repo.get_hooks():
+            for _hook in repo.get_hooks() or []:
                 if "ngrok.io" in _hook.config["url"]:
                     print(
                         f"Deleting existing webhook for {github_repository}: {_hook.config['url']}"
