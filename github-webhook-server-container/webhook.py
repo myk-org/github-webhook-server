@@ -2,7 +2,6 @@ import os
 
 import yaml
 from github import Github
-from github.GithubException import UnknownObjectException
 from selenium import webdriver
 from urllib3.exceptions import MaxRetryError
 
@@ -39,8 +38,8 @@ def create_webhook():
             gapi = Github(login_or_token=github_token)
             try:
                 repo = gapi.get_repo(github_repository)
-            except UnknownObjectException:
-                print(f"Repository {github_repository} not found or token invalid")
+            except Exception as exp:
+                print(f"Repository {github_repository} failed to setup. {exp}")
                 continue
 
             for _hook in repo.get_hooks():
