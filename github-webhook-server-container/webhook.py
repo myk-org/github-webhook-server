@@ -45,15 +45,15 @@ def create_webhook():
                 print(f"Repository {github_repository} not found or token invalid")
                 continue
 
-            for _hook in repo.get_hooks():
-                try:
+            try:
+                for _hook in repo.get_hooks():
                     if "ngrok.io" in _hook.config["url"]:
                         print(
                             f"Deleting existing webhook for {github_repository}: {_hook.config['url']}"
                         )
                         _hook.delete()
-                except UnknownObjectException:
-                    continue
+            except UnknownObjectException:
+                continue
 
             print(
                 f"Creating webhook: {ngrok_url or webhook_ip}/github_webhook for "
