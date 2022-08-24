@@ -1,10 +1,10 @@
 import os
-import time
 
 import yaml
 from github import Github
 from github.GithubException import UnknownObjectException
 from selenium import webdriver
+from selenium.common.exceptions import NoSuchElementException
 from urllib3.exceptions import MaxRetryError
 
 
@@ -14,6 +14,7 @@ def _get_firefox_driver():
         firefox_options.headless = True
         return webdriver.Remote("http://firefox:4444", options=firefox_options)
     except (ConnectionRefusedError, MaxRetryError):
+        print("Retrying to get firefox")
         return _get_firefox_driver()
 
 
@@ -24,14 +25,17 @@ def create_webhook():
     webhook_ip = os.environ.get("GITHUB_WEBHOOK_IP")
     if webhook_ip == "ngrok":
         driver = _get_firefox_driver()
-        time.sleep(10)
-        driver.get("http://ngrok:4040/status")
-        ngrok_url = driver.find_element(
-            "xpath",
-            '//*[@id="app"]/div/div/div/div[1]/div[1]/ul/li/div/table/tbody/tr[1]/td',
-        ).text
-        driver.close()
-        config = {"url": f"{ngrok_url}/github_webhook", "content_type": "json"}
+        try:
+            driver.get("http://ngrok:4040/status")
+            ngrok_url = driver.find_element(
+                "xpath",
+                '//*[@id="app"]/div/div/div/div[1]/div[1]/ul/li/div/table/tbody/tr[1]/td',
+            ).text
+            driver.close()
+            config = {"url": f"{ngrok_url}/github_webhook", "content_type": "json"}
+        except NoSuchElementException:
+            print("Retrying to get ngrok configuration")
+            create_webhook()
 
         for repo, data in repos["repositories"].items():
             github_repository = data["name"]
