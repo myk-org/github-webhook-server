@@ -53,7 +53,7 @@ def create_webhook():
                         )
                         _hook.delete()
             except UnknownObjectException:
-                continue
+                pass
 
             print(
                 f"Creating webhook: {ngrok_url or webhook_ip}/github_webhook for "
