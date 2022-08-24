@@ -59,15 +59,15 @@ def create_webhook():
                             f"Deleting existing webhook for {github_repository}: {_hook.config['url']}"
                         )
                         _hook.delete()
-            except UnknownObjectException:
-                pass
 
-            print(
-                f"Creating webhook: {config['url'] or webhook_ip}/github_webhook for "
-                f"{github_repository} "
-                f"with events: {events}"
-            )
-            repo.create_hook("web", config, events, active=True)
+                print(
+                    f"Creating webhook: {config['url'] or webhook_ip}/github_webhook for "
+                    f"{github_repository} "
+                    f"with events: {events}"
+                )
+                repo.create_hook("web", config, events, active=True)
+            except UnknownObjectException:
+                continue
 
 
 if __name__ == "__main__":
