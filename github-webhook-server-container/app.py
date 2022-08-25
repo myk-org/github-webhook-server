@@ -35,7 +35,7 @@ class GutHubApi:
         self.verified_label = "verified"
         self.size_label_prefix = "size/"
         self.clone_repository_path = os.path.join("/", self.repository.name)
-        self.reviewed_by_prefix = "Reviewed By"
+        self.reviewed_by_prefix = "Reviewed-By"
         self.welcome_msg = """
 The following are automatically added:
  * Add reviewers from OWNER file (in the root of the repository) under reviewers section.
@@ -465,7 +465,7 @@ Available user actions:
                 self.hook_data["pull_request"]["number"]
             )
             reviewer_label = (
-                f"{self.reviewed_by_prefix} {self.hook_data['review']['user']['login']}"
+                f"{self.reviewed_by_prefix}-{self.hook_data['review']['user']['login']}"
             )
             if reviewer_label not in self.obj_labels(obj=pull_request):
                 self._add_label(obj=pull_request, label=reviewer_label)
