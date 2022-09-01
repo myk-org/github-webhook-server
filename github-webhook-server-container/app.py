@@ -462,7 +462,7 @@ Available user actions:
     def process_pull_request_review_webhook_data(self):
         if self.hook_data["action"] == "submitted":
             reviewed_user = self.hook_data["review"]["user"]["login"]
-            pr_owner = self.hook_data["review"]["pull_request"]["user"]["login"]
+            pr_owner = self.hook_data["pull_request"]["user"]["login"]
             if pr_owner == reviewed_user:
                 return
 
