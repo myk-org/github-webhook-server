@@ -35,7 +35,7 @@ class GutHubApi:
         self.verified_label = "verified"
         self.size_label_prefix = "size/"
         self.clone_repository_path = os.path.join("/", self.repository.name)
-        self.reviewed_by_prefix = "Reviewed-By"
+        self.reviewed_by_prefix = "-by-"
         self.welcome_msg = """
 The following are automatically added:
  * Add reviewers from OWNER file (in the root of the repository) under reviewers section.
@@ -461,7 +461,14 @@ Available user actions:
 
     def process_pull_request_review_webhook_data(self):
         if self.hook_data["action"] == "submitted":
+            """
+            commented
+            approved
+            changes_requested
+            """
             reviewed_user = self.hook_data["review"]["user"]["login"]
+            user_label = f"{self.reviewed_by_prefix}{reviewed_user}"
+            reviewed_user_state = self.hook_data["review"]["state"]
             pr_owner = self.hook_data["pull_request"]["user"]["login"]
             if pr_owner == reviewed_user:
                 return
@@ -469,9 +476,14 @@ Available user actions:
             pull_request = self.repository.get_pull(
                 self.hook_data["pull_request"]["number"]
             )
-            reviewer_label = f"{self.reviewed_by_prefix}-{reviewed_user}"
-            if reviewer_label not in self.obj_labels(obj=pull_request):
-                self._add_label(obj=pull_request, label=reviewer_label)
+            reviewer_label = f"{reviewed_user_state.title()}{user_label}"
+            pull_request_labels = self.obj_labels(obj=pull_request)
+            for _label in pull_request_labels:
+                if user_label in _label:
+                    self._remove_label(obj=pull_request, label=_label)
+
+            # if reviewer_label not in self.obj_labels(obj=pull_request):
+            self._add_label(obj=pull_request, label=reviewer_label)
 
 
 @app.route("/github_webhook", methods=["POST"])
