@@ -461,12 +461,15 @@ Available user actions:
 
     def process_pull_request_review_webhook_data(self):
         if self.hook_data["action"] == "submitted":
+            reviewed_user = self.hook_data["review"]["user"]["login"]
+            pr_owner = self.hook_data["review"]["pull_request"]["user"]["login"]
+            if pr_owner == reviewed_user:
+                return
+
             pull_request = self.repository.get_pull(
                 self.hook_data["pull_request"]["number"]
             )
-            reviewer_label = (
-                f"{self.reviewed_by_prefix}-{self.hook_data['review']['user']['login']}"
-            )
+            reviewer_label = f"{self.reviewed_by_prefix}-{reviewed_user}"
             if reviewer_label not in self.obj_labels(obj=pull_request):
                 self._add_label(obj=pull_request, label=reviewer_label)
 
