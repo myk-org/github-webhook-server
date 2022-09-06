@@ -5,3 +5,4 @@ selenium
 PyYaml
 build
 twine
+python-gitlab
