@@ -1,13 +1,13 @@
 # All ${} taken from .env file, create .env file in root of project.
 version: "3.8"
 services:
-  # ngrok is optional, used only if GITHUB_WEBHOOK_IP=ngrok in github_webhook_server container.
+  # ngrok is optional, used only if WEBHOOK_IP=ngrok in github_webhook_server container.
   ngrok:
     image: ngrok/ngrok
     container_name: ngrok
     environment:
       - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN} # Needs free ngrok account.
-    command: http github_webhook_server:5000
+    command: http github_gitlab_webhook_server:5000
     ports:
       - "4040:4040"
     restart: unless-stopped
@@ -31,15 +31,15 @@ services:
     ports:
       - "4444:4444"
 
-  github_webhook_server:
-    container_name: github_webhook_server
-    build: github-webhook-server-container
-    depends_on: # Remove when passing GITHUB_WEBHOOK_IP != ngrok.
+  github_gitlab_webhook_server:
+    container_name: github_gitlab_webhook_server
+    build: github-gitlab-webhook-server-container
+    depends_on: # Remove when passing WEBHOOK_IP != ngrok.
       - ngrok
       - firefox
     volumes:
       - ./config.yaml:/config.yaml:Z
     environment:
       - FLASK_DEBUG=1 # Debug Flask server to get logs to console.
-      - GITHUB_WEBHOOK_IP=ngrok # The IP/Domain to use for the webhook, pass ngrok to use ngrok domain for the webhook.
+      - WEBHOOK_IP=ngrok # The IP/Domain to use for the webhook, pass ngrok to use ngrok domain for the webhook.
     restart: unless-stopped

@@ -36,7 +36,7 @@ def create_webhook():
     with open("/config.yaml") as fd:
         repos = yaml.safe_load(fd)
 
-    webhook_ip = os.environ.get("GITHUB_WEBHOOK_IP")
+    webhook_ip = os.environ.get("WEBHOOK_IP")
     if webhook_ip == "ngrok":
         config = _get_ngrok_config()
 
