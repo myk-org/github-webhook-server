@@ -61,7 +61,7 @@ def create_webhook():
                         _hook.delete()
 
                 print(
-                    f"Creating webhook: {config['url'] or webhook_ip}/github_webhook for "
+                    f"Creating webhook: {config['url'] or webhook_ip}/webhook_server for "
                     f"{github_repository} "
                     f"with events: {events}"
                 )
