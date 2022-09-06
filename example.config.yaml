@@ -2,7 +2,7 @@ repositories:
   # GITHUB repositories example
   openshift-python-wrapper:
     type: github
-    webhook_ip: ngrok
+    webhook_ip: ngrok OR <HTTP://IP OR URL:PORT>
     name: RedHatQE/openshift-python-wrapper
     token: <GITHIB TOKEN>
     verified_job: true
@@ -16,7 +16,7 @@ repositories:
   # GITLAB repositories example
   openshift-python-wrapper:
     type: gitlab
-    webhook_ip: <HTTP://IP OR URL:PORT>
+    webhook_ip: ngrok OR <HTTP://IP OR URL:PORT>
     name: RedHatQE/openshift-python-wrapper
     project_id: <PROJECT ID>
     events:

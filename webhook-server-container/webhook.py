@@ -1,4 +1,5 @@
 import os
+import time
 
 import gitlab
 import yaml
@@ -30,6 +31,7 @@ def _get_ngrok_config():
         return {"url": f"{ngrok_url}/webhook_server", "content_type": "json"}
     except NoSuchElementException:
         print("Retrying to get ngrok configuration")
+        time.sleep(5)
         _get_ngrok_config()
 
 
