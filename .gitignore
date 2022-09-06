@@ -140,3 +140,4 @@ cython_debug/
 
 # App
 config.yaml
+docker-compose.yaml

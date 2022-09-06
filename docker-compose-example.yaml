@@ -1,0 +1,44 @@
+# All ${} taken from .env file, create .env file in root of project.
+version: "3.8"
+services:
+  # ngrok is optional, used only if webhok_ip=ngrok in repository config.yaml.
+  ngrok:
+    image: ngrok/ngrok
+    container_name: ngrok
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN} # Needs free ngrok account.
+    command: http github_gitlab_webhook_server:5000
+    restart: unless-stopped
+
+  firefox:
+    # firefox is optional, used only if ngrok is used.
+    image: selenium/standalone-firefox:4.1.2-20220131
+    container_name: firefox
+    restart: unless-stopped
+    environment:
+      START_XVFB: "false"
+    volumes:
+      - /dev/shm:/dev/shm
+    depends_on:
+      - ngrok
+    healthcheck:
+      test: [ "CMD", "/opt/bin/check-grid.sh", "--host", "0.0.0.0", "--port", "4444" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  github_gitlab_webhook_server:
+    container_name: github_gitlab_webhook_server
+    build: webhook-server-container
+    depends_on: # Remove when passing webhook_id: ngrok is not used in config.yaml.
+      - ngrok
+      - firefox
+    volumes:
+      - ./config.yaml:/config.yaml:Z
+      - $HOME/.python-gitlab.cfg:/python-gitlab.cfg:Z
+      - /etc/ssl/certs/:/etc/ssl/certs/:Z
+    environment:
+      - FLASK_DEBUG=1 # Debug Flask server to get logs to console.
+    ports:
+      - "5000:5000"
+    restart: unless-stopped
