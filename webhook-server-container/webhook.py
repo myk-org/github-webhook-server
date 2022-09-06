@@ -1,5 +1,6 @@
 import os
 
+import gitlab
 import yaml
 from github import Github
 from github.GithubException import UnknownObjectException
@@ -36,36 +37,85 @@ def create_webhook():
     with open("/config.yaml") as fd:
         repos = yaml.safe_load(fd)
 
-    webhook_ip = os.environ.get("WEBHOOK_IP")
-    if webhook_ip == "ngrok":
-        config = _get_ngrok_config()
+    for repo, data in repos["repositories"].items():
+        webhook_ip = data["webhook_ip"]
+        use_ngrok = webhook_ip == "ngrok"
+        if use_ngrok:
+            config = _get_ngrok_config()
+        else:
+            config = {"url": f"{webhook_ip}/webhook_server", "content_type": "json"}
 
-        for repo, data in repos["repositories"].items():
-            github_repository = data["name"]
-            github_token = data["token"]
+        _type = data["type"]
+        repository = data["name"]
+        if _type == "github":
+            token = data["token"]
             events = data.get("events", ["*"])
-            print(f"Creating webhook for {github_repository}")
-            gapi = Github(login_or_token=github_token)
+            print(f"Creating webhook for {repository}")
+            gapi = Github(login_or_token=token)
             try:
-                repo = gapi.get_repo(github_repository)
+                repo = gapi.get_repo(repository)
             except UnknownObjectException:
-                print(f"Repository {github_repository} not found or token invalid")
+                print(f"Repository {repository} not found or token invalid")
                 continue
 
             try:
                 for _hook in repo.get_hooks():
-                    if "ngrok.io" in _hook.config["url"]:
+                    if use_ngrok:
+                        hook_exists = "ngrok.io" in _hook.config["url"]
+                    else:
+                        hook_exists = webhook_ip in _hook.config["url"]
+                    if hook_exists:
                         print(
-                            f"Deleting existing webhook for {github_repository}: {_hook.config['url']}"
+                            f"Deleting existing webhook for {repository}: {_hook.config['url']}"
                         )
                         _hook.delete()
 
                 print(
-                    f"Creating webhook: {config['url'] or webhook_ip}/webhook_server for "
-                    f"{github_repository} "
-                    f"with events: {events}"
+                    f"Creating webhook: {config['url']} for {repository} with events: {events}"
                 )
                 repo.create_hook("web", config, events, active=True)
+            except UnknownObjectException:
+                continue
+
+        if _type == "gitlab":
+            events = data.get("events", [])
+            print(f"Creating webhook for {repository}")
+            container_gitlab_config = "/python-gitlab.cfg"
+            if os.path.isfile(container_gitlab_config):
+                config_files = [container_gitlab_config]
+            else:
+                config_files = [
+                    os.path.join(os.path.expanduser("~"), "python-gitlab.cfg")
+                ]
+
+            gitlab_api = gitlab.Gitlab.from_config(config_files=config_files)
+            gitlab_api.auth()
+            try:
+                project_id = data["project_id"]
+                project = gitlab_api.projects.get(project_id)
+
+            except UnknownObjectException:
+                print(f"Repository {repository} not found or token invalid")
+                continue
+
+            try:
+                for _hook in project.hooks.list():
+                    if use_ngrok:
+                        hook_exists = "ngrok.io" in _hook.url
+                    else:
+                        hook_exists = webhook_ip in _hook.url
+                    if hook_exists:
+                        print(
+                            f"Deleting existing webhook for {repository}: {_hook.url}"
+                        )
+                        _hook.delete()
+
+                print(
+                    f"Creating webhook: {config['url']} for {repository} with events: {events}"
+                )
+                hook_data = {event: True for event in events}
+                hook_data["url"] = config["url"]
+                project.hooks.create(hook_data)
             except UnknownObjectException:
                 continue
 

@@ -1,11 +1,9 @@
+import os
 import re
 
 import gitlab
 import requests
-import urllib3
 import yaml
-
-urllib3.disable_warnings()
 
 
 class GitLabApi:
@@ -35,12 +33,18 @@ The following are automatically added:
 Available user actions:
  * To mark MR as verified add `!verified` to a PR comment, to un-verify add `!-verified` to a MR comment.
         Verified label removed on each new commit push.
- * To approve an MR, either use the `Approve` button or add `+LGTM` or `+lgtm` to the MR comment.
+ * To approve an MR, either use the `Approve` button or add `!LGTM` or `!lgtm` to the MR comment.
  * To remove approval, either use the `Revoke approval` button or add `!-LGTM` or `!-lgtm` to the MR comment.
             """
 
-    def get_internal_api(self):
-        gitlab_api = gitlab.Gitlab.from_config()
+    @staticmethod
+    def get_internal_api():
+        container_gitlab_config = "/python-gitlab.cfg"
+        if os.path.isfile(container_gitlab_config):
+            config_files = [container_gitlab_config]
+        else:
+            config_files = [os.path.join(os.path.expanduser("~"), "python-gitlab.cfg")]
+        gitlab_api = gitlab.Gitlab.from_config(config_files=config_files)
         gitlab_api.auth()
         return gitlab_api
 
@@ -57,7 +61,12 @@ Available user actions:
     @property
     def owners_dict(self):
         owners_file_raw_url = f"{self.base_url}/-/raw/main/OWNERS"
-        return yaml.safe_load(requests.get(owners_file_raw_url).text)
+        resp = requests.get(owners_file_raw_url, verify="/etc/ssl/certs")
+        if resp.status_code != requests.codes.ok:
+            return {}
+        return yaml.safe_load(
+            requests.get(owners_file_raw_url, verify="/etc/ssl/certs").text
+        )
 
     @property
     def reviewers(self):
@@ -156,7 +165,8 @@ Available user actions:
 
     def add_remove_user_approve_label(self, action):
         self.app.logger.info(
-            f"{self.repo_mr_log_message} {'Add' if action == 'add' else 'Remove'} approved label for {self.user}"
+            f"{self.repo_mr_log_message} {'Add' if action == 'add' else 'Remove'} "
+            f"approved label for {self.user['username']}"
         )
 
         if action == "add":
