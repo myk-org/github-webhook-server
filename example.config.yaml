@@ -1,9 +1,24 @@
 repositories:
+  # GITHUB repositories example
   openshift-python-wrapper:
+    type: github
+    webhook_ip: ngrok
     name: RedHatQE/openshift-python-wrapper
     token: <GITHIB TOKEN>
     verified_job: true
+    upload_to_pypi: true
+    pypi_token: <PYPI TOKEN>
     events:  # To listen to all events do not send events
       - push
       - pull_request
       - issue_comment
+
+  # GITLAB repositories example
+  openshift-python-wrapper:
+    type: gitlab
+    webhook_ip: <HTTP://IP OR URL:PORT>
+    name: RedHatQE/openshift-python-wrapper
+    project_id: <PROJECT ID>
+    events:
+      - merge_requests_events
+      - note_events
