@@ -33,7 +33,7 @@ services:
 
   github_gitlab_webhook_server:
     container_name: github_gitlab_webhook_server
-    build: github-gitlab-webhook-server-container
+    build: webhook-server-container
     depends_on: # Remove when passing WEBHOOK_IP != ngrok.
       - ngrok
       - firefox
