@@ -28,8 +28,8 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-    ports:
-      - "4444:4444"
+#    ports:
+#      - "4444:4444"
 
   github_gitlab_webhook_server:
     container_name: github_gitlab_webhook_server
