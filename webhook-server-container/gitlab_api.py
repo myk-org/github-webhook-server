@@ -87,7 +87,7 @@ Available user actions:
             if self.lgtm_label in _label.lower():
                 if self.approved_by_label in self.merge_request.labels:
                     self.add_remove_user_approve_label(action="remove")
-                    if self.merge_request.approved:
+                    if self.merge_request.approvals.get().approved:
                         self.merge_request.unapprove()
 
             else:
