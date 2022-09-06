@@ -26,7 +26,7 @@ def _get_ngrok_config():
             '//*[@id="app"]/div/div/div/div[1]/div[1]/ul/li/div/table/tbody/tr[1]/td',
         ).text
         driver.close()
-        return {"url": f"{ngrok_url}/github_webhook", "content_type": "json"}
+        return {"url": f"{ngrok_url}/webhook_server", "content_type": "json"}
     except NoSuchElementException:
         print("Retrying to get ngrok configuration")
         _get_ngrok_config()
