@@ -8,8 +8,8 @@ services:
     environment:
       - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN} # Needs free ngrok account.
     command: http github_gitlab_webhook_server:5000
-    ports:
-      - "4040:4040"
+#    ports:
+#      - "4040:4040"
     restart: unless-stopped
 
   firefox:
