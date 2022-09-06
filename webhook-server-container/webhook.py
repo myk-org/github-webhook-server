@@ -12,6 +12,7 @@ from urllib3.exceptions import MaxRetryError
 
 def _get_firefox_driver():
     try:
+        print("Get firefox driver")
         firefox_options = webdriver.FirefoxOptions()
         firefox_options.headless = True
         return webdriver.Remote("http://firefox:4444", options=firefox_options)
@@ -24,6 +25,7 @@ def _get_firefox_driver():
 def _get_ngrok_config():
     driver = _get_firefox_driver()
     try:
+        print("Get ngrok configuration")
         driver.get("http://ngrok:4040/status")
         ngrok_url = driver.find_element(
             "xpath",
