@@ -44,6 +44,13 @@ Available user actions:
  * To remove approval, either use the `Revoke approval` button or add `!-LGTM` or `!-lgtm` to the MR comment.
             """
 
+        # Always make sure that the repository's merge requests "All threads must be resolved" setting is enabled
+        if not self.repository.prog.only_allow_merge_if_all_discussions_are_resolved:
+            self.repository.manager.update(
+                self.repository.id,
+                {"only_allow_merge_if_all_discussions_are_resolved": True},
+            )
+
     @staticmethod
     def get_internal_api():
         container_gitlab_config = "/python-gitlab.cfg"
