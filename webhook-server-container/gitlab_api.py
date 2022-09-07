@@ -45,7 +45,7 @@ Available user actions:
             """
 
         # Always make sure that the repository's merge requests "All threads must be resolved" setting is enabled
-        if not self.repository.prog.only_allow_merge_if_all_discussions_are_resolved:
+        if not self.repository.only_allow_merge_if_all_discussions_are_resolved:
             self.repository.manager.update(
                 self.repository.id,
                 {"only_allow_merge_if_all_discussions_are_resolved": True},
