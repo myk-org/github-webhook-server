@@ -124,7 +124,7 @@ Available user actions:
 
     def add_welcome_message(self):
         self.app.logger.info(f"{self.repo_mr_log_message} Creating welcome comment")
-        self.merge_request.notes.create({"body": self.welcome_msg})
+        self.merge_request.discussions.create({"body": self.welcome_msg})
 
     def process_comment_webhook_data(self):
         note_body = self.hook_data["object_attributes"]["description"]
