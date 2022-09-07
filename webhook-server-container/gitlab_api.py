@@ -101,8 +101,6 @@ Available user actions:
             if self.lgtm_label in _label.lower():
                 if self.approved_by_label in self.merge_request.labels:
                     self.add_remove_user_approve_label(action="remove")
-                    if self.merge_request.approvals.get().approved:
-                        self.merge_request.unapprove()
 
             else:
                 self.update_merge_request(attribute_dict={"remove_labels": [_label]})
@@ -114,7 +112,6 @@ Available user actions:
             if self.lgtm_label in _label.lower():
                 if self.approved_by_label not in self.merge_request.labels:
                     self.add_remove_user_approve_label(action="add")
-                    self.merge_request.approve()
             else:
                 self.update_merge_request(attribute_dict={"add_labels": [_label]})
 
@@ -162,8 +159,6 @@ Available user actions:
             return
         self.reset_verify_label()
         self.reset_reviewed_by_label()
-        if self.merge_request.approvals.get().attributes["approved"]:
-            self.merge_request.unapprove()
 
     def process_approved_merge_request_webhook_data(self):
         if [
