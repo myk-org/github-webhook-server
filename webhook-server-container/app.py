@@ -57,7 +57,6 @@ def process_gitlab_hook(api, hook_data):
 
 @app.route("/webhook_server", methods=["POST"])
 def process_webhook():
-    app.logger.info("Process started")
     hook_data = request.json
     github_event = request.headers.get("X-GitHub-Event")
     gitlab_event = request.headers.get("X-GitLab-Event")
