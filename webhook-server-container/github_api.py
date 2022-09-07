@@ -273,9 +273,7 @@ Available user actions:
                 self._remove_label(obj=issue, label=label.name)
 
         else:
-            label = self.repository_labels.get(_label.lower())
-            if label:
-                self._add_label(obj=issue, label=label.name)
+            self._add_label(obj=issue, label=_label)
 
     def reset_verify_label(self, pull_request):
         self.app.logger.info(
