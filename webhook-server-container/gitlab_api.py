@@ -27,8 +27,15 @@ class GitLabApi:
         self.user = self.hook_data["user"]
         self.username = self.user["username"]
         self.welcome_msg = """
+** AUTOMATED **
+This is automated comment, do not resolve/unresolved it.
+The resolve status will be updated automatically.
+
 The following are automatically added:
- * Add reviewers from OWNER file (in the root of the repository) under reviewers section.
+ * Mention reviewers from OWNER file (in the root of the repository).
+ * MR assignee
+ * `Approved-by-<username>` or `Reviewed-by-<username>` label when an approve comment is added (see below).
+ * `verified` label when verified comment is added (see below).
 
 Available user actions:
  * To mark MR as verified add `!verified` to a PR comment, to un-verify add `!-verified` to a MR comment.
