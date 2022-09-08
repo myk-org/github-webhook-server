@@ -371,7 +371,9 @@ Available user actions:
                     self._clone_repository()
                     local_branches = self._get_repo_branches()
                     if source_branch not in local_branches.splitlines():
-                        issue.create_comment(f"{source_branch} does not exists")
+                        issue.create_comment(
+                            f"cherry-pick failed: {source_branch} does not exists"
+                        )
                     else:
                         self._checkout_new_branch(
                             source_branch=source_branch, new_branch_name=new_branch_name
