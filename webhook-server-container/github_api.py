@@ -7,7 +7,7 @@ from contextlib import contextmanager
 
 import requests
 import yaml
-from github import Github
+from github import Github, GithubException
 
 
 @contextmanager
@@ -126,6 +126,12 @@ Available user actions:
             subprocess.check_output(
                 shlex.split(f"git checkout -b {new_branch_name} origin/{source_branch}")
             )
+
+    def is_branch_exists(self, branch):
+        try:
+            return self.repository.get_branch(branch)
+        except GithubException:
+            return False
 
     def _cherry_pick(
         self,
@@ -359,24 +365,29 @@ Available user actions:
                 )
                 source_branch = user_request[1].split()[1]
                 try:
-                    self._clone_repository()
-                    self._checkout_new_branch(
-                        source_branch=source_branch, new_branch_name=new_branch_name
-                    )
-                    if self._cherry_pick(
-                        source_branch=source_branch,
-                        new_branch_name=new_branch_name,
-                        commit_hash=pull_request.merge_commit_sha,
-                        commit_msg=pull_request.title,
-                        pull_request_url=pull_request.html_url,
-                        user_login=user_login,
-                        issue=issue,
-                    ):
-                        issue.create_comment(
-                            f"Cherry-picked PR {pull_request.title} into {source_branch}"
+                    if not self.is_branch_exists(branch=source_branch):
+                        err_msg = f"cherry-pick failed: {source_branch} does not exists"
+                        self.app.logger.error(err_msg)
+                        issue.create_comment(err_msg)
+                    else:
+                        self._clone_repository()
+                        self._checkout_new_branch(
+                            source_branch=source_branch, new_branch_name=new_branch_name
                         )
+                        if self._cherry_pick(
+                            source_branch=source_branch,
+                            new_branch_name=new_branch_name,
+                            commit_hash=pull_request.merge_commit_sha,
+                            commit_msg=pull_request.title,
+                            pull_request_url=pull_request.html_url,
+                            user_login=user_login,
+                            issue=issue,
+                        ):
+                            issue.create_comment(
+                                f"Cherry-picked PR {pull_request.title} into {source_branch}"
+                            )
                 finally:
-                    shutil.rmtree(self.clone_repository_path)
+                    shutil.rmtree(self.clone_repository_path, ignore_errors=True)
             else:
                 self.app.logger.info(
                     f"{self.repository_name}: Processing label by user comment"
