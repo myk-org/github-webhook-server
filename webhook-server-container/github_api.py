@@ -7,7 +7,7 @@ from contextlib import contextmanager
 
 import requests
 import yaml
-from github import Github
+from github import Github, GithubException
 
 
 @contextmanager
@@ -127,14 +127,11 @@ Available user actions:
                 shlex.split(f"git checkout -b {new_branch_name} origin/{source_branch}")
             )
 
-    def _get_repo_branches(self):
-        with change_directory(self.clone_repository_path):
-            self.app.logger.info(f"{self.repository_name}: Get all branches")
-            return (
-                subprocess.check_output(shlex.split("git branch"))
-                .decode("utf-8")
-                .strip()
-            )
+    def is_branch_exists(self, branch):
+        try:
+            return self.repository.get_branch(branch)
+        except GithubException:
+            return False
 
     def _cherry_pick(
         self,
@@ -368,15 +365,12 @@ Available user actions:
                 )
                 source_branch = user_request[1].split()[1]
                 try:
-                    self._clone_repository()
-                    local_branches = self._get_repo_branches()
-                    self.app.logger.error(f"{source_branch}")
-                    self.app.logger.error(f"{local_branches.splitlines()}")
-                    if source_branch not in local_branches.splitlines():
+                    if not self.is_branch_exists(branch=source_branch):
                         issue.create_comment(
                             f"cherry-pick failed: {source_branch} does not exists"
                         )
                     else:
+                        self._clone_repository()
                         self._checkout_new_branch(
                             source_branch=source_branch, new_branch_name=new_branch_name
                         )
