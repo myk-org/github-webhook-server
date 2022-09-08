@@ -387,7 +387,7 @@ Available user actions:
                                 f"Cherry-picked PR {pull_request.title} into {source_branch}"
                             )
                 finally:
-                    shutil.rmtree(self.clone_repository_path)
+                    shutil.rmtree(self.clone_repository_path, ignore_errors=True)
             else:
                 self.app.logger.info(
                     f"{self.repository_name}: Processing label by user comment"
