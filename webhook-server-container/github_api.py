@@ -366,9 +366,9 @@ Available user actions:
                 source_branch = user_request[1].split()[1]
                 try:
                     if not self.is_branch_exists(branch=source_branch):
-                        issue.create_comment(
-                            f"cherry-pick failed: {source_branch} does not exists"
-                        )
+                        err_msg = f"cherry-pick failed: {source_branch} does not exists"
+                        self.app.logger.error(err_msg)
+                        issue.create_comment(err_msg)
                     else:
                         self._clone_repository()
                         self._checkout_new_branch(
