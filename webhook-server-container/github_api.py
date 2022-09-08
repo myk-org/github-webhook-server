@@ -127,6 +127,15 @@ Available user actions:
                 shlex.split(f"git checkout -b {new_branch_name} origin/{source_branch}")
             )
 
+    def _get_repo_branches(self):
+        with change_directory(self.clone_repository_path):
+            self.app.logger.info(f"{self.repository_name}: Get all branches")
+            return (
+                subprocess.check_output(shlex.split("git branch"))
+                .decode("utf-8")
+                .strip()
+            )
+
     def _cherry_pick(
         self,
         source_branch,
@@ -359,22 +368,26 @@ Available user actions:
                 )
                 source_branch = user_request[1].split()[1]
                 try:
-                    self._clone_repository()
-                    self._checkout_new_branch(
-                        source_branch=source_branch, new_branch_name=new_branch_name
-                    )
-                    if self._cherry_pick(
-                        source_branch=source_branch,
-                        new_branch_name=new_branch_name,
-                        commit_hash=pull_request.merge_commit_sha,
-                        commit_msg=pull_request.title,
-                        pull_request_url=pull_request.html_url,
-                        user_login=user_login,
-                        issue=issue,
-                    ):
-                        issue.create_comment(
-                            f"Cherry-picked PR {pull_request.title} into {source_branch}"
+                    local_branches = self._get_repo_branches()
+                    if source_branch not in local_branches.splitlines():
+                        issue.create_comment(f"{source_branch} does not exists")
+                    else:
+                        self._clone_repository()
+                        self._checkout_new_branch(
+                            source_branch=source_branch, new_branch_name=new_branch_name
                         )
+                        if self._cherry_pick(
+                            source_branch=source_branch,
+                            new_branch_name=new_branch_name,
+                            commit_hash=pull_request.merge_commit_sha,
+                            commit_msg=pull_request.title,
+                            pull_request_url=pull_request.html_url,
+                            user_login=user_login,
+                            issue=issue,
+                        ):
+                            issue.create_comment(
+                                f"Cherry-picked PR {pull_request.title} into {source_branch}"
+                            )
                 finally:
                     shutil.rmtree(self.clone_repository_path)
             else:
