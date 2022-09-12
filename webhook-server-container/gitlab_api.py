@@ -53,7 +53,7 @@ Available user actions:
 
     @staticmethod
     def get_internal_api():
-        container_gitlab_config = "/python-gitlab.cfg"
+        container_gitlab_config = "/python-gitlab/python-gitlab.cfg"
         if os.path.isfile(container_gitlab_config):
             config_files = [container_gitlab_config]
         else:
