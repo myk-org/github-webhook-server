@@ -54,9 +54,13 @@ Available user actions:
     @staticmethod
     def get_internal_api():
         container_gitlab_config = "/python-gitlab/python-gitlab.cfg"
+        print(f"XXXXXX {container_gitlab_config} XXXXXX")
         if os.path.isfile(container_gitlab_config):
+            print(f"INSIDE {container_gitlab_config} INSIDE")
+
             config_files = [container_gitlab_config]
         else:
+            print(f"ELSE {container_gitlab_config} ELSE")
             config_files = [os.path.join(os.path.expanduser("~"), "python-gitlab.cfg")]
         gitlab_api = gitlab.Gitlab.from_config(config_files=config_files)
         gitlab_api.auth()
