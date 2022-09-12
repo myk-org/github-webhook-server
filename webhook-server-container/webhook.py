@@ -41,7 +41,7 @@ def _get_ngrok_config():
 
 def create_webhook():
     print("Preparing webhook configuration")
-    with open("/config.yaml") as fd:
+    with open("/config/config.yaml") as fd:
         repos = yaml.safe_load(fd)
 
     for repo, data in repos["repositories"].items():

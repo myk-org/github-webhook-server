@@ -46,7 +46,7 @@ Available user actions:
             """
 
     def _repo_data_from_config(self):
-        with open("/config.yaml") as fd:
+        with open("/config/config.yaml") as fd:
             repos = yaml.safe_load(fd)
 
         data = repos["repositories"].get(self.repository_name)
