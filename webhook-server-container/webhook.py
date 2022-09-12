@@ -122,6 +122,7 @@ def create_webhook():
                 )
                 hook_data = {event: True for event in events}
                 hook_data["url"] = config["url"]
+                hook_data["enable_ssl_verification"] = False
                 project.hooks.create(hook_data)
             except UnknownObjectException:
                 continue
