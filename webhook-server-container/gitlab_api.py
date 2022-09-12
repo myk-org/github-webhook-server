@@ -75,12 +75,10 @@ Available user actions:
     @property
     def owners_dict(self):
         owners_file_raw_url = f"{self.base_url}/-/raw/main/OWNERS"
-        resp = requests.get(owners_file_raw_url, verify="/etc/ssl/certs")
+        resp = requests.get(owners_file_raw_url, verify=False)
         if resp.status_code != requests.codes.ok:
             return {}
-        return yaml.safe_load(
-            requests.get(owners_file_raw_url, verify="/etc/ssl/certs").text
-        )
+        return yaml.safe_load(resp.text)
 
     @property
     def reviewers(self):
