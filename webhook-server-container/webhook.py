@@ -87,7 +87,7 @@ def create_webhook():
         if _type == "gitlab":
             events = data.get("events", [])
             print(f"Creating webhook for {repository}")
-            container_gitlab_config = "/python-gitlab.cfg"
+            container_gitlab_config = "/python-gitlab/python-gitlab.cfg"
             if os.path.isfile(container_gitlab_config):
                 config_files = [container_gitlab_config]
             else:
