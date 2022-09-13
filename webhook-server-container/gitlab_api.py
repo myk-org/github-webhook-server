@@ -211,9 +211,11 @@ Available user actions:
             for reviewer in self.reviewers
             if reviewer != self.merge_request.author["username"]
         ]
-        for user in reviewers_list:
-            self.app.logger.info(f"{self.repo_mr_log_message} Adding reviewer {user}")
-            self.merge_request.notes.create({"body": f"@{user}"})
+        self.app.logger.info(
+            f"{self.repo_mr_log_message} Adding reviewers {reviewers_list}"
+        )
+        reviewers_mention = " @".join(["", *reviewers_list])
+        self.merge_request.notes.create({"body": reviewers_mention})
 
     def update_merge_request(self, attribute_dict):
         """
