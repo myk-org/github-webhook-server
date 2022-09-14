@@ -169,9 +169,9 @@ Available user actions:
                 f"To cherry-pick run:\n"
                 "```"
                 f"git checkout {_source_branch}\n"
-                f" git checkout -b {_commit_hash}\n"
-                f" git cherry-pick {commit_hash}\n"
-                f" git push origin {commit_hash}"
+                f"git checkout -b {_commit_hash}\n"
+                f"git cherry-pick {commit_hash}\n"
+                f"git push origin {commit_hash}\n"
                 "```"
             )
             return False
