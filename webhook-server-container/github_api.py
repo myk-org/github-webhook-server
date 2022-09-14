@@ -82,9 +82,9 @@ Available user actions:
     def _add_label(self, obj, label):
         self.app.logger.info(f"{self.repository_name}: Adding label {label}")
         _color = [
-            LABELS_DICT.get(_label)
+            LABELS_DICT.get(_label.lower())
             for _label in LABELS_DICT
-            if label.startswith(_label)
+            if label.lower().startswith(_label)
         ]
         color = _color[0] if _color else "D4C5F9"
 
