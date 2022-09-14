@@ -35,6 +35,7 @@ class GitHubApi:
         self.size_label_prefix = "size/"
         self.clone_repository_path = os.path.join("/", self.repository.name)
         self.reviewed_by_prefix = "-by-"
+        self.auto_cherry_pick_prefix = "auto-cherry-pick:"
         self.welcome_msg = """
 The following are automatically added:
  * Add reviewers from OWNER file (in the root of the repository) under reviewers section.
@@ -208,7 +209,7 @@ Available user actions:
                     f"-b {source_branch} "
                     f"-h {new_branch_name} "
                     f"-l auto-cherry-pick "
-                    f"-m 'auto-cherry-pick: [{source_branch}] {commit_msg}' "
+                    f"-m '{self.auto_cherry_pick_prefix} [{source_branch}] {commit_msg}' "
                     f"-m 'cherry-pick {pull_request_url} into {source_branch}' "
                     f"-m 'requested-by {user_login}'"
                 ),
@@ -424,9 +425,16 @@ Available user actions:
         if hook_action == "opened":
             self.add_size_label(pull_request=pull_request)
             self.app.logger.info(f"{self.repository_name}: Adding PR owner as assignee")
-            pull_request.add_to_assignees(
-                self.hook_data["pull_request"]["user"]["login"]
-            )
+            if pull_request.title.startswith(
+                "auto-cherry-pick:"
+            ) and "auto-cherry-pick" in [_lb.name for _lb in pull_request.labels]:
+                parent_committer = re.search(
+                    r"requested-by (\w+)", pull_request.body
+                ).group(1)
+            else:
+                parent_committer = self.hook_data["pull_request"]["user"]["login"]
+
+            pull_request.add_to_assignees(parent_committer)
             for reviewer in self.reviewers:
                 if reviewer != pull_request.user.login:
                     self.app.logger.info(
