@@ -3,6 +3,7 @@ import time
 
 import gitlab
 import yaml
+from constants import LABELS_DICT
 from github import Github
 from github.GithubException import UnknownObjectException
 from selenium import webdriver
@@ -81,6 +82,10 @@ def create_webhook():
                     f"Creating webhook: {config['url']} for {repository} with events: {events}"
                 )
                 repo.create_hook("web", config, events, active=True)
+                for label in repo.get_labels():
+                    if label.name.lower() in LABELS_DICT:
+                        label.edit(label.name, color=LABELS_DICT[label.name])
+
             except UnknownObjectException:
                 continue
 

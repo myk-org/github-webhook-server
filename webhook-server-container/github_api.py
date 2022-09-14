@@ -7,7 +7,9 @@ from contextlib import contextmanager
 
 import requests
 import yaml
+from constants import LABELS_DICT
 from github import Github, GithubException
+from github.GithubException import UnknownObjectException
 
 
 @contextmanager
@@ -79,6 +81,19 @@ Available user actions:
 
     def _add_label(self, obj, label):
         self.app.logger.info(f"{self.repository_name}: Adding label {label}")
+        _color = [
+            LABELS_DICT.get(_label)
+            for _label in LABELS_DICT
+            if label.startswith(_label)
+        ]
+        color = _color[0] if _color else "D4C5F9"
+
+        try:
+            _repo_label = self.repository.get_label(label)
+            _repo_label.edit(name=_repo_label.name, color=color)
+        except UnknownObjectException:
+            self.repository.create_label(name=label, color=color)
+
         return obj.add_to_labels(label)
 
     @staticmethod
