@@ -142,6 +142,11 @@ Available user actions:
             )
             self.label_by_user_comment(user_request=user_request)
 
+        if self.get_merge_status():
+            self.welcome_msg_note.manager.update(
+                self.welcome_msg_note.id, {"resolved": True}
+            )
+
     def process_new_merge_request_webhook_data(self):
         # TODO: create new issue, set_label_size
         self.add_welcome_message()
@@ -157,16 +162,26 @@ Available user actions:
             return
         self.reset_verify_label()
         self.reset_reviewed_by_label()
+        self.welcome_msg_note.manager.update(
+            self.welcome_msg_note.id, {"resolved": False}
+        )
 
     def process_approved_merge_request_webhook_data(self):
         if [
             self.username not in label for label in self.merge_request.labels
         ] or not self.merge_request.labels:
             self.add_remove_user_approve_label(action="add")
+        if self.get_merge_status():
+            self.welcome_msg_note.manager.update(
+                self.welcome_msg_note.id, {"resolved": True}
+            )
 
     def process_unapproved_merge_request_webhook_data(self):
         if [self.username in label for label in self.merge_request.labels]:
             self.add_remove_user_approve_label(action="remove")
+        self.welcome_msg_note.manager.update(
+            self.welcome_msg_note.id, {"resolved": False}
+        )
 
     @property
     def approved_by_label(self):
@@ -223,3 +238,16 @@ Available user actions:
         https://docs.gitlab.com/ee/api/merge_requests.html#update-mr
         """
         self.merge_request.manager.update(self.merge_request.get_id(), attribute_dict)
+
+    @property
+    def welcome_msg_note(self):
+        for note in self.merge_request.notes.list(iterator=True):
+            if self.welcome_msg in note.body:
+                return note
+
+    def get_merge_status(self):
+        merge_labels_perfix = ["Approved", "Reviewed", "verified"]
+        mr_labels_prefixes = [
+            label.split("-")[0] for label in self.merge_request.labels
+        ]
+        return set(merge_labels_perfix) == set(mr_labels_prefixes)
