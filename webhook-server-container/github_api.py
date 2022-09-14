@@ -165,7 +165,14 @@ Available user actions:
             )
             issue.create_comment(
                 f"**Manual cherry-pick is needed**\nCherry pick failed for "
-                f"{_commit_hash} to {_source_branch}:\n{_err_msg}\nTo cherry-pick run: `git cherry-pick {commit_hash}`"
+                f"{_commit_hash} to {_source_branch}:\n{_err_msg}\n"
+                f"To cherry-pick run:\n"
+                "```"
+                f"git checkout {_source_branch}"
+                f" git checkout -b {_commit_hash}"
+                f" git cherry-pick {commit_hash}"
+                f" git push origin {commit_hash}"
+                "```"
             )
             return False
 
