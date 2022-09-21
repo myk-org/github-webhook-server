@@ -423,7 +423,11 @@ Available user actions:
         self.app.logger.info(f"hook_action is: {hook_action}")
 
         if hook_action == "opened":
+            pull_request_data = self.hook_data["pull_request"]
             self.add_size_label(pull_request=pull_request)
+            self._add_label(
+                obj=pull_request, label=f"branch-{pull_request_data['base']['ref']}"
+            )
             self.app.logger.info(f"{self.repository_name}: Adding PR owner as assignee")
             if pull_request.title.startswith(
                 "auto-cherry-pick:"
@@ -432,7 +436,7 @@ Available user actions:
                     r"requested-by (\w+)", pull_request.body
                 ).group(1)
             else:
-                parent_committer = self.hook_data["pull_request"]["user"]["login"]
+                parent_committer = pull_request_data["user"]["login"]
 
             pull_request.add_to_assignees(parent_committer)
             for reviewer in self.reviewers:

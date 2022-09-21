@@ -3,6 +3,7 @@ LABELS_DICT = {
     "changes_requested-by-": "D93F0B",
     "commented-by-": "BFD4F2",
     "auto-cherry-pick": "1D76DB",
+    "branch-": "1D76DB",
     "do-not-merge": "B60205",
     "size/l": "F5621C",
     "size/m": "F09C74",
