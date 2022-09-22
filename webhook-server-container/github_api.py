@@ -81,6 +81,10 @@ Available user actions:
         return obj.remove_from_labels(label)
 
     def _add_label(self, obj, label):
+        if len(label) > 49:
+            self.app.logger.warning(f"{label} is to long, not adding.")
+            return
+
         self.app.logger.info(f"{self.repository_name}: Adding label {label}")
         _color = [
             LABELS_DICT.get(_label.lower())
