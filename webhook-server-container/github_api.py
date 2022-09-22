@@ -85,13 +85,18 @@ Available user actions:
             self.app.logger.warning(f"{label} is to long, not adding.")
             return
 
-        self.app.logger.info(f"{self.repository_name}: Adding label {label}")
         _color = [
             LABELS_DICT.get(_label.lower())
             for _label in LABELS_DICT
             if label.lower().startswith(_label)
         ]
-        color = _color[0] if _color else "D4C5F9"
+        self.app.logger.info(
+            f"Label {label} was {'found' if _color else 'not found'} in labels dict"
+        )
+        color = _color[0] if _color else LABELS_DICT["base"]
+        self.app.logger.info(
+            f"{self.repository_name}: Adding label {label} with color {color}"
+        )
 
         try:
             _repo_label = self.repository.get_label(label)

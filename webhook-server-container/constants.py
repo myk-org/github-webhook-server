@@ -13,4 +13,5 @@ LABELS_DICT = {
     "size/xxl": "B60205",
     "verified": "0E8A16",
     "wip": "FEF2C0",
+    "base": "D4C5F9",
 }
