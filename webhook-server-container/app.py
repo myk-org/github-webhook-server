@@ -39,20 +39,24 @@ def precess_github_hook(api, event_type):
 
 
 def process_gitlab_hook(api, hook_data):
-    event_type = hook_data["event_type"]
-    if event_type == "merge_request":
-        action = hook_data["object_attributes"]["action"]
-        if action == "open":
-            api.process_new_merge_request_webhook_data()
-        if action == "update":
-            api.process_updated_merge_request_webhook_data()
-        if action == "approved":
-            api.process_approved_merge_request_webhook_data()
-        if action == "unapproved":
-            api.process_unapproved_merge_request_webhook_data()
+    try:
+        event_type = hook_data["event_type"]
+        if event_type == "merge_request":
+            action = hook_data["object_attributes"]["action"]
+            if action == "open":
+                api.process_new_merge_request_webhook_data()
+            if action == "update":
+                api.process_updated_merge_request_webhook_data()
+            if action == "approved":
+                api.process_approved_merge_request_webhook_data()
+            if action == "unapproved":
+                api.process_unapproved_merge_request_webhook_data()
 
-    if event_type == "note":
-        api.process_comment_webhook_data()
+        if event_type == "note":
+            api.process_comment_webhook_data()
+
+    except Exception as ex:
+        app.logger.error(f"Exception {ex}\n{hook_data}")
 
 
 @app.route("/webhook_server", methods=["POST"])

@@ -136,11 +136,13 @@ Available user actions:
             )
             return
         user_requests = re.findall(r"!(-)?(.*)", note_body)
-        for user_request in user_requests:
-            self.app.logger.info(
-                f"{self.repo_mr_log_message} Processing label by user comment"
-            )
-            self.label_by_user_comment(user_request=user_request)
+        if user_requests:
+            self.app.logger.info(f"Note body: {note_body}")
+            for user_request in user_requests:
+                self.app.logger.info(
+                    f"{self.repo_mr_log_message} Processing label by user comment"
+                )
+                self.label_by_user_comment(user_request=user_request)
 
         if self.get_merge_status():
             self.welcome_msg_note.manager.update(
