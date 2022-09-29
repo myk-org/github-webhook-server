@@ -26,7 +26,6 @@ class GitLabApi:
         )
         self.user = self.hook_data["user"]
         self.username = self.user["username"]
-        self._welcome_msg_note = self.welcome_msg_note()
         self.welcome_msg = """
 ** AUTOMATED **
 This is automated comment, do not resolve/unresolved it.
@@ -44,6 +43,7 @@ Available user actions:
  * To approve an MR, either use the `Approve` button or add `!LGTM` or `!lgtm` to the MR comment.
  * To remove approval, either use the `Revoke approval` button or add `!-LGTM` or `!-lgtm` to the MR comment.
             """
+        self._welcome_msg_note = self.welcome_msg_note()
 
         # Always make sure that the repository's merge requests "All threads must be resolved" setting is enabled
         if not self.repository.only_allow_merge_if_all_discussions_are_resolved:
