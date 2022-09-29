@@ -26,6 +26,7 @@ class GitLabApi:
         )
         self.user = self.hook_data["user"]
         self.username = self.user["username"]
+        self._welcome_msg_note = self.welcome_msg_note()
         self.welcome_msg = """
 ** AUTOMATED **
 This is automated comment, do not resolve/unresolved it.
@@ -126,7 +127,9 @@ Available user actions:
 
     def add_welcome_message(self):
         self.app.logger.info(f"{self.repo_mr_log_message} Creating welcome comment")
-        self.merge_request.discussions.create({"body": self.welcome_msg})
+        self.merge_request.discussions.create(
+            {"body": self.welcome_msg, "created_at": self.merge_request.created_at}
+        )
 
     def process_comment_webhook_data(self):
         note_body = self.hook_data["object_attributes"]["description"]
@@ -144,14 +147,13 @@ Available user actions:
                 )
                 self.label_by_user_comment(user_request=user_request)
 
-        if self.get_merge_status() and self.welcome_msg_note:
-            self.welcome_msg_note.manager.update(
-                self.welcome_msg_note.id, {"resolved": True}
+        if self.get_merge_status():
+            self._welcome_msg_note.manager.update(
+                self._welcome_msg_note.id, {"resolved": True}
             )
 
     def process_new_merge_request_webhook_data(self):
         # TODO: create new issue, set_label_size
-        self.add_welcome_message()
         self.add_assignee()
         self.add_reviewers()
 
@@ -164,28 +166,26 @@ Available user actions:
             return
         self.reset_verify_label()
         self.reset_reviewed_by_label()
-        if self.welcome_msg_note:
-            self.welcome_msg_note.manager.update(
-                self.welcome_msg_note.id, {"resolved": False}
-            )
+        self._welcome_msg_note.manager.update(
+            self._welcome_msg_note.id, {"resolved": False}
+        )
 
     def process_approved_merge_request_webhook_data(self):
         if [
             self.username not in label for label in self.merge_request.labels
         ] or not self.merge_request.labels:
             self.add_remove_user_approve_label(action="add")
-        if self.get_merge_status() and self.welcome_msg_note:
-            self.welcome_msg_note.manager.update(
-                self.welcome_msg_note.id, {"resolved": True}
+        if self.get_merge_status():
+            self._welcome_msg_note.manager.update(
+                self._welcome_msg_note.id, {"resolved": True}
             )
 
     def process_unapproved_merge_request_webhook_data(self):
         if [self.username in label for label in self.merge_request.labels]:
             self.add_remove_user_approve_label(action="remove")
-        if self.welcome_msg_note:
-            self.welcome_msg_note.manager.update(
-                self.welcome_msg_note.id, {"resolved": False}
-            )
+        self._welcome_msg_note.manager.update(
+            self._welcome_msg_note.id, {"resolved": False}
+        )
 
     @property
     def approved_by_label(self):
@@ -243,12 +243,13 @@ Available user actions:
         """
         self.merge_request.manager.update(self.merge_request.get_id(), attribute_dict)
 
-    @property
     def welcome_msg_note(self):
         for note in self.merge_request.notes.list(iterator=True):
             if self.welcome_msg.rstrip() in note.body:
                 self.app.logger.info(f"Found welcome note, {note}")
                 return note
+        self.add_welcome_message()
+        return self.welcome_msg_note()
 
     def get_merge_status(self):
         merge_labels_perfix = ["Approved", "Reviewed", "verified"]
