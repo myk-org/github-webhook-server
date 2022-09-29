@@ -26,7 +26,6 @@ class GitLabApi:
         )
         self.user = self.hook_data["user"]
         self.username = self.user["username"]
-        self._welcome_msg_note = self.welcome_msg_note()
         self.welcome_msg = """
 ** AUTOMATED **
 This is automated comment, do not resolve/unresolved it.
@@ -44,6 +43,7 @@ Available user actions:
  * To approve an MR, either use the `Approve` button or add `!LGTM` or `!lgtm` to the MR comment.
  * To remove approval, either use the `Revoke approval` button or add `!-LGTM` or `!-lgtm` to the MR comment.
             """
+        self._welcome_msg_note = self.welcome_msg_note()
 
         # Always make sure that the repository's merge requests "All threads must be resolved" setting is enabled
         if not self.repository.only_allow_merge_if_all_discussions_are_resolved:
@@ -244,11 +244,14 @@ Available user actions:
         self.merge_request.manager.update(self.merge_request.get_id(), attribute_dict)
 
     def welcome_msg_note(self):
+        self.app.logger.info("Check if welcome note exists.")
         for note in self.merge_request.notes.list(iterator=True):
             if self.welcome_msg.rstrip() in note.body:
-                self.app.logger.info(f"Found welcome note, {note}")
+                self.app.logger.info("Found welcome note")
                 return note
+        self.app.logger.info("Welcome message not found, creating one.")
         self.add_welcome_message()
+        self.app.logger.info("Getting welcome note after note was added.")
         return self.welcome_msg_note()
 
     def get_merge_status(self):
