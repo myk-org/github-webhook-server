@@ -247,7 +247,7 @@ Available user actions:
         self.app.logger.info("Check if welcome note exists.")
         for note in self.merge_request.notes.list(iterator=True):
             if self.welcome_msg.rstrip() in note.body:
-                self.app.logger.info(f"Found welcome note, {note}")
+                self.app.logger.info("Found welcome note")
                 return note
         self.app.logger.info("Welcome message not found, creating one.")
         self.add_welcome_message()
