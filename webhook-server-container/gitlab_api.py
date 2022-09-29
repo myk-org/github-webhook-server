@@ -244,11 +244,14 @@ Available user actions:
         self.merge_request.manager.update(self.merge_request.get_id(), attribute_dict)
 
     def welcome_msg_note(self):
+        self.app.logger.info("Check if welcome note exists.")
         for note in self.merge_request.notes.list(iterator=True):
             if self.welcome_msg.rstrip() in note.body:
                 self.app.logger.info(f"Found welcome note, {note}")
                 return note
+        self.app.logger.info("Welcome message not found, creating one.")
         self.add_welcome_message()
+        self.app.logger.info("Getting welcome note after note was added.")
         return self.welcome_msg_note()
 
     def get_merge_status(self):
