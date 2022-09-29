@@ -144,7 +144,7 @@ Available user actions:
                 )
                 self.label_by_user_comment(user_request=user_request)
 
-        if self.get_merge_status():
+        if self.get_merge_status() and self.welcome_msg_note:
             self.welcome_msg_note.manager.update(
                 self.welcome_msg_note.id, {"resolved": True}
             )
@@ -164,16 +164,17 @@ Available user actions:
             return
         self.reset_verify_label()
         self.reset_reviewed_by_label()
-        self.welcome_msg_note.manager.update(
-            self.welcome_msg_note.id, {"resolved": False}
-        )
+        if self.welcome_msg_note:
+            self.welcome_msg_note.manager.update(
+                self.welcome_msg_note.id, {"resolved": False}
+            )
 
     def process_approved_merge_request_webhook_data(self):
         if [
             self.username not in label for label in self.merge_request.labels
         ] or not self.merge_request.labels:
             self.add_remove_user_approve_label(action="add")
-        if self.get_merge_status():
+        if self.get_merge_status() and self.welcome_msg_note:
             self.welcome_msg_note.manager.update(
                 self.welcome_msg_note.id, {"resolved": True}
             )
@@ -181,9 +182,10 @@ Available user actions:
     def process_unapproved_merge_request_webhook_data(self):
         if [self.username in label for label in self.merge_request.labels]:
             self.add_remove_user_approve_label(action="remove")
-        self.welcome_msg_note.manager.update(
-            self.welcome_msg_note.id, {"resolved": False}
-        )
+        if self.welcome_msg_note:
+            self.welcome_msg_note.manager.update(
+                self.welcome_msg_note.id, {"resolved": False}
+            )
 
     @property
     def approved_by_label(self):
@@ -244,7 +246,8 @@ Available user actions:
     @property
     def welcome_msg_note(self):
         for note in self.merge_request.notes.list(iterator=True):
-            if self.welcome_msg in note.body:
+            if self.welcome_msg.rstrip() in note.body:
+                self.app.logger.info(f"Found welcome note, {note}")
                 return note
 
     def get_merge_status(self):
