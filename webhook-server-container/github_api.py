@@ -48,17 +48,17 @@ Available user actions:
  * To cherry pick a merged PR add `!cherry-pick <target branch to cherry-pick to>` to a PR comment.
             """
 
-    def process_hook(self, event_type):
-        if event_type == "issue_comment":
+    def precess_hook(self, data):
+        if data == "issue_comment":
             self.process_comment_webhook_data()
 
-        if event_type == "pull_request":
+        if data == "pull_request":
             self.process_pull_request_webhook_data()
 
-        if event_type == "push":
+        if data == "push":
             self.process_push_webhook_data()
 
-        if event_type == "pull_request_review":
+        if data == "pull_request_review":
             self.process_pull_request_review_webhook_data()
 
     def _repo_data_from_config(self):

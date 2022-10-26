@@ -36,5 +36,5 @@ def process_webhook():
     app.logger.info(
         f"{api.repository_full_name} Event type: {github_event or gitlab_event}"
     )
-    api.process_hook(hook_data=hook_data)
+    api.process_hook(data=hook_data if gitlab_event else github_event)
     return "Process done"

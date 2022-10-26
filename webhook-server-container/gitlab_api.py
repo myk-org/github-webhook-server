@@ -52,11 +52,11 @@ Available user actions:
                 {"only_allow_merge_if_all_discussions_are_resolved": True},
             )
 
-    def process_hook(self, hook_data):
+    def process_hook(self, data):
         try:
-            event_type = hook_data["event_type"]
+            event_type = data["event_type"]
             if event_type == "merge_request":
-                action = hook_data["object_attributes"]["action"]
+                action = data["object_attributes"]["action"]
                 if action == "open":
                     self.process_new_merge_request_webhook_data()
                 if action == "update":
@@ -70,7 +70,7 @@ Available user actions:
                 self.process_comment_webhook_data()
 
         except Exception as ex:
-            self.app.logger.error(f"Exception {ex}\n{hook_data}")
+            self.app.logger.error(f"Exception {ex}\n{data}")
 
     @staticmethod
     def get_internal_api():
