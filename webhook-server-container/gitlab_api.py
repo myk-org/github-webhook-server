@@ -52,6 +52,26 @@ Available user actions:
                 {"only_allow_merge_if_all_discussions_are_resolved": True},
             )
 
+    def process_hook(self, hook_data):
+        try:
+            event_type = hook_data["event_type"]
+            if event_type == "merge_request":
+                action = hook_data["object_attributes"]["action"]
+                if action == "open":
+                    self.process_new_merge_request_webhook_data()
+                if action == "update":
+                    self.process_updated_merge_request_webhook_data()
+                if action == "approved":
+                    self.process_approved_merge_request_webhook_data()
+                if action == "unapproved":
+                    self.process_unapproved_merge_request_webhook_data()
+
+            if event_type == "note":
+                self.process_comment_webhook_data()
+
+        except Exception as ex:
+            self.app.logger.error(f"Exception {ex}\n{hook_data}")
+
     @staticmethod
     def get_internal_api():
         container_gitlab_config = "/python-gitlab/python-gitlab.cfg"
