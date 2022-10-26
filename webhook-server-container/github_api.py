@@ -48,7 +48,7 @@ Available user actions:
  * To cherry pick a merged PR add `!cherry-pick <target branch to cherry-pick to>` to a PR comment.
             """
 
-    def precess_hook(self, event_type):
+    def process_hook(self, event_type):
         if event_type == "issue_comment":
             self.process_comment_webhook_data()
 
