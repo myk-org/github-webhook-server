@@ -406,9 +406,12 @@ Available user actions:
                     issue.create_comment(error_msg)
                     return
 
-                new_branch_name = (
-                    f"auto-cherry-pick-{pull_request.head.ref.replace(' ', '-')}"
+                base_source_branch_name = re.sub(
+                    r"auto-cherry-pick: \[.*\] ",
+                    "",
+                    pull_request.head.ref.replace(" ", "-"),
                 )
+                new_branch_name = f"auto-cherry-pick-{base_source_branch_name}"
                 source_branch = user_request[1].split()[1]
                 try:
                     if not self.is_branch_exists(branch=source_branch):
