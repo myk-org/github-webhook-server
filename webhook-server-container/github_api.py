@@ -148,17 +148,17 @@ Available user actions:
                 f"git config --global user.email '{self.repository.owner.email}'"
             )
         )
-        with change_directory(self.clone_repository_path):
+        with change_directory(self.clone_repository_path, app=self.app):
             subprocess.check_output(shlex.split("git remote update"))
             subprocess.check_output(shlex.split("git fetch --all"))
 
     def _checkout_tag(self, tag):
-        with change_directory(self.clone_repository_path):
+        with change_directory(self.clone_repository_path, app=self.app):
             self.app.logger.info(f"{self.repository_name}: Checking out tag: {tag}")
             subprocess.check_output(shlex.split(f"git checkout {tag}"))
 
     def _checkout_new_branch(self, source_branch, new_branch_name):
-        with change_directory(self.clone_repository_path):
+        with change_directory(self.clone_repository_path, app=self.app):
             self.app.logger.info(
                 f"{self.repository_name}: Checking out new branch: {new_branch_name} from {source_branch}"
             )
@@ -204,7 +204,7 @@ Available user actions:
         self.app.logger.info(
             f"{self.repository_name}: Cherry picking {commit_hash} into {source_branch}, requested by {user_login}"
         )
-        with change_directory(self.clone_repository_path):
+        with change_directory(self.clone_repository_path, app=self.app):
             cherry_pick = subprocess.Popen(
                 shlex.split(f"git cherry-pick {commit_hash}"),
                 stdout=subprocess.PIPE,
@@ -249,7 +249,7 @@ Available user actions:
         return True
 
     def upload_to_pypi(self):
-        with change_directory(self.clone_repository_path):
+        with change_directory(self.clone_repository_path, app=self.app):
             self.app.logger.info(f"{self.repository_name}: Start uploading to pypi")
             os.environ["TWINE_USERNAME"] = "__token__"
             os.environ["TWINE_PASSWORD"] = self.pypi_token
