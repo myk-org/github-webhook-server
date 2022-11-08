@@ -529,7 +529,7 @@ Available user actions:
                     self._checkout_tag(tag=tag_name)
                     self.upload_to_pypi()
                 finally:
-                    shutil.rmtree(self.clone_repository_path)
+                    shutil.rmtree(self.clone_repository_path, ignore_errors=True)
 
     def process_pull_request_review_webhook_data(self):
         if self.hook_data["action"] == "submitted":
