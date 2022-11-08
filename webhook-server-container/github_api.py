@@ -13,8 +13,9 @@ from github.GithubException import UnknownObjectException
 
 
 @contextmanager
-def change_directory(directory):
+def change_directory(directory, app):
     old_cwd = os.getcwd()
+    app.logger.info(f"Current directory is {old_cwd}, chdir to {directory}")
     yield os.chdir(directory)
     os.chdir(old_cwd)
 
