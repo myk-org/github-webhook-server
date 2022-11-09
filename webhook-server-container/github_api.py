@@ -34,7 +34,7 @@ class GitHubApi:
         self.repository = self.api.get_repo(self.repository_full_name)
         self.verified_label = "verified"
         self.size_label_prefix = "size/"
-        self.clone_repository_path = os.path.join("/repositories", self.repository.name)
+        self.clone_repository_path = os.path.join("/", self.repository.name)
         self.reviewed_by_prefix = "-by-"
         self.auto_cherry_pick_prefix = "auto-cherry-pick:"
         self.welcome_msg = """
