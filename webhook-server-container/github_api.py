@@ -34,7 +34,7 @@ class GitHubApi:
         self.repository = self.api.get_repo(self.repository_full_name)
         self.verified_label = "verified"
         self.size_label_prefix = "size/"
-        self.clone_repository_path = os.path.join("/", self.repository.name)
+        self.clone_repository_path = os.path.join("/git-clone", self.repository.name)
         self.reviewed_by_prefix = "-by-"
         self.auto_cherry_pick_prefix = "auto-cherry-pick:"
         self.welcome_msg = """
@@ -130,27 +130,28 @@ Available user actions:
 
     def _clone_repository(self):
         self.app.logger.info(f"Cloning repository: {self.repository_full_name}")
-        shutil.rmtree(self.clone_repository_path, ignore_errors=True)
-
-        subprocess.check_output(
-            shlex.split(
-                f"git clone {self.repository.clone_url.replace('https://', f'https://{self.token}@')} "
-                f"{self.clone_repository_path}"
+        try:
+            subprocess.check_output(
+                shlex.split(
+                    f"git clone {self.repository.clone_url.replace('https://', f'https://{self.token}@')} "
+                    f"{self.clone_repository_path}"
+                )
             )
-        )
-        subprocess.check_output(
-            shlex.split(
-                f"git config --global user.name '{self.repository.owner.login}'"
+            subprocess.check_output(
+                shlex.split(
+                    f"git config --global user.name '{self.repository.owner.login}'"
+                )
             )
-        )
-        subprocess.check_output(
-            shlex.split(
-                f"git config --global user.email '{self.repository.owner.email}'"
+            subprocess.check_output(
+                shlex.split(
+                    f"git config --global user.email '{self.repository.owner.email}'"
+                )
             )
-        )
-        with change_directory(self.clone_repository_path, app=self.app):
-            subprocess.check_output(shlex.split("git remote update"))
-            subprocess.check_output(shlex.split("git fetch --all"))
+            with change_directory(self.clone_repository_path, app=self.app):
+                subprocess.check_output(shlex.split("git remote update"))
+                subprocess.check_output(shlex.split("git fetch --all"))
+        finally:
+            shutil.rmtree(self.clone_repository_path, ignore_errors=True)
 
     def _checkout_tag(self, tag):
         with change_directory(self.clone_repository_path, app=self.app):
