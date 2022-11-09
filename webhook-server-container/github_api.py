@@ -1,7 +1,6 @@
 import os
 import re
 import shlex
-import shutil
 import subprocess
 from contextlib import contextmanager
 
@@ -129,7 +128,12 @@ Available user actions:
 
     def _clone_repository(self):
         self.app.logger.info(f"Cloning repository: {self.repository_full_name}")
-        try:
+        if os.path.exists(self.repository_full_name):
+            with change_directory(self.clone_repository_path):
+                subprocess.check_output(shlex.split("git reset --hard"))
+                subprocess.check_output(shlex.split("git remote update"))
+                subprocess.check_output(shlex.split("git fetch --all"))
+        else:
             subprocess.check_output(
                 shlex.split(
                     f"git clone {self.repository.clone_url.replace('https://', f'https://{self.token}@')} "
@@ -149,8 +153,6 @@ Available user actions:
             with change_directory(self.clone_repository_path):
                 subprocess.check_output(shlex.split("git remote update"))
                 subprocess.check_output(shlex.split("git fetch --all"))
-        finally:
-            shutil.rmtree(self.clone_repository_path, ignore_errors=True)
 
     def _checkout_tag(self, tag):
         with change_directory(self.clone_repository_path):
@@ -414,30 +416,27 @@ Available user actions:
                 )
                 new_branch_name = f"auto-cherry-pick-{base_source_branch_name}"
                 source_branch = user_request[1].split()[1]
-                try:
-                    if not self.is_branch_exists(branch=source_branch):
-                        err_msg = f"cherry-pick failed: {source_branch} does not exists"
-                        self.app.logger.error(err_msg)
-                        issue.create_comment(err_msg)
-                    else:
-                        self._clone_repository()
-                        self._checkout_new_branch(
-                            source_branch=source_branch, new_branch_name=new_branch_name
+                if not self.is_branch_exists(branch=source_branch):
+                    err_msg = f"cherry-pick failed: {source_branch} does not exists"
+                    self.app.logger.error(err_msg)
+                    issue.create_comment(err_msg)
+                else:
+                    self._clone_repository()
+                    self._checkout_new_branch(
+                        source_branch=source_branch, new_branch_name=new_branch_name
+                    )
+                    if self._cherry_pick(
+                        source_branch=source_branch,
+                        new_branch_name=new_branch_name,
+                        commit_hash=pull_request.merge_commit_sha,
+                        commit_msg=pull_request.title,
+                        pull_request_url=pull_request.html_url,
+                        user_login=user_login,
+                        issue=issue,
+                    ):
+                        issue.create_comment(
+                            f"Cherry-picked PR {pull_request.title} into {source_branch}"
                         )
-                        if self._cherry_pick(
-                            source_branch=source_branch,
-                            new_branch_name=new_branch_name,
-                            commit_hash=pull_request.merge_commit_sha,
-                            commit_msg=pull_request.title,
-                            pull_request_url=pull_request.html_url,
-                            user_login=user_login,
-                            issue=issue,
-                        ):
-                            issue.create_comment(
-                                f"Cherry-picked PR {pull_request.title} into {source_branch}"
-                            )
-                finally:
-                    shutil.rmtree(self.clone_repository_path, ignore_errors=True)
             else:
                 self.app.logger.info(
                     f"{self.repository_name}: Processing label by user comment"
@@ -521,16 +520,13 @@ Available user actions:
         tag = re.search(r"refs/tags/?(.*)", self.hook_data["ref"])
         if tag:  # If push is to a tag (release created)
             if self.upload_to_pypi_enabled:
-                try:
-                    tag_name = tag.group(1)
-                    self.app.logger.info(
-                        f"{self.repository_name}: Processing push for tag: {tag_name}"
-                    )
-                    self._clone_repository()
-                    self._checkout_tag(tag=tag_name)
-                    self.upload_to_pypi()
-                finally:
-                    shutil.rmtree(self.clone_repository_path, ignore_errors=True)
+                tag_name = tag.group(1)
+                self.app.logger.info(
+                    f"{self.repository_name}: Processing push for tag: {tag_name}"
+                )
+                self._clone_repository()
+                self._checkout_tag(tag=tag_name)
+                self.upload_to_pypi()
 
     def process_pull_request_review_webhook_data(self):
         if self.hook_data["action"] == "submitted":
