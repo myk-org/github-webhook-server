@@ -13,9 +13,8 @@ from github.GithubException import UnknownObjectException
 
 
 @contextmanager
-def change_directory(directory, app):
+def change_directory(directory):
     old_cwd = os.getcwd()
-    app.logger.info(f"Current directory is {old_cwd}, chdir to {directory}")
     yield os.chdir(directory)
     os.chdir(old_cwd)
 
@@ -34,7 +33,6 @@ class GitHubApi:
         self.repository = self.api.get_repo(self.repository_full_name)
         self.verified_label = "verified"
         self.size_label_prefix = "size/"
-        self.clone_repository_path = os.path.join("/", self.repository.name)
         self.reviewed_by_prefix = "-by-"
         self.auto_cherry_pick_prefix = "auto-cherry-pick:"
         self.welcome_msg = """
@@ -133,8 +131,7 @@ Available user actions:
         try:
             subprocess.check_output(
                 shlex.split(
-                    f"git clone {self.repository.clone_url.replace('https://', f'https://{self.token}@')} "
-                    f"{self.clone_repository_path}"
+                    f"git clone {self.repository.clone_url.replace('https://', f'https://{self.token}@')}"
                 )
             )
             subprocess.check_output(
@@ -147,19 +144,19 @@ Available user actions:
                     f"git config --global user.email '{self.repository.owner.email}'"
                 )
             )
-            with change_directory(self.clone_repository_path, app=self.app):
+            with change_directory(self.repository_name):
                 subprocess.check_output(shlex.split("git remote update"))
                 subprocess.check_output(shlex.split("git fetch --all"))
         finally:
-            shutil.rmtree(self.clone_repository_path, ignore_errors=True)
+            shutil.rmtree(self.repository_name, ignore_errors=True)
 
     def _checkout_tag(self, tag):
-        with change_directory(self.clone_repository_path, app=self.app):
+        with change_directory(self.repository_name):
             self.app.logger.info(f"{self.repository_name}: Checking out tag: {tag}")
             subprocess.check_output(shlex.split(f"git checkout {tag}"))
 
     def _checkout_new_branch(self, source_branch, new_branch_name):
-        with change_directory(self.clone_repository_path, app=self.app):
+        with change_directory(self.repository_name):
             self.app.logger.info(
                 f"{self.repository_name}: Checking out new branch: {new_branch_name} from {source_branch}"
             )
@@ -205,7 +202,7 @@ Available user actions:
         self.app.logger.info(
             f"{self.repository_name}: Cherry picking {commit_hash} into {source_branch}, requested by {user_login}"
         )
-        with change_directory(self.clone_repository_path, app=self.app):
+        with change_directory(self.repository_name):
             cherry_pick = subprocess.Popen(
                 shlex.split(f"git cherry-pick {commit_hash}"),
                 stdout=subprocess.PIPE,
@@ -250,7 +247,7 @@ Available user actions:
         return True
 
     def upload_to_pypi(self):
-        with change_directory(self.clone_repository_path, app=self.app):
+        with change_directory(self.repository_name):
             self.app.logger.info(f"{self.repository_name}: Start uploading to pypi")
             os.environ["TWINE_USERNAME"] = "__token__"
             os.environ["TWINE_PASSWORD"] = self.pypi_token
@@ -438,7 +435,7 @@ Available user actions:
                                 f"Cherry-picked PR {pull_request.title} into {source_branch}"
                             )
                 finally:
-                    shutil.rmtree(self.clone_repository_path, ignore_errors=True)
+                    shutil.rmtree(self.repository_name, ignore_errors=True)
             else:
                 self.app.logger.info(
                     f"{self.repository_name}: Processing label by user comment"
@@ -531,7 +528,7 @@ Available user actions:
                     self._checkout_tag(tag=tag_name)
                     self.upload_to_pypi()
                 finally:
-                    shutil.rmtree(self.clone_repository_path, ignore_errors=True)
+                    shutil.rmtree(self.repository_name, ignore_errors=True)
 
     def process_pull_request_review_webhook_data(self):
         if self.hook_data["action"] == "submitted":
