@@ -129,32 +129,30 @@ Available user actions:
 
     def _clone_repository(self, path_suffix):
         _clone_path = f"{self.clone_repository_path}-{path_suffix}"
+        shutil.rmtree(_clone_path, ignore_errors=True)
         self.app.logger.info(
             f"Cloning repository: {self.repository_full_name} into {_clone_path}"
         )
-        try:
-            clone_cmd = (
-                f"git clone {self.repository.clone_url.replace('https://', f'https://{self.token}@')} "
-                f"{_clone_path}"
+        clone_cmd = (
+            f"git clone {self.repository.clone_url.replace('https://', f'https://{self.token}@')} "
+            f"{_clone_path}"
+        )
+        self.app.logger.info(f"Run: {clone_cmd}")
+        subprocess.check_output(shlex.split(clone_cmd))
+        subprocess.check_output(
+            shlex.split(
+                f"git config --global user.name '{self.repository.owner.login}'"
             )
-            self.app.logger.info(f"Run: {clone_cmd}")
-            subprocess.check_output(shlex.split(clone_cmd))
-            subprocess.check_output(
-                shlex.split(
-                    f"git config --global user.name '{self.repository.owner.login}'"
-                )
+        )
+        subprocess.check_output(
+            shlex.split(
+                f"git config --global user.email '{self.repository.owner.email}'"
             )
-            subprocess.check_output(
-                shlex.split(
-                    f"git config --global user.email '{self.repository.owner.email}'"
-                )
-            )
-            with change_directory(_clone_path):
-                subprocess.check_output(shlex.split("git remote update"))
-                subprocess.check_output(shlex.split("git fetch --all"))
-            return _clone_path
-        finally:
-            shutil.rmtree(_clone_path, ignore_errors=True)
+        )
+        with change_directory(_clone_path):
+            subprocess.check_output(shlex.split("git remote update"))
+            subprocess.check_output(shlex.split("git fetch --all"))
+        return _clone_path
 
     def _checkout_tag(self, repo_path, tag):
         with change_directory(repo_path):
