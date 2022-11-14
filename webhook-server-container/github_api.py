@@ -129,7 +129,7 @@ Available user actions:
 
     def _clone_repository(self, path_suffix):
         clone_dest_path = os.path.join(self.clone_repository_path, path_suffix)
-        clone_dest_path = clone_dest_path.replace(".", "-").replace(" ", "-")
+        clone_dest_path = "-".join(chr for chr in clone_dest_path if chr.isalnum())
         self.app.logger.info(
             f"Cloning repository: {self.repository_full_name} into {clone_dest_path}"
         )
@@ -153,16 +153,17 @@ Available user actions:
             with change_directory(clone_dest_path):
                 subprocess.check_output(shlex.split("git remote update"))
                 subprocess.check_output(shlex.split("git fetch --all"))
+            return clone_dest_path
         finally:
             shutil.rmtree(clone_dest_path, ignore_errors=True)
 
-    def _checkout_tag(self, tag):
-        with change_directory(self.clone_repository_path):
+    def _checkout_tag(self, repo_path, tag):
+        with change_directory(repo_path):
             self.app.logger.info(f"{self.repository_name}: Checking out tag: {tag}")
             subprocess.check_output(shlex.split(f"git checkout {tag}"))
 
-    def _checkout_new_branch(self, source_branch, new_branch_name):
-        with change_directory(self.clone_repository_path):
+    def _checkout_new_branch(self, repo_path, source_branch, new_branch_name):
+        with change_directory(repo_path):
             self.app.logger.info(
                 f"{self.repository_name}: Checking out new branch: {new_branch_name} from {source_branch}"
             )
@@ -416,18 +417,23 @@ Available user actions:
                     "",
                     pull_request.head.ref.replace(" ", "-"),
                 )
-                new_branch_name = f"auto-cherry-pick-{base_source_branch_name}".replace(
-                    ".", "-"
-                ).replace(" ", "-")
+                new_branch_name = f"auto-cherry-pick-{base_source_branch_name}"
+                new_branch_name = "-".join(
+                    chr for chr in new_branch_name if chr.isalnum()
+                )
                 source_branch = user_request[1].split()[1]
                 if not self.is_branch_exists(branch=source_branch):
                     err_msg = f"cherry-pick failed: {source_branch} does not exists"
                     self.app.logger.error(err_msg)
                     issue.create_comment(err_msg)
                 else:
-                    self._clone_repository(path_suffix=base_source_branch_name)
+                    repo_path = self._clone_repository(
+                        path_suffix=base_source_branch_name
+                    )
                     self._checkout_new_branch(
-                        source_branch=source_branch, new_branch_name=new_branch_name
+                        repo_path=repo_path,
+                        source_branch=source_branch,
+                        new_branch_name=new_branch_name,
                     )
                     if self._cherry_pick(
                         source_branch=source_branch,
@@ -528,8 +534,8 @@ Available user actions:
                 self.app.logger.info(
                     f"{self.repository_name}: Processing push for tag: {tag_name}"
                 )
-                self._clone_repository(path_suffix=tag_name)
-                self._checkout_tag(tag=tag_name)
+                repo_path = self._clone_repository(path_suffix=tag_name)
+                self._checkout_tag(repo_path=repo_path, tag=tag_name)
                 self.upload_to_pypi()
 
     def process_pull_request_review_webhook_data(self):
