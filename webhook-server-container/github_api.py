@@ -416,7 +416,9 @@ Available user actions:
                     "",
                     pull_request.head.ref.replace(" ", "-"),
                 )
-                new_branch_name = f"auto-cherry-pick-{base_source_branch_name}"
+                new_branch_name = f"auto-cherry-pick-{base_source_branch_name}".replace(
+                    ".", "-"
+                ).replace(" ", "-")
                 source_branch = user_request[1].split()[1]
                 if not self.is_branch_exists(branch=source_branch):
                     err_msg = f"cherry-pick failed: {source_branch} does not exists"
