@@ -128,7 +128,7 @@ Available user actions:
 
     def _clone_repository(self):
         self.app.logger.info(f"Cloning repository: {self.repository_full_name}")
-        if os.path.exists(self.repository_full_name):
+        if os.path.exists(self.repository_full_name.rsplit("/")[-1]):
             self.app.logger.info(f"{self.repository_full_name} exists, reusing it.")
             with change_directory(self.clone_repository_path):
                 subprocess.check_output(shlex.split("git reset --hard"))
