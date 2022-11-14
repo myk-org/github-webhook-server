@@ -178,6 +178,7 @@ Available user actions:
 
     def _cherry_pick(
         self,
+        repo_path,
         source_branch,
         new_branch_name,
         commit_hash,
@@ -208,7 +209,7 @@ Available user actions:
         self.app.logger.info(
             f"{self.repository_name}: Cherry picking {commit_hash} into {source_branch}, requested by {user_login}"
         )
-        with change_directory(self.clone_repository_path):
+        with change_directory(repo_path):
             cherry_pick = subprocess.Popen(
                 shlex.split(f"git cherry-pick {commit_hash}"),
                 stdout=subprocess.PIPE,
@@ -252,8 +253,8 @@ Available user actions:
 
         return True
 
-    def upload_to_pypi(self):
-        with change_directory(self.clone_repository_path):
+    def upload_to_pypi(self, repo_path):
+        with change_directory(repo_path):
             self.app.logger.info(f"{self.repository_name}: Start uploading to pypi")
             os.environ["TWINE_USERNAME"] = "__token__"
             os.environ["TWINE_PASSWORD"] = self.pypi_token
@@ -432,6 +433,7 @@ Available user actions:
                             new_branch_name=new_branch_name,
                         )
                         if self._cherry_pick(
+                            repo_path=repo_path,
                             source_branch=source_branch,
                             new_branch_name=new_branch_name,
                             commit_hash=pull_request.merge_commit_sha,
@@ -532,7 +534,7 @@ Available user actions:
                 )
                 with self._clone_repository(path_suffix=tag_name) as repo_path:
                     self._checkout_tag(repo_path=repo_path, tag=tag_name)
-                    self.upload_to_pypi()
+                    self.upload_to_pypi(repo_path=repo_path)
 
     def process_pull_request_review_webhook_data(self):
         if self.hook_data["action"] == "submitted":
