@@ -1,6 +1,7 @@
 import os
 import re
 import shlex
+import shutil
 import subprocess
 from contextlib import contextmanager
 
@@ -126,19 +127,16 @@ Available user actions:
     def _generate_issue_body(pull_request):
         return f"[Auto generated]\nNumber: [#{pull_request.number}]"
 
-    def _clone_repository(self):
-        self.app.logger.info(f"Cloning repository: {self.repository_full_name}")
-        if os.path.exists(f"/{self.repository_full_name.rsplit('/')[-1]}"):
-            self.app.logger.info(f"{self.repository_full_name} exists, reusing it.")
-            with change_directory(self.clone_repository_path):
-                subprocess.check_output(shlex.split("git reset --hard"))
-                subprocess.check_output(shlex.split("git remote update"))
-                subprocess.check_output(shlex.split("git fetch --all"))
-        else:
+    def _clone_repository(self, path_suffix):
+        clone_dest_path = os.path.join(self.clone_repository_path, path_suffix)
+        self.app.logger.info(
+            f"Cloning repository: {self.repository_full_name} into {clone_dest_path}"
+        )
+        try:
             subprocess.check_output(
                 shlex.split(
                     f"git clone {self.repository.clone_url.replace('https://', f'https://{self.token}@')} "
-                    f"{self.clone_repository_path}"
+                    f"{clone_dest_path}"
                 )
             )
             subprocess.check_output(
@@ -154,6 +152,8 @@ Available user actions:
             with change_directory(self.clone_repository_path):
                 subprocess.check_output(shlex.split("git remote update"))
                 subprocess.check_output(shlex.split("git fetch --all"))
+        finally:
+            shutil.rmtree(clone_dest_path, ignore_errors=True)
 
     def _checkout_tag(self, tag):
         with change_directory(self.clone_repository_path):
@@ -422,7 +422,7 @@ Available user actions:
                     self.app.logger.error(err_msg)
                     issue.create_comment(err_msg)
                 else:
-                    self._clone_repository()
+                    self._clone_repository(path_suffix=base_source_branch_name)
                     self._checkout_new_branch(
                         source_branch=source_branch, new_branch_name=new_branch_name
                     )
@@ -525,7 +525,7 @@ Available user actions:
                 self.app.logger.info(
                     f"{self.repository_name}: Processing push for tag: {tag_name}"
                 )
-                self._clone_repository()
+                self._clone_repository(path_suffix=tag_name)
                 self._checkout_tag(tag=tag_name)
                 self.upload_to_pypi()
 
