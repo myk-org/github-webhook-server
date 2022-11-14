@@ -128,7 +128,7 @@ Available user actions:
         return f"[Auto generated]\nNumber: [#{pull_request.number}]"
 
     def _clone_repository(self, path_suffix):
-        _clone_path = f"/{self.clone_repository_path}-{path_suffix}"
+        _clone_path = f"{self.clone_repository_path}-{path_suffix}"
         self.app.logger.info(
             f"Cloning repository: {self.repository_full_name} into {_clone_path}"
         )
