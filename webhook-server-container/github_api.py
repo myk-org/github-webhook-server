@@ -133,12 +133,12 @@ Available user actions:
             f"Cloning repository: {self.repository_full_name} into {_clone_path}"
         )
         try:
-            subprocess.check_output(
-                shlex.split(
-                    f"git clone {self.repository.clone_url.replace('https://', f'https://{self.token}@')} "
-                    f"{_clone_path}"
-                )
+            clone_cmd = (
+                f"git clone {self.repository.clone_url.replace('https://', f'https://{self.token}@')} "
+                f"{_clone_path}"
             )
+            self.app.logger.info(f"Run: {clone_cmd}")
+            subprocess.check_output(shlex.split(clone_cmd))
             subprocess.check_output(
                 shlex.split(
                     f"git config --global user.name '{self.repository.owner.login}'"
