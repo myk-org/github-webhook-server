@@ -129,6 +129,7 @@ Available user actions:
 
     def _clone_repository(self, path_suffix):
         clone_dest_path = os.path.join(self.clone_repository_path, path_suffix)
+        clone_dest_path = clone_dest_path.replace(".", "-").replace(" ", "-")
         self.app.logger.info(
             f"Cloning repository: {self.repository_full_name} into {clone_dest_path}"
         )
