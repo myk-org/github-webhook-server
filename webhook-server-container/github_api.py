@@ -129,7 +129,6 @@ Available user actions:
 
     def _clone_repository(self, path_suffix):
         clone_dest_path = os.path.join(self.clone_repository_path, path_suffix)
-        clone_dest_path = "-".join(chr for chr in clone_dest_path if chr.isalnum())
         self.app.logger.info(
             f"Cloning repository: {self.repository_full_name} into {clone_dest_path}"
         )
@@ -418,9 +417,6 @@ Available user actions:
                     pull_request.head.ref.replace(" ", "-"),
                 )
                 new_branch_name = f"auto-cherry-pick-{base_source_branch_name}"
-                new_branch_name = "-".join(
-                    chr for chr in new_branch_name if chr.isalnum()
-                )
                 source_branch = user_request[1].split()[1]
                 if not self.is_branch_exists(branch=source_branch):
                     err_msg = f"cherry-pick failed: {source_branch} does not exists"
