@@ -127,9 +127,9 @@ Available user actions:
     def _generate_issue_body(pull_request):
         return f"[Auto generated]\nNumber: [#{pull_request.number}]"
 
+    @contextmanager
     def _clone_repository(self, path_suffix):
         _clone_path = f"{self.clone_repository_path}-{path_suffix}"
-        shutil.rmtree(_clone_path, ignore_errors=True)
         self.app.logger.info(
             f"Cloning repository: {self.repository_full_name} into {_clone_path}"
         )
@@ -152,7 +152,9 @@ Available user actions:
         with change_directory(_clone_path):
             subprocess.check_output(shlex.split("git remote update"))
             subprocess.check_output(shlex.split("git fetch --all"))
-        return _clone_path
+
+        yield _clone_path
+        shutil.rmtree(_clone_path, ignore_errors=True)
 
     def _checkout_tag(self, repo_path, tag):
         with change_directory(repo_path):
@@ -421,26 +423,26 @@ Available user actions:
                     self.app.logger.error(err_msg)
                     issue.create_comment(err_msg)
                 else:
-                    repo_path = self._clone_repository(
+                    with self._clone_repository(
                         path_suffix=base_source_branch_name
-                    )
-                    self._checkout_new_branch(
-                        repo_path=repo_path,
-                        source_branch=source_branch,
-                        new_branch_name=new_branch_name,
-                    )
-                    if self._cherry_pick(
-                        source_branch=source_branch,
-                        new_branch_name=new_branch_name,
-                        commit_hash=pull_request.merge_commit_sha,
-                        commit_msg=pull_request.title,
-                        pull_request_url=pull_request.html_url,
-                        user_login=user_login,
-                        issue=issue,
-                    ):
-                        issue.create_comment(
-                            f"Cherry-picked PR {pull_request.title} into {source_branch}"
+                    ) as repo_path:
+                        self._checkout_new_branch(
+                            repo_path=repo_path,
+                            source_branch=source_branch,
+                            new_branch_name=new_branch_name,
                         )
+                        if self._cherry_pick(
+                            source_branch=source_branch,
+                            new_branch_name=new_branch_name,
+                            commit_hash=pull_request.merge_commit_sha,
+                            commit_msg=pull_request.title,
+                            pull_request_url=pull_request.html_url,
+                            user_login=user_login,
+                            issue=issue,
+                        ):
+                            issue.create_comment(
+                                f"Cherry-picked PR {pull_request.title} into {source_branch}"
+                            )
             else:
                 self.app.logger.info(
                     f"{self.repository_name}: Processing label by user comment"
@@ -528,9 +530,9 @@ Available user actions:
                 self.app.logger.info(
                     f"{self.repository_name}: Processing push for tag: {tag_name}"
                 )
-                repo_path = self._clone_repository(path_suffix=tag_name)
-                self._checkout_tag(repo_path=repo_path, tag=tag_name)
-                self.upload_to_pypi()
+                with self._clone_repository(path_suffix=tag_name) as repo_path:
+                    self._checkout_tag(repo_path=repo_path, tag=tag_name)
+                    self.upload_to_pypi()
 
     def process_pull_request_review_webhook_data(self):
         if self.hook_data["action"] == "submitted":
