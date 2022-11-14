@@ -149,7 +149,7 @@ Available user actions:
                     f"git config --global user.email '{self.repository.owner.email}'"
                 )
             )
-            with change_directory(self.clone_repository_path):
+            with change_directory(clone_dest_path):
                 subprocess.check_output(shlex.split("git remote update"))
                 subprocess.check_output(shlex.split("git fetch --all"))
         finally:
