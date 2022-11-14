@@ -128,15 +128,15 @@ Available user actions:
         return f"[Auto generated]\nNumber: [#{pull_request.number}]"
 
     def _clone_repository(self, path_suffix):
-        clone_dest_path = os.path.join(self.clone_repository_path, path_suffix)
+        _clone_path = f"/{self.clone_repository_path}-{path_suffix}"
         self.app.logger.info(
-            f"Cloning repository: {self.repository_full_name} into {clone_dest_path}"
+            f"Cloning repository: {self.repository_full_name} into {_clone_path}"
         )
         try:
             subprocess.check_output(
                 shlex.split(
                     f"git clone {self.repository.clone_url.replace('https://', f'https://{self.token}@')} "
-                    f"{clone_dest_path}"
+                    f"{_clone_path}"
                 )
             )
             subprocess.check_output(
@@ -149,12 +149,12 @@ Available user actions:
                     f"git config --global user.email '{self.repository.owner.email}'"
                 )
             )
-            with change_directory(clone_dest_path):
+            with change_directory(_clone_path):
                 subprocess.check_output(shlex.split("git remote update"))
                 subprocess.check_output(shlex.split("git fetch --all"))
-            return clone_dest_path
+            return _clone_path
         finally:
-            shutil.rmtree(clone_dest_path, ignore_errors=True)
+            shutil.rmtree(_clone_path, ignore_errors=True)
 
     def _checkout_tag(self, repo_path, tag):
         with change_directory(repo_path):
