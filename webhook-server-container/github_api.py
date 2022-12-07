@@ -325,7 +325,7 @@ Available user actions:
         self.app.logger.info(
             f"{self.repository_name}: Label requested by user: {_label}"
         )
-        if user_request[0] == "-" or self.hook_data["action"] == "deleted":
+        if user_request[0] == "-":
             label = self.obj_labels(obj=issue).get(_label.lower())
             if label:
                 self._remove_label(obj=issue, label=label.name)
@@ -385,6 +385,9 @@ Available user actions:
                 break
 
     def process_comment_webhook_data(self):
+        if self.hook_data["action"] == "action":
+            return
+
         issue_number = self.hook_data["issue"]["number"]
         issue = self.repository.get_issue(issue_number)
         body = self.hook_data["comment"]["body"]
