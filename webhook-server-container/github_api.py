@@ -322,6 +322,11 @@ Available user actions:
 
     def label_by_user_comment(self, issue, user_request):
         _label = user_request[1]
+
+        # Skip sonar tests comments
+        if "sonarsource.github.io" in _label:
+            return
+
         self.app.logger.info(
             f"{self.repository_name}: Label requested by user: {_label}"
         )
