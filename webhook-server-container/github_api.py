@@ -291,6 +291,14 @@ Available user actions:
         content = requests.get(owners_file_url).text
         return yaml.safe_load(content).get("reviewers", [])
 
+    def assign_reviewers(self, pull_request):
+        for reviewer in self.reviewers:
+            if reviewer != pull_request.user.login:
+                self.app.logger.info(
+                    f"{self.repository_name}: Adding reviewer {reviewer}"
+                )
+                pull_request.create_review_request([reviewer])
+
     def add_size_label(self, pull_request, current_size_label=None):
         size = pull_request.additions + pull_request.deletions
         if size < 20:
@@ -459,6 +467,19 @@ Available user actions:
                 )
                 self.label_by_user_comment(issue=issue, user_request=user_request)
 
+    @staticmethod
+    def get_pr_owner(pull_request, pull_request_data):
+        if pull_request.title.startswith(
+            "auto-cherry-pick:"
+        ) and "auto-cherry-pick" in [_lb.name for _lb in pull_request.labels]:
+            parent_committer = re.search(
+                r"requested-by (\w+)", pull_request.body
+            ).group(1)
+        else:
+            parent_committer = pull_request_data["user"]["login"]
+
+        return parent_committer
+
     def process_pull_request_webhook_data(self):
         pull_request = self.repository.get_pull(self.hook_data["number"])
         hook_action = self.hook_data["action"]
@@ -471,23 +492,11 @@ Available user actions:
                 obj=pull_request, label=f"branch-{pull_request_data['base']['ref']}"
             )
             self.app.logger.info(f"{self.repository_name}: Adding PR owner as assignee")
-            if pull_request.title.startswith(
-                "auto-cherry-pick:"
-            ) and "auto-cherry-pick" in [_lb.name for _lb in pull_request.labels]:
-                parent_committer = re.search(
-                    r"requested-by (\w+)", pull_request.body
-                ).group(1)
-            else:
-                parent_committer = pull_request_data["user"]["login"]
-
+            parent_committer = self.get_pr_owner(
+                pull_request=pull_request, pull_request_data=pull_request_data
+            )
             pull_request.add_to_assignees(parent_committer)
-            for reviewer in self.reviewers:
-                if reviewer != pull_request.user.login:
-                    self.app.logger.info(
-                        f"{self.repository_name}: Adding reviewer {reviewer}"
-                    )
-                    pull_request.create_review_request([reviewer])
-
+            self.assign_reviewers(pull_request=pull_request)
             self.create_issue_for_new_pr(pull_request=pull_request)
             self.app.logger.info(f"{self.repository_name}: Creating welcome comment")
 
@@ -499,6 +508,7 @@ Available user actions:
             )
 
         if hook_action == "synchronize":
+            self.assign_reviewers(pull_request=pull_request)
             all_labels = self.obj_labels(obj=pull_request)
             current_size_label = [
                 label
