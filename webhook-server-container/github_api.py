@@ -248,15 +248,17 @@ Available user actions:
                 )
                 _, err = pull_request_cmd.communicate()
                 if pull_request_cmd.returncode != 0:
-                    return _issue_from_err(
+                    _issue_from_err(
                         _err=err, _commit_hash=commit_hash, _source_branch=source_branch
                     )
+                    return False
 
             return True
         except Exception:
-            return _issue_from_err(
+            _issue_from_err(
                 _err=err, _commit_hash=commit_hash, _source_branch=source_branch
             )
+            return False
 
     def upload_to_pypi(self, repo_path):
         with change_directory(repo_path):
