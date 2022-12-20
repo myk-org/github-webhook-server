@@ -281,6 +281,7 @@ Available user actions:
             subprocess.check_output(
                 shlex.split(f"twine upload {dist_pkg_path} --skip-existing")
             )
+            self.app.logger.info(f"{self.repository_name}: Uploading to pypi finished")
 
     @property
     def repository_labels(self):
