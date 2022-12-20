@@ -206,52 +206,57 @@ Available user actions:
             )
             return False
 
-        self.app.logger.info(
-            f"{self.repository_name}: Cherry picking {commit_hash} into {source_branch}, requested by {user_login}"
-        )
-        with change_directory(repo_path):
-            cherry_pick = subprocess.Popen(
-                shlex.split(f"git cherry-pick {commit_hash}"),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+        try:
+            self.app.logger.info(
+                f"{self.repository_name}: Cherry picking {commit_hash} into {source_branch}, requested by {user_login}"
             )
-            _, err = cherry_pick.communicate()
-            if cherry_pick.returncode != 0:
-                return _issue_from_err(
-                    _err=err, _commit_hash=commit_hash, _source_branch=source_branch
+            with change_directory(repo_path):
+                cherry_pick = subprocess.Popen(
+                    shlex.split(f"git cherry-pick {commit_hash}"),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
                 )
+                _, err = cherry_pick.communicate()
+                if cherry_pick.returncode != 0:
+                    return _issue_from_err(
+                        _err=err, _commit_hash=commit_hash, _source_branch=source_branch
+                    )
 
-            git_push = subprocess.Popen(
-                shlex.split(f"git push -u origin {new_branch_name}"),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                git_push = subprocess.Popen(
+                    shlex.split(f"git push -u origin {new_branch_name}"),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                _, err = git_push.communicate()
+                if git_push.returncode != 0:
+                    return _issue_from_err(
+                        _err=err, _commit_hash=commit_hash, _source_branch=source_branch
+                    )
+
+                pull_request_cmd = subprocess.Popen(
+                    shlex.split(
+                        f"hub pull-request "
+                        f"-b {source_branch} "
+                        f"-h {new_branch_name} "
+                        f"-l auto-cherry-pick "
+                        f"-m '{self.auto_cherry_pick_prefix} [{source_branch}] {commit_msg}' "
+                        f"-m 'cherry-pick {pull_request_url} into {source_branch}' "
+                        f"-m 'requested-by {user_login}'"
+                    ),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                _, err = pull_request_cmd.communicate()
+                if pull_request_cmd.returncode != 0:
+                    return _issue_from_err(
+                        _err=err, _commit_hash=commit_hash, _source_branch=source_branch
+                    )
+
+            return True
+        except Exception:
+            return _issue_from_err(
+                _err=err, _commit_hash=commit_hash, _source_branch=source_branch
             )
-            _, err = git_push.communicate()
-            if git_push.returncode != 0:
-                return _issue_from_err(
-                    _err=err, _commit_hash=commit_hash, _source_branch=source_branch
-                )
-
-            pull_request_cmd = subprocess.Popen(
-                shlex.split(
-                    f"hub pull-request "
-                    f"-b {source_branch} "
-                    f"-h {new_branch_name} "
-                    f"-l auto-cherry-pick "
-                    f"-m '{self.auto_cherry_pick_prefix} [{source_branch}] {commit_msg}' "
-                    f"-m 'cherry-pick {pull_request_url} into {source_branch}' "
-                    f"-m 'requested-by {user_login}'"
-                ),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            _, err = pull_request_cmd.communicate()
-            if pull_request_cmd.returncode != 0:
-                return _issue_from_err(
-                    _err=err, _commit_hash=commit_hash, _source_branch=source_branch
-                )
-
-        return True
 
     def upload_to_pypi(self, repo_path):
         with change_directory(repo_path):
