@@ -7,7 +7,7 @@ from contextlib import contextmanager
 
 import requests
 import yaml
-from constants import LABELS_DICT
+from constants import ALL_LABELS_DICT
 from github import Github, GithubException
 from github.GithubException import UnknownObjectException
 
@@ -99,14 +99,14 @@ Available user actions:
             return
 
         _color = [
-            LABELS_DICT.get(_label.lower())
-            for _label in LABELS_DICT
+            ALL_LABELS_DICT.get(_label.lower())
+            for _label in ALL_LABELS_DICT
             if label.lower().startswith(_label)
         ]
         self.app.logger.info(
             f"Label {label} was {'found' if _color else 'not found'} in labels dict"
         )
-        color = _color[0] if _color else LABELS_DICT["base"]
+        color = _color[0] if _color else ALL_LABELS_DICT["base"]
         self.app.logger.info(
             f"{self.repository_name}: Adding label {label} with color {color}"
         )
