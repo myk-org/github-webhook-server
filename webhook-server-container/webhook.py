@@ -132,13 +132,12 @@ def create_webhook():
                 hook_data["enable_ssl_verification"] = False
                 project.hooks.create(hook_data)
 
-                for label in project.get_labels():
-                    if label.name.lower() in STATIC_LABELS_DICT:
+                for label in project.list():
+                    label_name = label.name.lower()
+                    if label_name in STATIC_LABELS_DICT:
                         project.labels.update(
                             name=label.name,
-                            new_data={
-                                "color": f"#{ALL_LABELS_DICT[label.name.lower()]}"
-                            },
+                            new_data={"color": f"#{ALL_LABELS_DICT[label_name]}"},
                         )
 
             except UnknownObjectException:
