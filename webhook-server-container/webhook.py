@@ -131,7 +131,7 @@ def create_webhook():
                 hook_data["enable_ssl_verification"] = False
                 project.hooks.create(hook_data)
 
-                for label in project.list():
+                for label in project.labels.list():
                     label_name = label.name.lower()
                     if label_name in STATIC_LABELS_DICT:
                         project.labels.update(
