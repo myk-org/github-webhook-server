@@ -83,10 +83,9 @@ def create_webhook():
                 )
                 repo.create_hook("web", config, events, active=True)
                 for label in repo.get_labels():
-                    if label.name.lower() in ALL_LABELS_DICT:
-                        label.edit(
-                            label.name, color=ALL_LABELS_DICT[label.name.lower()]
-                        )
+                    label_name = label.name.lower()
+                    if label_name in ALL_LABELS_DICT:
+                        label.edit(label.name, color=ALL_LABELS_DICT[label_name])
 
             except UnknownObjectException:
                 continue
