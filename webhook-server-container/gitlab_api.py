@@ -4,8 +4,6 @@ import re
 import gitlab
 import requests
 import yaml
-from constants import STATIC_LABELS_DICT
-from gitlab.exceptions import GitlabCreateError
 
 
 class GitLabApi:
@@ -274,13 +272,3 @@ Available user actions:
             label.split("-")[0] for label in self.merge_request.labels
         ]
         return set(merge_labels_perfix) == set(mr_labels_prefixes)
-
-    def add_project_labels(self):
-        for label_name, label_color in STATIC_LABELS_DICT.items():
-            try:
-                self.repository.labels.create(
-                    {"name": label_name, "color": f"#{label_color}"}
-                )
-            except GitlabCreateError as ex:
-                if "Label already exists" in ex.message:
-                    self.app.logger.info(f"Label {label_name} already exists.")

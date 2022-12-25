@@ -10,7 +10,7 @@ STATIC_LABELS_DICT = {
     "size/xxl": "B60205",
     "verified": "0E8A16",
     "wip": "FEF2C0",
-    "can-be-merged": "0E8A16",
+    "can-be-merged": "0E8A17",
 }
 
 DYNAMIC_LABELS_DICT = {

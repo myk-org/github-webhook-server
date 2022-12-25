@@ -3,7 +3,7 @@ import time
 
 import gitlab
 import yaml
-from constants import STATIC_LABELS_DICT
+from constants import ALL_LABELS_DICT, STATIC_LABELS_DICT
 from github import Github
 from github.GithubException import UnknownObjectException
 from selenium import webdriver
@@ -83,9 +83,9 @@ def create_webhook():
                 )
                 repo.create_hook("web", config, events, active=True)
                 for label in repo.get_labels():
-                    if label.name.lower() in STATIC_LABELS_DICT:
+                    if label.name.lower() in ALL_LABELS_DICT:
                         label.edit(
-                            label.name, color=STATIC_LABELS_DICT[label.name.lower()]
+                            label.name, color=ALL_LABELS_DICT[label.name.lower()]
                         )
 
             except UnknownObjectException:
@@ -131,6 +131,16 @@ def create_webhook():
                 hook_data["url"] = config["url"]
                 hook_data["enable_ssl_verification"] = False
                 project.hooks.create(hook_data)
+
+                for label in project.get_labels():
+                    if label.name.lower() in STATIC_LABELS_DICT:
+                        project.labels.update(
+                            name=label.name,
+                            new_data={
+                                "color": f"#{ALL_LABELS_DICT[label.name.lower()]}"
+                            },
+                        )
+
             except UnknownObjectException:
                 continue
 
