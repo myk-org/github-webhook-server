@@ -27,7 +27,6 @@ class GitLabApi:
         )
         self.user = self.hook_data["user"]
         self.username = self.user["username"]
-        self.can_be_merged = False
         self.welcome_msg = """
 ** AUTOMATED **
 This is automated comment.
@@ -51,7 +50,6 @@ Available user actions:
                 self.repository.id,
                 {"only_allow_merge_if_all_discussions_are_resolved": True},
             )
-        self.add_project_labels()
 
     def process_hook(self, data):
         try:
