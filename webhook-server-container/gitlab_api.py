@@ -5,7 +5,7 @@ import gitlab
 import requests
 import yaml
 from constants import DYNAMIC_LABELS_DICT
-from github.GithubException import GitlabUpdateError
+from gitlab.exceptions import GitlabUpdateError
 
 
 class GitLabApi:
