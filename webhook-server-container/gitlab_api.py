@@ -265,6 +265,7 @@ Available user actions:
         self.merge_request.manager.update(self.merge_request.get_id(), attribute_dict)
 
     def get_merge_status(self):
+        """Returns True if PR is marked as verified and is approved by at least one maintainer and one reviewer"""
         merge_labels_perfix = ["Approved", "Reviewed", "verified"]
         mr_labels_prefixes = [
             label.split("-")[0] for label in self.merge_request.labels
