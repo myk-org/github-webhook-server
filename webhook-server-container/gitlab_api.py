@@ -4,6 +4,8 @@ import re
 import gitlab
 import requests
 import yaml
+from constants import DYNAMIC_LABELS_DICT
+from github.GithubException import GitlabUpdateError
 
 
 class GitLabApi:
@@ -219,6 +221,10 @@ Available user actions:
         )
 
         if action == "add":
+            self.add_update_label(
+                label_color=f"#{DYNAMIC_LABELS_DICT['approved-by-']}",
+                label_name=self.approved_by_label,
+            )
             self.update_merge_request(
                 attribute_dict={"add_labels": [self.approved_by_label]}
             )
@@ -271,3 +277,12 @@ Available user actions:
             label.split("-")[0] for label in self.merge_request.labels
         ]
         return set(merge_labels_perfix) == set(mr_labels_prefixes)
+
+    def add_update_label(self, label_color, label_name):
+        try:
+            self.repository.labels.update(
+                name=label_name,
+                new_data={"color": label_color},
+            )
+        except GitlabUpdateError:
+            self.repository.labels.create({"name": label_name, "color": label_color})

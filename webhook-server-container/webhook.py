@@ -131,13 +131,11 @@ def create_webhook():
                 hook_data["enable_ssl_verification"] = False
                 project.hooks.create(hook_data)
 
-                for label in project.labels.list():
-                    label_name = label.name.lower()
-                    if label_name in STATIC_LABELS_DICT:
-                        project.labels.update(
-                            name=label.name,
-                            new_data={"color": f"#{ALL_LABELS_DICT[label_name]}"},
-                        )
+                for label_name, label_color in STATIC_LABELS_DICT.items():
+                    label_color = f"#{label_color}"
+                    gitlab_api.add_update_label(
+                        label_color=label_color, label_name=label_name
+                    )
 
             except UnknownObjectException:
                 continue
