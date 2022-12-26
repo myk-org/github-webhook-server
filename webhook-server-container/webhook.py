@@ -6,6 +6,7 @@ import yaml
 from constants import ALL_LABELS_DICT, STATIC_LABELS_DICT
 from github import Github
 from github.GithubException import UnknownObjectException
+from gitlab_api import GitLabApi
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException
 from urllib3.exceptions import MaxRetryError
@@ -133,8 +134,8 @@ def create_webhook():
 
                 for label_name, label_color in STATIC_LABELS_DICT.items():
                     label_color = f"#{label_color}"
-                    gitlab_api.add_update_label(
-                        label_color=label_color, label_name=label_name
+                    GitLabApi.add_update_label(
+                        project=project, label_color=label_color, label_name=label_name
                     )
 
             except UnknownObjectException:
