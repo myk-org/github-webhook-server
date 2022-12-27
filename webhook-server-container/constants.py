@@ -1,9 +1,6 @@
-LABELS_DICT = {
-    "approved-by-": "0E8A16",
-    "changes_requested-by-": "D93F0B",
-    "commented-by-": "BFD4F2",
+# Gitlab colors require a '#' prefix; e.g: #
+STATIC_LABELS_DICT = {
     "auto-cherry-pick": "1D76DB",
-    "branch-": "1D76DB",
     "do-not-merge": "B60205",
     "size/l": "F5621C",
     "size/m": "F09C74",
@@ -13,5 +10,15 @@ LABELS_DICT = {
     "size/xxl": "B60205",
     "verified": "0E8A16",
     "wip": "FEF2C0",
+    "can-be-merged": "0E8A17",
+}
+
+DYNAMIC_LABELS_DICT = {
+    "approved-by-": "0E8A16",
+    "changes_requested-by-": "D93F0B",
+    "commented-by-": "BFD4F2",
+    "branch-": "1D76DB",
     "base": "D4C5F9",
 }
+
+ALL_LABELS_DICT = {**STATIC_LABELS_DICT, **DYNAMIC_LABELS_DICT}
