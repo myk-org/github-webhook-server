@@ -265,14 +265,28 @@ Available user actions:
         self.merge_request.manager.update(self.merge_request.get_id(), attribute_dict)
 
     def can_be_merged(self):
-        """Returns True if PR is marked as verified and is approved by at least one maintainer and one reviewer"""
+        """Checks if an MR can be merged.
+
+        Returns True if PR is marked as verified and is approved by at least one maintainer and one reviewer and all
+        threads are resolved
+        """
         labels_prefix = ["Approved", "Reviewed", "verified"]
         merge_labels_labels = self.merge_request.labels
         self.app.logger.info(
             f"PR {self.repo_mr_log_message} labels: {merge_labels_labels}"
         )
         mr_labels_prefixes = [label.split("-")[0] for label in merge_labels_labels]
-        return set(labels_prefix).issubset(set(mr_labels_prefixes))
+
+        mr_notes = self.merge_request.notes.list(get_all=True)
+        all_threads_resolved = [
+            note.attributes["resolved"]
+            for note in mr_notes
+            if note.attributes["resolvable"]
+        ]
+
+        return set(labels_prefix).issubset(set(mr_labels_prefixes)) and all(
+            all_threads_resolved
+        )
 
     @staticmethod
     def add_update_label(project, label_color, label_name):
