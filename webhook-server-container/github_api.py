@@ -36,7 +36,8 @@ class GitHubApi:
         self.clone_repository_path = os.path.join("/", self.repository.name)
         self.reviewed_by_prefix = "-by-"
         self.auto_cherry_pick_prefix = "auto-cherry-pick:"
-        self.welcome_msg = """
+        supported_user_labels_str = "\n".join(STATIC_LABELS_DICT.keys())
+        self.welcome_msg = f"""
 The following are automatically added:
  * Add reviewers from OWNER file (in the root of the repository) under reviewers section.
  * Set PR size label.
@@ -46,6 +47,8 @@ Available user actions:
  * To mark PR as verified add `!verified` to a PR comment, to un-verify add `!-verified` to a PR comment.
         Verified label removed on each new commit push.
  * To cherry pick a merged PR add `!cherry-pick <target branch to cherry-pick to>` to a PR comment.
+ * To add a label by comment use `!<label name>`, to remove, use `!-<label name>`
+        Supported labels: {supported_user_labels_str}
             """
 
     def process_hook(self, data):
