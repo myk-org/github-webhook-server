@@ -4,7 +4,7 @@ import re
 import gitlab
 import requests
 import yaml
-from constants import DYNAMIC_LABELS_DICT
+from constants import DYNAMIC_LABELS_DICT, STATIC_LABELS_DICT
 from gitlab.exceptions import GitlabUpdateError
 
 
@@ -112,8 +112,13 @@ Available user actions:
 
     def label_by_user_comment(self, user_request):
         _label = user_request[1]
+        if _label not in STATIC_LABELS_DICT:
+            self.app.logger.info(
+                f"Label {_label} is not a predefined one, not adding it."
+            )
+            return
 
-        # Remove label
+            # Remove label
         if user_request[0] == "-":
             self.app.logger.info(
                 f"{self.repo_mr_log_message} Label removal requested by user: {_label}"
