@@ -7,7 +7,7 @@ from contextlib import contextmanager
 
 import requests
 import yaml
-from constants import ALL_LABELS_DICT
+from constants import ALL_LABELS_DICT, STATIC_LABELS_DICT
 from github import Github, GithubException
 from github.GithubException import UnknownObjectException
 
@@ -208,7 +208,8 @@ Available user actions:
 
         try:
             self.app.logger.info(
-                f"{self.repository_name}: Cherry picking {commit_hash} into {source_branch}, requested by {user_login}"
+                f"{self.repository_name}: Cherry picking {commit_hash} into {source_branch}, requested by "
+                f"{user_login}"
             )
             with change_directory(repo_path):
                 cherry_pick = subprocess.Popen(
@@ -341,6 +342,12 @@ Available user actions:
 
         # Skip sonar tests comments
         if "sonarsource.github.io" in _label:
+            return
+
+        if not any(_label in label_name for label_name in STATIC_LABELS_DICT):
+            self.app.logger.info(
+                f"Label {_label} is not a predefined one, will not be added / removed."
+            )
             return
 
         self.app.logger.info(
