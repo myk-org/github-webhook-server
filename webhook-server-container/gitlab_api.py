@@ -115,7 +115,7 @@ Available user actions:
 
     def label_by_user_comment(self, user_request):
         _label = user_request[1]
-        if not any(_label in label_name for label_name in STATIC_LABELS_DICT):
+        if not any(_label.lower() in label_name for label_name in STATIC_LABELS_DICT):
             self.app.logger.info(
                 f"Label {_label} is not a predefined one, will not be added / removed."
             )

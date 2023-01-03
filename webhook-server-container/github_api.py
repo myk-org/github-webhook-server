@@ -347,7 +347,7 @@ Available user actions:
         if "sonarsource.github.io" in _label:
             return
 
-        if not any(_label in label_name for label_name in STATIC_LABELS_DICT):
+        if not any(_label.lower() in label_name for label_name in STATIC_LABELS_DICT):
             self.app.logger.info(
                 f"Label {_label} is not a predefined one, will not be added / removed."
             )
