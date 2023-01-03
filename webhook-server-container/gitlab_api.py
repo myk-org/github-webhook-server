@@ -118,7 +118,7 @@ Available user actions:
             )
             return
 
-            # Remove label
+        # Remove label
         if user_request[0] == "-":
             self.app.logger.info(
                 f"{self.repo_mr_log_message} Label removal requested by user: {_label}"
