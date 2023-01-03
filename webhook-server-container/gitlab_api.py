@@ -4,7 +4,7 @@ import re
 import gitlab
 import requests
 import yaml
-from constants import DYNAMIC_LABELS_DICT
+from constants import DYNAMIC_LABELS_DICT, STATIC_LABELS_DICT
 from gitlab.exceptions import GitlabUpdateError
 
 
@@ -29,7 +29,8 @@ class GitLabApi:
         )
         self.user = self.hook_data["user"]
         self.username = self.user["username"]
-        self.welcome_msg = """
+        supported_user_labels_str = "\n".join(STATIC_LABELS_DICT.keys())
+        self.welcome_msg = f"""
 ** AUTOMATED **
 This is automated comment.
 
@@ -44,6 +45,8 @@ Available user actions:
         Verified label removed on each new commit push.
  * To approve an MR, either use the `Approve` button or add `!LGTM` or `!lgtm` to the MR comment.
  * To remove approval, either use the `Revoke approval` button or add `!-LGTM` or `!-lgtm` to the MR comment.
+  * To add a label by comment use `!<label name>`, to remove, use `!-<label name>`
+        Supported labels: {supported_user_labels_str}
             """
 
         # Always make sure that the repository's merge requests "All threads must be resolved" setting is enabled
@@ -112,6 +115,11 @@ Available user actions:
 
     def label_by_user_comment(self, user_request):
         _label = user_request[1]
+        if not any(_label in label_name for label_name in STATIC_LABELS_DICT):
+            self.app.logger.info(
+                f"Label {_label} is not a predefined one, will not be added / removed."
+            )
+            return
 
         # Remove label
         if user_request[0] == "-":
