@@ -7,7 +7,7 @@ from contextlib import contextmanager
 
 import requests
 import yaml
-from constants import ALL_LABELS_DICT, USER_LABELS_DICT
+from constants import ADD_STR, ALL_LABELS_DICT, DELETE_STR, USER_LABELS_DICT
 from github import Github, GithubException
 from github.GithubException import UnknownObjectException
 
@@ -94,11 +94,14 @@ Available user actions:
     def _get_last_commit(pull_request):
         return list(pull_request.get_commits())[-1]
 
-    def _remove_label(self, obj, label):
-        self.app.logger.info(f"{self.repository_name}: Removing label {label}")
-        return obj.remove_from_labels(label)
+    def _remove_label(self, pull_request, label):
+        pull_request_labels = self.obj_labels(obj=pull_request)
+        for _label in pull_request_labels:
+            if label in _label:
+                self.app.logger.info(f"{self.repository_name}: Removing label {label}")
+                return pull_request.remove_from_labels(label)
 
-    def _add_label(self, obj, label):
+    def _add_label(self, pull_request, label):
         if len(label) > 49:
             self.app.logger.warning(f"{label} is to long, not adding.")
             return
@@ -122,7 +125,7 @@ Available user actions:
         except UnknownObjectException:
             self.repository.create_label(name=label, color=color)
 
-        return obj.add_to_labels(label)
+        return pull_request.add_to_labels(label)
 
     @staticmethod
     def _generate_issue_title(pull_request):
@@ -335,12 +338,12 @@ Available user actions:
 
         label = f"{self.size_label_prefix}{_label}"
         if not current_size_label:
-            self._add_label(obj=pull_request, label=label)
+            self._add_label(pull_request=pull_request, label=label)
 
         else:
             if label.lower() != current_size_label.lower():
-                self._remove_label(obj=pull_request, label=current_size_label)
-                self._add_label(obj=pull_request, label=label)
+                self._remove_label(pull_request=pull_request, label=current_size_label)
+                self._add_label(pull_request=pull_request, label=label)
 
     def label_by_user_comment(self, issue, user_request):
         _label = user_request[1]
@@ -359,21 +362,27 @@ Available user actions:
             f"{self.repository_name}: Label requested by user: {_label}"
         )
         if user_request[0] == "-":
-            label = self.obj_labels(obj=issue).get(_label.lower())
-            if label:
-                self._remove_label(obj=issue, label=label.name)
+            if _label.lower() == "lgmt":
+                self.manage_reviewed_by_label(
+                    review_state="approved", action=DELETE_STR
+                )
+            else:
+                label = self.obj_labels(obj=issue).get(_label.lower())
+                if label:
+                    self._remove_label(pull_request=issue, label=label.name)
 
         else:
-            self._add_label(obj=issue, label=_label)
+            if _label.lower() == "lgmt":
+                self.manage_reviewed_by_label(review_state="approved", action=ADD_STR)
+            else:
+                self._add_label(pull_request=issue, label=_label)
 
     def reset_verify_label(self, pull_request):
         self.app.logger.info(
             f"{self.repository_name}: Processing reset verify label on new commit push"
         )
-        pull_labels = self.obj_labels(obj=pull_request)
         # Remove Verified label
-        if pull_labels.get(self.verified_label.lower()):
-            self._remove_label(obj=pull_request, label=self.verified_label)
+        self._remove_label(pull_request=pull_request, label=self.verified_label)
 
     def set_verify_check_pending(self, pull_request):
         self.app.logger.info(
@@ -510,7 +519,8 @@ Available user actions:
             pull_request.create_issue_comment(self.welcome_msg)
             self.add_size_label(pull_request=pull_request)
             self._add_label(
-                obj=pull_request, label=f"branch-{pull_request_data['base']['ref']}"
+                pull_request=pull_request,
+                label=f"branch-{pull_request_data['base']['ref']}",
             )
             self.app.logger.info(f"{self.repository_name}: Adding PR owner as assignee")
             parent_committer = self.get_pr_owner(
@@ -546,7 +556,7 @@ Available user actions:
                 if self.reviewed_by_prefix.lower() in label.lower()
             ]
             for _reviewed_label in reviewed_by_labels:
-                self._remove_label(obj=pull_request, label=_reviewed_label)
+                self._remove_label(pull_request=pull_request, label=_reviewed_label)
 
             if self.verified_job:
                 self.reset_verify_label(pull_request=pull_request)
@@ -580,21 +590,23 @@ Available user actions:
             approved
             changes_requested
             """
-            reviewed_user = self.hook_data["review"]["user"]["login"]
-            user_label = f"{self.reviewed_by_prefix}{reviewed_user}"
-            reviewed_user_state = self.hook_data["review"]["state"]
-            pr_owner = self.hook_data["pull_request"]["user"]["login"]
-            if pr_owner == reviewed_user:
-                return
-
-            pull_request = self.repository.get_pull(
-                self.hook_data["pull_request"]["number"]
+            self.manage_reviewed_by_label(
+                review_state=self.hook_data["review"]["state"], action=ADD_STR
             )
-            reviewer_label = f"{reviewed_user_state.title()}{user_label}"
-            pull_request_labels = self.obj_labels(obj=pull_request)
-            for _label in pull_request_labels:
-                if user_label in _label:
-                    self._remove_label(obj=pull_request, label=_label)
 
-            # if reviewer_label not in self.obj_labels(obj=pull_request):
-            self._add_label(obj=pull_request, label=reviewer_label)
+    def manage_reviewed_by_label(self, review_state, action):
+        reviewed_user = self.hook_data["review"]["user"]["login"]
+        user_label = f"{self.reviewed_by_prefix}{reviewed_user}"
+        pr_owner = self.hook_data["pull_request"]["user"]["login"]
+        if pr_owner == reviewed_user:
+            return
+
+        pull_request = self.repository.get_pull(
+            self.hook_data["pull_request"]["number"]
+        )
+        reviewer_label = f"{review_state.title()}{user_label}"
+
+        if action == ADD_STR:
+            self._add_label(pull_request=pull_request, label=reviewer_label)
+        if action == DELETE_STR:
+            self._remove_label(pull_request=pull_request, label=reviewer_label)

@@ -4,7 +4,7 @@ import re
 import gitlab
 import requests
 import yaml
-from constants import DYNAMIC_LABELS_DICT, USER_LABELS_DICT
+from constants import ADD_STR, DELETE_STR, DYNAMIC_LABELS_DICT, USER_LABELS_DICT
 from gitlab.exceptions import GitlabUpdateError
 
 
@@ -130,7 +130,7 @@ Available user actions:
             )
             if self.lgtm_label in _label.lower():
                 if self.approved_by_label in self.merge_request.labels:
-                    self.add_remove_user_approve_label(action="remove")
+                    self.add_remove_user_approve_label(action=DELETE_STR)
 
             else:
                 self.update_merge_request(attribute_dict={"remove_labels": [_label]})
@@ -141,7 +141,7 @@ Available user actions:
             )
             if self.lgtm_label in _label.lower():
                 if self.approved_by_label not in self.merge_request.labels:
-                    self.add_remove_user_approve_label(action="add")
+                    self.add_remove_user_approve_label(action=ADD_STR)
             else:
                 self.update_merge_request(attribute_dict={"add_labels": [_label]})
 
@@ -204,11 +204,11 @@ Available user actions:
         if [
             self.username not in label for label in self.merge_request.labels
         ] or not self.merge_request.labels:
-            self.add_remove_user_approve_label(action="add")
+            self.add_remove_user_approve_label(action=ADD_STR)
 
     def process_unapproved_merge_request_webhook_data(self):
         if [self.username in label for label in self.merge_request.labels]:
-            self.add_remove_user_approve_label(action="remove")
+            self.add_remove_user_approve_label(action=DELETE_STR)
 
     @property
     def approved_by_label(self):
@@ -216,11 +216,11 @@ Available user actions:
 
     def add_remove_user_approve_label(self, action):
         self.app.logger.info(
-            f"{self.repo_mr_log_message} {'Add' if action == 'add' else 'Remove'} "
+            f"{self.repo_mr_log_message} {'Add' if action == ADD_STR else DELETE_STR} "
             f"approved label for {self.user['username']}"
         )
 
-        if action == "add":
+        if action == ADD_STR:
             self.add_update_label(
                 project=self.repository,
                 label_color=f"#{DYNAMIC_LABELS_DICT['approved-by-']}",
@@ -229,7 +229,7 @@ Available user actions:
             self.update_merge_request(
                 attribute_dict={"add_labels": [self.approved_by_label]}
             )
-        else:
+        if action == DELETE_STR:
             self.update_merge_request(
                 attribute_dict={"remove_labels": [self.approved_by_label]}
             )
