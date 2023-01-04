@@ -507,6 +507,7 @@ Available user actions:
 
         if hook_action == "opened":
             pull_request_data = self.hook_data["pull_request"]
+            pull_request.create_issue_comment(self.welcome_msg)
             self.add_size_label(pull_request=pull_request)
             self._add_label(
                 obj=pull_request, label=f"branch-{pull_request_data['base']['ref']}"
@@ -519,8 +520,6 @@ Available user actions:
             self.assign_reviewers(pull_request=pull_request)
             self.create_issue_for_new_pr(pull_request=pull_request)
             self.app.logger.info(f"{self.repository_name}: Creating welcome comment")
-
-            pull_request.create_issue_comment(self.welcome_msg)
 
         if hook_action == "closed" or hook_action == "merged":
             self.close_issue_for_merged_or_closed_pr(
