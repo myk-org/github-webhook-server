@@ -51,7 +51,7 @@ Available user actions:
  * To cherry pick a merged PR add `!cherry-pick <target branch to cherry-pick to>` to a PR comment.
  * To add a label by comment use `!<label name>`, to remove, use `!-<label name>`
         Supported labels:
-            {supported_user_labels_str}
+        {supported_user_labels_str}
             """
 
     def process_hook(self, data):
@@ -346,7 +346,7 @@ Available user actions:
                 self._remove_label(pull_request=pull_request, label=current_size_label)
                 self._add_label(pull_request=pull_request, label=label)
 
-    def label_by_user_comment(self, issue, user_request):
+    def label_by_user_comment(self, issue, user_request, reviewed_user):
         _label = user_request[1]
 
         # Skip sonar tests comments
@@ -365,7 +365,9 @@ Available user actions:
         if user_request[0] == "-":
             if _label.lower() == "lgtm":
                 self.manage_reviewed_by_label(
-                    review_state="approved", action=DELETE_STR
+                    review_state="approved",
+                    action=DELETE_STR,
+                    reviewed_user=reviewed_user,
                 )
             else:
                 label = self.obj_labels(obj=issue).get(_label.lower())
@@ -374,7 +376,9 @@ Available user actions:
 
         else:
             if _label.lower() == "lgtm":
-                self.manage_reviewed_by_label(review_state="approved", action=ADD_STR)
+                self.manage_reviewed_by_label(
+                    review_state="approved", action=ADD_STR, reviewed_user=reviewed_user
+                )
             else:
                 self._add_label(pull_request=issue, label=_label)
 
@@ -495,7 +499,9 @@ Available user actions:
                 self.app.logger.info(
                     f"{self.repository_name}: Processing label by user comment"
                 )
-                self.label_by_user_comment(issue=issue, user_request=user_request)
+                self.label_by_user_comment(
+                    issue=issue, user_request=user_request, reviewed_user=user_login
+                )
 
     @staticmethod
     def get_pr_owner(pull_request, pull_request_data):
@@ -592,11 +598,12 @@ Available user actions:
             changes_requested
             """
             self.manage_reviewed_by_label(
-                review_state=self.hook_data["review"]["state"], action=ADD_STR
+                review_state=self.hook_data["review"]["state"],
+                action=ADD_STR,
+                reviewed_user=self.hook_data["review"]["user"]["login"],
             )
 
-    def manage_reviewed_by_label(self, review_state, action):
-        reviewed_user = self.hook_data["review"]["user"]["login"]
+    def manage_reviewed_by_label(self, review_state, action, reviewed_user):
         user_label = f"{self.reviewed_by_prefix}{reviewed_user}"
         pr_owner = self.hook_data["pull_request"]["user"]["login"]
         if pr_owner == reviewed_user:
