@@ -1,15 +1,18 @@
 # Gitlab colors require a '#' prefix; e.g: #
-STATIC_LABELS_DICT = {
-    "auto-cherry-pick": "1D76DB",
+USER_LABELS_DICT = {
     "do-not-merge": "B60205",
+    "verified": "0E8A16",
+    "wip": "FEF2C0",
+}
+STATIC_LABELS_DICT = {
+    **USER_LABELS_DICT,
+    "auto-cherry-pick": "1D76DB",
     "size/l": "F5621C",
     "size/m": "F09C74",
     "size/s": "0E8A16",
     "size/xl": "D93F0B",
     "size/xs": "ededed",
     "size/xxl": "B60205",
-    "verified": "0E8A16",
-    "wip": "FEF2C0",
     "can-be-merged": "0E8A17",
 }
 

@@ -7,7 +7,7 @@ from contextlib import contextmanager
 
 import requests
 import yaml
-from constants import ALL_LABELS_DICT, STATIC_LABELS_DICT
+from constants import ALL_LABELS_DICT, USER_LABELS_DICT
 from github import Github, GithubException
 from github.GithubException import UnknownObjectException
 
@@ -36,7 +36,9 @@ class GitHubApi:
         self.clone_repository_path = os.path.join("/", self.repository.name)
         self.reviewed_by_prefix = "-by-"
         self.auto_cherry_pick_prefix = "auto-cherry-pick:"
-        supported_user_labels_str = "\n".join(STATIC_LABELS_DICT.keys())
+        supported_user_labels_str = "".join(
+            [f"    * {label}\n" for label in USER_LABELS_DICT.keys()]
+        )
         self.welcome_msg = f"""
 The following are automatically added:
  * Add reviewers from OWNER file (in the root of the repository) under reviewers section.
@@ -347,7 +349,7 @@ Available user actions:
         if "sonarsource.github.io" in _label:
             return
 
-        if not any(_label.lower() in label_name for label_name in STATIC_LABELS_DICT):
+        if not any(_label.lower() in label_name for label_name in USER_LABELS_DICT):
             self.app.logger.info(
                 f"Label {_label} is not a predefined one, will not be added / removed."
             )

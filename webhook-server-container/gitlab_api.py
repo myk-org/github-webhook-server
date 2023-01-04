@@ -4,7 +4,7 @@ import re
 import gitlab
 import requests
 import yaml
-from constants import DYNAMIC_LABELS_DICT, STATIC_LABELS_DICT
+from constants import DYNAMIC_LABELS_DICT, USER_LABELS_DICT
 from gitlab.exceptions import GitlabUpdateError
 
 
@@ -29,7 +29,9 @@ class GitLabApi:
         )
         self.user = self.hook_data["user"]
         self.username = self.user["username"]
-        supported_user_labels_str = "\n".join(STATIC_LABELS_DICT.keys())
+        supported_user_labels_str = "".join(
+            [f"    * {label}\n" for label in USER_LABELS_DICT.keys()]
+        )
         self.welcome_msg = f"""
 ** AUTOMATED **
 This is automated comment.
@@ -115,7 +117,7 @@ Available user actions:
 
     def label_by_user_comment(self, user_request):
         _label = user_request[1]
-        if not any(_label.lower() in label_name for label_name in STATIC_LABELS_DICT):
+        if not any(_label.lower() in label_name for label_name in USER_LABELS_DICT):
             self.app.logger.info(
                 f"Label {_label} is not a predefined one, will not be added / removed."
             )
