@@ -363,7 +363,7 @@ Available user actions:
             f"{self.repository_name}: Label requested by user: {_label}"
         )
         if user_request[0] == "-":
-            if _label.lower() == "lgmt":
+            if _label.lower() == "lgtm":
                 self.manage_reviewed_by_label(
                     review_state="approved", action=DELETE_STR
                 )
@@ -373,7 +373,7 @@ Available user actions:
                     self._remove_label(pull_request=issue, label=label.name)
 
         else:
-            if _label.lower() == "lgmt":
+            if _label.lower() == "lgtm":
                 self.manage_reviewed_by_label(review_state="approved", action=ADD_STR)
             else:
                 self._add_label(pull_request=issue, label=_label)
