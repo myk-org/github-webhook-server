@@ -3,6 +3,7 @@ USER_LABELS_DICT = {
     "do-not-merge": "B60205",
     "verified": "0E8A16",
     "wip": "FEF2C0",
+    "lgtm": "0E8A16",
 }
 STATIC_LABELS_DICT = {
     **USER_LABELS_DICT,
