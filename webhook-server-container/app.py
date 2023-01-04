@@ -3,6 +3,7 @@ from flask import Flask, request
 from github_api import GitHubApi
 from gitlab_api import GitLabApi
 
+
 urllib3.disable_warnings()
 
 app = Flask("webhook_server")
