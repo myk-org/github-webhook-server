@@ -48,7 +48,8 @@ Available user actions:
  * To approve an MR, either use the `Approve` button or add `!LGTM` or `!lgtm` to the MR comment.
  * To remove approval, either use the `Revoke approval` button or add `!-LGTM` or `!-lgtm` to the MR comment.
   * To add a label by comment use `!<label name>`, to remove, use `!-<label name>`
-        Supported labels: {supported_user_labels_str}
+        Supported labels:
+            {supported_user_labels_str}
             """
 
         # Always make sure that the repository's merge requests "All threads must be resolved" setting is enabled
