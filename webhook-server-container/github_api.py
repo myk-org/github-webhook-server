@@ -598,12 +598,13 @@ Available user actions:
             )
 
     def manage_reviewed_by_label(self, review_state, action, reviewed_user):
+        base_dict = self.hook_data.get("issue", self.hook_data.get("pull_request"))
         user_label = f"{self.reviewed_by_prefix}{reviewed_user}"
-        pr_owner = self.hook_data["issue"]["user"]["login"]
+        pr_owner = base_dict["user"]["login"]
         if pr_owner == reviewed_user:
             return
 
-        pull_request = self.repository.get_pull(self.hook_data["issue"]["number"])
+        pull_request = self.repository.get_pull(base_dict["number"])
         reviewer_label = f"{review_state.title()}{user_label}"
 
         if action == ADD_STR:
