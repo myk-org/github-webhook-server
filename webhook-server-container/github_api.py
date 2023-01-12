@@ -355,7 +355,7 @@ Available user actions:
             return
 
         self.app.logger.info(
-            f"{self.repository_name}: Label requested by user: {_label}"
+            f"{self.repository_name}: Label requested by user {reviewed_user}: {_label}"
         )
         if user_request[0] == "-":
             if _label.lower() == "lgtm":
@@ -600,13 +600,11 @@ Available user actions:
 
     def manage_reviewed_by_label(self, review_state, action, reviewed_user):
         user_label = f"{self.reviewed_by_prefix}{reviewed_user}"
-        pr_owner = self.hook_data["pull_request"]["user"]["login"]
+        pr_owner = self.hook_data["issue"]["user"]["login"]
         if pr_owner == reviewed_user:
             return
 
-        pull_request = self.repository.get_pull(
-            self.hook_data["pull_request"]["number"]
-        )
+        pull_request = self.repository.get_pull(self.hook_data["issue"]["number"])
         reviewer_label = f"{review_state.title()}{user_label}"
 
         if action == ADD_STR:
