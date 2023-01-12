@@ -5,7 +5,6 @@ import shutil
 import subprocess
 from contextlib import contextmanager
 
-import requests
 import yaml
 from constants import LABELS_DICT
 from github import Github, GithubException
@@ -292,12 +291,8 @@ Available user actions:
 
     @property
     def reviewers(self):
-        owners_file_url = (
-            f"https://raw.githubusercontent.com/{self.repository.owner.login}/"
-            f"{self.repository.name}/main/OWNERS"
-        )
-        content = requests.get(owners_file_url).text
-        return yaml.safe_load(content).get("reviewers", [])
+        owners_content = self.repository.get_contents("OWNERS")
+        return yaml.safe_load(owners_content.decoded_content).get("reviewers", [])
 
     def assign_reviewers(self, pull_request):
         for reviewer in self.reviewers:
