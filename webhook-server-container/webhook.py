@@ -3,9 +3,10 @@ import time
 
 import gitlab
 import yaml
-from constants import LABELS_DICT
+from constants import ALL_LABELS_DICT, STATIC_LABELS_DICT
 from github import Github
 from github.GithubException import UnknownObjectException
+from gitlab_api import GitLabApi
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException
 from urllib3.exceptions import MaxRetryError
@@ -83,8 +84,9 @@ def create_webhook():
                 )
                 repo.create_hook("web", config, events, active=True)
                 for label in repo.get_labels():
-                    if label.name.lower() in LABELS_DICT:
-                        label.edit(label.name, color=LABELS_DICT[label.name.lower()])
+                    label_name = label.name.lower()
+                    if label_name in ALL_LABELS_DICT:
+                        label.edit(label.name, color=ALL_LABELS_DICT[label_name])
 
             except UnknownObjectException:
                 continue
@@ -129,6 +131,13 @@ def create_webhook():
                 hook_data["url"] = config["url"]
                 hook_data["enable_ssl_verification"] = False
                 project.hooks.create(hook_data)
+
+                for label_name, label_color in STATIC_LABELS_DICT.items():
+                    label_color = f"#{label_color}"
+                    GitLabApi.add_update_label(
+                        project=project, label_color=label_color, label_name=label_name
+                    )
+
             except UnknownObjectException:
                 continue
 

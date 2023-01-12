@@ -4,6 +4,8 @@ import re
 import gitlab
 import requests
 import yaml
+from constants import ADD_STR, DELETE_STR, DYNAMIC_LABELS_DICT, USER_LABELS_DICT
+from gitlab.exceptions import GitlabUpdateError
 
 
 class GitLabApi:
@@ -21,15 +23,18 @@ class GitLabApi:
         self.verified_label = "verified"
         self.lgtm_label = "lgtm"
         self.label_by_str = "-By-"
+        self.can_be_merged_label = "can-be-merged"
         self.repo_mr_log_message = (
             f"{self.repository_full_name} {self.merge_request.iid}:"
         )
         self.user = self.hook_data["user"]
         self.username = self.user["username"]
-        self.welcome_msg = """
+        supported_user_labels_str = "".join(
+            [f"    * {label}\n" for label in USER_LABELS_DICT.keys()]
+        )
+        self.welcome_msg = f"""
 ** AUTOMATED **
-This is automated comment, do not resolve/unresolved it.
-The resolve status will be updated automatically.
+This is automated comment.
 
 The following are automatically added:
  * Mention reviewers from OWNER file (in the root of the repository).
@@ -42,8 +47,10 @@ Available user actions:
         Verified label removed on each new commit push.
  * To approve an MR, either use the `Approve` button or add `!LGTM` or `!lgtm` to the MR comment.
  * To remove approval, either use the `Revoke approval` button or add `!-LGTM` or `!-lgtm` to the MR comment.
+  * To add a label by comment use `!<label name>`, to remove, use `!-<label name>`
+        Supported labels:
+        {supported_user_labels_str}
             """
-        self._welcome_msg_note = self.welcome_msg_note()
 
         # Always make sure that the repository's merge requests "All threads must be resolved" setting is enabled
         if not self.repository.only_allow_merge_if_all_discussions_are_resolved:
@@ -111,6 +118,11 @@ Available user actions:
 
     def label_by_user_comment(self, user_request):
         _label = user_request[1]
+        if not any(_label.lower() in label_name for label_name in USER_LABELS_DICT):
+            self.app.logger.info(
+                f"Label {_label} is not a predefined one, will not be added / removed."
+            )
+            return
 
         # Remove label
         if user_request[0] == "-":
@@ -119,7 +131,7 @@ Available user actions:
             )
             if self.lgtm_label in _label.lower():
                 if self.approved_by_label in self.merge_request.labels:
-                    self.add_remove_user_approve_label(action="remove")
+                    self.add_remove_user_approve_label(action=DELETE_STR)
 
             else:
                 self.update_merge_request(attribute_dict={"remove_labels": [_label]})
@@ -130,13 +142,13 @@ Available user actions:
             )
             if self.lgtm_label in _label.lower():
                 if self.approved_by_label not in self.merge_request.labels:
-                    self.add_remove_user_approve_label(action="add")
+                    self.add_remove_user_approve_label(action=ADD_STR)
             else:
                 self.update_merge_request(attribute_dict={"add_labels": [_label]})
 
     def reset_verify_label(self):
         self.app.logger.info(
-            f"{self.repository_full_name}: Processing reset verify label on new commit push"
+            f"{self.repo_mr_log_message}: Processing reset verify label on new commit push"
         )
         # Remove Verified label
         if self.verified_label in self.merge_request.labels:
@@ -147,9 +159,7 @@ Available user actions:
 
     def add_welcome_message(self):
         self.app.logger.info(f"{self.repo_mr_log_message} Creating welcome comment")
-        self.merge_request.discussions.create(
-            {"body": self.welcome_msg, "created_at": self.merge_request.created_at}
-        )
+        self.merge_request.notes.create({"body": self.welcome_msg})
 
     def process_comment_webhook_data(self):
         note_body = self.hook_data["object_attributes"]["description"]
@@ -160,52 +170,46 @@ Available user actions:
             return
         user_requests = re.findall(r"!(-)?(.*)", note_body)
         if user_requests:
-            self.app.logger.info(f"Note body: {note_body}")
+            self.app.logger.info(f"{self.repo_mr_log_message} Note body: {note_body}")
             for user_request in user_requests:
                 self.app.logger.info(
                     f"{self.repo_mr_log_message} Processing label by user comment"
                 )
                 self.label_by_user_comment(user_request=user_request)
 
-        if self.get_merge_status():
-            self._welcome_msg_note.manager.update(
-                self._welcome_msg_note.id, {"resolved": True}
-            )
-
     def process_new_merge_request_webhook_data(self):
         # TODO: create new issue, set_label_size
+        self.add_welcome_message()
         self.add_assignee()
         self.add_reviewers()
 
     def process_updated_merge_request_webhook_data(self):
         # TODO: Replace with bot actions
         if self.hook_data["changes"].get("labels"):
-            self.app.logger.info(
-                f"{self.repo_mr_log_message} No need to update the merge request, labels were updated"
-            )
+            if self.can_be_merged():
+                if self.can_be_merged_label not in self.merge_request.labels:
+                    self.update_merge_request(
+                        attribute_dict={"add_labels": self.can_be_merged_label}
+                    )
+            else:
+                if self.can_be_merged_label in self.merge_request.labels:
+                    self.update_merge_request(
+                        attribute_dict={"remove_labels": self.can_be_merged_label}
+                    )
             return
+
         self.reset_verify_label()
         self.reset_reviewed_by_label()
-        self._welcome_msg_note.manager.update(
-            self._welcome_msg_note.id, {"resolved": False}
-        )
 
     def process_approved_merge_request_webhook_data(self):
         if [
             self.username not in label for label in self.merge_request.labels
         ] or not self.merge_request.labels:
-            self.add_remove_user_approve_label(action="add")
-        if self.get_merge_status():
-            self._welcome_msg_note.manager.update(
-                self._welcome_msg_note.id, {"resolved": True}
-            )
+            self.add_remove_user_approve_label(action=ADD_STR)
 
     def process_unapproved_merge_request_webhook_data(self):
         if [self.username in label for label in self.merge_request.labels]:
-            self.add_remove_user_approve_label(action="remove")
-        self._welcome_msg_note.manager.update(
-            self._welcome_msg_note.id, {"resolved": False}
-        )
+            self.add_remove_user_approve_label(action=DELETE_STR)
 
     @property
     def approved_by_label(self):
@@ -213,15 +217,20 @@ Available user actions:
 
     def add_remove_user_approve_label(self, action):
         self.app.logger.info(
-            f"{self.repo_mr_log_message} {'Add' if action == 'add' else 'Remove'} "
+            f"{self.repo_mr_log_message} {'Add' if action == ADD_STR else DELETE_STR} "
             f"approved label for {self.user['username']}"
         )
 
-        if action == "add":
+        if action == ADD_STR:
+            self.add_update_label(
+                project=self.repository,
+                label_color=f"#{DYNAMIC_LABELS_DICT['approved-by-']}",
+                label_name=self.approved_by_label,
+            )
             self.update_merge_request(
                 attribute_dict={"add_labels": [self.approved_by_label]}
             )
-        else:
+        if action == DELETE_STR:
             self.update_merge_request(
                 attribute_dict={"remove_labels": [self.approved_by_label]}
             )
@@ -261,22 +270,41 @@ Available user actions:
         attribute_dict: dict with merge request attribute to update
         https://docs.gitlab.com/ee/api/merge_requests.html#update-mr
         """
+        self.app.logger.info(
+            f"{self.repo_mr_log_message} Updating merge request: {attribute_dict}"
+        )
         self.merge_request.manager.update(self.merge_request.get_id(), attribute_dict)
 
-    def welcome_msg_note(self):
-        self.app.logger.info("Check if welcome note exists.")
-        for note in self.merge_request.notes.list(iterator=True):
-            if self.welcome_msg.rstrip() in note.body:
-                self.app.logger.info("Found welcome note")
-                return note
-        self.app.logger.info("Welcome message not found, creating one.")
-        self.add_welcome_message()
-        self.app.logger.info("Getting welcome note after note was added.")
-        return self.welcome_msg_note()
+    def can_be_merged(self):
+        """Checks if an MR can be merged.
 
-    def get_merge_status(self):
-        merge_labels_perfix = ["Approved", "Reviewed", "verified"]
-        mr_labels_prefixes = [
-            label.split("-")[0] for label in self.merge_request.labels
+        Returns True if PR is marked as verified and is approved by at least one maintainer and one reviewer and all
+        threads are resolved
+        """
+        labels_prefix = ["Approved", "Reviewed", "verified"]
+        merge_labels_labels = self.merge_request.labels
+        self.app.logger.info(
+            f"PR {self.repo_mr_log_message} labels: {merge_labels_labels}"
+        )
+        mr_labels_prefixes = [label.split("-")[0] for label in merge_labels_labels]
+
+        mr_notes = self.merge_request.notes.list(get_all=True)
+        all_threads_resolved = [
+            note.attributes["resolved"]
+            for note in mr_notes
+            if note.attributes["resolvable"]
         ]
-        return set(merge_labels_perfix) == set(mr_labels_prefixes)
+
+        return set(labels_prefix).issubset(set(mr_labels_prefixes)) and all(
+            all_threads_resolved
+        )
+
+    @staticmethod
+    def add_update_label(project, label_color, label_name):
+        try:
+            project.labels.update(
+                name=label_name,
+                new_data={"color": label_color},
+            )
+        except GitlabUpdateError:
+            project.labels.create({"name": label_name, "color": label_color})
