@@ -406,12 +406,14 @@ Available user actions:
             context="Verified",
         )
 
-    def set_run_tox_check_failed(self, pull_request, tox_error):
-        self.app.logger.info(f"{self.repository_name}: Processing set tox check failed")
+    def set_run_tox_check_failure(self, pull_request, tox_error):
+        self.app.logger.info(
+            f"{self.repository_name}: Processing set tox check failure"
+        )
         error_comment = pull_request.create_issue_comment(tox_error)
         last_commit = self._get_last_commit(pull_request)
         last_commit.create_status(
-            state="failed",
+            state="failure",
             description="Failed",
             target_url=error_comment.url,
             context="tox",
@@ -650,7 +652,7 @@ Available user actions:
                     try:
                         subprocess.check_output(shlex.split("tox"))
                     except subprocess.CalledProcessError as ex:
-                        self.set_run_tox_check_failed(
+                        self.set_run_tox_check_failure(
                             pull_request=pull_request,
                             tox_error=ex.output.decode("utf-8"),
                         )
