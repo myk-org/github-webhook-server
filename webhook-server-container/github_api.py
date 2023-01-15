@@ -540,8 +540,9 @@ Available user actions:
                 self.label_by_user_comment(
                     issue=issue, user_request=user_request, reviewed_user=user_login
                 )
-            for user_command in _user_commands:
-                self.user_commands(command=user_command, pull_request=pull_request)
+
+        for user_command in _user_commands:
+            self.user_commands(command=user_command, pull_request=pull_request)
 
     @staticmethod
     def get_pr_owner(pull_request, pull_request_data):
