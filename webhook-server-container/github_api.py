@@ -409,6 +409,9 @@ Available user actions:
         )
 
     def set_run_tox_check_pending(self, pull_request):
+        if not self.tox_enabled:
+            return
+
         self.app.logger.info(
             f"{self.repository_name}: Processing set tox check pending"
         )
@@ -557,6 +560,7 @@ Available user actions:
             pull_request_data = self.hook_data["pull_request"]
             pull_request.create_issue_comment(self.welcome_msg)
             self.set_run_tox_check_pending(pull_request=pull_request)
+
             self.add_size_label(pull_request=pull_request)
             self._add_label(
                 pull_request=pull_request,
@@ -656,25 +660,30 @@ Available user actions:
             self._remove_label(pull_request=pull_request, label=reviewer_label)
 
     def run_tox(self, pull_request):
+        if not self.tox_enabled:
+            return
+
         with self._clone_repository(path_suffix=f"tox-{uuid.uuid4()}") as repo_path:
             with change_directory(repo_path):
+                last_commit = self._get_last_commit(pull_request=pull_request).sha
+                self.app.logger.info(f"Cherry-pick {last_commit}")
                 subprocess.Popen(
-                    shlex.split(f"git cherry-pick {pull_request.merge_commit_sha}"),
+                    shlex.split(f"git cherry-pick {last_commit}"),
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                 )
-                if self.tox_enabled:
-                    try:
-                        cmd = "tox"
-                        if self.tox_enabled != "all":
-                            tests = self.tox_enabled.replace(" ", "")
-                            cmd = f"-e {tests}"
+                try:
+                    cmd = "tox"
+                    if self.tox_enabled != "all":
+                        tests = self.tox_enabled.replace(" ", "")
+                        cmd = f"-e {tests}"
 
-                        subprocess.check_output(shlex.split(cmd))
-                    except subprocess.CalledProcessError as ex:
-                        self.set_run_tox_check_failure(
-                            pull_request=pull_request,
-                            tox_error=ex.output.decode("utf-8"),
-                        )
-                    else:
-                        self.set_run_tox_check_success(pull_request=pull_request)
+                    self.app.logger.info(f"Run tox with {cmd}")
+                    subprocess.check_output(shlex.split(cmd))
+                except subprocess.CalledProcessError as ex:
+                    self.set_run_tox_check_failure(
+                        pull_request=pull_request,
+                        tox_error=ex.output.decode("utf-8"),
+                    )
+                else:
+                    self.set_run_tox_check_success(pull_request=pull_request)
