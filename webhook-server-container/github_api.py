@@ -474,6 +474,7 @@ Available user actions:
             return
 
         issue_number = self.hook_data["issue"]["number"]
+        self.app.logger.info(f"Processing issue {issue_number}")
         issue = self.repository.get_issue(issue_number)
         body = self.hook_data["comment"]["body"]
         if body == self.welcome_msg:
@@ -482,10 +483,22 @@ Available user actions:
             )
             return
 
+        try:
+            pull_request = self.repository.get_pull(issue_number)
+        except UnknownObjectException:
+            self.app.logger.error(f"Pull request {issue_number} not found")
+            return
+
         _user_requests = re.findall(r"!(-)?(.*)", body)
+        if _user_requests:
+            self.app.logger.info(f"User comment: {_user_requests}")
+
         _user_commands = re.findall(r"/(.*)", body)
+        if _user_commands:
+            self.app.logger.info(f"User commands: {_user_commands}")
+
         user_login = self.hook_data["sender"]["login"]
-        pull_request = self.repository.get_pull(issue_number)
+
         for user_request in _user_requests:
             if "cherry-pick" in user_request[1]:
                 self.app.logger.info(
@@ -703,6 +716,7 @@ Available user actions:
                     self.set_run_tox_check_success(pull_request=pull_request)
 
     def user_commands(self, command, pull_request):
+        self.app.logger.info(f"Process user command: {command}")
         if command == "tox":
             self.set_run_tox_check_pending(pull_request=pull_request)
             self.run_tox(pull_request=pull_request)
