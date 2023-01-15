@@ -409,7 +409,7 @@ Available user actions:
 
     def set_run_tox_check_pending(self, pull_request):
         self.app.logger.info(
-            f"{self.repository_name}: Processing set tox check failure"
+            f"{self.repository_name}: Processing set tox check pending"
         )
         last_commit = self._get_last_commit(pull_request)
         last_commit.create_status(
@@ -577,6 +577,7 @@ Available user actions:
             )
 
         if hook_action == "synchronize":
+            self.set_run_tox_check_pending(pull_request=pull_request)
             self.assign_reviewers(pull_request=pull_request)
             all_labels = self.obj_labels(obj=pull_request)
             current_size_label = [
