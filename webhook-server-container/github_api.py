@@ -407,7 +407,7 @@ Available user actions:
         last_commit = self._get_last_commit(pull_request)
         last_commit.create_status(
             state="success",
-            description="Waiting for verification (!verified)",
+            description="Verified",
             context="Verified",
         )
 
