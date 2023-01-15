@@ -679,6 +679,7 @@ Available user actions:
                             "git config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
                         )
                     )
+                    subprocess.check_output(shlex.split("git fetch --all"))
                     subprocess.check_output(shlex.split(f"git checkout {pr_number}"))
                 except subprocess.CalledProcessError as ex:
                     self.app.logger.error(f"checkout for {pr_number} failed: {ex}")
