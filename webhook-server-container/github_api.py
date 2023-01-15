@@ -3,6 +3,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import uuid
 from contextlib import contextmanager
 
 import yaml
@@ -406,6 +407,17 @@ Available user actions:
             context="Verified",
         )
 
+    def set_run_tox_check_pending(self, pull_request):
+        self.app.logger.info(
+            f"{self.repository_name}: Processing set tox check failure"
+        )
+        last_commit = self._get_last_commit(pull_request)
+        last_commit.create_status(
+            state="pending",
+            description="Pending",
+            context="tox",
+        )
+
     def set_run_tox_check_failure(self, pull_request, tox_error):
         self.app.logger.info(
             f"{self.repository_name}: Processing set tox check failure"
@@ -543,6 +555,7 @@ Available user actions:
         if hook_action == "opened":
             pull_request_data = self.hook_data["pull_request"]
             pull_request.create_issue_comment(self.welcome_msg)
+            self.set_run_tox_check_pending(pull_request=pull_request)
             self.add_size_label(pull_request=pull_request)
             self._add_label(
                 pull_request=pull_request,
@@ -641,7 +654,7 @@ Available user actions:
             self._remove_label(pull_request=pull_request, label=reviewer_label)
 
     def run_tox(self, pull_request):
-        with self._clone_repository(path_suffix="run-tox") as repo_path:
+        with self._clone_repository(path_suffix=f"tox-{uuid.uuid4()}") as repo_path:
             with change_directory(repo_path):
                 subprocess.Popen(
                     shlex.split(f"git cherry-pick {pull_request.merge_commit_sha}"),
