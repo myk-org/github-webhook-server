@@ -427,7 +427,7 @@ Available user actions:
         last_commit.create_status(
             state="failure",
             description="Failed",
-            target_url=error_comment.url,
+            target_url=error_comment.html_url,
             context="tox",
         )
 
