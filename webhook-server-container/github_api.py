@@ -391,7 +391,7 @@ Available user actions:
         last_commit.create_status(
             state="pending",
             description="Waiting for verification (!verified)",
-            context="Verified label",
+            context="Verified",
         )
 
     def set_verify_check_success(self, pull_request):
@@ -400,7 +400,27 @@ Available user actions:
         last_commit.create_status(
             state="success",
             description="Waiting for verification (!verified)",
-            context="Verified label",
+            context="Verified",
+        )
+
+    def set_run_tox_check_failed(self, pull_request, tox_error):
+        self.app.logger.info(f"{self.repository_name}: Processing set tox check failed")
+        error_comment = pull_request.create_issue_comment(tox_error)
+        last_commit = self._get_last_commit(pull_request)
+        last_commit.create_status(
+            state="failed",
+            description="Failed",
+            target_url=error_comment.url,
+            context="tox",
+        )
+
+    def set_run_tox_check_success(self, pull_request):
+        self.app.logger.info(f"{self.repository_name}: Set tox check to success")
+        last_commit = self._get_last_commit(pull_request)
+        last_commit.create_status(
+            state="success",
+            description="Successful",
+            context="tox",
         )
 
     def create_issue_for_new_pr(self, pull_request):
@@ -531,6 +551,7 @@ Available user actions:
             self.assign_reviewers(pull_request=pull_request)
             self.create_issue_for_new_pr(pull_request=pull_request)
             self.app.logger.info(f"{self.repository_name}: Creating welcome comment")
+            self.run_tox(pull_request=pull_request)
 
         if hook_action == "closed" or hook_action == "merged":
             self.close_issue_for_merged_or_closed_pr(
@@ -562,6 +583,8 @@ Available user actions:
             if self.verified_job:
                 self.reset_verify_label(pull_request=pull_request)
                 self.set_verify_check_pending(pull_request=pull_request)
+
+            self.run_tox(pull_request=pull_request)
 
         if hook_action in ("labeled", "unlabeled"):
             labeled = self.hook_data["label"]["name"].lower()
@@ -611,3 +634,22 @@ Available user actions:
             self._add_label(pull_request=pull_request, label=reviewer_label)
         if action == DELETE_STR:
             self._remove_label(pull_request=pull_request, label=reviewer_label)
+
+    def run_tox(self, pull_request):
+        with self._clone_repository(path_suffix="run-tox") as repo_path:
+            with change_directory(repo_path):
+                subprocess.Popen(
+                    shlex.split(f"git cherry-pick {pull_request.merge_commit_sha}"),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                if os.path.isfile("tox.ini"):
+                    try:
+                        subprocess.check_output(shlex.split("tox"))
+                    except subprocess.CalledProcessError as ex:
+                        self.set_run_tox_check_failed(
+                            pull_request=pull_request,
+                            tox_error=ex.output.decode("utf-8"),
+                        )
+
+                    self.set_run_tox_check_success(pull_request=pull_request)
