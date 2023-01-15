@@ -665,12 +665,15 @@ Available user actions:
 
         with self._clone_repository(path_suffix=f"tox-{uuid.uuid4()}") as repo_path:
             with change_directory(repo_path):
-                last_commit = self._get_last_commit(pull_request=pull_request).sha
-                self.app.logger.info(f"Cherry-pick {last_commit}")
+                pr_number = pull_request.number
+                self.app.logger.info(f"checkout origin/pr/{pr_number}")
                 try:
-                    subprocess.check_output(f"git cherry-pick {last_commit}")
+                    subprocess.check_output(
+                        "git config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
+                    )
+                    subprocess.check_output(f"git checkout {pr_number}")
                 except subprocess.CalledProcessError as ex:
-                    self.app.logger.error(f"Cherry-pick for {last_commit} failed: {ex}")
+                    self.app.logger.error(f"checkout for {pr_number} failed: {ex}")
                     return
 
                 try:
