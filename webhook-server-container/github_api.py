@@ -82,6 +82,7 @@ Available user actions:
         self.upload_to_pypi_enabled = data.get("upload_to_pypi")
         self.pypi_token = data.get("pypi_token")
         self.verified_job = data.get("verified_job", True)
+        self.tox_enabled = data.get("tox")
 
     @staticmethod
     def _get_labels_dict(labels):
@@ -662,9 +663,14 @@ Available user actions:
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                 )
-                if os.path.isfile("tox.ini"):
+                if self.tox_enabled:
                     try:
-                        subprocess.check_output(shlex.split("tox"))
+                        cmd = "tox"
+                        if self.tox_enabled != "all":
+                            tests = self.tox_enabled.replace(" ", "")
+                            cmd = f"-e {tests}"
+
+                        subprocess.check_output(shlex.split(cmd))
                     except subprocess.CalledProcessError as ex:
                         self.set_run_tox_check_failure(
                             pull_request=pull_request,
