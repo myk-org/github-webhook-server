@@ -671,7 +671,7 @@ Available user actions:
 
         with self._clone_repository(path_suffix=f"tox-{uuid.uuid4()}") as repo_path:
             with change_directory(repo_path, logger=self.app.logger):
-                pr_number = pull_request.number
+                pr_number = f"origin/pr/{pull_request.number}"
                 self.app.logger.info(f"checkout origin/pr/{pr_number}")
                 try:
                     subprocess.check_output(
