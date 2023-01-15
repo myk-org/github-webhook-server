@@ -667,16 +667,17 @@ Available user actions:
             with change_directory(repo_path):
                 last_commit = self._get_last_commit(pull_request=pull_request).sha
                 self.app.logger.info(f"Cherry-pick {last_commit}")
-                subprocess.Popen(
-                    shlex.split(f"git cherry-pick {last_commit}"),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                )
+                try:
+                    subprocess.check_output(f"git cherry-pick {last_commit}")
+                except subprocess.CalledProcessError as ex:
+                    self.app.logger.error(f"Cherry-pick for {last_commit} failed: {ex}")
+                    return
+
                 try:
                     cmd = "tox"
                     if self.tox_enabled != "all":
                         tests = self.tox_enabled.replace(" ", "")
-                        cmd = f"-e {tests}"
+                        cmd = f" -e {tests}"
 
                     self.app.logger.info(f"Run tox with {cmd}")
                     subprocess.check_output(shlex.split(cmd))
