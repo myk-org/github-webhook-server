@@ -479,14 +479,15 @@ Available user actions:
             )
             return
 
-        user_requests = re.findall(r"!(-)?(.*)", body)
+        _user_requests = re.findall(r"!(-)?(.*)", body)
+        _user_commands = re.findall(r"/(.*)", body)
         user_login = self.hook_data["sender"]["login"]
-        for user_request in user_requests:
+        pull_request = self.repository.get_pull(issue_number)
+        for user_request in _user_requests:
             if "cherry-pick" in user_request[1]:
                 self.app.logger.info(
                     f"{self.repository_name}: Cherry-pick requested by user: {user_request[1]}"
                 )
-                pull_request = self.repository.get_pull(issue_number)
                 if not pull_request.is_merged():
                     error_msg = (
                         f"Cherry-pick requested for unmerged PR: "
@@ -532,11 +533,13 @@ Available user actions:
                             )
             else:
                 self.app.logger.info(
-                    f"{self.repository_name}: Processing label by user comment"
+                    f"{self.repository_name}: Processing label/user command by user comment"
                 )
                 self.label_by_user_comment(
                     issue=issue, user_request=user_request, reviewed_user=user_login
                 )
+            for user_command in _user_commands:
+                self.user_commands(command=user_command, pull_request=pull_request)
 
     @staticmethod
     def get_pr_owner(pull_request, pull_request_data):
@@ -691,3 +694,8 @@ Available user actions:
                     )
                 else:
                     self.set_run_tox_check_success(pull_request=pull_request)
+
+    def user_commands(self, command, pull_request):
+        if command == "tox":
+            self.set_run_tox_check_pending(pull_request=pull_request)
+            self.run_tox(pull_request=pull_request)
