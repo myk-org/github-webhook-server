@@ -656,5 +656,5 @@ Available user actions:
                             pull_request=pull_request,
                             tox_error=ex.output.decode("utf-8"),
                         )
-
-                    self.set_run_tox_check_success(pull_request=pull_request)
+                    else:
+                        self.set_run_tox_check_success(pull_request=pull_request)
