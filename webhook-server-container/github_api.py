@@ -309,7 +309,10 @@ Available user actions:
                 self.app.logger.info(
                     f"{self.repository_name}: Adding reviewer {reviewer}"
                 )
-                pull_request.create_review_request([reviewer])
+                try:
+                    pull_request.create_review_request([reviewer])
+                except GithubException as ex:
+                    self.app.logger.error(ex)
 
     def add_size_label(self, pull_request, current_size_label=None):
         size = pull_request.additions + pull_request.deletions
