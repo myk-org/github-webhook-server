@@ -6,3 +6,4 @@ PyYaml
 build
 twine
 python-gitlab
+tox

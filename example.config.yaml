@@ -12,6 +12,7 @@ repositories:
       - push
       - pull_request
       - issue_comment
+    tox: all # Run all tests in tox.ini
 
   # GITLAB repositories example
   openshift-python-wrapper:
@@ -22,3 +23,4 @@ repositories:
     events:
       - merge_requests_events
       - note_events
+    tox: code-check,unused-code # Run only specific tests in tox.ini

@@ -3,6 +3,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import uuid
 from contextlib import contextmanager
 
 import yaml
@@ -12,9 +13,11 @@ from github.GithubException import UnknownObjectException
 
 
 @contextmanager
-def change_directory(directory):
+def change_directory(directory, logger):
+    logger.info(f"Changing directory to {directory}")
     old_cwd = os.getcwd()
     yield os.chdir(directory)
+    logger.info(f"Changing back to directory {old_cwd}")
     os.chdir(old_cwd)
 
 
@@ -49,7 +52,8 @@ Available user actions:
         Verified label removed on each new commit push.
  * To cherry pick a merged PR add `!cherry-pick <target branch to cherry-pick to>` to a PR comment.
  * To add a label by comment use `!<label name>`, to remove, use `!-<label name>`
-        Supported labels:  {supported_user_labels_str}
+    Supported labels:
+    {supported_user_labels_str}
             """
 
     def process_hook(self, data):
@@ -81,6 +85,7 @@ Available user actions:
         self.upload_to_pypi_enabled = data.get("upload_to_pypi")
         self.pypi_token = data.get("pypi_token")
         self.verified_job = data.get("verified_job", True)
+        self.tox_enabled = data.get("tox")
 
     @staticmethod
     def _get_labels_dict(labels):
@@ -156,7 +161,7 @@ Available user actions:
                 f"git config --global user.email '{self.repository.owner.email}'"
             )
         )
-        with change_directory(_clone_path):
+        with change_directory(_clone_path, logger=self.app.logger):
             subprocess.check_output(shlex.split("git remote update"))
             subprocess.check_output(shlex.split("git fetch --all"))
 
@@ -164,12 +169,12 @@ Available user actions:
         shutil.rmtree(_clone_path, ignore_errors=True)
 
     def _checkout_tag(self, repo_path, tag):
-        with change_directory(repo_path):
+        with change_directory(repo_path, logger=self.app.logger):
             self.app.logger.info(f"{self.repository_name}: Checking out tag: {tag}")
             subprocess.check_output(shlex.split(f"git checkout {tag}"))
 
     def _checkout_new_branch(self, repo_path, source_branch, new_branch_name):
-        with change_directory(repo_path):
+        with change_directory(repo_path, logger=self.app.logger):
             self.app.logger.info(
                 f"{self.repository_name}: Checking out new branch: {new_branch_name} from {source_branch}"
             )
@@ -218,7 +223,7 @@ Available user actions:
                 f"{self.repository_name}: Cherry picking {commit_hash} into {source_branch}, requested by "
                 f"{user_login}"
             )
-            with change_directory(repo_path):
+            with change_directory(repo_path, logger=self.app.logger):
                 cherry_pick = subprocess.Popen(
                     shlex.split(f"git cherry-pick {commit_hash}"),
                     stdout=subprocess.PIPE,
@@ -269,7 +274,7 @@ Available user actions:
             return False
 
     def upload_to_pypi(self, repo_path):
-        with change_directory(repo_path):
+        with change_directory(repo_path, logger=self.app.logger):
             self.app.logger.info(f"{self.repository_name}: Start uploading to pypi")
             os.environ["TWINE_USERNAME"] = "__token__"
             os.environ["TWINE_PASSWORD"] = self.pypi_token
@@ -309,7 +314,10 @@ Available user actions:
                 self.app.logger.info(
                     f"{self.repository_name}: Adding reviewer {reviewer}"
                 )
-                pull_request.create_review_request([reviewer])
+                try:
+                    pull_request.create_review_request([reviewer])
+                except GithubException as ex:
+                    self.app.logger.error(ex)
 
     def add_size_label(self, pull_request, current_size_label=None):
         size = pull_request.additions + pull_request.deletions
@@ -391,7 +399,7 @@ Available user actions:
         last_commit.create_status(
             state="pending",
             description="Waiting for verification (!verified)",
-            context="Verified label",
+            context="Verified",
         )
 
     def set_verify_check_success(self, pull_request):
@@ -400,7 +408,43 @@ Available user actions:
         last_commit.create_status(
             state="success",
             description="Waiting for verification (!verified)",
-            context="Verified label",
+            context="Verified",
+        )
+
+    def set_run_tox_check_pending(self, pull_request):
+        if not self.tox_enabled:
+            return
+
+        self.app.logger.info(
+            f"{self.repository_name}: Processing set tox check pending"
+        )
+        last_commit = self._get_last_commit(pull_request)
+        last_commit.create_status(
+            state="pending",
+            description="Pending",
+            context="tox",
+        )
+
+    def set_run_tox_check_failure(self, pull_request, tox_error):
+        self.app.logger.info(
+            f"{self.repository_name}: Processing set tox check failure"
+        )
+        error_comment = pull_request.create_issue_comment(tox_error)
+        last_commit = self._get_last_commit(pull_request)
+        last_commit.create_status(
+            state="failure",
+            description="Failed",
+            target_url=error_comment.html_url,
+            context="tox",
+        )
+
+    def set_run_tox_check_success(self, pull_request):
+        self.app.logger.info(f"{self.repository_name}: Set tox check to success")
+        last_commit = self._get_last_commit(pull_request)
+        last_commit.create_status(
+            state="success",
+            description="Successful",
+            context="tox",
         )
 
     def create_issue_for_new_pr(self, pull_request):
@@ -438,14 +482,15 @@ Available user actions:
             )
             return
 
-        user_requests = re.findall(r"!(-)?(.*)", body)
+        _user_requests = re.findall(r"!(-)?(.*)", body)
+        _user_commands = re.findall(r"/(.*)", body)
         user_login = self.hook_data["sender"]["login"]
-        for user_request in user_requests:
+        pull_request = self.repository.get_pull(issue_number)
+        for user_request in _user_requests:
             if "cherry-pick" in user_request[1]:
                 self.app.logger.info(
                     f"{self.repository_name}: Cherry-pick requested by user: {user_request[1]}"
                 )
-                pull_request = self.repository.get_pull(issue_number)
                 if not pull_request.is_merged():
                     error_msg = (
                         f"Cherry-pick requested for unmerged PR: "
@@ -491,11 +536,14 @@ Available user actions:
                             )
             else:
                 self.app.logger.info(
-                    f"{self.repository_name}: Processing label by user comment"
+                    f"{self.repository_name}: Processing label/user command by user comment"
                 )
                 self.label_by_user_comment(
                     issue=issue, user_request=user_request, reviewed_user=user_login
                 )
+
+        for user_command in _user_commands:
+            self.user_commands(command=user_command, pull_request=pull_request)
 
     @staticmethod
     def get_pr_owner(pull_request, pull_request_data):
@@ -518,6 +566,8 @@ Available user actions:
         if hook_action == "opened":
             pull_request_data = self.hook_data["pull_request"]
             pull_request.create_issue_comment(self.welcome_msg)
+            self.set_run_tox_check_pending(pull_request=pull_request)
+
             self.add_size_label(pull_request=pull_request)
             self._add_label(
                 pull_request=pull_request,
@@ -531,6 +581,7 @@ Available user actions:
             self.assign_reviewers(pull_request=pull_request)
             self.create_issue_for_new_pr(pull_request=pull_request)
             self.app.logger.info(f"{self.repository_name}: Creating welcome comment")
+            self.run_tox(pull_request=pull_request)
 
         if hook_action == "closed" or hook_action == "merged":
             self.close_issue_for_merged_or_closed_pr(
@@ -538,6 +589,7 @@ Available user actions:
             )
 
         if hook_action == "synchronize":
+            self.set_run_tox_check_pending(pull_request=pull_request)
             self.assign_reviewers(pull_request=pull_request)
             all_labels = self.obj_labels(obj=pull_request)
             current_size_label = [
@@ -562,6 +614,8 @@ Available user actions:
             if self.verified_job:
                 self.reset_verify_label(pull_request=pull_request)
                 self.set_verify_check_pending(pull_request=pull_request)
+
+            self.run_tox(pull_request=pull_request)
 
         if hook_action in ("labeled", "unlabeled"):
             labeled = self.hook_data["label"]["name"].lower()
@@ -611,3 +665,44 @@ Available user actions:
             self._add_label(pull_request=pull_request, label=reviewer_label)
         if action == DELETE_STR:
             self._remove_label(pull_request=pull_request, label=reviewer_label)
+
+    def run_tox(self, pull_request):
+        if not self.tox_enabled:
+            return
+
+        with self._clone_repository(path_suffix=f"tox-{uuid.uuid4()}") as repo_path:
+            with change_directory(repo_path, logger=self.app.logger):
+                pr_number = f"origin/pr/{pull_request.number}"
+                self.app.logger.info(f"checkout origin/pr/{pr_number}")
+                try:
+                    subprocess.check_output(
+                        shlex.split(
+                            "git config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
+                        )
+                    )
+                    subprocess.check_output(shlex.split("git fetch --all"))
+                    subprocess.check_output(shlex.split(f"git checkout {pr_number}"))
+                except subprocess.CalledProcessError as ex:
+                    self.app.logger.error(f"checkout for {pr_number} failed: {ex}")
+                    return
+
+                try:
+                    cmd = "tox"
+                    if self.tox_enabled != "all":
+                        tests = self.tox_enabled.replace(" ", "")
+                        cmd = f" -e {tests}"
+
+                    self.app.logger.info(f"Run tox with {cmd}")
+                    subprocess.check_output(shlex.split(cmd))
+                except subprocess.CalledProcessError as ex:
+                    self.set_run_tox_check_failure(
+                        pull_request=pull_request,
+                        tox_error=ex.output.decode("utf-8"),
+                    )
+                else:
+                    self.set_run_tox_check_success(pull_request=pull_request)
+
+    def user_commands(self, command, pull_request):
+        if command == "tox":
+            self.set_run_tox_check_pending(pull_request=pull_request)
+            self.run_tox(pull_request=pull_request)
