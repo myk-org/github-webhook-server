@@ -448,14 +448,17 @@ Available user actions:
         )
 
     def create_issue_for_new_pr(self, pull_request):
-        self.app.logger.info(
-            f"{self.repository_name}: Creating issue for new PR: {pull_request.title}"
-        )
-        self.repository.create_issue(
-            title=self._generate_issue_title(pull_request),
-            body=self._generate_issue_body(pull_request=pull_request),
-            assignee=pull_request.user.login,
-        )
+        try:
+            self.app.logger.info(
+                f"{self.repository_name}: Creating issue for new PR: {pull_request.title}"
+            )
+            self.repository.create_issue(
+                title=self._generate_issue_title(pull_request),
+                body=self._generate_issue_body(pull_request=pull_request),
+                assignee=pull_request.user.login,
+            )
+        except Exception as ex:
+            self.app.logger.error(f"Failed to create issue: {ex}")
 
     def close_issue_for_merged_or_closed_pr(self, pull_request, hook_action):
         for issue in self.repository.get_issues():
