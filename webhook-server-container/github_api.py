@@ -713,7 +713,9 @@ Available user actions:
                         tox_error=ex.output.decode("utf-8"),
                     )
                 else:
-                    self.app.logger.info(f"tox finished successfully\n{out}")
+                    self.app.logger.info(
+                        f"tox finished successfully\n{out.decode('utf-8')}"
+                    )
                     self.set_run_tox_check_success(pull_request=pull_request)
 
     def user_commands(self, command, pull_request):
