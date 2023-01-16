@@ -162,10 +162,15 @@ Available user actions:
             )
         )
         with change_directory(_clone_path, logger=self.app.logger):
+            subprocess.check_output(
+                shlex.split(
+                    "git config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
+                )
+            )
             subprocess.check_output(shlex.split("git remote update"))
             subprocess.check_output(shlex.split("git fetch --all"))
 
-        yield _clone_path
+            yield _clone_path
         shutil.rmtree(_clone_path, ignore_errors=True)
 
     def _checkout_tag(self, repo_path, tag):
@@ -683,40 +688,33 @@ Available user actions:
         if not self.tox_enabled:
             return
 
-        with self._clone_repository(path_suffix=f"tox-{uuid.uuid4()}") as repo_path:
-            with change_directory(repo_path, logger=self.app.logger):
-                pr_number = f"origin/pr/{pull_request.number}"
-                self.app.logger.info(f"checkout origin/pr/{pr_number}")
-                try:
-                    subprocess.check_output(
-                        shlex.split(
-                            "git config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
-                        )
-                    )
-                    subprocess.check_output(shlex.split("git fetch --all"))
-                    subprocess.check_output(shlex.split(f"git checkout {pr_number}"))
-                except subprocess.CalledProcessError as ex:
-                    self.app.logger.error(f"checkout for {pr_number} failed: {ex}")
-                    return
+        with self._clone_repository(path_suffix=f"tox-{uuid.uuid4()}"):
+            pr_number = f"origin/pr/{pull_request.number}"
+            self.app.logger.info(f"checkout origin/pr/{pr_number}")
+            try:
+                subprocess.check_output(shlex.split(f"git checkout {pr_number}"))
+            except subprocess.CalledProcessError as ex:
+                self.app.logger.error(f"checkout for {pr_number} failed: {ex}")
+                return
 
-                try:
-                    cmd = "tox"
-                    if self.tox_enabled != "all":
-                        tests = self.tox_enabled.replace(" ", "")
-                        cmd += f" -e {tests}"
+            try:
+                cmd = "tox"
+                if self.tox_enabled != "all":
+                    tests = self.tox_enabled.replace(" ", "")
+                    cmd += f" -e {tests}"
 
-                    self.app.logger.info(f"Run tox with {cmd}")
-                    out = subprocess.check_output(shlex.split(cmd))
-                except subprocess.CalledProcessError as ex:
-                    self.set_run_tox_check_failure(
-                        pull_request=pull_request,
-                        tox_error=ex.output.decode("utf-8"),
-                    )
-                else:
-                    self.app.logger.info(
-                        f"tox finished successfully\n{out.decode('utf-8')}"
-                    )
-                    self.set_run_tox_check_success(pull_request=pull_request)
+                self.app.logger.info(f"Run tox with {cmd}")
+                out = subprocess.check_output(shlex.split(cmd))
+            except subprocess.CalledProcessError as ex:
+                self.set_run_tox_check_failure(
+                    pull_request=pull_request,
+                    tox_error=ex.output.decode("utf-8"),
+                )
+            else:
+                self.app.logger.info(
+                    f"tox finished successfully\n{out.decode('utf-8')}"
+                )
+                self.set_run_tox_check_success(pull_request=pull_request)
 
     def user_commands(self, command, pull_request):
         self.app.logger.info(f"Process user command: {command}")
