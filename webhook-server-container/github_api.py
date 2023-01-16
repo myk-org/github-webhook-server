@@ -703,7 +703,7 @@ Available user actions:
                     cmd = "tox"
                     if self.tox_enabled != "all":
                         tests = self.tox_enabled.replace(" ", "")
-                        cmd = f" -e {tests}"
+                        cmd += f" -e {tests}"
 
                     self.app.logger.info(f"Run tox with {cmd}")
                     subprocess.check_output(shlex.split(cmd))
