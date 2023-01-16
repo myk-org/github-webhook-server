@@ -702,9 +702,12 @@ Available user actions:
                     tox_error=ex.output.decode("utf-8"),
                 )
             else:
-                self.app.logger.info(
-                    f"tox finished successfully\n{out.decode('utf-8')}"
-                )
+                out = out.decode("utf-8")
+                last_passed = re.findall(r"=.* passed .* =.*", out)[-1]
+                # fmt: off
+                for_log = out[out.index(last_passed) + len(last_passed):]
+                # fmt: on
+                self.app.logger.info(f"tox finished successfully\n{for_log}")
                 self.set_run_tox_check_success(pull_request=pull_request)
 
     def user_commands(self, command, pull_request):
