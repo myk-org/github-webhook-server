@@ -706,13 +706,14 @@ Available user actions:
                         cmd += f" -e {tests}"
 
                     self.app.logger.info(f"Run tox with {cmd}")
-                    subprocess.check_output(shlex.split(cmd))
+                    out = subprocess.check_output(shlex.split(cmd))
                 except subprocess.CalledProcessError as ex:
                     self.set_run_tox_check_failure(
                         pull_request=pull_request,
                         tox_error=ex.output.decode("utf-8"),
                     )
                 else:
+                    self.app.logger.info(f"tox finished successfully\n{out}")
                     self.set_run_tox_check_success(pull_request=pull_request)
 
     def user_commands(self, command, pull_request):
