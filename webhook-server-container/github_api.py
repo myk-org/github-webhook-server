@@ -149,43 +149,43 @@ Available user actions:
             f"git clone {self.repository.clone_url.replace('https://', f'https://{self.token}@')} "
             f"{_clone_path}"
         )
-        self.app.logger.info(f"Run: {clone_cmd}")
-        subprocess.check_output(shlex.split(clone_cmd))
-        subprocess.check_output(
-            shlex.split(
-                f"git config --global user.name '{self.repository.owner.login}'"
-            )
+        git_user_name_cmd = (
+            f"git config --global user.name '{self.repository.owner.login}'"
         )
-        subprocess.check_output(
-            shlex.split(
-                f"git config --global user.email '{self.repository.owner.email}'"
-            )
+        git_email_cmd = (
+            f"git config --global user.email '{self.repository.owner.email}'"
         )
-        with change_directory(_clone_path, logger=self.app.logger):
-            subprocess.check_output(
-                shlex.split(
-                    "git config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
-                )
-            )
-            subprocess.check_output(shlex.split("git remote update"))
-            subprocess.check_output(shlex.split("git fetch --all"))
+        fetch_pr_cmd = "git config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
+        remote_update_cmd = "git remote update"
+        fetch_all_cmd = "git fetch --all"
 
+        for cmd in [
+            clone_cmd,
+            git_user_name_cmd,
+            git_email_cmd,
+        ]:
+            self.app.logger.info(f"Run: {cmd}")
+            subprocess.check_output(shlex.split(cmd))
+
+        with change_directory(_clone_path, logger=self.app.logger):
+            for cmd in [fetch_pr_cmd, remote_update_cmd, fetch_all_cmd]:
+                self.app.logger.info(f"Run: {cmd}")
+                subprocess.check_output(shlex.split(cmd))
             yield _clone_path
+
         shutil.rmtree(_clone_path, ignore_errors=True)
 
-    def _checkout_tag(self, repo_path, tag):
-        with change_directory(repo_path, logger=self.app.logger):
-            self.app.logger.info(f"{self.repository_name}: Checking out tag: {tag}")
-            subprocess.check_output(shlex.split(f"git checkout {tag}"))
+    def _checkout_tag(self, tag):
+        self.app.logger.info(f"{self.repository_name}: Checking out tag: {tag}")
+        subprocess.check_output(shlex.split(f"git checkout {tag}"))
 
-    def _checkout_new_branch(self, repo_path, source_branch, new_branch_name):
-        with change_directory(repo_path, logger=self.app.logger):
-            self.app.logger.info(
-                f"{self.repository_name}: Checking out new branch: {new_branch_name} from {source_branch}"
-            )
-            subprocess.check_output(
-                shlex.split(f"git checkout -b {new_branch_name} origin/{source_branch}")
-            )
+    def _checkout_new_branch(self, source_branch, new_branch_name):
+        self.app.logger.info(
+            f"{self.repository_name}: Checking out new branch: {new_branch_name} from {source_branch}"
+        )
+        subprocess.check_output(
+            shlex.split(f"git checkout -b {new_branch_name} origin/{source_branch}")
+        )
 
     def is_branch_exists(self, branch):
         try:
@@ -195,7 +195,6 @@ Available user actions:
 
     def _cherry_pick(
         self,
-        repo_path,
         source_branch,
         new_branch_name,
         commit_hash,
@@ -228,48 +227,47 @@ Available user actions:
                 f"{self.repository_name}: Cherry picking {commit_hash} into {source_branch}, requested by "
                 f"{user_login}"
             )
-            with change_directory(repo_path, logger=self.app.logger):
-                cherry_pick = subprocess.Popen(
-                    shlex.split(f"git cherry-pick {commit_hash}"),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+            cherry_pick = subprocess.Popen(
+                shlex.split(f"git cherry-pick {commit_hash}"),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            _, err = cherry_pick.communicate()
+            if cherry_pick.returncode != 0:
+                return _issue_from_err(
+                    _err=err, _commit_hash=commit_hash, _source_branch=source_branch
                 )
-                _, err = cherry_pick.communicate()
-                if cherry_pick.returncode != 0:
-                    return _issue_from_err(
-                        _err=err, _commit_hash=commit_hash, _source_branch=source_branch
-                    )
 
-                git_push = subprocess.Popen(
-                    shlex.split(f"git push -u origin {new_branch_name}"),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+            git_push = subprocess.Popen(
+                shlex.split(f"git push -u origin {new_branch_name}"),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            _, err = git_push.communicate()
+            if git_push.returncode != 0:
+                return _issue_from_err(
+                    _err=err, _commit_hash=commit_hash, _source_branch=source_branch
                 )
-                _, err = git_push.communicate()
-                if git_push.returncode != 0:
-                    return _issue_from_err(
-                        _err=err, _commit_hash=commit_hash, _source_branch=source_branch
-                    )
 
-                pull_request_cmd = subprocess.Popen(
-                    shlex.split(
-                        f"hub pull-request "
-                        f"-b {source_branch} "
-                        f"-h {new_branch_name} "
-                        f"-l auto-cherry-pick "
-                        f"-m '{self.auto_cherry_pick_prefix} [{source_branch}] {commit_msg}' "
-                        f"-m 'cherry-pick {pull_request_url} into {source_branch}' "
-                        f"-m 'requested-by {user_login}'"
-                    ),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+            pull_request_cmd = subprocess.Popen(
+                shlex.split(
+                    f"hub pull-request "
+                    f"-b {source_branch} "
+                    f"-h {new_branch_name} "
+                    f"-l auto-cherry-pick "
+                    f"-m '{self.auto_cherry_pick_prefix} [{source_branch}] {commit_msg}' "
+                    f"-m 'cherry-pick {pull_request_url} into {source_branch}' "
+                    f"-m 'requested-by {user_login}'"
+                ),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            _, err = pull_request_cmd.communicate()
+            if pull_request_cmd.returncode != 0:
+                _issue_from_err(
+                    _err=err, _commit_hash=commit_hash, _source_branch=source_branch
                 )
-                _, err = pull_request_cmd.communicate()
-                if pull_request_cmd.returncode != 0:
-                    _issue_from_err(
-                        _err=err, _commit_hash=commit_hash, _source_branch=source_branch
-                    )
-                    return False
+                return False
 
             return True
         except Exception:
@@ -278,28 +276,25 @@ Available user actions:
             )
             return False
 
-    def upload_to_pypi(self, repo_path):
-        with change_directory(repo_path, logger=self.app.logger):
-            self.app.logger.info(f"{self.repository_name}: Start uploading to pypi")
-            os.environ["TWINE_USERNAME"] = "__token__"
-            os.environ["TWINE_PASSWORD"] = self.pypi_token
-            build_folder = "dist"
+    def upload_to_pypi(self):
+        self.app.logger.info(f"{self.repository_name}: Start uploading to pypi")
+        os.environ["TWINE_USERNAME"] = "__token__"
+        os.environ["TWINE_PASSWORD"] = self.pypi_token
+        build_folder = "dist"
 
-            _out = subprocess.check_output(
-                shlex.split(f"python -m build --sdist --outdir {build_folder}/")
-            )
-            dist_pkg = re.search(
-                r"Successfully built (.*.tar.gz)", _out.decode("utf-8")
-            ).group(1)
-            dist_pkg_path = os.path.join(build_folder, dist_pkg)
-            subprocess.check_output(shlex.split(f"twine check {dist_pkg_path}"))
-            self.app.logger.info(
-                f"{self.repository_name}: Uploading to pypi: {dist_pkg}"
-            )
-            subprocess.check_output(
-                shlex.split(f"twine upload {dist_pkg_path} --skip-existing")
-            )
-            self.app.logger.info(f"{self.repository_name}: Uploading to pypi finished")
+        _out = subprocess.check_output(
+            shlex.split(f"python -m build --sdist --outdir {build_folder}/")
+        )
+        dist_pkg = re.search(
+            r"Successfully built (.*.tar.gz)", _out.decode("utf-8")
+        ).group(1)
+        dist_pkg_path = os.path.join(build_folder, dist_pkg)
+        subprocess.check_output(shlex.split(f"twine check {dist_pkg_path}"))
+        self.app.logger.info(f"{self.repository_name}: Uploading to pypi: {dist_pkg}")
+        subprocess.check_output(
+            shlex.split(f"twine upload {dist_pkg_path} --skip-existing")
+        )
+        self.app.logger.info(f"{self.repository_name}: Uploading to pypi finished")
 
     @property
     def repository_labels(self):
@@ -531,16 +526,12 @@ Available user actions:
                     self.app.logger.error(err_msg)
                     issue.create_comment(err_msg)
                 else:
-                    with self._clone_repository(
-                        path_suffix=base_source_branch_name
-                    ) as repo_path:
+                    with self._clone_repository(path_suffix=base_source_branch_name):
                         self._checkout_new_branch(
-                            repo_path=repo_path,
                             source_branch=source_branch,
                             new_branch_name=new_branch_name,
                         )
                         if self._cherry_pick(
-                            repo_path=repo_path,
                             source_branch=source_branch,
                             new_branch_name=new_branch_name,
                             commit_hash=pull_request.merge_commit_sha,
@@ -652,9 +643,9 @@ Available user actions:
                 self.app.logger.info(
                     f"{self.repository_name}: Processing push for tag: {tag_name}"
                 )
-                with self._clone_repository(path_suffix=tag_name) as repo_path:
-                    self._checkout_tag(repo_path=repo_path, tag=tag_name)
-                    self.upload_to_pypi(repo_path=repo_path)
+                with self._clone_repository(path_suffix=tag_name):
+                    self._checkout_tag(tag=tag_name)
+                    self.upload_to_pypi()
 
     def process_pull_request_review_webhook_data(self):
         if self.hook_data["action"] == "submitted":
@@ -703,7 +694,7 @@ Available user actions:
                     tests = self.tox_enabled.replace(" ", "")
                     cmd += f" -e {tests}"
 
-                self.app.logger.info(f"Run tox with {cmd}")
+                self.app.logger.info(f"Run tox command: {cmd}")
                 out = subprocess.check_output(shlex.split(cmd))
             except subprocess.CalledProcessError as ex:
                 self.set_run_tox_check_failure(
