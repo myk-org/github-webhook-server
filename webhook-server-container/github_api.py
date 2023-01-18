@@ -3,6 +3,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import uuid
 from contextlib import contextmanager
 
@@ -283,7 +284,7 @@ Available user actions:
         build_folder = "dist"
 
         _out = subprocess.check_output(
-            shlex.split(f"python -m build --sdist --outdir {build_folder}/")
+            shlex.split(f"{sys.executable} -m build --sdist --outdir {build_folder}/")
         )
         dist_pkg = re.search(
             r"Successfully built (.*.tar.gz)", _out.decode("utf-8")
