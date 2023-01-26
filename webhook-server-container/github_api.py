@@ -358,7 +358,7 @@ Available user actions:
             return
 
         if not any(
-            label_name.startswith(_label.lower()) for label_name in USER_LABELS_DICT
+            _label.lower().startswith(label_name) for label_name in USER_LABELS_DICT
         ):
             self.app.logger.info(
                 f"Label {_label} is not a predefined one, will not be added / removed."
