@@ -4,6 +4,7 @@ USER_LABELS_DICT = {
     "verified": "0E8A16",
     "wip": "FEF2C0",
     "lgtm": "0E8A16",
+    "target-version-": "F09C74",
 }
 STATIC_LABELS_DICT = {
     **USER_LABELS_DICT,

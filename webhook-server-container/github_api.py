@@ -198,19 +198,20 @@ Available user actions:
         self,
         source_branch,
         new_branch_name,
-        commit_hash,
-        commit_msg,
-        pull_request_url,
+        pull_request,
         user_login,
-        issue,
     ):
+        commit_hash = pull_request.merge_commit_sha
+        commit_msg = pull_request.title
+        pull_request_url = pull_request.html_url
+
         def _issue_from_err(_err, _commit_hash, _source_branch):
             _err_msg = _err.decode("utf-8")
             self.app.logger.error(
                 f"{self.repository_name}: Cherry pick failed: {_err_msg}"
             )
             local_branch_name = _commit_hash[:39]
-            issue.create_comment(
+            pull_request.create_issue_comment(
                 f"**Manual cherry-pick is needed**\nCherry pick failed for "
                 f"{_commit_hash} to {_source_branch}:\n{_err_msg}\n"
                 f"To cherry-pick run:\n"
@@ -349,14 +350,16 @@ Available user actions:
                 self._remove_label(pull_request=pull_request, label=current_size_label)
                 self._add_label(pull_request=pull_request, label=label)
 
-    def label_by_user_comment(self, issue, user_request, reviewed_user):
+    def label_by_user_comment(self, pull_request, user_request, reviewed_user):
         _label = user_request[1]
 
         # Skip sonar tests comments
         if "sonarsource.github.io" in _label:
             return
 
-        if not any(_label.lower() in label_name for label_name in USER_LABELS_DICT):
+        if not any(
+            label_name.startswith(_label.lower()) for label_name in USER_LABELS_DICT
+        ):
             self.app.logger.info(
                 f"Label {_label} is not a predefined one, will not be added / removed."
             )
@@ -373,9 +376,9 @@ Available user actions:
                     reviewed_user=reviewed_user,
                 )
             else:
-                label = self.obj_labels(obj=issue).get(_label.lower())
+                label = self.obj_labels(obj=pull_request).get(_label.lower())
                 if label:
-                    self._remove_label(pull_request=issue, label=label.name)
+                    self._remove_label(pull_request=pull_request, label=label.name)
 
         else:
             if _label.lower() == "lgtm":
@@ -383,7 +386,7 @@ Available user actions:
                     review_state="approved", action=ADD_STR, reviewed_user=reviewed_user
                 )
             else:
-                self._add_label(pull_request=issue, label=_label)
+                self._add_label(pull_request=pull_request, label=_label)
 
     def reset_verify_label(self, pull_request):
         self.app.logger.info(
@@ -479,18 +482,18 @@ Available user actions:
 
         issue_number = self.hook_data["issue"]["number"]
         self.app.logger.info(f"Processing issue {issue_number}")
-        issue = self.repository.get_issue(issue_number)
-        body = self.hook_data["comment"]["body"]
-        if body == self.welcome_msg:
-            self.app.logger.info(
-                f"{self.repository_name}: Welcome message found in issue {issue.title}. Not processing"
-            )
-            return
 
         try:
             pull_request = self.repository.get_pull(issue_number)
         except UnknownObjectException:
             self.app.logger.error(f"Pull request {issue_number} not found")
+            return
+
+        body = self.hook_data["comment"]["body"]
+        if body == self.welcome_msg:
+            self.app.logger.info(
+                f"{self.repository_name}: Welcome message found in issue {pull_request.title}. Not processing"
+            )
             return
 
         _user_requests = re.findall(r"!(-)?(.*)", body)
@@ -504,9 +507,10 @@ Available user actions:
         user_login = self.hook_data["sender"]["login"]
 
         for user_request in _user_requests:
-            if "cherry-pick" in user_request[1]:
+            _user_request = user_request[1]
+            if "cherry-pick" in _user_request:
                 self.app.logger.info(
-                    f"{self.repository_name}: Cherry-pick requested by user: {user_request[1]}"
+                    f"{self.repository_name}: Cherry-pick requested by user: {_user_request}"
                 )
                 if not pull_request.is_merged():
                     error_msg = (
@@ -515,44 +519,20 @@ Available user actions:
                     )
                     self.app.logger.info(f"{self.repository_name}: {error_msg}")
                     self._get_last_commit(pull_request)
-                    issue.create_comment(error_msg)
+                    pull_request.create_issue_comment(error_msg)
                     return
 
-                base_source_branch_name = re.sub(
-                    r"auto-cherry-pick: \[.*\] ",
-                    "",
-                    pull_request.head.ref.replace(" ", "-"),
+                self.cherry_pick(
+                    pull_request=pull_request, target_branch=_user_request.split()[1]
                 )
-                new_branch_name = f"auto-cherry-pick-{base_source_branch_name}"
-                source_branch = user_request[1].split()[1]
-                if not self.is_branch_exists(branch=source_branch):
-                    err_msg = f"cherry-pick failed: {source_branch} does not exists"
-                    self.app.logger.error(err_msg)
-                    issue.create_comment(err_msg)
-                else:
-                    with self._clone_repository(path_suffix=base_source_branch_name):
-                        self._checkout_new_branch(
-                            source_branch=source_branch,
-                            new_branch_name=new_branch_name,
-                        )
-                        if self._cherry_pick(
-                            source_branch=source_branch,
-                            new_branch_name=new_branch_name,
-                            commit_hash=pull_request.merge_commit_sha,
-                            commit_msg=pull_request.title,
-                            pull_request_url=pull_request.html_url,
-                            user_login=user_login,
-                            issue=issue,
-                        ):
-                            issue.create_comment(
-                                f"Cherry-picked PR {pull_request.title} into {source_branch}"
-                            )
             else:
                 self.app.logger.info(
                     f"{self.repository_name}: Processing label/user command by user comment"
                 )
                 self.label_by_user_comment(
-                    issue=issue, user_request=user_request, reviewed_user=user_login
+                    pull_request=pull_request,
+                    user_request=user_request,
+                    reviewed_user=user_login,
                 )
 
         for user_command in _user_commands:
@@ -641,6 +621,7 @@ Available user actions:
 
     def process_push_webhook_data(self):
         tag = re.search(r"refs/tags/?(.*)", self.hook_data["ref"])
+        ref = re.search(r"refs/heads/?(.*)", self.hook_data["ref"])
         if tag:  # If push is to a tag (release created)
             if self.upload_to_pypi_enabled:
                 tag_name = tag.group(1)
@@ -650,6 +631,16 @@ Available user actions:
                 with self._clone_repository(path_suffix=tag_name):
                     self._checkout_tag(tag=tag_name)
                     self.upload_to_pypi()
+        elif ref:
+            target_version_prefix = "target-version-"
+            commit = self.repository.get_commit(self.hook_data["head_commit"]["id"])
+            pull_request = list(commit.get_pulls())[0]
+            for _label in pull_request.labels:
+                if _label.startswith(target_version_prefix):
+                    self.cherry_pick(
+                        pull_request=pull_request,
+                        target_branch=_label.replace(target_version_prefix, ""),
+                    )
 
     def process_pull_request_review_webhook_data(self):
         if self.hook_data["action"] == "submitted":
@@ -722,3 +713,30 @@ Available user actions:
         if command == "tox":
             self.set_run_tox_check_pending(pull_request=pull_request)
             self.run_tox(pull_request=pull_request)
+
+    def cherry_pick(self, pull_request, target_branch):
+        base_source_branch_name = re.sub(
+            r"auto-cherry-pick: \[.*\] ",
+            "",
+            pull_request.head.ref.replace(" ", "-"),
+        )
+        new_branch_name = f"auto-cherry-pick-{base_source_branch_name}"
+        if not self.is_branch_exists(branch=target_branch):
+            err_msg = f"cherry-pick failed: {target_branch} does not exists"
+            self.app.logger.error(err_msg)
+            pull_request.create_issue_comment(err_msg)
+        else:
+            with self._clone_repository(path_suffix=base_source_branch_name):
+                self._checkout_new_branch(
+                    source_branch=target_branch,
+                    new_branch_name=new_branch_name,
+                )
+                if self._cherry_pick(
+                    source_branch=target_branch,
+                    new_branch_name=new_branch_name,
+                    pull_request=pull_request,
+                    user_login=pull_request.user.login,
+                ):
+                    pull_request.create_issue_comment(
+                        f"Cherry-picked PR {pull_request.title} into {target_branch}"
+                    )
