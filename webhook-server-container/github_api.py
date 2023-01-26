@@ -585,21 +585,22 @@ Available user actions:
             self.app.logger.info(f"{self.repository_name}: Creating welcome comment")
             self.run_tox(pull_request=pull_request)
 
-        is_merged = hook_action == "merged"
-        if hook_action == "closed" or is_merged:
+        if hook_action == "closed":
             self.close_issue_for_merged_or_closed_pr(
                 pull_request=pull_request, hook_action=hook_action
             )
 
-        if is_merged:
-            target_version_prefix = "target-version-"
-            for _label in pull_request.labels:
-                _label_name = _label.name
-                if _label_name.startswith(target_version_prefix):
-                    self.cherry_pick(
-                        pull_request=pull_request,
-                        target_branch=_label_name.replace(target_version_prefix, ""),
-                    )
+            if self.hook_data.get("merged"):
+                target_version_prefix = "target-version-"
+                for _label in pull_request.labels:
+                    _label_name = _label.name
+                    if _label_name.startswith(target_version_prefix):
+                        self.cherry_pick(
+                            pull_request=pull_request,
+                            target_branch=_label_name.replace(
+                                target_version_prefix, ""
+                            ),
+                        )
 
         if hook_action == "synchronize":
             self.set_run_tox_check_pending(pull_request=pull_request)
