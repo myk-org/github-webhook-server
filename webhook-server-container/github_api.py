@@ -580,6 +580,14 @@ Available user actions:
             self.close_issue_for_merged_or_closed_pr(
                 pull_request=pull_request, hook_action=hook_action
             )
+            target_version_prefix = "target-version-"
+            for _label in pull_request.labels:
+                _label_name = _label.name
+                if _label_name.startswith(target_version_prefix):
+                    self.cherry_pick(
+                        pull_request=pull_request,
+                        target_branch=_label_name.replace(target_version_prefix, ""),
+                    )
 
         if hook_action == "synchronize":
             self.set_run_tox_check_pending(pull_request=pull_request)
@@ -621,7 +629,6 @@ Available user actions:
 
     def process_push_webhook_data(self):
         tag = re.search(r"refs/tags/?(.*)", self.hook_data["ref"])
-        ref = re.search(r"refs/heads/?(.*)", self.hook_data["ref"])
         if tag:  # If push is to a tag (release created)
             if self.upload_to_pypi_enabled:
                 tag_name = tag.group(1)
@@ -631,16 +638,6 @@ Available user actions:
                 with self._clone_repository(path_suffix=tag_name):
                     self._checkout_tag(tag=tag_name)
                     self.upload_to_pypi()
-        elif ref:
-            target_version_prefix = "target-version-"
-            commit = self.repository.get_commit(self.hook_data["head_commit"]["id"])
-            pull_request = list(commit.get_pulls())[0]
-            for _label in pull_request.labels:
-                if _label.startswith(target_version_prefix):
-                    self.cherry_pick(
-                        pull_request=pull_request,
-                        target_branch=_label.replace(target_version_prefix, ""),
-                    )
 
     def process_pull_request_review_webhook_data(self):
         if self.hook_data["action"] == "submitted":
