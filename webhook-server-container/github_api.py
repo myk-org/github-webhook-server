@@ -127,7 +127,13 @@ Available user actions:
         try:
             _repo_label = self.repository.get_label(label)
             _repo_label.edit(name=_repo_label.name, color=color)
+            self.app.logger.info(
+                f"{self.repository_name}: Edit label {label} with color {color}"
+            )
         except UnknownObjectException:
+            self.app.logger.info(
+                f"{self.repository_name}: Add label {label} with color {color}"
+            )
             self.repository.create_label(name=label, color=color)
 
         return pull_request.add_to_labels(label)
