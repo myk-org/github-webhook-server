@@ -137,7 +137,7 @@ Available user actions:
             self.repository.create_label(name=label, color=color)
 
         self.app.logger.info(
-            f"{self.repository_name}: Adding pull request label {label} {pull_request} to {pull_request.number}"
+            f"{self.repository_name}: Adding pull request label {label} to {pull_request.number}"
         )
         return pull_request.add_to_labels(label)
 
@@ -585,10 +585,13 @@ Available user actions:
             self.app.logger.info(f"{self.repository_name}: Creating welcome comment")
             self.run_tox(pull_request=pull_request)
 
-        if hook_action == "closed" or hook_action == "merged":
+        is_merged = hook_action == "merged"
+        if hook_action == "closed" or is_merged:
             self.close_issue_for_merged_or_closed_pr(
                 pull_request=pull_request, hook_action=hook_action
             )
+
+        if is_merged:
             target_version_prefix = "target-version-"
             for _label in pull_request.labels:
                 _label_name = _label.name
