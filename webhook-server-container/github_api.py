@@ -590,7 +590,6 @@ Available user actions:
                 pull_request=pull_request, hook_action=hook_action
             )
 
-            self.app.logger.error(self.hook_data)
             if self.hook_data["pull_request"].get("merged"):
                 target_version_prefix = "target-version-"
                 for _label in pull_request.labels:
