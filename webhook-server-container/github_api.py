@@ -107,6 +107,7 @@ Available user actions:
                 return pull_request.remove_from_labels(label)
 
     def _add_label(self, pull_request, label):
+        label = label.strip()
         if len(label) > 49:
             self.app.logger.warning(f"{label} is to long, not adding.")
             return
