@@ -217,13 +217,14 @@ Available user actions:
 
         def _issue_from_err(_err, _commit_hash, _source_branch):
             _err_msg = _err.decode("utf-8")
+            hashed_err_msg = _err_msg.replace(self.token, "*****")
             self.app.logger.error(
                 f"{self.repository_name}: Cherry pick failed: {_err_msg}"
             )
             local_branch_name = _commit_hash[:39]
             pull_request.create_issue_comment(
                 f"**Manual cherry-pick is needed**\nCherry pick failed for "
-                f"{_commit_hash} to {_source_branch}:\n{_err_msg}\n"
+                f"{_commit_hash} to {_source_branch}:\n{hashed_err_msg}\n"
                 f"To cherry-pick run:\n"
                 "```\n"
                 f"git checkout {_source_branch}\n"
