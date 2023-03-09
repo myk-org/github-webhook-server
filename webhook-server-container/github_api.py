@@ -49,10 +49,10 @@ The following are automatically added:
  * New issue is created for the PR.
 
 Available user actions:
- * To mark PR as verified add `!verified` to a PR comment, to un-verify add `!-verified` to a PR comment.
+ * To mark PR as verified add `/verified` to a PR comment, to un-verify add `/verified cancel` to a PR comment.
         Verified label removed on each new commit push.
- * To cherry pick a merged PR add `!cherry-pick <target branch to cherry-pick to>` to a PR comment.
- * To add a label by comment use `!<label name>`, to remove, use `!-<label name>`
+ * To cherry pick a merged PR add `/cherry-pick <target branch to cherry-pick to>` to a PR comment.
+ * To add a label by comment use `/<label name>`, to remove, use `/<label name> cancel`
   Supported labels:
   {supported_user_labels_str}
             """
@@ -361,43 +361,51 @@ Available user actions:
                 self._remove_label(pull_request=pull_request, label=current_size_label)
                 self._add_label(pull_request=pull_request, label=label)
 
-    def label_by_user_comment(self, pull_request, user_request, reviewed_user):
-        _label = user_request[1]
+    def label_by_user_comment(self, pull_request, user_request, remove, reviewed_user):
+        if not any(
+            user_request.lower().startswith(label_name)
+            for label_name in USER_LABELS_DICT
+        ):
+            self.app.logger.info(
+                f"Label {user_request} is not a predefined one, will not be added / removed."
+            )
+            return
 
         # Skip sonar tests comments
-        if "sonarsource.github.io" in _label:
+        if "sonarsource.github.io" in user_request:
             return
 
         if not any(
-            _label.lower().startswith(label_name) for label_name in USER_LABELS_DICT
+            user_request.lower().startswith(label_name)
+            for label_name in USER_LABELS_DICT
         ):
             self.app.logger.info(
-                f"Label {_label} is not a predefined one, will not be added / removed."
+                f"Label {user_request} is not a predefined one, will not be added / removed."
             )
             return
 
         self.app.logger.info(
-            f"{self.repository_name}: Label requested by user {reviewed_user}: {_label}"
+            f"{self.repository_name}: Label requested by user {reviewed_user}: {user_request}"
         )
-        if user_request[0] == "-":
-            if _label.lower() == "lgtm":
+        if remove:
+            if user_request.lower() == "lgtm":
                 self.manage_reviewed_by_label(
                     review_state="approved",
                     action=DELETE_STR,
                     reviewed_user=reviewed_user,
                 )
             else:
-                label = self.obj_labels(obj=pull_request).get(_label.lower())
+                label = self.obj_labels(obj=pull_request).get(user_request.lower())
                 if label:
                     self._remove_label(pull_request=pull_request, label=label.name)
 
         else:
-            if _label.lower() == "lgtm":
+            if user_request.lower() == "lgtm":
                 self.manage_reviewed_by_label(
                     review_state="approved", action=ADD_STR, reviewed_user=reviewed_user
                 )
             else:
-                self._add_label(pull_request=pull_request, label=_label)
+                self._add_label(pull_request=pull_request, label=user_request)
 
     def reset_verify_label(self, pull_request):
         self.app.logger.info(
@@ -507,47 +515,15 @@ Available user actions:
             )
             return
 
-        _user_requests = re.findall(r"!(-)?(.*)", body)
-        if _user_requests:
-            self.app.logger.info(f"User comment: {_user_requests}")
-
         _user_commands = re.findall(r"/(.*)", body)
         if _user_commands:
-            self.app.logger.info(f"User commands: {_user_commands}")
-
-        user_login = self.hook_data["sender"]["login"]
-
-        for user_request in _user_requests:
-            _user_request = user_request[1]
-            if "cherry-pick" in _user_request:
-                self.app.logger.info(
-                    f"{self.repository_name}: Cherry-pick requested by user: {_user_request}"
-                )
-                if not pull_request.is_merged():
-                    error_msg = (
-                        f"Cherry-pick requested for unmerged PR: "
-                        f"{pull_request.title} is not supported"
-                    )
-                    self.app.logger.info(f"{self.repository_name}: {error_msg}")
-                    self._get_last_commit(pull_request)
-                    pull_request.create_issue_comment(error_msg)
-                    return
-
-                self.cherry_pick(
-                    pull_request=pull_request, target_branch=_user_request.split()[1]
-                )
-            else:
-                self.app.logger.info(
-                    f"{self.repository_name}: Processing label/user command by user comment"
-                )
-                self.label_by_user_comment(
+            user_login = self.hook_data["sender"]["login"]
+            for user_command in _user_commands:
+                self.user_commands(
+                    command=user_command,
                     pull_request=pull_request,
-                    user_request=user_request,
                     reviewed_user=user_login,
                 )
-
-        for user_command in _user_commands:
-            self.user_commands(command=user_command, pull_request=pull_request)
 
     @staticmethod
     def get_pr_owner(pull_request, pull_request_data):
@@ -720,13 +696,48 @@ Available user actions:
                 self.app.logger.info(f"tox finished successfully\n{for_log or out}")
                 self.set_run_tox_check_success(pull_request=pull_request)
 
-    def user_commands(self, command, pull_request):
-        self.app.logger.info(f"Process user command: {command}")
-        if command == "tox":
+    def user_commands(self, command, pull_request, reviewed_user):
+        remove = False
+        self.app.logger.info(
+            f"{self.repository_name}: Processing label/user command {command} by user {reviewed_user}"
+        )
+        command_and_args = command.split()
+        _command = command_and_args[0]
+        if len(command_and_args) > 1 and command_and_args[1] == "cancel":
+            remove = True
+
+        if _command == "tox":
             self.set_run_tox_check_pending(pull_request=pull_request)
             self.run_tox(pull_request=pull_request)
 
-    def cherry_pick(self, pull_request, target_branch):
+        if _command == "cherry-pick":
+            self.cherry_pick(
+                pull_request=pull_request,
+                target_branch=command_and_args[1],
+                reviewed_user=reviewed_user,
+            )
+
+        self.label_by_user_comment(
+            pull_request=pull_request,
+            user_request=_command,
+            remove=remove,
+            reviewed_user=reviewed_user,
+        )
+
+    def cherry_pick(self, pull_request, target_branch, reviewed_user):
+        self.app.logger.info(
+            f"{self.repository_name}: Cherry-pick requested by user: {reviewed_user}"
+        )
+        if not pull_request.is_merged():
+            error_msg = (
+                f"Cherry-pick requested for unmerged PR: "
+                f"{pull_request.title} is not supported"
+            )
+            self.app.logger.info(f"{self.repository_name}: {error_msg}")
+            self._get_last_commit(pull_request)
+            pull_request.create_issue_comment(error_msg)
+            return
+
         base_source_branch_name = re.sub(
             r"auto-cherry-pick: \[.*\] ",
             "",
