@@ -676,7 +676,7 @@ Available user actions:
                 return
 
             try:
-                cmd = "tox"
+                cmd = "tox -p"
                 if self.tox_enabled != "all":
                     tests = self.tox_enabled.replace(" ", "")
                     cmd += f" -e {tests}"
