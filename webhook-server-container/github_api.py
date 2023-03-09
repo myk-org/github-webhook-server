@@ -323,6 +323,7 @@ Available user actions:
             return yaml.safe_load(owners_content.decoded_content).get("reviewers", [])
         except UnknownObjectException:
             self.app.logger.error(f"{self.repository_name} OWNERS file not found")
+            return []
 
     def assign_reviewers(self, pull_request):
         for reviewer in self.reviewers:
