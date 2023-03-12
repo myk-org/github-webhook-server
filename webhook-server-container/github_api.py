@@ -379,15 +379,6 @@ Available user actions:
         if "sonarsource.github.io" in user_request:
             return
 
-        if not any(
-            user_request.lower().startswith(label_name)
-            for label_name in USER_LABELS_DICT
-        ):
-            self.app.logger.info(
-                f"Label {user_request} is not a predefined one, will not be added / removed."
-            )
-            return
-
         self.app.logger.info(
             f"{self.repository_name}: Label requested by user {reviewed_user}: {user_request}"
         )
