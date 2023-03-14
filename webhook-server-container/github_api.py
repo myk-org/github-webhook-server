@@ -659,9 +659,10 @@ Available user actions:
 
         with self._clone_repository(path_suffix=f"tox-{uuid.uuid4()}"):
             pr_number = f"origin/pr/{pull_request.number}"
-            self.app.logger.info(f"checkout origin/pr/{pr_number}")
             try:
-                subprocess.check_output(shlex.split(f"git checkout {pr_number}"))
+                checkout_cmd = f"git checkout {pr_number}"
+                self.app.logger.info(f"Run tox command: {checkout_cmd}")
+                subprocess.check_output(shlex.split(checkout_cmd))
             except subprocess.CalledProcessError as ex:
                 self.app.logger.error(f"checkout for {pr_number} failed: {ex}")
                 return
