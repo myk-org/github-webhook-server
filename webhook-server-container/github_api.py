@@ -416,7 +416,7 @@ Available user actions:
         last_commit = self._get_last_commit(pull_request)
         last_commit.create_status(
             state="pending",
-            description="Waiting for verification (!verified)",
+            description="Waiting for verification (/verified)",
             context="Verified",
         )
 
