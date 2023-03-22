@@ -676,9 +676,15 @@ Available user actions:
                 self.app.logger.info(f"Run tox command: {cmd}")
                 out = subprocess.check_output(shlex.split(cmd))
             except subprocess.CalledProcessError as ex:
+                _err = f"""
+                <details>
+                <summary>Tox check failed</summary>
+                {ex.output.decode("utf-8")}
+                <details>
+                """
                 self.set_run_tox_check_failure(
                     pull_request=pull_request,
-                    tox_error=ex.output.decode("utf-8"),
+                    tox_error=_err,
                 )
             else:
                 for_log = None
