@@ -772,8 +772,8 @@ Available user actions:
     @staticmethod
     def _comment_with_details(title, body):
         return f"""
-            <details>
-            <summary>{title}</summary>
-            {body}
-            <details>
+<details>
+<summary>{title}</summary>
+{body}
+<details>
         """
