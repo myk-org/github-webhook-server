@@ -774,6 +774,6 @@ Available user actions:
         return f"""
 <details>
 <summary>{title}</summary>
-{body}
-<details>
+    {body}
+</details>
         """
