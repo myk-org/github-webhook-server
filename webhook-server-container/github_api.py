@@ -443,11 +443,11 @@ Available user actions:
             context="tox",
         )
 
-    def set_run_tox_check_failure(self, pull_request, tox_error):
+    def set_run_tox_check_failure(self, pull_request, tox_out):
         self.app.logger.info(
             f"{self.repository_name}: Processing set tox check failure"
         )
-        error_comment = pull_request.create_issue_comment(tox_error)
+        error_comment = pull_request.create_issue_comment(tox_out)
         last_commit = self._get_last_commit(pull_request)
         last_commit.create_status(
             state="failure",
@@ -456,12 +456,14 @@ Available user actions:
             context="tox",
         )
 
-    def set_run_tox_check_success(self, pull_request):
+    def set_run_tox_check_success(self, pull_request, tox_out):
         self.app.logger.info(f"{self.repository_name}: Set tox check to success")
+        pass_comment = pull_request.create_issue_comment(tox_out)
         last_commit = self._get_last_commit(pull_request)
         last_commit.create_status(
             state="success",
             description="Successful",
+            target_url=pass_comment.html_url,
             context="tox",
         )
 
@@ -676,15 +678,11 @@ Available user actions:
                 self.app.logger.info(f"Run tox command: {cmd}")
                 out = subprocess.check_output(shlex.split(cmd))
             except subprocess.CalledProcessError as ex:
-                _err = f"""
-                <details>
-                <summary>Tox check failed</summary>
-                {ex.output.decode("utf-8")}
-                <details>
-                """
                 self.set_run_tox_check_failure(
                     pull_request=pull_request,
-                    tox_error=_err,
+                    tox_out=self._comment_with_details(
+                        title="Tox check failed", body=ex.output.decode("utf-8")
+                    ),
                 )
             else:
                 for_log = None
@@ -696,7 +694,12 @@ Available user actions:
                     for_log = out[out.index(last_passed) + len(last_passed):]
                     # fmt: on
                 self.app.logger.info(f"tox finished successfully\n{for_log or out}")
-                self.set_run_tox_check_success(pull_request=pull_request)
+                self.set_run_tox_check_success(
+                    pull_request=pull_request,
+                    tox_out=self._comment_with_details(
+                        title="Tox check failed", body=out
+                    ),
+                )
 
     def user_commands(self, command, pull_request, reviewed_user):
         remove = False
@@ -765,3 +768,12 @@ Available user actions:
                     pull_request.create_issue_comment(
                         f"Cherry-picked PR {pull_request.title} into {target_branch}"
                     )
+
+    @staticmethod
+    def _comment_with_details(title, body):
+        return f"""
+            <details>
+            <summary>{title}</summary>
+            {body}
+            <details>
+        """
