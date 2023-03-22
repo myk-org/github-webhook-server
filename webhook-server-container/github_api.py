@@ -697,7 +697,7 @@ Available user actions:
                 self.set_run_tox_check_success(
                     pull_request=pull_request,
                     tox_out=self._comment_with_details(
-                        title="Tox check failed", body=out
+                        title="Tox check passed", body=out
                     ),
                 )
 
