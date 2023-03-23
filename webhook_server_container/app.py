@@ -1,6 +1,5 @@
 import urllib3
 from flask import Flask, request
-from flask_script import Manager, Server
 from github_api import GitHubApi
 from gitlab_api import GitLabApi
 from webhook import create_webhook
@@ -43,16 +42,7 @@ def process_webhook():
     return "Process done"
 
 
-class CustomServer(Server):
-    def __call__(self, app, *args, **kwargs):
-        create_webhook(app=app)
-        return Server.__call__(self, app, *args, **kwargs)
-
-
-manager = Manager(app)
-manager.add_command("runserver", CustomServer())
-
-
 if __name__ == "__main__":
+    create_webhook(app=app)
     app.logger.info("Starting webhook-server app")
-    manager.run(default_command="runserver")
+    app.run(port=5000, host="0.0.0.0", use_reloader=False)

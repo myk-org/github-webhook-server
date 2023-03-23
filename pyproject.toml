@@ -24,7 +24,6 @@ authors = ["Meni Yakove", "Ruth Netser"]
 readme = "README.md"
 repository = "https://github.com/myakove/github-gitlab-webhook-server"
 
-
 [tool.poetry.dependencies]
 python = "^3.8"
 PyGithub = "*"
@@ -36,8 +35,7 @@ build = "*"
 twine = "*"
 python-gitlab = "*"
 tox = "*"
-flask-script = "==2.0.5"
-watchdog = "*"
+
 [tool.poetry.dev-dependencies]
 ipython = "*"
 ipdb = "*"
