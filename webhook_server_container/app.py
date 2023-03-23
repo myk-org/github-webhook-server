@@ -1,5 +1,3 @@
-import os
-
 import urllib3
 from flask import Flask, request
 from flask_script import Manager, Server
@@ -10,7 +8,6 @@ from webhook import create_webhook
 
 urllib3.disable_warnings()
 
-os.environ["FLASK_DEBUG"] = "1"
 app = Flask("webhook_server")
 
 
