@@ -17,7 +17,7 @@ line_length = 88
 profile = "black"
 
 [tool.poetry]
-name = "webhook-server"
+name = "github-gitlab-webhook-server"
 version = "1.0.0"
 description = "A webhook server to handle Github/Gitlab reposotories."
 authors = ["Meni Yakove", "Ruth Netser"]
@@ -36,7 +36,8 @@ build = "*"
 twine = "*"
 python-gitlab = "*"
 tox = "*"
-
+flask-script = "==2.0.5"
+watchdog = "*"
 [tool.poetry.dev-dependencies]
 ipython = "*"
 ipdb = "*"

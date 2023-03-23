@@ -8,15 +8,9 @@ import uuid
 from contextlib import contextmanager
 
 import yaml
+from constants import ADD_STR, ALL_LABELS_DICT, DELETE_STR, USER_LABELS_DICT
 from github import Github, GithubException
 from github.GithubException import UnknownObjectException
-
-from webhook_server_container.constants import (
-    ADD_STR,
-    ALL_LABELS_DICT,
-    DELETE_STR,
-    USER_LABELS_DICT,
-)
 
 
 @contextmanager
