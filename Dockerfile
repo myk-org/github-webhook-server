@@ -19,6 +19,6 @@ RUN python3 -m pip install pip --upgrade \
     && poetry config virtualenvs.in-project true \
     && poetry config --list \
     && poetry env remove --all \
-    && poetry install \
-    && poetry export --without-hashes -n
-ENTRYPOINT ["./entrypoint.sh"]
+    && poetry install
+
+ENTRYPOINT ["poetry", "run", "python3", "webhook_server_container/app.py"]
