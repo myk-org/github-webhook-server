@@ -1,5 +1,5 @@
+import asyncio
 import os
-import time
 
 import gitlab
 import yaml
@@ -7,44 +7,11 @@ from constants import ALL_LABELS_DICT, STATIC_LABELS_DICT
 from github import Github
 from github.GithubException import UnknownObjectException
 from gitlab_api import GitLabApi
-from selenium import webdriver
-from selenium.common.exceptions import NoSuchElementException
-from urllib3.exceptions import MaxRetryError
 
 
-def _get_firefox_driver(app):
-    try:
-        app.logger.info("Get firefox driver")
-        firefox_options = webdriver.FirefoxOptions()
-        firefox_options.headless = True
-        return webdriver.Remote("http://firefox:4444", options=firefox_options)
-    except (ConnectionRefusedError, MaxRetryError):
-        app.logger.info("Retrying to get firefox driver")
-        time.sleep(5)
-        return _get_firefox_driver(app=app)
-
-
-def _get_ngrok_config(app):
-    driver = _get_firefox_driver(app=app)
-    try:
-        app.logger.info("Get ngrok configuration")
-        driver.get("http://ngrok:4040/status")
-        ngrok_url = driver.find_element(
-            "xpath",
-            '//*[@id="app"]/div/div/div/div[1]/div[1]/ul/li/div/table/tbody/tr[1]/td',
-        ).text
-        driver.close()
-        return {"url": f"{ngrok_url}/webhook_server", "content_type": "json"}
-    except NoSuchElementException:
-        app.logger.info("Retrying to get ngrok configuration")
-        time.sleep(5)
-        _get_ngrok_config(app=app)
-
-
-def process_github_webhook(app, config, data, repository, use_ngrok, webhook_ip):
+async def process_github_webhook(app, config, data, repository, webhook_ip):
     token = data["token"]
     events = data.get("events", ["*"])
-    app.logger.info(f"Creating webhook for {repository}")
     gapi = Github(login_or_token=token)
     try:
         repo = gapi.get_repo(repository)
@@ -54,10 +21,7 @@ def process_github_webhook(app, config, data, repository, use_ngrok, webhook_ip)
 
     try:
         for _hook in repo.get_hooks():
-            if use_ngrok:
-                hook_exists = "ngrok.io" in _hook.config["url"]
-            else:
-                hook_exists = webhook_ip in _hook.config["url"]
+            hook_exists = webhook_ip in _hook.config["url"]
             if hook_exists:
                 app.logger.info(
                     f"Deleting existing webhook for {repository}: {_hook.config['url']}"
@@ -77,9 +41,8 @@ def process_github_webhook(app, config, data, repository, use_ngrok, webhook_ip)
         return
 
 
-def process_gitlab_webhook(app, config, data, repository, use_ngrok, webhook_ip):
+async def process_gitlab_webhook(app, config, data, repository, webhook_ip):
     events = data.get("events", [])
-    app.logger.info(f"Creating webhook for {repository}")
     container_gitlab_config = "/python-gitlab/python-gitlab.cfg"
     if os.path.isfile(container_gitlab_config):
         config_files = [container_gitlab_config]
@@ -98,10 +61,7 @@ def process_gitlab_webhook(app, config, data, repository, use_ngrok, webhook_ip)
 
     try:
         for _hook in project.hooks.list():
-            if use_ngrok:
-                hook_exists = "ngrok.io" in _hook.url
-            else:
-                hook_exists = webhook_ip in _hook.url
+            hook_exists = webhook_ip in _hook.url
             if hook_exists:
                 app.logger.info(
                     f"Deleting existing webhook for {repository}: {_hook.url}"
@@ -126,42 +86,45 @@ def process_gitlab_webhook(app, config, data, repository, use_ngrok, webhook_ip)
         return
 
 
-def create_webhook(app):
+async def create_webhook(app):
     app.logger.info("Preparing webhook configuration")
     config_file = os.environ.get("WEBHOOK_CONFIG_FILE", "/config/config.yaml")
     with open(config_file) as fd:
         repos = yaml.safe_load(fd)
 
+    tasks = []
     for repo, data in repos["repositories"].items():
         webhook_ip = data["webhook_ip"]
-        use_ngrok = webhook_ip == "ngrok"
-        if use_ngrok:
-            config = _get_ngrok_config(app=app)
-        else:
-            config = {"url": f"{webhook_ip}/webhook_server", "content_type": "json"}
+        config = {"url": f"{webhook_ip}/webhook_server", "content_type": "json"}
 
         _type = data["type"]
         repository = data["name"]
+
         if _type == "github":
-            process_github_webhook(
-                app=app,
-                config=config,
-                data=data,
-                repository=repository,
-                use_ngrok=use_ngrok,
-                webhook_ip=webhook_ip,
+            tasks.append(
+                asyncio.create_task(
+                    process_github_webhook(
+                        app=app,
+                        config=config,
+                        data=data,
+                        repository=repository,
+                        webhook_ip=webhook_ip,
+                    )
+                )
             )
 
-        if _type == "gitlab":
-            process_gitlab_webhook(
-                app=app,
-                config=config,
-                data=data,
-                repository=repository,
-                use_ngrok=use_ngrok,
-                webhook_ip=webhook_ip,
+        elif _type == "gitlab":
+            tasks.append(
+                asyncio.create_task(
+                    process_gitlab_webhook(
+                        app=app,
+                        config=config,
+                        data=data,
+                        repository=repository,
+                        webhook_ip=webhook_ip,
+                    )
+                )
             )
 
-
-# if __name__ == "__main__":
-#     create_webhook()
+    for coro in asyncio.as_completed(tasks):
+        await coro

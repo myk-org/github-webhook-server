@@ -1,3 +1,5 @@
+import asyncio
+
 import urllib3
 from flask import Flask, request
 from github_api import GitHubApi
@@ -42,7 +44,14 @@ def process_webhook():
     return "Process done"
 
 
-if __name__ == "__main__":
-    create_webhook(app=app)
+async def main():
+    await create_webhook(app=app)
     app.logger.info("Starting webhook-server app")
     app.run(port=5000, host="0.0.0.0", use_reloader=False)
+
+
+loop = asyncio.get_event_loop()
+loop.run_until_complete(main())
+
+# if __name__ == "__main__":
+#     main()
