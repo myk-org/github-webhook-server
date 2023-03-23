@@ -1,9 +1,10 @@
 # Gitlab colors require a '#' prefix; e.g: #
 USER_LABELS_DICT = {
-    "do-not-merge": "B60205",
+    "hold": "B60205",
     "verified": "0E8A16",
     "wip": "FEF2C0",
     "lgtm": "0E8A16",
+    "approve": "0E8A16",
     "target-version-": "F09C74",
 }
 STATIC_LABELS_DICT = {
