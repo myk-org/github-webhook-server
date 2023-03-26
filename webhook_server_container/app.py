@@ -1,13 +1,15 @@
+import asyncio
+
 import urllib3
 from flask import Flask, request
 from github_api import GitHubApi
 from gitlab_api import GitLabApi
+from webhook import create_webhook
 
 
 urllib3.disable_warnings()
 
 app = Flask("webhook_server")
-app.logger.info("Starting webhook-server app")
 
 
 class GithubGitlabApiNotFoundError(Exception):
@@ -40,3 +42,13 @@ def process_webhook():
     )
     api.process_hook(data=hook_data if gitlab_event else github_event)
     return "Process done"
+
+
+async def main():
+    await create_webhook(app=app)
+    app.logger.info("Starting webhook-server app")
+    app.run(port=5000, host="0.0.0.0", use_reloader=False)
+
+
+loop = asyncio.get_event_loop()
+loop.run_until_complete(main())

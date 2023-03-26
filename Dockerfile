@@ -11,8 +11,14 @@ RUN set -x \
     && apt-get purge -y --auto-remove software-properties-common \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt requirements.txt
-RUN python3 -m pip install pip --upgrade && python3 -m pip install -r requirements.txt
-COPY . /app
-WORKDIR /app
-ENTRYPOINT ["./entrypoint.sh"]
+COPY . /github-gitlab-webhook-server
+WORKDIR /github-gitlab-webhook-server
+RUN python3 -m pip install pip --upgrade \
+    && python3 -m pip install poetry \
+    && poetry config cache-dir /app \
+    && poetry config virtualenvs.in-project true \
+    && poetry config --list \
+    && poetry env remove --all \
+    && poetry install
+
+ENTRYPOINT ["poetry", "run", "python3", "webhook_server_container/app.py"]

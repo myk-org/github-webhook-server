@@ -71,7 +71,8 @@ Available user actions:
             self.process_pull_request_review_webhook_data()
 
     def _repo_data_from_config(self):
-        with open("/config/config.yaml") as fd:
+        config_file = os.environ.get("WEBHOOK_CONFIG_FILE", "/config/config.yaml")
+        with open(config_file) as fd:
             repos = yaml.safe_load(fd)
 
         data = repos["repositories"].get(self.repository_name)
