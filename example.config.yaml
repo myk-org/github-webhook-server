@@ -2,12 +2,13 @@ repositories:
   # GITHUB repositories example
   openshift-python-wrapper:
     type: github
-    webhook_ip: ngrok OR <HTTP://IP OR URL:PORT>
+    webhook_ip: <HTTP://IP OR URL:PORT>
     name: RedHatQE/openshift-python-wrapper
     token: <GITHIB TOKEN>
     verified_job: true
-    upload_to_pypi: true
-    pypi_token: <PYPI TOKEN>
+    pypi:
+      pypi_token: <PYPI TOKEN>
+      publish_method: <poetry or twine>
     events:  # To listen to all events do not send events
       - push
       - pull_request
@@ -15,9 +16,9 @@ repositories:
     tox: all # Run all tests in tox.ini
 
   # GITLAB repositories example
-  openshift-python-wrapper:
+  openshift-python-wrapper-2:
     type: gitlab
-    webhook_ip: ngrok OR <HTTP://IP OR URL:PORT>
+    webhook_ip: <HTTP://IP OR URL:PORT>
     name: RedHatQE/openshift-python-wrapper
     project_id: <PROJECT ID>
     events:
