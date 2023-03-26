@@ -84,7 +84,7 @@ Available user actions:
         self.token = data["token"]
         os.environ["GITHUB_TOKEN"] = self.token
         self.repository_full_name = data["name"]
-        self.upload_to_pypi = data.get("pypi")
+        self.pypi = data.get("pypi")
         self.verified_job = data.get("verified_job", True)
         self.tox_enabled = data.get("tox")
 
@@ -290,9 +290,9 @@ Available user actions:
             return False
 
     def upload_to_pypi(self):
-        publish_method = self.upload_to_pypi.get("publish_method")
-        token = self.upload_to_pypi["pypi_token"]
-        if publish_method == "twine":
+        tool = self.pypi["tool"]
+        token = self.pypi["token"]
+        if tool == "twine":
             self.app.logger.info(f"{self.repository_name}: Start uploading to pypi")
             os.environ["TWINE_USERNAME"] = "__token__"
             os.environ["TWINE_PASSWORD"] = token
@@ -314,14 +314,14 @@ Available user actions:
             subprocess.check_output(
                 shlex.split(f"twine upload {dist_pkg_path} --skip-existing")
             )
-        elif publish_method == "poetry":
+        elif tool == "poetry":
             subprocess.check_output(
                 shlex.split(f"poetry config pypi-token.pypi {token}")
             )
             subprocess.check_output(shlex.split("poetry publish --build"))
 
         self.app.logger.info(
-            f"{self.repository_name}: Uploading to pypi finished [{publish_method}]"
+            f"{self.repository_name}: Uploading to pypi finished [using {tool}]"
         )
 
     @property
@@ -633,7 +633,7 @@ Available user actions:
     def process_push_webhook_data(self):
         tag = re.search(r"refs/tags/?(.*)", self.hook_data["ref"])
         if tag:  # If push is to a tag (release created)
-            if self.upload_to_pypi:
+            if self.pypi:
                 tag_name = tag.group(1)
                 self.app.logger.info(
                     f"{self.repository_name}: Processing push for tag: {tag_name}"

@@ -7,8 +7,8 @@ repositories:
     token: <GITHIB TOKEN>
     verified_job: true
     pypi:
-      pypi_token: <PYPI TOKEN>
-      publish_method: <poetry or twine>
+      token: <PYPI TOKEN>
+      tool: <poetry or twine>
     events:  # To listen to all events do not send events
       - push
       - pull_request
