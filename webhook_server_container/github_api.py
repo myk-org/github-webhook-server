@@ -40,22 +40,26 @@ class GitHubApi:
         self.reviewed_by_prefix = "-by-"
         self.auto_cherry_pick_prefix = "auto-cherry-pick:"
         supported_user_labels_str = "".join(
-            [f"* {label}\n  " for label in USER_LABELS_DICT.keys()]
+            [f"* {label}\n" for label in USER_LABELS_DICT.keys()]
         )
         self.welcome_msg = f"""
 The following are automatically added:
  * Add reviewers from OWNER file (in the root of the repository) under reviewers section.
  * Set PR size label.
- * New issue is created for the PR.
+ * New issue is created for the PR. (Closed when PR is merged/closed)
 
 Available user actions:
  * To mark PR as verified add `/verified` to a PR comment, to un-verify add `/verified cancel` to a PR comment.
         Verified label removed on each new commit push.
  * To cherry pick a merged PR add `/cherry-pick <target branch to cherry-pick to>` to a PR comment.
+    * Support only merged PRs
  * To add a label by comment use `/<label name>`, to remove, use `/<label name> cancel`
-  Supported labels:
-  {supported_user_labels_str}
-            """
+<details>
+<summary>Supported labels</summary>
+
+{supported_user_labels_str}
+</details>
+    """
 
     def process_hook(self, data):
         if data == "issue_comment":
@@ -84,8 +88,7 @@ Available user actions:
         self.token = data["token"]
         os.environ["GITHUB_TOKEN"] = self.token
         self.repository_full_name = data["name"]
-        self.upload_to_pypi_enabled = data.get("upload_to_pypi")
-        self.pypi_token = data.get("pypi_token")
+        self.pypi = data.get("pypi")
         self.verified_job = data.get("verified_job", True)
         self.tox_enabled = data.get("tox")
 
@@ -291,24 +294,39 @@ Available user actions:
             return False
 
     def upload_to_pypi(self):
-        self.app.logger.info(f"{self.repository_name}: Start uploading to pypi")
-        os.environ["TWINE_USERNAME"] = "__token__"
-        os.environ["TWINE_PASSWORD"] = self.pypi_token
-        build_folder = "dist"
+        tool = self.pypi["tool"]
+        token = self.pypi["token"]
+        if tool == "twine":
+            self.app.logger.info(f"{self.repository_name}: Start uploading to pypi")
+            os.environ["TWINE_USERNAME"] = "__token__"
+            os.environ["TWINE_PASSWORD"] = token
+            build_folder = "dist"
 
-        _out = subprocess.check_output(
-            shlex.split(f"{sys.executable} -m build --sdist --outdir {build_folder}/")
+            _out = subprocess.check_output(
+                shlex.split(
+                    f"{sys.executable} -m build --sdist --outdir {build_folder}/"
+                )
+            )
+            dist_pkg = re.search(
+                r"Successfully built (.*.tar.gz)", _out.decode("utf-8")
+            ).group(1)
+            dist_pkg_path = os.path.join(build_folder, dist_pkg)
+            subprocess.check_output(shlex.split(f"twine check {dist_pkg_path}"))
+            self.app.logger.info(
+                f"{self.repository_name}: Uploading to pypi: {dist_pkg}"
+            )
+            subprocess.check_output(
+                shlex.split(f"twine upload {dist_pkg_path} --skip-existing")
+            )
+        elif tool == "poetry":
+            subprocess.check_output(
+                shlex.split(f"poetry config pypi-token.pypi {token}")
+            )
+            subprocess.check_output(shlex.split("poetry publish --build"))
+
+        self.app.logger.info(
+            f"{self.repository_name}: Uploading to pypi finished [using {tool}]"
         )
-        dist_pkg = re.search(
-            r"Successfully built (.*.tar.gz)", _out.decode("utf-8")
-        ).group(1)
-        dist_pkg_path = os.path.join(build_folder, dist_pkg)
-        subprocess.check_output(shlex.split(f"twine check {dist_pkg_path}"))
-        self.app.logger.info(f"{self.repository_name}: Uploading to pypi: {dist_pkg}")
-        subprocess.check_output(
-            shlex.split(f"twine upload {dist_pkg_path} --skip-existing")
-        )
-        self.app.logger.info(f"{self.repository_name}: Uploading to pypi finished")
 
     @property
     def repository_labels(self):
@@ -618,15 +636,14 @@ Available user actions:
 
     def process_push_webhook_data(self):
         tag = re.search(r"refs/tags/?(.*)", self.hook_data["ref"])
-        if tag:  # If push is to a tag (release created)
-            if self.upload_to_pypi_enabled:
-                tag_name = tag.group(1)
-                self.app.logger.info(
-                    f"{self.repository_name}: Processing push for tag: {tag_name}"
-                )
-                with self._clone_repository(path_suffix=tag_name):
-                    self._checkout_tag(tag=tag_name)
-                    self.upload_to_pypi()
+        if tag and self.pypi:
+            tag_name = tag.group(1)
+            self.app.logger.info(
+                f"{self.repository_name}: Processing push for tag: {tag_name}"
+            )
+            with self._clone_repository(path_suffix=tag_name):
+                self._checkout_tag(tag=tag_name)
+                self.upload_to_pypi()
 
     def process_pull_request_review_webhook_data(self):
         if self.hook_data["action"] == "submitted":
