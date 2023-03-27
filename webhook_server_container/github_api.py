@@ -53,9 +53,11 @@ Available user actions:
         Verified label removed on each new commit push.
  * To cherry pick a merged PR add `/cherry-pick <target branch to cherry-pick to>` to a PR comment.
  * To add a label by comment use `/<label name>`, to remove, use `/<label name> cancel`
-  Supported labels:
-  {supported_user_labels_str}
-            """
+<details>
+<summary>Supported labels</summary>
+    {supported_user_labels_str}
+</details>
+    """
 
     def process_hook(self, data):
         if data == "issue_comment":
