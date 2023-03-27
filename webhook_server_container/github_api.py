@@ -634,15 +634,14 @@ Available user actions:
 
     def process_push_webhook_data(self):
         tag = re.search(r"refs/tags/?(.*)", self.hook_data["ref"])
-        if tag:  # If push is to a tag (release created)
-            if self.pypi:
-                tag_name = tag.group(1)
-                self.app.logger.info(
-                    f"{self.repository_name}: Processing push for tag: {tag_name}"
-                )
-                with self._clone_repository(path_suffix=tag_name):
-                    self._checkout_tag(tag=tag_name)
-                    self.upload_to_pypi()
+        if tag and self.pypi:
+            tag_name = tag.group(1)
+            self.app.logger.info(
+                f"{self.repository_name}: Processing push for tag: {tag_name}"
+            )
+            with self._clone_repository(path_suffix=tag_name):
+                self._checkout_tag(tag=tag_name)
+                self.upload_to_pypi()
 
     def process_pull_request_review_webhook_data(self):
         if self.hook_data["action"] == "submitted":
