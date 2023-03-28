@@ -2,10 +2,9 @@ import asyncio
 import os
 
 import gitlab
-from github import Github
 from github.GithubException import UnknownObjectException
 from gitlab_api import GitLabApi
-from utils import get_repository_from_config
+from utils import get_github_repo_api, get_repository_from_config
 
 from webhook_server_container.constants import ALL_LABELS_DICT, STATIC_LABELS_DICT
 
@@ -13,11 +12,8 @@ from webhook_server_container.constants import ALL_LABELS_DICT, STATIC_LABELS_DI
 async def process_github_webhook(app, config, data, repository, webhook_ip):
     token = data["token"]
     events = data.get("events", ["*"])
-    gapi = Github(login_or_token=token)
-    try:
-        repo = gapi.get_repo(repository)
-    except UnknownObjectException:
-        app.logger.info(f"Repository {repository} not found or token invalid")
+    repo = get_github_repo_api(app=app, token=token, repository=repository)
+    if not repo:
         return
 
     try:

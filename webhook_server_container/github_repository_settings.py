@@ -1,8 +1,7 @@
 import asyncio
 
-from github import Github
 from github.GithubException import UnknownObjectException
-from utils import get_repository_from_config
+from utils import get_github_repo_api, get_repository_from_config
 
 
 async def set_branch_protection(app, branch, repository, required_status_checks):
@@ -26,11 +25,8 @@ async def process_github_webhook(app, data):
 
     repository = data["name"]
     token = data["token"]
-    gapi = Github(login_or_token=token)
-    try:
-        repo = gapi.get_repo(repository)
-    except UnknownObjectException:
-        app.logger.info(f"Repository {repository} not found or token invalid")
+    repo = get_github_repo_api(app=app, token=token, repository=repository)
+    if not repo:
         return
 
     default_status_checks = [
