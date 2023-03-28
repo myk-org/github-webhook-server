@@ -2,25 +2,23 @@ import asyncio
 import os
 
 import gitlab
-import yaml
 from constants import ALL_LABELS_DICT, STATIC_LABELS_DICT
-from github import Github
 from github.GithubException import UnknownObjectException
+from github_api import GitHubApi
 from gitlab_api import GitLabApi
+from utils import get_repository_from_config
 
 
 async def process_github_webhook(app, config, data, repository, webhook_ip):
-    token = data["token"]
     events = data.get("events", ["*"])
-    gapi = Github(login_or_token=token)
     try:
-        repo = gapi.get_repo(repository)
+        api = GitHubApi(app=app, hook_data=data)
     except UnknownObjectException:
         app.logger.info(f"Repository {repository} not found or token invalid")
         return
 
     try:
-        for _hook in repo.get_hooks():
+        for _hook in api.repository.get_hooks():
             hook_exists = webhook_ip in _hook.config["url"]
             if hook_exists:
                 app.logger.info(
@@ -31,8 +29,8 @@ async def process_github_webhook(app, config, data, repository, webhook_ip):
         app.logger.info(
             f"Creating webhook: {config['url']} for {repository} with events: {events}"
         )
-        repo.create_hook("web", config, events, active=True)
-        for label in repo.get_labels():
+        api.repository.create_hook("web", config, events, active=True)
+        for label in api.repository.get_labels():
             label_name = label.name.lower()
             if label_name in ALL_LABELS_DICT:
                 label.edit(label.name, color=ALL_LABELS_DICT[label_name])
@@ -88,9 +86,7 @@ async def process_gitlab_webhook(app, config, data, repository, webhook_ip):
 
 async def create_webhook(app):
     app.logger.info("Preparing webhook configuration")
-    config_file = os.environ.get("WEBHOOK_CONFIG_FILE", "/config/config.yaml")
-    with open(config_file) as fd:
-        repos = yaml.safe_load(fd)
+    repos = get_repository_from_config()
 
     tasks = []
     for repo, data in repos["repositories"].items():
