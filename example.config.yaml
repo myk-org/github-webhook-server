@@ -15,7 +15,9 @@ repositories:
       - issue_comment
     tox: all # Run all tests in tox.ini
     protected-branches:
-      - main
+      main:
+        - "pre-commit.ci - pr"
+        - "WIP"
 
   # GITLAB repositories example
   openshift-python-wrapper-2:

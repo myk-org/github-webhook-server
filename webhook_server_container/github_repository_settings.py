@@ -21,6 +21,9 @@ async def set_branch_protection(app, branch, repository, required_status_checks)
 
 async def process_github_webhook(app, data):
     protected_branches = data.get("protected-branches", [])
+    if not protected_branches:
+        return
+
     repository = data["name"]
     try:
         api = GitHubApi(app=app, hook_data=data)
@@ -28,19 +31,28 @@ async def process_github_webhook(app, data):
         app.logger.info(f"Repository {repository} not found or token invalid")
         return
 
+    default_status_checks = [
+        "pre-commit.ci - pr",
+        "WIP",
+        "dpulls",
+        "SonarCloud Code Analysis",
+        "Inclusive Language",
+    ]
+
     tasks = []
-    for branch_name in protected_branches:
+    for branch_name, status_checks in protected_branches.items():
         branch = api.repository.get_branch(branch=branch_name)
-        required_status_checks = [
-            "pre-commit.ci - pr",
-            "WIP",
-            "dpulls",
-            "SonarCloud Code Analysis",
-            "Inclusive Language",
-            "Verified",
-        ]
+        required_status_checks = []
+        if data.get("verified_job"):
+            required_status_checks.append("Verified")
+
         if data.get("tox"):
             required_status_checks.append("tox")
+
+        if status_checks:
+            required_status_checks.extend(status_checks)
+        else:
+            required_status_checks.extend(default_status_checks)
 
         tasks.append(
             asyncio.create_task(
