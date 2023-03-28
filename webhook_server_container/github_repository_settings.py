@@ -1,7 +1,7 @@
 import asyncio
 
+from github import Github
 from github.GithubException import UnknownObjectException
-from github_api import GitHubApi
 from utils import get_repository_from_config
 
 
@@ -25,8 +25,10 @@ async def process_github_webhook(app, data):
         return
 
     repository = data["name"]
+    token = data["token"]
+    gapi = Github(login_or_token=token)
     try:
-        api = GitHubApi(app=app, hook_data=data)
+        repo = gapi.get_repo(repository)
     except UnknownObjectException:
         app.logger.info(f"Repository {repository} not found or token invalid")
         return
@@ -41,7 +43,7 @@ async def process_github_webhook(app, data):
 
     tasks = []
     for branch_name, status_checks in protected_branches.items():
-        branch = api.repository.get_branch(branch=branch_name)
+        branch = repo.get_branch(branch=branch_name)
         required_status_checks = []
         if data.get("verified_job"):
             required_status_checks.append("Verified")
