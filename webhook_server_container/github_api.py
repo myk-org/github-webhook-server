@@ -296,36 +296,45 @@ Available user actions:
     def upload_to_pypi(self):
         tool = self.pypi["tool"]
         token = self.pypi["token"]
-        if tool == "twine":
-            self.app.logger.info(f"{self.repository_name}: Start uploading to pypi")
-            os.environ["TWINE_USERNAME"] = "__token__"
-            os.environ["TWINE_PASSWORD"] = token
-            build_folder = "dist"
+        try:
+            if tool == "twine":
+                self.app.logger.info(f"{self.repository_name}: Start uploading to pypi")
+                os.environ["TWINE_USERNAME"] = "__token__"
+                os.environ["TWINE_PASSWORD"] = token
+                build_folder = "dist"
 
-            _out = subprocess.check_output(
-                shlex.split(
-                    f"{sys.executable} -m build --sdist --outdir {build_folder}/"
+                _out = subprocess.check_output(
+                    shlex.split(
+                        f"{sys.executable} -m build --sdist --outdir {build_folder}/"
+                    )
                 )
+                dist_pkg = re.search(
+                    r"Successfully built (.*.tar.gz)", _out.decode("utf-8")
+                ).group(1)
+                dist_pkg_path = os.path.join(build_folder, dist_pkg)
+                subprocess.check_output(shlex.split(f"twine check {dist_pkg_path}"))
+                self.app.logger.info(
+                    f"{self.repository_name}: Uploading to pypi: {dist_pkg}"
+                )
+                subprocess.check_output(
+                    shlex.split(f"twine upload {dist_pkg_path} --skip-existing")
+                )
+            elif tool == "poetry":
+                subprocess.check_output(
+                    shlex.split(f"poetry config pypi-token.pypi {token}")
+                )
+                subprocess.check_output(shlex.split("poetry publish --build"))
+        except Exception as ex:
+            err = f"Publish to pypi failed [using {tool}]"
+            self.app.logger.error(f"{self.repository_name}: {err}")
+            self.repository.create_issue(
+                title=err,
+                body=ex,
             )
-            dist_pkg = re.search(
-                r"Successfully built (.*.tar.gz)", _out.decode("utf-8")
-            ).group(1)
-            dist_pkg_path = os.path.join(build_folder, dist_pkg)
-            subprocess.check_output(shlex.split(f"twine check {dist_pkg_path}"))
-            self.app.logger.info(
-                f"{self.repository_name}: Uploading to pypi: {dist_pkg}"
-            )
-            subprocess.check_output(
-                shlex.split(f"twine upload {dist_pkg_path} --skip-existing")
-            )
-        elif tool == "poetry":
-            subprocess.check_output(
-                shlex.split(f"poetry config pypi-token.pypi {token}")
-            )
-            subprocess.check_output(shlex.split("poetry publish --build"))
+            return
 
         self.app.logger.info(
-            f"{self.repository_name}: Uploading to pypi finished [using {tool}]"
+            f"{self.repository_name}: Publish to pypi finished [using {tool}]"
         )
 
     @property
