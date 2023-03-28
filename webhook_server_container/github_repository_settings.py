@@ -1,6 +1,5 @@
 import asyncio
 
-from github.GithubException import UnknownObjectException
 from utils import get_github_repo_api, get_repository_from_config
 
 
@@ -14,7 +13,7 @@ async def set_branch_protection(app, branch, repository, required_status_checks)
             required_approving_review_count=1,
             dismiss_stale_reviews=True,
         )
-    except UnknownObjectException:
+    except Exception:
         return
 
 
@@ -26,7 +25,7 @@ async def process_github_webhook(app, data):
     repository = data["name"]
     token = data["token"]
     repo = get_github_repo_api(app=app, token=token, repository=repository)
-    if not repo:
+    if not repo or repo.private:
         return
 
     default_status_checks = [

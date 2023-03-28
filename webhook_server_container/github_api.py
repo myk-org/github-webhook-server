@@ -9,8 +9,9 @@ from contextlib import contextmanager
 
 import yaml
 from constants import ADD_STR, ALL_LABELS_DICT, DELETE_STR, USER_LABELS_DICT
-from github import Github, GithubException
+from github import GithubException
 from github.GithubException import UnknownObjectException
+from utils import get_github_repo_api
 
 
 @contextmanager
@@ -32,8 +33,9 @@ class GitHubApi:
         self.hook_data = hook_data
         self.repository_name = hook_data["repository"]["name"]
         self._repo_data_from_config()
-        self.api = Github(login_or_token=self.token)
-        self.repository = self.api.get_repo(self.repository_full_name)
+        self.repository = get_github_repo_api(
+            app=self.app, token=self.token, repository=self.repository_full_name
+        )
         self.verified_label = "verified"
         self.size_label_prefix = "size/"
         self.clone_repository_path = os.path.join("/", self.repository.name)

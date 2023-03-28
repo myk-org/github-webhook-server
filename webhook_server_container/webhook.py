@@ -2,11 +2,10 @@ import asyncio
 import os
 
 import gitlab
+from constants import ALL_LABELS_DICT, STATIC_LABELS_DICT
 from github.GithubException import UnknownObjectException
 from gitlab_api import GitLabApi
 from utils import get_github_repo_api, get_repository_from_config
-
-from webhook_server_container.constants import ALL_LABELS_DICT, STATIC_LABELS_DICT
 
 
 async def process_github_webhook(app, config, data, repository, webhook_ip):
@@ -34,7 +33,7 @@ async def process_github_webhook(app, config, data, repository, webhook_ip):
             if label_name in ALL_LABELS_DICT:
                 label.edit(label.name, color=ALL_LABELS_DICT[label_name])
 
-    except UnknownObjectException:
+    except Exception:
         return
 
 
@@ -79,7 +78,7 @@ async def process_gitlab_webhook(app, config, data, repository, webhook_ip):
                 project=project, label_color=label_color, label_name=label_name
             )
 
-    except UnknownObjectException:
+    except Exception:
         return
 
 
