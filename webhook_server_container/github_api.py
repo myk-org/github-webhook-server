@@ -40,7 +40,7 @@ class GitHubApi:
         self.size_label_prefix = "size/"
         self.clone_repository_path = os.path.join("/", self.repository.name)
         self.reviewed_by_prefix = "-by-"
-        self.auto_cherry_pick_prefix = "auto-cherry-pick:"
+        self.auto_cherry_pick_prefix = "auto-cherry-pick"
         supported_user_labels_str = "".join(
             [f"* {label}\n" for label in USER_LABELS_DICT.keys()]
         )
@@ -241,6 +241,7 @@ Available user actions:
             )
             return False
 
+        err = ""
         try:
             self.app.logger.info(
                 f"{self.repository_name}: Cherry picking {commit_hash} into {source_branch}, requested by "
@@ -273,8 +274,8 @@ Available user actions:
                     f"hub pull-request "
                     f"-b {source_branch} "
                     f"-h {new_branch_name} "
-                    f"-l auto-cherry-pick "
-                    f"-m '{self.auto_cherry_pick_prefix} [{source_branch}] {commit_msg}' "
+                    f"-l {self.auto_cherry_pick_prefix} "
+                    f"-m '{self.auto_cherry_pick_prefix}: [{source_branch}] {commit_msg}' "
                     f"-m 'cherry-pick {pull_request_url} into {source_branch}' "
                     f"-m 'requested-by {user_login}'"
                 ),
@@ -552,11 +553,10 @@ Available user actions:
                     reviewed_user=user_login,
                 )
 
-    @staticmethod
-    def get_pr_owner(pull_request, pull_request_data):
+    def get_pr_owner(self, pull_request, pull_request_data):
         if pull_request.title.startswith(
-            "auto-cherry-pick:"
-        ) and "auto-cherry-pick" in [_lb.name for _lb in pull_request.labels]:
+            f"{self.auto_cherry_pick_prefix}:"
+        ) and self.auto_cherry_pick_prefix in [_lb.name for _lb in pull_request.labels]:
             parent_committer = re.search(
                 r"requested-by (\w+)", pull_request.body
             ).group(1)
@@ -776,11 +776,11 @@ Available user actions:
             return
 
         base_source_branch_name = re.sub(
-            r"auto-cherry-pick: \[.*\] ",
+            rf"{self.auto_cherry_pick_prefix}: \[.*\] ",
             "",
             pull_request.head.ref.replace(" ", "-"),
         )
-        new_branch_name = f"auto-cherry-pick-{base_source_branch_name}"
+        new_branch_name = f"{self.auto_cherry_pick_prefix}-{base_source_branch_name}"
         if not self.is_branch_exists(branch=target_branch):
             err_msg = f"cherry-pick failed: {target_branch} does not exists"
             self.app.logger.error(err_msg)
