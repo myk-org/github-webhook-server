@@ -573,6 +573,9 @@ Available user actions:
         if hook_action == "opened":
             pull_request_data = self.hook_data["pull_request"]
             pull_request.create_issue_comment(self.welcome_msg)
+            if self.verified_job:
+                self.set_verify_check_pending(pull_request=pull_request)
+
             self.set_run_tox_check_pending(pull_request=pull_request)
 
             self.add_size_label(pull_request=pull_request)
