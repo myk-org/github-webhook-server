@@ -57,7 +57,7 @@ def set_repositories_settings(app):
                 continue
 
             required_status_checks = []
-            if data.get("verified_job"):
+            if data.get("verified_job", True):
                 required_status_checks.append("Verified")
 
             if data.get("tox"):
