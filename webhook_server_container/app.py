@@ -1,9 +1,7 @@
-import asyncio
-
 import urllib3
 from flask import Flask, request
 from github_api import GitHubApi
-from github_repository_settings import set_repository_settings
+from github_repository_settings import set_repositories_settings
 from gitlab_api import GitLabApi
 from webhook import create_webhook
 
@@ -45,12 +43,14 @@ def process_webhook():
     return "Process done"
 
 
-async def main():
-    await create_webhook(app=app)
-    await set_repository_settings(app=app)
+def main():
+    procs = create_webhook(app=app) + set_repositories_settings(app=app)
+    for proc in procs:
+        proc.join()
+
     app.logger.info("Starting webhook-server app")
     app.run(port=5000, host="0.0.0.0", use_reloader=False)
 
 
-loop = asyncio.get_event_loop()
-loop.run_until_complete(main())
+if __name__ == "__main__":
+    main()
