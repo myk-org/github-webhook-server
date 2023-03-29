@@ -18,7 +18,9 @@ def skip_repo(protected_branches, repo):
 
 
 def set_branch_protection(app, branch, repository, required_status_checks):
-    app.logger.info(f"Set repository {repository} branch {branch} settings")
+    app.logger.info(
+        f"Set repository {repository} branch {branch} settings [checks: {required_status_checks}]"
+    )
     try:
         branch.edit_protection(
             strict=True,
