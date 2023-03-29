@@ -2,21 +2,17 @@ import asyncio
 import os
 
 import gitlab
-import yaml
 from constants import ALL_LABELS_DICT, STATIC_LABELS_DICT
-from github import Github
 from github.GithubException import UnknownObjectException
 from gitlab_api import GitLabApi
+from utils import get_github_repo_api, get_repository_from_config
 
 
 async def process_github_webhook(app, config, data, repository, webhook_ip):
     token = data["token"]
     events = data.get("events", ["*"])
-    gapi = Github(login_or_token=token)
-    try:
-        repo = gapi.get_repo(repository)
-    except UnknownObjectException:
-        app.logger.info(f"Repository {repository} not found or token invalid")
+    repo = get_github_repo_api(app=app, token=token, repository=repository)
+    if not repo:
         return
 
     try:
@@ -37,7 +33,7 @@ async def process_github_webhook(app, config, data, repository, webhook_ip):
             if label_name in ALL_LABELS_DICT:
                 label.edit(label.name, color=ALL_LABELS_DICT[label_name])
 
-    except UnknownObjectException:
+    except Exception:
         return
 
 
@@ -82,15 +78,13 @@ async def process_gitlab_webhook(app, config, data, repository, webhook_ip):
                 project=project, label_color=label_color, label_name=label_name
             )
 
-    except UnknownObjectException:
+    except Exception:
         return
 
 
 async def create_webhook(app):
     app.logger.info("Preparing webhook configuration")
-    config_file = os.environ.get("WEBHOOK_CONFIG_FILE", "/config/config.yaml")
-    with open(config_file) as fd:
-        repos = yaml.safe_load(fd)
+    repos = get_repository_from_config()
 
     tasks = []
     for repo, data in repos["repositories"].items():

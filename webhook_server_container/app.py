@@ -3,6 +3,7 @@ import asyncio
 import urllib3
 from flask import Flask, request
 from github_api import GitHubApi
+from github_repository_settings import set_repository_settings
 from gitlab_api import GitLabApi
 from webhook import create_webhook
 
@@ -46,6 +47,7 @@ def process_webhook():
 
 async def main():
     await create_webhook(app=app)
+    await set_repository_settings(app=app)
     app.logger.info("Starting webhook-server app")
     app.run(port=5000, host="0.0.0.0", use_reloader=False)
 
