@@ -46,7 +46,6 @@ def set_repositories_settings(app):
             "pre-commit.ci - pr",
             "WIP",
             "dpulls",
-            "SonarCloud Code Analysis",
             "Inclusive Language",
         ]
 
