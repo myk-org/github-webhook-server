@@ -1,5 +1,5 @@
-import asyncio
 import os
+from multiprocessing import Process
 
 import gitlab
 from constants import ALL_LABELS_DICT, STATIC_LABELS_DICT
@@ -8,7 +8,7 @@ from gitlab_api import GitLabApi
 from utils import get_github_repo_api, get_repository_from_config
 
 
-async def process_github_webhook(app, config, data, repository, webhook_ip):
+def process_github_webhook(app, config, data, repository, webhook_ip):
     token = data["token"]
     events = data.get("events", ["*"])
     repo = get_github_repo_api(app=app, token=token, repository=repository)
@@ -37,7 +37,7 @@ async def process_github_webhook(app, config, data, repository, webhook_ip):
         return
 
 
-async def process_gitlab_webhook(app, config, data, repository, webhook_ip):
+def process_gitlab_webhook(app, config, data, repository, webhook_ip):
     events = data.get("events", [])
     container_gitlab_config = "/python-gitlab/python-gitlab.cfg"
     if os.path.isfile(container_gitlab_config):
@@ -82,43 +82,33 @@ async def process_gitlab_webhook(app, config, data, repository, webhook_ip):
         return
 
 
-async def create_webhook(app):
+def create_webhook(app):
     app.logger.info("Preparing webhook configuration")
     repos = get_repository_from_config()
 
-    tasks = []
+    procs = []
     for repo, data in repos["repositories"].items():
         webhook_ip = data["webhook_ip"]
         config = {"url": f"{webhook_ip}/webhook_server", "content_type": "json"}
 
         _type = data["type"]
         repository = data["name"]
+        _args = (
+            app,
+            config,
+            data,
+            repository,
+            webhook_ip,
+        )
 
         if _type == "github":
-            tasks.append(
-                asyncio.create_task(
-                    process_github_webhook(
-                        app=app,
-                        config=config,
-                        data=data,
-                        repository=repository,
-                        webhook_ip=webhook_ip,
-                    )
-                )
-            )
+            proc = Process(target=process_github_webhook, args=_args)
+            procs.append(proc)
+            proc.start()
 
         elif _type == "gitlab":
-            tasks.append(
-                asyncio.create_task(
-                    process_gitlab_webhook(
-                        app=app,
-                        config=config,
-                        data=data,
-                        repository=repository,
-                        webhook_ip=webhook_ip,
-                    )
-                )
-            )
+            proc = Process(target=process_gitlab_webhook, args=_args)
+            procs.append(proc)
+            proc.start()
 
-    for coro in asyncio.as_completed(tasks):
-        await coro
+    return procs
