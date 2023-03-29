@@ -52,7 +52,7 @@ The following are automatically added:
 
 Available user actions:
  * To mark PR as verified add `/verified` to a PR comment, to un-verify add `/verified cancel` to a PR comment.
-        Verified label removed on each new commit push.
+        verified label removed on each new commit push.
  * To cherry pick a merged PR add `/cherry-pick <target branch to cherry-pick to>` to a PR comment.
     * Support only merged PRs
  * To add a label by comment use `/<label name>`, to remove, use `/<label name> cancel`
@@ -436,7 +436,7 @@ Available user actions:
         self.app.logger.info(
             f"{self.repository_name}: Processing reset verify label on new commit push"
         )
-        # Remove Verified label
+        # Remove verified label
         self._remove_label(pull_request=pull_request, label=self.verified_label)
 
     def set_verify_check_pending(self, pull_request):
@@ -447,7 +447,7 @@ Available user actions:
         last_commit.create_status(
             state="pending",
             description="Waiting for verification (/verified)",
-            context="Verified",
+            context="verified",
         )
 
     def set_verify_check_success(self, pull_request):
@@ -455,8 +455,8 @@ Available user actions:
         last_commit = self._get_last_commit(pull_request)
         last_commit.create_status(
             state="success",
-            description="Verified",
-            context="Verified",
+            description="verified",
+            context="verified",
         )
 
     def set_run_tox_check_pending(self, pull_request):
