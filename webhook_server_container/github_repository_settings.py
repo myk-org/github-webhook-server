@@ -49,6 +49,7 @@ def set_repositories_settings(app):
             "WIP",
             "dpulls",
             "Inclusive Language",
+            "SonarCloud Code Analysis",
         ]
 
         for branch_name, status_checks in protected_branches.items():
