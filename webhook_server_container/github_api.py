@@ -762,9 +762,9 @@ Available user actions:
             reviewed_user=reviewed_user,
         )
 
-    def cherry_pick(self, pull_request, target_branch, reviewed_user):
+    def cherry_pick(self, pull_request, target_branch, reviewed_user=None):
         self.app.logger.info(
-            f"{self.repository_name}: Cherry-pick requested by user: {reviewed_user}"
+            f"{self.repository_name}: Cherry-pick requested by user: {reviewed_user or 'by target-version label'}"
         )
         if not pull_request.is_merged():
             error_msg = (
