@@ -43,6 +43,11 @@ def process_webhook():
     return "Process done"
 
 
+@app.route("/tox", methods=["GET"])
+def tox_results():
+    return "tox"
+
+
 def main():
     procs = create_webhook(app=app) + set_repositories_settings(app=app)
     for proc in procs:

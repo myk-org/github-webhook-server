@@ -93,6 +93,7 @@ Available user actions:
         self.pypi = data.get("pypi")
         self.verified_job = data.get("verified_job", True)
         self.tox_enabled = data.get("tox")
+        self.webhook_url = data.get("webhook_ip")
 
     def _get_pull_request(self):
         base_dict = self.hook_data.get("issue", self.hook_data.get("pull_request"))
@@ -483,12 +484,12 @@ Available user actions:
         self.app.logger.info(
             f"{self.repository_name}: Processing set tox check failure"
         )
-        error_comment = pull_request.create_issue_comment(tox_out)
+        # error_comment = pull_request.create_issue_comment(tox_out)
         last_commit = self._get_last_commit(pull_request)
         last_commit.create_status(
             state="failure",
             description="Failed",
-            target_url=error_comment.html_url,
+            target_url=tox_out,
             context="tox",
         )
 
@@ -703,6 +704,8 @@ Available user actions:
         if not self.tox_enabled:
             return
 
+        base_path = f"/tox-results/{pull_request.number}"
+        base_url = f"{self.webhook_url}/{base_path}"
         with self._clone_repository(path_suffix=f"tox-{uuid.uuid4()}"):
             pr_number = f"origin/pr/{pull_request.number}"
             try:
@@ -722,27 +725,28 @@ Available user actions:
                 self.app.logger.info(f"Run tox command: {cmd}")
                 out = subprocess.check_output(shlex.split(cmd))
             except subprocess.CalledProcessError as ex:
+                with open(base_path, "w") as fd:
+                    fd.write(ex.output.decode("utf-8"))
+
                 self.set_run_tox_check_failure(
                     pull_request=pull_request,
-                    tox_out=self._comment_with_details(
-                        title="Tox check failed", body=ex.output.decode("utf-8")
-                    ),
+                    tox_out=base_url,
                 )
             else:
-                for_log = None
-                out = out.decode("utf-8")
-                last_passed = re.findall(r"=.* passed .* =.*", out)
-                if last_passed:
-                    last_passed = last_passed[-1]
-                    # fmt: off
-                    for_log = out[out.index(last_passed) + len(last_passed):]
-                    # fmt: on
-                self.app.logger.info(f"tox finished successfully\n{for_log or out}")
+                # for_log = None
+                # out = out.decode("utf-8")
+                with open(base_path, "w") as fd:
+                    fd.write(out.decode("utf-8"))
+                # last_passed = re.findall(r"=.* passed .* =.*", out)
+                # if last_passed:
+                #     last_passed = last_passed[-1]
+                #     # fmt: off
+                #     for_log = out[out.index(last_passed) + len(last_passed):]
+                #     # fmt: on
+                # self.app.logger.info(f"tox finished successfully\n{for_log or out}")
                 self.set_run_tox_check_success(
                     pull_request=pull_request,
-                    tox_out=self._comment_with_details(
-                        title="Tox check passed", body=out
-                    ),
+                    tox_out=base_url,
                 )
 
     def user_commands(self, command, pull_request, reviewed_user):
