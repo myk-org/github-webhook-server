@@ -1,5 +1,5 @@
 import urllib3
-from flask import Flask, request
+from flask import Flask, Response, request
 from github_api import GitHubApi
 from github_repository_settings import set_repositories_settings
 from gitlab_api import GitLabApi
@@ -28,24 +28,30 @@ def get_api(github_event, gitlab_event, hook_data):
 
 @app.route("/webhook_server", methods=["POST"])
 def process_webhook():
-    hook_data = request.json
-    github_event = request.headers.get("X-GitHub-Event")
-    gitlab_event = request.headers.get("X-GitLab-Event")
-    api = get_api(
-        github_event=github_event, gitlab_event=gitlab_event, hook_data=hook_data
-    )
+    try:
+        hook_data = request.json
+        github_event = request.headers.get("X-GitHub-Event")
+        gitlab_event = request.headers.get("X-GitLab-Event")
+        api = get_api(
+            github_event=github_event, gitlab_event=gitlab_event, hook_data=hook_data
+        )
 
-    app.logger.info(
-        f"{api.repository_full_name} Event type: {github_event or gitlab_event} "
-        f"event ID: {request.headers.get('X-GitHub-Delivery')}"
-    )
-    api.process_hook(data=hook_data if gitlab_event else github_event)
-    return "Process done"
+        app.logger.info(
+            f"{api.repository_full_name} Event type: {github_event or gitlab_event} "
+            f"event ID: {request.headers.get('X-GitHub-Delivery')}"
+        )
+        api.process_hook(data=hook_data if gitlab_event else github_event)
+        return "process success"
+    except Exception as ex:
+        app.logger.error(f"Error: {ex}")
+        return "Process failed"
 
 
-@app.route("/tox", methods=["GET"])
-def tox_results():
-    return "tox"
+@app.route("/webhook_server/tox/<string:filename>")
+def return_tox(filename):
+    app.logger.info("app.route: Processing tox file")
+    with open(f"/webhook_server/tox/{filename}") as fd:
+        return Response(fd.read(), mimetype="text/plain")
 
 
 def main():

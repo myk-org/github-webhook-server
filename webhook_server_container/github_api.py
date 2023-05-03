@@ -195,6 +195,7 @@ Available user actions:
                 subprocess.check_output(shlex.split(cmd))
             yield _clone_path
 
+        self.app.logger.info(f"Removing cloned repository: {_clone_path}")
         shutil.rmtree(_clone_path, ignore_errors=True)
 
     def _checkout_tag(self, tag):
@@ -484,7 +485,6 @@ Available user actions:
         self.app.logger.info(
             f"{self.repository_name}: Processing set tox check failure"
         )
-        # error_comment = pull_request.create_issue_comment(tox_out)
         last_commit = self._get_last_commit(pull_request)
         last_commit.create_status(
             state="failure",
@@ -493,14 +493,13 @@ Available user actions:
             context="tox",
         )
 
-    def set_run_tox_check_success(self, pull_request, tox_out):
+    def set_run_tox_check_success(self, pull_request, target_url):
         self.app.logger.info(f"{self.repository_name}: Set tox check to success")
-        pass_comment = pull_request.create_issue_comment(tox_out)
         last_commit = self._get_last_commit(pull_request)
         last_commit.create_status(
             state="success",
             description="Successful",
-            target_url=pass_comment.html_url,
+            target_url=target_url,
             context="tox",
         )
 
@@ -704,9 +703,10 @@ Available user actions:
         if not self.tox_enabled:
             return
 
-        base_path = f"/tox-results/{pull_request.number}"
-        base_url = f"{self.webhook_url}/{base_path}"
+        base_path = f"/webhook_server/tox/{pull_request.number}"
+        base_url = f"{self.webhook_url}{base_path}"
         with self._clone_repository(path_suffix=f"tox-{uuid.uuid4()}"):
+            self.app.logger.info(f"Current directory: {os.getcwd()}")
             pr_number = f"origin/pr/{pull_request.number}"
             try:
                 checkout_cmd = f"git checkout {pr_number}"
@@ -733,20 +733,12 @@ Available user actions:
                     tox_out=base_url,
                 )
             else:
-                # for_log = None
-                # out = out.decode("utf-8")
                 with open(base_path, "w") as fd:
                     fd.write(out.decode("utf-8"))
-                # last_passed = re.findall(r"=.* passed .* =.*", out)
-                # if last_passed:
-                #     last_passed = last_passed[-1]
-                #     # fmt: off
-                #     for_log = out[out.index(last_passed) + len(last_passed):]
-                #     # fmt: on
-                # self.app.logger.info(f"tox finished successfully\n{for_log or out}")
+
                 self.set_run_tox_check_success(
                     pull_request=pull_request,
-                    tox_out=base_url,
+                    target_url=base_url,
                 )
 
     def user_commands(self, command, pull_request, reviewed_user):
