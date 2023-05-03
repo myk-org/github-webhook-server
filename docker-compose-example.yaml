@@ -7,6 +7,7 @@ services:
     volumes:
       - ./config.yaml:/config.yaml:Z
       - $HOME/.python-gitlab.cfg:/python-gitlab.cfg:Z
+      - .tox-results:/tox-results
       - /etc/ssl/certs/:/etc/ssl/certs/:ro
     environment:
       - FLASK_DEBUG=1 # Debug Flask server to get logs to console.
