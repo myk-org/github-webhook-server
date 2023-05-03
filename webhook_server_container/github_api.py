@@ -94,6 +94,10 @@ Available user actions:
         self.verified_job = data.get("verified_job", True)
         self.tox_enabled = data.get("tox")
 
+    def _get_pull_request(self):
+        base_dict = self.hook_data.get("issue", self.hook_data.get("pull_request"))
+        return self.repository.get_pull(base_dict["number"])
+
     @staticmethod
     def _get_labels_dict(labels):
         _labels = {}
@@ -667,10 +671,17 @@ Available user actions:
             approved
             changes_requested
             """
+            pull_request = self._get_pull_request()
+            pull_request_labels = self.obj_labels(obj=pull_request)
+            reviewed_user = self.hook_data["review"]["user"]["login"]
+            for _label in pull_request_labels:
+                if f"-by-{reviewed_user}" in _label:
+                    self._remove_label(pull_request=pull_request, label=_label)
+
             self.manage_reviewed_by_label(
                 review_state=self.hook_data["review"]["state"],
                 action=ADD_STR,
-                reviewed_user=self.hook_data["review"]["user"]["login"],
+                reviewed_user=reviewed_user,
             )
 
     def manage_reviewed_by_label(self, review_state, action, reviewed_user):
@@ -680,7 +691,7 @@ Available user actions:
         if pr_owner == reviewed_user:
             return
 
-        pull_request = self.repository.get_pull(base_dict["number"])
+        pull_request = self._get_pull_request()
         reviewer_label = f"{review_state.title()}{user_label}"
 
         if action == ADD_STR:
