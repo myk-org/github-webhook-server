@@ -73,7 +73,8 @@ Available user actions:
 
         if data == "push":
             self.process_push_webhook_data()
-            time.sleep(5)
+            self.app.logger("Sleep for 10 seconds before checking if rebase needed")
+            time.sleep(10)
             self.needs_rebase()
 
         if data == "pull_request_review":
