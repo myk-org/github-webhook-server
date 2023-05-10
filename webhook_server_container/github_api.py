@@ -4,6 +4,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
 import uuid
 from contextlib import contextmanager
 
@@ -72,11 +73,11 @@ Available user actions:
 
         if data == "push":
             self.process_push_webhook_data()
+            time.sleep(5)
+            self.needs_rebase()
 
         if data == "pull_request_review":
             self.process_pull_request_review_webhook_data()
-
-        self.needs_rebase()
 
     def _repo_data_from_config(self):
         config_file = os.environ.get("WEBHOOK_CONFIG_FILE", "/config/config.yaml")
