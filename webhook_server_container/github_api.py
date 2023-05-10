@@ -73,11 +73,6 @@ Available user actions:
 
         if data == "push":
             self.process_push_webhook_data()
-            self.app.logger.info(
-                "Sleep for 10 seconds before checking if rebase needed"
-            )
-            time.sleep(10)
-            self.needs_rebase()
 
         if data == "pull_request_review":
             self.process_pull_request_review_webhook_data()
@@ -620,6 +615,12 @@ Available user actions:
                                 target_version_prefix, ""
                             ),
                         )
+
+                self.app.logger.info(
+                    "Sleep for 10 seconds before checking if rebase needed"
+                )
+                time.sleep(10)
+                self.needs_rebase()
 
         if hook_action == "synchronize":
             self.set_run_tox_check_pending(pull_request=pull_request)
