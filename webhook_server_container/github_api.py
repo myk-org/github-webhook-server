@@ -64,6 +64,7 @@ Available user actions:
     """
 
     def process_hook(self, data):
+        self.needs_rebase()
         if data == "issue_comment":
             self.process_comment_webhook_data()
 
@@ -808,6 +809,14 @@ Available user actions:
                     pull_request.create_issue_comment(
                         f"Cherry-picked PR {pull_request.title} into {target_branch}"
                     )
+
+    def needs_rebase(self):
+        label = "needs-rebase"
+        for pull_request in self.repository.get_pulls():
+            if pull_request.mergeable_state == "behind":
+                self._add_label(pull_request=pull_request, label=label)
+            else:
+                self._remove_label(pull_request=pull_request, label=label)
 
     @staticmethod
     def _comment_with_details(title, body):

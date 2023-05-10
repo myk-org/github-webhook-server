@@ -16,6 +16,7 @@ STATIC_LABELS_DICT = {
     "size/xl": "D93F0B",
     "size/xs": "ededed",
     "size/xxl": "B60205",
+    "needs-rebase": "B60205",
     "can-be-merged": "0E8A17",
 }
 
