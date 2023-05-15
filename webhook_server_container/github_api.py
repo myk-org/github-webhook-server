@@ -619,7 +619,7 @@ Available user actions:
                 self.app.logger.info(
                     "Sleep for 10 seconds before checking if rebase needed"
                 )
-                time.sleep(10)
+                time.sleep(30)
                 self.needs_rebase()
 
         if hook_action == "synchronize":
