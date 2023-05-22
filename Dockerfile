@@ -23,7 +23,6 @@ RUN python3 -m pip install pip --upgrade \
     && poetry config virtualenvs.in-project true \
     && poetry config installer.max-workers 10 \
     && poetry config --list \
-    && poetry env remove --all \
     && poetry install
 
 ENTRYPOINT ["poetry", "run", "python3", "webhook_server_container/app.py"]
