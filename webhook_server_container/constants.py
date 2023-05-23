@@ -1,3 +1,7 @@
+ADD_STR = "add"
+DELETE_STR = "delete"
+CAN_BE_MERGED_STR = "can-be-merged"
+
 # Gitlab colors require a '#' prefix; e.g: #
 USER_LABELS_DICT = {
     "hold": "B60205",
@@ -17,7 +21,7 @@ STATIC_LABELS_DICT = {
     "size/xs": "ededed",
     "size/xxl": "B60205",
     "needs-rebase": "B60205",
-    "can-be-merged": "0E8A17",
+    CAN_BE_MERGED_STR: "0E8A17",
 }
 
 DYNAMIC_LABELS_DICT = {
@@ -29,6 +33,3 @@ DYNAMIC_LABELS_DICT = {
 }
 
 ALL_LABELS_DICT = {**STATIC_LABELS_DICT, **DYNAMIC_LABELS_DICT}
-
-ADD_STR = "add"
-DELETE_STR = "delete"
