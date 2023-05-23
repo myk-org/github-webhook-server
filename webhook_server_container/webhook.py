@@ -3,6 +3,7 @@ from multiprocessing import Process
 
 import gitlab
 from constants import ALL_LABELS_DICT, STATIC_LABELS_DICT
+from github import Github
 from github.GithubException import UnknownObjectException
 from gitlab_api import GitLabApi
 from utils import get_github_repo_api, get_repository_from_config
@@ -11,7 +12,8 @@ from utils import get_github_repo_api, get_repository_from_config
 def process_github_webhook(app, config, data, repository, webhook_ip):
     token = data["token"]
     events = data.get("events", ["*"])
-    repo = get_github_repo_api(app=app, token=token, repository=repository)
+    gapi = Github(login_or_token=token)
+    repo = get_github_repo_api(gapi=gapi, app=app, repository=repository)
     if not repo:
         return
 

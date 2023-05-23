@@ -1,5 +1,6 @@
 from multiprocessing import Process
 
+from github import Github
 from utils import get_github_repo_api, get_repository_from_config
 
 
@@ -40,7 +41,8 @@ def set_repositories_settings(app):
     for repo, data in get_repository_from_config()["repositories"].items():
         protected_branches = data.get("protected-branches", [])
         repository = data["name"]
-        repo = get_github_repo_api(app=app, token=data["token"], repository=repository)
+        gapi = Github(login_or_token=data["token"])
+        repo = get_github_repo_api(gapi=gapi, app=app, repository=repository)
         if skip_repo(protected_branches, repo):
             continue
 

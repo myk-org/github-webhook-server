@@ -10,7 +10,7 @@ from contextlib import contextmanager
 
 import yaml
 from constants import ADD_STR, ALL_LABELS_DICT, DELETE_STR, USER_LABELS_DICT
-from github import GithubException
+from github import Github, GithubException
 from github.GithubException import UnknownObjectException
 from utils import get_github_repo_api
 
@@ -34,8 +34,10 @@ class GitHubApi:
         self.hook_data = hook_data
         self.repository_name = hook_data["repository"]["name"]
         self._repo_data_from_config()
+        self.gapi = Github(login_or_token=self.token)
+        self.api_user = self._api_username
         self.repository = get_github_repo_api(
-            app=self.app, token=self.token, repository=self.repository_full_name
+            gapi=self.gapi, app=self.app, repository=self.repository_full_name
         )
         self.verified_label = "verified"
         self.size_label_prefix = "size/"
@@ -76,6 +78,11 @@ Available user actions:
 
         if data == "pull_request_review":
             self.process_pull_request_review_webhook_data()
+
+    @property
+    def _api_username(self):
+        user = self.gapi.get_user()
+        return user.login
 
     def _repo_data_from_config(self):
         config_file = os.environ.get("WEBHOOK_CONFIG_FILE", "/config/config.yaml")
@@ -559,28 +566,23 @@ Available user actions:
                     reviewed_user=user_login,
                 )
 
-    def get_pr_owner(self, pull_request, pull_request_data):
-        if pull_request.title.startswith(
-            f"{self.auto_cherry_pick_prefix}:"
-        ) and self.auto_cherry_pick_prefix in [_lb.name for _lb in pull_request.labels]:
-            parent_committer = re.search(
-                r"requested-by (\w+)", pull_request.body
-            ).group(1)
-        else:
-            parent_committer = pull_request_data["user"]["login"]
-
-        return parent_committer
-
     def process_pull_request_webhook_data(self):
         pull_request = self.repository.get_pull(self.hook_data["number"])
         hook_action = self.hook_data["action"]
         self.app.logger.info(f"hook_action is: {hook_action}")
 
+        pull_request_data = self.hook_data["pull_request"]
+        parent_committer = pull_request_data["user"]["login"]
+
         if hook_action == "opened":
-            pull_request_data = self.hook_data["pull_request"]
             pull_request.create_issue_comment(self.welcome_msg)
             if self.verified_job:
-                self.set_verify_check_pending(pull_request=pull_request)
+                if parent_committer == self.api_user:
+                    self._add_label(
+                        pull_request=pull_request, label=self.verified_label
+                    )
+                else:
+                    self.set_verify_check_pending(pull_request=pull_request)
 
             self.set_run_tox_check_pending(pull_request=pull_request)
 
@@ -590,9 +592,6 @@ Available user actions:
                 label=f"branch-{pull_request_data['base']['ref']}",
             )
             self.app.logger.info(f"{self.repository_name}: Adding PR owner as assignee")
-            parent_committer = self.get_pr_owner(
-                pull_request=pull_request, pull_request_data=pull_request_data
-            )
             pull_request.add_to_assignees(parent_committer)
             self.assign_reviewers(pull_request=pull_request)
             self.create_issue_for_new_pr(pull_request=pull_request)
@@ -604,7 +603,7 @@ Available user actions:
                 pull_request=pull_request, hook_action=hook_action
             )
 
-            if self.hook_data["pull_request"].get("merged"):
+            if pull_request_data.get("merged"):
                 target_version_prefix = "target-version-"
                 for _label in pull_request.labels:
                     _label_name = _label.name
@@ -646,8 +645,13 @@ Available user actions:
                 self._remove_label(pull_request=pull_request, label=_reviewed_label)
 
             if self.verified_job:
-                self.reset_verify_label(pull_request=pull_request)
-                self.set_verify_check_pending(pull_request=pull_request)
+                if parent_committer == self.api_user:
+                    self._add_label(
+                        pull_request=pull_request, label=self.verified_label
+                    )
+                else:
+                    self.reset_verify_label(pull_request=pull_request)
+                    self.set_verify_check_pending(pull_request=pull_request)
 
             self.run_tox(pull_request=pull_request)
 

@@ -1,12 +1,10 @@
 import os
 
 import yaml
-from github import Github
 from github.GithubException import UnknownObjectException
 
 
-def get_github_repo_api(app, token, repository):
-    gapi = Github(login_or_token=token)
+def get_github_repo_api(gapi, app, repository):
     try:
         repo = gapi.get_repo(repository)
     except UnknownObjectException:
