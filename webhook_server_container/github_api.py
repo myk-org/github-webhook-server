@@ -366,10 +366,10 @@ Available user actions:
                 subprocess.check_output(shlex.split("poetry publish --build"))
 
             message = f"""
-                    ```
-                    {self.repository_name}: Version {tag_name} published to PYPI.
-                    ```
-                    """
+```
+{self.repository_name}: Version {tag_name} published to PYPI.
+```
+"""
             self.send_slack_message(
                 message=message,
                 webhook_url=self.slack_webhook_url,
@@ -932,10 +932,10 @@ Available user actions:
             subprocess.check_output(shlex.split(push_cmd))
             if self.slack_webhook_url:
                 message = f"""
-                    ```
-                    {self.repository_name}: New container for {repository_and_tag} published.
-                    ```
-                    """
+```
+{self.repository_name}: New container for {repository_and_tag} published.
+```
+"""
                 self.send_slack_message(
                     message=message,
                     webhook_url=self.slack_webhook_url,
