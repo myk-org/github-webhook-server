@@ -13,4 +13,5 @@ services:
       - FLASK_DEBUG=1 # Debug Flask server to get logs to console.
     ports:
       - "5000:5000"
+    privileged: true
     restart: unless-stopped

@@ -102,6 +102,19 @@ Available user actions:
         self.verified_job = data.get("verified_job", True)
         self.tox_enabled = data.get("tox")
         self.webhook_url = data.get("webhook_ip")
+        self.build_and_push_container = data.get("container")
+        if self.build_and_push_container:
+            self.container_repository_username = self.build_and_push_container[
+                "username"
+            ]
+            self.container_repository_password = self.build_and_push_container[
+                "password"
+            ]
+            self.container_repository = self.build_and_push_container["repository"]
+            self.dockerfile = self.build_and_push_container.get(
+                "dockerfile", "Dockerfile"
+            )
+            self.container_tag = self.build_and_push_container.get("tag", "latest")
 
     def _get_pull_request(self):
         base_dict = self.hook_data.get("issue", self.hook_data.get("pull_request"))
@@ -604,6 +617,7 @@ Available user actions:
             )
 
             if pull_request_data.get("merged"):
+                self.app.logger.info(f"PR {pull_request.number} is merged")
                 target_version_prefix = "target-version-"
                 for _label in pull_request.labels:
                     _label_name = _label.name
@@ -614,6 +628,9 @@ Available user actions:
                                 target_version_prefix, ""
                             ),
                         )
+
+                if self.build_and_push_container:
+                    self._build_and_push_container()
 
                 self.app.logger.info(
                     "Sleep for 10 seconds before checking if rebase needed"
@@ -836,3 +853,18 @@ Available user actions:
     {body}
 </details>
         """
+
+    def _build_and_push_container(self):
+        with self._clone_repository(path_suffix=self.container_tag):
+            repository_and_tag = f"{self.container_repository}:{self.container_tag}"
+            repository_creds = f"{self.container_repository_username}:{self.container_repository_password}"
+            build_cmd = f"podman build --network=host -f {self.dockerfile} -t {repository_and_tag}"
+            push_cmd = f"podman push --creds {repository_creds} {repository_and_tag}"
+            self.app.logger.info(
+                f"Build container image for {self.container_repository}:{self.container_tag}"
+            )
+            subprocess.check_output(shlex.split(build_cmd))
+            self.app.logger.info(
+                f"Push container image to {self.container_repository}:{self.container_tag}"
+            )
+            subprocess.check_output(shlex.split(push_cmd))
