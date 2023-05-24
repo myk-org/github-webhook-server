@@ -9,7 +9,13 @@ import uuid
 from contextlib import contextmanager
 
 import yaml
-from constants import ADD_STR, ALL_LABELS_DICT, DELETE_STR, USER_LABELS_DICT
+from constants import (
+    ADD_STR,
+    ALL_LABELS_DICT,
+    CAN_BE_MERGED_STR,
+    DELETE_STR,
+    USER_LABELS_DICT,
+)
 from github import Github, GithubException
 from github.GithubException import UnknownObjectException
 from utils import get_github_repo_api
@@ -376,13 +382,21 @@ Available user actions:
         return self._get_labels_dict(labels=obj.get_labels())
 
     @property
-    def reviewers(self):
+    def owners_content(self):
         try:
             owners_content = self.repository.get_contents("OWNERS")
-            return yaml.safe_load(owners_content.decoded_content).get("reviewers", [])
+            return yaml.safe_load(owners_content.decoded_content)
         except UnknownObjectException:
             self.app.logger.error(f"{self.repository_name} OWNERS file not found")
-            return []
+            return {}
+
+    @property
+    def reviewers(self):
+        return self.owners_content.get("reviewers", [])
+
+    @property
+    def owners(self):
+        return self.owners_content.get("owners", [])
 
     def assign_reviewers(self, pull_request):
         for reviewer in self.reviewers:
@@ -524,6 +538,24 @@ Available user actions:
             context="tox",
         )
 
+    def set_merge_check_pending(self, pull_request):
+        self.app.logger.info(f"{self.repository_name}: Set merge check to pending")
+        last_commit = self._get_last_commit(pull_request)
+        last_commit.create_status(
+            state="pending",
+            description="Cannot be merged",
+            context=CAN_BE_MERGED_STR,
+        )
+
+    def set_merge_check_success(self, pull_request):
+        self.app.logger.info(f"{self.repository_name}: Set merge check to success")
+        last_commit = self._get_last_commit(pull_request)
+        last_commit.create_status(
+            state="success",
+            description="Successful",
+            context=CAN_BE_MERGED_STR,
+        )
+
     def create_issue_for_new_pr(self, pull_request):
         try:
             self.app.logger.info(
@@ -598,6 +630,7 @@ Available user actions:
                     self.set_verify_check_pending(pull_request=pull_request)
 
             self.set_run_tox_check_pending(pull_request=pull_request)
+            self.set_merge_check_pending(pull_request=pull_request)
 
             self.add_size_label(pull_request=pull_request)
             self._add_label(
@@ -640,6 +673,7 @@ Available user actions:
 
         if hook_action == "synchronize":
             self.set_run_tox_check_pending(pull_request=pull_request)
+            self.set_merge_check_pending(pull_request=pull_request)
             self.assign_reviewers(pull_request=pull_request)
             all_labels = self.obj_labels(obj=pull_request)
             current_size_label = [
@@ -680,6 +714,8 @@ Available user actions:
 
                 if hook_action == "unlabeled":
                     self.set_verify_check_pending(pull_request=pull_request)
+
+            self.check_if_can_be_merged(pull_request=pull_request)
 
     def process_push_webhook_data(self):
         tag = re.search(r"refs/tags/?(.*)", self.hook_data["ref"])
@@ -844,6 +880,18 @@ Available user actions:
                 self._add_label(pull_request=pull_request, label=label)
             else:
                 self._remove_label(pull_request=pull_request, label=label)
+
+    def check_if_can_be_merged(self, pull_request):
+        _labels = pull_request.labels
+        if self.verified_label in _labels:
+            for _label in _labels:
+                if "approved-by-" in _label:
+                    approved_user = _label.split("-")[-1]
+                    if approved_user in self.owners:
+                        self._add_label(
+                            pull_request=pull_request, label=CAN_BE_MERGED_STR
+                        )
+                        self.set_merge_check_success(pull_request=pull_request)
 
     @staticmethod
     def _comment_with_details(title, body):
