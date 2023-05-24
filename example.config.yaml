@@ -18,6 +18,11 @@ repositories:
       main:
         - "pre-commit.ci - pr"
         - "WIP"
+    container:
+      username: <registry username>
+      passord: <registry_password>
+      repository: <registry_repository_fuul_path>
+      tag: <image_tag>
 
   # GITLAB repositories example
   openshift-python-wrapper-2:
