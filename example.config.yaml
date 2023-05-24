@@ -21,7 +21,7 @@ repositories:
     container:
       username: <registry username>
       passord: <registry_password>
-      repository: <registry_repository_fuul_path>
+      repository: <registry_repository_full_path>
       tag: <image_tag>
 
   # GITLAB repositories example
