@@ -52,6 +52,7 @@ def set_repositories_settings(app):
             "dpulls",
             "Inclusive Language",
             "SonarCloud Code Analysis",
+            "can-be-merged",
         ]
 
         for branch_name, status_checks in protected_branches.items():

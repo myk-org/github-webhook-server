@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import shlex
@@ -8,6 +9,7 @@ import time
 import uuid
 from contextlib import contextmanager
 
+import requests
 import yaml
 from constants import (
     ADD_STR,
@@ -108,6 +110,7 @@ Available user actions:
         self.verified_job = data.get("verified_job", True)
         self.tox_enabled = data.get("tox")
         self.webhook_url = data.get("webhook_ip")
+        self.slack_webhook_url = data.get("slack_webhook_url")
         self.build_and_push_container = data.get("container")
         if self.build_and_push_container:
             self.container_repository_username = self.build_and_push_container[
@@ -916,3 +919,26 @@ Available user actions:
                 f"Push container image to {self.container_repository}:{self.container_tag}"
             )
             subprocess.check_output(shlex.split(push_cmd))
+            if self.slack_webhook_url:
+                message = f"""
+                    ```
+                    {self.repository_name}: New container for {repository_and_tag} published.
+                    ```
+                    """
+                self.send_slack_message(
+                    message=message,
+                    webhook_url=self.slack_webhook_url,
+                )
+
+    def send_slack_message(self, message, webhook_url):
+        slack_data = {"text": message}
+        self.app.logger.info(f"Sending message to slack: {message}")
+        response = requests.post(
+            webhook_url,
+            data=json.dumps(slack_data),
+            headers={"Content-Type": "application/json"},
+        )
+        if response.status_code != 200:
+            raise ValueError(
+                f"Request to slack returned an error {response.status_code} with the following message: {response.text}"
+            )
