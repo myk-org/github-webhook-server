@@ -333,7 +333,7 @@ Available user actions:
             )
             return False
 
-    def upload_to_pypi(self):
+    def upload_to_pypi(self, tag_name):
         tool = self.pypi["tool"]
         token = self.pypi["token"]
         try:
@@ -364,6 +364,17 @@ Available user actions:
                     shlex.split(f"poetry config pypi-token.pypi {token}")
                 )
                 subprocess.check_output(shlex.split("poetry publish --build"))
+
+            message = f"""
+                    ```
+                    {self.repository_name}: Version {tag_name} published to PYPI.
+                    ```
+                    """
+            self.send_slack_message(
+                message=message,
+                webhook_url=self.slack_webhook_url,
+            )
+
         except Exception as ex:
             err = f"Publish to pypi failed [using {tool}]"
             self.app.logger.error(f"{self.repository_name}: {err}")
@@ -729,7 +740,7 @@ Available user actions:
             )
             with self._clone_repository(path_suffix=tag_name):
                 self._checkout_tag(tag=tag_name)
-                self.upload_to_pypi()
+                self.upload_to_pypi(tag_name=tag_name)
 
     def process_pull_request_review_webhook_data(self):
         if self.hook_data["action"] == "submitted":
