@@ -729,7 +729,8 @@ Available user actions:
                 if hook_action == "unlabeled":
                     self.set_verify_check_pending(pull_request=pull_request)
 
-            self.check_if_can_be_merged(pull_request=pull_request)
+            if labeled != CAN_BE_MERGED_STR:
+                self.check_if_can_be_merged(pull_request=pull_request)
 
     def process_push_webhook_data(self):
         tag = re.search(r"refs/tags/?(.*)", self.hook_data["ref"])
