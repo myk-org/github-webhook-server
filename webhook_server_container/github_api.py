@@ -911,6 +911,8 @@ Available user actions:
                         self.set_merge_check_success(pull_request=pull_request)
                         break
 
+            self.set_merge_check_pending(pull_request=pull_request)
+
     @staticmethod
     def _comment_with_details(title, body):
         return f"""
