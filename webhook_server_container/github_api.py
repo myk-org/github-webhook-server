@@ -596,7 +596,7 @@ Available user actions:
                 break
 
     def process_comment_webhook_data(self):
-        if self.hook_data["action"] == "action":
+        if self.hook_data["action"] in ("action", "deleted"):
             return
 
         issue_number = self.hook_data["issue"]["number"]
