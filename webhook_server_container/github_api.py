@@ -771,6 +771,7 @@ Available user actions:
         user_label = f"{self.reviewed_by_prefix}{reviewed_user}"
         pr_owner = base_dict["user"]["login"]
         if pr_owner == reviewed_user:
+            self.app.logger.info(f"PR owner {pr_owner} set /lgtm, not adding label.")
             return
 
         reviewer_label = f"{review_state.title()}{user_label}"
@@ -903,13 +904,37 @@ Available user actions:
                 self._remove_label(pull_request=pull_request, label=label)
 
     def check_if_can_be_merged(self, pull_request):
+        """
+        Check if PR can be merged
+
+        Check the following:
+            Has verified label.
+            Has approved from one of the approvers.
+            All required run check passed.
+            PR status is 'clean'.
+            PR has no changed requests from reviewers.
+
+        Args:
+            pull_request (PullRequest): Pull request to work on.
+        """
         _can_be_merged = False
         self.app.logger.info(
             f"{self.repository_name}: check if PR {pull_request.number} can be merged."
         )
         _labels = self.obj_labels(obj=pull_request)
-        if self.verified_label in _labels and pull_request.mergeable_state == "clean":
+        _last_commit = self._get_last_commit(pull_request=pull_request)
+        all_check_pass = all(
+            check.conclusion == "success" for check in _last_commit.get_check_runs()
+        )
+        if (
+            self.verified_label in _labels
+            and pull_request.mergeable_state == "clean"
+            and all_check_pass
+        ):
             for _label in _labels:
+                if "changes_requested" in _label.lower():
+                    break
+
                 if "approved-by-" in _label.lower():
                     approved_user = _label.split("-")[-1]
                     if approved_user in self.approvers:
