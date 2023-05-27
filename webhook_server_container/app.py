@@ -60,7 +60,7 @@ def main():
         proc.join()
 
     app.logger.info("Starting webhook-server app")
-    app.run(port=5000, host="0.0.0.0", use_reloader=True)
+    app.run(port=5000, host="0.0.0.0", use_reloader=False)
 
 
 if __name__ == "__main__":
