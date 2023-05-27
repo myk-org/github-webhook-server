@@ -771,6 +771,7 @@ Available user actions:
         user_label = f"{self.reviewed_by_prefix}{reviewed_user}"
         pr_owner = base_dict["user"]["login"]
         if pr_owner == reviewed_user:
+            self.app.logger.info(f"PR owner {pr_owner} set /lgtm, not adding label.")
             return
 
         reviewer_label = f"{review_state.title()}{user_label}"
