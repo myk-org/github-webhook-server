@@ -896,7 +896,7 @@ Available user actions:
                 self._remove_label(pull_request=pull_request, label=label)
 
     def check_if_can_be_merged(self, pull_request):
-        self.app.logger(
+        self.app.logger.info(
             f"{self.repository_name}: check if PR {pull_request.number} can be merged."
         )
         _labels = self.obj_labels(obj=pull_request)
