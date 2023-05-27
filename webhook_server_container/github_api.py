@@ -908,7 +908,7 @@ Available user actions:
             f"{self.repository_name}: check if PR {pull_request.number} can be merged."
         )
         _labels = self.obj_labels(obj=pull_request)
-        if self.verified_label in _labels:
+        if self.verified_label in _labels and pull_request.mergeable_state == "clean":
             for _label in _labels:
                 if "approved-by-" in _label.lower():
                     approved_user = _label.split("-")[-1]

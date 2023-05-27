@@ -30,7 +30,10 @@ def set_branch_protection(app, branch, repository, required_status_checks):
             required_approving_review_count=1,
             dismiss_stale_reviews=True,
         )
-    except Exception:
+    except Exception as ex:
+        app.logger.info(
+            f"Failed to set branch protection for {repository}/{branch}. {ex}"
+        )
         return
 
 
