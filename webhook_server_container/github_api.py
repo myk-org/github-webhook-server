@@ -409,8 +409,8 @@ Available user actions:
         return self.owners_content.get("reviewers", [])
 
     @property
-    def owners(self):
-        return self.owners_content.get("owners", [])
+    def approvers(self):
+        return self.owners_content.get("approvers", [])
 
     def assign_reviewers(self, pull_request):
         for reviewer in self.reviewers:
@@ -901,7 +901,7 @@ Available user actions:
             for _label in _labels:
                 if "approved-by-" in _label:
                     approved_user = _label.split("-")[-1]
-                    if approved_user in self.owners:
+                    if approved_user in self.approvers:
                         self._add_label(
                             pull_request=pull_request, label=CAN_BE_MERGED_STR
                         )
