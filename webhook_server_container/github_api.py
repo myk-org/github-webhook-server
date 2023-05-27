@@ -679,10 +679,6 @@ Available user actions:
                 if self.build_and_push_container:
                     self._build_and_push_container()
 
-                self.app.logger.info(
-                    "Sleep for 10 seconds before checking if rebase needed"
-                )
-                time.sleep(30)
                 self.needs_rebase()
 
         if hook_action == "synchronize":
@@ -891,6 +887,10 @@ Available user actions:
     def needs_rebase(self):
         label = "needs-rebase"
         for pull_request in self.repository.get_pulls():
+            self.app.logger.info(
+                "Sleep for 10 seconds before checking if rebase needed"
+            )
+            time.sleep(10)
             if pull_request.mergeable_state == "behind":
                 self._add_label(pull_request=pull_request, label=label)
             else:
