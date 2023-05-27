@@ -596,7 +596,7 @@ Available user actions:
                 break
 
     def process_comment_webhook_data(self):
-        if self.hook_data["action"] == "action":
+        if self.hook_data["action"] in ("action", "deleted"):
             return
 
         issue_number = self.hook_data["issue"]["number"]
@@ -729,7 +729,8 @@ Available user actions:
                 if hook_action == "unlabeled":
                     self.set_verify_check_pending(pull_request=pull_request)
 
-            self.check_if_can_be_merged(pull_request=pull_request)
+            if labeled != CAN_BE_MERGED_STR:
+                self.check_if_can_be_merged(pull_request=pull_request)
 
     def process_push_webhook_data(self):
         tag = re.search(r"refs/tags/?(.*)", self.hook_data["ref"])
@@ -896,7 +897,8 @@ Available user actions:
                 self._remove_label(pull_request=pull_request, label=label)
 
     def check_if_can_be_merged(self, pull_request):
-        self.app.logger(
+        _can_be_merged = False
+        self.app.logger.info(
             f"{self.repository_name}: check if PR {pull_request.number} can be merged."
         )
         _labels = self.obj_labels(obj=pull_request)
@@ -909,7 +911,12 @@ Available user actions:
                             pull_request=pull_request, label=CAN_BE_MERGED_STR
                         )
                         self.set_merge_check_success(pull_request=pull_request)
+                        _can_be_merged = True
                         break
+
+        if not _can_be_merged:
+            self._remove_label(pull_request=pull_request, label=CAN_BE_MERGED_STR)
+            self.set_merge_check_pending(pull_request=pull_request)
 
     @staticmethod
     def _comment_with_details(title, body):
