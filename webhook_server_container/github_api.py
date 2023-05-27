@@ -896,16 +896,20 @@ Available user actions:
                 self._remove_label(pull_request=pull_request, label=label)
 
     def check_if_can_be_merged(self, pull_request):
-        _labels = pull_request.labels
+        self.app.logger(
+            f"{self.repository_name}: check if PR {pull_request.number} can be merged."
+        )
+        _labels = self.obj_labels(obj=pull_request)
         if self.verified_label in _labels:
             for _label in _labels:
-                if "approved-by-" in _label:
+                if "approved-by-" in _label.lower():
                     approved_user = _label.split("-")[-1]
                     if approved_user in self.approvers:
                         self._add_label(
                             pull_request=pull_request, label=CAN_BE_MERGED_STR
                         )
                         self.set_merge_check_success(pull_request=pull_request)
+                        break
 
     @staticmethod
     def _comment_with_details(title, body):
