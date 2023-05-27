@@ -911,6 +911,7 @@ Available user actions:
                         self.set_merge_check_success(pull_request=pull_request)
                         break
 
+        self._remove_label(pull_request=pull_request, label=CAN_BE_MERGED_STR)
         self.set_merge_check_pending(pull_request=pull_request)
 
     @staticmethod
