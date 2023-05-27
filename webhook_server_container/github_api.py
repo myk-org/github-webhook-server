@@ -897,6 +897,7 @@ Available user actions:
                 self._remove_label(pull_request=pull_request, label=label)
 
     def check_if_can_be_merged(self, pull_request):
+        _can_be_merged = False
         self.app.logger.info(
             f"{self.repository_name}: check if PR {pull_request.number} can be merged."
         )
@@ -910,10 +911,12 @@ Available user actions:
                             pull_request=pull_request, label=CAN_BE_MERGED_STR
                         )
                         self.set_merge_check_success(pull_request=pull_request)
+                        _can_be_merged = True
                         break
 
-        self._remove_label(pull_request=pull_request, label=CAN_BE_MERGED_STR)
-        self.set_merge_check_pending(pull_request=pull_request)
+        if not _can_be_merged:
+            self._remove_label(pull_request=pull_request, label=CAN_BE_MERGED_STR)
+            self.set_merge_check_pending(pull_request=pull_request)
 
     @staticmethod
     def _comment_with_details(title, body):
