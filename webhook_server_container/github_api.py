@@ -472,6 +472,7 @@ Available user actions:
         if remove:
             if user_request.lower() == "lgtm":
                 self.manage_reviewed_by_label(
+                    pull_request=pull_request,
                     review_state="approved",
                     action=DELETE_STR,
                     reviewed_user=reviewed_user,
@@ -484,7 +485,10 @@ Available user actions:
         else:
             if user_request.lower() == "lgtm":
                 self.manage_reviewed_by_label(
-                    review_state="approved", action=ADD_STR, reviewed_user=reviewed_user
+                    pull_request=pull_request,
+                    review_state="approved",
+                    action=ADD_STR,
+                    reviewed_user=reviewed_user,
                 )
             else:
                 self._add_label(pull_request=pull_request, label=user_request)
@@ -754,19 +758,21 @@ Available user actions:
                     self._remove_label(pull_request=pull_request, label=_label)
 
             self.manage_reviewed_by_label(
+                pull_request=pull_request,
                 review_state=self.hook_data["review"]["state"],
                 action=ADD_STR,
                 reviewed_user=reviewed_user,
             )
 
-    def manage_reviewed_by_label(self, review_state, action, reviewed_user):
+    def manage_reviewed_by_label(
+        self, review_state, action, reviewed_user, pull_request
+    ):
         base_dict = self.hook_data.get("issue", self.hook_data.get("pull_request"))
         user_label = f"{self.reviewed_by_prefix}{reviewed_user}"
         pr_owner = base_dict["user"]["login"]
         if pr_owner == reviewed_user:
             return
 
-        pull_request = self._get_pull_request()
         reviewer_label = f"{review_state.title()}{user_label}"
 
         if action == ADD_STR:
