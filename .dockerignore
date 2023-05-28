@@ -6,3 +6,4 @@
 .venv/
 .env
 config.yaml
+docker-compose.yaml

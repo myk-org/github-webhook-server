@@ -215,7 +215,7 @@ Available user actions:
 
     @contextmanager
     def _clone_repository(self, path_suffix):
-        _clone_path = f"{self.clone_repository_path}-{path_suffix}"
+        _clone_path = f"/tmp/{self.clone_repository_path}-{path_suffix}"
         self.app.logger.info(
             f"Cloning repository: {self.repository_full_name} into {_clone_path}"
         )
@@ -1038,7 +1038,7 @@ Available user actions:
         return f"{self.container_repository}:{tag}"
 
     @contextmanager
-    def _build_container(self, pull_request=None):
+    def _build_container(self, pull_request=None, set_check=True):
         base_path = None
         base_url = None
 
@@ -1058,7 +1058,7 @@ Available user actions:
                     subprocess.check_output(shlex.split(checkout_cmd))
                 except subprocess.CalledProcessError as ex:
                     self.app.logger.error(f"checkout for {pr_number} failed: {ex}")
-                    return
+                    yield
 
             try:
                 _container_repository_and_tag = self._container_repository_and_tag(
@@ -1075,27 +1075,23 @@ Available user actions:
                 self.app.logger.info(
                     f"{self.repository_name}: Done building {_container_repository_and_tag}"
                 )
-                if not pull_request:
-                    return True
-
-            except subprocess.CalledProcessError as ex:
-                if pull_request:
+                if pull_request and set_check:
                     with open(base_path, "w") as fd:
-                        fd.write(ex.output.decode("utf-8"))
+                        fd.write(out.decode("utf-8"))
 
-                    self.set_container_build_failure(
+                    yield self.set_container_build_success(
                         pull_request=pull_request,
                         target_url=base_url,
                     )
                 else:
-                    return False
+                    yield
 
-            else:
-                if pull_request:
+            except subprocess.CalledProcessError as ex:
+                if pull_request and set_check:
                     with open(base_path, "w") as fd:
-                        fd.write(out.decode("utf-8"))
+                        fd.write(ex.output.decode("utf-8"))
 
-                    self.set_container_build_success(
+                    yield self.set_container_build_failure(
                         pull_request=pull_request,
                         target_url=base_url,
                     )
@@ -1105,7 +1101,7 @@ Available user actions:
             f"{self.container_repository_username}:{self.container_repository_password}"
         )
 
-        with self._build_container(pull_request=pull_request):
+        with self._build_container(pull_request=pull_request, set_check=False):
             _container_repository_and_tag = self._container_repository_and_tag(
                 pull_request=pull_request
             )
