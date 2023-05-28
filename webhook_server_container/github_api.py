@@ -642,7 +642,6 @@ Available user actions:
         pull_request = self.repository.get_pull(self.hook_data["number"])
         hook_action = self.hook_data["action"]
         self.app.logger.info(f"hook_action is: {hook_action}")
-
         pull_request_data = self.hook_data["pull_request"]
         parent_committer = pull_request_data["user"]["login"]
 
@@ -650,6 +649,9 @@ Available user actions:
             pull_request.create_issue_comment(self.welcome_msg)
             if self.verified_job:
                 if parent_committer == self.api_user:
+                    self.app.logger.info(
+                        f"Committer {parent_committer} == API use {self.api_user}, Setting verified label"
+                    )
                     self._add_label(
                         pull_request=pull_request, label=self.verified_label
                     )
@@ -720,6 +722,9 @@ Available user actions:
 
             if self.verified_job:
                 if parent_committer == self.api_user:
+                    self.app.logger.info(
+                        f"Committer {parent_committer} == API use {self.api_user}, Setting verified label"
+                    )
                     self._add_label(
                         pull_request=pull_request, label=self.verified_label
                     )
