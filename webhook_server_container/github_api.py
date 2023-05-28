@@ -921,7 +921,7 @@ Available user actions:
 
     def check_if_can_be_merged(self, pull_request):
         """
-        Check if PR can be merged
+        Check if PR can be merged and set the job for it
 
         Check the following:
             Has verified label.
