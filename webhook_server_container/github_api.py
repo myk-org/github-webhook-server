@@ -14,6 +14,7 @@ import yaml
 from constants import (
     ADD_STR,
     ALL_LABELS_DICT,
+    BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
     DELETE_STR,
     USER_LABELS_DICT,
@@ -592,6 +593,35 @@ Available user actions:
             context=CAN_BE_MERGED_STR,
         )
 
+    def set_container_build_success(self, pull_request, target_url):
+        self.app.logger.info(f"{self.repository_name}: Set merge check to success")
+        last_commit = self._get_last_commit(pull_request)
+        last_commit.create_status(
+            state="success",
+            description="Successful",
+            context=BUILD_CONTAINER_STR,
+            target_url=target_url,
+        )
+
+    def set_container_build_failure(self, pull_request, target_url):
+        self.app.logger.info(f"{self.repository_name}: Set merge check to success")
+        last_commit = self._get_last_commit(pull_request)
+        last_commit.create_status(
+            state="failure",
+            description="Failed to build container",
+            context=BUILD_CONTAINER_STR,
+            target_url=target_url,
+        )
+
+    def set_container_build_pending(self, pull_request):
+        self.app.logger.info(f"{self.repository_name}: Set merge check to success")
+        last_commit = self._get_last_commit(pull_request)
+        last_commit.create_status(
+            state="pending",
+            description="Waiting for container build",
+            context=BUILD_CONTAINER_STR,
+        )
+
     def create_issue_for_new_pr(self, pull_request):
         try:
             self.app.logger.info(
@@ -676,6 +706,10 @@ Available user actions:
             self.create_issue_for_new_pr(pull_request=pull_request)
             self.app.logger.info(f"{self.repository_name}: Creating welcome comment")
             self.run_tox(pull_request=pull_request)
+            if self.build_and_push_container:
+                self.set_container_build_pending(
+                    pull_request=pull_request,
+                )
 
         if hook_action == "closed":
             self.close_issue_for_merged_or_closed_pr(
@@ -730,6 +764,9 @@ Available user actions:
                 )
 
             self.run_tox(pull_request=pull_request)
+            if self.build_and_push_container:
+                self._build_container(pull_request=pull_request)
+
             self.check_if_can_be_merged(pull_request=pull_request)
 
         if hook_action in ("labeled", "unlabeled"):
@@ -853,19 +890,25 @@ Available user actions:
             self.set_run_tox_check_pending(pull_request=pull_request)
             self.run_tox(pull_request=pull_request)
 
-        if _command == "cherry-pick":
+        elif _command == "cherry-pick":
             self.cherry_pick(
                 pull_request=pull_request,
                 target_branch=command_and_args[1],
                 reviewed_user=reviewed_user,
             )
 
-        self.label_by_user_comment(
-            pull_request=pull_request,
-            user_request=_command,
-            remove=remove,
-            reviewed_user=reviewed_user,
-        )
+        elif command == "build-container":
+            if self.build_and_push_container:
+                self.set_container_build_pending(pull_request=pull_request)
+                self._build_container(pull_request=pull_request)
+
+        else:
+            self.label_by_user_comment(
+                pull_request=pull_request,
+                user_request=_command,
+                remove=remove,
+                reviewed_user=reviewed_user,
+            )
 
     def cherry_pick(self, pull_request, target_branch, reviewed_user=None):
         self.app.logger.info(
@@ -974,26 +1017,72 @@ Available user actions:
 </details>
         """
 
-    def _build_and_push_container(self):
-        with self._clone_repository(path_suffix=self.container_tag):
-            repository_and_tag = f"{self.container_repository}:{self.container_tag}"
-            repository_creds = f"{self.container_repository_username}:{self.container_repository_password}"
-            build_cmd = f"podman build --network=host -f {self.dockerfile} -t {repository_and_tag}"
-            push_cmd = f"podman push --creds {repository_creds} {repository_and_tag}"
-            self.app.logger.info(
-                f"Build container image for {self.container_repository}:{self.container_tag}"
-            )
-            subprocess.check_output(shlex.split(build_cmd))
+    @property
+    def _container_repository_and_tag(self):
+        return f"{self.container_repository}:{self.container_tag}"
+
+    def _build_container(self, pull_request=None):
+        base_path = f"/webhook_server/build-container/{pull_request.number}"
+        base_url = f"{self.webhook_url}{base_path}"
+        with self._clone_repository(path_suffix=f"build-container-{uuid.uuid4()}"):
+            self.app.logger.info(f"Current directory: {os.getcwd()}")
+            if pull_request:
+                pr_number = f"origin/pr/{pull_request.number}"
+                try:
+                    checkout_cmd = f"git checkout {pr_number}"
+                    self.app.logger.info(
+                        f"build-container: Run command: {checkout_cmd}"
+                    )
+                    subprocess.check_output(shlex.split(checkout_cmd))
+                except subprocess.CalledProcessError as ex:
+                    self.app.logger.error(f"checkout for {pr_number} failed: {ex}")
+                    return
+
+            try:
+                build_cmd = f"podman build --network=host -f {self.dockerfile} -t {self._container_repository_and_tag}"
+                self.app.logger.info(
+                    f"Build container image for {self.container_repository}:{self.container_tag}"
+                )
+                out = subprocess.check_output(shlex.split(build_cmd))
+            except subprocess.CalledProcessError as ex:
+                if pull_request:
+                    with open(base_path, "w") as fd:
+                        fd.write(ex.output.decode("utf-8"))
+
+                    self.set_container_build_failure(
+                        pull_request=pull_request,
+                        target_url=base_url,
+                    )
+
+            else:
+                if pull_request:
+                    with open(base_path, "w") as fd:
+                        fd.write(out.decode("utf-8"))
+
+                    self.set_container_build_success(
+                        pull_request=pull_request,
+                        target_url=base_url,
+                    )
+
+    def _build_and_push_container(
+        self,
+    ):
+        repository_creds = (
+            f"{self.container_repository_username}:{self.container_repository_password}"
+        )
+
+        if self._build_container():
+            push_cmd = f"podman push --creds {repository_creds} {self._container_repository_and_tag}"
             self.app.logger.info(
                 f"Push container image to {self.container_repository}:{self.container_tag}"
             )
             subprocess.check_output(shlex.split(push_cmd))
             if self.slack_webhook_url:
                 message = f"""
-```
-{self.repository_name}: New container for {repository_and_tag} published.
-```
-"""
+            ```
+            {self.repository_name}: New container for {self._container_repository_and_tag} published.
+            ```
+            """
                 self.send_slack_message(
                     message=message,
                     webhook_url=self.slack_webhook_url,

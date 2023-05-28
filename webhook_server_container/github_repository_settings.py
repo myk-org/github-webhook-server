@@ -71,6 +71,9 @@ def set_repositories_settings(app):
             if data.get("verified_job", True):
                 required_status_checks.append("verified")
 
+            if data.get("container"):
+                required_status_checks.append("build-container")
+
             if status_checks:
                 required_status_checks.extend(status_checks)
             else:

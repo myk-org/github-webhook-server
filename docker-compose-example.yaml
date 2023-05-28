@@ -6,7 +6,8 @@ services:
     build: webhook-server-container
     volumes:
       - ./config.yaml:/config.yaml:Z
-      - .tox-results:/tox-results
+      - .tox-results:/webhook_server/tox
+      - .build-container-results:/webhook_server/build-container
       - /etc/ssl/certs/:/etc/ssl/certs/:ro
     environment:
       - FLASK_DEBUG=1 # Debug Flask server to get logs to console.

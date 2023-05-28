@@ -35,6 +35,13 @@ def return_tox(filename):
         return Response(fd.read(), mimetype="text/plain")
 
 
+@app.route("/webhook_server/build-container/<string:filename>")
+def return_build_container(filename):
+    app.logger.info("app.route: Processing build-container file")
+    with open(f"/webhook_server/build-container/{filename}") as fd:
+        return Response(fd.read(), mimetype="text/plain")
+
+
 def main():
     procs = create_webhook(app=app) + set_repositories_settings(app=app)
     for proc in procs:
