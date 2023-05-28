@@ -65,10 +65,13 @@ The following are automatically added:
  * New issue is created for the PR. (Closed when PR is merged/closed)
 
 Available user actions:
- * To mark PR as verified add `/verified` to a PR comment, to un-verify add `/verified cancel` to a PR comment.
+ * To mark PR as verified comment `/verified` to the PR, to un-verify comment `/verified cancel` to the PR.
         verified label removed on each new commit push.
- * To cherry pick a merged PR add `/cherry-pick <target branch to cherry-pick to>` to a PR comment.
+ * To cherry pick a merged PR comment `/cherry-pick <target branch to cherry-pick to>` in the PR.
     * Support only merged PRs
+ * To re-run tox comment `/tox` in the PR.
+ * To re-run build-container command `/build-container` in the PR.
+ * To build and push container image command `/build-and-push-container` in the PR (tag will be the PR number).
  * To add a label by comment use `/<label name>`, to remove, use `/<label name> cancel`
 <details>
 <summary>Supported labels</summary>
@@ -903,6 +906,10 @@ Available user actions:
                 self.set_container_build_pending(pull_request=pull_request)
                 self._build_container(pull_request=pull_request)
 
+        elif command == "build-and-push-container":
+            if self.build_and_push_container:
+                self._build_and_push_container(pull_request=pull_request)
+
         else:
             self.label_by_user_comment(
                 pull_request=pull_request,
@@ -1018,9 +1025,9 @@ Available user actions:
 </details>
         """
 
-    @property
-    def _container_repository_and_tag(self):
-        return f"{self.container_repository}:{self.container_tag}"
+    def _container_repository_and_tag(self, pull_request=None):
+        tag = pull_request.number if pull_request else self.container_tag
+        return f"{self.container_repository}:{tag}"
 
     def _build_container(self, pull_request=None):
         base_path = None
@@ -1045,7 +1052,10 @@ Available user actions:
                     return
 
             try:
-                build_cmd = f"podman build --network=host -f {self.dockerfile} -t {self._container_repository_and_tag}"
+                build_cmd = (
+                    f"podman build --network=host -f {self.dockerfile} "
+                    f"-t {self._container_repository_and_tag(pull_request=pull_request)}"
+                )
                 self.app.logger.info(
                     f"Build container image for {self.container_repository}:{self.container_tag}"
                 )
@@ -1075,29 +1085,35 @@ Available user actions:
                         target_url=base_url,
                     )
 
-    def _build_and_push_container(
-        self,
-    ):
+    def _build_and_push_container(self, pull_request=None):
         repository_creds = (
             f"{self.container_repository_username}:{self.container_repository_password}"
         )
 
-        if self._build_container():
-            push_cmd = f"podman push --creds {repository_creds} {self._container_repository_and_tag}"
+        if self._build_container(pull_request=pull_request):
+            _container_repository_and_tag = self._container_repository_and_tag(
+                pull_request=pull_request
+            )
+            push_cmd = f"podman push --creds {repository_creds} {_container_repository_and_tag}"
             self.app.logger.info(
-                f"Push container image to {self.container_repository}:{self.container_tag}"
+                f"Push container image to {_container_repository_and_tag}"
             )
             subprocess.check_output(shlex.split(push_cmd))
-            if self.slack_webhook_url:
-                message = f"""
-            ```
-            {self.repository_name}: New container for {self._container_repository_and_tag} published.
-            ```
-            """
-                self.send_slack_message(
-                    message=message,
-                    webhook_url=self.slack_webhook_url,
+            if pull_request:
+                pull_request.create_issue_comment(
+                    f"Container {_container_repository_and_tag} pushed"
                 )
+            else:
+                if self.slack_webhook_url:
+                    message = f"""
+                ```
+                {self.repository_name}: New container for {_container_repository_and_tag} published.
+                ```
+                """
+                    self.send_slack_message(
+                        message=message,
+                        webhook_url=self.slack_webhook_url,
+                    )
 
     def send_slack_message(self, message, webhook_url):
         slack_data = {"text": message}
