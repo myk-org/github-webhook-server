@@ -1052,12 +1052,15 @@ Available user actions:
                     return
 
             try:
+                _container_repository_and_tag = self._container_repository_and_tag(
+                    pull_request=pull_request
+                )
                 build_cmd = (
                     f"podman build --network=host -f {self.dockerfile} "
-                    f"-t {self._container_repository_and_tag(pull_request=pull_request)}"
+                    f"-t {_container_repository_and_tag}"
                 )
                 self.app.logger.info(
-                    f"Build container image for {self.container_repository}:{self.container_tag}"
+                    f"Build container image for {_container_repository_and_tag}"
                 )
                 out = subprocess.check_output(shlex.split(build_cmd))
                 if not pull_request:
