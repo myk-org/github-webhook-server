@@ -710,6 +710,7 @@ Available user actions:
                 self.set_container_build_pending(
                     pull_request=pull_request,
                 )
+                self._build_container(pull_request=pull_request)
 
         if hook_action == "closed":
             self.close_issue_for_merged_or_closed_pr(
