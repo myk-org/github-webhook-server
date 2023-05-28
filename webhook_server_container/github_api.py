@@ -136,7 +136,9 @@ Available user actions:
         base_dict = self.hook_data.get("issue", self.hook_data.get("pull_request"))
         if base_dict:
             return self.repository.get_pull(base_dict["number"])
-        self.app.logger.info(f"No issue or pull_request found in {self.hook_data}")
+        self.app.logger.info(
+            f"{self.repository_name}: No issue or pull_request found in hook data"
+        )
 
     @staticmethod
     def _get_labels_dict(labels):
@@ -157,6 +159,13 @@ Available user actions:
                 return pull_request.remove_from_labels(label)
 
     def _add_label(self, pull_request, label):
+        label_in_pr = self.obj_labels(obj=pull_request).get(label.lower())
+        if label_in_pr:
+            self.app.logger.info(
+                f"{self.repository_name}: Label {label} already assign to PR {pull_request.number}"
+            )
+            return
+
         label = label.strip()
         if len(label) > 49:
             self.app.logger.warning(f"{label} is to long, not adding.")
@@ -640,9 +649,9 @@ Available user actions:
         self.check_if_can_be_merged(pull_request=pull_request)
 
     def process_pull_request_webhook_data(self):
-        pull_request = self.repository.get_pull(self.hook_data["number"])
         hook_action = self.hook_data["action"]
         self.app.logger.info(f"hook_action is: {hook_action}")
+        pull_request = self.repository.get_pull(self.hook_data["number"])
         pull_request_data = self.hook_data["pull_request"]
         parent_committer = pull_request_data["user"]["login"]
 
@@ -725,6 +734,9 @@ Available user actions:
 
         if hook_action in ("labeled", "unlabeled"):
             labeled = self.hook_data["label"]["name"].lower()
+            self.app.logger.info(
+                f"{self.repository_name}: PR {pull_request.number} {hook_action} with {labeled}"
+            )
             if self.verified_job and labeled == self.verified_label:
                 if hook_action == "labeled":
                     self.set_verify_check_success(pull_request=pull_request)
