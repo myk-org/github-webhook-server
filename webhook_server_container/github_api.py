@@ -1,4 +1,3 @@
-import contextlib
 import json
 import os
 import re
@@ -91,8 +90,8 @@ Available user actions:
             self.process_pull_request_review_webhook_data()
 
         else:
-            with contextlib.suppress(UnknownObjectException):
-                pull_request = self._get_pull_request()
+            pull_request = self._get_pull_request()
+            if pull_request:
                 self.check_if_can_be_merged(pull_request=pull_request)
 
     @property
@@ -135,7 +134,9 @@ Available user actions:
 
     def _get_pull_request(self):
         base_dict = self.hook_data.get("issue", self.hook_data.get("pull_request"))
-        return self.repository.get_pull(base_dict["number"])
+        if base_dict:
+            return self.repository.get_pull(base_dict["number"])
+        self.app.logger.info(f"No issue or pull_request found in {self.hook_data}")
 
     @staticmethod
     def _get_labels_dict(labels):
@@ -1002,9 +1003,10 @@ Available user actions:
     def _process_verified(self, parent_committer, pull_request):
         if parent_committer == self.api_user:
             self.app.logger.info(
-                f"Committer {parent_committer} == API use {self.api_user}, Setting verified label"
+                f"Committer {parent_committer} == API user {self.api_user}, Setting verified label"
             )
             self._add_label(pull_request=pull_request, label=self.verified_label)
+            self.set_verify_check_success(pull_request=pull_request)
         else:
             self.reset_verify_label(pull_request=pull_request)
             self.set_verify_check_pending(pull_request=pull_request)
