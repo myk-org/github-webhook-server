@@ -65,10 +65,13 @@ The following are automatically added:
  * New issue is created for the PR. (Closed when PR is merged/closed)
 
 Available user actions:
- * To mark PR as verified add `/verified` to a PR comment, to un-verify add `/verified cancel` to a PR comment.
+ * To mark PR as verified comment `/verified` to the PR, to un-verify comment `/verified cancel` to the PR.
         verified label removed on each new commit push.
- * To cherry pick a merged PR add `/cherry-pick <target branch to cherry-pick to>` to a PR comment.
+ * To cherry pick a merged PR comment `/cherry-pick <target branch to cherry-pick to>` in the PR.
     * Support only merged PRs
+ * To re-run tox comment `/tox` in the PR.
+ * To re-run build-container command `/build-container` in the PR.
+ * To build and push container image command `/build-and-push-container` in the PR (tag will be the PR number).
  * To add a label by comment use `/<label name>`, to remove, use `/<label name> cancel`
 <details>
 <summary>Supported labels</summary>
@@ -212,7 +215,7 @@ Available user actions:
 
     @contextmanager
     def _clone_repository(self, path_suffix):
-        _clone_path = f"{self.clone_repository_path}-{path_suffix}"
+        _clone_path = f"/tmp/{self.clone_repository_path}-{path_suffix}"
         self.app.logger.info(
             f"Cloning repository: {self.repository_full_name} into {_clone_path}"
         )
@@ -594,7 +597,9 @@ Available user actions:
         )
 
     def set_container_build_success(self, pull_request, target_url):
-        self.app.logger.info(f"{self.repository_name}: Set merge check to success")
+        self.app.logger.info(
+            f"{self.repository_name}: Set container build check to success"
+        )
         last_commit = self._get_last_commit(pull_request)
         last_commit.create_status(
             state="success",
@@ -604,7 +609,9 @@ Available user actions:
         )
 
     def set_container_build_failure(self, pull_request, target_url):
-        self.app.logger.info(f"{self.repository_name}: Set merge check to success")
+        self.app.logger.info(
+            f"{self.repository_name}: Set container build check to failure"
+        )
         last_commit = self._get_last_commit(pull_request)
         last_commit.create_status(
             state="failure",
@@ -614,7 +621,9 @@ Available user actions:
         )
 
     def set_container_build_pending(self, pull_request):
-        self.app.logger.info(f"{self.repository_name}: Set merge check to success")
+        self.app.logger.info(
+            f"{self.repository_name}: Set container build check to pending"
+        )
         last_commit = self._get_last_commit(pull_request)
         last_commit.create_status(
             state="pending",
@@ -710,7 +719,8 @@ Available user actions:
                 self.set_container_build_pending(
                     pull_request=pull_request,
                 )
-                self._build_container(pull_request=pull_request)
+                with self._build_container(pull_request=pull_request):
+                    pass
 
         if hook_action == "closed":
             self.close_issue_for_merged_or_closed_pr(
@@ -766,7 +776,8 @@ Available user actions:
 
             self.run_tox(pull_request=pull_request)
             if self.build_and_push_container:
-                self._build_container(pull_request=pull_request)
+                with self._build_container(pull_request=pull_request):
+                    pass
 
             self.check_if_can_be_merged(pull_request=pull_request)
 
@@ -792,7 +803,7 @@ Available user actions:
             self.app.logger.info(
                 f"{self.repository_name}: Processing push for tag: {tag_name}"
             )
-            with self._clone_repository(path_suffix=tag_name):
+            with self._clone_repository(path_suffix=f"{tag_name}-{uuid.uuid4()}"):
                 self._checkout_tag(tag=tag_name)
                 self.upload_to_pypi(tag_name=tag_name)
 
@@ -901,7 +912,12 @@ Available user actions:
         elif command == "build-container":
             if self.build_and_push_container:
                 self.set_container_build_pending(pull_request=pull_request)
-                self._build_container(pull_request=pull_request)
+                with self._build_container(pull_request=pull_request):
+                    pass
+
+        elif command == "build-and-push-container":
+            if self.build_and_push_container:
+                self._build_and_push_container(pull_request=pull_request)
 
         else:
             self.label_by_user_comment(
@@ -936,7 +952,9 @@ Available user actions:
             self.app.logger.error(err_msg)
             pull_request.create_issue_comment(err_msg)
         else:
-            with self._clone_repository(path_suffix=base_source_branch_name):
+            with self._clone_repository(
+                path_suffix=f"{base_source_branch_name}-{uuid.uuid4()}"
+            ):
                 self._checkout_new_branch(
                     source_branch=target_branch,
                     new_branch_name=new_branch_name,
@@ -1018,11 +1036,12 @@ Available user actions:
 </details>
         """
 
-    @property
-    def _container_repository_and_tag(self):
-        return f"{self.container_repository}:{self.container_tag}"
+    def _container_repository_and_tag(self, pull_request=None):
+        tag = pull_request.number if pull_request else self.container_tag
+        return f"{self.container_repository}:{tag}"
 
-    def _build_container(self, pull_request=None):
+    @contextmanager
+    def _build_container(self, pull_request=None, set_check=True):
         base_path = None
         base_url = None
 
@@ -1042,61 +1061,80 @@ Available user actions:
                     subprocess.check_output(shlex.split(checkout_cmd))
                 except subprocess.CalledProcessError as ex:
                     self.app.logger.error(f"checkout for {pr_number} failed: {ex}")
-                    return
+                    yield
 
             try:
-                build_cmd = f"podman build --network=host -f {self.dockerfile} -t {self._container_repository_and_tag}"
+                _container_repository_and_tag = self._container_repository_and_tag(
+                    pull_request=pull_request
+                )
+                build_cmd = (
+                    f"podman build --network=host -f {self.dockerfile} "
+                    f"-t {_container_repository_and_tag}"
+                )
                 self.app.logger.info(
-                    f"Build container image for {self.container_repository}:{self.container_tag}"
+                    f"Build container image for {_container_repository_and_tag}"
                 )
                 out = subprocess.check_output(shlex.split(build_cmd))
-                if not pull_request:
-                    return True
-
-            except subprocess.CalledProcessError as ex:
-                if pull_request:
+                self.app.logger.info(
+                    f"{self.repository_name}: Done building {_container_repository_and_tag}"
+                )
+                if pull_request and set_check:
                     with open(base_path, "w") as fd:
-                        fd.write(ex.output.decode("utf-8"))
+                        fd.write(out.decode("utf-8"))
 
-                    self.set_container_build_failure(
+                    yield self.set_container_build_success(
                         pull_request=pull_request,
                         target_url=base_url,
                     )
                 else:
-                    return False
+                    yield
 
-            else:
-                if pull_request:
+            except subprocess.CalledProcessError as ex:
+                if pull_request and set_check:
                     with open(base_path, "w") as fd:
-                        fd.write(out.decode("utf-8"))
+                        fd.write(ex.output.decode("utf-8"))
 
-                    self.set_container_build_success(
+                    yield self.set_container_build_failure(
                         pull_request=pull_request,
                         target_url=base_url,
                     )
 
-    def _build_and_push_container(
-        self,
-    ):
+    def _build_and_push_container(self, pull_request=None):
         repository_creds = (
             f"{self.container_repository_username}:{self.container_repository_password}"
         )
 
-        if self._build_container():
-            push_cmd = f"podman push --creds {repository_creds} {self._container_repository_and_tag}"
-            self.app.logger.info(
-                f"Push container image to {self.container_repository}:{self.container_tag}"
+        with self._build_container(pull_request=pull_request, set_check=False):
+            _container_repository_and_tag = self._container_repository_and_tag(
+                pull_request=pull_request
             )
-            subprocess.check_output(shlex.split(push_cmd))
-            if self.slack_webhook_url:
-                message = f"""
-            ```
-            {self.repository_name}: New container for {self._container_repository_and_tag} published.
-            ```
-            """
-                self.send_slack_message(
-                    message=message,
-                    webhook_url=self.slack_webhook_url,
+            push_cmd = f"podman push --creds {repository_creds} {_container_repository_and_tag}"
+            self.app.logger.info(
+                f"Push container image to {_container_repository_and_tag}"
+            )
+            try:
+                subprocess.check_output(shlex.split(push_cmd))
+                if pull_request:
+                    pull_request.create_issue_comment(
+                        f"Container {_container_repository_and_tag} pushed"
+                    )
+                else:
+                    if self.slack_webhook_url:
+                        message = f"""
+                    ```
+                    {self.repository_name}: New container for {_container_repository_and_tag} published.
+                    ```
+                    """
+                        self.send_slack_message(
+                            message=message,
+                            webhook_url=self.slack_webhook_url,
+                        )
+                self.app.logger.info(
+                    f"{self.repository_name}: Done push {_container_repository_and_tag}"
+                )
+            except subprocess.CalledProcessError as ex:
+                self.app.logger.error(
+                    f"{self.repository_name}: Failed to push {_container_repository_and_tag}. {ex}"
                 )
 
     def send_slack_message(self, message, webhook_url):
