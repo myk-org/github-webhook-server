@@ -80,14 +80,19 @@ Available user actions:
         if data == "issue_comment":
             self.process_comment_webhook_data()
 
-        if data == "pull_request":
+        elif data == "pull_request":
             self.process_pull_request_webhook_data()
 
-        if data == "push":
+        elif data == "push":
             self.process_push_webhook_data()
 
-        if data == "pull_request_review":
+        elif data == "pull_request_review":
             self.process_pull_request_review_webhook_data()
+
+        else:
+            pull_request = self._get_pull_request()
+            if pull_request:
+                self.check_if_can_be_merged(pull_request=pull_request)
 
     @property
     def _api_username(self):
@@ -129,7 +134,11 @@ Available user actions:
 
     def _get_pull_request(self):
         base_dict = self.hook_data.get("issue", self.hook_data.get("pull_request"))
-        return self.repository.get_pull(base_dict["number"])
+        if base_dict:
+            return self.repository.get_pull(base_dict["number"])
+        self.app.logger.info(
+            f"{self.repository_name}: No issue or pull_request found in hook data"
+        )
 
     @staticmethod
     def _get_labels_dict(labels):
@@ -150,6 +159,13 @@ Available user actions:
                 return pull_request.remove_from_labels(label)
 
     def _add_label(self, pull_request, label):
+        label_in_pr = self.obj_labels(obj=pull_request).get(label.lower())
+        if label_in_pr:
+            self.app.logger.info(
+                f"{self.repository_name}: Label {label} already assign to PR {pull_request.number}"
+            )
+            return
+
         label = label.strip()
         if len(label) > 49:
             self.app.logger.warning(f"{label} is to long, not adding.")
@@ -630,24 +646,21 @@ Available user actions:
                     pull_request=pull_request,
                     reviewed_user=user_login,
                 )
+        self.check_if_can_be_merged(pull_request=pull_request)
 
     def process_pull_request_webhook_data(self):
-        pull_request = self.repository.get_pull(self.hook_data["number"])
         hook_action = self.hook_data["action"]
         self.app.logger.info(f"hook_action is: {hook_action}")
-
+        pull_request = self.repository.get_pull(self.hook_data["number"])
         pull_request_data = self.hook_data["pull_request"]
         parent_committer = pull_request_data["user"]["login"]
 
         if hook_action == "opened":
             pull_request.create_issue_comment(self.welcome_msg)
             if self.verified_job:
-                if parent_committer == self.api_user:
-                    self._add_label(
-                        pull_request=pull_request, label=self.verified_label
-                    )
-                else:
-                    self.set_verify_check_pending(pull_request=pull_request)
+                self._process_verified(
+                    parent_committer=parent_committer, pull_request=pull_request
+                )
 
             self.set_run_tox_check_pending(pull_request=pull_request)
             self.set_merge_check_pending(pull_request=pull_request)
@@ -712,18 +725,18 @@ Available user actions:
                 self._remove_label(pull_request=pull_request, label=_reviewed_label)
 
             if self.verified_job:
-                if parent_committer == self.api_user:
-                    self._add_label(
-                        pull_request=pull_request, label=self.verified_label
-                    )
-                else:
-                    self.reset_verify_label(pull_request=pull_request)
-                    self.set_verify_check_pending(pull_request=pull_request)
+                self._process_verified(
+                    parent_committer=parent_committer, pull_request=pull_request
+                )
 
             self.run_tox(pull_request=pull_request)
+            self.check_if_can_be_merged(pull_request=pull_request)
 
         if hook_action in ("labeled", "unlabeled"):
             labeled = self.hook_data["label"]["name"].lower()
+            self.app.logger.info(
+                f"{self.repository_name}: PR {pull_request.number} {hook_action} with {labeled}"
+            )
             if self.verified_job and labeled == self.verified_label:
                 if hook_action == "labeled":
                     self.set_verify_check_success(pull_request=pull_request)
@@ -746,13 +759,13 @@ Available user actions:
                 self.upload_to_pypi(tag_name=tag_name)
 
     def process_pull_request_review_webhook_data(self):
+        pull_request = self._get_pull_request()
         if self.hook_data["action"] == "submitted":
             """
             commented
             approved
             changes_requested
             """
-            pull_request = self._get_pull_request()
             pull_request_labels = self.obj_labels(obj=pull_request)
             reviewed_user = self.hook_data["review"]["user"]["login"]
             for _label in pull_request_labels:
@@ -765,6 +778,7 @@ Available user actions:
                 action=ADD_STR,
                 reviewed_user=reviewed_user,
             )
+        self.check_if_can_be_merged(pull_request=pull_request)
 
     def manage_reviewed_by_label(
         self, review_state, action, reviewed_user, pull_request
@@ -907,7 +921,7 @@ Available user actions:
 
     def check_if_can_be_merged(self, pull_request):
         """
-        Check if PR can be merged
+        Check if PR can be merged and set the job for it
 
         Check the following:
             Has verified label.
@@ -997,3 +1011,14 @@ Available user actions:
             raise ValueError(
                 f"Request to slack returned an error {response.status_code} with the following message: {response.text}"
             )
+
+    def _process_verified(self, parent_committer, pull_request):
+        if parent_committer == self.api_user:
+            self.app.logger.info(
+                f"Committer {parent_committer} == API user {self.api_user}, Setting verified label"
+            )
+            self._add_label(pull_request=pull_request, label=self.verified_label)
+            self.set_verify_check_success(pull_request=pull_request)
+        else:
+            self.reset_verify_label(pull_request=pull_request)
+            self.set_verify_check_pending(pull_request=pull_request)
