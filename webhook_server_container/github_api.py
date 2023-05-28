@@ -1023,8 +1023,13 @@ Available user actions:
         return f"{self.container_repository}:{self.container_tag}"
 
     def _build_container(self, pull_request=None):
-        base_path = f"/webhook_server/build-container/{pull_request.number}"
-        base_url = f"{self.webhook_url}{base_path}"
+        base_path = None
+        base_url = None
+
+        if pull_request:
+            base_path = f"/webhook_server/build-container/{pull_request.number}"
+            base_url = f"{self.webhook_url}{base_path}"
+
         with self._clone_repository(path_suffix=f"build-container-{uuid.uuid4()}"):
             self.app.logger.info(f"Current directory: {os.getcwd()}")
             if pull_request:
@@ -1047,6 +1052,7 @@ Available user actions:
                 out = subprocess.check_output(shlex.split(build_cmd))
                 if not pull_request:
                     return True
+
             except subprocess.CalledProcessError as ex:
                 if pull_request:
                     with open(base_path, "w") as fd:
