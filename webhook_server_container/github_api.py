@@ -80,14 +80,18 @@ Available user actions:
         if data == "issue_comment":
             self.process_comment_webhook_data()
 
-        if data == "pull_request":
+        elif data == "pull_request":
             self.process_pull_request_webhook_data()
 
-        if data == "push":
+        elif data == "push":
             self.process_push_webhook_data()
 
-        if data == "pull_request_review":
+        elif data == "pull_request_review":
             self.process_pull_request_review_webhook_data()
+
+        else:
+            pull_request = self._get_pull_request()
+            self.check_if_can_be_merged(pull_request=pull_request)
 
     @property
     def _api_username(self):
@@ -630,6 +634,7 @@ Available user actions:
                     pull_request=pull_request,
                     reviewed_user=user_login,
                 )
+        self.check_if_can_be_merged(pull_request=pull_request)
 
     def process_pull_request_webhook_data(self):
         pull_request = self.repository.get_pull(self.hook_data["number"])
@@ -721,6 +726,7 @@ Available user actions:
                     self.set_verify_check_pending(pull_request=pull_request)
 
             self.run_tox(pull_request=pull_request)
+            self.check_if_can_be_merged(pull_request=pull_request)
 
         if hook_action in ("labeled", "unlabeled"):
             labeled = self.hook_data["label"]["name"].lower()
@@ -746,13 +752,13 @@ Available user actions:
                 self.upload_to_pypi(tag_name=tag_name)
 
     def process_pull_request_review_webhook_data(self):
+        pull_request = self._get_pull_request()
         if self.hook_data["action"] == "submitted":
             """
             commented
             approved
             changes_requested
             """
-            pull_request = self._get_pull_request()
             pull_request_labels = self.obj_labels(obj=pull_request)
             reviewed_user = self.hook_data["review"]["user"]["login"]
             for _label in pull_request_labels:
@@ -765,6 +771,7 @@ Available user actions:
                 action=ADD_STR,
                 reviewed_user=reviewed_user,
             )
+        self.check_if_can_be_merged(pull_request=pull_request)
 
     def manage_reviewed_by_label(
         self, review_state, action, reviewed_user, pull_request
