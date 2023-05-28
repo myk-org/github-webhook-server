@@ -648,15 +648,9 @@ Available user actions:
         if hook_action == "opened":
             pull_request.create_issue_comment(self.welcome_msg)
             if self.verified_job:
-                if parent_committer == self.api_user:
-                    self.app.logger.info(
-                        f"Committer {parent_committer} == API use {self.api_user}, Setting verified label"
-                    )
-                    self._add_label(
-                        pull_request=pull_request, label=self.verified_label
-                    )
-                else:
-                    self.set_verify_check_pending(pull_request=pull_request)
+                self._process_verified(
+                    parent_committer=parent_committer, pull_request=pull_request
+                )
 
             self.set_run_tox_check_pending(pull_request=pull_request)
             self.set_merge_check_pending(pull_request=pull_request)
@@ -721,16 +715,9 @@ Available user actions:
                 self._remove_label(pull_request=pull_request, label=_reviewed_label)
 
             if self.verified_job:
-                if parent_committer == self.api_user:
-                    self.app.logger.info(
-                        f"Committer {parent_committer} == API use {self.api_user}, Setting verified label"
-                    )
-                    self._add_label(
-                        pull_request=pull_request, label=self.verified_label
-                    )
-                else:
-                    self.reset_verify_label(pull_request=pull_request)
-                    self.set_verify_check_pending(pull_request=pull_request)
+                self._process_verified(
+                    parent_committer=parent_committer, pull_request=pull_request
+                )
 
             self.run_tox(pull_request=pull_request)
             self.check_if_can_be_merged(pull_request=pull_request)
@@ -1011,3 +998,13 @@ Available user actions:
             raise ValueError(
                 f"Request to slack returned an error {response.status_code} with the following message: {response.text}"
             )
+
+    def _process_verified(self, parent_committer, pull_request):
+        if parent_committer == self.api_user:
+            self.app.logger.info(
+                f"Committer {parent_committer} == API use {self.api_user}, Setting verified label"
+            )
+            self._add_label(pull_request=pull_request, label=self.verified_label)
+        else:
+            self.reset_verify_label(pull_request=pull_request)
+            self.set_verify_check_pending(pull_request=pull_request)
