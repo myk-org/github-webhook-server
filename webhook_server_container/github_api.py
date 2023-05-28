@@ -944,7 +944,7 @@ Available user actions:
         )
         if (
             self.verified_label in _labels
-            and pull_request.mergeable_state == "clean"
+            and pull_request.mergeable_state != "behind"
             and all_check_pass
         ):
             for _label in _labels:
