@@ -56,6 +56,8 @@ class GitHubApi:
             [f"* {label}\n" for label in USER_LABELS_DICT.keys()]
         )
         self.welcome_msg = f"""
+Report bugs in [Issues](https://github.com/myakove/github-gitlab-webhook-server/issues)
+
 The following are automatically added:
  * Add reviewers from OWNER file (in the root of the repository) under reviewers section.
  * Set PR size label.
