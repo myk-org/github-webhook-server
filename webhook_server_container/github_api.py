@@ -719,7 +719,8 @@ Available user actions:
                 self.set_container_build_pending(
                     pull_request=pull_request,
                 )
-                self._build_container(pull_request=pull_request)
+                with self._build_container(pull_request=pull_request):
+                    pass
 
         if hook_action == "closed":
             self.close_issue_for_merged_or_closed_pr(
@@ -775,7 +776,8 @@ Available user actions:
 
             self.run_tox(pull_request=pull_request)
             if self.build_and_push_container:
-                self._build_container(pull_request=pull_request)
+                with self._build_container(pull_request=pull_request):
+                    pass
 
             self.check_if_can_be_merged(pull_request=pull_request)
 
@@ -910,7 +912,8 @@ Available user actions:
         elif command == "build-container":
             if self.build_and_push_container:
                 self.set_container_build_pending(pull_request=pull_request)
-                self._build_container(pull_request=pull_request)
+                with self._build_container(pull_request=pull_request):
+                    pass
 
         elif command == "build-and-push-container":
             if self.build_and_push_container:
