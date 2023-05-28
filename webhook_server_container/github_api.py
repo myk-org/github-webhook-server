@@ -597,7 +597,9 @@ Available user actions:
         )
 
     def set_container_build_success(self, pull_request, target_url):
-        self.app.logger.info(f"{self.repository_name}: Set merge check to success")
+        self.app.logger.info(
+            f"{self.repository_name}: Set container build check to success"
+        )
         last_commit = self._get_last_commit(pull_request)
         last_commit.create_status(
             state="success",
@@ -607,7 +609,9 @@ Available user actions:
         )
 
     def set_container_build_failure(self, pull_request, target_url):
-        self.app.logger.info(f"{self.repository_name}: Set merge check to success")
+        self.app.logger.info(
+            f"{self.repository_name}: Set container build check to failure"
+        )
         last_commit = self._get_last_commit(pull_request)
         last_commit.create_status(
             state="failure",
@@ -617,7 +621,9 @@ Available user actions:
         )
 
     def set_container_build_pending(self, pull_request):
-        self.app.logger.info(f"{self.repository_name}: Set merge check to success")
+        self.app.logger.info(
+            f"{self.repository_name}: Set container build check to pending"
+        )
         last_commit = self._get_last_commit(pull_request)
         last_commit.create_status(
             state="pending",
@@ -795,7 +801,7 @@ Available user actions:
             self.app.logger.info(
                 f"{self.repository_name}: Processing push for tag: {tag_name}"
             )
-            with self._clone_repository(path_suffix=tag_name):
+            with self._clone_repository(path_suffix=f"{tag_name}-{uuid.uuid4()}"):
                 self._checkout_tag(tag=tag_name)
                 self.upload_to_pypi(tag_name=tag_name)
 
@@ -943,7 +949,9 @@ Available user actions:
             self.app.logger.error(err_msg)
             pull_request.create_issue_comment(err_msg)
         else:
-            with self._clone_repository(path_suffix=base_source_branch_name):
+            with self._clone_repository(
+                path_suffix=f"{base_source_branch_name}-{uuid.uuid4()}"
+            ):
                 self._checkout_new_branch(
                     source_branch=target_branch,
                     new_branch_name=new_branch_name,
