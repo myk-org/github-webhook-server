@@ -1,3 +1,4 @@
+import contextlib
 import json
 import os
 import re
@@ -90,8 +91,9 @@ Available user actions:
             self.process_pull_request_review_webhook_data()
 
         else:
-            pull_request = self._get_pull_request()
-            self.check_if_can_be_merged(pull_request=pull_request)
+            with contextlib.suppress(UnknownObjectException):
+                pull_request = self._get_pull_request()
+                self.check_if_can_be_merged(pull_request=pull_request)
 
     @property
     def _api_username(self):
