@@ -1,6 +1,7 @@
 ADD_STR = "add"
 DELETE_STR = "delete"
 CAN_BE_MERGED_STR = "can-be-merged"
+BUILD_CONTAINER_STR = "build-container"
 
 # Gitlab colors require a '#' prefix; e.g: #
 USER_LABELS_DICT = {
