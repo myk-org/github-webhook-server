@@ -1045,6 +1045,8 @@ Available user actions:
                     f"Build container image for {self.container_repository}:{self.container_tag}"
                 )
                 out = subprocess.check_output(shlex.split(build_cmd))
+                if not pull_request:
+                    return True
             except subprocess.CalledProcessError as ex:
                 if pull_request:
                     with open(base_path, "w") as fd:
@@ -1054,6 +1056,8 @@ Available user actions:
                         pull_request=pull_request,
                         target_url=base_url,
                     )
+                else:
+                    return False
 
             else:
                 if pull_request:
