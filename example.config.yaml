@@ -1,5 +1,4 @@
 repositories:
-  # GITHUB repositories example
   openshift-python-wrapper:
     type: github
     webhook_ip: <HTTP://IP OR URL:PORT>
@@ -23,14 +22,3 @@ repositories:
       passord: <registry_password>
       repository: <registry_repository_full_path>
       tag: <image_tag>
-
-  # GITLAB repositories example
-  openshift-python-wrapper-2:
-    type: gitlab
-    webhook_ip: <HTTP://IP OR URL:PORT>
-    name: RedHatQE/openshift-python-wrapper
-    project_id: <PROJECT ID>
-    events:
-      - merge_requests_events
-      - note_events
-    tox: code-check,unused-code # Run only specific tests in tox.ini

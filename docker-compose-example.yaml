@@ -1,12 +1,11 @@
 # All ${} taken from .env file, create .env file in root of project.
 version: "3.8"
 services:
-  github_gitlab_webhook_server:
-    container_name: github_gitlab_webhook_server
+  github_webhook_server:
+    container_name: github_webhook_server
     build: webhook-server-container
     volumes:
       - ./config.yaml:/config.yaml:Z
-      - $HOME/.python-gitlab.cfg:/python-gitlab.cfg:Z
       - .tox-results:/tox-results
       - /etc/ssl/certs/:/etc/ssl/certs/:ro
     environment:
