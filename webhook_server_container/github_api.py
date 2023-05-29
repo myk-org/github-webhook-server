@@ -73,6 +73,7 @@ Available user actions:
  * To re-run tox comment `/tox` in the PR.
  * To re-run build-container command `/build-container` in the PR.
  * To build and push container image command `/build-and-push-container` in the PR (tag will be the PR number).
+ * To re-run python-module-install command `/python-module-install` in the PR.
  * To add a label by comment use `/<label name>`, to remove, use `/<label name> cancel`
 <details>
 <summary>Supported labels</summary>
@@ -964,7 +965,7 @@ Available user actions:
             if self.build_and_push_container:
                 self._build_and_push_container(pull_request=pull_request)
 
-        elif command == "python-install-check":
+        elif command == "python-module-install":
             self._install_python_module(pull_request=pull_request)
 
         else:
@@ -1187,7 +1188,9 @@ Available user actions:
                 )
 
     def _install_python_module(self, pull_request):
+        self.app.logger.info(f"{self.repository_name}: Installing python module")
         if not self.pypi:
+            self.app.logger.warning(f"{self.repository_name}: No pypi configured")
             return
 
         base_path = f"/webhook_server/python-module-install/{pull_request.number}"
@@ -1206,10 +1209,10 @@ Available user actions:
                 subprocess.check_output(shlex.split(checkout_cmd))
             except subprocess.CalledProcessError as ex:
                 self.app.logger.error(f"checkout for {pr_number} failed: {ex}")
-                yield
+                return
 
             try:
-                build_cmd = "pip install . -U"
+                build_cmd = "pipx install . -U"
                 self.app.logger.info(
                     f"{self.repository_name}: Run command: {build_cmd}"
                 )

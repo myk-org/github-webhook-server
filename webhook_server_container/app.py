@@ -42,6 +42,13 @@ def return_build_container(filename):
         return Response(fd.read(), mimetype="text/plain")
 
 
+@app.route("/webhook_server/python-module-install/<string:filename>")
+def return_python_module_install(filename):
+    app.logger.info("app.route: Processing python-module-install file")
+    with open(f"/webhook_server/python-module-install/{filename}") as fd:
+        return Response(fd.read(), mimetype="text/plain")
+
+
 def main():
     procs = create_webhook(app=app) + set_repositories_settings(app=app)
     for proc in procs:
