@@ -631,6 +631,44 @@ Available user actions:
             context=BUILD_CONTAINER_STR,
         )
 
+    def set_python_module_install_success(self, pull_request, target_url):
+        self.app.logger.info(
+            f"{self.repository_name}: Set python-module-install check to success"
+        )
+        last_commit = self._get_last_commit(pull_request)
+        last_commit.create_status(
+            state="success",
+            description="Successful",
+            context=BUILD_CONTAINER_STR,
+            target_url=target_url,
+        )
+
+    def set_python_module_install_failure(self, pull_request, target_url):
+        self.app.logger.info(
+            f"{self.repository_name}: Set python-module-install check to failure"
+        )
+        last_commit = self._get_last_commit(pull_request)
+        last_commit.create_status(
+            state="failure",
+            description="Failed to install python module",
+            context=BUILD_CONTAINER_STR,
+            target_url=target_url,
+        )
+
+    def set_python_module_install_pending(self, pull_request):
+        if not self.pypi:
+            return
+
+        self.app.logger.info(
+            f"{self.repository_name}: Set python-module-install check to pending"
+        )
+        last_commit = self._get_last_commit(pull_request)
+        last_commit.create_status(
+            state="pending",
+            description="Waiting for python module install",
+            context=BUILD_CONTAINER_STR,
+        )
+
     def create_issue_for_new_pr(self, pull_request):
         try:
             self.app.logger.info(
@@ -703,6 +741,7 @@ Available user actions:
 
             self.set_run_tox_check_pending(pull_request=pull_request)
             self.set_merge_check_pending(pull_request=pull_request)
+            self.set_python_module_install_pending(pull_request=pull_request)
 
             self.add_size_label(pull_request=pull_request)
             self._add_label(
@@ -721,6 +760,8 @@ Available user actions:
                 )
                 with self._build_container(pull_request=pull_request):
                     pass
+
+            self._install_python_module(pull_request=pull_request)
 
         if hook_action == "closed":
             self.close_issue_for_merged_or_closed_pr(
@@ -748,6 +789,8 @@ Available user actions:
         if hook_action == "synchronize":
             self.set_run_tox_check_pending(pull_request=pull_request)
             self.set_merge_check_pending(pull_request=pull_request)
+            self.set_python_module_install_pending(pull_request=pull_request)
+            self.set_container_build_pending(pull_request=pull_request)
             self.assign_reviewers(pull_request=pull_request)
             all_labels = self.obj_labels(obj=pull_request)
             current_size_label = [
@@ -779,6 +822,7 @@ Available user actions:
                 with self._build_container(pull_request=pull_request):
                     pass
 
+            self._install_python_module(pull_request=pull_request)
             self.check_if_can_be_merged(pull_request=pull_request)
 
         if hook_action in ("labeled", "unlabeled"):
@@ -918,6 +962,9 @@ Available user actions:
         elif command == "build-and-push-container":
             if self.build_and_push_container:
                 self._build_and_push_container(pull_request=pull_request)
+
+        elif command == "python-install-check":
+            self._install_python_module(pull_request=pull_request)
 
         else:
             self.label_by_user_comment(
@@ -1136,6 +1183,50 @@ Available user actions:
             except subprocess.CalledProcessError as ex:
                 self.app.logger.error(
                     f"{self.repository_name}: Failed to push {_container_repository_and_tag}. {ex}"
+                )
+
+    def _install_python_module(self, pull_request):
+        if not self.pypi:
+            return
+
+        base_path = f"/webhook_server/python-module-install/{pull_request.number}"
+        base_url = f"{self.webhook_url}{base_path}"
+
+        with self._clone_repository(
+            path_suffix=f"python-module-install-{uuid.uuid4()}"
+        ):
+            self.app.logger.info(f"Current directory: {os.getcwd()}")
+            pr_number = f"origin/pr/{pull_request.number}"
+            try:
+                checkout_cmd = f"git checkout {pr_number}"
+                self.app.logger.info(
+                    f"python-module-install: Run command: {checkout_cmd}"
+                )
+                subprocess.check_output(shlex.split(checkout_cmd))
+            except subprocess.CalledProcessError as ex:
+                self.app.logger.error(f"checkout for {pr_number} failed: {ex}")
+                yield
+
+            try:
+                build_cmd = "pip install . -U"
+                self.app.logger.info(
+                    f"{self.repository_name}: Run command: {build_cmd}"
+                )
+                out = subprocess.check_output(shlex.split(build_cmd))
+                with open(base_path, "w") as fd:
+                    fd.write(out.decode("utf-8"))
+
+                self.set_python_module_install_success(
+                    pull_request=pull_request,
+                    target_url=base_url,
+                )
+            except subprocess.CalledProcessError as ex:
+                with open(base_path, "w") as fd:
+                    fd.write(ex.output.decode("utf-8"))
+
+                self.set_python_module_install_failure(
+                    pull_request=pull_request,
+                    target_url=base_url,
                 )
 
     def send_slack_message(self, message, webhook_url):
