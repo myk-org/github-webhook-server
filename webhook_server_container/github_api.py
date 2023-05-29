@@ -1011,6 +1011,7 @@ Available user actions:
         ):
             for _label in _labels:
                 if "changes_requested" in _label.lower():
+                    _can_be_merged = False
                     break
 
                 if "approved-by-" in _label.lower():
