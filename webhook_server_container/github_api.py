@@ -17,6 +17,7 @@ from constants import (
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
     DELETE_STR,
+    PYTHON_MODULE_INSTALL_STR,
     USER_LABELS_DICT,
 )
 from github import Github, GithubException
@@ -639,7 +640,7 @@ Available user actions:
         last_commit.create_status(
             state="success",
             description="Successful",
-            context=BUILD_CONTAINER_STR,
+            context=PYTHON_MODULE_INSTALL_STR,
             target_url=target_url,
         )
 
@@ -651,7 +652,7 @@ Available user actions:
         last_commit.create_status(
             state="failure",
             description="Failed to install python module",
-            context=BUILD_CONTAINER_STR,
+            context=PYTHON_MODULE_INSTALL_STR,
             target_url=target_url,
         )
 
@@ -666,7 +667,7 @@ Available user actions:
         last_commit.create_status(
             state="pending",
             description="Waiting for python module install",
-            context=BUILD_CONTAINER_STR,
+            context=PYTHON_MODULE_INSTALL_STR,
         )
 
     def create_issue_for_new_pr(self, pull_request):
