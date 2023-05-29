@@ -1212,7 +1212,7 @@ Available user actions:
                 return
 
             try:
-                build_cmd = "pipx install . -U"
+                build_cmd = "pipx install . --include-deps --force"
                 self.app.logger.info(
                     f"{self.repository_name}: Run command: {build_cmd}"
                 )
