@@ -74,6 +74,9 @@ def set_repositories_settings(app):
             if data.get("container"):
                 required_status_checks.append("build-container")
 
+            if data.get("pypi"):
+                required_status_checks.append("python-module-install")
+
             if status_checks:
                 required_status_checks.extend(status_checks)
             else:
