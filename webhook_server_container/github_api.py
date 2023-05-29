@@ -1169,10 +1169,10 @@ Available user actions:
                 else:
                     if self.slack_webhook_url:
                         message = f"""
-                    ```
-                    {self.repository_name}: New container for {_container_repository_and_tag} published.
-                    ```
-                    """
+```
+{self.repository_name}: New container for {_container_repository_and_tag} published.
+```
+"""
                         self.send_slack_message(
                             message=message,
                             webhook_url=self.slack_webhook_url,
