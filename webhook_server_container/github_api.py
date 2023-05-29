@@ -894,6 +894,9 @@ Available user actions:
 
     def run_tox(self, pull_request):
         if not self.tox_enabled:
+            error_msg = f"{self.repository_name}: Tox is not enabled."
+            self.app.logger.info(error_msg)
+            pull_request.create_issue_comment(error_msg)
             return
 
         base_path = f"/webhook_server/tox/{pull_request.number}"
@@ -1092,62 +1095,69 @@ Available user actions:
 
     @contextmanager
     def _build_container(self, pull_request=None, set_check=True):
-        base_path = None
-        base_url = None
+        if not self.build_and_push_container:
+            error_msg = f"{self.repository_name}: build-container is not enabled."
+            self.app.logger.info(error_msg)
+            pull_request.create_issue_comment(error_msg)
+            yield
 
-        if pull_request:
-            base_path = f"/webhook_server/build-container/{pull_request.number}"
-            base_url = f"{self.webhook_url}{base_path}"
+        else:
+            base_path = None
+            base_url = None
 
-        with self._clone_repository(path_suffix=f"build-container-{uuid.uuid4()}"):
-            self.app.logger.info(f"Current directory: {os.getcwd()}")
             if pull_request:
-                pr_number = f"origin/pr/{pull_request.number}"
+                base_path = f"/webhook_server/build-container/{pull_request.number}"
+                base_url = f"{self.webhook_url}{base_path}"
+
+            with self._clone_repository(path_suffix=f"build-container-{uuid.uuid4()}"):
+                self.app.logger.info(f"Current directory: {os.getcwd()}")
+                if pull_request:
+                    pr_number = f"origin/pr/{pull_request.number}"
+                    try:
+                        checkout_cmd = f"git checkout {pr_number}"
+                        self.app.logger.info(
+                            f"build-container: Run command: {checkout_cmd}"
+                        )
+                        subprocess.check_output(shlex.split(checkout_cmd))
+                    except subprocess.CalledProcessError as ex:
+                        self.app.logger.error(f"checkout for {pr_number} failed: {ex}")
+                        yield
+
                 try:
-                    checkout_cmd = f"git checkout {pr_number}"
+                    _container_repository_and_tag = self._container_repository_and_tag(
+                        pull_request=pull_request
+                    )
+                    build_cmd = (
+                        f"podman build --network=host -f {self.dockerfile} "
+                        f"-t {_container_repository_and_tag}"
+                    )
                     self.app.logger.info(
-                        f"build-container: Run command: {checkout_cmd}"
+                        f"Build container image for {_container_repository_and_tag}"
                     )
-                    subprocess.check_output(shlex.split(checkout_cmd))
+                    out = subprocess.check_output(shlex.split(build_cmd))
+                    self.app.logger.info(
+                        f"{self.repository_name}: Done building {_container_repository_and_tag}"
+                    )
+                    if pull_request and set_check:
+                        with open(base_path, "w") as fd:
+                            fd.write(out.decode("utf-8"))
+
+                        yield self.set_container_build_success(
+                            pull_request=pull_request,
+                            target_url=base_url,
+                        )
+                    else:
+                        yield
+
                 except subprocess.CalledProcessError as ex:
-                    self.app.logger.error(f"checkout for {pr_number} failed: {ex}")
-                    yield
+                    if pull_request and set_check:
+                        with open(base_path, "w") as fd:
+                            fd.write(ex.output.decode("utf-8"))
 
-            try:
-                _container_repository_and_tag = self._container_repository_and_tag(
-                    pull_request=pull_request
-                )
-                build_cmd = (
-                    f"podman build --network=host -f {self.dockerfile} "
-                    f"-t {_container_repository_and_tag}"
-                )
-                self.app.logger.info(
-                    f"Build container image for {_container_repository_and_tag}"
-                )
-                out = subprocess.check_output(shlex.split(build_cmd))
-                self.app.logger.info(
-                    f"{self.repository_name}: Done building {_container_repository_and_tag}"
-                )
-                if pull_request and set_check:
-                    with open(base_path, "w") as fd:
-                        fd.write(out.decode("utf-8"))
-
-                    yield self.set_container_build_success(
-                        pull_request=pull_request,
-                        target_url=base_url,
-                    )
-                else:
-                    yield
-
-            except subprocess.CalledProcessError as ex:
-                if pull_request and set_check:
-                    with open(base_path, "w") as fd:
-                        fd.write(ex.output.decode("utf-8"))
-
-                    yield self.set_container_build_failure(
-                        pull_request=pull_request,
-                        target_url=base_url,
-                    )
+                        yield self.set_container_build_failure(
+                            pull_request=pull_request,
+                            target_url=base_url,
+                        )
 
     def _build_and_push_container(self, pull_request=None):
         repository_creds = (
@@ -1190,7 +1200,9 @@ Available user actions:
     def _install_python_module(self, pull_request):
         self.app.logger.info(f"{self.repository_name}: Installing python module")
         if not self.pypi:
-            self.app.logger.warning(f"{self.repository_name}: No pypi configured")
+            error_msg = f"{self.repository_name}: No pypi configured"
+            self.app.logger.info(error_msg)
+            pull_request.create_issue_comment(error_msg)
             return
 
         base_path = f"/webhook_server/python-module-install/{pull_request.number}"
