@@ -895,7 +895,7 @@ Available user actions:
     def run_tox(self, pull_request):
         if not self.tox_enabled:
             error_msg = f"{self.repository_name}: Tox is not enabled."
-            self.app.logger.info()
+            self.app.logger.info(error_msg)
             pull_request.create_issue_comment(error_msg)
             return
 
@@ -1097,7 +1097,7 @@ Available user actions:
     def _build_container(self, pull_request=None, set_check=True):
         if not self.build_and_push_container:
             error_msg = f"{self.repository_name}: build-container is not enabled."
-            self.app.logger.info()
+            self.app.logger.info(error_msg)
             pull_request.create_issue_comment(error_msg)
             yield
 
@@ -1201,7 +1201,7 @@ Available user actions:
         self.app.logger.info(f"{self.repository_name}: Installing python module")
         if not self.pypi:
             error_msg = f"{self.repository_name}: No pypi configured"
-            self.app.logger.info()
+            self.app.logger.info(error_msg)
             pull_request.create_issue_comment(error_msg)
             return
 
