@@ -23,7 +23,7 @@ from constants import (
 )
 from github import Github, GithubException
 from github.GithubException import UnknownObjectException
-from utils import get_github_repo_api
+from utils import extract_key_from_dict, get_github_repo_api
 
 
 @contextmanager
@@ -140,12 +140,36 @@ Available user actions:
             self.container_tag = self.build_and_push_container.get("tag", "latest")
 
     def _get_pull_request(self):
-        base_dict = self.hook_data.get("issue", self.hook_data.get("pull_request"))
-        if base_dict:
-            return self.repository.get_pull(base_dict["number"])
+        for _number in extract_key_from_dict(key="number", _dict=self.hook_data):
+            try:
+                return self.repository.get_pull(_number)
+            except GithubException:
+                continue
+
         self.app.logger.info(
             f"{self.repository_name}: No issue or pull_request found in hook data"
         )
+
+        # base_dict = self.hook_data.get("issue", self.hook_data.get("pull_request"))
+        # if base_dict:
+        #     return self.repository.get_pull(base_dict["number"])
+        #
+        # workflow_run = self.hook_data.get("workflow_run", {}).get("pull_requests")
+        # if workflow_run:
+        #     return self.repository.get_pull(workflow_run[0]["number"])
+        #
+        # check_suite = self.hook_data.get("check_suite", {}).get("pull_requests")
+        # if check_suite:
+        #     return self.repository.get_pull(check_suite[0]["number"])
+        #
+        # commit = self.hook_data.get("commit")
+        # if commit:
+        #     commit_obj = self.repository.get_commit(commit["sha"])
+        #     return commit_obj.get_pulls()[0]
+        #
+        # self.app.logger.info(
+        #     f"{self.repository_name}: No issue or pull_request found in hook data"
+        # )
 
     @staticmethod
     def _get_labels_dict(labels):
