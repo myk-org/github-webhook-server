@@ -1,12 +1,8 @@
 from multiprocessing import Process
 
+from constants import BUILD_CONTAINER_STR, PYTHON_MODULE_INSTALL_STR
 from github import Github
 from utils import get_github_repo_api, get_repository_from_config
-
-from webhook_server_container.constants import (
-    BUILD_CONTAINER_STR,
-    PYTHON_MODULE_INSTALL_STR,
-)
 
 
 def get_branch_sampler(repo, branch_name):
