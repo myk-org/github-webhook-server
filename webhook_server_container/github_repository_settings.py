@@ -3,6 +3,11 @@ from multiprocessing import Process
 from github import Github
 from utils import get_github_repo_api, get_repository_from_config
 
+from webhook_server_container.constants import (
+    BUILD_CONTAINER_STR,
+    PYTHON_MODULE_INSTALL_STR,
+)
+
 
 def get_branch_sampler(repo, branch_name):
     sec = 1
@@ -26,8 +31,7 @@ def set_branch_protection(app, branch, repository, required_status_checks):
         branch.edit_protection(
             strict=True,
             contexts=required_status_checks,
-            require_code_owner_reviews=True,
-            required_approving_review_count=1,
+            require_code_owner_reviews=False,
             dismiss_stale_reviews=True,
         )
     except Exception as ex:
@@ -35,6 +39,28 @@ def set_branch_protection(app, branch, repository, required_status_checks):
             f"Failed to set branch protection for {repository}/{branch}. {ex}"
         )
         return
+
+
+def get_required_status_checks(data, status_checks, default_status_checks):
+    required_status_checks = []
+    if data.get("tox"):
+        required_status_checks.append("tox")
+
+    if data.get("verified_job", True):
+        required_status_checks.append("verified")
+
+    if data.get("container"):
+        required_status_checks.append(BUILD_CONTAINER_STR)
+
+    if data.get("pypi"):
+        required_status_checks.append(PYTHON_MODULE_INSTALL_STR)
+
+    if status_checks:
+        required_status_checks.extend(status_checks)
+    else:
+        required_status_checks.extend(default_status_checks)
+
+    return required_status_checks
 
 
 def set_repositories_settings(app):
@@ -64,23 +90,11 @@ def set_repositories_settings(app):
                 app.logger.error(f"{repository}: Failed to get branch {branch_name}")
                 continue
 
-            required_status_checks = []
-            if data.get("tox"):
-                required_status_checks.append("tox")
-
-            if data.get("verified_job", True):
-                required_status_checks.append("verified")
-
-            if data.get("container"):
-                required_status_checks.append("build-container")
-
-            if data.get("pypi"):
-                required_status_checks.append("python-module-install")
-
-            if status_checks:
-                required_status_checks.extend(status_checks)
-            else:
-                required_status_checks.extend(default_status_checks)
+            required_status_checks = get_required_status_checks(
+                data=data,
+                status_checks=status_checks,
+                default_status_checks=default_status_checks,
+            )
 
             proc = Process(
                 target=set_branch_protection,
