@@ -1,3 +1,10 @@
+default-status-checks:
+  - "WIP"
+  - "dpulls"
+  - "Inclusive Language",
+  - "SonarCloud Code Analysis"
+  - "can-be-merged"
+
 repositories:
   openshift-python-wrapper:
     webhook_ip: <HTTP://IP OR URL:PORT>
@@ -13,9 +20,12 @@ repositories:
       - issue_comment
     tox: all # Run all tests in tox.ini
     protected-branches:
-      main:
-        - "pre-commit.ci - pr"
-        - "WIP"
+      main: # set [] in order to set all defaults run included
+        include-runs:
+          - "pre-commit.ci - pr"
+          - "WIP"
+        exclude-runs:
+          - "SonarCloud Code Analysis"
     container:
       username: <registry username>
       passord: <registry_password>

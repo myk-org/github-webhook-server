@@ -40,7 +40,9 @@ def set_branch_protection(app, branch, repository, required_status_checks):
         return
 
 
-def get_required_status_checks(repo, data, default_status_checks):
+def get_required_status_checks(
+    repo, data, default_status_checks, exclude_status_checks
+):
     if data.get("tox"):
         default_status_checks.append("tox")
 
@@ -57,7 +59,21 @@ def get_required_status_checks(repo, data, default_status_checks):
         repo.get_contents(".pre-commit-config.yaml")
         default_status_checks.append("pre-commit.ci - pr")
 
+    for status_check in exclude_status_checks:
+        if status_check in default_status_checks:
+            default_status_checks.remove(status_check)
+
     return default_status_checks
+
+
+def get_user_configures_status_checks(status_checks):
+    include_status_checks = []
+    exclude_status_checks = []
+    if status_checks:
+        include_status_checks = status_checks.get("include-runs", [])
+        exclude_status_checks = status_checks.get("exclude-runs", [])
+
+    return include_status_checks, exclude_status_checks
 
 
 def set_repositories_settings(app):
@@ -65,31 +81,32 @@ def set_repositories_settings(app):
     app.logger.info("Set repository settings")
 
     for repo, data in get_repository_from_config()["repositories"].items():
-        protected_branches = data.get("protected-branches", [])
+        protected_branches = data.get("protected-branches", {})
         repository = data["name"]
         gapi = Github(login_or_token=data["token"])
         repo = get_github_repo_api(gapi=gapi, app=app, repository=repository)
         if skip_repo(protected_branches, repo):
             continue
 
-        default_status_checks = [
-            "WIP",
-            "dpulls",
-            "Inclusive Language",
-            "SonarCloud Code Analysis",
-            "can-be-merged",
-        ]
-
         for branch_name, status_checks in protected_branches.items():
+            default_status_checks = data.get("default-status-checks", [])
+            (
+                include_status_checks,
+                exclude_status_checks,
+            ) = get_user_configures_status_checks(status_checks=status_checks)
             branch = get_branch_sampler(repo=repo, branch_name=branch_name)
             if not branch:
                 app.logger.error(f"{repository}: Failed to get branch {branch_name}")
                 continue
 
-            required_status_checks = status_checks or get_required_status_checks(
-                repo=repo,
-                data=data,
-                default_status_checks=default_status_checks,
+            required_status_checks = (
+                include_status_checks
+                or get_required_status_checks(
+                    repo=repo,
+                    data=data,
+                    default_status_checks=default_status_checks,
+                    exclude_status_checks=exclude_status_checks,
+                )
             )
 
             proc = Process(
