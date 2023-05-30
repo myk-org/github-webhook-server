@@ -38,26 +38,23 @@ def set_branch_protection(app, branch, repository, required_status_checks):
         return
 
 
-def get_required_status_checks(data, status_checks, default_status_checks):
-    required_status_checks = []
+def get_required_status_checks(repo, data, default_status_checks):
     if data.get("tox"):
-        required_status_checks.append("tox")
+        default_status_checks.append("tox")
 
     if data.get("verified_job", True):
-        required_status_checks.append("verified")
+        default_status_checks.append("verified")
 
     if data.get("container"):
-        required_status_checks.append(BUILD_CONTAINER_STR)
+        default_status_checks.append(BUILD_CONTAINER_STR)
 
     if data.get("pypi"):
-        required_status_checks.append(PYTHON_MODULE_INSTALL_STR)
+        default_status_checks.append(PYTHON_MODULE_INSTALL_STR)
 
-    if status_checks:
-        required_status_checks.extend(status_checks)
-    else:
-        required_status_checks.extend(default_status_checks)
+    if repo.get_contents(".pre-commit-config.yaml"):
+        default_status_checks.append("pre-commit.ci - pr")
 
-    return required_status_checks
+    return default_status_checks
 
 
 def set_repositories_settings(app):
@@ -73,7 +70,6 @@ def set_repositories_settings(app):
             continue
 
         default_status_checks = [
-            "pre-commit.ci - pr",
             "WIP",
             "dpulls",
             "Inclusive Language",
@@ -87,9 +83,9 @@ def set_repositories_settings(app):
                 app.logger.error(f"{repository}: Failed to get branch {branch_name}")
                 continue
 
-            required_status_checks = get_required_status_checks(
+            required_status_checks = status_checks or get_required_status_checks(
+                repo=repo,
                 data=data,
-                status_checks=status_checks,
                 default_status_checks=default_status_checks,
             )
 
