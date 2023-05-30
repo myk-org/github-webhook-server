@@ -1,7 +1,9 @@
+import contextlib
 from multiprocessing import Process
 
 from constants import BUILD_CONTAINER_STR, PYTHON_MODULE_INSTALL_STR
 from github import Github
+from github.GithubException import UnknownObjectException
 from utils import get_github_repo_api, get_repository_from_config
 
 
@@ -51,7 +53,8 @@ def get_required_status_checks(repo, data, default_status_checks):
     if data.get("pypi"):
         default_status_checks.append(PYTHON_MODULE_INSTALL_STR)
 
-    if repo.get_contents(".pre-commit-config.yaml"):
+    with contextlib.suppress(UnknownObjectException):
+        repo.get_contents(".pre-commit-config.yaml")
         default_status_checks.append("pre-commit.ci - pr")
 
     return default_status_checks

@@ -1,14 +1,17 @@
 import os
 
 import yaml
-from github.GithubException import UnknownObjectException
+from github.GithubException import RateLimitExceededException, UnknownObjectException
 
 
 def get_github_repo_api(gapi, app, repository):
     try:
         repo = gapi.get_repo(repository)
-    except UnknownObjectException:
-        app.logger.info(f"Repository {repository} not found or token invalid")
+    except (UnknownObjectException, RateLimitExceededException) as ex:
+        if ex == UnknownObjectException:
+            app.logger.error(f"Repository {repository}: Not found or token invalid")
+        else:
+            app.logger.error(f"Repository {repository}: Rate limit exceeded")
         return
     return repo
 
