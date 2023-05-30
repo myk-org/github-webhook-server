@@ -3,12 +3,13 @@ DELETE_STR = "delete"
 CAN_BE_MERGED_STR = "can-be-merged"
 BUILD_CONTAINER_STR = "build-container"
 PYTHON_MODULE_INSTALL_STR = "python-module-install"
+WIP_STR = "wip"
 
 # Gitlab colors require a '#' prefix; e.g: #
 USER_LABELS_DICT = {
     "hold": "B60205",
     "verified": "0E8A16",
-    "wip": "FEF2C0",
+    WIP_STR: "FEF2C0",
     "lgtm": "0E8A16",
     "approve": "0E8A16",
     "target-version-": "F09C74",

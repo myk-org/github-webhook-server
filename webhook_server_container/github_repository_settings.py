@@ -29,6 +29,7 @@ def set_branch_protection(app, branch, repository, required_status_checks):
             contexts=required_status_checks,
             require_code_owner_reviews=False,
             dismiss_stale_reviews=True,
+            required_approving_review_count=0,
         )
     except Exception as ex:
         app.logger.info(

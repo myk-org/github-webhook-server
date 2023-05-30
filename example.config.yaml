@@ -1,6 +1,5 @@
 repositories:
   openshift-python-wrapper:
-    type: github
     webhook_ip: <HTTP://IP OR URL:PORT>
     name: RedHatQE/openshift-python-wrapper
     token: <GITHIB TOKEN>

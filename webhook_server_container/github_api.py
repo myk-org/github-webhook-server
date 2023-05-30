@@ -19,6 +19,7 @@ from constants import (
     DELETE_STR,
     PYTHON_MODULE_INSTALL_STR,
     USER_LABELS_DICT,
+    WIP_STR,
 )
 from github import Github, GithubException
 from github.GithubException import UnknownObjectException
@@ -990,6 +991,10 @@ Available user actions:
 
             self.set_python_module_install_pending(pull_request=pull_request)
             self._install_python_module(pull_request=pull_request)
+
+        elif command == WIP_STR:
+            self._add_label(pull_request=pull_request, label=WIP_STR)
+            pull_request.edit(title=f"{WIP_STR} {pull_request.title}")
 
         else:
             self.label_by_user_comment(
