@@ -1,3 +1,4 @@
+import contextlib
 import json
 import os
 import re
@@ -150,7 +151,8 @@ Available user actions:
         commit = self.hook_data.get("commit")
         if commit:
             commit_obj = self.repository.get_commit(commit["sha"])
-            return commit_obj.get_pulls()[0]
+            with contextlib.suppress(Exception):
+                return commit_obj.get_pulls()[0]
 
         self.app.logger.info(
             f"{self.repository_name}: No issue or pull_request found in hook data"

@@ -1,4 +1,5 @@
 import contextlib
+from copy import deepcopy
 from multiprocessing import Process
 
 from constants import BUILD_CONTAINER_STR, PYTHON_MODULE_INSTALL_STR
@@ -80,7 +81,9 @@ def set_repositories_settings(app):
     procs = []
     app.logger.info("Set repository settings")
 
-    for repo, data in get_repository_from_config()["repositories"].items():
+    app_data = get_repository_from_config()
+    default_status_checks = app_data.get("default-status-checks", [])
+    for repo, data in app_data["repositories"].items():
         protected_branches = data.get("protected-branches", {})
         repository = data["name"]
         gapi = Github(login_or_token=data["token"])
@@ -89,7 +92,7 @@ def set_repositories_settings(app):
             continue
 
         for branch_name, status_checks in protected_branches.items():
-            default_status_checks = data.get("default-status-checks", [])
+            _default_status_checks = deepcopy(default_status_checks)
             (
                 include_status_checks,
                 exclude_status_checks,
@@ -104,7 +107,7 @@ def set_repositories_settings(app):
                 or get_required_status_checks(
                     repo=repo,
                     data=data,
-                    default_status_checks=default_status_checks,
+                    default_status_checks=_default_status_checks,
                     exclude_status_checks=exclude_status_checks,
                 )
             )
