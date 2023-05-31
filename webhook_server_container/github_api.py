@@ -65,6 +65,7 @@ The following are automatically added:
  * Add reviewers from OWNER file (in the root of the repository) under reviewers section.
  * Set PR size label.
  * New issue is created for the PR. (Closed when PR is merged/closed)
+ *Run [pre-commit](https://pre-commit.ci/) if `.pre-commit-config.yaml` exists in the repo.
 
 Available user actions:
  * To mark PR as verified comment `/verified` to the PR, to un-verify comment `/verified cancel` to the PR.
