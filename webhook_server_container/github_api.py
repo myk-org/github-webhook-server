@@ -86,6 +86,7 @@ Available user actions:
     """
 
     def process_hook(self, data):
+        ignore_data = ["status", "branch_protection_rule"]
         if data == "issue_comment":
             self.process_comment_webhook_data()
 
@@ -98,7 +99,7 @@ Available user actions:
         elif data == "pull_request_review":
             self.process_pull_request_review_webhook_data()
 
-        else:
+        elif data not in ignore_data:
             pull_request = self._get_pull_request()
             if pull_request:
                 self.check_if_can_be_merged(pull_request=pull_request)
