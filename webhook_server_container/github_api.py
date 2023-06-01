@@ -86,7 +86,7 @@ Available user actions:
     """
 
     def process_hook(self, data):
-        ignore_data = ["status", "branch_protection_rule"]
+        ignore_data = ["status", "branch_protection_rule", "check_run", "check_suite"]
         if data == "issue_comment":
             self.process_comment_webhook_data()
 
@@ -636,6 +636,9 @@ Available user actions:
         )
 
     def set_container_build_pending(self, pull_request):
+        if not self.build_and_push_container:
+            return
+
         self.app.logger.info(
             f"{self.repository_name}: Set container build check to pending"
         )
@@ -1005,8 +1008,13 @@ Available user actions:
             self._install_python_module(pull_request=pull_request)
 
         elif command == WIP_STR:
-            self._add_label(pull_request=pull_request, label=WIP_STR)
-            pull_request.edit(title=f"{WIP_STR} {pull_request.title}")
+            wip_for_title = f"{WIP_STR.upper()}:"
+            if remove:
+                self._remove_label(pull_request=pull_request, label=WIP_STR)
+                pull_request.edit(title=pull_request.title.replace(wip_for_title, ""))
+            else:
+                self._add_label(pull_request=pull_request, label=WIP_STR)
+                pull_request.edit(title=f"{wip_for_title} {pull_request.title}")
 
         else:
             self.label_by_user_comment(
@@ -1228,10 +1236,10 @@ Available user actions:
                 )
 
     def _install_python_module(self, pull_request):
-        self.app.logger.info(f"{self.repository_name}: Installing python module")
         if not self.pypi:
             return
 
+        self.app.logger.info(f"{self.repository_name}: Installing python module")
         base_path = f"/webhook_server/python-module-install/{pull_request.number}"
         base_url = f"{self.webhook_url}{base_path}"
 

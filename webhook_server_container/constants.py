@@ -9,7 +9,7 @@ WIP_STR = "wip"
 USER_LABELS_DICT = {
     "hold": "B60205",
     "verified": "0E8A16",
-    WIP_STR: "FEF2C0",
+    WIP_STR: "B60205",
     "lgtm": "0E8A16",
     "approve": "0E8A16",
     "target-version-": "F09C74",
