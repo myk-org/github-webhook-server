@@ -1,4 +1,5 @@
 import contextlib
+import os
 from copy import deepcopy
 from multiprocessing import Process
 
@@ -83,6 +84,13 @@ def set_repositories_settings(app):
 
     app_data = get_repository_from_config()
     default_status_checks = app_data.get("default-status-checks", [])
+    docker = app_data.get("docker")
+    if docker:
+        app.logger.info("Login in to docker.io")
+        docker_username = docker["username"]
+        docker_password = docker["password"]
+        os.system(f"podman docker.io login -u {docker_username} -p {docker_password}")
+
     for repo, data in app_data["repositories"].items():
         protected_branches = data.get("protected-branches", {})
         repository = data["name"]

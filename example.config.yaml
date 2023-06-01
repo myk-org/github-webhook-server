@@ -1,3 +1,7 @@
+docker: # Used to pull images from docker.io
+  username: <username>
+  password: <password>
+
 default-status-checks:
   - "WIP"
   - "dpulls"
