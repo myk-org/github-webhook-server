@@ -142,7 +142,10 @@ Available user actions:
             )
             self.container_tag = self.build_and_push_container.get("tag", "latest")
 
-    def _get_pull_request(self):
+    def _get_pull_request(self, number=None):
+        if number:
+            return self.repository.get_pull(number)
+
         for _number in extract_key_from_dict(key="number", _dict=self.hook_data):
             try:
                 return self.repository.get_pull(_number)
@@ -719,10 +722,8 @@ Available user actions:
         issue_number = self.hook_data["issue"]["number"]
         self.app.logger.info(f"Processing issue {issue_number}")
 
-        try:
-            pull_request = self.repository.get_pull(issue_number)
-        except UnknownObjectException:
-            self.app.logger.error(f"Pull request {issue_number} not found")
+        pull_request = self._get_pull_request()
+        if not pull_request:
             return
 
         body = self.hook_data["comment"]["body"]
@@ -746,7 +747,10 @@ Available user actions:
     def process_pull_request_webhook_data(self):
         hook_action = self.hook_data["action"]
         self.app.logger.info(f"hook_action is: {hook_action}")
-        pull_request = self.repository.get_pull(self.hook_data["number"])
+        pull_request = self._get_pull_request()
+        if not pull_request:
+            return
+
         pull_request_data = self.hook_data["pull_request"]
         parent_committer = pull_request_data["user"]["login"]
 
@@ -871,6 +875,9 @@ Available user actions:
 
     def process_pull_request_review_webhook_data(self):
         pull_request = self._get_pull_request()
+        if not pull_request:
+            return
+
         if self.hook_data["action"] == "submitted":
             """
             commented
