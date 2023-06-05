@@ -11,6 +11,9 @@ services:
       - /etc/ssl/certs/:/etc/ssl/certs/:ro
     environment:
       - FLASK_DEBUG=1 # Debug Flask server to get logs to console.
+      - PUID=1000
+      - PGID=1000
+      - TZ=Asia/Jerusalem
     ports:
       - "5000:5000"
     privileged: true
