@@ -1320,7 +1320,7 @@ Available user actions:
         rate_limit_remaining = rate_limit.core.remaining
         rate_limit_limit = rate_limit.core.limit
         self.app.logger.info(
-            f"API rate limit: Current {rate_limit_remaining} of {rate_limit_limit}. "
+            f"{self.repository_name} API rate limit: Current {rate_limit_remaining} of {rate_limit_limit}. "
             f"Reset in {rate_limit_reset} (UTC time is {datetime.datetime.utcnow()})"
         )
         while (
