@@ -89,7 +89,7 @@ def set_repositories_settings(app):
         app.logger.info("Login in to docker.io")
         docker_username = docker["username"]
         docker_password = docker["password"]
-        os.system(f"podman docker.io login -u {docker_username} -p {docker_password}")
+        os.system(f"podman login -u {docker_username} -p {docker_password} docker.io")
 
     for repo, data in app_data["repositories"].items():
         protected_branches = data.get("protected-branches", {})

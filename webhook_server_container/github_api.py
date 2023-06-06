@@ -1,4 +1,5 @@
 import contextlib
+import datetime
 import json
 import os
 import re
@@ -56,6 +57,7 @@ class GitHubApi:
         self.clone_repository_path = os.path.join("/", self.repository.name)
         self.reviewed_by_prefix = "-by-"
         self.auto_cherry_pick_prefix = "auto-cherry-pick"
+        self.check_rate_limit()
         supported_user_labels_str = "".join(
             [f"* {label}\n" for label in USER_LABELS_DICT.keys()]
         )
@@ -66,7 +68,7 @@ The following are automatically added:
  * Add reviewers from OWNER file (in the root of the repository) under reviewers section.
  * Set PR size label.
  * New issue is created for the PR. (Closed when PR is merged/closed)
- *Run [pre-commit](https://pre-commit.ci/) if `.pre-commit-config.yaml` exists in the repo.
+ * Run [pre-commit](https://pre-commit.ci/) if `.pre-commit-config.yaml` exists in the repo.
 
 Available user actions:
  * To mark PR as verified comment `/verified` to the PR, to un-verify comment `/verified cancel` to the PR.
@@ -141,8 +143,12 @@ Available user actions:
                 "dockerfile", "Dockerfile"
             )
             self.container_tag = self.build_and_push_container.get("tag", "latest")
+            self.container_build_args = self.build_and_push_container.get("build-args")
 
-    def _get_pull_request(self):
+    def _get_pull_request(self, number=None):
+        if number:
+            return self.repository.get_pull(number)
+
         for _number in extract_key_from_dict(key="number", _dict=self.hook_data):
             try:
                 return self.repository.get_pull(_number)
@@ -719,10 +725,8 @@ Available user actions:
         issue_number = self.hook_data["issue"]["number"]
         self.app.logger.info(f"Processing issue {issue_number}")
 
-        try:
-            pull_request = self.repository.get_pull(issue_number)
-        except UnknownObjectException:
-            self.app.logger.error(f"Pull request {issue_number} not found")
+        pull_request = self._get_pull_request()
+        if not pull_request:
             return
 
         body = self.hook_data["comment"]["body"]
@@ -746,7 +750,10 @@ Available user actions:
     def process_pull_request_webhook_data(self):
         hook_action = self.hook_data["action"]
         self.app.logger.info(f"hook_action is: {hook_action}")
-        pull_request = self.repository.get_pull(self.hook_data["number"])
+        pull_request = self._get_pull_request()
+        if not pull_request:
+            return
+
         pull_request_data = self.hook_data["pull_request"]
         parent_committer = pull_request_data["user"]["login"]
 
@@ -871,6 +878,9 @@ Available user actions:
 
     def process_pull_request_review_webhook_data(self):
         pull_request = self._get_pull_request()
+        if not pull_request:
+            return
+
         if self.hook_data["action"] == "submitted":
             """
             commented
@@ -1169,6 +1179,12 @@ Available user actions:
                     f"podman build --network=host -f {self.dockerfile} "
                     f"-t {_container_repository_and_tag}"
                 )
+                if self.container_build_args:
+                    build_args = [
+                        f"--build-arg {barg}" for barg in self.container_build_args
+                    ][0]
+                    build_cmd = f"{build_cmd} {build_args}"
+
                 self.app.logger.info(
                     f"Build container image for {_container_repository_and_tag}"
                 )
@@ -1294,12 +1310,38 @@ Available user actions:
             )
 
     def _process_verified(self, parent_committer, pull_request):
-        if parent_committer == self.api_user:
+        if parent_committer in (self.api_user, "self.api_user"):
             self.app.logger.info(
-                f"Committer {parent_committer} == API user {self.api_user}, Setting verified label"
+                f"Committer {parent_committer} == API user {parent_committer}, Setting verified label"
             )
             self._add_label(pull_request=pull_request, label=self.verified_label)
             self.set_verify_check_success(pull_request=pull_request)
         else:
             self.reset_verify_label(pull_request=pull_request)
             self.set_verify_check_pending(pull_request=pull_request)
+
+    def check_rate_limit(self):
+        minimum_limit = 50
+        rate_limit = self.gapi.get_rate_limit()
+        rate_limit_reset = rate_limit.core.reset
+        rate_limit_remaining = rate_limit.core.remaining
+        rate_limit_limit = rate_limit.core.limit
+        self.app.logger.info(
+            f"{self.repository_name} API rate limit: Current {rate_limit_remaining} of {rate_limit_limit}. "
+            f"Reset in {rate_limit_reset} (UTC time is {datetime.datetime.utcnow()})"
+        )
+        while (
+            datetime.datetime.utcnow() < rate_limit_reset
+            and rate_limit_remaining < minimum_limit
+        ):
+            self.app.logger.warning(
+                f"Rate limit is below {minimum_limit} waiting till {rate_limit_reset}"
+            )
+            time_for_limit_reset = (
+                rate_limit_reset - datetime.datetime.utcnow()
+            ).seconds
+            self.app.logger.info(f"Sleeping {time_for_limit_reset} seconds")
+            time.sleep(time_for_limit_reset + 1)
+            rate_limit = self.gapi.get_rate_limit()
+            rate_limit_reset = rate_limit.core.reset
+            rate_limit_remaining = rate_limit.core.remaining
