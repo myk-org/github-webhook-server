@@ -1303,9 +1303,9 @@ Available user actions:
             )
 
     def _process_verified(self, parent_committer, pull_request):
-        if parent_committer == self.api_user:
+        if parent_committer in (self.api_user, "self.api_user"):
             self.app.logger.info(
-                f"Committer {parent_committer} == API user {self.api_user}, Setting verified label"
+                f"Committer {parent_committer} == API user {parent_committer}, Setting verified label"
             )
             self._add_label(pull_request=pull_request, label=self.verified_label)
             self.set_verify_check_success(pull_request=pull_request)
