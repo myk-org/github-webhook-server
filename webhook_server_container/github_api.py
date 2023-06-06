@@ -68,7 +68,7 @@ The following are automatically added:
  * Add reviewers from OWNER file (in the root of the repository) under reviewers section.
  * Set PR size label.
  * New issue is created for the PR. (Closed when PR is merged/closed)
- *Run [pre-commit](https://pre-commit.ci/) if `.pre-commit-config.yaml` exists in the repo.
+ * Run [pre-commit](https://pre-commit.ci/) if `.pre-commit-config.yaml` exists in the repo.
 
 Available user actions:
  * To mark PR as verified comment `/verified` to the PR, to un-verify comment `/verified cancel` to the PR.
@@ -143,6 +143,7 @@ Available user actions:
                 "dockerfile", "Dockerfile"
             )
             self.container_tag = self.build_and_push_container.get("tag", "latest")
+            self.container_build_args = self.build_and_push_container.get("build-args")
 
     def _get_pull_request(self, number=None):
         if number:
@@ -1178,6 +1179,12 @@ Available user actions:
                     f"podman build --network=host -f {self.dockerfile} "
                     f"-t {_container_repository_and_tag}"
                 )
+                if self.container_build_args:
+                    build_args = [
+                        f"--build-arg {barg}" for barg in self.container_build_args
+                    ][0]
+                    build_cmd = f"{build_cmd} {build_args}"
+
                 self.app.logger.info(
                     f"Build container image for {_container_repository_and_tag}"
                 )

@@ -6,9 +6,9 @@ services:
     build: webhook-server-container
     volumes:
       - ./config.yaml:/config.yaml:Z
-      - .tox-results:/webhook_server/tox
-      - .build-container-results:/webhook_server/build-container
-      - /etc/ssl/certs/:/etc/ssl/certs/:ro
+      - ./tox-results:/webhook_server/tox
+      - ./build-container-results:/webhook_server/build-container
+      - ./python-module-install:/webhook_server/python-module-install
     environment:
       - FLASK_DEBUG=1 # Debug Flask server to get logs to console.
       - PUID=1000
