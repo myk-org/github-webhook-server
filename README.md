@@ -97,12 +97,20 @@ container:
 
 if `container` is configures for the repository we create `build-container` run that will build the container on each
 PR push/commit
-Once the PR is merged, the contaner will be build and push to the repository
+Once the PR is merged, the container will be build and push to the repository
 
 * `username`: User with push permissions to the repository
 * `password`: The password for the username
 * `repository`: the repository to push the container, for example `quay.io/myakove/github-webhook-server`
 * `tag`: The container tag to use when pushing the container
+
+```yaml
+docker:
+  username: username
+  password: password
+```
+
+If `docker` is configures for the repository we login to docker.io to increase pull rate limit
 
 ## Supported actions
 

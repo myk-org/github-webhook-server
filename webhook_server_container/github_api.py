@@ -24,6 +24,7 @@ from constants import (
     USER_LABELS_DICT,
     WIP_STR,
 )
+from dockerhub_rate_limit import DockerHub
 from github import Github, GithubException
 from github.GithubException import UnknownObjectException
 from utils import extract_key_from_dict, get_github_repo_api
@@ -47,6 +48,21 @@ class GitHubApi:
         self.app = app
         self.hook_data = hook_data
         self.repository_name = hook_data["repository"]["name"]
+
+        # filled by self._repo_data_from_config()
+        self.dockerhub_username = None
+        self.dockerhub_password = None
+        self.container_repository_username = None
+        self.container_repository_password = None
+        self.container_repository = None
+        self.dockerfile = None
+        self.container_tag = None
+        self.container_build_args = None
+        self.token = None
+        self.repository_full_name = None
+        self.api_user = None
+        # End of filled by self._repo_data_from_config()
+
         self._repo_data_from_config()
         self.gapi = Github(login_or_token=self.token)
         self.api_user = self._api_username
@@ -59,6 +75,10 @@ class GitHubApi:
         self.reviewed_by_prefix = "-by-"
         self.auto_cherry_pick_prefix = "auto-cherry-pick"
         self.check_rate_limit()
+        self.dockerhub = DockerHub(
+            username=self.dockerhub_username,
+            password=self.dockerhub_password,
+        )
         supported_user_labels_str = "".join(
             [f"* {label}\n" for label in USER_LABELS_DICT.keys()]
         )
@@ -124,7 +144,6 @@ Available user actions:
             )
 
         self.token = data["token"]
-        os.environ["GITHUB_TOKEN"] = self.token
         self.repository_full_name = data["name"]
         self.pypi = data.get("pypi")
         self.verified_job = data.get("verified_job", True)
@@ -132,6 +151,11 @@ Available user actions:
         self.webhook_url = data.get("webhook_ip")
         self.slack_webhook_url = data.get("slack_webhook_url")
         self.build_and_push_container = data.get("container")
+        self.dockerhub = data.get("docker")
+        if self.dockerhub:
+            self.dockerhub_username = self.dockerhub["username"]
+            self.dockerhub_password = self.dockerhub["password"]
+
         if self.build_and_push_container:
             self.container_repository_username = self.build_and_push_container[
                 "username"
