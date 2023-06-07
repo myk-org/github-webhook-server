@@ -36,3 +36,14 @@ DYNAMIC_LABELS_DICT = {
 }
 
 ALL_LABELS_DICT = {**STATIC_LABELS_DICT, **DYNAMIC_LABELS_DICT}
+
+
+class REACTIONS:
+    ok = "+1"
+    notok = "-1"
+    laugh = "laugh"
+    confused = "confused"
+    heart = "heart"
+    hooray = "hooray"
+    rocket = "rocket"
+    eyes = "eyes"

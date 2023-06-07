@@ -20,6 +20,7 @@ from constants import (
     CAN_BE_MERGED_STR,
     DELETE_STR,
     PYTHON_MODULE_INSTALL_STR,
+    REACTIONS,
     USER_LABELS_DICT,
     WIP_STR,
 )
@@ -495,7 +496,9 @@ Available user actions:
                 self._remove_label(pull_request=pull_request, label=current_size_label)
                 self._add_label(pull_request=pull_request, label=label)
 
-    def label_by_user_comment(self, pull_request, user_request, remove, reviewed_user):
+    def label_by_user_comment(
+        self, pull_request, user_request, remove, reviewed_user, issue_comment_id
+    ):
         if not any(
             user_request.lower().startswith(label_name)
             for label_name in USER_LABELS_DICT
@@ -511,6 +514,11 @@ Available user actions:
 
         self.app.logger.info(
             f"{self.repository_name}: Label requested by user {reviewed_user}: {user_request}"
+        )
+        self.create_comment_reaction(
+            pull_request=pull_request,
+            issue_comment_id=issue_comment_id,
+            reaction=REACTIONS.ok,
         )
         if remove:
             if user_request.lower() == "lgtm":
@@ -723,6 +731,7 @@ Available user actions:
             return
 
         issue_number = self.hook_data["issue"]["number"]
+        issue_comment_id = self.hook_data["comment"]["id"]
         self.app.logger.info(f"Processing issue {issue_number}")
 
         pull_request = self._get_pull_request()
@@ -744,6 +753,7 @@ Available user actions:
                     command=user_command,
                     pull_request=pull_request,
                     reviewed_user=user_login,
+                    issue_comment_id=issue_comment_id,
                 )
         self.check_if_can_be_merged(pull_request=pull_request)
 
@@ -958,7 +968,7 @@ Available user actions:
                     target_url=base_url,
                 )
 
-    def user_commands(self, command, pull_request, reviewed_user):
+    def user_commands(self, command, pull_request, reviewed_user, issue_comment_id):
         remove = False
         self.app.logger.info(
             f"{self.repository_name}: Processing label/user command {command} by user {reviewed_user}"
@@ -975,10 +985,20 @@ Available user actions:
                 pull_request.create_issue_comment(error_msg)
                 return
 
+            self.create_comment_reaction(
+                pull_request=pull_request,
+                issue_comment_id=issue_comment_id,
+                reaction=REACTIONS.ok,
+            )
             self.set_run_tox_check_pending(pull_request=pull_request)
             self.run_tox(pull_request=pull_request)
 
         elif _command == "cherry-pick":
+            self.create_comment_reaction(
+                pull_request=pull_request,
+                issue_comment_id=issue_comment_id,
+                reaction=REACTIONS.ok,
+            )
             self.cherry_pick(
                 pull_request=pull_request,
                 target_branch=command_and_args[1],
@@ -987,6 +1007,11 @@ Available user actions:
 
         elif command == "build-container":
             if self.build_and_push_container:
+                self.create_comment_reaction(
+                    pull_request=pull_request,
+                    issue_comment_id=issue_comment_id,
+                    reaction=REACTIONS.ok,
+                )
                 self.set_container_build_pending(pull_request=pull_request)
                 with self._build_container(pull_request=pull_request):
                     pass
@@ -997,6 +1022,11 @@ Available user actions:
 
         elif command == "build-and-push-container":
             if self.build_and_push_container:
+                self.create_comment_reaction(
+                    pull_request=pull_request,
+                    issue_comment_id=issue_comment_id,
+                    reaction=REACTIONS.ok,
+                )
                 self._build_and_push_container(pull_request=pull_request)
             else:
                 error_msg = (
@@ -1012,10 +1042,20 @@ Available user actions:
                 pull_request.create_issue_comment(error_msg)
                 return
 
+            self.create_comment_reaction(
+                pull_request=pull_request,
+                issue_comment_id=issue_comment_id,
+                reaction=REACTIONS.ok,
+            )
             self.set_python_module_install_pending(pull_request=pull_request)
             self._install_python_module(pull_request=pull_request)
 
         elif command == WIP_STR:
+            self.create_comment_reaction(
+                pull_request=pull_request,
+                issue_comment_id=issue_comment_id,
+                reaction=REACTIONS.ok,
+            )
             wip_for_title = f"{WIP_STR.upper()}:"
             if remove:
                 self._remove_label(pull_request=pull_request, label=WIP_STR)
@@ -1030,6 +1070,7 @@ Available user actions:
                 user_request=_command,
                 remove=remove,
                 reviewed_user=reviewed_user,
+                issue_comment_id=issue_comment_id,
             )
 
     def cherry_pick(self, pull_request, target_branch, reviewed_user=None):
@@ -1344,3 +1385,7 @@ Available user actions:
             rate_limit = self.gapi.get_rate_limit()
             rate_limit_reset = rate_limit.core.reset
             rate_limit_remaining = rate_limit.core.remaining
+
+    def create_comment_reaction(self, pull_request, issue_comment_id, reaction):
+        _comment = pull_request.get_issue_comment(issue_comment_id)
+        _comment.create_reaction(reaction)
