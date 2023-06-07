@@ -12,7 +12,7 @@ USER_LABELS_DICT = {
     WIP_STR: "B60205",
     "lgtm": "0E8A16",
     "approve": "0E8A16",
-    "target-version-": "F09C74",
+    "target-branch-": "F09C74",
 }
 STATIC_LABELS_DICT = {
     **USER_LABELS_DICT,

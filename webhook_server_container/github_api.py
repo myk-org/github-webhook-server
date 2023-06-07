@@ -795,15 +795,13 @@ Available user actions:
 
             if pull_request_data.get("merged"):
                 self.app.logger.info(f"PR {pull_request.number} is merged")
-                target_version_prefix = "target-version-"
+                target_branch_prefix = "target-branch-"
                 for _label in pull_request.labels:
                     _label_name = _label.name
-                    if _label_name.startswith(target_version_prefix):
+                    if _label_name.startswith(target_branch_prefix):
                         self.cherry_pick(
                             pull_request=pull_request,
-                            target_branch=_label_name.replace(
-                                target_version_prefix, ""
-                            ),
+                            target_branch=_label_name.replace(target_branch_prefix, ""),
                         )
 
                 if self.build_and_push_container:
@@ -1036,7 +1034,7 @@ Available user actions:
 
     def cherry_pick(self, pull_request, target_branch, reviewed_user=None):
         self.app.logger.info(
-            f"{self.repository_name}: Cherry-pick requested by user: {reviewed_user or 'by target-version label'}"
+            f"{self.repository_name}: Cherry-pick requested by user: {reviewed_user or 'by target-branch label'}"
         )
         if not pull_request.is_merged():
             error_msg = (
@@ -1115,6 +1113,7 @@ Available user actions:
             self.verified_label in _labels
             and pull_request.mergeable_state != "behind"
             and all_check_pass
+            and "hold" not in _labels
         ):
             for _label in _labels:
                 if "changes_requested" in _label.lower():
