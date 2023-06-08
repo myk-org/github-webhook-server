@@ -28,7 +28,7 @@ from constants import (
 from dockerhub_rate_limit import DockerHub
 from github import Github, GithubException
 from github.GithubException import UnknownObjectException
-from utils import extract_key_from_dict, get_github_repo_api
+from utils import extract_key_from_dict, get_github_repo_api, ignore_exceptions
 
 
 @contextmanager
@@ -309,11 +309,9 @@ Available user actions:
             shlex.split(f"git checkout -b {new_branch_name} origin/{source_branch}")
         )
 
+    @ignore_exceptions()
     def is_branch_exists(self, branch):
-        try:
-            return self.repository.get_branch(branch)
-        except GithubException:
-            return False
+        return self.repository.get_branch(branch)
 
     def _cherry_pick(
         self,
@@ -726,18 +724,16 @@ Available user actions:
             context=PYTHON_MODULE_INSTALL_STR,
         )
 
+    @ignore_exceptions(FLASK_APP.logger)
     def create_issue_for_new_pr(self, pull_request):
-        try:
-            self.app.logger.info(
-                f"{self.repository_name}: Creating issue for new PR: {pull_request.title}"
-            )
-            self.repository.create_issue(
-                title=self._generate_issue_title(pull_request),
-                body=self._generate_issue_body(pull_request=pull_request),
-                assignee=pull_request.user.login,
-            )
-        except Exception as ex:
-            self.app.logger.error(f"Failed to create issue: {ex}")
+        self.app.logger.info(
+            f"{self.repository_name}: Creating issue for new PR: {pull_request.title}"
+        )
+        self.repository.create_issue(
+            title=self._generate_issue_title(pull_request),
+            body=self._generate_issue_body(pull_request=pull_request),
+            assignee=pull_request.user.login,
+        )
 
     def close_issue_for_merged_or_closed_pr(self, pull_request, hook_action):
         for issue in self.repository.get_issues():
