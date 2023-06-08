@@ -43,22 +43,32 @@ def set_branch_protection(app, branch, repository, required_status_checks):
 
 
 def set_repository_settings(app, repository, repository_full_name):
+    def _patch(_api_path, _input):
+        try:
+            repository._requester.requestJsonAndCheck(
+                "PATCH",
+                f"{_api_path}",
+                input=_input,
+            )
+        except Exception as _ex:
+            app.logger.info(f"Failed to set repository {repository} settings. {_ex}")
+            return
+
     app.logger.info(f"Set repository {repository} settings")
     try:
         api_path = f"https://api.github.com/repos/{repository_full_name}"
         repository.edit(delete_branch_on_merge=True)
-        repository._requester.requestJsonAndCheck(
-            "PATCH",
-            f"{api_path}",
-            input={
+        _patch(
+            _api_path=api_path,
+            _input={
                 "security_and_analysis": {"advanced_security": {"status": "enabled"}}
             },
         )
-        repository._requester.requestJsonAndCheck(
-            "PATCH",
-            f"{api_path}/code-scanning/default-setup",
-            input={"state": "configured"},
+        _patch(
+            _api_path=f"{api_path}/code-scanning/default-setup",
+            _input={"state": "configured"},
         )
+
     except Exception as ex:
         app.logger.info(f"Failed to set repository {repository} settings. {ex}")
         return
