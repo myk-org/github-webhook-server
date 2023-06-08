@@ -8,9 +8,12 @@ from webhook import create_webhook
 urllib3.disable_warnings()
 
 app = Flask("webhook-server")
+PLAIN_TEXT_MIME_TYPE = "text/plain"
+APP_ROOT_PATH = "/webhook_server"
+FILENAME_STRING = "<string:filename>"
 
 
-@app.route("/webhook_server", methods=["POST"])
+@app.route(APP_ROOT_PATH, methods=["POST"])
 def process_webhook():
     try:
         hook_data = request.json
@@ -28,25 +31,25 @@ def process_webhook():
         return "Process failed"
 
 
-@app.route("/webhook_server/tox/<string:filename>")
+@app.route(f"{APP_ROOT_PATH}/tox/{FILENAME_STRING}")
 def return_tox(filename):
     app.logger.info("app.route: Processing tox file")
-    with open(f"/webhook_server/tox/{filename}") as fd:
-        return Response(fd.read(), mimetype="text/plain")
+    with open(f"{APP_ROOT_PATH}/tox/{filename}") as fd:
+        return Response(fd.read(), mimetype=PLAIN_TEXT_MIME_TYPE)
 
 
-@app.route("/webhook_server/build-container/<string:filename>")
+@app.route(f"{APP_ROOT_PATH}/build-container/{FILENAME_STRING}")
 def return_build_container(filename):
     app.logger.info("app.route: Processing build-container file")
-    with open(f"/webhook_server/build-container/{filename}") as fd:
-        return Response(fd.read(), mimetype="text/plain")
+    with open(f"{APP_ROOT_PATH}/build-container/{filename}") as fd:
+        return Response(fd.read(), mimetype=PLAIN_TEXT_MIME_TYPE)
 
 
-@app.route("/webhook_server/python-module-install/<string:filename>")
+@app.route(f"{APP_ROOT_PATH}/python-module-install/{FILENAME_STRING}")
 def return_python_module_install(filename):
     app.logger.info("app.route: Processing python-module-install file")
-    with open(f"/webhook_server/python-module-install/{filename}") as fd:
-        return Response(fd.read(), mimetype="text/plain")
+    with open(f"{APP_ROOT_PATH}/python-module-install/{filename}") as fd:
+        return Response(fd.read(), mimetype=PLAIN_TEXT_MIME_TYPE)
 
 
 def main():
@@ -54,7 +57,7 @@ def main():
     for proc in procs:
         proc.join()
 
-    app.logger.info("Starting webhook-server app")
+    app.logger.info(f"Starting {app.name} app")
     app.run(port=5000, host="0.0.0.0", use_reloader=False)
 
 
