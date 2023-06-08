@@ -34,25 +34,13 @@ def set_branch_protection(branch, repository, required_status_checks):
 
 
 @ignore_exceptions(FLASK_APP.logger)
-def set_repository_settings(repository, repository_full_name):
-    @ignore_exceptions(FLASK_APP.logger)
-    def _patch(_api_path, _input):
-        repository._requester.requestJsonAndCheck(
-            "PATCH",
-            f"{_api_path}",
-            input=_input,
-        )
-
+def set_repository_settings(repository):
     FLASK_APP.logger.info(f"Set repository {repository} settings")
-    api_path = f"https://api.github.com/repos/{repository_full_name}"
     repository.edit(delete_branch_on_merge=True)
-    _patch(
-        _api_path=api_path,
-        _input={"security_and_analysis": {"advanced_security": {"status": "enabled"}}},
-    )
-    _patch(
-        _api_path=f"{api_path}/code-scanning/default-setup",
-        _input={"state": "configured"},
+    repository._requester.requestJsonAndCheck(
+        "PATCH",
+        f"{repository.url}/code-scanning/default-setup",
+        input={"state": "configured"},
     )
 
 
@@ -110,7 +98,7 @@ def set_repositories_settings():
         protected_branches = data.get("protected-branches", {})
         gapi = Github(login_or_token=data["token"])
         repo = get_github_repo_api(gapi=gapi, repository=repository)
-        set_repository_settings(repository=repo, repository_full_name=repository)
+        set_repository_settings(repository=repo)
         if skip_repo(protected_branches, repo):
             continue
 
