@@ -42,6 +42,28 @@ def set_branch_protection(app, branch, repository, required_status_checks):
         return
 
 
+def set_repository_settings(app, repository, repository_full_name):
+    app.logger.info(f"Set repository {repository} settings")
+    try:
+        api_path = f"https://api.github.com/repos/{repository_full_name}"
+        repository.edit(delete_branch_on_merge=True)
+        repository._requester.requestJsonAndCheck(
+            "PATCH",
+            f"{api_path}",
+            input={
+                "security_and_analysis": {"advanced_security": {"status": "enabled"}}
+            },
+        )
+        repository._requester.requestJsonAndCheck(
+            "PATCH",
+            f"{api_path}/code-scanning/default-setup",
+            input={"state": "configured"},
+        )
+    except Exception as ex:
+        app.logger.info(f"Failed to set repository {repository} settings. {ex}")
+        return
+
+
 def get_required_status_checks(
     repo, data, default_status_checks, exclude_status_checks
 ):
@@ -80,8 +102,7 @@ def get_user_configures_status_checks(status_checks):
 
 def set_repositories_settings(app):
     procs = []
-    app.logger.info("Set repository settings")
-
+    app.logger.info("Processing repositories")
     app_data = get_repository_from_config()
     default_status_checks = app_data.get("default-status-checks", [])
     docker = app_data.get("docker")
@@ -92,23 +113,28 @@ def set_repositories_settings(app):
         os.system(f"podman login -u {docker_username} -p {docker_password} docker.io")
 
     for repo, data in app_data["repositories"].items():
-        protected_branches = data.get("protected-branches", {})
         repository = data["name"]
+        app.logger.info(f"Processing repository {repository}")
+        protected_branches = data.get("protected-branches", {})
         gapi = Github(login_or_token=data["token"])
         repo = get_github_repo_api(gapi=gapi, app=app, repository=repository)
+        set_repository_settings(
+            app=app, repository=repo, repository_full_name=repository
+        )
         if skip_repo(protected_branches, repo):
             continue
 
         for branch_name, status_checks in protected_branches.items():
+            branch = get_branch_sampler(repo=repo, branch_name=branch_name)
+            if not branch:
+                app.logger.error(f"{repository}: Failed to get branch {branch_name}")
+                continue
+
             _default_status_checks = deepcopy(default_status_checks)
             (
                 include_status_checks,
                 exclude_status_checks,
             ) = get_user_configures_status_checks(status_checks=status_checks)
-            branch = get_branch_sampler(repo=repo, branch_name=branch_name)
-            if not branch:
-                app.logger.error(f"{repository}: Failed to get branch {branch_name}")
-                continue
 
             required_status_checks = (
                 include_status_checks
