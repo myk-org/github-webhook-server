@@ -1,17 +1,22 @@
 import os
+from functools import wraps
+from time import sleep
 
 import yaml
+from constants import FLASK_APP
 from github.GithubException import RateLimitExceededException, UnknownObjectException
 
 
-def get_github_repo_api(gapi, app, repository):
+def get_github_repo_api(gapi, repository):
     try:
         repo = gapi.get_repo(repository)
     except (UnknownObjectException, RateLimitExceededException) as ex:
         if ex == UnknownObjectException:
-            app.logger.error(f"Repository {repository}: Not found or token invalid")
+            FLASK_APP.logger.error(
+                f"Repository {repository}: Not found or token invalid"
+            )
         else:
-            app.logger.error(f"Repository {repository}: Rate limit exceeded")
+            FLASK_APP.logger.error(f"Repository {repository}: Rate limit exceeded")
         return
     return repo
 
@@ -35,3 +40,26 @@ def extract_key_from_dict(key, _dict):
                 for _item in _val:
                     for result in extract_key_from_dict(key, _item):
                         yield result
+
+
+def ignore_exceptions(logger=None, retry=None):
+    def wrapper(func):
+        @wraps(func)
+        def inner(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except Exception as ex:
+                if retry:
+                    for _ in range(0, retry):
+                        try:
+                            return func(*args, **kwargs)
+                        except Exception:
+                            sleep(1)
+
+                if logger:
+                    logger.info(ex)
+                return None
+
+        return inner
+
+    return wrapper

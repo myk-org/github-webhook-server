@@ -1,3 +1,9 @@
+from flask import Flask
+
+
+FLASK_APP = Flask("webhook-server")
+
+
 ADD_STR = "add"
 DELETE_STR = "delete"
 CAN_BE_MERGED_STR = "can-be-merged"

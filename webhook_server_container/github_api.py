@@ -19,6 +19,7 @@ from constants import (
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
     DELETE_STR,
+    FLASK_APP,
     PYTHON_MODULE_INSTALL_STR,
     REACTIONS,
     USER_LABELS_DICT,
@@ -44,8 +45,8 @@ class RepositoryNotFoundError(Exception):
 
 
 class GitHubApi:
-    def __init__(self, app, hook_data):
-        self.app = app
+    def __init__(self, hook_data):
+        self.app = FLASK_APP
         self.hook_data = hook_data
         self.repository_name = hook_data["repository"]["name"]
 
@@ -67,7 +68,7 @@ class GitHubApi:
         self.gapi = Github(login_or_token=self.token)
         self.api_user = self._api_username
         self.repository = get_github_repo_api(
-            gapi=self.gapi, app=self.app, repository=self.repository_full_name
+            gapi=self.gapi, repository=self.repository_full_name
         )
         self.verified_label = "verified"
         self.size_label_prefix = "size/"

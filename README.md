@@ -3,7 +3,6 @@
 Webhook server to manage GitHub repositories.
 On start, it will configure the following for each repository:
 
-* Enable advanced security
 * Enable CodeQL with default setting
 * Set branch protection based on config.yaml
 

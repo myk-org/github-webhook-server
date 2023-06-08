@@ -8,6 +8,8 @@ default-status-checks:
   - "Inclusive Language",
   - "SonarCloud Code Analysis"
   - "can-be-merged"
+  - "Code scanning results / CodeQL"
+  - "Code scanning results / SonarCloud"
 
 repositories:
   openshift-python-wrapper:
