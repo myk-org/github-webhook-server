@@ -7,7 +7,7 @@ from webhook import create_webhook
 
 urllib3.disable_warnings()
 
-app = Flask("webhook_server")
+app = Flask("webhook-server")
 
 
 @app.route("/webhook_server", methods=["POST"])
