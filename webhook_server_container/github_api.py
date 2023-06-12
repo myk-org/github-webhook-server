@@ -97,10 +97,10 @@ Available user actions:
         verified label removed on each new commit push.
  * To cherry pick a merged PR comment `/cherry-pick <target branch to cherry-pick to>` in the PR.
     * Support only merged PRs
- * To re-run tox comment `/tox` in the PR.
- * To re-run build-container command `/build-container` in the PR.
+ * To re-run tox comment `/retest tox` in the PR.
+ * To re-run build-container command `/retest build-container` in the PR.
+ * To re-run python-module-install command `/retest python-module-install` in the PR.
  * To build and push container image command `/build-and-push-container` in the PR (tag will be the PR number).
- * To re-run python-module-install command `/python-module-install` in the PR.
  * To add a label by comment use `/<label name>`, to remove, use `/<label name> cancel`
 <details>
 <summary>Supported labels</summary>
@@ -996,103 +996,106 @@ Available user actions:
         )
         command_and_args = command.split()
         _command = command_and_args[0]
-        if len(command_and_args) > 1 and command_and_args[1] == "cancel":
+        _args = command_and_args[1]
+        if len(command_and_args) > 1 and _args == "cancel":
             remove = True
 
-        if _command == "tox":
-            if not self.tox_enabled:
-                error_msg = f"{self.repository_name}: Tox is not enabled."
-                self.app.logger.info(error_msg)
-                pull_request.create_issue_comment(error_msg)
-                return
+        if _command == "retest":
+            if _args == "tox":
+                if not self.tox_enabled:
+                    error_msg = f"{self.repository_name}: Tox is not enabled."
+                    self.app.logger.info(error_msg)
+                    pull_request.create_issue_comment(error_msg)
+                    return
 
-            self.create_comment_reaction(
-                pull_request=pull_request,
-                issue_comment_id=issue_comment_id,
-                reaction=REACTIONS.ok,
-            )
-            self.set_run_tox_check_pending(pull_request=pull_request)
-            self.run_tox(pull_request=pull_request)
-
-        elif _command == "cherry-pick":
-            self.create_comment_reaction(
-                pull_request=pull_request,
-                issue_comment_id=issue_comment_id,
-                reaction=REACTIONS.ok,
-            )
-            self.cherry_pick(
-                pull_request=pull_request,
-                target_branch=command_and_args[1],
-                reviewed_user=reviewed_user,
-            )
-
-        elif command == "build-container":
-            if self.build_and_push_container:
                 self.create_comment_reaction(
                     pull_request=pull_request,
                     issue_comment_id=issue_comment_id,
                     reaction=REACTIONS.ok,
                 )
-                self.set_container_build_pending(pull_request=pull_request)
-                with self._build_container(pull_request=pull_request):
-                    pass
-            else:
-                error_msg = f"{self.repository_name}: No build-container configured"
-                self.app.logger.info(error_msg)
-                pull_request.create_issue_comment(error_msg)
+                self.set_run_tox_check_pending(pull_request=pull_request)
+                self.run_tox(pull_request=pull_request)
 
-        elif command == "build-and-push-container":
-            if self.build_and_push_container:
+            elif _args == "build-container":
+                if self.build_and_push_container:
+                    self.create_comment_reaction(
+                        pull_request=pull_request,
+                        issue_comment_id=issue_comment_id,
+                        reaction=REACTIONS.ok,
+                    )
+                    self.set_container_build_pending(pull_request=pull_request)
+                    with self._build_container(pull_request=pull_request):
+                        pass
+                else:
+                    error_msg = f"{self.repository_name}: No build-container configured"
+                    self.app.logger.info(error_msg)
+                    pull_request.create_issue_comment(error_msg)
+
+            elif _args == "python-module-install":
+                if not self.pypi:
+                    error_msg = f"{self.repository_name}: No pypi configured"
+                    self.app.logger.info(error_msg)
+                    pull_request.create_issue_comment(error_msg)
+                    return
+
                 self.create_comment_reaction(
                     pull_request=pull_request,
                     issue_comment_id=issue_comment_id,
                     reaction=REACTIONS.ok,
                 )
-                self._build_and_push_container(pull_request=pull_request)
-            else:
-                error_msg = (
-                    f"{self.repository_name}: No build-and-push-container configured"
-                )
-                self.app.logger.info(error_msg)
-                pull_request.create_issue_comment(error_msg)
-
-        elif command == "python-module-install":
-            if not self.pypi:
-                error_msg = f"{self.repository_name}: No pypi configured"
-                self.app.logger.info(error_msg)
-                pull_request.create_issue_comment(error_msg)
-                return
-
-            self.create_comment_reaction(
-                pull_request=pull_request,
-                issue_comment_id=issue_comment_id,
-                reaction=REACTIONS.ok,
-            )
-            self.set_python_module_install_pending(pull_request=pull_request)
-            self._install_python_module(pull_request=pull_request)
-
-        elif command == WIP_STR:
-            self.create_comment_reaction(
-                pull_request=pull_request,
-                issue_comment_id=issue_comment_id,
-                reaction=REACTIONS.ok,
-            )
-            wip_for_title = f"{WIP_STR.upper()}:"
-            if remove:
-                self._remove_label(pull_request=pull_request, label=WIP_STR)
-                pull_request.edit(title=pull_request.title.replace(wip_for_title, ""))
-            else:
-                self._add_label(pull_request=pull_request, label=WIP_STR)
-                pull_request.edit(title=f"{wip_for_title} {pull_request.title}")
+                self.set_python_module_install_pending(pull_request=pull_request)
+                self._install_python_module(pull_request=pull_request)
 
         else:
-            self.label_by_user_comment(
-                pull_request=pull_request,
-                user_request=_command,
-                remove=remove,
-                reviewed_user=reviewed_user,
-                issue_comment_id=issue_comment_id,
-            )
+            if _command == "cherry-pick":
+                self.create_comment_reaction(
+                    pull_request=pull_request,
+                    issue_comment_id=issue_comment_id,
+                    reaction=REACTIONS.ok,
+                )
+                self.cherry_pick(
+                    pull_request=pull_request,
+                    target_branch=command_and_args[1],
+                    reviewed_user=reviewed_user,
+                )
+
+            elif _command == "build-and-push-container":
+                if self.build_and_push_container:
+                    self.create_comment_reaction(
+                        pull_request=pull_request,
+                        issue_comment_id=issue_comment_id,
+                        reaction=REACTIONS.ok,
+                    )
+                    self._build_and_push_container(pull_request=pull_request)
+                else:
+                    error_msg = f"{self.repository_name}: No build-and-push-container configured"
+                    self.app.logger.info(error_msg)
+                    pull_request.create_issue_comment(error_msg)
+
+            elif _command == WIP_STR:
+                self.create_comment_reaction(
+                    pull_request=pull_request,
+                    issue_comment_id=issue_comment_id,
+                    reaction=REACTIONS.ok,
+                )
+                wip_for_title = f"{WIP_STR.upper()}:"
+                if remove:
+                    self._remove_label(pull_request=pull_request, label=WIP_STR)
+                    pull_request.edit(
+                        title=pull_request.title.replace(wip_for_title, "")
+                    )
+                else:
+                    self._add_label(pull_request=pull_request, label=WIP_STR)
+                    pull_request.edit(title=f"{wip_for_title} {pull_request.title}")
+
+            else:
+                self.label_by_user_comment(
+                    pull_request=pull_request,
+                    user_request=_command,
+                    remove=remove,
+                    reviewed_user=reviewed_user,
+                    issue_comment_id=issue_comment_id,
+                )
 
     def cherry_pick(self, pull_request, target_branch, reviewed_user=None):
         self.app.logger.info(

@@ -131,10 +131,10 @@ Following actions are done automatically:
 * `/verified cancel`: to undo verify
 * `/target-branch-<branch name>`: To cherry-pick the PR to the target branch once the PR is merged
 * `/cherry-pick <target_branch_name>`: cherry-pick a merged PR against a target branch
-* `/tox`: run tox
-* `/build-container`: run build-container
+* `/retest tox`: run tox
+* `/retest build-container`: run build-container
+* `/retest python-module-install`: run python-module-install command
 * `/build-and-push-container`: build and push container image (tag will be the PR number).
-* `/python-module-install`: run python-module-install command
 
 ### Supported user labels
 
