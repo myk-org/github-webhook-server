@@ -1001,6 +1001,12 @@ Available user actions:
             remove = True
 
         if _command == "retest":
+            if not _args:
+                error_msg = f"{self.repository_name}: Retest requires a test name"
+                self.app.logger.info(error_msg)
+                pull_request.create_issue_comment(error_msg)
+                return
+
             if _args == "tox":
                 if not self.tox_enabled:
                     error_msg = f"{self.repository_name}: Tox is not enabled."
