@@ -1,4 +1,4 @@
-FROM fedora:38
+FROM fedora:39
 EXPOSE 5000
 
 ENV PATH="/root/.local/bin:$PATH"
