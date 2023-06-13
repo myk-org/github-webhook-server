@@ -996,7 +996,7 @@ Available user actions:
         )
         command_and_args = command.split()
         _command = command_and_args[0]
-        _args = command_and_args[1]
+        _args = command_and_args[1] if len(command_and_args) > 1 else ""
         if len(command_and_args) > 1 and _args == "cancel":
             remove = True
 
