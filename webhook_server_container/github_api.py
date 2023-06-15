@@ -536,7 +536,8 @@ Available user actions:
             return
 
         self.app.logger.info(
-            f"{self.repository_name}: Label requested by user {reviewed_user}: {user_request}"
+            f"{self.repository_name}: {'Remove' if remove else 'Add'} "
+            f"label requested by user {reviewed_user}: {user_request}"
         )
         self.create_comment_reaction(
             pull_request=pull_request,
@@ -998,6 +999,7 @@ Available user actions:
         _command = command_and_args[0]
         _args = command_and_args[1] if len(command_and_args) > 1 else ""
         if len(command_and_args) > 1 and _args == "cancel":
+            self.app.logger.info(f"User requested 'cancel' for command {_command}")
             remove = True
 
         if _command == "retest":
