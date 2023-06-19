@@ -9,8 +9,9 @@ RUN set -x \
     && dnf clean all \
     && rm -rf /var/cache/yum
 
-COPY . /github-webhook-server
-WORKDIR /github-webhook-server
+COPY webhook_server_container pyproject.toml poetry.lock /app/
+
+WORKDIR /app
 RUN ln -s /usr/bin/python3 /usr/bin/python \
     && curl -sSL https://install.python-poetry.org | python3 - \
     && poetry --version \
@@ -22,4 +23,5 @@ RUN ln -s /usr/bin/python3 /usr/bin/python \
     && poetry config --list \
     && poetry install
 
-ENTRYPOINT ["poetry", "run", "python3", "webhook_server_container/app.py"]
+HEALTHCHECK CMD curl --fail http://192.168.10.43:5000/healthcheck || exit 1
+ENTRYPOINT ["poetry", "run", "python3", "/app/app.py"]

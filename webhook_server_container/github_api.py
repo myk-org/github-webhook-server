@@ -941,7 +941,7 @@ Available user actions:
             self.app.logger.info(f"PR owner {pr_owner} set /lgtm, not adding label.")
             return
 
-        reviewer_label = f"{review_state.title()}{user_label}"
+        reviewer_label = f"{review_state}{user_label}"
 
         if action == ADD_STR:
             self._add_label(pull_request=pull_request, label=reviewer_label)

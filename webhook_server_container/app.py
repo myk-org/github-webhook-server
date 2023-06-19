@@ -13,6 +13,11 @@ APP_ROOT_PATH = "/webhook_server"
 FILENAME_STRING = "<string:filename>"
 
 
+@FLASK_APP.route("/healthcheck")
+def healthcheck():
+    return "alive"
+
+
 @FLASK_APP.route(APP_ROOT_PATH, methods=["POST"])
 def process_webhook():
     try:
