@@ -1,4 +1,6 @@
 import os
+import shlex
+import subprocess
 from functools import wraps
 from time import sleep
 
@@ -63,3 +65,53 @@ def ignore_exceptions(logger=None, retry=None):
         return inner
 
     return wrapper
+
+
+def run_command(
+    command,
+    verify_stderr=True,
+    shell=False,
+    timeout=None,
+    capture_output=True,
+    check=True,
+    **kwargs,
+):
+    """
+    Run command locally.
+
+    Args:
+        command (str): Command to run
+        verify_stderr (bool, default True): Check command stderr
+        shell (bool, default False): run subprocess with shell toggle
+        timeout (int, optional): Command wait timeout
+        capture_output (bool, default False): Capture command output
+        check (boot, default True):  If check is True and the exit code was non-zero, it raises a
+            CalledProcessError
+
+    Returns:
+        tuple: True, out if command succeeded, False, err otherwise.
+    """
+    FLASK_APP.logger.info(f"Running '{command}' command")
+    sub_process = subprocess.run(
+        shlex.split(command),
+        capture_output=capture_output,
+        check=check,
+        shell=shell,
+        text=True,
+        timeout=timeout,
+        **kwargs,
+    )
+    out_decoded = sub_process.stdout
+    err_decoded = sub_process.stderr
+
+    error_msg = f"Failed to run '{command}'. rc: {sub_process.returncode}, out: {out_decoded}, error: {err_decoded}"
+    if sub_process.returncode != 0:
+        FLASK_APP.logger.error(error_msg)
+        return False, out_decoded, err_decoded
+
+    # From this point and onwards we are guaranteed that sub_process.returncode == 0
+    if err_decoded and verify_stderr:
+        FLASK_APP.logger.error(error_msg)
+        return False, out_decoded, err_decoded
+
+    return True, out_decoded, err_decoded
