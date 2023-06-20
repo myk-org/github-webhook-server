@@ -23,5 +23,5 @@ RUN ln -s /usr/bin/python3 /usr/bin/python \
     && poetry config --list \
     && poetry install
 
-HEALTHCHECK CMD curl --fail http://192.168.10.43:5000/healthcheck || exit 1
+HEALTHCHECK CMD curl --fail http://192.168.10.43:5000/webhook_server/healthcheck || exit 1
 ENTRYPOINT ["poetry", "run", "python3", "/app/app.py"]
