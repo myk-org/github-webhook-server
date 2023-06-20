@@ -28,7 +28,12 @@ from constants import (
 from dockerhub_rate_limit import DockerHub
 from github import Github, GithubException
 from github.GithubException import UnknownObjectException
-from utils import extract_key_from_dict, get_github_repo_api, ignore_exceptions
+from utils import (
+    extract_key_from_dict,
+    get_github_repo_api,
+    ignore_exceptions,
+    run_command,
+)
 
 
 @contextmanager
@@ -74,7 +79,7 @@ class GitHubApi:
         self.size_label_prefix = "size/"
         self.clone_repository_path = os.path.join("/", self.repository.name)
         self.reviewed_by_prefix = "-by-"
-        self.auto_cherry_pick_prefix = "auto-cherry-pick"
+        self.auto_cherry_pick_prefix = "cherry-pick"
         self.check_rate_limit()
         self.dockerhub = DockerHub(
             username=self.dockerhub_username,
@@ -108,6 +113,18 @@ Available user actions:
 {supported_user_labels_str}
 </details>
     """
+
+    def hase_token(self, message):
+        hashed_message = message.replace(self.token, "*****")
+        return hashed_message
+
+    def app_logger_info(self, message):
+        hashed_message = self.hase_token(message=message)
+        self.app.logger.info(hashed_message)
+
+    def app_logger_error(self, message):
+        hashed_message = self.hase_token(message=message)
+        self.app.logger.error(hashed_message)
 
     def process_hook(self, data):
         ignore_data = ["status", "branch_protection_rule", "check_run", "check_suite"]
@@ -285,13 +302,11 @@ Available user actions:
             git_user_name_cmd,
             git_email_cmd,
         ]:
-            self.app.logger.info(f"Run: {cmd}")
-            subprocess.check_output(shlex.split(cmd))
+            run_command(command=cmd, verify_stderr=False)
 
         with change_directory(_clone_path, logger=self.app.logger):
             for cmd in [fetch_pr_cmd, remote_update_cmd, fetch_all_cmd]:
-                self.app.logger.info(f"Run: {cmd}")
-                subprocess.check_output(shlex.split(cmd))
+                run_command(command=cmd, verify_stderr=False)
             yield _clone_path
 
         self.app.logger.info(f"Removing cloned repository: {_clone_path}")
@@ -305,8 +320,9 @@ Available user actions:
         self.app.logger.info(
             f"{self.repository_name}: Checking out new branch: {new_branch_name} from {source_branch}"
         )
-        subprocess.check_output(
-            shlex.split(f"git checkout -b {new_branch_name} origin/{source_branch}")
+        run_command(
+            command=f"git checkout -b {new_branch_name} origin/{source_branch}",
+            verify_stderr=False,
         )
 
     @ignore_exceptions()
@@ -320,83 +336,87 @@ Available user actions:
         pull_request,
         user_login,
     ):
-        commit_hash = pull_request.merge_commit_sha
-        commit_msg = pull_request.title
-        pull_request_url = pull_request.html_url
-
-        def _issue_from_err(_err, _commit_hash, _source_branch):
-            _err_msg = _err.decode("utf-8")
-            hashed_err_msg = _err_msg.replace(self.token, "*****")
+        def _issue_from_err(_out, _err, _commit_hash, _source_branch, _step):
             self.app.logger.error(
-                f"{self.repository_name}: Cherry pick failed: {_err_msg}"
+                f"{self.repository_name}: [{_step}] Cherry pick failed: {out} --- {_err}"
             )
-            local_branch_name = _commit_hash[:39]
+            local_branch_name = f"{pull_request.head.ref}-{source_branch}"
             pull_request.create_issue_comment(
                 f"**Manual cherry-pick is needed**\nCherry pick failed for "
-                f"{_commit_hash} to {_source_branch}:\n{hashed_err_msg}\n"
+                f"{_commit_hash} to {_source_branch}:\n"
                 f"To cherry-pick run:\n"
                 "```\n"
                 f"git fetch --all\n"
                 f"git checkout {_source_branch}\n"
                 f"git checkout -b {local_branch_name}\n"
-                f"git cherry-pick {commit_hash}\n"
+                f"git cherry-pick {_commit_hash}\n"
                 f"git push origin {local_branch_name}\n"
                 "```"
             )
             return False
 
-        err = ""
+        commit_hash = pull_request.merge_commit_sha
+        commit_msg = pull_request.title
+        pull_request_url = pull_request.html_url
+
         try:
             self.app.logger.info(
                 f"{self.repository_name}: Cherry picking {commit_hash} into {source_branch}, requested by "
                 f"{user_login}"
             )
-            cherry_pick = subprocess.Popen(
-                shlex.split(f"git cherry-pick {commit_hash}"),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+            cherry_pick, out, err = run_command(
+                command=f"git cherry-pick origin/pr/{pull_request.number}",
+                verify_stderr=False,
             )
-            _, err = cherry_pick.communicate()
-            if cherry_pick.returncode != 0:
+            if not cherry_pick:
                 return _issue_from_err(
-                    _err=err, _commit_hash=commit_hash, _source_branch=source_branch
+                    _out=out,
+                    _err=err,
+                    _commit_hash=commit_hash,
+                    _source_branch=source_branch,
+                    _step="git cherry-pick",
                 )
 
-            git_push = subprocess.Popen(
-                shlex.split(f"git push -u origin {new_branch_name}"),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+            git_push, out, err = run_command(
+                command=f"git push -u origin {new_branch_name}",
             )
-            _, err = git_push.communicate()
-            if git_push.returncode != 0:
+            if not git_push:
                 return _issue_from_err(
-                    _err=err, _commit_hash=commit_hash, _source_branch=source_branch
+                    _out=out,
+                    _err=err,
+                    _commit_hash=commit_hash,
+                    _source_branch=source_branch,
+                    _step="git push",
                 )
 
-            pull_request_cmd = subprocess.Popen(
-                shlex.split(
-                    f"hub pull-request "
-                    f"-b {source_branch} "
-                    f"-h {new_branch_name} "
-                    f"-l {self.auto_cherry_pick_prefix} "
-                    f"-m '{self.auto_cherry_pick_prefix}: [{source_branch}] {commit_msg}' "
-                    f"-m 'cherry-pick {pull_request_url} into {source_branch}' "
-                    f"-m 'requested-by {user_login}'"
-                ),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+            pull_request_cmd, out, err = run_command(
+                command=f"hub pull-request "
+                f"-b {source_branch} "
+                f"-h {new_branch_name} "
+                f"-l {self.auto_cherry_pick_prefix} "
+                f"-m '{self.auto_cherry_pick_prefix}: [{source_branch}] {commit_msg}' "
+                f"-m 'cherry-pick {pull_request_url} into {source_branch}' "
+                f"-m 'requested-by {user_login}'",
+                verify_stderr=False,
             )
-            _, err = pull_request_cmd.communicate()
-            if pull_request_cmd.returncode != 0:
+            if not pull_request_cmd:
                 _issue_from_err(
-                    _err=err, _commit_hash=commit_hash, _source_branch=source_branch
+                    _out=out,
+                    _err=err,
+                    _commit_hash=commit_hash,
+                    _source_branch=source_branch,
+                    _step="create pull request",
                 )
                 return False
 
             return True
-        except Exception:
+        except Exception as ex:
             _issue_from_err(
-                _err=err, _commit_hash=commit_hash, _source_branch=source_branch
+                _out="",
+                _err=str(ex),
+                _commit_hash=commit_hash,
+                _source_branch=source_branch,
+                _step="",
             )
             return False
 
@@ -1119,20 +1139,13 @@ Available user actions:
             pull_request.create_issue_comment(error_msg)
             return
 
-        base_source_branch_name = re.sub(
-            rf"{self.auto_cherry_pick_prefix}: \[.*\] ",
-            "",
-            pull_request.head.ref.replace(" ", "-"),
-        )
-        new_branch_name = f"{self.auto_cherry_pick_prefix}-{base_source_branch_name}"
+        new_branch_name = f"{self.auto_cherry_pick_prefix}-{pull_request.head.ref}"
         if not self.is_branch_exists(branch=target_branch):
             err_msg = f"cherry-pick failed: {target_branch} does not exists"
             self.app.logger.error(err_msg)
             pull_request.create_issue_comment(err_msg)
         else:
-            with self._clone_repository(
-                path_suffix=f"{base_source_branch_name}-{uuid.uuid4()}"
-            ):
+            with self._clone_repository(path_suffix=uuid.uuid4()):
                 self._checkout_new_branch(
                     source_branch=target_branch,
                     new_branch_name=new_branch_name,

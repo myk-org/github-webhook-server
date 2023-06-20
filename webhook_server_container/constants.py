@@ -22,7 +22,7 @@ USER_LABELS_DICT = {
 }
 STATIC_LABELS_DICT = {
     **USER_LABELS_DICT,
-    "auto-cherry-pick": "1D76DB",
+    "cherry-pick": "1D76DB",
     "size/l": "F5621C",
     "size/m": "F09C74",
     "size/s": "0E8A16",

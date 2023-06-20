@@ -6,6 +6,12 @@ On start, it will configure the following for each repository:
 * Enable CodeQL with default setting
 * Set branch protection based on config.yaml
 
+## Build container
+
+```bash
+podman build --format docker -t github-webhook-server .
+```
+
 ## Setup
 
 [example.config.yaml](https://github.com/myakove/github-webhook-server/blob/main/example.config.yaml)  
