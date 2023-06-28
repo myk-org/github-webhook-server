@@ -1395,7 +1395,7 @@ Available user actions:
             )
 
     def _process_verified(self, parent_committer, pull_request):
-        if parent_committer in (self.api_user, "self.api_user"):
+        if parent_committer in (self.api_user, "pre-commit-ci[bot]"):
             self.app.logger.info(
                 f"Committer {parent_committer} == API user {parent_committer}, Setting verified label"
             )
