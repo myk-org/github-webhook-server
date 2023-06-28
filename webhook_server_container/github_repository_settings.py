@@ -24,12 +24,15 @@ def set_branch_protection(branch, repository, required_status_checks):
     FLASK_APP.logger.info(
         f"Set repository {repository} branch {branch} settings [checks: {required_status_checks}]"
     )
-    branch.edit_protection(
-        strict=True,
-        contexts=required_status_checks,
+    branch.edit_protection(strict=True)
+    branch.edit_required_pull_request_reviews(
         require_code_owner_reviews=False,
         dismiss_stale_reviews=True,
         required_approving_review_count=0,
+    )
+    branch.edit_required_status_checks(
+        strict=True,
+        contexts=required_status_checks,
     )
 
 
