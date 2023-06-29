@@ -32,7 +32,7 @@ PyYaml = "*"
 build = "*"
 twine = "*"
 tox = "*"
-poetry-dynamic-versioning = {extras = ["plugin"], version = "^0.23.0"}
+poetry-dynamic-versioning = {extras = ["plugin"], version = "^0.24.0"}
 
 [tool.poetry.dev-dependencies]
 ipython = "*"
