@@ -20,7 +20,6 @@ RUN ln -s /usr/bin/python3 /usr/bin/python \
     && curl -sSL https://install.python-poetry.org | python3 - \
     && python3 -m pip install pip --upgrade \
     && python3 -m pip install pipx importlib \
-    && python3 -m pipx install tox \
     && poetry config cache-dir /app \
     && poetry config virtualenvs.in-project true \
     && poetry config installer.max-workers 10 \
