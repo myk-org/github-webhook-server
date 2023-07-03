@@ -8,7 +8,6 @@ RUN set -x \
     && tar xvf /tmp/rosa-linux.tar.gz --no-same-owner \
     && mv rosa /usr/bin/rosa \
     && chmod +x /usr/bin/rosa \
-    && rosa version \
     && dnf -y update \
     && dnf -y install python3.8 python3.9 python3.10 python3.11 python3-pip git hub podman \
     && dnf clean all \
@@ -19,13 +18,12 @@ COPY webhook_server_container pyproject.toml poetry.lock /app/
 WORKDIR /app
 RUN ln -s /usr/bin/python3 /usr/bin/python \
     && curl -sSL https://install.python-poetry.org | python3 - \
-    && poetry --version \
     && python3 -m pip install pip --upgrade \
-    && python3 -m pip install pipx importlib tox \
+    && python3 -m pip install pipx importlib \
+    && python3 -m pipx install tox \
     && poetry config cache-dir /app \
     && poetry config virtualenvs.in-project true \
     && poetry config installer.max-workers 10 \
-    && poetry config --list \
     && poetry install
 
 HEALTHCHECK CMD curl --fail http://127.0.0.1:5000/webhook_server/healthcheck || exit 1
