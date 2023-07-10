@@ -26,13 +26,13 @@ repository = "https://github.com/myakove/github-webhook-server"
 
 [tool.poetry.dependencies]
 python = "^3.8"
-PyGithub = "*"
-flask = "*"
-PyYaml = "*"
-build = "*"
-twine = "*"
-tox = "*"
 poetry-dynamic-versioning = {extras = ["plugin"], version = "^0.24.0"}
+pygithub = "^1.59.0"
+flask = "^2.3.2"
+pyyaml = "^6.0"
+build = "^0.10.0"
+twine = "^4.0.2"
+tox = "^4.6.4"
 
 [tool.poetry.dev-dependencies]
 ipython = "*"
