@@ -38,13 +38,25 @@ def set_branch_protection(branch, repository, required_status_checks):
 
 @ignore_exceptions(FLASK_APP.logger)
 def set_repository_settings(repository):
-    FLASK_APP.logger.info(f"Set repository {repository} settings")
-    repository.edit(delete_branch_on_merge=True)
-    repository._requester.requestJsonAndCheck(
-        "PATCH",
-        f"{repository.url}/code-scanning/default-setup",
-        input={"state": "configured"},
-    )
+    if not repository.private:
+        FLASK_APP.logger.info(f"Set repository {repository} settings")
+        repository.edit(
+            delete_branch_on_merge=True,
+            allow_auto_merge=True,
+            allow_update_branch=True,
+        )
+
+        repository._requester.requestJsonAndCheck(
+            "PATCH",
+            repository.url,
+            input={
+                "security_and_analysis": {
+                    "secret_scanning": {"status": "enabled"},
+                    "secret_scanning_push_protection": {"status": "enabled"},
+                },
+                "code-scanning": {"default-setup": {"state": "configured"}},
+            },
+        )
 
 
 def get_required_status_checks(
