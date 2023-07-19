@@ -338,7 +338,7 @@ Available user actions:
     ):
         def _issue_from_err(_out, _err, _commit_hash, _source_branch, _step):
             self.app.logger.error(
-                f"{self.repository_name}: [{_step}] Cherry pick failed: {out} --- {_err}"
+                f"{self.repository_name}: [{_step}] Cherry pick failed: {_out} --- {_err}"
             )
             local_branch_name = f"{pull_request.head.ref}-{source_branch}"
             pull_request.create_issue_comment(
