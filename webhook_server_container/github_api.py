@@ -379,6 +379,7 @@ Available user actions:
 
             git_push, out, err = run_command(
                 command=f"git push -u origin {new_branch_name}",
+                verify_stderr=False,
             )
             if not git_push:
                 return _issue_from_err(
