@@ -320,10 +320,15 @@ Available user actions:
         self.app.logger.info(
             f"{self.repository_name}: Checking out new branch: {new_branch_name} from {source_branch}"
         )
-        run_command(
-            command=f"git checkout -b {new_branch_name} origin/{source_branch}",
-            verify_stderr=False,
-        )
+        for cmd in (
+            f"git checkout {source_branch}",
+            f"git pull origin {source_branch}",
+            f"git checkout -b {new_branch_name} origin/{source_branch}",
+        ):
+            run_command(
+                command=cmd,
+                verify_stderr=False,
+            )
 
     @ignore_exceptions()
     def is_branch_exists(self, branch):
@@ -378,8 +383,9 @@ Available user actions:
                 )
 
             git_push, out, err = run_command(
-                command=f"git push -u origin {new_branch_name}",
+                command=f"git push origin {new_branch_name}",
                 verify_stderr=False,
+                check=False,
             )
             if not git_push:
                 return _issue_from_err(
