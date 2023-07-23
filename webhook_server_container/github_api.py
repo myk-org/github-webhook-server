@@ -8,10 +8,10 @@ import shutil
 import subprocess
 import sys
 import time
-import uuid
 from contextlib import contextmanager
 
 import requests
+import shortuuid
 import yaml
 from constants import (
     ADD_STR,
@@ -320,10 +320,15 @@ Available user actions:
         self.app.logger.info(
             f"{self.repository_name}: Checking out new branch: {new_branch_name} from {source_branch}"
         )
-        run_command(
-            command=f"git checkout -b {new_branch_name} origin/{source_branch}",
-            verify_stderr=False,
-        )
+        for cmd in (
+            f"git checkout {source_branch}",
+            f"git pull origin {source_branch}",
+            f"git checkout -b {new_branch_name} origin/{source_branch}",
+        ):
+            run_command(
+                command=cmd,
+                verify_stderr=False,
+            )
 
     @ignore_exceptions()
     def is_branch_exists(self, branch):
@@ -338,7 +343,7 @@ Available user actions:
     ):
         def _issue_from_err(_out, _err, _commit_hash, _source_branch, _step):
             self.app.logger.error(
-                f"{self.repository_name}: [{_step}] Cherry pick failed: {out} --- {_err}"
+                f"{self.repository_name}: [{_step}] Cherry pick failed: {_out} --- {_err}"
             )
             local_branch_name = f"{pull_request.head.ref}-{source_branch}"
             pull_request.create_issue_comment(
@@ -365,7 +370,7 @@ Available user actions:
                 f"{user_login}"
             )
             cherry_pick, out, err = run_command(
-                command=f"git cherry-pick origin/pr/{pull_request.number}",
+                command=f"git cherry-pick {commit_hash}",
                 verify_stderr=False,
             )
             if not cherry_pick:
@@ -378,7 +383,9 @@ Available user actions:
                 )
 
             git_push, out, err = run_command(
-                command=f"git push -u origin {new_branch_name}",
+                command=f"git push origin {new_branch_name}",
+                verify_stderr=False,
+                check=False,
             )
             if not git_push:
                 return _issue_from_err(
@@ -389,16 +396,17 @@ Available user actions:
                     _step="git push",
                 )
 
-            pull_request_cmd, out, err = run_command(
-                command=f"hub pull-request "
-                f"-b {source_branch} "
-                f"-h {new_branch_name} "
-                f"-l {self.auto_cherry_pick_prefix} "
-                f"-m '{self.auto_cherry_pick_prefix}: [{source_branch}] {commit_msg}' "
-                f"-m 'cherry-pick {pull_request_url} into {source_branch}' "
-                f"-m 'requested-by {user_login}'",
-                verify_stderr=False,
-            )
+            with self.set_os_env_github_token():
+                pull_request_cmd, out, err = run_command(
+                    command=f"hub pull-request "
+                    f"-b {source_branch} "
+                    f"-h {new_branch_name} "
+                    f"-l {self.auto_cherry_pick_prefix} "
+                    f"-m '{self.auto_cherry_pick_prefix}: [{source_branch}] {commit_msg}' "
+                    f"-m 'cherry-pick {pull_request_url} into {source_branch}' "
+                    f"-m 'requested-by {user_login}'",
+                    verify_stderr=False,
+                )
             if not pull_request_cmd:
                 _issue_from_err(
                     _out=out,
@@ -922,7 +930,7 @@ Available user actions:
             self.app.logger.info(
                 f"{self.repository_name}: Processing push for tag: {tag_name}"
             )
-            with self._clone_repository(path_suffix=f"{tag_name}-{uuid.uuid4()}"):
+            with self._clone_repository(path_suffix=f"{tag_name}-{shortuuid.uuid()}"):
                 self._checkout_tag(tag=tag_name)
                 self.upload_to_pypi(tag_name=tag_name)
 
@@ -974,7 +982,7 @@ Available user actions:
 
         base_path = f"/webhook_server/tox/{pull_request.number}"
         base_url = f"{self.webhook_url}{base_path}"
-        with self._clone_repository(path_suffix=f"tox-{uuid.uuid4()}"):
+        with self._clone_repository(path_suffix=f"tox-{shortuuid.uuid()}"):
             self.app.logger.info(f"Current directory: {os.getcwd()}")
             pr_number = f"origin/pr/{pull_request.number}"
             try:
@@ -1139,13 +1147,13 @@ Available user actions:
             pull_request.create_issue_comment(error_msg)
             return
 
-        new_branch_name = f"{self.auto_cherry_pick_prefix}-{pull_request.head.ref}"
+        new_branch_name = f"{self.auto_cherry_pick_prefix}-{pull_request.head.ref}-{shortuuid.uuid()[:5]}"
         if not self.is_branch_exists(branch=target_branch):
             err_msg = f"cherry-pick failed: {target_branch} does not exists"
             self.app.logger.error(err_msg)
             pull_request.create_issue_comment(err_msg)
         else:
-            with self._clone_repository(path_suffix=uuid.uuid4()):
+            with self._clone_repository(path_suffix=shortuuid.uuid()):
                 self._checkout_new_branch(
                     source_branch=target_branch,
                     new_branch_name=new_branch_name,
@@ -1242,7 +1250,7 @@ Available user actions:
             base_path = f"/webhook_server/build-container/{pull_request.number}"
             base_url = f"{self.webhook_url}{base_path}"
 
-        with self._clone_repository(path_suffix=f"build-container-{uuid.uuid4()}"):
+        with self._clone_repository(path_suffix=f"build-container-{shortuuid.uuid()}"):
             self.app.logger.info(f"Current directory: {os.getcwd()}")
             if pull_request:
                 pr_number = f"origin/pr/{pull_request.number}"
@@ -1345,7 +1353,7 @@ Available user actions:
         base_url = f"{self.webhook_url}{base_path}"
 
         with self._clone_repository(
-            path_suffix=f"python-module-install-{uuid.uuid4()}"
+            path_suffix=f"python-module-install-{shortuuid.uuid()}"
         ):
             self.app.logger.info(f"Current directory: {os.getcwd()}")
             pr_number = f"origin/pr/{pull_request.number}"
@@ -1434,3 +1442,23 @@ Available user actions:
     def create_comment_reaction(self, pull_request, issue_comment_id, reaction):
         _comment = pull_request.get_issue_comment(issue_comment_id)
         _comment.create_reaction(reaction)
+
+    @contextmanager
+    def set_os_env_github_token(self):
+        """
+        Set os environment github token for `hub` cli.
+
+        Since the code run in parallel we need to wait if we already have
+         a token configured (every repository can have different token)
+        """
+        github_token_env = "GITHUB_TOKEN"
+        os_env_github_token = os.environ.get(github_token_env)
+        if os_env_github_token and os_env_github_token != self.token:
+            while True:
+                if not os.environ.get(github_token_env):
+                    break
+                time.sleep(1)
+
+        os.environ[github_token_env] = self.token
+        yield
+        os.environ.pop(github_token_env)
