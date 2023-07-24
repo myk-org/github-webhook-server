@@ -14,7 +14,10 @@ def get_branch_sampler(repo, branch_name):
 
 
 def skip_repo(protected_branches, repo):
-    if not protected_branches or not repo:
+    _private = repo.private
+    if not protected_branches or not repo or _private:
+        if _private:
+            FLASK_APP.logger.info(f"{repo.name} skipped, repository is private")
         return True
 
 
@@ -140,14 +143,8 @@ def set_repositories_settings():
                 )
             )
 
-            if repo.private:
-                FLASK_APP.logger.info(
-                    f"{repository} is private, skipping branch protection"
-                )
-
-            else:
-                set_branch_protection(
-                    branch=branch,
-                    repository=repo,
-                    required_status_checks=required_status_checks,
-                )
+            set_branch_protection(
+                branch=branch,
+                repository=repo,
+                required_status_checks=required_status_checks,
+            )
