@@ -8,8 +8,16 @@ On start, it will configure the following for each repository:
 
 ## Build container
 
+Using podman:
+
 ```bash
 podman build --format docker -t github-webhook-server .
+```
+
+Using docker:
+
+```bash
+docker build -t github-webhook-server .
 ```
 
 ## Setup
