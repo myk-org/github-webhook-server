@@ -6,19 +6,12 @@ from time import sleep
 
 import yaml
 from constants import FLASK_APP
-from github.GithubException import RateLimitExceededException, UnknownObjectException
 
 
 def get_github_repo_api(gapi, repository):
     try:
         repo = gapi.get_repo(repository)
-    except (UnknownObjectException, RateLimitExceededException) as ex:
-        if ex == UnknownObjectException:
-            FLASK_APP.logger.error(
-                f"Repository {repository}: Not found or token invalid"
-            )
-        else:
-            FLASK_APP.logger.error(f"Repository {repository}: Rate limit exceeded")
+    except Exception:
         return
     return repo
 

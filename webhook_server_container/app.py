@@ -58,10 +58,10 @@ def return_python_module_install(filename):
 
 
 def main():
-    procs = create_webhook() + set_repositories_settings()
-    for proc in procs:
+    for proc in create_webhook():
         proc.join()
 
+    set_repositories_settings()
     FLASK_APP.logger.info(f"Starting {FLASK_APP.name} app")
     FLASK_APP.run(port=5000, host="0.0.0.0", use_reloader=False)
 

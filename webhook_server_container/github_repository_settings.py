@@ -1,7 +1,6 @@
 import contextlib
 import os
 from copy import deepcopy
-from multiprocessing import Process
 
 from constants import BUILD_CONTAINER_STR, FLASK_APP, PYTHON_MODULE_INSTALL_STR
 from github import Github
@@ -15,14 +14,14 @@ def get_branch_sampler(repo, branch_name):
 
 
 def skip_repo(protected_branches, repo):
-    if not protected_branches or not repo or repo.private:
+    if not protected_branches or not repo:
         return True
 
 
 @ignore_exceptions(FLASK_APP.logger)
 def set_branch_protection(branch, repository, required_status_checks):
     FLASK_APP.logger.info(
-        f"Set repository {repository} branch {branch} settings [checks: {required_status_checks}]"
+        f"Set repository {repository.name} branch {branch} settings [checks: {required_status_checks}]"
     )
     branch.edit_protection(strict=True)
     branch.edit_required_pull_request_reviews(
@@ -38,14 +37,15 @@ def set_branch_protection(branch, repository, required_status_checks):
 
 @ignore_exceptions(FLASK_APP.logger)
 def set_repository_settings(repository):
-    if not repository.private:
-        FLASK_APP.logger.info(f"Set repository {repository} settings")
-        repository.edit(
-            delete_branch_on_merge=True,
-            allow_auto_merge=True,
-            allow_update_branch=True,
-        )
+    FLASK_APP.logger.info(f"Set repository {repository.name} settings")
+    repository.edit(
+        delete_branch_on_merge=True,
+        allow_auto_merge=True,
+        allow_update_branch=True,
+    )
 
+    if not repository.private:
+        FLASK_APP.logger.info(f"Set repository {repository.name} security settings")
         repository._requester.requestJsonAndCheck(
             "PATCH",
             repository.url,
@@ -96,7 +96,6 @@ def get_user_configures_status_checks(status_checks):
 
 
 def set_repositories_settings():
-    procs = []
     FLASK_APP.logger.info("Processing repositories")
     app_data = get_repository_from_config()
     default_status_checks = app_data.get("default-status-checks", [])
@@ -114,7 +113,7 @@ def set_repositories_settings():
         gapi = Github(login_or_token=data["token"])
         repo = get_github_repo_api(gapi=gapi, repository=repository)
         set_repository_settings(repository=repo)
-        if skip_repo(protected_branches, repo):
+        if skip_repo(protected_branches=protected_branches, repo=repo):
             continue
 
         for branch_name, status_checks in protected_branches.items():
@@ -141,14 +140,14 @@ def set_repositories_settings():
                 )
             )
 
-            proc = Process(
-                target=set_branch_protection,
-                args=(
-                    branch,
-                    repository,
-                    required_status_checks,
-                ),
-            )
-            procs.append(proc)
-            proc.start()
-    return procs
+            if repo.private:
+                FLASK_APP.logger.info(
+                    f"{repository} is private, skipping branch protection"
+                )
+
+            else:
+                set_branch_protection(
+                    branch=branch,
+                    repository=repo,
+                    required_status_checks=required_status_checks,
+                )

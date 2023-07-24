@@ -4,6 +4,7 @@ EXPOSE 5000
 ENV PATH="/root/.local/bin:$PATH"
 
 RUN set -x \
+    && curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash \
     && curl -L https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz --output /tmp/rosa-linux.tar.gz \
     && tar xvf /tmp/rosa-linux.tar.gz --no-same-owner \
     && mv rosa /usr/bin/rosa \
