@@ -18,6 +18,7 @@ from constants import (
     ALL_LABELS_DICT,
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
+    CHERRY_PICK_LABEL_PREFIX,
     DELETE_STR,
     FLASK_APP,
     PYTHON_MODULE_INSTALL_STR,
@@ -54,6 +55,7 @@ class GitHubApi:
         self.app = FLASK_APP
         self.hook_data = hook_data
         self.repository_name = hook_data["repository"]["name"]
+        self.run_command_kwargs = {"verify_stderr": False, "check": False}
 
         # filled by self._repo_data_from_config()
         self.dockerhub_username = None
@@ -101,7 +103,7 @@ Available user actions:
  * To mark PR as verified comment `/verified` to the PR, to un-verify comment `/verified cancel` to the PR.
         verified label removed on each new commit push.
  * To cherry pick a merged PR comment `/cherry-pick <target branch to cherry-pick to>` in the PR.
-    * Support only merged PRs
+    * Cherry-pick will be started when PR is merged
  * To re-run tox comment `/retest tox` in the PR.
  * To re-run build-container command `/retest build-container` in the PR.
  * To re-run python-module-install command `/retest python-module-install` in the PR.
@@ -279,7 +281,7 @@ Available user actions:
 
     @contextmanager
     def _clone_repository(self, path_suffix):
-        _clone_path = f"/tmp/{self.clone_repository_path}-{path_suffix}"
+        _clone_path = f"/tmp{self.clone_repository_path}-{path_suffix}"
         self.app.logger.info(
             f"Cloning repository: {self.repository_full_name} into {_clone_path}"
         )
@@ -287,26 +289,21 @@ Available user actions:
             f"git clone {self.repository.clone_url.replace('https://', f'https://{self.token}@')} "
             f"{_clone_path}"
         )
-        git_user_name_cmd = (
-            f"git config --global user.name '{self.repository.owner.login}'"
-        )
-        git_email_cmd = (
-            f"git config --global user.email '{self.repository.owner.email}'"
-        )
-        fetch_pr_cmd = "git config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
+        git_user_name_cmd = f"git config user.name '{self.repository.owner.login}'"
+        git_email_cmd = f"git config user.email '{self.repository.owner.email}'"
         remote_update_cmd = "git remote update"
-        fetch_all_cmd = "git fetch --all"
+        fetch_pr_cmd = "git config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
 
-        for cmd in [
-            clone_cmd,
-            git_user_name_cmd,
-            git_email_cmd,
-        ]:
-            run_command(command=cmd, verify_stderr=False)
+        run_command(command=clone_cmd, **self.run_command_kwargs)
 
         with change_directory(_clone_path, logger=self.app.logger):
-            for cmd in [fetch_pr_cmd, remote_update_cmd, fetch_all_cmd]:
-                run_command(command=cmd, verify_stderr=False)
+            for cmd in [
+                git_user_name_cmd,
+                git_email_cmd,
+                fetch_pr_cmd,
+                remote_update_cmd,
+            ]:
+                run_command(command=cmd, **self.run_command_kwargs)
             yield _clone_path
 
         self.app.logger.info(f"Removing cloned repository: {_clone_path}")
@@ -325,10 +322,7 @@ Available user actions:
             f"git pull origin {source_branch}",
             f"git checkout -b {new_branch_name} origin/{source_branch}",
         ):
-            run_command(
-                command=cmd,
-                verify_stderr=False,
-            )
+            run_command(command=cmd, **self.run_command_kwargs)
 
     @ignore_exceptions()
     def is_branch_exists(self, branch):
@@ -370,8 +364,8 @@ Available user actions:
                 f"{user_login}"
             )
             cherry_pick, out, err = run_command(
-                command=f"git cherry-pick {commit_hash}",
-                verify_stderr=False,
+                command=f"git cherry-pick origin/pr/{pull_request.number}",
+                **self.run_command_kwargs,
             )
             if not cherry_pick:
                 return _issue_from_err(
@@ -384,8 +378,7 @@ Available user actions:
 
             git_push, out, err = run_command(
                 command=f"git push origin {new_branch_name}",
-                verify_stderr=False,
-                check=False,
+                **self.run_command_kwargs,
             )
             if not git_push:
                 return _issue_from_err(
@@ -405,7 +398,7 @@ Available user actions:
                     f"-m '{self.auto_cherry_pick_prefix}: [{source_branch}] {commit_msg}' "
                     f"-m 'cherry-pick {pull_request_url} into {source_branch}' "
                     f"-m 'requested-by {user_login}'",
-                    verify_stderr=False,
+                    **self.run_command_kwargs,
                 )
             if not pull_request_cmd:
                 _issue_from_err(
@@ -855,7 +848,10 @@ Available user actions:
 
             if pull_request_data.get("merged"):
                 self.app.logger.info(f"PR {pull_request.number} is merged")
-                target_branch_prefix = "target-branch-"
+                if self.build_and_push_container:
+                    self._build_and_push_container()
+
+                target_branch_prefix = CHERRY_PICK_LABEL_PREFIX
                 for _label in pull_request.labels:
                     _label_name = _label.name
                     if _label_name.startswith(target_branch_prefix):
@@ -863,9 +859,6 @@ Available user actions:
                             pull_request=pull_request,
                             target_branch=_label_name.replace(target_branch_prefix, ""),
                         )
-
-                if self.build_and_push_container:
-                    self._build_and_push_container()
 
                 self.needs_rebase()
 
@@ -1020,6 +1013,7 @@ Available user actions:
 
     def user_commands(self, command, pull_request, reviewed_user, issue_comment_id):
         remove = False
+        available_commands = ["retest", "cherry-pick"]
         self.app.logger.info(
             f"{self.repository_name}: Processing label/user command {command} by user {reviewed_user}"
         )
@@ -1030,122 +1024,133 @@ Available user actions:
             self.app.logger.info(f"User requested 'cancel' for command {_command}")
             remove = True
 
-        if _command == "retest":
+        if _command in available_commands:
             if not _args:
-                error_msg = f"{self.repository_name}: Retest requires a test name"
+                error_msg = (
+                    f"{self.repository_name}: retest/cherry-pick requires an argument"
+                )
                 self.app.logger.info(error_msg)
                 pull_request.create_issue_comment(error_msg)
                 return
 
-            if _args == "tox":
-                if not self.tox_enabled:
-                    error_msg = f"{self.repository_name}: Tox is not enabled."
-                    self.app.logger.info(error_msg)
-                    pull_request.create_issue_comment(error_msg)
-                    return
-
-                self.create_comment_reaction(
-                    pull_request=pull_request,
-                    issue_comment_id=issue_comment_id,
-                    reaction=REACTIONS.ok,
-                )
-                self.set_run_tox_check_pending(pull_request=pull_request)
-                self.run_tox(pull_request=pull_request)
-
-            elif _args == "build-container":
-                if self.build_and_push_container:
-                    self.create_comment_reaction(
-                        pull_request=pull_request,
-                        issue_comment_id=issue_comment_id,
-                        reaction=REACTIONS.ok,
-                    )
-                    self.set_container_build_pending(pull_request=pull_request)
-                    with self._build_container(pull_request=pull_request):
-                        pass
-                else:
-                    error_msg = f"{self.repository_name}: No build-container configured"
-                    self.app.logger.info(error_msg)
-                    pull_request.create_issue_comment(error_msg)
-
-            elif _args == "python-module-install":
-                if not self.pypi:
-                    error_msg = f"{self.repository_name}: No pypi configured"
-                    self.app.logger.info(error_msg)
-                    pull_request.create_issue_comment(error_msg)
-                    return
-
-                self.create_comment_reaction(
-                    pull_request=pull_request,
-                    issue_comment_id=issue_comment_id,
-                    reaction=REACTIONS.ok,
-                )
-                self.set_python_module_install_pending(pull_request=pull_request)
-                self._install_python_module(pull_request=pull_request)
-
-        else:
             if _command == "cherry-pick":
                 self.create_comment_reaction(
                     pull_request=pull_request,
                     issue_comment_id=issue_comment_id,
                     reaction=REACTIONS.ok,
                 )
+                if not pull_request.is_merged():
+                    cp_label = f"{CHERRY_PICK_LABEL_PREFIX}{_args}"
+                    info_msg = f"""
+Cherry-pick requested for PR: "
+"`{pull_request.title}`"
+"Adding label `{cp_label}` for automatic cheery-pick once the PR is merged"
+"""
+                    self.app.logger.info(f"{self.repository_name}: {info_msg}")
+                    self._get_last_commit(pull_request)
+                    pull_request.create_issue_comment(info_msg)
+                    self._add_label(
+                        pull_request=pull_request,
+                        label=cp_label,
+                    )
+                    return
+
                 self.cherry_pick(
                     pull_request=pull_request,
-                    target_branch=command_and_args[1],
+                    target_branch=_args,
                     reviewed_user=reviewed_user,
                 )
 
-            elif _command == "build-and-push-container":
-                if self.build_and_push_container:
+            elif _command == "retest":
+                if _args == "tox":
+                    if not self.tox_enabled:
+                        error_msg = f"{self.repository_name}: Tox is not enabled."
+                        self.app.logger.info(error_msg)
+                        pull_request.create_issue_comment(error_msg)
+                        return
+
                     self.create_comment_reaction(
                         pull_request=pull_request,
                         issue_comment_id=issue_comment_id,
                         reaction=REACTIONS.ok,
                     )
-                    self._build_and_push_container(pull_request=pull_request)
-                else:
-                    error_msg = f"{self.repository_name}: No build-and-push-container configured"
-                    self.app.logger.info(error_msg)
-                    pull_request.create_issue_comment(error_msg)
+                    self.set_run_tox_check_pending(pull_request=pull_request)
+                    self.run_tox(pull_request=pull_request)
 
-            elif _command == WIP_STR:
+                elif _args == "build-container":
+                    if self.build_and_push_container:
+                        self.create_comment_reaction(
+                            pull_request=pull_request,
+                            issue_comment_id=issue_comment_id,
+                            reaction=REACTIONS.ok,
+                        )
+                        self.set_container_build_pending(pull_request=pull_request)
+                        with self._build_container(pull_request=pull_request):
+                            pass
+                    else:
+                        error_msg = (
+                            f"{self.repository_name}: No build-container configured"
+                        )
+                        self.app.logger.info(error_msg)
+                        pull_request.create_issue_comment(error_msg)
+
+                elif _args == "python-module-install":
+                    if not self.pypi:
+                        error_msg = f"{self.repository_name}: No pypi configured"
+                        self.app.logger.info(error_msg)
+                        pull_request.create_issue_comment(error_msg)
+                        return
+
+                    self.create_comment_reaction(
+                        pull_request=pull_request,
+                        issue_comment_id=issue_comment_id,
+                        reaction=REACTIONS.ok,
+                    )
+                    self.set_python_module_install_pending(pull_request=pull_request)
+                    self._install_python_module(pull_request=pull_request)
+
+        elif _command == "build-and-push-container":
+            if self.build_and_push_container:
                 self.create_comment_reaction(
                     pull_request=pull_request,
                     issue_comment_id=issue_comment_id,
                     reaction=REACTIONS.ok,
                 )
-                wip_for_title = f"{WIP_STR.upper()}:"
-                if remove:
-                    self._remove_label(pull_request=pull_request, label=WIP_STR)
-                    pull_request.edit(
-                        title=pull_request.title.replace(wip_for_title, "")
-                    )
-                else:
-                    self._add_label(pull_request=pull_request, label=WIP_STR)
-                    pull_request.edit(title=f"{wip_for_title} {pull_request.title}")
-
+                self._build_and_push_container(pull_request=pull_request)
             else:
-                self.label_by_user_comment(
-                    pull_request=pull_request,
-                    user_request=_command,
-                    remove=remove,
-                    reviewed_user=reviewed_user,
-                    issue_comment_id=issue_comment_id,
+                error_msg = (
+                    f"{self.repository_name}: No build-and-push-container configured"
                 )
+                self.app.logger.info(error_msg)
+                pull_request.create_issue_comment(error_msg)
+
+        elif _command == WIP_STR:
+            self.create_comment_reaction(
+                pull_request=pull_request,
+                issue_comment_id=issue_comment_id,
+                reaction=REACTIONS.ok,
+            )
+            wip_for_title = f"{WIP_STR.upper()}:"
+            if remove:
+                self._remove_label(pull_request=pull_request, label=WIP_STR)
+                pull_request.edit(title=pull_request.title.replace(wip_for_title, ""))
+            else:
+                self._add_label(pull_request=pull_request, label=WIP_STR)
+                pull_request.edit(title=f"{wip_for_title} {pull_request.title}")
+
+        else:
+            self.label_by_user_comment(
+                pull_request=pull_request,
+                user_request=_command,
+                remove=remove,
+                reviewed_user=reviewed_user,
+                issue_comment_id=issue_comment_id,
+            )
 
     def cherry_pick(self, pull_request, target_branch, reviewed_user=None):
         self.app.logger.info(
             f"{self.repository_name}: Cherry-pick requested by user: {reviewed_user or 'by target-branch label'}"
         )
-        if not pull_request.is_merged():
-            error_msg = (
-                f"Cherry-pick requested for unmerged PR: "
-                f"{pull_request.title} is not supported"
-            )
-            self.app.logger.info(f"{self.repository_name}: {error_msg}")
-            self._get_last_commit(pull_request)
-            pull_request.create_issue_comment(error_msg)
-            return
 
         new_branch_name = f"{self.auto_cherry_pick_prefix}-{pull_request.head.ref}-{shortuuid.uuid()[:5]}"
         if not self.is_branch_exists(branch=target_branch):

@@ -10,6 +10,7 @@ CAN_BE_MERGED_STR = "can-be-merged"
 BUILD_CONTAINER_STR = "build-container"
 PYTHON_MODULE_INSTALL_STR = "python-module-install"
 WIP_STR = "wip"
+CHERRY_PICK_LABEL_PREFIX = "cherry-pick-"
 
 # Gitlab colors require a '#' prefix; e.g: #
 USER_LABELS_DICT = {
@@ -18,7 +19,6 @@ USER_LABELS_DICT = {
     WIP_STR: "B60205",
     "lgtm": "0E8A16",
     "approve": "0E8A16",
-    "target-branch-": "F09C74",
 }
 STATIC_LABELS_DICT = {
     **USER_LABELS_DICT,
@@ -31,6 +31,7 @@ STATIC_LABELS_DICT = {
     "size/xxl": "B60205",
     "needs-rebase": "B60205",
     CAN_BE_MERGED_STR: "0E8A17",
+    CHERRY_PICK_LABEL_PREFIX: "F09C74",
 }
 
 DYNAMIC_LABELS_DICT = {
