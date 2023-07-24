@@ -6,6 +6,8 @@ On start, it will configure the following for each repository:
 * Enable CodeQL with default setting
 * Set branch protection based on config.yaml
 
+**Private repositories are not supported.**
+
 ## Build container
 
 ```bash
