@@ -360,11 +360,11 @@ Available user actions:
 
         try:
             self.app.logger.info(
-                f"{self.repository_name}: Cherry picking {commit_hash} into {source_branch}, requested by "
-                f"{user_login}"
+                f"{self.repository_name}: Cherry picking [PR {pull_request.number}]{commit_hash} "
+                f"into {source_branch}, requested by {user_login}"
             )
             cherry_pick, out, err = run_command(
-                command=f"git cherry-pick origin/pr/{pull_request.number}",
+                command=f"git cherry-pick {commit_hash}",
                 **self.run_command_kwargs,
             )
             if not cherry_pick:
