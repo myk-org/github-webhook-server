@@ -11,6 +11,9 @@ BUILD_CONTAINER_STR = "build-container"
 PYTHON_MODULE_INSTALL_STR = "python-module-install"
 WIP_STR = "wip"
 CHERRY_PICK_LABEL_PREFIX = "cherry-pick-"
+APPROVED_BY_LABEL_PREFIX = "ApprovedBy-"
+CHERRY_PICKED_LABEL_PREFIX = "CherryPicked"
+
 
 # Gitlab colors require a '#' prefix; e.g: #
 USER_LABELS_DICT = {
@@ -22,7 +25,7 @@ USER_LABELS_DICT = {
 }
 STATIC_LABELS_DICT = {
     **USER_LABELS_DICT,
-    "cherry-pick": "1D76DB",
+    CHERRY_PICKED_LABEL_PREFIX: "1D76DB",
     "size/l": "F5621C",
     "size/m": "F09C74",
     "size/s": "0E8A16",
@@ -35,8 +38,8 @@ STATIC_LABELS_DICT = {
 }
 
 DYNAMIC_LABELS_DICT = {
-    "approved-by-": "0E8A16",
-    "changes_requested-by-": "D93F0B",
+    APPROVED_BY_LABEL_PREFIX: "0E8A16",
+    "ChangesRequestedBy-": "D93F0B",
     "commented-by-": "BFD4F2",
     "branch-": "1D76DB",
     "base": "D4C5F9",

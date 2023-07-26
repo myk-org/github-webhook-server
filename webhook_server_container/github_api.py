@@ -16,9 +16,11 @@ import yaml
 from constants import (
     ADD_STR,
     ALL_LABELS_DICT,
+    APPROVED_BY_LABEL_PREFIX,
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
     CHERRY_PICK_LABEL_PREFIX,
+    CHERRY_PICKED_LABEL_PREFIX,
     DELETE_STR,
     FLASK_APP,
     PYTHON_MODULE_INSTALL_STR,
@@ -81,7 +83,7 @@ class GitHubApi:
         self.size_label_prefix = "size/"
         self.clone_repository_path = os.path.join("/", self.repository.name)
         self.reviewed_by_prefix = "-by-"
-        self.auto_cherry_pick_prefix = "cherry-pick"
+        self.auto_cherry_pick_prefix = CHERRY_PICKED_LABEL_PREFIX
         self.check_rate_limit()
         self.dockerhub = DockerHub(
             username=self.dockerhub_username,
@@ -1219,7 +1221,7 @@ Cherry-pick requested for PR: "
                     _can_be_merged = False
                     break
 
-                if "approved-by-" in _label.lower():
+                if APPROVED_BY_LABEL_PREFIX in _label.lower():
                     approved_user = _label.split("-")[-1]
                     if approved_user in self.approvers:
                         self._add_label(
