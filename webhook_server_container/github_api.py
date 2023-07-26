@@ -19,13 +19,17 @@ from constants import (
     APPROVED_BY_LABEL_PREFIX,
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
+    CHANGED_REQUESTED_BY_LABEL_PREFIX,
     CHERRY_PICK_LABEL_PREFIX,
     CHERRY_PICKED_LABEL_PREFIX,
+    COMMENTED_BY_LABEL_PREFIX,
     DELETE_STR,
     FLASK_APP,
+    LGTM_STR,
     PYTHON_MODULE_INSTALL_STR,
     REACTIONS,
     USER_LABELS_DICT,
+    VERIFIED_LABEL_STR,
     WIP_STR,
 )
 from dockerhub_rate_limit import DockerHub
@@ -79,10 +83,9 @@ class GitHubApi:
         self.repository = get_github_repo_api(
             gapi=self.gapi, repository=self.repository_full_name
         )
-        self.verified_label = "verified"
+        self.verified_label = VERIFIED_LABEL_STR
         self.size_label_prefix = "size/"
         self.clone_repository_path = os.path.join("/", self.repository.name)
-        self.reviewed_by_prefix = "-by-"
         self.auto_cherry_pick_prefix = CHERRY_PICKED_LABEL_PREFIX
         self.check_rate_limit()
         self.dockerhub = DockerHub(
@@ -217,22 +220,27 @@ Available user actions:
         _labels = {}
         for label in labels:
             _labels[label.name.lower()] = label
+
         return _labels
 
     @staticmethod
     def _get_last_commit(pull_request):
         return list(pull_request.get_commits())[-1]
 
-    def _remove_label(self, pull_request, label):
-        pull_request_labels = self.obj_labels(obj=pull_request)
-        for _label in pull_request_labels:
-            if label in _label:
-                self.app.logger.info(f"{self.repository_name}: Removing label {label}")
-                return pull_request.remove_from_labels(label)
+    def _remove_label(self, pull_request, label, pull_request_labels=None):
+        pull_request_labels = pull_request_labels or self.obj_labels(obj=pull_request)
+        label_to_remove = pull_request_labels.get(label.lower())
+        if label_to_remove:
+            self.app.logger.info(f"{self.repository_name}: Removing label {label}")
+            return pull_request.remove_from_labels(label)
 
-    def _add_label(self, pull_request, label):
-        label_in_pr = self.obj_labels(obj=pull_request).get(label.lower())
-        if label_in_pr:
+    def _add_label(self, pull_request, label, pull_request_labels=None):
+        pull_request_labels = (
+            pull_request_labels.get(label.lower())
+            if pull_request_labels
+            else self.obj_labels(obj=pull_request).get(label.lower())
+        )
+        if pull_request_labels:
             self.app.logger.info(
                 f"{self.repository_name}: Label {label} already assign to PR {pull_request.number}"
             )
@@ -554,10 +562,6 @@ Available user actions:
             )
             return
 
-        # Skip sonar tests comments
-        if "sonarsource.github.io" in user_request:
-            return
-
         self.app.logger.info(
             f"{self.repository_name}: {'Remove' if remove else 'Add'} "
             f"label requested by user {reviewed_user}: {user_request}"
@@ -568,10 +572,10 @@ Available user actions:
             reaction=REACTIONS.ok,
         )
         if remove:
-            if user_request.lower() == "lgtm":
+            if user_request.lower() == LGTM_STR:
                 self.manage_reviewed_by_label(
                     pull_request=pull_request,
-                    review_state="approved",
+                    review_state=LGTM_STR,
                     action=DELETE_STR,
                     reviewed_user=reviewed_user,
                 )
@@ -579,12 +583,16 @@ Available user actions:
                 label = self.obj_labels(obj=pull_request).get(user_request.lower())
                 if label:
                     self._remove_label(pull_request=pull_request, label=label.name)
+                else:
+                    self.app.logger.warning(
+                        f"Label {user_request.lower()} not found in pull request {pull_request.number}"
+                    )
 
         else:
-            if user_request.lower() == "lgtm":
+            if user_request.lower() == LGTM_STR:
                 self.manage_reviewed_by_label(
                     pull_request=pull_request,
-                    review_state="approved",
+                    review_state=LGTM_STR,
                     action=ADD_STR,
                     reviewed_user=reviewed_user,
                 )
@@ -882,11 +890,7 @@ Available user actions:
                 if current_size_label
                 else None,
             )
-            reviewed_by_labels = [
-                label
-                for label in all_labels
-                if self.reviewed_by_prefix.lower() in label.lower()
-            ]
+            reviewed_by_labels = [label for label in all_labels if "By-" in label]
             for _reviewed_label in reviewed_by_labels:
                 self._remove_label(pull_request=pull_request, label=_reviewed_label)
 
@@ -904,6 +908,7 @@ Available user actions:
             self.check_if_can_be_merged(pull_request=pull_request)
 
         if hook_action in ("labeled", "unlabeled"):
+            all_labels = self.obj_labels(obj=pull_request)
             labeled = self.hook_data["label"]["name"].lower()
             self.app.logger.info(
                 f"{self.repository_name}: PR {pull_request.number} {hook_action} with {labeled}"
@@ -915,7 +920,7 @@ Available user actions:
                 if hook_action == "unlabeled":
                     self.set_verify_check_pending(pull_request=pull_request)
 
-            if labeled != CAN_BE_MERGED_STR:
+            if CAN_BE_MERGED_STR not in all_labels or labeled != CAN_BE_MERGED_STR:
                 self.check_if_can_be_merged(pull_request=pull_request)
 
     def process_push_webhook_data(self):
@@ -940,10 +945,9 @@ Available user actions:
             approved
             changes_requested
             """
-            pull_request_labels = self.obj_labels(obj=pull_request)
             reviewed_user = self.hook_data["review"]["user"]["login"]
-            for _label in pull_request_labels:
-                if f"-by-{reviewed_user}" in _label:
+            for _label in self.obj_labels(obj=pull_request):
+                if f"By-{reviewed_user}" in _label:
                     self._remove_label(pull_request=pull_request, label=_label)
 
             self.manage_reviewed_by_label(
@@ -957,19 +961,61 @@ Available user actions:
     def manage_reviewed_by_label(
         self, review_state, action, reviewed_user, pull_request
     ):
+        self.app.logger.info(
+            f"{self.repository_name}: Processing label for review from {reviewed_user}. "
+            f"review_state: {review_state}, action: {action}"
+        )
+        label_prefix = None
+        label_to_remove = None
         base_dict = self.hook_data.get("issue", self.hook_data.get("pull_request"))
-        user_label = f"{self.reviewed_by_prefix}{reviewed_user}"
         pr_owner = base_dict["user"]["login"]
         if pr_owner == reviewed_user:
             self.app.logger.info(f"PR owner {pr_owner} set /lgtm, not adding label.")
             return
 
-        reviewer_label = f"{review_state}{user_label}"
+        pull_request_labels = self.obj_labels(obj=pull_request)
 
-        if action == ADD_STR:
-            self._add_label(pull_request=pull_request, label=reviewer_label)
-        if action == DELETE_STR:
-            self._remove_label(pull_request=pull_request, label=reviewer_label)
+        if review_state in ("approved", LGTM_STR):
+            label_prefix = APPROVED_BY_LABEL_PREFIX
+            label = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{reviewed_user}"
+            if label.lower() in pull_request_labels:
+                label_to_remove = label
+
+        elif review_state == "changes_requested":
+            label_prefix = CHANGED_REQUESTED_BY_LABEL_PREFIX
+            label = f"{APPROVED_BY_LABEL_PREFIX}{reviewed_user}"
+            if label.lower() in pull_request_labels:
+                label_to_remove = label
+
+        elif review_state == "commented":
+            label_prefix = COMMENTED_BY_LABEL_PREFIX
+
+        if label_prefix:
+            reviewer_label = f"{label_prefix}{reviewed_user}"
+
+            if action == ADD_STR:
+                self._add_label(
+                    pull_request=pull_request,
+                    label=reviewer_label,
+                    pull_request_labels=pull_request_labels,
+                )
+                if label_to_remove:
+                    self._remove_label(
+                        pull_request=pull_request,
+                        label=label_to_remove,
+                        pull_request_labels=pull_request_labels,
+                    )
+
+            if action == DELETE_STR:
+                self._remove_label(
+                    pull_request=pull_request,
+                    label=reviewer_label,
+                    pull_request_labels=pull_request_labels,
+                )
+        else:
+            self.app.logger.warning(
+                f"{self.repository_name}: PR {pull_request.number} got unsupported review state: {review_state}"
+            )
 
     def run_tox(self, pull_request):
         if not self.tox_enabled:
@@ -1016,6 +1062,10 @@ Available user actions:
     def user_commands(self, command, pull_request, reviewed_user, issue_comment_id):
         remove = False
         available_commands = ["retest", "cherry-pick"]
+        if "sonarsource.github.io" in command:
+            self.app.logger.info(f"{self.repository_name}: command is in ignore list")
+            return
+
         self.app.logger.info(
             f"{self.repository_name}: Processing label/user command {command} by user {reviewed_user}"
         )
@@ -1217,11 +1267,11 @@ Cherry-pick requested for PR: "
             and "hold" not in _labels
         ):
             for _label in _labels:
-                if "changes_requested" in _label.lower():
+                if CHANGED_REQUESTED_BY_LABEL_PREFIX.lower() in _label.lower():
                     _can_be_merged = False
                     break
 
-                if APPROVED_BY_LABEL_PREFIX in _label.lower():
+                if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
                     approved_user = _label.split("-")[-1]
                     if approved_user in self.approvers:
                         self._add_label(

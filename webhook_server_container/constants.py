@@ -11,16 +11,20 @@ BUILD_CONTAINER_STR = "build-container"
 PYTHON_MODULE_INSTALL_STR = "python-module-install"
 WIP_STR = "wip"
 CHERRY_PICK_LABEL_PREFIX = "cherry-pick-"
-APPROVED_BY_LABEL_PREFIX = "ApprovedBy-"
 CHERRY_PICKED_LABEL_PREFIX = "CherryPicked"
+APPROVED_BY_LABEL_PREFIX = "ApprovedBy-"
+CHANGED_REQUESTED_BY_LABEL_PREFIX = "ChangesRequestedBy-"
+COMMENTED_BY_LABEL_PREFIX = "CommentedBy-"
+VERIFIED_LABEL_STR = "verified"
+LGTM_STR = "lgtm"
 
 
 # Gitlab colors require a '#' prefix; e.g: #
 USER_LABELS_DICT = {
     "hold": "B60205",
-    "verified": "0E8A16",
+    VERIFIED_LABEL_STR: "0E8A16",
     WIP_STR: "B60205",
-    "lgtm": "0E8A16",
+    LGTM_STR: "0E8A16",
     "approve": "0E8A16",
 }
 STATIC_LABELS_DICT = {
@@ -39,8 +43,8 @@ STATIC_LABELS_DICT = {
 
 DYNAMIC_LABELS_DICT = {
     APPROVED_BY_LABEL_PREFIX: "0E8A16",
-    "ChangesRequestedBy-": "D93F0B",
-    "commented-by-": "BFD4F2",
+    CHANGED_REQUESTED_BY_LABEL_PREFIX: "D93F0B",
+    COMMENTED_BY_LABEL_PREFIX: "BFD4F2",
     "branch-": "1D76DB",
     "base": "D4C5F9",
 }
