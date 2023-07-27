@@ -26,6 +26,7 @@ from constants import (
     DELETE_STR,
     FLASK_APP,
     LGTM_STR,
+    NEEDS_REBASE_LABEL_STR,
     PYTHON_MODULE_INSTALL_STR,
     REACTIONS,
     USER_LABELS_DICT,
@@ -1226,16 +1227,21 @@ Cherry-pick requested for PR: "
                     )
 
     def needs_rebase(self):
-        label = "needs-rebase"
         for pull_request in self.repository.get_pulls():
             self.app.logger.info(
-                "Sleep for 10 seconds before checking if rebase needed"
+                f"{self.repository_name}: Sleep for 10 seconds before checking if rebase needed"
             )
             time.sleep(10)
-            if pull_request.mergeable_state == "behind":
-                self._add_label(pull_request=pull_request, label=label)
+            merge_state = pull_request.mergeable_state
+            self.app.logger.info(
+                f"{self.repository_name}: pull request {pull_request.number} mergeable state is {merge_state}"
+            )
+            if merge_state == "behind":
+                self._add_label(pull_request=pull_request, label=NEEDS_REBASE_LABEL_STR)
             else:
-                self._remove_label(pull_request=pull_request, label=label)
+                self._remove_label(
+                    pull_request=pull_request, label=NEEDS_REBASE_LABEL_STR
+                )
 
     def check_if_can_be_merged(self, pull_request):
         """

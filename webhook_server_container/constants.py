@@ -17,6 +17,7 @@ CHANGED_REQUESTED_BY_LABEL_PREFIX = "ChangesRequestedBy-"
 COMMENTED_BY_LABEL_PREFIX = "CommentedBy-"
 VERIFIED_LABEL_STR = "verified"
 LGTM_STR = "lgtm"
+NEEDS_REBASE_LABEL_STR = "needs-rebase"
 
 
 # Gitlab colors require a '#' prefix; e.g: #
@@ -36,7 +37,7 @@ STATIC_LABELS_DICT = {
     "size/xl": "D93F0B",
     "size/xs": "ededed",
     "size/xxl": "B60205",
-    "needs-rebase": "B60205",
+    NEEDS_REBASE_LABEL_STR: "B60205",
     CAN_BE_MERGED_STR: "0E8A17",
     CHERRY_PICK_LABEL_PREFIX: "F09C74",
 }
