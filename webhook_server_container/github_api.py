@@ -1229,9 +1229,9 @@ Cherry-pick requested for PR: "
     def needs_rebase(self):
         for pull_request in self.repository.get_pulls():
             self.app.logger.info(
-                f"{self.repository_name}: Sleep for 10 seconds before checking if rebase needed"
+                f"{self.repository_name}: Sleep for 30 seconds before checking if rebase needed"
             )
-            time.sleep(10)
+            time.sleep(30)
             merge_state = pull_request.mergeable_state
             self.app.logger.info(
                 f"{self.repository_name}: pull request {pull_request.number} mergeable state is {merge_state}"
