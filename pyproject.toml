@@ -19,8 +19,8 @@ profile = "black"
 [tool.poetry]
 name = "github-webhook-server"
 version = "1.0.0"
-description = "A webhook server to handle Github/Gitlab reposotories."
-authors = ["Meni Yakove", "Ruth Netser"]
+description = "A webhook server to handle Github reposotories."
+authors = ["Meni Yakove <myakove@gmail.com>", "Ruth Netser <ruth.netser@gmail.com>"]
 readme = "README.md"
 repository = "https://github.com/myakove/github-webhook-server"
 
@@ -35,9 +35,9 @@ twine = "^4.0.2"
 tox = "^4.6.4"
 shortuuid = "^1.0.11"
 
-[tool.poetry.dev-dependencies]
+[tool.poetry.group.dev.dependencies]
+ipdb = "^0.13.13"
 ipython = "*"
-ipdb = "*"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
