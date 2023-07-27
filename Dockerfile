@@ -1,8 +1,6 @@
 FROM fedora:38
 EXPOSE 5000
 
-ENV PATH="/root/.local/bin:$PATH"
-
 RUN set -x \
     && curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash \
     && curl -L https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz --output /tmp/rosa-linux.tar.gz \
@@ -18,10 +16,8 @@ COPY webhook_server_container pyproject.toml poetry.lock /app/
 
 RUN ln -s /usr/bin/python3 /usr/bin/python
 
-RUN curl -sSL https://install.python-poetry.org | python3 -
-
 RUN python -m pip install pip --upgrade \
-    && python -m pip install pipx importlib
+    && python -m pip install pipx importlib poetry
 
 WORKDIR /app
 

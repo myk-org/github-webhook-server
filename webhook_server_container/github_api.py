@@ -1403,26 +1403,29 @@ Cherry-pick requested for PR: "
             self.app.logger.info(
                 f"{self.repository_name}: Push container image to {_container_repository_and_tag}"
             )
+
             try:
                 subprocess.check_output(shlex.split(push_cmd))
                 if pull_request:
                     pull_request.create_issue_comment(
                         f"Container {_container_repository_and_tag} pushed"
                     )
-                else:
-                    if self.slack_webhook_url:
-                        message = f"""
+
+                if self.slack_webhook_url:
+                    message = f"""
 ```
 {self.repository_name}: New container for {_container_repository_and_tag} published.
 ```
 """
-                        self.send_slack_message(
-                            message=message,
-                            webhook_url=self.slack_webhook_url,
-                        )
+                    self.send_slack_message(
+                        message=message,
+                        webhook_url=self.slack_webhook_url,
+                    )
+
                 self.app.logger.info(
                     f"{self.repository_name}: Done push {_container_repository_and_tag}"
                 )
+
             except subprocess.CalledProcessError as ex:
                 self.app.logger.error(
                     f"{self.repository_name}: Failed to push {_container_repository_and_tag}. {ex}"
