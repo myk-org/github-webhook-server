@@ -137,7 +137,7 @@ Available user actions:
         self.app.logger.error(hashed_message)
 
     def process_hook(self, data):
-        ignore_data = ["status", "branch_protection_rule", "check_run", "check_suite"]
+        ignore_data = ["status", "branch_protection_rule"]
         if data == "issue_comment":
             self.process_comment_webhook_data()
 
@@ -361,8 +361,8 @@ Available user actions:
                 f"{_commit_hash} to {_source_branch}:\n"
                 f"To cherry-pick run:\n"
                 "```\n"
-                f"git fetch --all\n"
                 f"git checkout {_source_branch}\n"
+                f"git pull origin {_source_branch}\n"
                 f"git checkout -b {local_branch_name}\n"
                 f"git cherry-pick {_commit_hash}\n"
                 f"git push origin {local_branch_name}\n"
@@ -929,8 +929,21 @@ Available user actions:
             self.check_if_can_be_merged(pull_request=pull_request)
 
         if hook_action in ("labeled", "unlabeled"):
-            all_labels = self.obj_labels(obj=pull_request)
             labeled = self.hook_data["label"]["name"].lower()
+
+            if hook_action == "labeled":
+                if labeled == CAN_BE_MERGED_STR and parent_committer == self.api_user:
+                    self.app.logger.info(
+                        f"{self.repository_name}[PR {pull_request.number}]: "
+                        f"will be merged automatically. owner: {self.api_user}"
+                    )
+                    pull_request.create_issue_comment(
+                        f"Owner of the pull request is `{self.api_user}`\nPull request is merged automatically."
+                    )
+                    pull_request.merge(merge_method="squash")
+                    return
+
+            all_labels = self.obj_labels(obj=pull_request)
             self.app.logger.info(
                 f"{self.repository_name}: PR {pull_request.number} {hook_action} with {labeled}"
             )
@@ -1111,13 +1124,14 @@ Available user actions:
                 _non_exits_target_branches_msg = ""
 
                 for _target_branch in _target_branches:
-                    if not self.repository.get_branch(_target_branch):
+                    try:
+                        self.repository.get_branch(_target_branch)
+                    except Exception:
                         _non_exits_target_branches_msg += (
                             f"Target branch `{_target_branch}` does not exist\n"
                         )
 
-                    else:
-                        _exits_target_branches.add(_target_branch)
+                    _exits_target_branches.add(_target_branch)
 
                 if _non_exits_target_branches_msg:
                     self.app.logger.info(
@@ -1298,11 +1312,35 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         )
         _labels = self.obj_labels(obj=pull_request)
         _last_commit = self._get_last_commit(pull_request=pull_request)
+        all_check_runs_passed = all(
+            [
+                check_run.conclusion == "success"
+                for check_run in _last_commit.get_check_runs()
+            ]
+        )
+        _final_statuses = {}
+
+        for _status in _last_commit.get_statuses():
+            if _status.context == CAN_BE_MERGED_STR:
+                continue
+
+            _status_data = {"updated_at": _status.updated_at, "state": _status.state}
+            if _status.context in _final_statuses:
+                if _status.updated_at > _final_statuses[_status.context]["updated_at"]:
+                    _final_statuses[_status.context] = _status_data
+            else:
+                _final_statuses[_status.context] = _status_data
+
+        _all_statuses_passed = all(
+            _final_statuses[context]["state"] == "success"
+            for context in [*_final_statuses]
+        )
 
         if (
             self.verified_label in _labels
             and pull_request.mergeable_state != "behind"
-            and _last_commit.get_combined_status() == "success"
+            and all_check_runs_passed
+            and _all_statuses_passed
             and HOLD_LABEL_STR not in _labels
         ):
             for _label in _labels:
