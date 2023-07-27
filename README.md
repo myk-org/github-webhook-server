@@ -137,8 +137,9 @@ Following actions are done automatically:
 
 * `/verified`: to verify a PR
 * `/verified cancel`: to undo verify
-* `/target-branch-<branch name>`: To cherry-pick the PR to the target branch once the PR is merged
 * `/cherry-pick <target_branch_name>`: cherry-pick a merged PR against a target branch
+  * Multiple target branches are allowed, separated by spaces
+  * If the current PR is nor merged label will be added and once the PR is merged it will be cherry-picked
 * `/retest tox`: run tox
 * `/retest build-container`: run build-container
 * `/retest python-module-install`: run python-module-install command

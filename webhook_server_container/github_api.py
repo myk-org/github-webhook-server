@@ -110,6 +110,7 @@ Available user actions:
  * To mark PR as verified comment `/verified` to the PR, to un-verify comment `/verified cancel` to the PR.
         verified label removed on each new commit push.
  * To cherry pick a merged PR comment `/cherry-pick <target branch to cherry-pick to>` in the PR.
+    * Multiple target branches can be cherry-picked, separated by spaces.
     * Cherry-pick will be started when PR is merged
  * To re-run tox comment `/retest tox` in the PR.
  * To re-run build-container command `/retest build-container` in the PR.
@@ -1044,14 +1045,7 @@ Available user actions:
         base_path = f"/webhook_server/tox/{pull_request.number}"
         base_url = f"{self.webhook_url}{base_path}"
         with self._clone_repository(path_suffix=f"tox-{shortuuid.uuid()}"):
-            self.app.logger.info(f"Current directory: {os.getcwd()}")
-            pr_number = f"origin/pr/{pull_request.number}"
-            try:
-                checkout_cmd = f"git checkout {pr_number}"
-                self.app.logger.info(f"Run tox command: {checkout_cmd}")
-                subprocess.check_output(shlex.split(checkout_cmd))
-            except subprocess.CalledProcessError as ex:
-                self.app.logger.error(f"checkout for {pr_number} failed: {ex}")
+            if not self._checkout_pull_request(pull_request=pull_request):
                 return
 
             try:
@@ -1090,7 +1084,7 @@ Available user actions:
             f"{self.repository_name}[PR {pull_request.number}]: Processing label/user command {command} "
             f"by user {reviewed_user}"
         )
-        command_and_args = command.split()
+        command_and_args = command.split(" ", 1)
         _command = command_and_args[0]
         _args = command_and_args[1] if len(command_and_args) > 1 else ""
         if len(command_and_args) > 1 and _args == "cancel":
@@ -1112,27 +1106,50 @@ Available user actions:
                     issue_comment_id=issue_comment_id,
                     reaction=REACTIONS.ok,
                 )
-                if not pull_request.is_merged():
-                    cp_label = f"{CHERRY_PICK_LABEL_PREFIX}{_args}"
-                    info_msg = f"""
-Cherry-pick requested for PR: "
-"`{pull_request.title}`"
-"Adding label `{cp_label}` for automatic cheery-pick once the PR is merged"
-"""
-                    self.app.logger.info(f"{self.repository_name}: {info_msg}")
-                    self._get_last_commit(pull_request)
-                    pull_request.create_issue_comment(info_msg)
-                    self._add_label(
-                        pull_request=pull_request,
-                        label=cp_label,
-                    )
-                    return
+                _target_branches = _args.split()
+                _exits_target_branches = set()
+                _non_exits_target_branches_msg = ""
 
-                self.cherry_pick(
-                    pull_request=pull_request,
-                    target_branch=_args,
-                    reviewed_user=reviewed_user,
-                )
+                for _target_branch in _target_branches:
+                    if not self.repository.get_branch(_target_branch):
+                        _non_exits_target_branches_msg += (
+                            f"Target branch `{_target_branch}` does not exist\n"
+                        )
+
+                    else:
+                        _exits_target_branches.add(_target_branch)
+
+                if _non_exits_target_branches_msg:
+                    self.app.logger.info(
+                        f"{self.repository_name}[PR {pull_request.number}]: {_non_exits_target_branches_msg}"
+                    )
+                    pull_request.create_issue_comment(_non_exits_target_branches_msg)
+
+                if _exits_target_branches:
+                    if not pull_request.is_merged():
+                        cp_labels = [
+                            f"{CHERRY_PICK_LABEL_PREFIX}{_target_branch}"
+                            for _target_branch in _exits_target_branches
+                        ]
+                        info_msg = f"""
+Cherry-pick requested for PR: `{pull_request.title}` by user `{reviewed_user}`
+Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automatic cheery-pick once the PR is merged
+"""
+                        self.app.logger.info(f"{self.repository_name}: {info_msg}")
+                        self._get_last_commit(pull_request)
+                        pull_request.create_issue_comment(info_msg)
+                        for _cp_label in cp_labels:
+                            self._add_label(
+                                pull_request=pull_request,
+                                label=_cp_label,
+                            )
+                    else:
+                        for _exits_target_branch in _exits_target_branches:
+                            self.cherry_pick(
+                                pull_request=pull_request,
+                                target_branch=_exits_target_branch,
+                                reviewed_user=reviewed_user,
+                            )
 
             elif _command == "retest":
                 if _args == "tox":
@@ -1334,17 +1351,7 @@ Cherry-pick requested for PR: "
                 f"{self.repository_name}: Current directory is {os.getcwd()}"
             )
             if pull_request:
-                pr_number = f"origin/pr/{pull_request.number}"
-                try:
-                    checkout_cmd = f"git checkout {pr_number}"
-                    self.app.logger.info(
-                        f"build-container: Run command: {checkout_cmd}"
-                    )
-                    subprocess.check_output(shlex.split(checkout_cmd))
-                except subprocess.CalledProcessError as ex:
-                    self.app.logger.error(
-                        f"{self.repository_name}[PR {pull_request.number}]: checkout failed: {ex}"
-                    )
+                if not self._checkout_pull_request(pull_request=pull_request):
                     yield
 
             try:
@@ -1446,15 +1453,7 @@ Cherry-pick requested for PR: "
             self.app.logger.info(
                 f"{self.repository_name}[PR {pull_request.number}]: Current directory: {os.getcwd()}"
             )
-            pr_number = f"origin/pr/{pull_request.number}"
-            try:
-                checkout_cmd = f"git checkout {pr_number}"
-                self.app.logger.info(
-                    f"python-module-install: Run command: {checkout_cmd}"
-                )
-                subprocess.check_output(shlex.split(checkout_cmd))
-            except subprocess.CalledProcessError as ex:
-                self.app.logger.error(f"checkout for {pr_number} failed: {ex}")
+            if not self._checkout_pull_request(pull_request=pull_request):
                 return
 
             try:
@@ -1557,3 +1556,21 @@ Cherry-pick requested for PR: "
         os.environ[github_token_env] = self.token
         yield
         os.environ.pop(github_token_env)
+
+    def _checkout_pull_request(self, pull_request):
+        self.app.logger.info(
+            f"{self.repository_name} [{pull_request.number}]: Current directory: {os.getcwd()}"
+        )
+        pr_number = f"origin/pr/{pull_request.number}"
+        try:
+            checkout_cmd = f"git checkout {pr_number}"
+            self.app.logger.info(
+                f"{self.repository_name} [{pull_request.number}]: Run command: {checkout_cmd}"
+            )
+            subprocess.check_output(shlex.split(checkout_cmd))
+        except subprocess.CalledProcessError as ex:
+            self.app.logger.error(
+                f"{self.repository_name} [{pull_request.number}]: checkout for {pr_number} failed: {ex}"
+            )
+            return False
+        return True
