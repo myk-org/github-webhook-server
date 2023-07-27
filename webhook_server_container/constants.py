@@ -3,7 +3,6 @@ from flask import Flask
 
 FLASK_APP = Flask("webhook-server")
 
-
 ADD_STR = "add"
 DELETE_STR = "delete"
 CAN_BE_MERGED_STR = "can-be-merged"
@@ -18,16 +17,17 @@ COMMENTED_BY_LABEL_PREFIX = "CommentedBy-"
 VERIFIED_LABEL_STR = "verified"
 LGTM_STR = "lgtm"
 NEEDS_REBASE_LABEL_STR = "needs-rebase"
-
+HOLD_LABEL_STR = "hold"
 
 # Gitlab colors require a '#' prefix; e.g: #
 USER_LABELS_DICT = {
-    "hold": "B60205",
+    HOLD_LABEL_STR: "B60205",
     VERIFIED_LABEL_STR: "0E8A16",
     WIP_STR: "B60205",
     LGTM_STR: "0E8A16",
     "approve": "0E8A16",
 }
+
 STATIC_LABELS_DICT = {
     **USER_LABELS_DICT,
     CHERRY_PICKED_LABEL_PREFIX: "1D76DB",

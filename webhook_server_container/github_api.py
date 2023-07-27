@@ -25,6 +25,7 @@ from constants import (
     COMMENTED_BY_LABEL_PREFIX,
     DELETE_STR,
     FLASK_APP,
+    HOLD_LABEL_STR,
     LGTM_STR,
     NEEDS_REBASE_LABEL_STR,
     PYTHON_MODULE_INSTALL_STR,
@@ -1280,14 +1281,12 @@ Cherry-pick requested for PR: "
         )
         _labels = self.obj_labels(obj=pull_request)
         _last_commit = self._get_last_commit(pull_request=pull_request)
-        all_check_pass = all(
-            check.conclusion == "success" for check in _last_commit.get_check_runs()
-        )
+
         if (
             self.verified_label in _labels
             and pull_request.mergeable_state != "behind"
-            and all_check_pass
-            and "hold" not in _labels
+            and _last_commit.get_combined_status() == "success"
+            and HOLD_LABEL_STR not in _labels
         ):
             for _label in _labels:
                 if CHANGED_REQUESTED_BY_LABEL_PREFIX.lower() in _label.lower():
