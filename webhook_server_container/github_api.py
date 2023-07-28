@@ -107,10 +107,12 @@ The following are automatically added:
  * Run [pre-commit](https://pre-commit.ci/) if `.pre-commit-config.yaml` exists in the repo.
 
 Available user actions:
+ * To mark PR as WIP comment `/wip` to the PR, To remove it from the PR comment `/wip cancel` to the PR.
+ * To block merging of PR comment `/hold`, To un-block merging of PR comment `/hold cancel`.
  * To mark PR as verified comment `/verified` to the PR, to un-verify comment `/verified cancel` to the PR.
         verified label removed on each new commit push.
  * To cherry pick a merged PR comment `/cherry-pick <target branch to cherry-pick to>` in the PR.
-    * Multiple target branches can be cherry-picked, separated by spaces.
+    * Multiple target branches can be cherry-picked, separated by spaces. (`/cherry-pick branch1 branch2`)
     * Cherry-pick will be started when PR is merged
  * To re-run tox comment `/retest tox` in the PR.
  * To re-run build-container command `/retest build-container` in the PR.
