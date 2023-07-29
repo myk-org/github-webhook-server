@@ -15,7 +15,6 @@ import shortuuid
 import yaml
 from constants import (
     ADD_STR,
-    ALL_LABELS_DICT,
     APPROVED_BY_LABEL_PREFIX,
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
@@ -24,12 +23,14 @@ from constants import (
     CHERRY_PICKED_LABEL_PREFIX,
     COMMENTED_BY_LABEL_PREFIX,
     DELETE_STR,
+    DYNAMIC_LABELS_DICT,
     FLASK_APP,
     HOLD_LABEL_STR,
     LGTM_STR,
     NEEDS_REBASE_LABEL_STR,
     PYTHON_MODULE_INSTALL_STR,
     REACTIONS,
+    STATIC_LABELS_DICT,
     USER_LABELS_DICT,
     VERIFIED_LABEL_STR,
     WIP_STR,
@@ -240,32 +241,38 @@ Available user actions:
             return pull_request.remove_from_labels(label)
 
     def _add_label(self, pull_request, label, pull_request_labels=None):
-        pull_request_labels = (
-            pull_request_labels.get(label.lower())
-            if pull_request_labels
-            else self.obj_labels(obj=pull_request).get(label.lower())
-        )
-        if pull_request_labels:
-            self.app.logger.info(
-                f"{self.repository_name}: Label {label} already assign to PR {pull_request.number}"
-            )
-            return
-
         label = label.strip()
         if len(label) > 49:
             self.app.logger.warning(f"{label} is to long, not adding.")
             return
 
+        label_exists = (
+            pull_request_labels.get(label.lower())
+            if pull_request_labels
+            else self.obj_labels(obj=pull_request).get(label.lower())
+        )
+        if label_exists:
+            self.app.logger.info(
+                f"{self.repository_name}: Label {label} already assign to PR {pull_request.number}"
+            )
+            return
+
+        if label.lower() in STATIC_LABELS_DICT:
+            self.app.logger.info(
+                f"{self.repository_name}: Adding pull request label {label} to {pull_request.number}"
+            )
+            return pull_request.add_to_labels(label)
+
         _color = [
-            ALL_LABELS_DICT.get(_label.lower())
-            for _label in ALL_LABELS_DICT
-            if label.lower().startswith(_label)
+            DYNAMIC_LABELS_DICT.get(_label)
+            for _label in DYNAMIC_LABELS_DICT
+            if label in _label
         ]
         self.app.logger.info(
             f"{self.repository_name}[PR {pull_request.number}]: Label {label} was "
             f"{'found' if _color else 'not found'} in labels dict"
         )
-        color = _color[0] if _color else ALL_LABELS_DICT["base"]
+        color = _color[0] if _color else "D4C5F9"
         self.app.logger.info(
             f"{self.repository_name}[PR {pull_request.number}]: Adding label {label} with color {color}"
         )

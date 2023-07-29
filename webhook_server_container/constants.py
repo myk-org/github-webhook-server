@@ -25,29 +25,27 @@ USER_LABELS_DICT = {
     VERIFIED_LABEL_STR: "0E8A16",
     WIP_STR: "B60205",
     LGTM_STR: "0E8A16",
-    "approve": "0E8A16",
 }
 
 STATIC_LABELS_DICT = {
     **USER_LABELS_DICT,
     CHERRY_PICKED_LABEL_PREFIX: "1D76DB",
-    "size/l": "F5621C",
-    "size/m": "F09C74",
-    "size/s": "0E8A16",
-    "size/xl": "D93F0B",
-    "size/xs": "ededed",
-    "size/xxl": "B60205",
+    "size/L": "F5621C",
+    "size/M": "F09C74",
+    "size/S": "0E8A16",
+    "size/XL": "D93F0B",
+    "size/XS": "ededed",
+    "size/XXL": "B60205",
     NEEDS_REBASE_LABEL_STR: "B60205",
     CAN_BE_MERGED_STR: "0E8A17",
-    CHERRY_PICK_LABEL_PREFIX: "F09C74",
 }
 
 DYNAMIC_LABELS_DICT = {
     APPROVED_BY_LABEL_PREFIX: "0E8A16",
-    CHANGED_REQUESTED_BY_LABEL_PREFIX: "D93F0B",
-    COMMENTED_BY_LABEL_PREFIX: "BFD4F2",
+    COMMENTED_BY_LABEL_PREFIX: "D93F0B",
+    CHANGED_REQUESTED_BY_LABEL_PREFIX: "F5621C",
+    CHERRY_PICK_LABEL_PREFIX: "F09C74",
     "branch-": "1D76DB",
-    "base": "D4C5F9",
 }
 
 ALL_LABELS_DICT = {**STATIC_LABELS_DICT, **DYNAMIC_LABELS_DICT}

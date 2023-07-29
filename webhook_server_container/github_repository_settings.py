@@ -2,7 +2,12 @@ import contextlib
 import os
 from copy import deepcopy
 
-from constants import BUILD_CONTAINER_STR, FLASK_APP, PYTHON_MODULE_INSTALL_STR
+from constants import (
+    BUILD_CONTAINER_STR,
+    FLASK_APP,
+    PYTHON_MODULE_INSTALL_STR,
+    STATIC_LABELS_DICT,
+)
 from github import Github
 from github.GithubException import UnknownObjectException
 from utils import get_github_repo_api, get_repository_from_config, ignore_exceptions
@@ -98,6 +103,30 @@ def get_user_configures_status_checks(status_checks):
     return include_status_checks, exclude_status_checks
 
 
+def set_repository_labels(repository):
+    FLASK_APP.logger.info(f"Set repository {repository.name} labels")
+    repository_labels = {}
+    for label in repository.get_labels():
+        repository_labels[label.name] = {"object": label, "color": label.color}
+
+    for label, color in STATIC_LABELS_DICT.items():
+        if label in repository_labels:
+            repo_label = repository_labels[label]["object"]
+            if repository_labels[label]["color"] == color:
+                continue
+            else:
+                try:
+                    FLASK_APP.logger.info(
+                        f"{repository.name}: Edit repository label {label} with color {color}"
+                    )
+                    repo_label.edit(name=repo_label.name, color=color)
+                except UnknownObjectException:
+                    FLASK_APP.logger.info(
+                        f"{repository.name}: Add repository label {label} with color {color}"
+                    )
+                    repository.create_label(name=label, color=color)
+
+
 def set_repositories_settings():
     FLASK_APP.logger.info("Processing repositories")
     app_data = get_repository_from_config()
@@ -116,6 +145,7 @@ def set_repositories_settings():
         gapi = Github(login_or_token=data["token"])
         repo = get_github_repo_api(gapi=gapi, repository=repository)
         set_repository_settings(repository=repo)
+        set_repository_labels(repository=repo)
         if skip_repo(protected_branches=protected_branches, repo=repo):
             continue
 
