@@ -10,7 +10,12 @@ from constants import (
 )
 from github import Github
 from github.GithubException import UnknownObjectException
-from utils import get_github_repo_api, get_repository_from_config, ignore_exceptions
+
+from webhook_server_container.utils.helpers import (
+    get_github_repo_api,
+    get_repository_from_config,
+    ignore_exceptions,
+)
 
 
 @ignore_exceptions(retry=10)

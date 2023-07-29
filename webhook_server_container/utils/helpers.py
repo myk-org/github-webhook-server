@@ -5,7 +5,8 @@ from functools import wraps
 from time import sleep
 
 import yaml
-from constants import FLASK_APP
+
+from webhook_server_container.utils.constants import FLASK_APP
 
 
 def get_github_repo_api(gapi, repository):

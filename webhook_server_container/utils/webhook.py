@@ -1,8 +1,13 @@
 from multiprocessing import Process
 
-from constants import ALL_LABELS_DICT, FLASK_APP
 from github import Github
-from utils import get_github_repo_api, get_repository_from_config, ignore_exceptions
+
+from webhook_server_container.utils.constants import ALL_LABELS_DICT, FLASK_APP
+from webhook_server_container.utils.helpers import (
+    get_github_repo_api,
+    get_repository_from_config,
+    ignore_exceptions,
+)
 
 
 @ignore_exceptions()
