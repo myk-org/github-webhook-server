@@ -131,6 +131,14 @@ Available user actions:
 </details>
     """
 
+    @property
+    def log_prefix(self):
+        return (
+            f"{self.repository_name}[PR {self.pull_request.number}]:"
+            if self.pull_request
+            else f"{self.repository_name}:"
+        )
+
     def hash_token(self, message):
         hashed_message = message.replace(self.token, "*****")
         return hashed_message
@@ -221,7 +229,7 @@ Available user actions:
                 return commit_obj.get_pulls()[0]
 
         self.app.logger.info(
-            f"{self.repository_name}: No issue or pull_request found in hook data"
+            f"{self.log_prefix} No issue or pull_request found in hook data"
         )
 
     def _get_last_commit(self):
@@ -235,11 +243,11 @@ Available user actions:
 
     def _remove_label(self, label):
         if self.label_exists_in_pull_request(label=label):
-            self.app.logger.info(f"{self.repository_name}: Removing label {label}")
+            self.app.logger.info(f"{self.log_prefix} Removing label {label}")
             return self.pull_request.remove_from_labels(label)
 
         self.app.logger.warning(
-            f"{self.repository_name}[PR {self.pull_request.number}]: Label {label} not found and cannot be removed"
+            f"{self.log_prefix} Label {label} not found and cannot be removed"
         )
 
     def _add_label(self, label):
@@ -250,13 +258,13 @@ Available user actions:
 
         if self.label_exists_in_pull_request(label=label):
             self.app.logger.info(
-                f"{self.repository_name}: Label {label} already assign to PR {self.pull_request.number}"
+                f"{self.log_prefix} Label {label} already assign to PR {self.pull_request.number}"
             )
             return
 
         if label in STATIC_LABELS_DICT:
             self.app.logger.info(
-                f"{self.repository_name}: Adding pull request label {label} to {self.pull_request.number}"
+                f"{self.log_prefix} Adding pull request label {label} to {self.pull_request.number}"
             )
             return self.pull_request.add_to_labels(label)
 
@@ -266,30 +274,29 @@ Available user actions:
             if label in _label
         ]
         self.app.logger.info(
-            f"{self.repository_name}[PR {self.pull_request.number}]: Label {label} was "
+            f"{self.log_prefix} Label {label} was "
             f"{'found' if _color else 'not found'} in labels dict"
         )
         color = _color[0] if _color else "D4C5F9"
         self.app.logger.info(
-            f"{self.repository_name}[PR {self.pull_request.number}]: Adding label {label} with color {color}"
+            f"{self.log_prefix} Adding label {label} with color {color}"
         )
 
         try:
             _repo_label = self.repository.get_label(label)
             _repo_label.edit(name=_repo_label.name, color=color)
             self.app.logger.info(
-                f"{self.repository_name}[PR {self.pull_request.number}]: "
+                f"{self.log_prefix} "
                 f"Edit repository label {label} with color {color}"
             )
         except UnknownObjectException:
             self.app.logger.info(
-                f"{self.repository_name}[PR {self.pull_request.number}]: "
-                f"Add repository label {label} with color {color}"
+                f"{self.log_prefix} " f"Add repository label {label} with color {color}"
             )
             self.repository.create_label(name=label, color=color)
 
         self.app.logger.info(
-            f"{self.repository_name}: Adding pull request label {label} to {self.pull_request.number}"
+            f"{self.log_prefix} Adding pull request label {label} to {self.pull_request.number}"
         )
         return self.pull_request.add_to_labels(label)
 
@@ -327,17 +334,17 @@ Available user actions:
             yield _clone_path
 
         self.app.logger.info(
-            f"{self.repository_name}: Removing cloned repository: {_clone_path}"
+            f"{self.log_prefix} Removing cloned repository: {_clone_path}"
         )
         shutil.rmtree(_clone_path, ignore_errors=True)
 
     def _checkout_tag(self, tag):
-        self.app.logger.info(f"{self.repository_name}: Checking out tag: {tag}")
+        self.app.logger.info(f"{self.log_prefix} Checking out tag: {tag}")
         subprocess.check_output(shlex.split(f"git checkout {tag}"))
 
     def _checkout_new_branch(self, source_branch, new_branch_name):
         self.app.logger.info(
-            f"{self.repository_name}: Checking out new branch: {new_branch_name} from {source_branch}"
+            f"{self.log_prefix} Checking out new branch: {new_branch_name} from {source_branch}"
         )
         for cmd in (
             f"git checkout {source_branch}",
@@ -353,7 +360,7 @@ Available user actions:
     def _cherry_pick(self, source_branch, new_branch_name):
         def _issue_from_err(_out, _err, _commit_hash, _source_branch, _step):
             self.app.logger.error(
-                f"{self.repository_name}: [{_step}] Cherry pick failed: {_out} --- {_err}"
+                f"{self.log_prefix} [{_step}] Cherry pick failed: {_out} --- {_err}"
             )
             local_branch_name = f"{self.pull_request.head.ref}-{source_branch}"
             self.pull_request.create_issue_comment(
@@ -377,7 +384,7 @@ Available user actions:
 
         try:
             self.app.logger.info(
-                f"{self.repository_name}: Cherry picking [PR {self.pull_request.number}]{commit_hash} "
+                f"{self.log_prefix} Cherry picking [PR {self.pull_request.number}]{commit_hash} "
                 f"into {source_branch}, requested by {user_login}"
             )
             cherry_pick, out, err = run_command(
@@ -443,7 +450,7 @@ Available user actions:
         token = self.pypi["token"]
         try:
             if tool == "twine":
-                self.app.logger.info(f"{self.repository_name}: Start uploading to pypi")
+                self.app.logger.info(f"{self.log_prefix} Start uploading to pypi")
                 os.environ["TWINE_USERNAME"] = "__token__"
                 os.environ["TWINE_PASSWORD"] = token
                 build_folder = "dist"
@@ -458,9 +465,7 @@ Available user actions:
                 ).group(1)
                 dist_pkg_path = os.path.join(build_folder, dist_pkg)
                 subprocess.check_output(shlex.split(f"twine check {dist_pkg_path}"))
-                self.app.logger.info(
-                    f"{self.repository_name}: Uploading to pypi: {dist_pkg}"
-                )
+                self.app.logger.info(f"{self.log_prefix} Uploading to pypi: {dist_pkg}")
                 subprocess.check_output(
                     shlex.split(f"twine upload {dist_pkg_path} --skip-existing")
                 )
@@ -472,7 +477,7 @@ Available user actions:
 
             message = f"""
 ```
-{self.repository_name}: Version {tag_name} published to PYPI.
+{self.log_prefix} Version {tag_name} published to PYPI.
 ```
 """
             self.send_slack_message(
@@ -482,7 +487,7 @@ Available user actions:
 
         except Exception as ex:
             err = f"Publish to pypi failed [using {tool}]"
-            self.app.logger.error(f"{self.repository_name}: {err}")
+            self.app.logger.error(f"{self.log_prefix} {err}")
             self.repository.create_issue(
                 title=err,
                 body=ex,
@@ -490,7 +495,7 @@ Available user actions:
             return
 
         self.app.logger.info(
-            f"{self.repository_name}: Publish to pypi finished [using {tool}]"
+            f"{self.log_prefix} Publish to pypi finished [using {tool}]"
         )
 
     @property
@@ -513,14 +518,12 @@ Available user actions:
     def assign_reviewers(self):
         for reviewer in self.reviewers:
             if reviewer != self.pull_request.user.login:
-                self.app.logger.info(
-                    f"{self.repository_name}: Adding reviewer {reviewer}"
-                )
+                self.app.logger.info(f"{self.log_prefix} Adding reviewer {reviewer}")
                 try:
                     self.pull_request.create_review_request([reviewer])
                 except GithubException as ex:
                     self.app.logger.error(
-                        f"{self.repository_name}: Failed to add reviewer {reviewer}. {ex}"
+                        f"{self.log_prefix} Failed to add reviewer {reviewer}. {ex}"
                     )
 
     def add_size_label(self):
@@ -552,7 +555,7 @@ Available user actions:
             user_request.startswith(label_name) for label_name in USER_LABELS_DICT
         ):
             self.app.logger.info(
-                f"{self.repository_name}[PR {self.pull_request.number}]: "
+                f"{self.log_prefix} "
                 f"Label {user_request} is not a predefined one, "
                 "will not be added / removed."
             )
@@ -565,7 +568,7 @@ Available labels: {self.supported_user_labels_str}
             return
 
         self.app.logger.info(
-            f"{self.repository_name}[PR {self.pull_request.number}]: {'Remove' if remove else 'Add'} "
+            f"{self.log_prefix} {'Remove' if remove else 'Add'} "
             f"label requested by user {reviewed_user}: {user_request}"
         )
         self.create_comment_reaction(
@@ -585,15 +588,13 @@ Available labels: {self.supported_user_labels_str}
 
     def reset_verify_label(self):
         self.app.logger.info(
-            f"{self.repository_name}[PR {self.pull_request.number}]: Processing reset verify label on new commit push"
+            f"{self.log_prefix} Processing reset verify label on new commit push"
         )
         # Remove verified label
         self._remove_label(label=VERIFIED_LABEL_STR)
 
     def set_verify_check_pending(self):
-        self.app.logger.info(
-            f"{self.repository_name}[PR {self.pull_request.number}]: Processing set verified check pending"
-        )
+        self.app.logger.info(f"{self.log_prefix} Processing set verified check pending")
         last_commit = self._get_last_commit()
         last_commit.create_status(
             state=PENDING_STR,
@@ -602,9 +603,7 @@ Available labels: {self.supported_user_labels_str}
         )
 
     def set_verify_check_success(self):
-        self.app.logger.info(
-            f"{self.repository_name}[PR {self.pull_request.number}]: Set verified check to success"
-        )
+        self.app.logger.info(f"{self.log_prefix} Set verified check to success")
         last_commit = self._get_last_commit()
         last_commit.create_status(
             state=SUCCESS_STR,
@@ -616,9 +615,7 @@ Available labels: {self.supported_user_labels_str}
         if not self.tox_enabled:
             return
 
-        self.app.logger.info(
-            f"{self.repository_name}[PR {self.pull_request.number}]: Processing set tox check pending"
-        )
+        self.app.logger.info(f"{self.log_prefix} Processing set tox check pending")
         last_commit = self._get_last_commit()
         last_commit.create_status(
             state=PENDING_STR,
@@ -627,9 +624,7 @@ Available labels: {self.supported_user_labels_str}
         )
 
     def set_run_tox_check_failure(self, tox_out):
-        self.app.logger.info(
-            f"{self.repository_name}[PR {self.pull_request.number}]: Processing set tox check failure"
-        )
+        self.app.logger.info(f"{self.log_prefix} Processing set tox check failure")
         last_commit = self._get_last_commit()
         last_commit.create_status(
             state=FAILURE_STR,
@@ -639,9 +634,7 @@ Available labels: {self.supported_user_labels_str}
         )
 
     def set_run_tox_check_success(self, target_url):
-        self.app.logger.info(
-            f"{self.repository_name}[PR {self.pull_request.number}]: Set tox check to success"
-        )
+        self.app.logger.info(f"{self.log_prefix} Set tox check to success")
         last_commit = self._get_last_commit()
         last_commit.create_status(
             state=SUCCESS_STR,
@@ -651,9 +644,7 @@ Available labels: {self.supported_user_labels_str}
         )
 
     def set_merge_check_pending(self):
-        self.app.logger.info(
-            f"{self.repository_name}[PR {self.pull_request.number}]: Set merge check to pending"
-        )
+        self.app.logger.info(f"{self.log_prefix} Set merge check to pending")
         last_commit = self._get_last_commit()
         last_commit.create_status(
             state=PENDING_STR,
@@ -662,9 +653,7 @@ Available labels: {self.supported_user_labels_str}
         )
 
     def set_merge_check_success(self):
-        self.app.logger.info(
-            f"{self.repository_name}[PR {self.pull_request.number}]: Set merge check to success"
-        )
+        self.app.logger.info(f"{self.log_prefix} Set merge check to success")
         last_commit = self._get_last_commit()
         last_commit.create_status(
             state=SUCCESS_STR,
@@ -673,9 +662,7 @@ Available labels: {self.supported_user_labels_str}
         )
 
     def set_container_build_success(self, target_url):
-        self.app.logger.info(
-            f"{self.repository_name}[PR {self.pull_request.number}]: Set container build check to success"
-        )
+        self.app.logger.info(f"{self.log_prefix} Set container build check to success")
         last_commit = self._get_last_commit()
         last_commit.create_status(
             state=SUCCESS_STR,
@@ -685,9 +672,7 @@ Available labels: {self.supported_user_labels_str}
         )
 
     def set_container_build_failure(self, target_url):
-        self.app.logger.info(
-            f"{self.repository_name}[PR {self.pull_request.number}]: Set container build check to failure"
-        )
+        self.app.logger.info(f"{self.log_prefix} Set container build check to failure")
         last_commit = self._get_last_commit()
         last_commit.create_status(
             state=FAILURE_STR,
@@ -700,9 +685,7 @@ Available labels: {self.supported_user_labels_str}
         if not self.build_and_push_container:
             return
 
-        self.app.logger.info(
-            f"{self.repository_name}[PR {self.pull_request.number}]: Set container build check to pending"
-        )
+        self.app.logger.info(f"{self.log_prefix} Set container build check to pending")
         last_commit = self._get_last_commit()
         last_commit.create_status(
             state=PENDING_STR,
@@ -712,7 +695,7 @@ Available labels: {self.supported_user_labels_str}
 
     def set_python_module_install_success(self, target_url):
         self.app.logger.info(
-            f"{self.repository_name}[PR {self.pull_request.number}]: Set python-module-install check to success"
+            f"{self.log_prefix} Set python-module-install check to success"
         )
         last_commit = self._get_last_commit()
         last_commit.create_status(
@@ -724,7 +707,7 @@ Available labels: {self.supported_user_labels_str}
 
     def set_python_module_install_failure(self, target_url):
         self.app.logger.info(
-            f"{self.repository_name}[PR {self.pull_request.number}]: Set python-module-install check to failure"
+            f"{self.log_prefix} Set python-module-install check to failure"
         )
         last_commit = self._get_last_commit()
         last_commit.create_status(
@@ -739,7 +722,7 @@ Available labels: {self.supported_user_labels_str}
             return
 
         self.app.logger.info(
-            f"{self.repository_name}[PR {self.pull_request.number}]: Set python-module-install check to pending"
+            f"{self.log_prefix} Set python-module-install check to pending"
         )
         last_commit = self._get_last_commit()
         last_commit.create_status(
@@ -751,7 +734,7 @@ Available labels: {self.supported_user_labels_str}
     @ignore_exceptions(FLASK_APP.logger)
     def create_issue_for_new_pull_request(self):
         self.app.logger.info(
-            f"{self.repository_name}[PR {self.pull_request.number}]: "
+            f"{self.log_prefix} "
             f"Creating issue for new PR: {self.pull_request.title}"
         )
         self.repository.create_issue(
@@ -764,11 +747,11 @@ Available labels: {self.supported_user_labels_str}
         for issue in self.repository.get_issues():
             if issue.body == self._generate_issue_body():
                 self.app.logger.info(
-                    f"{self.repository_name}[PR {self.pull_request.number}]: Closing issue {issue.title} for PR: "
+                    f"{self.log_prefix} Closing issue {issue.title} for PR: "
                     f"{self.pull_request.title}"
                 )
                 issue.create_comment(
-                    f"{self.repository_name}[PR {self.pull_request.number}]: Closing issue for PR: "
+                    f"{self.log_prefix} Closing issue for PR: "
                     f"{self.pull_request.title}.\nPR was {hook_action}."
                 )
                 issue.edit(state="closed")
@@ -779,7 +762,7 @@ Available labels: {self.supported_user_labels_str}
             return
 
         issue_number = self.hook_data["issue"]["number"]
-        self.app.logger.info(f"{self.repository_name}: Processing issue {issue_number}")
+        self.app.logger.info(f"{self.log_prefix} Processing issue {issue_number}")
 
         self.pull_request = self._get_pull_request()
         if not self.pull_request:
@@ -789,7 +772,7 @@ Available labels: {self.supported_user_labels_str}
 
         if body == self.welcome_msg:
             self.app.logger.info(
-                f"{self.repository_name}[PR {self.pull_request.number}]: Welcome message found in issue "
+                f"{self.log_prefix} Welcome message found in issue "
                 f"{self.pull_request.title}. Not processing"
             )
             return
@@ -816,16 +799,14 @@ Available labels: {self.supported_user_labels_str}
         parent_committer = pull_request_data["user"]["login"]
 
         if hook_action == "opened":
-            self.app.logger.info(f"{self.repository_name}: Creating welcome comment")
+            self.app.logger.info(f"{self.log_prefix} Creating welcome comment")
             self.pull_request.create_issue_comment(self.welcome_msg)
             self.set_merge_check_pending()
             self.add_size_label()
             self._add_label(
                 label=f"{BRANCH_LABEL_PREFIX}{pull_request_data['base']['ref']}"
             )
-            self.app.logger.info(
-                f"{self.repository_name}[PR {self.pull_request.number}]: Adding PR owner as assignee"
-            )
+            self.app.logger.info(f"{self.log_prefix} Adding PR owner as assignee")
             self.pull_request.add_to_assignees(parent_committer)
             self.assign_reviewers()
             self.create_issue_for_new_pull_request()
@@ -880,7 +861,7 @@ Available labels: {self.supported_user_labels_str}
             if hook_action == "labeled":
                 if labeled == CAN_BE_MERGED_STR and parent_committer == self.api_user:
                     self.app.logger.info(
-                        f"{self.repository_name}[PR {self.pull_request.number}]: "
+                        f"{self.log_prefix} "
                         f"will be merged automatically. owner: {self.api_user}"
                     )
                     self.pull_request.create_issue_comment(
@@ -890,7 +871,7 @@ Available labels: {self.supported_user_labels_str}
                     return
 
             self.app.logger.info(
-                f"{self.repository_name}: PR {self.pull_request.number} {hook_action} with {labeled}"
+                f"{self.log_prefix} PR {self.pull_request.number} {hook_action} with {labeled}"
             )
             if self.verified_job and labeled == VERIFIED_LABEL_STR:
                 if hook_action == "labeled":
@@ -910,7 +891,7 @@ Available labels: {self.supported_user_labels_str}
         if tag and self.pypi:
             tag_name = tag.group(1)
             self.app.logger.info(
-                f"{self.repository_name}: Processing push for tag: {tag_name}"
+                f"{self.log_prefix} Processing push for tag: {tag_name}"
             )
             with self._clone_repository(path_suffix=f"{tag_name}-{shortuuid.uuid()}"):
                 self._checkout_tag(tag=tag_name)
@@ -941,7 +922,7 @@ Available labels: {self.supported_user_labels_str}
 
     def manage_reviewed_by_label(self, review_state, action, reviewed_user):
         self.app.logger.info(
-            f"{self.repository_name}[PR {self.pull_request.number}]: "
+            f"{self.log_prefix} "
             f"Processing label for review from {reviewed_user}. "
             f"review_state: {review_state}, action: {action}"
         )
@@ -982,7 +963,7 @@ Available labels: {self.supported_user_labels_str}
                 self._remove_label(label=reviewer_label)
         else:
             self.app.logger.warning(
-                f"{self.repository_name}: PR {self.pull_request.number} got unsupported review state: {review_state}"
+                f"{self.log_prefix} PR {self.pull_request.number} got unsupported review state: {review_state}"
             )
 
     def run_tox(self):
@@ -1023,11 +1004,11 @@ Available labels: {self.supported_user_labels_str}
         remove = False
         available_commands = ["retest", "cherry-pick"]
         if "sonarsource.github.io" in command:
-            self.app.logger.info(f"{self.repository_name}: command is in ignore list")
+            self.app.logger.info(f"{self.log_prefix} command is in ignore list")
             return
 
         self.app.logger.info(
-            f"{self.repository_name}[PR {self.pull_request.number}]: Processing label/user command {command} "
+            f"{self.log_prefix} Processing label/user command {command} "
             f"by user {reviewed_user}"
         )
         command_and_args = command.split(" ", 1)
@@ -1035,16 +1016,14 @@ Available labels: {self.supported_user_labels_str}
         _args = command_and_args[1] if len(command_and_args) > 1 else ""
         if len(command_and_args) > 1 and _args == "cancel":
             self.app.logger.info(
-                f"{self.repository_name}[PR {self.pull_request.number}]: "
-                f"User requested 'cancel' for command {_command}"
+                f"{self.log_prefix} " f"User requested 'cancel' for command {_command}"
             )
             remove = True
 
         if _command in available_commands:
             if not _args:
                 error_msg = (
-                    f"{self.repository_name}[PR {self.pull_request.number}]: "
-                    f"retest/cherry-pick requires an argument"
+                    f"{self.log_prefix} " f"retest/cherry-pick requires an argument"
                 )
                 self.app.logger.info(error_msg)
                 self.pull_request.create_issue_comment(error_msg)
@@ -1071,7 +1050,7 @@ Available labels: {self.supported_user_labels_str}
 
                 if _non_exits_target_branches_msg:
                     self.app.logger.info(
-                        f"{self.repository_name}[PR {self.pull_request.number}]: {_non_exits_target_branches_msg}"
+                        f"{self.log_prefix} {_non_exits_target_branches_msg}"
                     )
                     self.pull_request.create_issue_comment(
                         _non_exits_target_branches_msg
@@ -1087,7 +1066,7 @@ Available labels: {self.supported_user_labels_str}
 Cherry-pick requested for PR: `{self.pull_request.title}` by user `{reviewed_user}`
 Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automatic cheery-pick once the PR is merged
 """
-                        self.app.logger.info(f"{self.repository_name}: {info_msg}")
+                        self.app.logger.info(f"{self.log_prefix} {info_msg}")
                         self._get_last_commit()
                         self.pull_request.create_issue_comment(info_msg)
                         for _cp_label in cp_labels:
@@ -1102,7 +1081,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             elif _command == "retest":
                 if _args == "tox":
                     if not self.tox_enabled:
-                        error_msg = f"{self.repository_name}[PR {self.pull_request.number}]: Tox is not enabled."
+                        error_msg = f"{self.log_prefix} Tox is not enabled."
                         self.app.logger.info(error_msg)
                         self.pull_request.create_issue_comment(error_msg)
                         return
@@ -1125,15 +1104,14 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                             pass
                     else:
                         error_msg = (
-                            f"{self.repository_name}[PR {self.pull_request.number}]: "
-                            f"No build-container configured"
+                            f"{self.log_prefix} " f"No build-container configured"
                         )
                         self.app.logger.info(error_msg)
                         self.pull_request.create_issue_comment(error_msg)
 
                 elif _args == "python-module-install":
                     if not self.pypi:
-                        error_msg = f"{self.repository_name}[PR {self.pull_request.number}]: No pypi configured"
+                        error_msg = f"{self.log_prefix} No pypi configured"
                         self.app.logger.info(error_msg)
                         self.pull_request.create_issue_comment(error_msg)
                         return
@@ -1154,8 +1132,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 self._build_and_push_container()
             else:
                 error_msg = (
-                    f"{self.repository_name}[PR {self.pull_request.number}]: "
-                    f"No build-and-push-container configured"
+                    f"{self.log_prefix} " f"No build-and-push-container configured"
                 )
                 self.app.logger.info(error_msg)
                 self.pull_request.create_issue_comment(error_msg)
@@ -1187,7 +1164,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
     def cherry_pick(self, target_branch, reviewed_user=None):
         self.app.logger.info(
-            f"{self.repository_name}[PR {self.pull_request.number}]: Cherry-pick requested by user: "
+            f"{self.log_prefix} Cherry-pick requested by user: "
             f"{reviewed_user or 'by target-branch label'}"
         )
 
@@ -1239,7 +1216,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         """
         _can_be_merged = False
         self.app.logger.info(
-            f"{self.repository_name}: check if PR {self.pull_request.number} can be merged."
+            f"{self.log_prefix} check if PR {self.pull_request.number} can be merged."
         )
         _labels = self.pull_request_labels_names()
         _last_commit = self._get_last_commit()
@@ -1323,7 +1300,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 path_suffix=f"build-container-{shortuuid.uuid()}"
             ):
                 self.app.logger.info(
-                    f"{self.repository_name}: Current directory is {os.getcwd()}"
+                    f"{self.log_prefix} Current directory is {os.getcwd()}"
                 )
                 if self.pull_request and not self._checkout_pull_request():
                     yield
@@ -1341,11 +1318,11 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                         build_cmd = f"{build_cmd} {build_args}"
 
                     self.app.logger.info(
-                        f"{self.repository_name}: Build container image for {_container_repository_and_tag}"
+                        f"{self.log_prefix} Build container image for {_container_repository_and_tag}"
                     )
                     out = subprocess.check_output(shlex.split(build_cmd))
                     self.app.logger.info(
-                        f"{self.repository_name}: Done building {_container_repository_and_tag}"
+                        f"{self.log_prefix} Done building {_container_repository_and_tag}"
                     )
                     if self.pull_request and set_check:
                         with open(base_path, "w") as fd:
@@ -1374,7 +1351,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             _container_repository_and_tag = self._container_repository_and_tag()
             push_cmd = f"podman push --creds {repository_creds} {_container_repository_and_tag}"
             self.app.logger.info(
-                f"{self.repository_name}: Push container image to {_container_repository_and_tag}"
+                f"{self.log_prefix} Push container image to {_container_repository_and_tag}"
             )
 
             try:
@@ -1387,7 +1364,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 if self.slack_webhook_url:
                     message = f"""
 ```
-{self.repository_name}: New container for {_container_repository_and_tag} published.
+{self.log_prefix} New container for {_container_repository_and_tag} published.
 ```
 """
                     self.send_slack_message(
@@ -1396,12 +1373,12 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     )
 
                 self.app.logger.info(
-                    f"{self.repository_name}: Done push {_container_repository_and_tag}"
+                    f"{self.log_prefix} Done push {_container_repository_and_tag}"
                 )
 
             except subprocess.CalledProcessError as ex:
                 self.app.logger.error(
-                    f"{self.repository_name}: Failed to push {_container_repository_and_tag}. {ex}"
+                    f"{self.log_prefix} Failed to push {_container_repository_and_tag}. {ex}"
                 )
 
     def _install_python_module(self):
@@ -1410,26 +1387,20 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
         self.set_python_module_install_pending()
 
-        self.app.logger.info(
-            f"{self.repository_name}[PR {self.pull_request.number}]: Installing python module"
-        )
+        self.app.logger.info(f"{self.log_prefix} Installing python module")
         base_path = f"/webhook_server/python-module-install/{self.pull_request.number}"
         base_url = f"{self.webhook_url}{base_path}"
 
         with self._clone_repository(
             path_suffix=f"python-module-install-{shortuuid.uuid()}"
         ):
-            self.app.logger.info(
-                f"{self.repository_name}[PR {self.pull_request.number}]: Current directory: {os.getcwd()}"
-            )
+            self.app.logger.info(f"{self.log_prefix} Current directory: {os.getcwd()}")
             if not self._checkout_pull_request():
                 return
 
             try:
                 build_cmd = "pipx install . --include-deps --force"
-                self.app.logger.info(
-                    f"{self.repository_name}: Run command: {build_cmd}"
-                )
+                self.app.logger.info(f"{self.log_prefix} Run command: {build_cmd}")
                 out = subprocess.check_output(shlex.split(build_cmd))
                 with open(base_path, "w") as fd:
                     fd.write(out.decode("utf-8"))
@@ -1443,9 +1414,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
     def send_slack_message(self, message, webhook_url):
         slack_data = {"text": message}
-        self.app.logger.info(
-            f"{self.repository_name}: Sending message to slack: {message}"
-        )
+        self.app.logger.info(f"{self.log_prefix} Sending message to slack: {message}")
         response = requests.post(
             webhook_url,
             data=json.dumps(slack_data),
@@ -1463,7 +1432,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
         if parent_committer in (self.api_user, "pre-commit-ci[bot]"):
             self.app.logger.info(
-                f"{self.repository_name}[PR {self.pull_request.number}]: Committer {parent_committer} == API user "
+                f"{self.log_prefix} Committer {parent_committer} == API user "
                 f"{parent_committer}, Setting verified label"
             )
             self._add_label(label=VERIFIED_LABEL_STR)
@@ -1487,7 +1456,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             and rate_limit_remaining < minimum_limit
         ):
             self.app.logger.warning(
-                f"{self.repository_name}: Rate limit is below {minimum_limit} waiting till {rate_limit_reset}"
+                f"{self.log_prefix} Rate limit is below {minimum_limit} waiting till {rate_limit_reset}"
             )
             time_for_limit_reset = (
                 rate_limit_reset - datetime.datetime.utcnow()
