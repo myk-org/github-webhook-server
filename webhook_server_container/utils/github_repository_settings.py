@@ -2,15 +2,15 @@ import contextlib
 import os
 from copy import deepcopy
 
-from constants import (
+from github import Github
+from github.GithubException import UnknownObjectException
+
+from webhook_server_container.utils.constants import (
     BUILD_CONTAINER_STR,
     FLASK_APP,
     PYTHON_MODULE_INSTALL_STR,
     STATIC_LABELS_DICT,
 )
-from github import Github
-from github.GithubException import UnknownObjectException
-
 from webhook_server_container.utils.helpers import (
     get_github_repo_api,
     get_repository_from_config,
@@ -120,16 +120,15 @@ def set_repository_labels(repository):
             if repository_labels[label]["color"] == color:
                 continue
             else:
-                try:
-                    FLASK_APP.logger.info(
-                        f"{repository.name}: Edit repository label {label} with color {color}"
-                    )
-                    repo_label.edit(name=repo_label.name, color=color)
-                except UnknownObjectException:
-                    FLASK_APP.logger.info(
-                        f"{repository.name}: Add repository label {label} with color {color}"
-                    )
-                    repository.create_label(name=label, color=color)
+                FLASK_APP.logger.info(
+                    f"{repository.name}: Edit repository label {label} with color {color}"
+                )
+                repo_label.edit(name=repo_label.name, color=color)
+        else:
+            FLASK_APP.logger.info(
+                f"{repository.name}: Add repository label {label} with color {color}"
+            )
+            repository.create_label(name=label, color=color)
 
 
 def set_repositories_settings():

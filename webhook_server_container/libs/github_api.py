@@ -100,7 +100,7 @@ class GitHubApi:
             password=self.dockerhub_password,
         )
         self.supported_user_labels_str = "".join(
-            [f"* {label}\n" for label in USER_LABELS_DICT.keys()]
+            [f" * {label}\n" for label in USER_LABELS_DICT.keys()]
         )
         self.welcome_msg = f"""
 Report bugs in [Issues](https://github.com/myakove/github-webhook-server/issues)
@@ -271,7 +271,7 @@ Available user actions:
         _color = [
             DYNAMIC_LABELS_DICT.get(_label)
             for _label in DYNAMIC_LABELS_DICT
-            if label in _label
+            if _label in label
         ]
         self.app.logger.info(
             f"{self.log_prefix} Label {label} was "
@@ -562,7 +562,9 @@ Available user actions:
             self.pull_request.create_issue_comment(
                 body=f"""
 Label {user_request} is not a predefined one, will not be added / removed.
-Available labels: {self.supported_user_labels_str}
+Available labels:
+
+{self.supported_user_labels_str}
 """,
             )
             return
@@ -777,15 +779,20 @@ Available labels: {self.supported_user_labels_str}
             )
             return
 
-        _user_commands = body.split("/")
-        if _user_commands:
-            user_login = self.hook_data["sender"]["login"]
-            for user_command in _user_commands:
-                self.user_commands(
-                    command=user_command,
-                    reviewed_user=user_login,
-                    issue_comment_id=self.hook_data["issue"]["number"],
-                )
+        striped_body = body.strip()
+        _user_commands = list(
+            filter(
+                lambda x: x,
+                striped_body.split("/") if striped_body.startswith("/") else [],
+            )
+        )
+        user_login = self.hook_data["sender"]["login"]
+        for user_command in _user_commands:
+            self.user_commands(
+                command=user_command,
+                reviewed_user=user_login,
+                issue_comment_id=self.hook_data["comment"]["id"],
+            )
         self.check_if_can_be_merged()
 
     def process_pull_request_webhook_data(self):
@@ -839,12 +846,10 @@ Available labels: {self.supported_user_labels_str}
             self.set_container_build_pending()
             self.assign_reviewers()
             self.add_size_label()
-            self._process_verified(
-                parent_committer=parent_committer,
-            )
+            self._process_verified(parent_committer=parent_committer)
             self._install_python_module()
             reviewed_by_labels = [
-                label for label in self.pull_request.labels if "By-" in label
+                label.name for label in self.pull_request.labels if "By-" in label.name
             ]
             for _reviewed_label in reviewed_by_labels:
                 self._remove_label(label=_reviewed_label)
@@ -908,15 +913,10 @@ Available labels: {self.supported_user_labels_str}
             approved
             changes_requested
             """
-            reviewed_user = self.hook_data["review"]["user"]["login"]
-            for _label in self.pull_request_labels_names():
-                if f"By-{reviewed_user}" in _label:
-                    self._remove_label(label=_label)
-
             self.manage_reviewed_by_label(
                 review_state=self.hook_data["review"]["state"],
                 action=ADD_STR,
-                reviewed_user=reviewed_user,
+                reviewed_user=self.hook_data["review"]["user"]["login"],
             )
         self.check_if_can_be_merged()
 
@@ -928,25 +928,28 @@ Available labels: {self.supported_user_labels_str}
         )
         label_prefix = None
         label_to_remove = None
-        base_dict = self.hook_data.get("issue", self.hook_data.get("pull_request"))
-        pr_owner = base_dict["user"]["login"]
-        if pr_owner == reviewed_user:
-            self.app.logger.info(f"PR owner {pr_owner} set /lgtm, not adding label.")
-            return
 
         pull_request_labels = self.pull_request_labels_names()
 
         if review_state in ("approved", LGTM_STR):
+            base_dict = self.hook_data.get("issue", self.hook_data.get("pull_request"))
+            pr_owner = base_dict["user"]["login"]
+            if pr_owner == reviewed_user:
+                self.app.logger.info(
+                    f"{self.log_prefix} PR owner {pr_owner} set /lgtm, not adding label."
+                )
+                return
+
             label_prefix = APPROVED_BY_LABEL_PREFIX
-            label = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{reviewed_user}"
-            if label.lower() in pull_request_labels:
-                label_to_remove = label
+            _remove_label = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{reviewed_user}"
+            if _remove_label in pull_request_labels:
+                label_to_remove = _remove_label
 
         elif review_state == "changes_requested":
             label_prefix = CHANGED_REQUESTED_BY_LABEL_PREFIX
-            label = f"{APPROVED_BY_LABEL_PREFIX}{reviewed_user}"
-            if label.lower() in pull_request_labels:
-                label_to_remove = label
+            _remove_label = f"{APPROVED_BY_LABEL_PREFIX}{reviewed_user}"
+            if _remove_label in pull_request_labels:
+                label_to_remove = _remove_label
 
         elif review_state == "commented":
             label_prefix = COMMENTED_BY_LABEL_PREFIX

@@ -2,7 +2,7 @@ from multiprocessing import Process
 
 from github import Github
 
-from webhook_server_container.utils.constants import ALL_LABELS_DICT, FLASK_APP
+from webhook_server_container.utils.constants import FLASK_APP
 from webhook_server_container.utils.helpers import (
     get_github_repo_api,
     get_repository_from_config,
@@ -11,15 +11,26 @@ from webhook_server_container.utils.helpers import (
 
 
 @ignore_exceptions()
-def process_github_webhook(config, data, repository, webhook_ip):
+def process_github_webhook(data):
     token = data["token"]
-    events = data.get("events", ["*"])
+    repository = data["name"]
     gapi = Github(login_or_token=token)
     repo = get_github_repo_api(gapi=gapi, repository=repository)
     if not repo:
+        FLASK_APP.logger.error(f"Could not find repository {repository}")
         return
 
-    for _hook in repo.get_hooks():
+    webhook_ip = data["webhook_ip"]
+    config = {"url": f"{webhook_ip}/webhook_server", "content_type": "json"}
+    events = data.get("events", ["*"])
+
+    try:
+        hooks = list(repo.get_hooks())
+    except Exception as ex:
+        FLASK_APP.logger.error(f"Could not create webhook for {repository}: {ex}")
+        return
+
+    for _hook in hooks:
         hook_exists = webhook_ip in _hook.config["url"]
         if hook_exists:
             FLASK_APP.logger.info(
@@ -30,11 +41,7 @@ def process_github_webhook(config, data, repository, webhook_ip):
     FLASK_APP.logger.info(
         f"Creating webhook: {config['url']} for {repository} with events: {events}"
     )
-    repo.create_hook("web", config, events, active=True)
-    for label in repo.get_labels():
-        label_name = label.name.lower()
-        if label_name in ALL_LABELS_DICT:
-            label.edit(label.name, color=ALL_LABELS_DICT[label_name])
+    repo.create_hook(name="web", config=config, events=events, active=True)
 
 
 def create_webhook():
@@ -43,17 +50,7 @@ def create_webhook():
 
     procs = []
     for repo, data in repos["repositories"].items():
-        webhook_ip = data["webhook_ip"]
-        config = {"url": f"{webhook_ip}/webhook_server", "content_type": "json"}
-        repository = data["name"]
-        _args = (
-            config,
-            data,
-            repository,
-            webhook_ip,
-        )
-
-        proc = Process(target=process_github_webhook, args=_args)
+        proc = Process(target=process_github_webhook, kwargs={"data": data})
         procs.append(proc)
         proc.start()
 
