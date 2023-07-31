@@ -112,12 +112,13 @@ def set_repository_labels(repository):
     FLASK_APP.logger.info(f"Set repository {repository.name} labels")
     repository_labels = {}
     for label in repository.get_labels():
-        repository_labels[label.name] = {"object": label, "color": label.color}
+        repository_labels[label.name.lower()] = {"object": label, "color": label.color}
 
     for label, color in STATIC_LABELS_DICT.items():
-        if label in repository_labels:
-            repo_label = repository_labels[label]["object"]
-            if repository_labels[label]["color"] == color:
+        label_lower = label.lower()
+        if label_lower in repository_labels:
+            repo_label = repository_labels[label_lower]["object"]
+            if repository_labels[label_lower]["color"] == color:
                 continue
             else:
                 FLASK_APP.logger.info(
