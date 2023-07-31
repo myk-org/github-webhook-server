@@ -71,6 +71,7 @@ class GitHubApi:
         self.repository_name = hook_data["repository"]["name"]
         self.run_command_kwargs = {"verify_stderr": False, "check": False}
         self.pull_request = None
+        self.last_commit = None
 
         # filled by self._repo_data_from_config()
         self.dockerhub_username = None
@@ -168,6 +169,7 @@ Available user actions:
         elif data not in ignore_data:
             self.pull_request = self._get_pull_request()
             if self.pull_request:
+                self.last_commit = self._get_last_commit()
                 self.check_if_can_be_merged()
 
     @property
@@ -236,7 +238,7 @@ Available user actions:
         return list(self.pull_request.get_commits())[-1]
 
     def label_exists_in_pull_request(self, label):
-        return any(lb for lb in self.pull_request.labels if lb.name == label)
+        return any(lb for lb in self.pull_request_labels_names() if lb == label)
 
     def pull_request_labels_names(self):
         return [lb.name for lb in self.pull_request.labels]
@@ -269,7 +271,7 @@ Available user actions:
             return self.pull_request.add_to_labels(label)
 
         _color = [
-            DYNAMIC_LABELS_DICT.get(_label)
+            DYNAMIC_LABELS_DICT[_label]
             for _label in DYNAMIC_LABELS_DICT
             if _label in label
         ]
@@ -291,7 +293,7 @@ Available user actions:
             )
         except UnknownObjectException:
             self.app.logger.info(
-                f"{self.log_prefix} " f"Add repository label {label} with color {color}"
+                f"{self.log_prefix} Add repository label {label} with color {color}"
             )
             self.repository.create_label(name=label, color=color)
 
@@ -504,7 +506,7 @@ Available user actions:
             owners_content = self.repository.get_contents("OWNERS")
             return yaml.safe_load(owners_content.decoded_content)
         except UnknownObjectException:
-            self.app.logger.error(f"{self.repository_name} OWNERS file not found")
+            self.app.logger.error(f"{self.log_prefix} OWNERS file not found")
             return {}
 
     @property
@@ -597,8 +599,7 @@ Available labels:
 
     def set_verify_check_pending(self):
         self.app.logger.info(f"{self.log_prefix} Processing set verified check pending")
-        last_commit = self._get_last_commit()
-        last_commit.create_status(
+        self.last_commit.create_status(
             state=PENDING_STR,
             description=f"Waiting for verification (/{VERIFIED_LABEL_STR})",
             context=VERIFIED_LABEL_STR,
@@ -606,8 +607,7 @@ Available labels:
 
     def set_verify_check_success(self):
         self.app.logger.info(f"{self.log_prefix} Set verified check to success")
-        last_commit = self._get_last_commit()
-        last_commit.create_status(
+        self.last_commit.create_status(
             state=SUCCESS_STR,
             description=VERIFIED_LABEL_STR.title(),
             context=VERIFIED_LABEL_STR,
@@ -618,8 +618,7 @@ Available labels:
             return
 
         self.app.logger.info(f"{self.log_prefix} Processing set tox check pending")
-        last_commit = self._get_last_commit()
-        last_commit.create_status(
+        self.last_commit.create_status(
             state=PENDING_STR,
             description=PENDING_STR.title(),
             context="tox",
@@ -627,8 +626,7 @@ Available labels:
 
     def set_run_tox_check_failure(self, tox_out):
         self.app.logger.info(f"{self.log_prefix} Processing set tox check failure")
-        last_commit = self._get_last_commit()
-        last_commit.create_status(
+        self.last_commit.create_status(
             state=FAILURE_STR,
             description="Failed",
             target_url=tox_out,
@@ -637,8 +635,7 @@ Available labels:
 
     def set_run_tox_check_success(self, target_url):
         self.app.logger.info(f"{self.log_prefix} Set tox check to success")
-        last_commit = self._get_last_commit()
-        last_commit.create_status(
+        self.last_commit.create_status(
             state=SUCCESS_STR,
             description=SUCCESS_STR.title(),
             target_url=target_url,
@@ -647,8 +644,7 @@ Available labels:
 
     def set_merge_check_pending(self):
         self.app.logger.info(f"{self.log_prefix} Set merge check to pending")
-        last_commit = self._get_last_commit()
-        last_commit.create_status(
+        self.last_commit.create_status(
             state=PENDING_STR,
             description="Cannot be merged",
             context=CAN_BE_MERGED_STR,
@@ -656,8 +652,7 @@ Available labels:
 
     def set_merge_check_success(self):
         self.app.logger.info(f"{self.log_prefix} Set merge check to success")
-        last_commit = self._get_last_commit()
-        last_commit.create_status(
+        self.last_commit.create_status(
             state=SUCCESS_STR,
             description="Can be merged",
             context=CAN_BE_MERGED_STR,
@@ -665,8 +660,7 @@ Available labels:
 
     def set_container_build_success(self, target_url):
         self.app.logger.info(f"{self.log_prefix} Set container build check to success")
-        last_commit = self._get_last_commit()
-        last_commit.create_status(
+        self.last_commit.create_status(
             state=SUCCESS_STR,
             description=SUCCESS_STR.title(),
             context=BUILD_CONTAINER_STR,
@@ -675,8 +669,7 @@ Available labels:
 
     def set_container_build_failure(self, target_url):
         self.app.logger.info(f"{self.log_prefix} Set container build check to failure")
-        last_commit = self._get_last_commit()
-        last_commit.create_status(
+        self.last_commit.create_status(
             state=FAILURE_STR,
             description="Failed to build container",
             context=BUILD_CONTAINER_STR,
@@ -688,8 +681,7 @@ Available labels:
             return
 
         self.app.logger.info(f"{self.log_prefix} Set container build check to pending")
-        last_commit = self._get_last_commit()
-        last_commit.create_status(
+        self.last_commit.create_status(
             state=PENDING_STR,
             description="Waiting for container build",
             context=BUILD_CONTAINER_STR,
@@ -699,8 +691,7 @@ Available labels:
         self.app.logger.info(
             f"{self.log_prefix} Set python-module-install check to success"
         )
-        last_commit = self._get_last_commit()
-        last_commit.create_status(
+        self.last_commit.create_status(
             state=SUCCESS_STR,
             description=SUCCESS_STR.title(),
             context=PYTHON_MODULE_INSTALL_STR,
@@ -711,8 +702,7 @@ Available labels:
         self.app.logger.info(
             f"{self.log_prefix} Set python-module-install check to failure"
         )
-        last_commit = self._get_last_commit()
-        last_commit.create_status(
+        self.last_commit.create_status(
             state=FAILURE_STR,
             description="Failed to install python module",
             context=PYTHON_MODULE_INSTALL_STR,
@@ -726,8 +716,7 @@ Available labels:
         self.app.logger.info(
             f"{self.log_prefix} Set python-module-install check to pending"
         )
-        last_commit = self._get_last_commit()
-        last_commit.create_status(
+        self.last_commit.create_status(
             state=PENDING_STR,
             description="Waiting for python module install",
             context=PYTHON_MODULE_INSTALL_STR,
@@ -770,6 +759,8 @@ Available labels:
         if not self.pull_request:
             return
 
+        self.last_commit = self._get_last_commit()
+
         body = self.hook_data["comment"]["body"]
 
         if body == self.welcome_msg:
@@ -801,6 +792,8 @@ Available labels:
         self.pull_request = self._get_pull_request()
         if not self.pull_request:
             return
+
+        self.last_commit = self._get_last_commit()
 
         pull_request_data = self.hook_data["pull_request"]
         parent_committer = pull_request_data["user"]["login"]
@@ -909,6 +902,8 @@ Available labels:
         self.pull_request = self._get_pull_request()
         if not self.pull_request:
             return
+
+        self.last_commit = self._get_last_commit()
 
         if self.hook_data["action"] == "submitted":
             """
@@ -1073,7 +1068,6 @@ Cherry-pick requested for PR: `{self.pull_request.title}` by user `{reviewed_use
 Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automatic cheery-pick once the PR is merged
 """
                         self.app.logger.info(f"{self.log_prefix} {info_msg}")
-                        self._get_last_commit()
                         self.pull_request.create_issue_comment(info_msg)
                         for _cp_label in cp_labels:
                             self._add_label(label=_cp_label)
@@ -1196,14 +1190,12 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
     def needs_rebase(self):
         for pull_request in self.repository.get_pulls():
             self.app.logger.info(
-                f"{self.repository_name}[PR {pull_request.number}]: "
+                f"{self.log_prefix} "
                 "Sleep for 30 seconds before checking if rebase needed"
             )
             time.sleep(30)
             merge_state = pull_request.mergeable_state
-            self.app.logger.info(
-                f"{self.repository_name}[PR {pull_request.number}]: Mergeable state is {merge_state}"
-            )
+            self.app.logger.info(f"{self.log_prefix} Mergeable state is {merge_state}")
             if merge_state == "behind":
                 self._add_label(label=NEEDS_REBASE_LABEL_STR)
             else:
@@ -1225,16 +1217,15 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             f"{self.log_prefix} check if PR {self.pull_request.number} can be merged."
         )
         _labels = self.pull_request_labels_names()
-        _last_commit = self._get_last_commit()
         all_check_runs_passed = all(
             [
                 check_run.conclusion == SUCCESS_STR
-                for check_run in _last_commit.get_check_runs()
+                for check_run in self.last_commit.get_check_runs()
             ]
         )
         _final_statuses = {}
 
-        for _status in _last_commit.get_statuses():
+        for _status in self.last_commit.get_statuses():
             if _status.context == CAN_BE_MERGED_STR:
                 continue
 
@@ -1498,19 +1489,15 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         os.environ.pop(github_token_env)
 
     def _checkout_pull_request(self):
-        self.app.logger.info(
-            f"{self.repository_name} [{self.pull_request.number}]: Current directory: {os.getcwd()}"
-        )
+        self.app.logger.info(f"{self.log_prefix} Current directory: {os.getcwd()}")
         pr_number = f"origin/pr/{self.pull_request.number}"
         try:
             checkout_cmd = f"git checkout {pr_number}"
-            self.app.logger.info(
-                f"{self.repository_name} [{self.pull_request.number}]: Run command: {checkout_cmd}"
-            )
+            self.app.logger.info(f"{self.log_prefix} Run command: {checkout_cmd}")
             subprocess.check_output(shlex.split(checkout_cmd))
         except subprocess.CalledProcessError as ex:
             self.app.logger.error(
-                f"{self.repository_name} [{self.pull_request.number}]: checkout for {pr_number} failed: {ex}"
+                f"{self.log_prefix} checkout for {pr_number} failed: {ex}"
             )
             return False
         return True
