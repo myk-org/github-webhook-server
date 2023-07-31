@@ -18,14 +18,15 @@ RUN ln -s /usr/bin/python3 /usr/bin/python
 RUN python -m pip install pip --upgrade \
     && python -m pip install pipx importlib poetry tox
 
-COPY webhook_server_container pyproject.toml poetry.lock /app/
+COPY pyproject.toml poetry.lock README.md /github-webhook-server/
+COPY webhook_server_container /github-webhook-server/webhook_server_container/
 
-WORKDIR /app
+WORKDIR /github-webhook-server
 
-RUN poetry config cache-dir /app \
+RUN poetry config cache-dir /github-webhook-server \
     && poetry config virtualenvs.in-project true \
     && poetry config installer.max-workers 10 \
     && poetry install
 
 HEALTHCHECK CMD curl --fail http://127.0.0.1:5000/webhook_server/healthcheck || exit 1
-ENTRYPOINT ["poetry", "run", "python3", "/app/app.py"]
+ENTRYPOINT ["poetry", "run", "python3", "/github-webhook-server/webhook_server_container/app.py"]

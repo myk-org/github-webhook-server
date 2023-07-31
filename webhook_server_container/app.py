@@ -1,11 +1,14 @@
 import os
 
 import urllib3
-from constants import FLASK_APP
 from flask import Response, request
-from github_api import GitHubApi
-from github_repository_settings import set_repositories_settings
-from webhook import create_webhook
+
+from webhook_server_container.libs.github_api import GitHubApi
+from webhook_server_container.utils.constants import FLASK_APP
+from webhook_server_container.utils.github_repository_settings import (
+    set_repositories_settings,
+)
+from webhook_server_container.utils.webhook import create_webhook
 
 
 urllib3.disable_warnings()

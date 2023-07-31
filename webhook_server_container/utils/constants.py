@@ -3,6 +3,9 @@ from flask import Flask
 
 FLASK_APP = Flask("webhook-server")
 
+SUCCESS_STR = "success"
+PENDING_STR = "pending"
+FAILURE_STR = "failure"
 ADD_STR = "add"
 DELETE_STR = "delete"
 CAN_BE_MERGED_STR = "can-be-merged"
@@ -14,6 +17,7 @@ CHERRY_PICKED_LABEL_PREFIX = "CherryPicked"
 APPROVED_BY_LABEL_PREFIX = "ApprovedBy-"
 CHANGED_REQUESTED_BY_LABEL_PREFIX = "ChangesRequestedBy-"
 COMMENTED_BY_LABEL_PREFIX = "CommentedBy-"
+BRANCH_LABEL_PREFIX = "branch-"
 VERIFIED_LABEL_STR = "verified"
 LGTM_STR = "lgtm"
 NEEDS_REBASE_LABEL_STR = "needs-rebase"
@@ -45,7 +49,7 @@ DYNAMIC_LABELS_DICT = {
     COMMENTED_BY_LABEL_PREFIX: "D93F0B",
     CHANGED_REQUESTED_BY_LABEL_PREFIX: "F5621C",
     CHERRY_PICK_LABEL_PREFIX: "F09C74",
-    "branch-": "1D76DB",
+    BRANCH_LABEL_PREFIX: "1D76DB",
 }
 
 ALL_LABELS_DICT = {**STATIC_LABELS_DICT, **DYNAMIC_LABELS_DICT}
