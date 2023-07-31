@@ -473,7 +473,7 @@ Available user actions:
                 )
             elif tool == "poetry":
                 subprocess.check_output(
-                    shlex.split(f"poetry config pypi-token.pypi {token}")
+                    shlex.split(f"poetry config --local pypi-token.pypi {token}")
                 )
                 subprocess.check_output(shlex.split("poetry publish --build"))
 
