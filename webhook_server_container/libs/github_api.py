@@ -836,6 +836,10 @@ Available labels:
                 self.needs_rebase()
 
         if hook_action == "synchronize":
+            if self.pull_request.is_merged():
+                self.app.logger.info(f"{self.log_prefix}: PR is merged, not processing")
+                return
+
             self.set_container_build_pending()
             self.assign_reviewers()
             self.add_size_label()
