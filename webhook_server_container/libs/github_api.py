@@ -821,7 +821,7 @@ Available labels:
             self.close_issue_for_merged_or_closed_pr(hook_action=hook_action)
 
             if pull_request_data.get("merged"):
-                self.app.logger.info(f"PR {self.pull_request.number} is merged")
+                self.app.logger.info(f"{self.log_prefix}: PR is merged")
                 self._build_and_push_container()
 
                 for _label in self.pull_request.labels:
@@ -1275,7 +1275,11 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         """
 
     def _container_repository_and_tag(self):
-        tag = self.pull_request.number if self.pull_request else self.container_tag
+        tag = (
+            self.container_tag
+            if self.pull_request.is_merged()
+            else self.pull_request.number
+        )
         return f"{self.container_repository}:{tag}"
 
     @contextmanager
@@ -1336,7 +1340,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
                         yield self.set_container_build_failure(target_url=base_url)
 
-    def _build_and_push_container(self, pull_request=None):
+    def _build_and_push_container(self):
         if not self.build_and_push_container:
             return
 
@@ -1353,8 +1357,8 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
             try:
                 subprocess.check_output(shlex.split(push_cmd))
-                if pull_request:
-                    pull_request.create_issue_comment(
+                if self.pull_request:
+                    self.pull_request.create_issue_comment(
                         f"Container {_container_repository_and_tag} pushed"
                     )
 
