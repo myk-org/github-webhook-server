@@ -864,7 +864,10 @@ Available labels:
             labeled = self.hook_data["label"]["name"].lower()
 
             if hook_action == "labeled":
-                if labeled == CAN_BE_MERGED_STR and parent_committer == self.api_user:
+                if labeled == CAN_BE_MERGED_STR and parent_committer in (
+                    self.api_user,
+                    "pre-commit-ci[bot]",
+                ):
                     self.app.logger.info(
                         f"{self.log_prefix} "
                         f"will be merged automatically. owner: {self.api_user}"
