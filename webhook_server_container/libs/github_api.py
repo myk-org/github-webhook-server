@@ -571,7 +571,11 @@ Available user actions:
         else:
             _label = "XXL"
 
-        self._add_label(label=f"{SIZE_LABEL_PREFIX}{_label}")
+        size_label = f"{SIZE_LABEL_PREFIX}{_label}"
+        if size_label in self.pull_request_labels_names():
+            return
+
+        self._add_label(label=size_label)
 
     def label_by_user_comment(
         self, user_request, remove, reviewed_user, issue_comment_id
