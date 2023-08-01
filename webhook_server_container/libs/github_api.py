@@ -1282,18 +1282,18 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             for context in [*_final_statuses]
         )
 
-        check_retest_statuses = ["tox", "build-container", "python-module-install"]
-        needs_retest_statuses = []
-        if not _all_statuses_passed:
-            for _status in check_retest_statuses:
-                if _final_statuses.get(_status, {}).get("state") == PENDING_STR:
-                    needs_retest_statuses.append(_status)
-
-        if needs_retest_statuses:
-            issue_body = " ".join(
-                [f"/retest {_test}\n" for _test in check_retest_statuses]
-            )
-            self.pull_request.create_issue_comment(body=issue_body)
+        # check_retest_statuses = ["tox", "build-container", "python-module-install"]
+        # needs_retest_statuses = []
+        # if not _all_statuses_passed:
+        #     for _status in check_retest_statuses:
+        #         if _final_statuses.get(_status, {}).get("state") == PENDING_STR:
+        #             needs_retest_statuses.append(_status)
+        #
+        # if needs_retest_statuses:
+        #     issue_body = " ".join(
+        #         [f"/retest {_test}\n" for _test in check_retest_statuses]
+        #     )
+        #     self.pull_request.create_issue_comment(body=issue_body)
 
         if (
             VERIFIED_LABEL_STR in _labels
