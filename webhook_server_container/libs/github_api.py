@@ -13,7 +13,7 @@ from contextlib import contextmanager
 import requests
 import shortuuid
 import yaml
-from github import Github, GithubException
+from github import Auth, Github, GithubException, GithubIntegration
 from github.GithubException import UnknownObjectException
 
 from webhook_server_container.utils.constants import (
@@ -36,6 +36,7 @@ from webhook_server_container.utils.constants import (
     PENDING_STR,
     PYTHON_MODULE_INSTALL_STR,
     REACTIONS,
+    SIZE_LABEL_PREFIX,
     STATIC_LABELS_DICT,
     SUCCESS_STR,
     USER_LABELS_DICT,
@@ -46,6 +47,7 @@ from webhook_server_container.utils.dockerhub_rate_limit import DockerHub
 from webhook_server_container.utils.helpers import (
     extract_key_from_dict,
     get_github_repo_api,
+    get_repository_from_config,
     ignore_exceptions,
     run_command,
 )
@@ -85,15 +87,19 @@ class GitHubApi:
         self.token = None
         self.repository_full_name = None
         self.api_user = None
+        self.github_app_id = None
         # End of filled by self._repo_data_from_config()
 
         self._repo_data_from_config()
-        self.gapi = Github(login_or_token=self.token)
+        self.github_app_api = self.get_github_app_api()
+        self.github_api = Github(login_or_token=self.token)
         self.api_user = self._api_username
         self.repository = get_github_repo_api(
-            gapi=self.gapi, repository=self.repository_full_name
+            gapi=self.github_api, repository=self.repository_full_name
         )
-        self.size_label_prefix = "size/"
+        self.repository_by_github_app = get_github_repo_api(
+            gapi=self.github_app_api, repository=self.repository_full_name
+        )
         self.clone_repository_path = os.path.join("/", self.repository.name)
         self.check_rate_limit()
         self.dockerhub = DockerHub(
@@ -131,6 +137,18 @@ Available user actions:
 {self.supported_user_labels_str}
 </details>
     """
+
+    def get_github_app_api(self):
+        with open(
+            os.environ.get(
+                "WEBHOOK_APP_PRIVATE_KEY", "/config/webhook-server.private-key.pem"
+            )
+        ) as fd:
+            private_key = fd.read()
+
+        auth = Auth.AppAuth(app_id=self.github_app_id, private_key=private_key)
+        installation = GithubIntegration(auth=auth).get_installations()[0]
+        return installation.get_github_for_installation()
 
     @property
     def log_prefix(self):
@@ -174,28 +192,26 @@ Available user actions:
 
     @property
     def _api_username(self):
-        return self.gapi.get_user().login
+        return self.github_api.get_user().login
 
     def _repo_data_from_config(self):
-        config_file = os.environ.get("WEBHOOK_CONFIG_FILE", "/config/config.yaml")
-        with open(config_file) as fd:
-            repos = yaml.safe_load(fd)
-
-        data = repos["repositories"].get(self.repository_name)
-        if not data:
+        config_data = get_repository_from_config()
+        self.github_app_id = config_data["github-app-id"]
+        repo_data = config_data["repositories"].get(self.repository_name)
+        if not repo_data:
             raise RepositoryNotFoundError(
                 f"Repository {self.repository_name} not found in config file"
             )
 
-        self.token = data["token"]
-        self.repository_full_name = data["name"]
-        self.pypi = data.get("pypi")
-        self.verified_job = data.get("verified_job", True)
-        self.tox_enabled = data.get("tox")
-        self.webhook_url = data.get("webhook_ip")
-        self.slack_webhook_url = data.get("slack_webhook_url")
-        self.build_and_push_container = data.get("container")
-        self.dockerhub = data.get("docker")
+        self.token = repo_data["token"]
+        self.repository_full_name = repo_data["name"]
+        self.pypi = repo_data.get("pypi")
+        self.verified_job = repo_data.get("verified_job", True)
+        self.tox_enabled = repo_data.get("tox")
+        self.webhook_url = repo_data.get("webhook_ip")
+        self.slack_webhook_url = repo_data.get("slack_webhook_url")
+        self.build_and_push_container = repo_data.get("container")
+        self.dockerhub = repo_data.get("docker")
         if self.dockerhub:
             self.dockerhub_username = self.dockerhub["username"]
             self.dockerhub_password = self.dockerhub["password"]
@@ -242,6 +258,11 @@ Available user actions:
 
     def pull_request_labels_names(self):
         return [lb.name for lb in self.pull_request.labels]
+
+    def skip_merged_pull_request(self):
+        if self.pull_request.is_merged():
+            self.app.logger.info(f"{self.log_prefix}: PR is merged, not processing")
+            return True
 
     def _remove_label(self, label):
         if self.label_exists_in_pull_request(label=label):
@@ -548,7 +569,7 @@ Available user actions:
         else:
             _label = "XXL"
 
-        self._add_label(label=f"{self.size_label_prefix}{_label}")
+        self._add_label(label=f"{SIZE_LABEL_PREFIX}{_label}")
 
     def label_by_user_comment(
         self, user_request, remove, reviewed_user, issue_comment_id
@@ -587,8 +608,9 @@ Available labels:
                 reviewed_user=reviewed_user,
             )
 
-        label_func = self._remove_label if remove else self._add_label
-        label_func(label=user_request)
+        else:
+            label_func = self._remove_label if remove else self._add_label
+            label_func(label=user_request)
 
     def reset_verify_label(self):
         self.app.logger.info(
@@ -836,10 +858,6 @@ Available labels:
                 self.needs_rebase()
 
         if hook_action == "synchronize":
-            if self.pull_request.is_merged():
-                self.app.logger.info(f"{self.log_prefix}: PR is merged, not processing")
-                return
-
             self.set_container_build_pending()
             self.assign_reviewers()
             self.add_size_label()
@@ -1083,6 +1101,12 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                             )
 
             elif _command == "retest":
+                if self.skip_merged_pull_request():
+                    self.pull_request.create_issue_comment(
+                        "Pull request already merged, not running /retest"
+                    )
+                    return
+
                 if _args == "tox":
                     if not self.tox_enabled:
                         error_msg = f"{self.log_prefix} Tox is not enabled."
@@ -1135,13 +1159,17 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 )
                 self._build_and_push_container()
             else:
-                error_msg = (
-                    f"{self.log_prefix} " f"No build-and-push-container configured"
-                )
+                error_msg = f"{self.log_prefix} No build-and-push-container configured"
                 self.app.logger.info(error_msg)
                 self.pull_request.create_issue_comment(error_msg)
 
         elif _command == WIP_STR:
+            if self.skip_merged_pull_request():
+                self.pull_request.create_issue_comment(
+                    "Pull request already merged, not processing /wip"
+                )
+                return
+
             self.create_comment_reaction(
                 issue_comment_id=issue_comment_id,
                 reaction=REACTIONS.ok,
@@ -1159,6 +1187,12 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 )
 
         else:
+            if self.skip_merged_pull_request():
+                self.pull_request.create_issue_comment(
+                    f"Pull request already merged, not processing /{_command}"
+                )
+                return
+
             self.label_by_user_comment(
                 user_request=_command,
                 remove=remove,
@@ -1216,6 +1250,9 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             PR status is 'clean'.
             PR has no changed requests from reviewers.
         """
+        if self.skip_merged_pull_request():
+            return
+
         _can_be_merged = False
         self.app.logger.info(
             f"{self.log_prefix} check if PR {self.pull_request.number} can be merged."
@@ -1244,6 +1281,19 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             _final_statuses[context]["state"] == SUCCESS_STR
             for context in [*_final_statuses]
         )
+
+        check_retest_statuses = ["tox", "build-container", "python-module-install"]
+        needs_retest_statuses = []
+        if not _all_statuses_passed:
+            for _status in check_retest_statuses:
+                if _final_statuses.get(_status, {}).get("state") == PENDING_STR:
+                    needs_retest_statuses.append(_status)
+
+        if needs_retest_statuses:
+            issue_body = " ".join(
+                [f"/retest {_test}\n" for _test in check_retest_statuses]
+            )
+            self.pull_request.create_issue_comment(body=issue_body)
 
         if (
             VERIFIED_LABEL_STR in _labels
@@ -1448,7 +1498,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
     def check_rate_limit(self):
         minimum_limit = 50
-        rate_limit = self.gapi.get_rate_limit()
+        rate_limit = self.github_api.get_rate_limit()
         rate_limit_reset = rate_limit.core.reset
         rate_limit_remaining = rate_limit.core.remaining
         rate_limit_limit = rate_limit.core.limit
@@ -1468,7 +1518,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             ).seconds
             self.app.logger.info(f"Sleeping {time_for_limit_reset} seconds")
             time.sleep(time_for_limit_reset + 1)
-            rate_limit = self.gapi.get_rate_limit()
+            rate_limit = self.github_api.get_rate_limit()
             rate_limit_reset = rate_limit.core.reset
             rate_limit_remaining = rate_limit.core.remaining
 
