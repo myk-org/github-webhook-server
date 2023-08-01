@@ -69,11 +69,13 @@ def change_directory(directory, logger):
 
 
 class GitHubApi:
-    def __init__(self, hook_data, repositories_app_api):
+    def __init__(self, hook_data, repositories_app_api, missing_app_repositories):
         self.app = FLASK_APP
         self.hook_data = hook_data
         self.repository_name = hook_data["repository"]["name"]
         self.run_command_kwargs = {"verify_stderr": False, "check": False}
+        self.repositories_app_api = repositories_app_api
+        self.missing_app_repositories = missing_app_repositories
         self.pull_request = None
         self.last_commit = None
 
@@ -93,7 +95,7 @@ class GitHubApi:
         # End of filled by self._repo_data_from_config()
 
         self._repo_data_from_config()
-        self.github_app_api = repositories_app_api[self.repository_full_name]
+        self.github_app_api = self.get_github_app_api()
         self.github_api = Github(login_or_token=self.token)
         self.api_user = self._api_username
         self.repository = get_github_repo_api(
@@ -139,6 +141,14 @@ Available user actions:
 {self.supported_user_labels_str}
 </details>
     """
+
+    def get_github_app_api(self):
+        if self.repository_full_name in self.missing_app_repositories:
+            raise RepositoryNotFoundError(
+                f"Repository {self.repository_full_name} not found by manage-repositories-app, "
+                f"make sure the app installed (https://github.com/apps/manage-repositories-app)"
+            )
+        return self.repositories_app_api[self.repository_full_name]
 
     @property
     def log_prefix(self):
