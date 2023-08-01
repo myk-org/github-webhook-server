@@ -572,8 +572,18 @@ Available user actions:
             _label = "XXL"
 
         size_label = f"{SIZE_LABEL_PREFIX}{_label}"
+
+        exists_size_label = [
+            label
+            for label in self.pull_request_labels_names()
+            if label.startswith(SIZE_LABEL_PREFIX)
+        ]
+
         if size_label in self.pull_request_labels_names():
             return
+
+        if exists_size_label:
+            self._remove_label(label=exists_size_label[0])
 
         self._add_label(label=size_label)
 
