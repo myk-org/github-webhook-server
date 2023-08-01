@@ -134,16 +134,16 @@ def set_repository_labels(repository):
 
 def set_repositories_settings():
     FLASK_APP.logger.info("Processing repositories")
-    app_data = get_repository_from_config()
-    default_status_checks = app_data.get("default-status-checks", [])
-    docker = app_data.get("docker")
+    config_data = get_repository_from_config()
+    default_status_checks = config_data.get("default-status-checks", [])
+    docker = config_data.get("docker")
     if docker:
         FLASK_APP.logger.info("Login in to docker.io")
         docker_username = docker["username"]
         docker_password = docker["password"]
         os.system(f"podman login -u {docker_username} -p {docker_password} docker.io")
 
-    for repo, data in app_data["repositories"].items():
+    for repo, data in config_data["repositories"].items():
         repository = data["name"]
         FLASK_APP.logger.info(f"Processing repository {repository}")
         protected_branches = data.get("protected-branches", {})
