@@ -31,14 +31,16 @@ from webhook_server_container.utils.constants import (
     FAILURE_STR,
     FLASK_APP,
     HOLD_LABEL_STR,
+    IN_PROGRESS_STR,
     LGTM_STR,
     NEEDS_REBASE_LABEL_STR,
-    PENDING_STR,
     PYTHON_MODULE_INSTALL_STR,
+    QUEUED_STR,
     REACTIONS,
     SIZE_LABEL_PREFIX,
     STATIC_LABELS_DICT,
     SUCCESS_STR,
+    TOX_STR,
     USER_LABELS_DICT,
     VERIFIED_LABEL_STR,
     WIP_STR,
@@ -619,129 +621,160 @@ Available labels:
         # Remove verified label
         self._remove_label(label=VERIFIED_LABEL_STR)
 
-    def set_verify_check_pending(self):
-        self.app.logger.info(f"{self.log_prefix} Processing set verified check pending")
-        self.last_commit.create_status(
-            state=PENDING_STR,
-            description=f"Waiting for verification (/{VERIFIED_LABEL_STR})",
-            context=VERIFIED_LABEL_STR,
+    def set_verify_check_queued(self):
+        self.app.logger.info(
+            f"{self.log_prefix} Processing set verified check {QUEUED_STR}"
+        )
+
+        self.repository_by_github_app.create_check_run(
+            name=VERIFIED_LABEL_STR, head_sha=self.last_commit.sha, status=QUEUED_STR
         )
 
     def set_verify_check_success(self):
-        self.app.logger.info(f"{self.log_prefix} Set verified check to success")
-        self.last_commit.create_status(
-            state=SUCCESS_STR,
-            description=VERIFIED_LABEL_STR.title(),
-            context=VERIFIED_LABEL_STR,
+        self.app.logger.info(f"{self.log_prefix} Set verified check to {SUCCESS_STR}")
+        self.repository_by_github_app.create_check_run(
+            name=VERIFIED_LABEL_STR,
+            head_sha=self.last_commit.sha,
+            conclusion=SUCCESS_STR,
         )
 
-    def set_run_tox_check_pending(self):
+    def set_run_tox_check_queued(self):
         if not self.tox_enabled:
             return
 
-        self.app.logger.info(f"{self.log_prefix} Processing set tox check pending")
-        self.last_commit.create_status(
-            state=PENDING_STR,
-            description=PENDING_STR.title(),
-            context="tox",
+        self.app.logger.info(f"{self.log_prefix} Processing set tox check {QUEUED_STR}")
+        self.repository_by_github_app.create_check_run(
+            name=TOX_STR, head_sha=self.last_commit.sha, status=QUEUED_STR
         )
 
-    def set_run_tox_check_failure(self, tox_out):
-        self.app.logger.info(f"{self.log_prefix} Processing set tox check failure")
-        self.last_commit.create_status(
-            state=FAILURE_STR,
-            description="Failed",
-            target_url=tox_out,
-            context="tox",
+    def set_run_tox_check_in_progress(self):
+        self.app.logger.info(
+            f"{self.log_prefix} Processing set tox check {IN_PROGRESS_STR}"
+        )
+        self.repository_by_github_app.create_check_run(
+            name=TOX_STR, head_sha=self.last_commit.sha, status=IN_PROGRESS_STR
+        )
+
+    def set_run_tox_check_failure(self, target_url):
+        self.app.logger.info(
+            f"{self.log_prefix} Processing set tox check {FAILURE_STR}"
+        )
+        self.repository_by_github_app.create_check_run(
+            name=TOX_STR,
+            head_sha=self.last_commit.sha,
+            conclusion=FAILURE_STR,
+            details_url=target_url,
         )
 
     def set_run_tox_check_success(self, target_url):
-        self.app.logger.info(f"{self.log_prefix} Set tox check to success")
-        self.last_commit.create_status(
-            state=SUCCESS_STR,
-            description=SUCCESS_STR.title(),
-            target_url=target_url,
-            context="tox",
+        self.app.logger.info(f"{self.log_prefix} Set tox check to {SUCCESS_STR}")
+        self.repository_by_github_app.create_check_run(
+            name=TOX_STR,
+            head_sha=self.last_commit.sha,
+            conclusion=SUCCESS_STR,
+            details_url=target_url,
         )
 
-    def set_merge_check_pending(self):
-        self.app.logger.info(f"{self.log_prefix} Set merge check to pending")
-        self.last_commit.create_status(
-            state=PENDING_STR,
-            description="Cannot be merged",
-            context=CAN_BE_MERGED_STR,
+    def set_merge_check_queued(self):
+        self.app.logger.info(f"{self.log_prefix} Set merge check to {QUEUED_STR}")
+        self.repository_by_github_app.create_check_run(
+            name=CAN_BE_MERGED_STR, head_sha=self.last_commit.sha, status=QUEUED_STR
         )
 
     def set_merge_check_success(self):
-        self.app.logger.info(f"{self.log_prefix} Set merge check to success")
-        self.last_commit.create_status(
-            state=SUCCESS_STR,
-            description="Can be merged",
-            context=CAN_BE_MERGED_STR,
+        self.app.logger.info(f"{self.log_prefix} Set merge check to {SUCCESS_STR}")
+        self.repository_by_github_app.create_check_run(
+            name=CAN_BE_MERGED_STR,
+            head_sha=self.last_commit.sha,
+            conclusion=SUCCESS_STR,
         )
 
-    def set_container_build_success(self, target_url):
-        self.app.logger.info(f"{self.log_prefix} Set container build check to success")
-        self.last_commit.create_status(
-            state=SUCCESS_STR,
-            description=SUCCESS_STR.title(),
-            context=BUILD_CONTAINER_STR,
-            target_url=target_url,
-        )
-
-    def set_container_build_failure(self, target_url):
-        self.app.logger.info(f"{self.log_prefix} Set container build check to failure")
-        self.last_commit.create_status(
-            state=FAILURE_STR,
-            description="Failed to build container",
-            context=BUILD_CONTAINER_STR,
-            target_url=target_url,
-        )
-
-    def set_container_build_pending(self):
+    def set_container_build_queued(self):
         if not self.build_and_push_container:
             return
 
-        self.app.logger.info(f"{self.log_prefix} Set container build check to pending")
-        self.last_commit.create_status(
-            state=PENDING_STR,
-            description="Waiting for container build",
-            context=BUILD_CONTAINER_STR,
-        )
-
-    def set_python_module_install_success(self, target_url):
         self.app.logger.info(
-            f"{self.log_prefix} Set python-module-install check to success"
+            f"{self.log_prefix} Set container build check to {QUEUED_STR}"
         )
-        self.last_commit.create_status(
-            state=SUCCESS_STR,
-            description=SUCCESS_STR.title(),
-            context=PYTHON_MODULE_INSTALL_STR,
-            target_url=target_url,
+        self.repository_by_github_app.create_check_run(
+            name=BUILD_CONTAINER_STR, head_sha=self.last_commit.sha, status=QUEUED_STR
         )
 
-    def set_python_module_install_failure(self, target_url):
+    def set_container_build_in_progress(self):
         self.app.logger.info(
-            f"{self.log_prefix} Set python-module-install check to failure"
+            f"{self.log_prefix} Processing set tox check {IN_PROGRESS_STR}"
         )
-        self.last_commit.create_status(
-            state=FAILURE_STR,
-            description="Failed to install python module",
-            context=PYTHON_MODULE_INSTALL_STR,
-            target_url=target_url,
+        self.repository_by_github_app.create_check_run(
+            name=BUILD_CONTAINER_STR,
+            head_sha=self.last_commit.sha,
+            status=IN_PROGRESS_STR,
         )
 
-    def set_python_module_install_pending(self):
+    def set_container_build_success(self, target_url):
+        self.app.logger.info(
+            f"{self.log_prefix} Set container build check to {SUCCESS_STR}"
+        )
+        self.repository_by_github_app.create_check_run(
+            name=BUILD_CONTAINER_STR,
+            head_sha=self.last_commit.sha,
+            conclusion=SUCCESS_STR,
+            details_url=target_url,
+        )
+
+    def set_container_build_failure(self, target_url):
+        self.app.logger.info(
+            f"{self.log_prefix} Set container build check to {FAILURE_STR}"
+        )
+        self.repository_by_github_app.create_check_run(
+            name=BUILD_CONTAINER_STR,
+            head_sha=self.last_commit.sha,
+            conclusion=FAILURE_STR,
+            details_url=target_url,
+        )
+
+    def set_python_module_install_queued(self):
         if not self.pypi:
             return
 
         self.app.logger.info(
-            f"{self.log_prefix} Set python-module-install check to pending"
+            f"{self.log_prefix} Set python-module-install check to {QUEUED_STR}"
         )
-        self.last_commit.create_status(
-            state=PENDING_STR,
-            description="Waiting for python module install",
-            context=PYTHON_MODULE_INSTALL_STR,
+        self.repository_by_github_app.create_check_run(
+            name=PYTHON_MODULE_INSTALL_STR,
+            head_sha=self.last_commit.sha,
+            status=QUEUED_STR,
+        )
+
+    def set_python_module_install_in_progress(self):
+        self.app.logger.info(
+            f"{self.log_prefix} Processing set tox check {IN_PROGRESS_STR}"
+        )
+        self.repository_by_github_app.create_check_run(
+            name=PYTHON_MODULE_INSTALL_STR,
+            head_sha=self.last_commit.sha,
+            status=IN_PROGRESS_STR,
+        )
+
+    def set_python_module_install_success(self, target_url):
+        self.app.logger.info(
+            f"{self.log_prefix} Set python-module-install check to {SUCCESS_STR}"
+        )
+        self.repository_by_github_app.create_check_run(
+            name=PYTHON_MODULE_INSTALL_STR,
+            head_sha=self.last_commit.sha,
+            conclusion=SUCCESS_STR,
+            details_url=target_url,
+        )
+
+    def set_python_module_install_failure(self, target_url):
+        self.app.logger.info(
+            f"{self.log_prefix} Set python-module-install check to {FAILURE_STR}"
+        )
+        self.repository_by_github_app.create_check_run(
+            name=PYTHON_MODULE_INSTALL_STR,
+            head_sha=self.last_commit.sha,
+            conclusion=FAILURE_STR,
+            details_url=target_url,
         )
 
     @ignore_exceptions(FLASK_APP.logger)
@@ -823,7 +856,11 @@ Available labels:
         if hook_action == "opened":
             self.app.logger.info(f"{self.log_prefix} Creating welcome comment")
             self.pull_request.create_issue_comment(self.welcome_msg)
-            self.set_merge_check_pending()
+            self.set_merge_check_queued()
+            self.set_run_tox_check_queued()
+            self.set_python_module_install_queued()
+            self.set_container_build_queued()
+            self._process_verified(parent_committer=parent_committer)
             self.add_size_label()
             self._add_label(
                 label=f"{BRANCH_LABEL_PREFIX}{pull_request_data['base']['ref']}"
@@ -834,7 +871,6 @@ Available labels:
             self.create_issue_for_new_pull_request()
             self.run_tox()
             self._install_python_module()
-            self._process_verified(parent_committer=parent_committer)
 
             with self._build_container():
                 pass
@@ -858,11 +894,13 @@ Available labels:
                 self.needs_rebase()
 
         if hook_action == "synchronize":
-            self.set_container_build_pending()
+            self.set_merge_check_queued()
+            self.set_run_tox_check_queued()
+            self.set_python_module_install_queued()
+            self.set_container_build_queued()
+            self._process_verified(parent_committer=parent_committer)
             self.assign_reviewers()
             self.add_size_label()
-            self._process_verified(parent_committer=parent_committer)
-            self._install_python_module()
             reviewed_by_labels = [
                 label.name for label in self.pull_request.labels if "By-" in label.name
             ]
@@ -870,6 +908,7 @@ Available labels:
                 self._remove_label(label=_reviewed_label)
 
             self.run_tox()
+            self._install_python_module()
             with self._build_container():
                 pass
 
@@ -901,7 +940,7 @@ Available labels:
                     self.set_verify_check_success()
 
                 if hook_action == "unlabeled":
-                    self.set_verify_check_pending()
+                    self.set_verify_check_queued()
 
             if (
                 CAN_BE_MERGED_STR not in self.pull_request_labels_names()
@@ -993,7 +1032,7 @@ Available labels:
         if not self.tox_enabled:
             return
 
-        self.set_run_tox_check_pending()
+        self.set_run_tox_check_in_progress()
         base_path = f"/webhook_server/tox/{self.pull_request.number}"
         base_url = f"{self.webhook_url}{base_path}"
         with self._clone_repository(path_suffix=f"tox-{shortuuid.uuid()}"):
@@ -1013,7 +1052,7 @@ Available labels:
                     fd.write(ex.output.decode("utf-8"))
 
                 self.set_run_tox_check_failure(
-                    tox_out=base_url,
+                    target_url=base_url,
                 )
             else:
                 with open(base_path, "w") as fd:
@@ -1118,7 +1157,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                         issue_comment_id=issue_comment_id,
                         reaction=REACTIONS.ok,
                     )
-                    self.set_run_tox_check_pending()
+                    self.set_run_tox_check_in_progress()
                     self.run_tox()
 
                 elif _args == "build-container":
@@ -1148,7 +1187,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                         issue_comment_id=issue_comment_id,
                         reaction=REACTIONS.ok,
                     )
-                    self.set_python_module_install_pending()
+                    self.set_python_module_install_queued()
                     self._install_python_module()
 
         elif _command == "build-and-push-container":
@@ -1248,40 +1287,33 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             Has approved from one of the approvers.
             All required run check passed.
             PR status is 'clean'.
-            PR has no changed requests from reviewers.
+            PR has no changed requests from approvers.
         """
         if self.skip_merged_pull_request():
             return
 
-        _can_be_merged = False
-        self.app.logger.info(
-            f"{self.log_prefix} check if PR {self.pull_request.number} can be merged."
-        )
+        self.app.logger.info(f"{self.log_prefix} Check if can be merged.")
         _labels = self.pull_request_labels_names()
-        all_check_runs_passed = all(
-            [
-                check_run.conclusion == SUCCESS_STR
-                for check_run in self.last_commit.get_check_runs()
-            ]
-        )
-        _final_statuses = {}
 
-        for _status in self.last_commit.get_statuses():
-            if _status.context == CAN_BE_MERGED_STR:
-                continue
+        # _final_statuses = {}
+        #
+        # for _status in self.last_commit.get_statuses():
+        #     if _status.context == CAN_BE_MERGED_STR:
+        #         continue
+        #
+        #     _status_data = {"updated_at": _status.updated_at, "state": _status.state}
+        #     if _status.context in _final_statuses:
+        #         if _status.updated_at > _final_statuses[_status.context]["updated_at"]:
+        #             _final_statuses[_status.context] = _status_data
+        #     else:
+        #         _final_statuses[_status.context] = _status_data
+        #
+        # _all_statuses_passed = all(
+        #     _final_statuses[context]["state"] == SUCCESS_STR
+        #     for context in [*_final_statuses]
+        # )
 
-            _status_data = {"updated_at": _status.updated_at, "state": _status.state}
-            if _status.context in _final_statuses:
-                if _status.updated_at > _final_statuses[_status.context]["updated_at"]:
-                    _final_statuses[_status.context] = _status_data
-            else:
-                _final_statuses[_status.context] = _status_data
-
-        _all_statuses_passed = all(
-            _final_statuses[context]["state"] == SUCCESS_STR
-            for context in [*_final_statuses]
-        )
-
+        # TODO: refactor and enable once we can use 'check run'
         # check_retest_statuses = ["tox", "build-container", "python-module-install"]
         # needs_retest_statuses = []
         # if not _all_statuses_passed:
@@ -1295,29 +1327,42 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         #     )
         #     self.pull_request.create_issue_comment(body=issue_body)
 
-        if (
-            VERIFIED_LABEL_STR in _labels
-            and self.pull_request.mergeable_state != "behind"
-            and all_check_runs_passed
-            and _all_statuses_passed
-            and HOLD_LABEL_STR not in _labels
-        ):
-            for _label in _labels:
-                if CHANGED_REQUESTED_BY_LABEL_PREFIX.lower() in _label.lower():
-                    _can_be_merged = False
-                    break
-
-                if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
-                    approved_user = _label.split("-")[-1]
-                    if approved_user in self.approvers:
-                        self._add_label(label=CAN_BE_MERGED_STR)
-                        self.set_merge_check_success()
-                        _can_be_merged = True
-                        break
-
-        if not _can_be_merged:
+        if VERIFIED_LABEL_STR not in _labels or HOLD_LABEL_STR in _labels:
             self._remove_label(label=CAN_BE_MERGED_STR)
-            self.set_merge_check_pending()
+            self.set_merge_check_queued()
+            return
+
+        if self.pull_request.mergeable_state == "behind":
+            self._remove_label(label=CAN_BE_MERGED_STR)
+            self.set_merge_check_queued()
+            return
+
+        all_check_runs_passed = all(
+            [
+                check_run.conclusion == SUCCESS_STR
+                for check_run in self.last_commit.get_check_runs()
+            ]
+        )
+        if not all_check_runs_passed:
+            self._remove_label(label=CAN_BE_MERGED_STR)
+            self.set_merge_check_queued()
+            return
+
+        for _label in _labels:
+            if CHANGED_REQUESTED_BY_LABEL_PREFIX.lower() in _label.lower():
+                change_request_user = _label.split("-")[-1]
+                if change_request_user in self.approvers:
+                    self._remove_label(label=CAN_BE_MERGED_STR)
+                    self.set_merge_check_queued()
+                    return
+
+        for _label in _labels:
+            if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
+                approved_user = _label.split("-")[-1]
+                if approved_user in self.approvers:
+                    self._add_label(label=CAN_BE_MERGED_STR)
+                    self.set_merge_check_success()
+                    return
 
     @staticmethod
     def _comment_with_details(title, body):
@@ -1342,6 +1387,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             yield
 
         else:
+            self.set_container_build_in_progress()
             base_path = None
             base_url = None
 
@@ -1440,7 +1486,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         if not self.pypi:
             return
 
-        self.set_python_module_install_pending()
+        self.set_python_module_install_in_progress()
 
         self.app.logger.info(f"{self.log_prefix} Installing python module")
         base_path = f"/webhook_server/python-module-install/{self.pull_request.number}"
@@ -1494,7 +1540,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             self.set_verify_check_success()
         else:
             self.reset_verify_label()
-            self.set_verify_check_pending()
+            self.set_verify_check_queued()
 
     def check_rate_limit(self):
         minimum_limit = 50

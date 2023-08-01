@@ -3,9 +3,12 @@ from flask import Flask
 
 FLASK_APP = Flask("webhook-server")
 
+TOX_STR = "tox"
 SUCCESS_STR = "success"
 PENDING_STR = "pending"
 FAILURE_STR = "failure"
+IN_PROGRESS_STR = "in_progress"
+QUEUED_STR = "queued"
 ADD_STR = "add"
 DELETE_STR = "delete"
 CAN_BE_MERGED_STR = "can-be-merged"
