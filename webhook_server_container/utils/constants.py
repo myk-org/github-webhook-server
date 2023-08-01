@@ -5,7 +5,6 @@ FLASK_APP = Flask("webhook-server")
 
 TOX_STR = "tox"
 SUCCESS_STR = "success"
-PENDING_STR = "pending"
 FAILURE_STR = "failure"
 IN_PROGRESS_STR = "in_progress"
 QUEUED_STR = "queued"
