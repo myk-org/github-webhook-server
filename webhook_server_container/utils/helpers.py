@@ -9,19 +9,10 @@ import yaml
 from webhook_server_container.utils.constants import FLASK_APP
 
 
-def get_github_repo_api(gapi, repository):
-    try:
-        repo = gapi.get_repo(repository)
-    except Exception:
-        return
-    return repo
-
-
-def get_repository_from_config():
+def get_data_from_config():
     config_file = os.environ.get("WEBHOOK_CONFIG_FILE", "/config/config.yaml")
     with open(config_file) as fd:
-        repos = yaml.safe_load(fd)
-    return repos
+        return yaml.safe_load(fd)
 
 
 def extract_key_from_dict(key, _dict):
@@ -59,6 +50,11 @@ def ignore_exceptions(logger=None, retry=None):
         return inner
 
     return wrapper
+
+
+@ignore_exceptions()
+def get_github_repo_api(gapi, repository):
+    return gapi.get_repo(repository)
 
 
 def run_command(

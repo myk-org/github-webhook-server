@@ -3,9 +3,11 @@ from flask import Flask
 
 FLASK_APP = Flask("webhook-server")
 
+TOX_STR = "tox"
 SUCCESS_STR = "success"
-PENDING_STR = "pending"
 FAILURE_STR = "failure"
+IN_PROGRESS_STR = "in_progress"
+QUEUED_STR = "queued"
 ADD_STR = "add"
 DELETE_STR = "delete"
 CAN_BE_MERGED_STR = "can-be-merged"
@@ -22,6 +24,7 @@ VERIFIED_LABEL_STR = "verified"
 LGTM_STR = "lgtm"
 NEEDS_REBASE_LABEL_STR = "needs-rebase"
 HOLD_LABEL_STR = "hold"
+SIZE_LABEL_PREFIX = "size/"
 
 # Gitlab colors require a '#' prefix; e.g: #
 USER_LABELS_DICT = {
@@ -34,12 +37,12 @@ USER_LABELS_DICT = {
 STATIC_LABELS_DICT = {
     **USER_LABELS_DICT,
     CHERRY_PICKED_LABEL_PREFIX: "1D76DB",
-    "size/L": "F5621C",
-    "size/M": "F09C74",
-    "size/S": "0E8A16",
-    "size/XL": "D93F0B",
-    "size/XS": "ededed",
-    "size/XXL": "B60205",
+    f"{SIZE_LABEL_PREFIX}L": "F5621C",
+    f"{SIZE_LABEL_PREFIX}M": "F09C74",
+    f"{SIZE_LABEL_PREFIX}S": "0E8A16",
+    f"{SIZE_LABEL_PREFIX}XL": "D93F0B",
+    f"{SIZE_LABEL_PREFIX}XS": "ededed",
+    f"{SIZE_LABEL_PREFIX}XXL": "B60205",
     NEEDS_REBASE_LABEL_STR: "B60205",
     CAN_BE_MERGED_STR: "0E8A17",
 }

@@ -4,8 +4,8 @@ from github import Github
 
 from webhook_server_container.utils.constants import FLASK_APP
 from webhook_server_container.utils.helpers import (
+    get_data_from_config,
     get_github_repo_api,
-    get_repository_from_config,
     ignore_exceptions,
 )
 
@@ -46,7 +46,7 @@ def process_github_webhook(data):
 
 def create_webhook():
     FLASK_APP.logger.info("Preparing webhook configuration")
-    repos = get_repository_from_config()
+    repos = get_data_from_config()
 
     procs = []
     for repo, data in repos["repositories"].items():

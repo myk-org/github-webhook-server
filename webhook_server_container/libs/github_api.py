@@ -31,13 +31,16 @@ from webhook_server_container.utils.constants import (
     FAILURE_STR,
     FLASK_APP,
     HOLD_LABEL_STR,
+    IN_PROGRESS_STR,
     LGTM_STR,
     NEEDS_REBASE_LABEL_STR,
-    PENDING_STR,
     PYTHON_MODULE_INSTALL_STR,
+    QUEUED_STR,
     REACTIONS,
+    SIZE_LABEL_PREFIX,
     STATIC_LABELS_DICT,
     SUCCESS_STR,
+    TOX_STR,
     USER_LABELS_DICT,
     VERIFIED_LABEL_STR,
     WIP_STR,
@@ -45,10 +48,15 @@ from webhook_server_container.utils.constants import (
 from webhook_server_container.utils.dockerhub_rate_limit import DockerHub
 from webhook_server_container.utils.helpers import (
     extract_key_from_dict,
+    get_data_from_config,
     get_github_repo_api,
     ignore_exceptions,
     run_command,
 )
+
+
+class RepositoryNotFoundError(Exception):
+    pass
 
 
 @contextmanager
@@ -60,16 +68,14 @@ def change_directory(directory, logger):
     os.chdir(old_cwd)
 
 
-class RepositoryNotFoundError(Exception):
-    pass
-
-
 class GitHubApi:
-    def __init__(self, hook_data):
+    def __init__(self, hook_data, repositories_app_api, missing_app_repositories):
         self.app = FLASK_APP
         self.hook_data = hook_data
         self.repository_name = hook_data["repository"]["name"]
         self.run_command_kwargs = {"verify_stderr": False, "check": False}
+        self.repositories_app_api = repositories_app_api
+        self.missing_app_repositories = missing_app_repositories
         self.pull_request = None
         self.last_commit = None
 
@@ -85,15 +91,19 @@ class GitHubApi:
         self.token = None
         self.repository_full_name = None
         self.api_user = None
+        self.github_app_id = None
         # End of filled by self._repo_data_from_config()
 
         self._repo_data_from_config()
-        self.gapi = Github(login_or_token=self.token)
+        self.github_app_api = self.get_github_app_api()
+        self.github_api = Github(login_or_token=self.token)
         self.api_user = self._api_username
         self.repository = get_github_repo_api(
-            gapi=self.gapi, repository=self.repository_full_name
+            gapi=self.github_api, repository=self.repository_full_name
         )
-        self.size_label_prefix = "size/"
+        self.repository_by_github_app = get_github_repo_api(
+            gapi=self.github_app_api, repository=self.repository_full_name
+        )
         self.clone_repository_path = os.path.join("/", self.repository.name)
         self.check_rate_limit()
         self.dockerhub = DockerHub(
@@ -132,6 +142,14 @@ Available user actions:
 </details>
     """
 
+    def get_github_app_api(self):
+        if self.repository_full_name in self.missing_app_repositories:
+            raise RepositoryNotFoundError(
+                f"Repository {self.repository_full_name} not found by manage-repositories-app, "
+                f"make sure the app installed (https://github.com/apps/manage-repositories-app)"
+            )
+        return self.repositories_app_api[self.repository_full_name]
+
     @property
     def log_prefix(self):
         return (
@@ -167,6 +185,10 @@ Available user actions:
             self.process_pull_request_review_webhook_data()
 
         elif data not in ignore_data:
+            if data == "check_run":
+                if self.hook_data["check_run"]["name"] == CAN_BE_MERGED_STR:
+                    return
+
             self.pull_request = self._get_pull_request()
             if self.pull_request:
                 self.last_commit = self._get_last_commit()
@@ -174,28 +196,26 @@ Available user actions:
 
     @property
     def _api_username(self):
-        return self.gapi.get_user().login
+        return self.github_api.get_user().login
 
     def _repo_data_from_config(self):
-        config_file = os.environ.get("WEBHOOK_CONFIG_FILE", "/config/config.yaml")
-        with open(config_file) as fd:
-            repos = yaml.safe_load(fd)
-
-        data = repos["repositories"].get(self.repository_name)
-        if not data:
+        config_data = get_data_from_config()
+        self.github_app_id = config_data["github-app-id"]
+        repo_data = config_data["repositories"].get(self.repository_name)
+        if not repo_data:
             raise RepositoryNotFoundError(
                 f"Repository {self.repository_name} not found in config file"
             )
 
-        self.token = data["token"]
-        self.repository_full_name = data["name"]
-        self.pypi = data.get("pypi")
-        self.verified_job = data.get("verified_job", True)
-        self.tox_enabled = data.get("tox")
-        self.webhook_url = data.get("webhook_ip")
-        self.slack_webhook_url = data.get("slack_webhook_url")
-        self.build_and_push_container = data.get("container")
-        self.dockerhub = data.get("docker")
+        self.token = repo_data["token"]
+        self.repository_full_name = repo_data["name"]
+        self.pypi = repo_data.get("pypi")
+        self.verified_job = repo_data.get("verified_job", True)
+        self.tox_enabled = repo_data.get("tox")
+        self.webhook_url = repo_data.get("webhook_ip")
+        self.slack_webhook_url = repo_data.get("slack_webhook_url")
+        self.build_and_push_container = repo_data.get("container")
+        self.dockerhub = repo_data.get("docker")
         if self.dockerhub:
             self.dockerhub_username = self.dockerhub["username"]
             self.dockerhub_password = self.dockerhub["password"]
@@ -242,6 +262,11 @@ Available user actions:
 
     def pull_request_labels_names(self):
         return [lb.name for lb in self.pull_request.labels]
+
+    def skip_merged_pull_request(self):
+        if self.pull_request.is_merged():
+            self.app.logger.info(f"{self.log_prefix}: PR is merged, not processing")
+            return True
 
     def _remove_label(self, label):
         if self.label_exists_in_pull_request(label=label):
@@ -548,7 +573,21 @@ Available user actions:
         else:
             _label = "XXL"
 
-        self._add_label(label=f"{self.size_label_prefix}{_label}")
+        size_label = f"{SIZE_LABEL_PREFIX}{_label}"
+
+        if size_label in self.pull_request_labels_names():
+            return
+
+        exists_size_label = [
+            label
+            for label in self.pull_request_labels_names()
+            if label.startswith(SIZE_LABEL_PREFIX)
+        ]
+
+        if exists_size_label:
+            self._remove_label(label=exists_size_label[0])
+
+        self._add_label(label=size_label)
 
     def label_by_user_comment(
         self, user_request, remove, reviewed_user, issue_comment_id
@@ -587,8 +626,9 @@ Available labels:
                 reviewed_user=reviewed_user,
             )
 
-        label_func = self._remove_label if remove else self._add_label
-        label_func(label=user_request)
+        else:
+            label_func = self._remove_label if remove else self._add_label
+            label_func(label=user_request)
 
     def reset_verify_label(self):
         self.app.logger.info(
@@ -597,129 +637,160 @@ Available labels:
         # Remove verified label
         self._remove_label(label=VERIFIED_LABEL_STR)
 
-    def set_verify_check_pending(self):
-        self.app.logger.info(f"{self.log_prefix} Processing set verified check pending")
-        self.last_commit.create_status(
-            state=PENDING_STR,
-            description=f"Waiting for verification (/{VERIFIED_LABEL_STR})",
-            context=VERIFIED_LABEL_STR,
+    def set_verify_check_queued(self):
+        self.app.logger.info(
+            f"{self.log_prefix} Processing set verified check {QUEUED_STR}"
+        )
+
+        self.repository_by_github_app.create_check_run(
+            name=VERIFIED_LABEL_STR, head_sha=self.last_commit.sha, status=QUEUED_STR
         )
 
     def set_verify_check_success(self):
-        self.app.logger.info(f"{self.log_prefix} Set verified check to success")
-        self.last_commit.create_status(
-            state=SUCCESS_STR,
-            description=VERIFIED_LABEL_STR.title(),
-            context=VERIFIED_LABEL_STR,
+        self.app.logger.info(f"{self.log_prefix} Set verified check to {SUCCESS_STR}")
+        self.repository_by_github_app.create_check_run(
+            name=VERIFIED_LABEL_STR,
+            head_sha=self.last_commit.sha,
+            conclusion=SUCCESS_STR,
         )
 
-    def set_run_tox_check_pending(self):
+    def set_run_tox_check_queued(self):
         if not self.tox_enabled:
             return
 
-        self.app.logger.info(f"{self.log_prefix} Processing set tox check pending")
-        self.last_commit.create_status(
-            state=PENDING_STR,
-            description=PENDING_STR.title(),
-            context="tox",
+        self.app.logger.info(f"{self.log_prefix} Processing set tox check {QUEUED_STR}")
+        self.repository_by_github_app.create_check_run(
+            name=TOX_STR, head_sha=self.last_commit.sha, status=QUEUED_STR
         )
 
-    def set_run_tox_check_failure(self, tox_out):
-        self.app.logger.info(f"{self.log_prefix} Processing set tox check failure")
-        self.last_commit.create_status(
-            state=FAILURE_STR,
-            description="Failed",
-            target_url=tox_out,
-            context="tox",
+    def set_run_tox_check_in_progress(self):
+        self.app.logger.info(
+            f"{self.log_prefix} Processing set tox check {IN_PROGRESS_STR}"
+        )
+        self.repository_by_github_app.create_check_run(
+            name=TOX_STR, head_sha=self.last_commit.sha, status=IN_PROGRESS_STR
+        )
+
+    def set_run_tox_check_failure(self, target_url):
+        self.app.logger.info(
+            f"{self.log_prefix} Processing set tox check {FAILURE_STR}"
+        )
+        self.repository_by_github_app.create_check_run(
+            name=TOX_STR,
+            head_sha=self.last_commit.sha,
+            conclusion=FAILURE_STR,
+            details_url=target_url,
         )
 
     def set_run_tox_check_success(self, target_url):
-        self.app.logger.info(f"{self.log_prefix} Set tox check to success")
-        self.last_commit.create_status(
-            state=SUCCESS_STR,
-            description=SUCCESS_STR.title(),
-            target_url=target_url,
-            context="tox",
+        self.app.logger.info(f"{self.log_prefix} Set tox check to {SUCCESS_STR}")
+        self.repository_by_github_app.create_check_run(
+            name=TOX_STR,
+            head_sha=self.last_commit.sha,
+            conclusion=SUCCESS_STR,
+            details_url=target_url,
         )
 
-    def set_merge_check_pending(self):
-        self.app.logger.info(f"{self.log_prefix} Set merge check to pending")
-        self.last_commit.create_status(
-            state=PENDING_STR,
-            description="Cannot be merged",
-            context=CAN_BE_MERGED_STR,
+    def set_merge_check_queued(self):
+        self.app.logger.info(f"{self.log_prefix} Set merge check to {QUEUED_STR}")
+        self.repository_by_github_app.create_check_run(
+            name=CAN_BE_MERGED_STR, head_sha=self.last_commit.sha, status=QUEUED_STR
         )
 
     def set_merge_check_success(self):
-        self.app.logger.info(f"{self.log_prefix} Set merge check to success")
-        self.last_commit.create_status(
-            state=SUCCESS_STR,
-            description="Can be merged",
-            context=CAN_BE_MERGED_STR,
+        self.app.logger.info(f"{self.log_prefix} Set merge check to {SUCCESS_STR}")
+        self.repository_by_github_app.create_check_run(
+            name=CAN_BE_MERGED_STR,
+            head_sha=self.last_commit.sha,
+            conclusion=SUCCESS_STR,
         )
 
-    def set_container_build_success(self, target_url):
-        self.app.logger.info(f"{self.log_prefix} Set container build check to success")
-        self.last_commit.create_status(
-            state=SUCCESS_STR,
-            description=SUCCESS_STR.title(),
-            context=BUILD_CONTAINER_STR,
-            target_url=target_url,
-        )
-
-    def set_container_build_failure(self, target_url):
-        self.app.logger.info(f"{self.log_prefix} Set container build check to failure")
-        self.last_commit.create_status(
-            state=FAILURE_STR,
-            description="Failed to build container",
-            context=BUILD_CONTAINER_STR,
-            target_url=target_url,
-        )
-
-    def set_container_build_pending(self):
+    def set_container_build_queued(self):
         if not self.build_and_push_container:
             return
 
-        self.app.logger.info(f"{self.log_prefix} Set container build check to pending")
-        self.last_commit.create_status(
-            state=PENDING_STR,
-            description="Waiting for container build",
-            context=BUILD_CONTAINER_STR,
-        )
-
-    def set_python_module_install_success(self, target_url):
         self.app.logger.info(
-            f"{self.log_prefix} Set python-module-install check to success"
+            f"{self.log_prefix} Set container build check to {QUEUED_STR}"
         )
-        self.last_commit.create_status(
-            state=SUCCESS_STR,
-            description=SUCCESS_STR.title(),
-            context=PYTHON_MODULE_INSTALL_STR,
-            target_url=target_url,
+        self.repository_by_github_app.create_check_run(
+            name=BUILD_CONTAINER_STR, head_sha=self.last_commit.sha, status=QUEUED_STR
         )
 
-    def set_python_module_install_failure(self, target_url):
+    def set_container_build_in_progress(self):
         self.app.logger.info(
-            f"{self.log_prefix} Set python-module-install check to failure"
+            f"{self.log_prefix} Processing set tox check {IN_PROGRESS_STR}"
         )
-        self.last_commit.create_status(
-            state=FAILURE_STR,
-            description="Failed to install python module",
-            context=PYTHON_MODULE_INSTALL_STR,
-            target_url=target_url,
+        self.repository_by_github_app.create_check_run(
+            name=BUILD_CONTAINER_STR,
+            head_sha=self.last_commit.sha,
+            status=IN_PROGRESS_STR,
         )
 
-    def set_python_module_install_pending(self):
+    def set_container_build_success(self, target_url):
+        self.app.logger.info(
+            f"{self.log_prefix} Set container build check to {SUCCESS_STR}"
+        )
+        self.repository_by_github_app.create_check_run(
+            name=BUILD_CONTAINER_STR,
+            head_sha=self.last_commit.sha,
+            conclusion=SUCCESS_STR,
+            details_url=target_url,
+        )
+
+    def set_container_build_failure(self, target_url):
+        self.app.logger.info(
+            f"{self.log_prefix} Set container build check to {FAILURE_STR}"
+        )
+        self.repository_by_github_app.create_check_run(
+            name=BUILD_CONTAINER_STR,
+            head_sha=self.last_commit.sha,
+            conclusion=FAILURE_STR,
+            details_url=target_url,
+        )
+
+    def set_python_module_install_queued(self):
         if not self.pypi:
             return
 
         self.app.logger.info(
-            f"{self.log_prefix} Set python-module-install check to pending"
+            f"{self.log_prefix} Set python-module-install check to {QUEUED_STR}"
         )
-        self.last_commit.create_status(
-            state=PENDING_STR,
-            description="Waiting for python module install",
-            context=PYTHON_MODULE_INSTALL_STR,
+        self.repository_by_github_app.create_check_run(
+            name=PYTHON_MODULE_INSTALL_STR,
+            head_sha=self.last_commit.sha,
+            status=QUEUED_STR,
+        )
+
+    def set_python_module_install_in_progress(self):
+        self.app.logger.info(
+            f"{self.log_prefix} Processing set tox check {IN_PROGRESS_STR}"
+        )
+        self.repository_by_github_app.create_check_run(
+            name=PYTHON_MODULE_INSTALL_STR,
+            head_sha=self.last_commit.sha,
+            status=IN_PROGRESS_STR,
+        )
+
+    def set_python_module_install_success(self, target_url):
+        self.app.logger.info(
+            f"{self.log_prefix} Set python-module-install check to {SUCCESS_STR}"
+        )
+        self.repository_by_github_app.create_check_run(
+            name=PYTHON_MODULE_INSTALL_STR,
+            head_sha=self.last_commit.sha,
+            conclusion=SUCCESS_STR,
+            details_url=target_url,
+        )
+
+    def set_python_module_install_failure(self, target_url):
+        self.app.logger.info(
+            f"{self.log_prefix} Set python-module-install check to {FAILURE_STR}"
+        )
+        self.repository_by_github_app.create_check_run(
+            name=PYTHON_MODULE_INSTALL_STR,
+            head_sha=self.last_commit.sha,
+            conclusion=FAILURE_STR,
+            details_url=target_url,
         )
 
     @ignore_exceptions(FLASK_APP.logger)
@@ -801,7 +872,11 @@ Available labels:
         if hook_action == "opened":
             self.app.logger.info(f"{self.log_prefix} Creating welcome comment")
             self.pull_request.create_issue_comment(self.welcome_msg)
-            self.set_merge_check_pending()
+            self.set_merge_check_queued()
+            self.set_run_tox_check_queued()
+            self.set_python_module_install_queued()
+            self.set_container_build_queued()
+            self._process_verified(parent_committer=parent_committer)
             self.add_size_label()
             self._add_label(
                 label=f"{BRANCH_LABEL_PREFIX}{pull_request_data['base']['ref']}"
@@ -812,7 +887,6 @@ Available labels:
             self.create_issue_for_new_pull_request()
             self.run_tox()
             self._install_python_module()
-            self._process_verified(parent_committer=parent_committer)
 
             with self._build_container():
                 pass
@@ -836,15 +910,13 @@ Available labels:
                 self.needs_rebase()
 
         if hook_action == "synchronize":
-            if self.pull_request.is_merged():
-                self.app.logger.info(f"{self.log_prefix}: PR is merged, not processing")
-                return
-
-            self.set_container_build_pending()
+            self.set_merge_check_queued()
+            self.set_run_tox_check_queued()
+            self.set_python_module_install_queued()
+            self.set_container_build_queued()
+            self._process_verified(parent_committer=parent_committer)
             self.assign_reviewers()
             self.add_size_label()
-            self._process_verified(parent_committer=parent_committer)
-            self._install_python_module()
             reviewed_by_labels = [
                 label.name for label in self.pull_request.labels if "By-" in label.name
             ]
@@ -852,6 +924,7 @@ Available labels:
                 self._remove_label(label=_reviewed_label)
 
             self.run_tox()
+            self._install_python_module()
             with self._build_container():
                 pass
 
@@ -883,7 +956,7 @@ Available labels:
                     self.set_verify_check_success()
 
                 if hook_action == "unlabeled":
-                    self.set_verify_check_pending()
+                    self.set_verify_check_queued()
 
             if (
                 CAN_BE_MERGED_STR not in self.pull_request_labels_names()
@@ -975,7 +1048,7 @@ Available labels:
         if not self.tox_enabled:
             return
 
-        self.set_run_tox_check_pending()
+        self.set_run_tox_check_in_progress()
         base_path = f"/webhook_server/tox/{self.pull_request.number}"
         base_url = f"{self.webhook_url}{base_path}"
         with self._clone_repository(path_suffix=f"tox-{shortuuid.uuid()}"):
@@ -995,7 +1068,7 @@ Available labels:
                     fd.write(ex.output.decode("utf-8"))
 
                 self.set_run_tox_check_failure(
-                    tox_out=base_url,
+                    target_url=base_url,
                 )
             else:
                 with open(base_path, "w") as fd:
@@ -1083,6 +1156,12 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                             )
 
             elif _command == "retest":
+                if self.skip_merged_pull_request():
+                    self.pull_request.create_issue_comment(
+                        "Pull request already merged, not running /retest"
+                    )
+                    return
+
                 if _args == "tox":
                     if not self.tox_enabled:
                         error_msg = f"{self.log_prefix} Tox is not enabled."
@@ -1094,7 +1173,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                         issue_comment_id=issue_comment_id,
                         reaction=REACTIONS.ok,
                     )
-                    self.set_run_tox_check_pending()
+                    self.set_run_tox_check_in_progress()
                     self.run_tox()
 
                 elif _args == "build-container":
@@ -1107,9 +1186,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                         with self._build_container():
                             pass
                     else:
-                        error_msg = (
-                            f"{self.log_prefix} " f"No build-container configured"
-                        )
+                        error_msg = f"{self.log_prefix} No build-container configured"
                         self.app.logger.info(error_msg)
                         self.pull_request.create_issue_comment(error_msg)
 
@@ -1124,7 +1201,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                         issue_comment_id=issue_comment_id,
                         reaction=REACTIONS.ok,
                     )
-                    self.set_python_module_install_pending()
+                    self.set_python_module_install_queued()
                     self._install_python_module()
 
         elif _command == "build-and-push-container":
@@ -1135,13 +1212,17 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 )
                 self._build_and_push_container()
             else:
-                error_msg = (
-                    f"{self.log_prefix} " f"No build-and-push-container configured"
-                )
+                error_msg = f"{self.log_prefix} No build-and-push-container configured"
                 self.app.logger.info(error_msg)
                 self.pull_request.create_issue_comment(error_msg)
 
         elif _command == WIP_STR:
+            if self.skip_merged_pull_request():
+                self.pull_request.create_issue_comment(
+                    "Pull request already merged, not processing /wip"
+                )
+                return
+
             self.create_comment_reaction(
                 issue_comment_id=issue_comment_id,
                 reaction=REACTIONS.ok,
@@ -1159,6 +1240,12 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 )
 
         else:
+            if self.skip_merged_pull_request():
+                self.pull_request.create_issue_comment(
+                    f"Pull request already merged, not processing /{_command}"
+                )
+                return
+
             self.label_by_user_comment(
                 user_request=_command,
                 remove=remove,
@@ -1214,60 +1301,83 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             Has approved from one of the approvers.
             All required run check passed.
             PR status is 'clean'.
-            PR has no changed requests from reviewers.
+            PR has no changed requests from approvers.
         """
-        _can_be_merged = False
-        self.app.logger.info(
-            f"{self.log_prefix} check if PR {self.pull_request.number} can be merged."
-        )
+        if self.skip_merged_pull_request():
+            return
+
+        self.app.logger.info(f"{self.log_prefix} Check if can be merged.")
         _labels = self.pull_request_labels_names()
+
+        # _final_statuses = {}
+        #
+        # for _status in self.last_commit.get_statuses():
+        #     if _status.context == CAN_BE_MERGED_STR:
+        #         continue
+        #
+        #     _status_data = {"updated_at": _status.updated_at, "state": _status.state}
+        #     if _status.context in _final_statuses:
+        #         if _status.updated_at > _final_statuses[_status.context]["updated_at"]:
+        #             _final_statuses[_status.context] = _status_data
+        #     else:
+        #         _final_statuses[_status.context] = _status_data
+        #
+        # _all_statuses_passed = all(
+        #     _final_statuses[context]["state"] == SUCCESS_STR
+        #     for context in [*_final_statuses]
+        # )
+
+        # TODO: refactor and enable once we can use 'check run'
+        # check_retest_statuses = ["tox", "build-container", "python-module-install"]
+        # needs_retest_statuses = []
+        # if not _all_statuses_passed:
+        #     for _status in check_retest_statuses:
+        #         if _final_statuses.get(_status, {}).get("state") == PENDING_STR:
+        #             needs_retest_statuses.append(_status)
+        #
+        # if needs_retest_statuses:
+        #     issue_body = " ".join(
+        #         [f"/retest {_test}\n" for _test in check_retest_statuses]
+        #     )
+        #     self.pull_request.create_issue_comment(body=issue_body)
+
+        if VERIFIED_LABEL_STR not in _labels or HOLD_LABEL_STR in _labels:
+            self._remove_label(label=CAN_BE_MERGED_STR)
+            self.set_merge_check_queued()
+            return
+
+        if self.pull_request.mergeable_state == "behind":
+            self._remove_label(label=CAN_BE_MERGED_STR)
+            self.set_merge_check_queued()
+            return
+
         all_check_runs_passed = all(
             [
                 check_run.conclusion == SUCCESS_STR
                 for check_run in self.last_commit.get_check_runs()
+                if check_run.name != CAN_BE_MERGED_STR
             ]
         )
-        _final_statuses = {}
-
-        for _status in self.last_commit.get_statuses():
-            if _status.context == CAN_BE_MERGED_STR:
-                continue
-
-            _status_data = {"updated_at": _status.updated_at, "state": _status.state}
-            if _status.context in _final_statuses:
-                if _status.updated_at > _final_statuses[_status.context]["updated_at"]:
-                    _final_statuses[_status.context] = _status_data
-            else:
-                _final_statuses[_status.context] = _status_data
-
-        _all_statuses_passed = all(
-            _final_statuses[context]["state"] == SUCCESS_STR
-            for context in [*_final_statuses]
-        )
-
-        if (
-            VERIFIED_LABEL_STR in _labels
-            and self.pull_request.mergeable_state != "behind"
-            and all_check_runs_passed
-            and _all_statuses_passed
-            and HOLD_LABEL_STR not in _labels
-        ):
-            for _label in _labels:
-                if CHANGED_REQUESTED_BY_LABEL_PREFIX.lower() in _label.lower():
-                    _can_be_merged = False
-                    break
-
-                if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
-                    approved_user = _label.split("-")[-1]
-                    if approved_user in self.approvers:
-                        self._add_label(label=CAN_BE_MERGED_STR)
-                        self.set_merge_check_success()
-                        _can_be_merged = True
-                        break
-
-        if not _can_be_merged:
+        if not all_check_runs_passed:
             self._remove_label(label=CAN_BE_MERGED_STR)
-            self.set_merge_check_pending()
+            self.set_merge_check_queued()
+            return
+
+        for _label in _labels:
+            if CHANGED_REQUESTED_BY_LABEL_PREFIX.lower() in _label.lower():
+                change_request_user = _label.split("-")[-1]
+                if change_request_user in self.approvers:
+                    self._remove_label(label=CAN_BE_MERGED_STR)
+                    self.set_merge_check_queued()
+                    return
+
+        for _label in _labels:
+            if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
+                approved_user = _label.split("-")[-1]
+                if approved_user in self.approvers:
+                    self._add_label(label=CAN_BE_MERGED_STR)
+                    self.set_merge_check_success()
+                    return
 
     @staticmethod
     def _comment_with_details(title, body):
@@ -1292,6 +1402,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             yield
 
         else:
+            self.set_container_build_in_progress()
             base_path = None
             base_url = None
 
@@ -1390,7 +1501,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         if not self.pypi:
             return
 
-        self.set_python_module_install_pending()
+        self.set_python_module_install_in_progress()
 
         self.app.logger.info(f"{self.log_prefix} Installing python module")
         base_path = f"/webhook_server/python-module-install/{self.pull_request.number}"
@@ -1444,11 +1555,11 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             self.set_verify_check_success()
         else:
             self.reset_verify_label()
-            self.set_verify_check_pending()
+            self.set_verify_check_queued()
 
     def check_rate_limit(self):
         minimum_limit = 50
-        rate_limit = self.gapi.get_rate_limit()
+        rate_limit = self.github_api.get_rate_limit()
         rate_limit_reset = rate_limit.core.reset
         rate_limit_remaining = rate_limit.core.remaining
         rate_limit_limit = rate_limit.core.limit
@@ -1468,7 +1579,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             ).seconds
             self.app.logger.info(f"Sleeping {time_for_limit_reset} seconds")
             time.sleep(time_for_limit_reset + 1)
-            rate_limit = self.gapi.get_rate_limit()
+            rate_limit = self.github_api.get_rate_limit()
             rate_limit_reset = rate_limit.core.reset
             rate_limit_remaining = rate_limit.core.remaining
 

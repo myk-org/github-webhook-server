@@ -12,8 +12,8 @@ from webhook_server_container.utils.constants import (
     STATIC_LABELS_DICT,
 )
 from webhook_server_container.utils.helpers import (
+    get_data_from_config,
     get_github_repo_api,
-    get_repository_from_config,
     ignore_exceptions,
 )
 
@@ -134,25 +134,30 @@ def set_repository_labels(repository):
 
 def set_repositories_settings():
     FLASK_APP.logger.info("Processing repositories")
-    app_data = get_repository_from_config()
-    default_status_checks = app_data.get("default-status-checks", [])
-    docker = app_data.get("docker")
+    config_data = get_data_from_config()
+    default_status_checks = config_data.get("default-status-checks", [])
+    docker = config_data.get("docker")
     if docker:
         FLASK_APP.logger.info("Login in to docker.io")
         docker_username = docker["username"]
         docker_password = docker["password"]
         os.system(f"podman login -u {docker_username} -p {docker_password} docker.io")
 
-    for repo, data in app_data["repositories"].items():
+    for repo, data in config_data["repositories"].items():
         repository = data["name"]
         FLASK_APP.logger.info(f"Processing repository {repository}")
         protected_branches = data.get("protected-branches", {})
         gapi = Github(login_or_token=data["token"])
         repo = get_github_repo_api(gapi=gapi, repository=repository)
-        set_repository_settings(repository=repo)
-        set_repository_labels(repository=repo)
+        if not repo:
+            FLASK_APP.logger.error(f"{repository}: Failed to get repository")
+            continue
+
         if skip_repo(protected_branches=protected_branches, repo=repo):
             continue
+
+        set_repository_settings(repository=repo)
+        set_repository_labels(repository=repo)
 
         for branch_name, status_checks in protected_branches.items():
             branch = get_branch_sampler(repo=repo, branch_name=branch_name)
