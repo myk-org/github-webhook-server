@@ -1,4 +1,3 @@
-import contextlib
 import os
 import shlex
 import subprocess
@@ -10,12 +9,7 @@ import yaml
 from webhook_server_container.utils.constants import FLASK_APP
 
 
-def get_github_repo_api(gapi, repository):
-    with contextlib.suppress(Exception):
-        return gapi.get_repo(repository)
-
-
-def get_repository_from_config():
+def get_data_from_config():
     config_file = os.environ.get("WEBHOOK_CONFIG_FILE", "/config/config.yaml")
     with open(config_file) as fd:
         return yaml.safe_load(fd)
@@ -56,6 +50,11 @@ def ignore_exceptions(logger=None, retry=None):
         return inner
 
     return wrapper
+
+
+@ignore_exceptions()
+def get_github_repo_api(gapi, repository):
+    return gapi.get_repo(repository)
 
 
 def run_command(

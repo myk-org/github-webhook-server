@@ -13,7 +13,7 @@ from contextlib import contextmanager
 import requests
 import shortuuid
 import yaml
-from github import Auth, Github, GithubException, GithubIntegration
+from github import Github, GithubException
 from github.GithubException import UnknownObjectException
 
 from webhook_server_container.utils.constants import (
@@ -48,11 +48,15 @@ from webhook_server_container.utils.constants import (
 from webhook_server_container.utils.dockerhub_rate_limit import DockerHub
 from webhook_server_container.utils.helpers import (
     extract_key_from_dict,
+    get_data_from_config,
     get_github_repo_api,
-    get_repository_from_config,
     ignore_exceptions,
     run_command,
 )
+
+
+class RepositoryNotFoundError(Exception):
+    pass
 
 
 @contextmanager
@@ -64,12 +68,8 @@ def change_directory(directory, logger):
     os.chdir(old_cwd)
 
 
-class RepositoryNotFoundError(Exception):
-    pass
-
-
 class GitHubApi:
-    def __init__(self, hook_data):
+    def __init__(self, hook_data, repositories_app_api):
         self.app = FLASK_APP
         self.hook_data = hook_data
         self.repository_name = hook_data["repository"]["name"]
@@ -93,7 +93,7 @@ class GitHubApi:
         # End of filled by self._repo_data_from_config()
 
         self._repo_data_from_config()
-        self.github_app_api = self.get_github_app_api()
+        self.github_app_api = repositories_app_api[self.repository_full_name]
         self.github_api = Github(login_or_token=self.token)
         self.api_user = self._api_username
         self.repository = get_github_repo_api(
@@ -140,18 +140,6 @@ Available user actions:
 </details>
     """
 
-    def get_github_app_api(self):
-        with open(
-            os.environ.get(
-                "WEBHOOK_APP_PRIVATE_KEY", "/config/webhook-server.private-key.pem"
-            )
-        ) as fd:
-            private_key = fd.read()
-
-        auth = Auth.AppAuth(app_id=self.github_app_id, private_key=private_key)
-        installation = GithubIntegration(auth=auth).get_installations()[0]
-        return installation.get_github_for_installation()
-
     @property
     def log_prefix(self):
         return (
@@ -187,6 +175,10 @@ Available user actions:
             self.process_pull_request_review_webhook_data()
 
         elif data not in ignore_data:
+            if data == "check_run":
+                if self.hook_data["check_run"]["name"] == CAN_BE_MERGED_STR:
+                    return
+
             self.pull_request = self._get_pull_request()
             if self.pull_request:
                 self.last_commit = self._get_last_commit()
@@ -197,7 +189,7 @@ Available user actions:
         return self.github_api.get_user().login
 
     def _repo_data_from_config(self):
-        config_data = get_repository_from_config()
+        config_data = get_data_from_config()
         self.github_app_id = config_data["github-app-id"]
         repo_data = config_data["repositories"].get(self.repository_name)
         if not repo_data:
@@ -1184,9 +1176,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                         with self._build_container():
                             pass
                     else:
-                        error_msg = (
-                            f"{self.log_prefix} " f"No build-container configured"
-                        )
+                        error_msg = f"{self.log_prefix} No build-container configured"
                         self.app.logger.info(error_msg)
                         self.pull_request.create_issue_comment(error_msg)
 
