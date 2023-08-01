@@ -6,6 +6,7 @@ services:
     build: webhook-server-container
     volumes:
       - ./config.yaml:/config.yaml:Z
+      - ./webhook-server.private-key.pem:/config/webhook-server.private-key.pem:Z
       - ./tox-results:/webhook_server/tox
       - ./build-container-results:/webhook_server/build-container
       - ./python-module-install:/webhook_server/python-module-install

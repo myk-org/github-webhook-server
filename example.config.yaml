@@ -1,3 +1,5 @@
+github-app-id: 123456 # GitHub app id
+
 docker: # Used to pull images from docker.io
   username: <username>
   password: <password>

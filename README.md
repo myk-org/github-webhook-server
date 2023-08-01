@@ -55,7 +55,7 @@ pypi:
   tool: twine
 ```
 
-if `pypi` configured for the repository a new version will be pushed to pypi on new GitHub new release
+if `pypi` configured for the repository a new version will be pushed to pypi on new GitHub release
 
 * `token`: pypi token with push permissions
 * `tool`: The tool to use to build the package, can be `twine` or `poetry`
