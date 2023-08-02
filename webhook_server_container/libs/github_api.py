@@ -1654,6 +1654,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
     def is_check_run_in_progress(self, check_run):
         last_commit_check_runs = list(self.last_commit.get_check_runs())
         for run in last_commit_check_runs:
-            if run.name == check_run:
+            if run.name == check_run and run.status == IN_PROGRESS_STR:
                 return True
         return False
