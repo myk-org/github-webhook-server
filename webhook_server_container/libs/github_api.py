@@ -1048,6 +1048,12 @@ Available labels:
         if not self.tox_enabled:
             return
 
+        if self.is_check_run_in_progress(check_run=TOX_STR):
+            self.app.logger.info(
+                f"{self.log_prefix} Check run is in progress, not running {TOX_STR}."
+            )
+            return
+
         self.set_run_tox_check_in_progress()
         base_path = f"/webhook_server/tox/{self.pull_request.number}"
         base_url = f"{self.webhook_url}{base_path}"
@@ -1301,6 +1307,18 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             return
 
         self.app.logger.info(f"{self.log_prefix} Check if can be merged.")
+        last_commit_check_runs = list(self.last_commit.get_check_runs())
+        if any(
+            [
+                check_run.status == IN_PROGRESS_STR
+                for check_run in last_commit_check_runs
+            ]
+        ):
+            self.app.logger.info(
+                f"{self.log_prefix} Some check runs in progress, skipping check if can be merged."
+            )
+            return
+
         self.set_merge_check_in_progress()
         _labels = self.pull_request_labels_names()
 
@@ -1314,7 +1332,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             self.set_merge_check_queued()
             return
 
-        last_commit_check_runs = list(self.last_commit.get_check_runs())
         all_check_runs_passed = all(
             [
                 check_run.conclusion == SUCCESS_STR
@@ -1325,6 +1342,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         if not all_check_runs_passed:
             self._remove_label(label=CAN_BE_MERGED_STR)
             self.set_merge_check_queued()
+            # TODO: Fix `run_retest_if_queued` and uncomment the call for it.
             # self.run_retest_if_queued(last_commit_check_runs=last_commit_check_runs)
             return
 
@@ -1367,6 +1385,12 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             yield
 
         else:
+            if self.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR):
+                self.app.logger.info(
+                    f"{self.log_prefix} Check run is in progress, not running {BUILD_CONTAINER_STR}."
+                )
+                return
+
             self.set_container_build_in_progress()
             base_path = None
             base_url = None
@@ -1465,6 +1489,12 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
     def _install_python_module(self):
         if not self.pypi:
+            return
+
+        if self.is_check_run_in_progress(check_run=PYTHON_MODULE_INSTALL_STR):
+            self.app.logger.info(
+                f"{self.log_prefix} Check run is in progress, not running {PYTHON_MODULE_INSTALL_STR}."
+            )
             return
 
         self.set_python_module_install_in_progress()
@@ -1602,7 +1632,8 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         with self._build_container():
             pass
 
-    def run_retest_if_queued(self, last_commit_check_runs):
+    def run_retest_if_queued(self):
+        last_commit_check_runs = list(self.last_commit.get_check_runs())
         for check_run in last_commit_check_runs:
             if check_run.status == QUEUED_STR:
                 if check_run.name == TOX_STR:
@@ -1619,3 +1650,10 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                         f"{self.log_prefix} retest {PYTHON_MODULE_INSTALL_STR}."
                     )
                     self._install_python_module()
+
+    def is_check_run_in_progress(self, check_run):
+        last_commit_check_runs = list(self.last_commit.get_check_runs())
+        for run in last_commit_check_runs:
+            if run.name == check_run:
+                return True
+        return False
