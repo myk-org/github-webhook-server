@@ -1166,7 +1166,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     self.set_run_tox_check_in_progress()
                     self.run_tox()
 
-                elif _args == "build-container":
+                elif _args == BUILD_CONTAINER_STR:
                     if self.build_and_push_container:
                         self.create_comment_reaction(
                             issue_comment_id=issue_comment_id,
@@ -1179,7 +1179,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                         self.app.logger.info(error_msg)
                         self.pull_request.create_issue_comment(error_msg)
 
-                elif _args == "python-module-install":
+                elif _args == PYTHON_MODULE_INSTALL_STR:
                     if not self.pypi:
                         error_msg = f"{self.log_prefix} No pypi configured"
                         self.app.logger.info(error_msg)
@@ -1298,20 +1298,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.set_merge_check_in_progress()
         _labels = self.pull_request_labels_names()
 
-        # TODO: refactor and enable once we can use 'check run'
-        # check_retest_statuses = ["tox", "build-container", "python-module-install"]
-        # needs_retest_statuses = []
-        # if not _all_statuses_passed:
-        #     for _status in check_retest_statuses:
-        #         if _final_statuses.get(_status, {}).get("state") == PENDING_STR:
-        #             needs_retest_statuses.append(_status)
-        #
-        # if needs_retest_statuses:
-        #     issue_body = " ".join(
-        #         [f"/retest {_test}\n" for _test in check_retest_statuses]
-        #     )
-        #     self.pull_request.create_issue_comment(body=issue_body)
-
         if VERIFIED_LABEL_STR not in _labels or HOLD_LABEL_STR in _labels:
             self._remove_label(label=CAN_BE_MERGED_STR)
             self.set_merge_check_queued()
@@ -1322,16 +1308,27 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             self.set_merge_check_queued()
             return
 
+        last_commit_check_runs = list(self.last_commit.get_check_runs())
         all_check_runs_passed = all(
             [
                 check_run.conclusion == SUCCESS_STR
-                for check_run in self.last_commit.get_check_runs()
+                for check_run in last_commit_check_runs
                 if check_run.name != CAN_BE_MERGED_STR
             ]
         )
         if not all_check_runs_passed:
             self._remove_label(label=CAN_BE_MERGED_STR)
             self.set_merge_check_queued()
+
+            for check_run in last_commit_check_runs:
+                if check_run.status == QUEUED_STR:
+                    if check_run.name == TOX_STR:
+                        self.run_tox()
+                    if check_run.name == BUILD_CONTAINER_STR:
+                        with self._build_container():
+                            pass
+                    if check_run.name == PYTHON_MODULE_INSTALL_STR:
+                        self._install_python_module()
             return
 
         for _label in _labels:
