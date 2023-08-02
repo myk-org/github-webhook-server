@@ -1424,69 +1424,64 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
     def _build_container(self, set_check=True):
         if not self.build_and_push_container:
-            yield
+            return
 
-        else:
-            if self.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR):
-                self.app.logger.info(
-                    f"{self.log_prefix} Check run is in progress, not running {BUILD_CONTAINER_STR}."
-                )
+        if self.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR):
+            self.app.logger.info(
+                f"{self.log_prefix} Check run is in progress, not running {BUILD_CONTAINER_STR}."
+            )
+            return
+
+        self.set_container_build_in_progress()
+        base_path = None
+        base_url = None
+
+        if self.pull_request:
+            base_path = f"/webhook_server/build-container/{self.pull_request.number}"
+            base_url = f"{self.webhook_url}{base_path}"
+
+        with self._clone_repository(path_suffix=f"build-container-{shortuuid.uuid()}"):
+            self.app.logger.info(
+                f"{self.log_prefix} Current directory is {os.getcwd()}"
+            )
+            if self.pull_request and not self._checkout_pull_request():
                 return
 
-            self.set_container_build_in_progress()
-            base_path = None
-            base_url = None
+            _container_repository_and_tag = self._container_repository_and_tag()
+            build_cmd = (
+                f"--network=host -f {self.dockerfile} "
+                f"-t {_container_repository_and_tag}"
+            )
+            if self.container_build_args:
+                build_args = [
+                    f"--build-arg {b_arg}" for b_arg in self.container_build_args
+                ][0]
+                build_cmd = f"{build_args} {build_cmd}"
 
-            if self.pull_request:
-                base_path = (
-                    f"/webhook_server/build-container/{self.pull_request.number}"
-                )
-                base_url = f"{self.webhook_url}{base_path}"
+            if self.container_command_args:
+                build_cmd = f"{' '.join(self.container_command_args)} {build_cmd}"
 
-            with self._clone_repository(
-                path_suffix=f"build-container-{shortuuid.uuid()}"
-            ):
-                self.app.logger.info(
-                    f"{self.log_prefix} Current directory is {os.getcwd()}"
-                )
-                if self.pull_request and not self._checkout_pull_request():
-                    return
+            podman_build_cmd = f"podman build {build_cmd}"
+            self.app.logger.info(
+                f"{self.log_prefix} Build container image for {_container_repository_and_tag}"
+            )
+            rc, out, err = run_command(
+                command=podman_build_cmd, log_prefix=self.log_prefix
+            )
+            if not rc and self.pull_request and set_check:
+                with open(base_path, "w") as fd:
+                    fd.write(f"stdout: {out}, stderr: {err}")
 
-                _container_repository_and_tag = self._container_repository_and_tag()
-                build_cmd = (
-                    f"--network=host -f {self.dockerfile} "
-                    f"-t {_container_repository_and_tag}"
-                )
-                if self.container_build_args:
-                    build_args = [
-                        f"--build-arg {b_arg}" for b_arg in self.container_build_args
-                    ][0]
-                    build_cmd = f"{build_args} {build_cmd}"
+                return self.set_container_build_failure(target_url=base_url)
 
-                if self.container_command_args:
-                    build_cmd = f"{' '.join(self.container_command_args)} {build_cmd}"
+            self.app.logger.info(
+                f"{self.log_prefix} Done building {_container_repository_and_tag}"
+            )
+            if self.pull_request and set_check:
+                with open(base_path, "w") as fd:
+                    fd.write(out)
 
-                podman_build_cmd = f"podman build {build_cmd}"
-                self.app.logger.info(
-                    f"{self.log_prefix} Build container image for {_container_repository_and_tag}"
-                )
-                rc, out, err = run_command(
-                    command=podman_build_cmd, log_prefix=self.log_prefix
-                )
-                if not rc and self.pull_request and set_check:
-                    with open(base_path, "w") as fd:
-                        fd.write(f"stdout: {out}, stderr: {err}")
-
-                    return self.set_container_build_failure(target_url=base_url)
-
-                self.app.logger.info(
-                    f"{self.log_prefix} Done building {_container_repository_and_tag}"
-                )
-                if self.pull_request and set_check:
-                    with open(base_path, "w") as fd:
-                        fd.write(out)
-
-                    return self.set_container_build_success(target_url=base_url)
+                return self.set_container_build_success(target_url=base_url)
 
     def _build_and_push_container(self):
         if not self.build_and_push_container:
