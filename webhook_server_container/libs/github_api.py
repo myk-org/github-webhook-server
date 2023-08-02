@@ -335,9 +335,6 @@ Available user actions:
     @contextmanager
     def _clone_repository(self, path_suffix):
         _clone_path = f"/tmp{self.clone_repository_path}-{path_suffix}"
-        self.app.logger.info(
-            f"Cloning repository: {self.repository_full_name} into {_clone_path}"
-        )
         clone_cmd = (
             f"git clone {self.repository.clone_url.replace('https://', f'https://{self.token}@')} "
             f"{_clone_path}"
@@ -366,13 +363,9 @@ Available user actions:
             yield
 
     def _checkout_tag(self, tag):
-        self.app.logger.info(f"{self.log_prefix} Checking out tag: {tag}")
-        return run_command(command=f"git checkout {tag}", log_prefix=self.log_prefix)
+        return run_command(command=f"git checkout {tag}", log_prefix=self.log_prefix)[0]
 
     def _checkout_new_branch(self, source_branch, new_branch_name):
-        self.app.logger.info(
-            f"{self.log_prefix} Checking out new branch: {new_branch_name} from {source_branch}"
-        )
         for cmd in (
             f"git checkout {source_branch}",
             f"git pull origin {source_branch}",
@@ -409,111 +402,97 @@ Available user actions:
         pull_request_url = self.pull_request.html_url
         user_login = self.pull_request.user.login
 
-        try:
-            self.app.logger.info(
-                f"{self.log_prefix} Cherry picking [PR {self.pull_request.number}]{commit_hash} "
-                f"into {source_branch}, requested by {user_login}"
-            )
-            cherry_pick, out, err = run_command(
-                command=f"git cherry-pick {commit_hash}",
-                log_prefix=self.log_prefix,
-            )
-            if not cherry_pick:
-                return _issue_from_err(
-                    _out=out,
-                    _err=err,
-                    _commit_hash=commit_hash,
-                    _source_branch=source_branch,
-                    _step="git cherry-pick",
-                )
-
-            git_push, out, err = run_command(
-                command=f"git push origin {new_branch_name}",
-                log_prefix=self.log_prefix,
-            )
-            if not git_push:
-                return _issue_from_err(
-                    _out=out,
-                    _err=err,
-                    _commit_hash=commit_hash,
-                    _source_branch=source_branch,
-                    _step="git push",
-                )
-
-            with self.set_os_env_github_token():
-                pull_request_cmd, out, err = run_command(
-                    command=f"hub pull-request "
-                    f"-b {source_branch} "
-                    f"-h {new_branch_name} "
-                    f"-l {CHERRY_PICKED_LABEL_PREFIX} "
-                    f"-m '{CHERRY_PICKED_LABEL_PREFIX}: [{source_branch}] {commit_msg}' "
-                    f"-m 'cherry-pick {pull_request_url} into {source_branch}' "
-                    f"-m 'requested-by {user_login}'",
-                    log_prefix=self.log_prefix,
-                )
-            if not pull_request_cmd:
-                _issue_from_err(
-                    _out=out,
-                    _err=err,
-                    _commit_hash=commit_hash,
-                    _source_branch=source_branch,
-                    _step="create pull request",
-                )
-                return False
-
-            return True
-        except Exception as ex:
-            _issue_from_err(
-                _out="",
-                _err=str(ex),
+        self.app.logger.info(
+            f"{self.log_prefix} Cherry picking [PR {self.pull_request.number}]{commit_hash} "
+            f"into {source_branch}, requested by {user_login}"
+        )
+        cherry_pick, out, err = run_command(
+            command=f"git cherry-pick {commit_hash}",
+            log_prefix=self.log_prefix,
+        )
+        if not cherry_pick:
+            return _issue_from_err(
+                _out=out,
+                _err=err,
                 _commit_hash=commit_hash,
                 _source_branch=source_branch,
-                _step="",
+                _step="git cherry-pick",
             )
-            return False
+
+        git_push, out, err = run_command(
+            command=f"git push origin {new_branch_name}",
+            log_prefix=self.log_prefix,
+        )
+        if not git_push:
+            return _issue_from_err(
+                _out=out,
+                _err=err,
+                _commit_hash=commit_hash,
+                _source_branch=source_branch,
+                _step="git push",
+            )
+
+        with self.set_os_env_github_token():
+            pull_request_cmd, out, err = run_command(
+                command=f"hub pull-request "
+                f"-b {source_branch} "
+                f"-h {new_branch_name} "
+                f"-l {CHERRY_PICKED_LABEL_PREFIX} "
+                f"-m '{CHERRY_PICKED_LABEL_PREFIX}: [{source_branch}] {commit_msg}' "
+                f"-m 'cherry-pick {pull_request_url} into {source_branch}' "
+                f"-m 'requested-by {user_login}'",
+                log_prefix=self.log_prefix,
+            )
+        if not pull_request_cmd:
+            return _issue_from_err(
+                _out=out,
+                _err=err,
+                _commit_hash=commit_hash,
+                _source_branch=source_branch,
+                _step="create pull request",
+            )
+        return True
 
     def upload_to_pypi(self, tag_name):
         tool = self.pypi["tool"]
         token = self.pypi["token"]
-        try:
-            if tool == "twine":
-                self.app.logger.info(f"{self.log_prefix} Start uploading to pypi")
-                os.environ["TWINE_USERNAME"] = "__token__"
-                os.environ["TWINE_PASSWORD"] = token
-                build_folder = "dist"
+        self.app.logger.info(f"{self.log_prefix} Start uploading to pypi")
+        rc, out, err = None, None, None
+        if tool == "twine":
+            os.environ["TWINE_USERNAME"] = "__token__"
+            os.environ["TWINE_PASSWORD"] = token
+            build_folder = "dist"
 
-                rc, _out, _ = run_command(
-                    command=f"{sys.executable} -m build --sdist --outdir {build_folder}/",
+            rc, out, err = run_command(
+                command=f"{sys.executable} -m build --sdist --outdir {build_folder}/",
+                log_prefix=self.log_prefix,
+            )
+            if rc:
+                dist_pkg = re.search(r"Successfully built (.*.tar.gz)", out).group(1)
+                dist_pkg_path = os.path.join(build_folder, dist_pkg)
+                rc, out, err = run_command(
+                    command=f"twine check {dist_pkg_path}",
                     log_prefix=self.log_prefix,
                 )
                 if rc:
-                    dist_pkg = re.search(r"Successfully built (.*.tar.gz)", _out).group(
-                        1
-                    )
-                    dist_pkg_path = os.path.join(build_folder, dist_pkg)
-                    if run_command(
-                        command=f"twine check {dist_pkg_path}",
+                    rc, out, err = run_command(
+                        command=f"twine upload {dist_pkg_path} --skip-existing",
                         log_prefix=self.log_prefix,
-                    )[0]:
-                        self.app.logger.info(
-                            f"{self.log_prefix} Uploading to pypi: {dist_pkg}"
-                        )
-                        run_command(
-                            command=f"twine upload {dist_pkg_path} --skip-existing",
-                            log_prefix=self.log_prefix,
-                        )
+                    )
 
-            elif (
-                tool == "poetry"
-                and run_command(
-                    command=f"poetry config --local pypi-token.pypi {token}",
-                    log_prefix=self.log_prefix,
-                )[0]
-            ):
-                run_command(
+        elif tool == "poetry":
+            rc, out, err = run_command(
+                command=f"poetry config --local pypi-token.pypi {token}",
+                log_prefix=self.log_prefix,
+            )
+            if rc:
+                rc, out, err = run_command(
                     command="poetry publish --build", log_prefix=self.log_prefix
                 )
-
+        if rc:
+            self.app.logger.info(
+                f"{self.log_prefix} Publish to pypi finished [using {tool}]"
+            )
             message = f"""
 ```
 {self.log_prefix} Version {tag_name} published to PYPI.
@@ -524,18 +503,16 @@ Available user actions:
                 webhook_url=self.slack_webhook_url,
             )
 
-        except Exception as ex:
+        else:
             err = f"Publish to pypi failed [using {tool}]"
             self.app.logger.error(f"{self.log_prefix} {err}")
             self.repository.create_issue(
                 title=err,
-                body=ex,
+                body=f"""
+stdout: `{out}`
+stderr: `{err}`
+""",
             )
-            return
-
-        self.app.logger.info(
-            f"{self.log_prefix} Publish to pypi finished [using {tool}]"
-        )
 
     @property
     def owners_content(self):
@@ -816,8 +793,7 @@ Available labels:
     @ignore_exceptions(FLASK_APP.logger)
     def create_issue_for_new_pull_request(self):
         self.app.logger.info(
-            f"{self.log_prefix} "
-            f"Creating issue for new PR: {self.pull_request.title}"
+            f"{self.log_prefix} Creating issue for new PR: {self.pull_request.title}"
         )
         self.repository.create_issue(
             title=self._generate_issue_title(),
@@ -878,7 +854,7 @@ Available labels:
 
     def process_pull_request_webhook_data(self):
         hook_action = self.hook_data["action"]
-        self.app.logger.info(f"hook_action is: {hook_action}")
+        self.app.logger.info(f"{self.log_prefix} hook_action is: {hook_action}")
         self.pull_request = self._get_pull_request()
         if not self.pull_request:
             return
@@ -912,7 +888,7 @@ Available labels:
             self.close_issue_for_merged_or_closed_pr(hook_action=hook_action)
 
             if pull_request_data.get("merged"):
-                self.app.logger.info(f"{self.log_prefix}: PR is merged")
+                self.app.logger.info(f"{self.log_prefix} PR is merged")
                 self._build_and_push_container()
 
                 for _label in self.pull_request.labels:
@@ -1066,7 +1042,6 @@ Available labels:
                 tests = self.tox_enabled.replace(" ", "")
                 cmd += f" -e {tests}"
 
-            self.app.logger.info(f"Run tox command: {cmd}")
             rc, out, err = run_command(command=cmd, log_prefix=self.log_prefix)
             if not rc:
                 with open(base_path, "w") as fd:
@@ -1096,15 +1071,13 @@ Available labels:
         _args = command_and_args[1] if len(command_and_args) > 1 else ""
         if len(command_and_args) > 1 and _args == "cancel":
             self.app.logger.info(
-                f"{self.log_prefix} " f"User requested 'cancel' for command {_command}"
+                f"{self.log_prefix} User requested 'cancel' for command {_command}"
             )
             remove = True
 
         if _command in available_commands:
             if not _args:
-                error_msg = (
-                    f"{self.log_prefix} " f"retest/cherry-pick requires an argument"
-                )
+                error_msg = f"{self.log_prefix} retest/cherry-pick requires an argument"
                 self.app.logger.info(error_msg)
                 self.pull_request.create_issue_comment(error_msg)
                 return
@@ -1426,8 +1399,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
                 podman_build_cmd = f"podman build {build_cmd}"
                 self.app.logger.info(
-                    f"{self.log_prefix} Build container image for {_container_repository_and_tag}, "
-                    f"command: {podman_build_cmd}"
+                    f"{self.log_prefix} Build container image for {_container_repository_and_tag}"
                 )
                 rc, out, err = run_command(
                     command=podman_build_cmd, log_prefix=self.log_prefix
@@ -1511,7 +1483,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 return
 
             build_cmd = "pipx install . --include-deps --force"
-            self.app.logger.info(f"{self.log_prefix} Run command: {build_cmd}")
             rc, out, err = run_command(command=build_cmd, log_prefix=self.log_prefix)
             if not rc:
                 with open(base_path, "w") as fd:
@@ -1561,7 +1532,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         rate_limit_remaining = rate_limit.core.remaining
         rate_limit_limit = rate_limit.core.limit
         self.app.logger.info(
-            f"{self.repository_name} API rate limit: Current {rate_limit_remaining} of {rate_limit_limit}. "
+            f"{self.log_prefix}  API rate limit: Current {rate_limit_remaining} of {rate_limit_limit}. "
             f"Reset in {rate_limit_reset} (UTC time is {datetime.datetime.utcnow()})"
         )
         while (
@@ -1574,7 +1545,9 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             time_for_limit_reset = (
                 rate_limit_reset - datetime.datetime.utcnow()
             ).seconds
-            self.app.logger.info(f"Sleeping {time_for_limit_reset} seconds")
+            self.app.logger.info(
+                f"{self.log_prefix} Sleeping {time_for_limit_reset} seconds"
+            )
             time.sleep(time_for_limit_reset + 1)
             rate_limit = self.github_api.get_rate_limit()
             rate_limit_reset = rate_limit.core.reset
@@ -1608,7 +1581,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.app.logger.info(f"{self.log_prefix} Current directory: {os.getcwd()}")
         pr_number = f"origin/pr/{self.pull_request.number}"
         checkout_cmd = f"git checkout {pr_number}"
-        self.app.logger.info(f"{self.log_prefix} Run command: {checkout_cmd}")
         if not run_command(command=checkout_cmd, log_prefix=self.log_prefix)[0]:
             return False
         return True
