@@ -365,7 +365,7 @@ Available user actions:
 
     def _checkout_tag(self, tag):
         self.app.logger.info(f"{self.log_prefix} Checking out tag: {tag}")
-        return run_command(command=f"git checkout {tag}", check=True)
+        return run_command(command=f"git checkout {tag}")
 
     def _checkout_new_branch(self, source_branch, new_branch_name):
         self.app.logger.info(
@@ -491,14 +491,15 @@ Available user actions:
                         )
                         run_command(
                             command=f"twine upload {dist_pkg_path} --skip-existing",
-                            check=True,
                         )
 
-            elif tool == "poetry":
-                if run_command(
+            elif (
+                tool == "poetry"
+                and run_command(
                     command=f"poetry config --local pypi-token.pypi {token}"
-                )[0]:
-                    run_command(command="poetry publish --build", check=True)
+                )[0]
+            ):
+                run_command(command="poetry publish --build")
 
             message = f"""
 ```
@@ -1047,7 +1048,7 @@ Available labels:
                 cmd += f" -e {tests}"
 
             self.app.logger.info(f"Run tox command: {cmd}")
-            rc, out, err = run_command(command=cmd, check=True)
+            rc, out, err = run_command(command=cmd)
             if not rc:
                 with open(base_path, "w") as fd:
                     fd.write(f"stdout: {out}, stderr: {err}")
@@ -1391,7 +1392,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     f"{self.log_prefix} Build container image for {_container_repository_and_tag}, "
                     f"command: {podman_build_cmd}"
                 )
-                rc, out, err = run_command(command=podman_build_cmd, check=True)
+                rc, out, err = run_command(command=podman_build_cmd)
                 if not rc and self.pull_request and set_check:
                     with open(base_path, "w") as fd:
                         fd.write(f"stdout: {out}, stderr: {err}")
