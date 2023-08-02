@@ -33,7 +33,7 @@ classifiers = [
 
 
 [tool.poetry.urls]
-Download = "https://pypi.org/project/github-webhook-server/"
+Download = "https://quay.io/repository/myakove/github-webhook-server"
 "Bug Tracker" = "https://github.com/myakove/github-webhook-server/issues"
 
 [tool.poetry.dependencies]
