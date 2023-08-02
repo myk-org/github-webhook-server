@@ -135,6 +135,7 @@ def set_repository_labels(repository):
 def set_repositories_settings():
     FLASK_APP.logger.info("Processing repositories")
     config_data = get_data_from_config()
+    gapi = Github(login_or_token=config_data["github-token"])
     default_status_checks = config_data.get("default-status-checks", [])
     docker = config_data.get("docker")
     if docker:
@@ -147,7 +148,6 @@ def set_repositories_settings():
         repository = data["name"]
         FLASK_APP.logger.info(f"Processing repository {repository}")
         protected_branches = data.get("protected-branches", {})
-        gapi = Github(login_or_token=data["token"])
         repo = get_github_repo_api(gapi=gapi, repository=repository)
         if not repo:
             FLASK_APP.logger.error(f"{repository}: Failed to get repository")
