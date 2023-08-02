@@ -88,6 +88,7 @@ class GitHubApi:
         self.dockerfile = None
         self.container_tag = None
         self.container_build_args = None
+        self.container_command_args = None
         self.token = None
         self.repository_full_name = None
         self.api_user = None
@@ -201,13 +202,13 @@ Available user actions:
     def _repo_data_from_config(self):
         config_data = get_data_from_config()
         self.github_app_id = config_data["github-app-id"]
+        self.token = config_data["github-token"]
         repo_data = config_data["repositories"].get(self.repository_name)
         if not repo_data:
             raise RepositoryNotFoundError(
                 f"Repository {self.repository_name} not found in config file"
             )
 
-        self.token = repo_data["token"]
         self.repository_full_name = repo_data["name"]
         self.pypi = repo_data.get("pypi")
         self.verified_job = repo_data.get("verified_job", True)
@@ -233,6 +234,7 @@ Available user actions:
             )
             self.container_tag = self.build_and_push_container.get("tag", "latest")
             self.container_build_args = self.build_and_push_container.get("build-args")
+            self.container_command_args = self.build_and_push_container.get("args")
 
     def _get_pull_request(self, number=None):
         if number:
@@ -1182,7 +1184,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                             issue_comment_id=issue_comment_id,
                             reaction=REACTIONS.ok,
                         )
-                        self.set_container_build_pending()
                         with self._build_container():
                             pass
                     else:
@@ -1201,7 +1202,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                         issue_comment_id=issue_comment_id,
                         reaction=REACTIONS.ok,
                     )
-                    self.set_python_module_install_queued()
                     self._install_python_module()
 
         elif _command == "build-and-push-container":
@@ -1424,19 +1424,27 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 try:
                     _container_repository_and_tag = self._container_repository_and_tag()
                     build_cmd = (
-                        f"podman build --network=host -f {self.dockerfile} "
+                        f"--network=host -f {self.dockerfile} "
                         f"-t {_container_repository_and_tag}"
                     )
                     if self.container_build_args:
                         build_args = [
-                            f"--build-arg {barg}" for barg in self.container_build_args
+                            f"--build-arg {b_arg}"
+                            for b_arg in self.container_build_args
                         ][0]
-                        build_cmd = f"{build_cmd} {build_args}"
+                        build_cmd = f"{build_args} {build_cmd}"
 
+                    if self.container_command_args:
+                        build_cmd = (
+                            f"{' '.join(self.container_command_args)} {build_cmd}"
+                        )
+
+                    podman_build_cmd = f"podman build {build_cmd}"
                     self.app.logger.info(
-                        f"{self.log_prefix} Build container image for {_container_repository_and_tag}"
+                        f"{self.log_prefix} Build container image for {_container_repository_and_tag}, "
+                        f"command: {podman_build_cmd}"
                     )
-                    out = subprocess.check_output(shlex.split(build_cmd))
+                    out = subprocess.check_output(shlex.split(podman_build_cmd))
                     self.app.logger.info(
                         f"{self.log_prefix} Done building {_container_repository_and_tag}"
                     )
