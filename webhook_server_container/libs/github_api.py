@@ -7,6 +7,7 @@ import shutil
 import sys
 import time
 from contextlib import contextmanager
+from multiprocessing import Process
 
 import requests
 import shortuuid
@@ -1661,10 +1662,25 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.app.logger.info(f"{self.log_prefix} Adding PR owner as assignee")
         self.pull_request.add_to_assignees(parent_committer)
         self.assign_reviewers()
-        self.run_sonarqube()
-        self.run_tox()
-        self._install_python_module()
-        self._build_container()
+
+        procs = []
+        for check_run in (
+            self.run_sonarqube,
+            self.run_tox,
+            self._install_python_module,
+            self._build_container,
+        ):
+            proc = Process(target=check_run)
+            procs.append(proc)
+            proc.start()
+
+        for proc in procs:
+            proc.join()
+        #
+        # self.run_sonarqube()
+        # self.run_tox()
+        # self._install_python_module()
+        # self._build_container()
 
     def run_retest_if_queued(self):
         last_commit_check_runs = list(self.last_commit.get_check_runs())
