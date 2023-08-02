@@ -201,7 +201,7 @@ Available user actions:
     def _repo_data_from_config(self):
         config_data = get_data_from_config()
         self.github_app_id = config_data["github-app-id"]
-        self.token = Github(login_or_token=config_data["github-token"])
+        self.token = config_data["github-token"]
         repo_data = config_data["repositories"].get(self.repository_name)
         if not repo_data:
             raise RepositoryNotFoundError(
@@ -1182,7 +1182,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                             issue_comment_id=issue_comment_id,
                             reaction=REACTIONS.ok,
                         )
-                        self.set_container_build_pending()
                         with self._build_container():
                             pass
                     else:
@@ -1201,7 +1200,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                         issue_comment_id=issue_comment_id,
                         reaction=REACTIONS.ok,
                     )
-                    self.set_python_module_install_queued()
                     self._install_python_module()
 
         elif _command == "build-and-push-container":
