@@ -1731,17 +1731,15 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 self.set_sonarqube_failure(target_url=target_url)
 
     async def _run_check_runs_async(self):
-        async def _run_check_run_async(check_run):
+        async def _run_check_run(check_run):
             await check_run()
 
-        task1 = asyncio.create_task(_run_check_run_async(check_run=self._run_sonarqube))
-        task2 = asyncio.create_task(_run_check_run_async(check_run=self._run_tox))
+        task1 = asyncio.create_task(_run_check_run(check_run=self._run_sonarqube))
+        task2 = asyncio.create_task(_run_check_run(check_run=self._run_tox))
         task3 = asyncio.create_task(
-            _run_check_run_async(check_run=self._install_python_module)
+            _run_check_run(check_run=self._install_python_module)
         )
-        task4 = asyncio.create_task(
-            _run_check_run_async(check_run=self._build_container)
-        )
+        task4 = asyncio.create_task(_run_check_run(check_run=self._build_container))
         await task1
         await task2
         await task3
