@@ -1710,7 +1710,9 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 return
 
             self.set_sonarqube_in_progress()
-            target_url = f"{self.sonarqube_url}{self.sonarqube_project_key}"
+            target_url = (
+                f"{self.sonarqube_url}/dashboard?id={self.sonarqube_project_key}"
+            )
             cmd = (
                 f"/sonar-scanner-cli/bin/sonar-scanner -Dsonar.projectKey={self.sonarqube_project_key} "
                 f"-Dsonar.sources=. -Dsonar.host.url={self.sonarqube_url} "
