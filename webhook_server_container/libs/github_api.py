@@ -358,10 +358,12 @@ Available user actions:
                     run_command(command=cmd)
                 yield _clone_path
 
-        self.app.logger.info(
-            f"{self.log_prefix} Removing cloned repository: {_clone_path}"
-        )
-        shutil.rmtree(_clone_path, ignore_errors=True)
+            self.app.logger.info(
+                f"{self.log_prefix} Removing cloned repository: {_clone_path}"
+            )
+            shutil.rmtree(_clone_path, ignore_errors=True)
+        else:
+            yield
 
     def _checkout_tag(self, tag):
         self.app.logger.info(f"{self.log_prefix} Checking out tag: {tag}")
