@@ -1,4 +1,5 @@
 import os
+from logging.config import dictConfig
 
 import urllib3
 from flask import Response, request
@@ -21,6 +22,25 @@ urllib3.disable_warnings()
 PLAIN_TEXT_MIME_TYPE = "text/plain"
 APP_ROOT_PATH = "/webhook_server"
 FILENAME_STRING = "<string:filename>"
+
+dictConfig(
+    {
+        "version": 1,
+        "formatters": {
+            "default": {
+                "format": "[%(asctime)s] %(levelname)s in %(module)s: %(message)s",
+            }
+        },
+        "handlers": {
+            "wsgi": {
+                "class": "logging.StreamHandler",
+                "stream": "ext://flask.logging.wsgi_errors_stream",
+                "formatter": "default",
+            }
+        },
+        "root": {"level": "INFO", "handlers": ["wsgi"]},
+    }
+)
 
 
 def get_repositories_github_app_api():

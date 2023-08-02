@@ -1352,14 +1352,15 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
         self.app.logger.info(f"{self.log_prefix} Check if can be merged.")
         last_commit_check_runs = list(self.last_commit.get_check_runs())
-        if any(
-            [
-                check_run.status == IN_PROGRESS_STR
-                for check_run in last_commit_check_runs
-            ]
-        ):
+        check_runs_in_progress = [
+            check_run.name
+            for check_run in last_commit_check_runs
+            if check_run.status == IN_PROGRESS_STR
+        ]
+        if any(check_runs_in_progress):
             self.app.logger.info(
-                f"{self.log_prefix} Some check runs in progress, skipping check if can be merged."
+                f"{self.log_prefix} Some check runs in progress {check_runs_in_progress}, "
+                f"skipping check if can be merged."
             )
             return
 
@@ -1730,7 +1731,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
     async def _run_check_runs_async(self):
         async def _run_check_run_async(check_run):
-            return check_run()
+            await check_run()
 
         # check_runs = (
         #     self._run_sonarqube,
