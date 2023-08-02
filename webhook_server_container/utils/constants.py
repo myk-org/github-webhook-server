@@ -6,7 +6,7 @@ from flask import Flask
 FLASK_APP = Flask("webhook-server")
 
 # Set up logging
-log_format = "%(asctime)s %(name)s %(levelname)s: %(message)s"
+log_format = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 logging.basicConfig(level=logging.INFO, format=log_format)
 
 # Add color to log level names
