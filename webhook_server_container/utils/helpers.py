@@ -59,11 +59,11 @@ def get_github_repo_api(gapi, repository):
 
 def run_command(
     command,
-    verify_stderr=True,
+    verify_stderr=False,
     shell=False,
     timeout=None,
     capture_output=True,
-    check=True,
+    check=False,
     **kwargs,
 ):
     """

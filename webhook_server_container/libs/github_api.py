@@ -3,9 +3,7 @@ import datetime
 import json
 import os
 import re
-import shlex
 import shutil
-import subprocess
 import sys
 import time
 from contextlib import contextmanager
@@ -73,7 +71,6 @@ class GitHubApi:
         self.app = FLASK_APP
         self.hook_data = hook_data
         self.repository_name = hook_data["repository"]["name"]
-        self.run_command_kwargs = {"verify_stderr": False, "check": False}
         self.repositories_app_api = repositories_app_api
         self.missing_app_repositories = missing_app_repositories
         self.pull_request = None
@@ -350,17 +347,16 @@ Available user actions:
         remote_update_cmd = "git remote update"
         fetch_pr_cmd = "git config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
 
-        run_command(command=clone_cmd, **self.run_command_kwargs)
-
-        with change_directory(_clone_path, logger=self.app.logger):
-            for cmd in [
-                git_user_name_cmd,
-                git_email_cmd,
-                fetch_pr_cmd,
-                remote_update_cmd,
-            ]:
-                run_command(command=cmd, **self.run_command_kwargs)
-            yield _clone_path
+        if run_command(command=clone_cmd)[0]:
+            with change_directory(_clone_path, logger=self.app.logger):
+                for cmd in [
+                    git_user_name_cmd,
+                    git_email_cmd,
+                    fetch_pr_cmd,
+                    remote_update_cmd,
+                ]:
+                    run_command(command=cmd)
+                yield _clone_path
 
         self.app.logger.info(
             f"{self.log_prefix} Removing cloned repository: {_clone_path}"
@@ -369,7 +365,7 @@ Available user actions:
 
     def _checkout_tag(self, tag):
         self.app.logger.info(f"{self.log_prefix} Checking out tag: {tag}")
-        subprocess.check_output(shlex.split(f"git checkout {tag}"))
+        return run_command(command=f"git checkout {tag}", check=True)
 
     def _checkout_new_branch(self, source_branch, new_branch_name):
         self.app.logger.info(
@@ -380,7 +376,7 @@ Available user actions:
             f"git pull origin {source_branch}",
             f"git checkout -b {new_branch_name} origin/{source_branch}",
         ):
-            run_command(command=cmd, **self.run_command_kwargs)
+            run_command(command=cmd)
 
     @ignore_exceptions()
     def is_branch_exists(self, branch):
@@ -418,7 +414,6 @@ Available user actions:
             )
             cherry_pick, out, err = run_command(
                 command=f"git cherry-pick {commit_hash}",
-                **self.run_command_kwargs,
             )
             if not cherry_pick:
                 return _issue_from_err(
@@ -431,7 +426,6 @@ Available user actions:
 
             git_push, out, err = run_command(
                 command=f"git push origin {new_branch_name}",
-                **self.run_command_kwargs,
             )
             if not git_push:
                 return _issue_from_err(
@@ -451,7 +445,6 @@ Available user actions:
                     f"-m '{CHERRY_PICKED_LABEL_PREFIX}: [{source_branch}] {commit_msg}' "
                     f"-m 'cherry-pick {pull_request_url} into {source_branch}' "
                     f"-m 'requested-by {user_login}'",
-                    **self.run_command_kwargs,
                 )
             if not pull_request_cmd:
                 _issue_from_err(
@@ -484,25 +477,28 @@ Available user actions:
                 os.environ["TWINE_PASSWORD"] = token
                 build_folder = "dist"
 
-                _out = subprocess.check_output(
-                    shlex.split(
-                        f"{sys.executable} -m build --sdist --outdir {build_folder}/"
+                rc, _out, _ = run_command(
+                    command=f"{sys.executable} -m build --sdist --outdir {build_folder}/"
+                )
+                if rc:
+                    dist_pkg = re.search(r"Successfully built (.*.tar.gz)", _out).group(
+                        1
                     )
-                )
-                dist_pkg = re.search(
-                    r"Successfully built (.*.tar.gz)", _out.decode("utf-8")
-                ).group(1)
-                dist_pkg_path = os.path.join(build_folder, dist_pkg)
-                subprocess.check_output(shlex.split(f"twine check {dist_pkg_path}"))
-                self.app.logger.info(f"{self.log_prefix} Uploading to pypi: {dist_pkg}")
-                subprocess.check_output(
-                    shlex.split(f"twine upload {dist_pkg_path} --skip-existing")
-                )
+                    dist_pkg_path = os.path.join(build_folder, dist_pkg)
+                    if run_command(command=f"twine check {dist_pkg_path}")[0]:
+                        self.app.logger.info(
+                            f"{self.log_prefix} Uploading to pypi: {dist_pkg}"
+                        )
+                        run_command(
+                            command=f"twine upload {dist_pkg_path} --skip-existing",
+                            check=True,
+                        )
+
             elif tool == "poetry":
-                subprocess.check_output(
-                    shlex.split(f"poetry config --local pypi-token.pypi {token}")
-                )
-                subprocess.check_output(shlex.split("poetry publish --build"))
+                if run_command(
+                    command=f"poetry config --local pypi-token.pypi {token}"
+                )[0]:
+                    run_command(command="poetry publish --build", check=True)
 
             message = f"""
 ```
@@ -962,8 +958,8 @@ Available labels:
                 f"{self.log_prefix} Processing push for tag: {tag_name}"
             )
             with self._clone_repository(path_suffix=f"{tag_name}-{shortuuid.uuid()}"):
-                self._checkout_tag(tag=tag_name)
-                self.upload_to_pypi(tag_name=tag_name)
+                if self._checkout_tag(tag=tag_name):
+                    self.upload_to_pypi(tag_name=tag_name)
 
     def process_pull_request_review_webhook_data(self):
         self.pull_request = self._get_pull_request()
@@ -1045,28 +1041,24 @@ Available labels:
             if not self._checkout_pull_request():
                 return
 
-            try:
-                cmd = "tox"
-                if self.tox_enabled != "all":
-                    tests = self.tox_enabled.replace(" ", "")
-                    cmd += f" -e {tests}"
+            cmd = "tox"
+            if self.tox_enabled != "all":
+                tests = self.tox_enabled.replace(" ", "")
+                cmd += f" -e {tests}"
 
-                self.app.logger.info(f"Run tox command: {cmd}")
-                out = subprocess.check_output(shlex.split(cmd))
-            except subprocess.CalledProcessError as ex:
+            self.app.logger.info(f"Run tox command: {cmd}")
+            rc, out, err = run_command(command=cmd, check=True)
+            if not rc:
                 with open(base_path, "w") as fd:
-                    fd.write(ex.output.decode("utf-8"))
+                    fd.write(f"stdout: {out}, stderr: {err}")
 
-                self.set_run_tox_check_failure(
-                    target_url=base_url,
-                )
-            else:
-                with open(base_path, "w") as fd:
-                    fd.write(out.decode("utf-8"))
+                self.set_run_tox_check_failure(target_url=base_url)
+                return
 
-                self.set_run_tox_check_success(
-                    target_url=base_url,
-                )
+            with open(base_path, "w") as fd:
+                fd.write(out)
+
+            self.set_run_tox_check_success(target_url=base_url)
 
     def user_commands(self, command, reviewed_user, issue_comment_id):
         remove = False
@@ -1319,16 +1311,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         if not all_check_runs_passed:
             self._remove_label(label=CAN_BE_MERGED_STR)
             self.set_merge_check_queued()
-
-            for check_run in last_commit_check_runs:
-                if check_run.status == QUEUED_STR:
-                    if check_run.name == TOX_STR:
-                        self.run_tox()
-                    if check_run.name == BUILD_CONTAINER_STR:
-                        with self._build_container():
-                            pass
-                    if check_run.name == PYTHON_MODULE_INSTALL_STR:
-                        self._install_python_module()
+            self.run_retest_if_queued(last_commit_check_runs=last_commit_check_runs)
             return
 
         for _label in _labels:
@@ -1389,47 +1372,42 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 if self.pull_request and not self._checkout_pull_request():
                     yield
 
-                try:
-                    _container_repository_and_tag = self._container_repository_and_tag()
-                    build_cmd = (
-                        f"--network=host -f {self.dockerfile} "
-                        f"-t {_container_repository_and_tag}"
-                    )
-                    if self.container_build_args:
-                        build_args = [
-                            f"--build-arg {b_arg}"
-                            for b_arg in self.container_build_args
-                        ][0]
-                        build_cmd = f"{build_args} {build_cmd}"
+                _container_repository_and_tag = self._container_repository_and_tag()
+                build_cmd = (
+                    f"--network=host -f {self.dockerfile} "
+                    f"-t {_container_repository_and_tag}"
+                )
+                if self.container_build_args:
+                    build_args = [
+                        f"--build-arg {b_arg}" for b_arg in self.container_build_args
+                    ][0]
+                    build_cmd = f"{build_args} {build_cmd}"
 
-                    if self.container_command_args:
-                        build_cmd = (
-                            f"{' '.join(self.container_command_args)} {build_cmd}"
-                        )
+                if self.container_command_args:
+                    build_cmd = f"{' '.join(self.container_command_args)} {build_cmd}"
 
-                    podman_build_cmd = f"podman build {build_cmd}"
-                    self.app.logger.info(
-                        f"{self.log_prefix} Build container image for {_container_repository_and_tag}, "
-                        f"command: {podman_build_cmd}"
-                    )
-                    out = subprocess.check_output(shlex.split(podman_build_cmd))
-                    self.app.logger.info(
-                        f"{self.log_prefix} Done building {_container_repository_and_tag}"
-                    )
-                    if self.pull_request and set_check:
-                        with open(base_path, "w") as fd:
-                            fd.write(out.decode("utf-8"))
+                podman_build_cmd = f"podman build {build_cmd}"
+                self.app.logger.info(
+                    f"{self.log_prefix} Build container image for {_container_repository_and_tag}, "
+                    f"command: {podman_build_cmd}"
+                )
+                rc, out, err = run_command(command=podman_build_cmd, check=True)
+                if not rc and self.pull_request and set_check:
+                    with open(base_path, "w") as fd:
+                        fd.write(f"stdout: {out}, stderr: {err}")
 
-                        yield self.set_container_build_success(target_url=base_url)
-                    else:
-                        yield
+                    yield self.set_container_build_failure(target_url=base_url)
 
-                except subprocess.CalledProcessError as ex:
-                    if self.pull_request and set_check:
-                        with open(base_path, "w") as fd:
-                            fd.write(ex.output.decode("utf-8"))
+                self.app.logger.info(
+                    f"{self.log_prefix} Done building {_container_repository_and_tag}"
+                )
+                if self.pull_request and set_check:
+                    with open(base_path, "w") as fd:
+                        fd.write(out)
 
-                        yield self.set_container_build_failure(target_url=base_url)
+                    yield self.set_container_build_success(target_url=base_url)
+                else:
+                    yield
 
     def _build_and_push_container(self):
         if not self.build_and_push_container:
@@ -1446,32 +1424,28 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 f"{self.log_prefix} Push container image to {_container_repository_and_tag}"
             )
 
-            try:
-                subprocess.check_output(shlex.split(push_cmd))
-                if self.pull_request:
-                    self.pull_request.create_issue_comment(
-                        f"Container {_container_repository_and_tag} pushed"
-                    )
+            if not run_command(command=push_cmd)[0]:
+                return
 
-                if self.slack_webhook_url:
-                    message = f"""
+            if self.pull_request:
+                self.pull_request.create_issue_comment(
+                    f"Container {_container_repository_and_tag} pushed"
+                )
+
+            if self.slack_webhook_url:
+                message = f"""
 ```
 {self.log_prefix} New container for {_container_repository_and_tag} published.
 ```
 """
-                    self.send_slack_message(
-                        message=message,
-                        webhook_url=self.slack_webhook_url,
-                    )
-
-                self.app.logger.info(
-                    f"{self.log_prefix} Done push {_container_repository_and_tag}"
+                self.send_slack_message(
+                    message=message,
+                    webhook_url=self.slack_webhook_url,
                 )
 
-            except subprocess.CalledProcessError as ex:
-                self.app.logger.error(
-                    f"{self.log_prefix} Failed to push {_container_repository_and_tag}. {ex}"
-                )
+            self.app.logger.info(
+                f"{self.log_prefix} Done push {_container_repository_and_tag}"
+            )
 
     def _install_python_module(self):
         if not self.pypi:
@@ -1490,19 +1464,20 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             if not self._checkout_pull_request():
                 return
 
-            try:
-                build_cmd = "pipx install . --include-deps --force"
-                self.app.logger.info(f"{self.log_prefix} Run command: {build_cmd}")
-                out = subprocess.check_output(shlex.split(build_cmd))
+            build_cmd = "pipx install . --include-deps --force"
+            self.app.logger.info(f"{self.log_prefix} Run command: {build_cmd}")
+            rc, out, err = run_command(command=build_cmd)
+            if not rc:
                 with open(base_path, "w") as fd:
-                    fd.write(out.decode("utf-8"))
-
-                self.set_python_module_install_success(target_url=base_url)
-            except subprocess.CalledProcessError as ex:
-                with open(base_path, "w") as fd:
-                    fd.write(ex.output.decode("utf-8"))
+                    fd.write(f"stdout: {out}, stderr: {err}")
 
                 self.set_python_module_install_failure(target_url=base_url)
+                return
+
+            with open(base_path, "w") as fd:
+                fd.write(out)
+
+            self.set_python_module_install_success(target_url=base_url)
 
     def send_slack_message(self, message, webhook_url):
         slack_data = {"text": message}
@@ -1586,14 +1561,9 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
     def _checkout_pull_request(self):
         self.app.logger.info(f"{self.log_prefix} Current directory: {os.getcwd()}")
         pr_number = f"origin/pr/{self.pull_request.number}"
-        try:
-            checkout_cmd = f"git checkout {pr_number}"
-            self.app.logger.info(f"{self.log_prefix} Run command: {checkout_cmd}")
-            subprocess.check_output(shlex.split(checkout_cmd))
-        except subprocess.CalledProcessError as ex:
-            self.app.logger.error(
-                f"{self.log_prefix} checkout for {pr_number} failed: {ex}"
-            )
+        checkout_cmd = f"git checkout {pr_number}"
+        self.app.logger.info(f"{self.log_prefix} Run command: {checkout_cmd}")
+        if not run_command(command=checkout_cmd)[0]:
             return False
         return True
 
@@ -1615,3 +1585,21 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self._install_python_module()
         with self._build_container():
             pass
+
+    def run_retest_if_queued(self, last_commit_check_runs):
+        for check_run in last_commit_check_runs:
+            if check_run.status == QUEUED_STR:
+                if check_run.name == TOX_STR:
+                    self.app.logger.info(f"{self.log_prefix} retest {TOX_STR}.")
+                    self.run_tox()
+                if check_run.name == BUILD_CONTAINER_STR:
+                    self.app.logger.info(
+                        f"{self.log_prefix} retest {BUILD_CONTAINER_STR}."
+                    )
+                    with self._build_container():
+                        pass
+                if check_run.name == PYTHON_MODULE_INSTALL_STR:
+                    self.app.logger.info(
+                        f"{self.log_prefix} retest {PYTHON_MODULE_INSTALL_STR}."
+                    )
+                    self._install_python_module()
