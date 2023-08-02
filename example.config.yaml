@@ -1,4 +1,5 @@
 github-app-id: 123456 # GitHub app id
+github-toekn: <GITHIB TOKEN>
 
 docker: # Used to pull images from docker.io
   username: <username>
@@ -17,7 +18,6 @@ repositories:
   openshift-python-wrapper:
     webhook_ip: <HTTP://IP OR URL:PORT>
     name: RedHatQE/openshift-python-wrapper
-    token: <GITHIB TOKEN>
     verified_job: true
     pypi:
       token: <PYPI TOKEN>
