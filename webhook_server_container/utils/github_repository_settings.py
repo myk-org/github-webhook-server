@@ -61,13 +61,17 @@ def set_repository_settings(repository):
     FLASK_APP.logger.info(f"Set repository {repository.name} security settings")
     repository._requester.requestJsonAndCheck(
         "PATCH",
+        f"{repository.url}/code-scanning/default-setup",
+        input={"state": "not-configured"},
+    )
+    repository._requester.requestJsonAndCheck(
+        "PATCH",
         repository.url,
         input={
             "security_and_analysis": {
                 "secret_scanning": {"status": "enabled"},
                 "secret_scanning_push_protection": {"status": "enabled"},
             },
-            "code-scanning": {"default-setup": {"state": "not-configured"}},
         },
     )
 

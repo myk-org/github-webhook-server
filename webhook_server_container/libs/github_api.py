@@ -937,6 +937,7 @@ Available labels:
         if hook_action == "opened":
             self.app.logger.info(f"{self.log_prefix} Creating welcome comment")
             self.pull_request.create_issue_comment(self.welcome_msg)
+            self.create_issue_for_new_pull_request()
             self.process_opened_or_synchronize_pull_request(
                 parent_committer=parent_committer,
                 pull_request_branch=pull_request_branch,
@@ -1227,8 +1228,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                             issue_comment_id=issue_comment_id,
                             reaction=REACTIONS.ok,
                         )
-                        with self._build_container():
-                            pass
+                        self._build_container()
                     else:
                         error_msg = f"{self.log_prefix} No build-container configured"
                         self.app.logger.info(error_msg)
@@ -1422,7 +1422,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         )
         return f"{self.container_repository}:{tag}"
 
-    @contextmanager
     def _build_container(self, set_check=True):
         if not self.build_and_push_container:
             yield
@@ -1451,7 +1450,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     f"{self.log_prefix} Current directory is {os.getcwd()}"
                 )
                 if self.pull_request and not self._checkout_pull_request():
-                    yield
+                    return
 
                 _container_repository_and_tag = self._container_repository_and_tag()
                 build_cmd = (
@@ -1478,7 +1477,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     with open(base_path, "w") as fd:
                         fd.write(f"stdout: {out}, stderr: {err}")
 
-                    yield self.set_container_build_failure(target_url=base_url)
+                    return self.set_container_build_failure(target_url=base_url)
 
                 self.app.logger.info(
                     f"{self.log_prefix} Done building {_container_repository_and_tag}"
@@ -1487,9 +1486,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     with open(base_path, "w") as fd:
                         fd.write(out)
 
-                    yield self.set_container_build_success(target_url=base_url)
-                else:
-                    yield
+                    return self.set_container_build_success(target_url=base_url)
 
     def _build_and_push_container(self):
         if not self.build_and_push_container:
@@ -1499,35 +1496,37 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             f"{self.container_repository_username}:{self.container_repository_password}"
         )
 
-        with self._build_container(set_check=False):
-            _container_repository_and_tag = self._container_repository_and_tag()
-            push_cmd = f"podman push --creds {repository_creds} {_container_repository_and_tag}"
-            self.app.logger.info(
-                f"{self.log_prefix} Push container image to {_container_repository_and_tag}"
+        self._build_container(set_check=False)
+        _container_repository_and_tag = self._container_repository_and_tag()
+        push_cmd = (
+            f"podman push --creds {repository_creds} {_container_repository_and_tag}"
+        )
+        self.app.logger.info(
+            f"{self.log_prefix} Push container image to {_container_repository_and_tag}"
+        )
+
+        if not run_command(command=push_cmd, log_prefix=self.log_prefix)[0]:
+            return
+
+        if self.pull_request:
+            self.pull_request.create_issue_comment(
+                f"Container {_container_repository_and_tag} pushed"
             )
 
-            if not run_command(command=push_cmd, log_prefix=self.log_prefix)[0]:
-                return
-
-            if self.pull_request:
-                self.pull_request.create_issue_comment(
-                    f"Container {_container_repository_and_tag} pushed"
-                )
-
-            if self.slack_webhook_url:
-                message = f"""
+        if self.slack_webhook_url:
+            message = f"""
 ```
 {self.log_prefix} New container for {_container_repository_and_tag} published.
 ```
 """
-                self.send_slack_message(
-                    message=message,
-                    webhook_url=self.slack_webhook_url,
-                )
-
-            self.app.logger.info(
-                f"{self.log_prefix} Done push {_container_repository_and_tag}"
+            self.send_slack_message(
+                message=message,
+                webhook_url=self.slack_webhook_url,
             )
+
+        self.app.logger.info(
+            f"{self.log_prefix} Done push {_container_repository_and_tag}"
+        )
 
     def _install_python_module(self):
         if not self.pypi:
@@ -1667,12 +1666,10 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.app.logger.info(f"{self.log_prefix} Adding PR owner as assignee")
         self.pull_request.add_to_assignees(parent_committer)
         self.assign_reviewers()
-        self.create_issue_for_new_pull_request()
         self.run_sonarqube()
         self.run_tox()
         self._install_python_module()
-        with self._build_container():
-            pass
+        self._build_container()
 
     def run_retest_if_queued(self):
         last_commit_check_runs = list(self.last_commit.get_check_runs())
@@ -1685,8 +1682,8 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     self.app.logger.info(
                         f"{self.log_prefix} retest {BUILD_CONTAINER_STR}."
                     )
-                    with self._build_container():
-                        pass
+                    self._build_container()
+
                 if check_run.name == PYTHON_MODULE_INSTALL_STR:
                     self.app.logger.info(
                         f"{self.log_prefix} retest {PYTHON_MODULE_INSTALL_STR}."
