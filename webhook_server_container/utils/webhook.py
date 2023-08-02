@@ -25,7 +25,9 @@ def process_github_webhook(data, gapi):
     try:
         hooks = list(repo.get_hooks())
     except Exception as ex:
-        FLASK_APP.logger.error(f"Could not create webhook for {repository}: {ex}")
+        FLASK_APP.logger.error(
+            f"Could not list webhook for {repository}, check token permissions: {ex}"
+        )
         return
 
     for _hook in hooks:
