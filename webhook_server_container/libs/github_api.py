@@ -1325,7 +1325,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         if not all_check_runs_passed:
             self._remove_label(label=CAN_BE_MERGED_STR)
             self.set_merge_check_queued()
-            self.run_retest_if_queued(last_commit_check_runs=last_commit_check_runs)
+            # self.run_retest_if_queued(last_commit_check_runs=last_commit_check_runs)
             return
 
         for _label in _labels:
