@@ -1730,7 +1730,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
     async def _run_check_runs_async(self):
         async def _run_check_run_async(check_run):
-            await check_run()
+            return check_run()
 
         check_runs = (
             self._run_sonarqube,
@@ -1740,6 +1740,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         )
         coros = [_run_check_run_async(check_run=check_run) for check_run in check_runs]
         await asyncio.gather(*coros)
+        # await asyncio.gather(*coros)
         # procs = []
         # for check_run in (
         #     self._run_sonarqube,
