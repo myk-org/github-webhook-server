@@ -699,6 +699,14 @@ Available labels:
             name=CAN_BE_MERGED_STR, head_sha=self.last_commit.sha, status=QUEUED_STR
         )
 
+    def set_merge_check_in_progress(self):
+        self.app.logger.info(f"{self.log_prefix} Set merge check to {IN_PROGRESS_STR}")
+        self.repository_by_github_app.create_check_run(
+            name=CAN_BE_MERGED_STR,
+            head_sha=self.last_commit.sha,
+            status=IN_PROGRESS_STR,
+        )
+
     def set_merge_check_success(self):
         self.app.logger.info(f"{self.log_prefix} Set merge check to {SUCCESS_STR}")
         self.repository_by_github_app.create_check_run(
@@ -879,16 +887,16 @@ Available labels:
             )
 
         if hook_action == "synchronize":
-            self.process_opened_or_synchronize_pull_request(
-                parent_committer=parent_committer,
-                pull_request_branch=pull_request_branch,
-            )
-
             reviewed_by_labels = [
                 label.name for label in self.pull_request.labels if "By-" in label.name
             ]
             for _reviewed_label in reviewed_by_labels:
                 self._remove_label(label=_reviewed_label)
+
+            self.process_opened_or_synchronize_pull_request(
+                parent_committer=parent_committer,
+                pull_request_branch=pull_request_branch,
+            )
 
         if hook_action == "closed":
             self.close_issue_for_merged_or_closed_pr(hook_action=hook_action)
@@ -1287,25 +1295,8 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             return
 
         self.app.logger.info(f"{self.log_prefix} Check if can be merged.")
+        self.set_merge_check_in_progress()
         _labels = self.pull_request_labels_names()
-
-        # _final_statuses = {}
-        #
-        # for _status in self.last_commit.get_statuses():
-        #     if _status.context == CAN_BE_MERGED_STR:
-        #         continue
-        #
-        #     _status_data = {"updated_at": _status.updated_at, "state": _status.state}
-        #     if _status.context in _final_statuses:
-        #         if _status.updated_at > _final_statuses[_status.context]["updated_at"]:
-        #             _final_statuses[_status.context] = _status_data
-        #     else:
-        #         _final_statuses[_status.context] = _status_data
-        #
-        # _all_statuses_passed = all(
-        #     _final_statuses[context]["state"] == SUCCESS_STR
-        #     for context in [*_final_statuses]
-        # )
 
         # TODO: refactor and enable once we can use 'check run'
         # check_retest_statuses = ["tox", "build-container", "python-module-install"]
@@ -1625,3 +1616,5 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.create_issue_for_new_pull_request()
         self.run_tox()
         self._install_python_module()
+        with self._build_container():
+            pass
