@@ -347,7 +347,7 @@ Available user actions:
         remote_update_cmd = "git remote update"
         fetch_pr_cmd = "git config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
 
-        if run_command(command=clone_cmd)[0]:
+        if run_command(command=clone_cmd, log_prefix=self.log_prefix)[0]:
             with change_directory(_clone_path, logger=self.app.logger):
                 for cmd in [
                     git_user_name_cmd,
@@ -355,7 +355,7 @@ Available user actions:
                     fetch_pr_cmd,
                     remote_update_cmd,
                 ]:
-                    run_command(command=cmd)
+                    run_command(command=cmd, log_prefix=self.log_prefix)
                 yield _clone_path
 
             self.app.logger.info(
@@ -367,7 +367,7 @@ Available user actions:
 
     def _checkout_tag(self, tag):
         self.app.logger.info(f"{self.log_prefix} Checking out tag: {tag}")
-        return run_command(command=f"git checkout {tag}")
+        return run_command(command=f"git checkout {tag}", log_prefix=self.log_prefix)
 
     def _checkout_new_branch(self, source_branch, new_branch_name):
         self.app.logger.info(
@@ -378,7 +378,7 @@ Available user actions:
             f"git pull origin {source_branch}",
             f"git checkout -b {new_branch_name} origin/{source_branch}",
         ):
-            run_command(command=cmd)
+            run_command(command=cmd, log_prefix=self.log_prefix)
 
     @ignore_exceptions()
     def is_branch_exists(self, branch):
@@ -416,6 +416,7 @@ Available user actions:
             )
             cherry_pick, out, err = run_command(
                 command=f"git cherry-pick {commit_hash}",
+                log_prefix=self.log_prefix,
             )
             if not cherry_pick:
                 return _issue_from_err(
@@ -428,6 +429,7 @@ Available user actions:
 
             git_push, out, err = run_command(
                 command=f"git push origin {new_branch_name}",
+                log_prefix=self.log_prefix,
             )
             if not git_push:
                 return _issue_from_err(
@@ -447,6 +449,7 @@ Available user actions:
                     f"-m '{CHERRY_PICKED_LABEL_PREFIX}: [{source_branch}] {commit_msg}' "
                     f"-m 'cherry-pick {pull_request_url} into {source_branch}' "
                     f"-m 'requested-by {user_login}'",
+                    log_prefix=self.log_prefix,
                 )
             if not pull_request_cmd:
                 _issue_from_err(
@@ -480,28 +483,36 @@ Available user actions:
                 build_folder = "dist"
 
                 rc, _out, _ = run_command(
-                    command=f"{sys.executable} -m build --sdist --outdir {build_folder}/"
+                    command=f"{sys.executable} -m build --sdist --outdir {build_folder}/",
+                    log_prefix=self.log_prefix,
                 )
                 if rc:
                     dist_pkg = re.search(r"Successfully built (.*.tar.gz)", _out).group(
                         1
                     )
                     dist_pkg_path = os.path.join(build_folder, dist_pkg)
-                    if run_command(command=f"twine check {dist_pkg_path}")[0]:
+                    if run_command(
+                        command=f"twine check {dist_pkg_path}",
+                        log_prefix=self.log_prefix,
+                    )[0]:
                         self.app.logger.info(
                             f"{self.log_prefix} Uploading to pypi: {dist_pkg}"
                         )
                         run_command(
                             command=f"twine upload {dist_pkg_path} --skip-existing",
+                            log_prefix=self.log_prefix,
                         )
 
             elif (
                 tool == "poetry"
                 and run_command(
-                    command=f"poetry config --local pypi-token.pypi {token}"
+                    command=f"poetry config --local pypi-token.pypi {token}",
+                    log_prefix=self.log_prefix,
                 )[0]
             ):
-                run_command(command="poetry publish --build")
+                run_command(
+                    command="poetry publish --build", log_prefix=self.log_prefix
+                )
 
             message = f"""
 ```
@@ -1050,7 +1061,7 @@ Available labels:
                 cmd += f" -e {tests}"
 
             self.app.logger.info(f"Run tox command: {cmd}")
-            rc, out, err = run_command(command=cmd)
+            rc, out, err = run_command(command=cmd, log_prefix=self.log_prefix)
             if not rc:
                 with open(base_path, "w") as fd:
                     fd.write(f"stdout: {out}, stderr: {err}")
@@ -1394,7 +1405,9 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     f"{self.log_prefix} Build container image for {_container_repository_and_tag}, "
                     f"command: {podman_build_cmd}"
                 )
-                rc, out, err = run_command(command=podman_build_cmd)
+                rc, out, err = run_command(
+                    command=podman_build_cmd, log_prefix=self.log_prefix
+                )
                 if not rc and self.pull_request and set_check:
                     with open(base_path, "w") as fd:
                         fd.write(f"stdout: {out}, stderr: {err}")
@@ -1427,7 +1440,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 f"{self.log_prefix} Push container image to {_container_repository_and_tag}"
             )
 
-            if not run_command(command=push_cmd)[0]:
+            if not run_command(command=push_cmd, log_prefix=self.log_prefix)[0]:
                 return
 
             if self.pull_request:
@@ -1469,7 +1482,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
             build_cmd = "pipx install . --include-deps --force"
             self.app.logger.info(f"{self.log_prefix} Run command: {build_cmd}")
-            rc, out, err = run_command(command=build_cmd)
+            rc, out, err = run_command(command=build_cmd, log_prefix=self.log_prefix)
             if not rc:
                 with open(base_path, "w") as fd:
                     fd.write(f"stdout: {out}, stderr: {err}")
@@ -1566,7 +1579,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         pr_number = f"origin/pr/{self.pull_request.number}"
         checkout_cmd = f"git checkout {pr_number}"
         self.app.logger.info(f"{self.log_prefix} Run command: {checkout_cmd}")
-        if not run_command(command=checkout_cmd)[0]:
+        if not run_command(command=checkout_cmd, log_prefix=self.log_prefix)[0]:
             return False
         return True
 
