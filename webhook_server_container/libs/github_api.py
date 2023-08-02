@@ -1095,20 +1095,20 @@ Available labels:
 
     def _run_tox(self):
         if not self.tox_enabled:
-            return
+            return False
 
         if self.is_check_run_in_progress(check_run=TOX_STR):
             self.app.logger.info(
                 f"{self.log_prefix} Check run is in progress, not running {TOX_STR}."
             )
-            return
+            return False
 
         self.set_run_tox_check_in_progress()
         base_path = f"/webhook_server/tox/{self.pull_request.number}"
         base_url = f"{self.webhook_url}{base_path}"
         with self._clone_repository(path_suffix=f"tox-{shortuuid.uuid()}"):
             if not self._checkout_pull_request():
-                return
+                return False
 
             cmd = "tox"
             if self.tox_enabled != "all":
@@ -1120,13 +1120,12 @@ Available labels:
                 with open(base_path, "w") as fd:
                     fd.write(f"stdout: {out}, stderr: {err}")
 
-                self.set_run_tox_check_failure(target_url=base_url)
-                return
+                return self.set_run_tox_check_failure(target_url=base_url)
 
             with open(base_path, "w") as fd:
                 fd.write(out)
 
-            self.set_run_tox_check_success(target_url=base_url)
+            return self.set_run_tox_check_success(target_url=base_url)
 
     def user_commands(self, command, reviewed_user, issue_comment_id):
         remove = False
@@ -1427,13 +1426,13 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
     def _build_container(self, set_check=True):
         if not self.build_and_push_container:
-            return
+            return False
 
         if self.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR):
             self.app.logger.info(
                 f"{self.log_prefix} Check run is in progress, not running {BUILD_CONTAINER_STR}."
             )
-            return
+            return False
 
         self.set_container_build_in_progress()
         base_path = None
@@ -1448,7 +1447,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 f"{self.log_prefix} Current directory is {os.getcwd()}"
             )
             if self.pull_request and not self._checkout_pull_request():
-                return
+                return False
 
             _container_repository_and_tag = self._container_repository_and_tag()
             build_cmd = (
@@ -1528,13 +1527,13 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
     def _install_python_module(self):
         if not self.pypi:
-            return
+            return False
 
         if self.is_check_run_in_progress(check_run=PYTHON_MODULE_INSTALL_STR):
             self.app.logger.info(
                 f"{self.log_prefix} Check run is in progress, not running {PYTHON_MODULE_INSTALL_STR}."
             )
-            return
+            return False
 
         self.set_python_module_install_in_progress()
 
@@ -1547,7 +1546,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         ):
             self.app.logger.info(f"{self.log_prefix} Current directory: {os.getcwd()}")
             if not self._checkout_pull_request():
-                return
+                return False
 
             build_cmd = "pipx install . --include-deps --force"
             rc, out, err = run_command(command=build_cmd, log_prefix=self.log_prefix)
@@ -1555,13 +1554,12 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 with open(base_path, "w") as fd:
                     fd.write(f"stdout: {out}, stderr: {err}")
 
-                self.set_python_module_install_failure(target_url=base_url)
-                return
+                return self.set_python_module_install_failure(target_url=base_url)
 
             with open(base_path, "w") as fd:
                 fd.write(out)
 
-            self.set_python_module_install_success(target_url=base_url)
+            return self.set_python_module_install_success(target_url=base_url)
 
     def send_slack_message(self, message, webhook_url):
         slack_data = {"text": message}
@@ -1701,12 +1699,12 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
     def _run_sonarqube(self):
         if not self.sonarqube_project_key:
-            return
+            return False
 
         with self._clone_repository(path_suffix=f"sonarqube-{shortuuid.uuid()}"):
             self.app.logger.info(f"{self.log_prefix} Current directory: {os.getcwd()}")
             if not self._checkout_pull_request():
-                return
+                return False
 
             self.set_sonarqube_in_progress()
             target_url = (
@@ -1723,12 +1721,12 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     params={"projectKey": self.sonarqube_project_key},
                 ).json()
                 if project_status["projectStatus"]["status"]:
-                    self.set_sonarqube_success(target_url=target_url)
+                    return self.set_sonarqube_success(target_url=target_url)
                 else:
-                    self.set_sonarqube_failure(target_url=target_url)
+                    return self.set_sonarqube_failure(target_url=target_url)
 
             else:
-                self.set_sonarqube_failure(target_url=target_url)
+                return self.set_sonarqube_failure(target_url=target_url)
 
     async def _run_check_runs_async(self):
         async def _run_check_run(check_run):
