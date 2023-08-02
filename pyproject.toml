@@ -18,7 +18,7 @@ profile = "black"
 
 [tool.poetry]
 name = "github-webhook-server"
-version = "1.0.2.post10.dev0+0dbe6f7"
+version = "0.0.0"
 description = "A webhook server to manage Github reposotories and pull requests."
 authors = ["Meni Yakove <myakove@gmail.com>", "Ruth Netser <ruth.netser@gmail.com>"]
 readme = "README.md"
@@ -52,7 +52,7 @@ ipdb = "^0.13.13"
 ipython = "*"
 
 [tool.poetry-dynamic-versioning]
-enable = false
+enable = true
 pattern = "((?P<epoch>\\d+)!)?(?P<base>\\d+(\\.\\d+)*)"
 
 [build-system]
