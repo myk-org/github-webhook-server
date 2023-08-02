@@ -144,3 +144,4 @@ docker-compose.yaml
 github-webhook-server.json
 config-dev.yaml
 local-run.sh
+.scannerwork/
