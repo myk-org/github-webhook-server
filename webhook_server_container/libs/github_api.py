@@ -1663,7 +1663,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.pull_request.add_to_assignees(parent_committer)
         self.assign_reviewers()
 
-        asyncio.get_event_loop().run_until_complete(self._run_check_runs_async())
+        asyncio.run(self._run_check_runs_async())
 
         #
         # self._run_sonarqube()
@@ -1728,19 +1728,17 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             else:
                 self.set_sonarqube_failure(target_url=target_url)
 
-    async def _run_check_run_async(self, check_run):
-        await check_run()
-
     async def _run_check_runs_async(self):
+        async def _run_check_run_async(check_run):
+            await check_run()
+
         check_runs = (
             self._run_sonarqube,
             self._run_tox,
             self._install_python_module,
             self._build_container,
         )
-        coros = [
-            self._run_check_run_async(check_run=check_run) for check_run in check_runs
-        ]
+        coros = [_run_check_run_async(check_run=check_run) for check_run in check_runs]
         await asyncio.gather(*coros)
         # procs = []
         # for check_run in (
