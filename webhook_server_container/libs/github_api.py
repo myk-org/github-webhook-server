@@ -699,6 +699,14 @@ Available labels:
             name=CAN_BE_MERGED_STR, head_sha=self.last_commit.sha, status=QUEUED_STR
         )
 
+    def set_merge_check_in_progress(self):
+        self.app.logger.info(f"{self.log_prefix} Set merge check to {IN_PROGRESS_STR}")
+        self.repository_by_github_app.create_check_run(
+            name=CAN_BE_MERGED_STR,
+            head_sha=self.last_commit.sha,
+            status=IN_PROGRESS_STR,
+        )
+
     def set_merge_check_success(self):
         self.app.logger.info(f"{self.log_prefix} Set merge check to {SUCCESS_STR}")
         self.repository_by_github_app.create_check_run(
@@ -857,7 +865,6 @@ Available labels:
                 reviewed_user=user_login,
                 issue_comment_id=self.hook_data["comment"]["id"],
             )
-        self.check_if_can_be_merged()
 
     def process_pull_request_webhook_data(self):
         hook_action = self.hook_data["action"]
@@ -867,31 +874,29 @@ Available labels:
             return
 
         self.last_commit = self._get_last_commit()
-
         pull_request_data = self.hook_data["pull_request"]
         parent_committer = pull_request_data["user"]["login"]
+        pull_request_branch = pull_request_data["base"]["ref"]
 
         if hook_action == "opened":
             self.app.logger.info(f"{self.log_prefix} Creating welcome comment")
             self.pull_request.create_issue_comment(self.welcome_msg)
-            self.set_merge_check_queued()
-            self.set_run_tox_check_queued()
-            self.set_python_module_install_queued()
-            self.set_container_build_queued()
-            self._process_verified(parent_committer=parent_committer)
-            self.add_size_label()
-            self._add_label(
-                label=f"{BRANCH_LABEL_PREFIX}{pull_request_data['base']['ref']}"
+            self.process_opened_or_synchronize_pull_request(
+                parent_committer=parent_committer,
+                pull_request_branch=pull_request_branch,
             )
-            self.app.logger.info(f"{self.log_prefix} Adding PR owner as assignee")
-            self.pull_request.add_to_assignees(parent_committer)
-            self.assign_reviewers()
-            self.create_issue_for_new_pull_request()
-            self.run_tox()
-            self._install_python_module()
 
-            with self._build_container():
-                pass
+        if hook_action == "synchronize":
+            reviewed_by_labels = [
+                label.name for label in self.pull_request.labels if "By-" in label.name
+            ]
+            for _reviewed_label in reviewed_by_labels:
+                self._remove_label(label=_reviewed_label)
+
+            self.process_opened_or_synchronize_pull_request(
+                parent_committer=parent_committer,
+                pull_request_branch=pull_request_branch,
+            )
 
         if hook_action == "closed":
             self.close_issue_for_merged_or_closed_pr(hook_action=hook_action)
@@ -911,44 +916,27 @@ Available labels:
 
                 self.needs_rebase()
 
-        if hook_action == "synchronize":
-            self.set_merge_check_queued()
-            self.set_run_tox_check_queued()
-            self.set_python_module_install_queued()
-            self.set_container_build_queued()
-            self._process_verified(parent_committer=parent_committer)
-            self.assign_reviewers()
-            self.add_size_label()
-            reviewed_by_labels = [
-                label.name for label in self.pull_request.labels if "By-" in label.name
-            ]
-            for _reviewed_label in reviewed_by_labels:
-                self._remove_label(label=_reviewed_label)
-
-            self.run_tox()
-            self._install_python_module()
-            with self._build_container():
-                pass
-
-            self.check_if_can_be_merged()
-
         if hook_action in ("labeled", "unlabeled"):
             labeled = self.hook_data["label"]["name"].lower()
 
-            if hook_action == "labeled":
-                if labeled == CAN_BE_MERGED_STR and parent_committer in (
+            if (
+                hook_action == "labeled"
+                and labeled == CAN_BE_MERGED_STR
+                and parent_committer
+                in (
                     self.api_user,
                     "pre-commit-ci[bot]",
-                ):
-                    self.app.logger.info(
-                        f"{self.log_prefix} "
-                        f"will be merged automatically. owner: {self.api_user}"
-                    )
-                    self.pull_request.create_issue_comment(
-                        f"Owner of the pull request is `{self.api_user}`\nPull request is merged automatically."
-                    )
-                    self.pull_request.merge(merge_method="squash")
-                    return
+                )
+            ):
+                self.app.logger.info(
+                    f"{self.log_prefix} "
+                    f"will be merged automatically. owner: {self.api_user}"
+                )
+                self.pull_request.create_issue_comment(
+                    f"Owner of the pull request is `{self.api_user}`\nPull request is merged automatically."
+                )
+                self.pull_request.merge(merge_method="squash")
+                return
 
             self.app.logger.info(
                 f"{self.log_prefix} PR {self.pull_request.number} {hook_action} with {labeled}"
@@ -1307,25 +1295,8 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             return
 
         self.app.logger.info(f"{self.log_prefix} Check if can be merged.")
+        self.set_merge_check_in_progress()
         _labels = self.pull_request_labels_names()
-
-        # _final_statuses = {}
-        #
-        # for _status in self.last_commit.get_statuses():
-        #     if _status.context == CAN_BE_MERGED_STR:
-        #         continue
-        #
-        #     _status_data = {"updated_at": _status.updated_at, "state": _status.state}
-        #     if _status.context in _final_statuses:
-        #         if _status.updated_at > _final_statuses[_status.context]["updated_at"]:
-        #             _final_statuses[_status.context] = _status_data
-        #     else:
-        #         _final_statuses[_status.context] = _status_data
-        #
-        # _all_statuses_passed = all(
-        #     _final_statuses[context]["state"] == SUCCESS_STR
-        #     for context in [*_final_statuses]
-        # )
 
         # TODO: refactor and enable once we can use 'check run'
         # check_retest_statuses = ["tox", "build-container", "python-module-install"]
@@ -1628,3 +1599,22 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             )
             return False
         return True
+
+    def process_opened_or_synchronize_pull_request(
+        self, parent_committer, pull_request_branch
+    ):
+        self.set_merge_check_queued()
+        self.set_run_tox_check_queued()
+        self.set_python_module_install_queued()
+        self.set_container_build_queued()
+        self._process_verified(parent_committer=parent_committer)
+        self.add_size_label()
+        self._add_label(label=f"{BRANCH_LABEL_PREFIX}{pull_request_branch}")
+        self.app.logger.info(f"{self.log_prefix} Adding PR owner as assignee")
+        self.pull_request.add_to_assignees(parent_committer)
+        self.assign_reviewers()
+        self.create_issue_for_new_pull_request()
+        self.run_tox()
+        self._install_python_module()
+        with self._build_container():
+            pass
