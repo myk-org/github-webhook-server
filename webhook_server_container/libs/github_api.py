@@ -95,6 +95,7 @@ class GitHubApi:
         self.github_app_id = None
         self.sonarqube = None
         self.sonarqube_api = None
+        self.sonarqube_project_key = None
         # End of filled by self._repo_data_from_config()
 
         self._repo_data_from_config()
@@ -228,7 +229,7 @@ Available user actions:
         self.build_and_push_container = repo_data.get("container")
         self.dockerhub = repo_data.get("docker")
         if self.sonarqube:
-            self.sonarqube_project_key = repo_data["sonarqube-project-key"]
+            self.sonarqube_project_key = repo_data.get("sonarqube-project-key")
 
         if self.dockerhub:
             self.dockerhub_username = self.dockerhub["username"]
@@ -817,7 +818,7 @@ Available labels:
         )
 
     def set_sonarqube_queued(self):
-        if not self.sonarqube:
+        if not self.sonarqube_project_key:
             return
 
         self.app.logger.info(
@@ -1699,7 +1700,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         return False
 
     def _run_sonarqube(self):
-        if not self.sonarqube:
+        if not self.sonarqube_project_key:
             return
 
         with self._clone_repository(path_suffix=f"sonarqube-{shortuuid.uuid()}"):
@@ -1733,30 +1734,21 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         async def _run_check_run_async(check_run):
             await check_run()
 
-        # check_runs = (
-        #     self._run_sonarqube,
-        #     self._run_tox,
-        #     self._install_python_module,
-        #     self._build_container,
-        # )
-        # coros = [_run_check_run_async(check_run=check_run) for check_run in check_runs]
-        await asyncio.gather(
-            _run_check_run_async(check_run=self._run_sonarqube()),
-            _run_check_run_async(check_run=self._run_tox()),
-            _run_check_run_async(check_run=self._install_python_module()),
-            _run_check_run_async(check_run=self._build_container()),
+        check_runs = [
+            self._run_sonarqube,
+            self._run_tox,
+            self._install_python_module,
+            self._build_container,
+        ]
+        tasks = asyncio.create_task(
+            _run_check_run_async(check_run) for check_run in check_runs
         )
-        # await asyncio.gather(*coros)
-        # procs = []
-        # for check_run in (
-        #     self._run_sonarqube,
-        #     self._run_tox,
-        #     self._install_python_module,
-        #     self._build_container,
-        # ):
-        #     proc = Process(target=check_run)
-        #     procs.append(Process(target=check_run))
-        #     proc.start()
-        #
-        # for _proc in procs:
-        #     _proc.join()
+        for task in tasks:
+            await task
+
+        # await asyncio.gather(
+        #     _run_check_run_async(check_run=self._run_sonarqube()),
+        #     _run_check_run_async(check_run=self._run_tox()),
+        #     _run_check_run_async(check_run=self._install_python_module()),
+        #     _run_check_run_async(check_run=self._build_container()),
+        # )

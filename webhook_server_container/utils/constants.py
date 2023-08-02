@@ -1,7 +1,20 @@
+import logging
+
 from flask import Flask
 
 
 FLASK_APP = Flask("webhook-server")
+
+# Set up logging
+log_format = "%(asctime)s %(name)s %(levelname)s: %(message)s"
+logging.basicConfig(level=logging.INFO, format=log_format)
+
+# Add color to log level names
+logging.addLevelName(logging.DEBUG, "\033[1;34mDEBUG\033[1;0m")
+logging.addLevelName(logging.INFO, "\033[1;32mINFO\033[1;0m")
+logging.addLevelName(logging.WARNING, "\033[1;33mWARNING\033[1;0m")
+logging.addLevelName(logging.ERROR, "\033[1;31mERROR\033[1;0m")
+logging.addLevelName(logging.CRITICAL, "\033[1;41mCRITICAL\033[1;0m")
 
 TOX_STR = "tox"
 SONARQUBE_STR = "SonarQube"

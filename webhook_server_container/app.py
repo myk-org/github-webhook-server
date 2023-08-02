@@ -2,9 +2,7 @@ import os
 
 import urllib3
 from flask import Response, request
-from flask.logging import default_handler
 from github import Auth, GithubIntegration
-from simple_logger.logger import get_logger
 
 from webhook_server_container.libs.github_api import GitHubApi
 from webhook_server_container.utils.constants import FLASK_APP
@@ -23,10 +21,6 @@ urllib3.disable_warnings()
 PLAIN_TEXT_MIME_TYPE = "text/plain"
 APP_ROOT_PATH = "/webhook_server"
 FILENAME_STRING = "<string:filename>"
-
-
-root = get_logger(__name__)
-root.addHandler(default_handler)
 
 
 def get_repositories_github_app_api():

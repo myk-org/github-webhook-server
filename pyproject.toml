@@ -46,7 +46,6 @@ build = "^0.10.0"
 twine = "^4.0.2"
 shortuuid = "^1.0.11"
 python-sonarqube-api = "^2.0.4"
-python-simple-logger = "^1.0.6"
 
 [tool.poetry.group.dev.dependencies]
 ipdb = "^0.13.13"
