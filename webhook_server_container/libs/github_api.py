@@ -3,9 +3,7 @@ import datetime
 import json
 import os
 import re
-import shlex
 import shutil
-import subprocess
 import sys
 import time
 from contextlib import contextmanager
@@ -73,7 +71,6 @@ class GitHubApi:
         self.app = FLASK_APP
         self.hook_data = hook_data
         self.repository_name = hook_data["repository"]["name"]
-        self.run_command_kwargs = {"verify_stderr": False, "check": False}
         self.repositories_app_api = repositories_app_api
         self.missing_app_repositories = missing_app_repositories
         self.pull_request = None
@@ -338,9 +335,6 @@ Available user actions:
     @contextmanager
     def _clone_repository(self, path_suffix):
         _clone_path = f"/tmp{self.clone_repository_path}-{path_suffix}"
-        self.app.logger.info(
-            f"Cloning repository: {self.repository_full_name} into {_clone_path}"
-        )
         clone_cmd = (
             f"git clone {self.repository.clone_url.replace('https://', f'https://{self.token}@')} "
             f"{_clone_path}"
@@ -350,37 +344,34 @@ Available user actions:
         remote_update_cmd = "git remote update"
         fetch_pr_cmd = "git config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
 
-        run_command(command=clone_cmd, **self.run_command_kwargs)
+        if run_command(command=clone_cmd, log_prefix=self.log_prefix)[0]:
+            with change_directory(_clone_path, logger=self.app.logger):
+                for cmd in [
+                    git_user_name_cmd,
+                    git_email_cmd,
+                    fetch_pr_cmd,
+                    remote_update_cmd,
+                ]:
+                    run_command(command=cmd, log_prefix=self.log_prefix)
+                yield _clone_path
 
-        with change_directory(_clone_path, logger=self.app.logger):
-            for cmd in [
-                git_user_name_cmd,
-                git_email_cmd,
-                fetch_pr_cmd,
-                remote_update_cmd,
-            ]:
-                run_command(command=cmd, **self.run_command_kwargs)
-            yield _clone_path
-
-        self.app.logger.info(
-            f"{self.log_prefix} Removing cloned repository: {_clone_path}"
-        )
-        shutil.rmtree(_clone_path, ignore_errors=True)
+            self.app.logger.info(
+                f"{self.log_prefix} Removing cloned repository: {_clone_path}"
+            )
+            shutil.rmtree(_clone_path, ignore_errors=True)
+        else:
+            yield
 
     def _checkout_tag(self, tag):
-        self.app.logger.info(f"{self.log_prefix} Checking out tag: {tag}")
-        subprocess.check_output(shlex.split(f"git checkout {tag}"))
+        return run_command(command=f"git checkout {tag}", log_prefix=self.log_prefix)[0]
 
     def _checkout_new_branch(self, source_branch, new_branch_name):
-        self.app.logger.info(
-            f"{self.log_prefix} Checking out new branch: {new_branch_name} from {source_branch}"
-        )
         for cmd in (
             f"git checkout {source_branch}",
             f"git pull origin {source_branch}",
             f"git checkout -b {new_branch_name} origin/{source_branch}",
         ):
-            run_command(command=cmd, **self.run_command_kwargs)
+            run_command(command=cmd, log_prefix=self.log_prefix)
 
     @ignore_exceptions()
     def is_branch_exists(self, branch):
@@ -411,99 +402,97 @@ Available user actions:
         pull_request_url = self.pull_request.html_url
         user_login = self.pull_request.user.login
 
-        try:
-            self.app.logger.info(
-                f"{self.log_prefix} Cherry picking [PR {self.pull_request.number}]{commit_hash} "
-                f"into {source_branch}, requested by {user_login}"
-            )
-            cherry_pick, out, err = run_command(
-                command=f"git cherry-pick {commit_hash}",
-                **self.run_command_kwargs,
-            )
-            if not cherry_pick:
-                return _issue_from_err(
-                    _out=out,
-                    _err=err,
-                    _commit_hash=commit_hash,
-                    _source_branch=source_branch,
-                    _step="git cherry-pick",
-                )
-
-            git_push, out, err = run_command(
-                command=f"git push origin {new_branch_name}",
-                **self.run_command_kwargs,
-            )
-            if not git_push:
-                return _issue_from_err(
-                    _out=out,
-                    _err=err,
-                    _commit_hash=commit_hash,
-                    _source_branch=source_branch,
-                    _step="git push",
-                )
-
-            with self.set_os_env_github_token():
-                pull_request_cmd, out, err = run_command(
-                    command=f"hub pull-request "
-                    f"-b {source_branch} "
-                    f"-h {new_branch_name} "
-                    f"-l {CHERRY_PICKED_LABEL_PREFIX} "
-                    f"-m '{CHERRY_PICKED_LABEL_PREFIX}: [{source_branch}] {commit_msg}' "
-                    f"-m 'cherry-pick {pull_request_url} into {source_branch}' "
-                    f"-m 'requested-by {user_login}'",
-                    **self.run_command_kwargs,
-                )
-            if not pull_request_cmd:
-                _issue_from_err(
-                    _out=out,
-                    _err=err,
-                    _commit_hash=commit_hash,
-                    _source_branch=source_branch,
-                    _step="create pull request",
-                )
-                return False
-
-            return True
-        except Exception as ex:
-            _issue_from_err(
-                _out="",
-                _err=str(ex),
+        self.app.logger.info(
+            f"{self.log_prefix} Cherry picking [PR {self.pull_request.number}]{commit_hash} "
+            f"into {source_branch}, requested by {user_login}"
+        )
+        cherry_pick, out, err = run_command(
+            command=f"git cherry-pick {commit_hash}",
+            log_prefix=self.log_prefix,
+        )
+        if not cherry_pick:
+            return _issue_from_err(
+                _out=out,
+                _err=err,
                 _commit_hash=commit_hash,
                 _source_branch=source_branch,
-                _step="",
+                _step="git cherry-pick",
             )
-            return False
+
+        git_push, out, err = run_command(
+            command=f"git push origin {new_branch_name}",
+            log_prefix=self.log_prefix,
+        )
+        if not git_push:
+            return _issue_from_err(
+                _out=out,
+                _err=err,
+                _commit_hash=commit_hash,
+                _source_branch=source_branch,
+                _step="git push",
+            )
+
+        with self.set_os_env_github_token():
+            pull_request_cmd, out, err = run_command(
+                command=f"hub pull-request "
+                f"-b {source_branch} "
+                f"-h {new_branch_name} "
+                f"-l {CHERRY_PICKED_LABEL_PREFIX} "
+                f"-m '{CHERRY_PICKED_LABEL_PREFIX}: [{source_branch}] {commit_msg}' "
+                f"-m 'cherry-pick {pull_request_url} into {source_branch}' "
+                f"-m 'requested-by {user_login}'",
+                log_prefix=self.log_prefix,
+            )
+        if not pull_request_cmd:
+            return _issue_from_err(
+                _out=out,
+                _err=err,
+                _commit_hash=commit_hash,
+                _source_branch=source_branch,
+                _step="create pull request",
+            )
+        return True
 
     def upload_to_pypi(self, tag_name):
         tool = self.pypi["tool"]
         token = self.pypi["token"]
-        try:
-            if tool == "twine":
-                self.app.logger.info(f"{self.log_prefix} Start uploading to pypi")
-                os.environ["TWINE_USERNAME"] = "__token__"
-                os.environ["TWINE_PASSWORD"] = token
-                build_folder = "dist"
+        self.app.logger.info(f"{self.log_prefix} Start uploading to pypi")
+        rc, out, err = None, None, None
+        if tool == "twine":
+            os.environ["TWINE_USERNAME"] = "__token__"
+            os.environ["TWINE_PASSWORD"] = token
+            build_folder = "dist"
 
-                _out = subprocess.check_output(
-                    shlex.split(
-                        f"{sys.executable} -m build --sdist --outdir {build_folder}/"
-                    )
-                )
-                dist_pkg = re.search(
-                    r"Successfully built (.*.tar.gz)", _out.decode("utf-8")
-                ).group(1)
+            rc, out, err = run_command(
+                command=f"{sys.executable} -m build --sdist --outdir {build_folder}/",
+                log_prefix=self.log_prefix,
+            )
+            if rc:
+                dist_pkg = re.search(r"Successfully built (.*.tar.gz)", out).group(1)
                 dist_pkg_path = os.path.join(build_folder, dist_pkg)
-                subprocess.check_output(shlex.split(f"twine check {dist_pkg_path}"))
-                self.app.logger.info(f"{self.log_prefix} Uploading to pypi: {dist_pkg}")
-                subprocess.check_output(
-                    shlex.split(f"twine upload {dist_pkg_path} --skip-existing")
+                rc, out, err = run_command(
+                    command=f"twine check {dist_pkg_path}",
+                    log_prefix=self.log_prefix,
                 )
-            elif tool == "poetry":
-                subprocess.check_output(
-                    shlex.split(f"poetry config --local pypi-token.pypi {token}")
-                )
-                subprocess.check_output(shlex.split("poetry publish --build"))
+                if rc:
+                    rc, out, err = run_command(
+                        command=f"twine upload {dist_pkg_path} --skip-existing",
+                        log_prefix=self.log_prefix,
+                    )
 
+        elif tool == "poetry":
+            rc, out, err = run_command(
+                command=f"poetry config --local pypi-token.pypi {token}",
+                log_prefix=self.log_prefix,
+            )
+            if rc:
+                rc, out, err = run_command(
+                    command="poetry publish --build", log_prefix=self.log_prefix
+                )
+        if rc:
+            self.app.logger.info(
+                f"{self.log_prefix} Publish to pypi finished [using {tool}]"
+            )
             message = f"""
 ```
 {self.log_prefix} Version {tag_name} published to PYPI.
@@ -514,18 +503,16 @@ Available user actions:
                 webhook_url=self.slack_webhook_url,
             )
 
-        except Exception as ex:
+        else:
             err = f"Publish to pypi failed [using {tool}]"
             self.app.logger.error(f"{self.log_prefix} {err}")
             self.repository.create_issue(
                 title=err,
-                body=ex,
+                body=f"""
+stdout: `{out}`
+stderr: `{err}`
+""",
             )
-            return
-
-        self.app.logger.info(
-            f"{self.log_prefix} Publish to pypi finished [using {tool}]"
-        )
 
     @property
     def owners_content(self):
@@ -806,8 +793,7 @@ Available labels:
     @ignore_exceptions(FLASK_APP.logger)
     def create_issue_for_new_pull_request(self):
         self.app.logger.info(
-            f"{self.log_prefix} "
-            f"Creating issue for new PR: {self.pull_request.title}"
+            f"{self.log_prefix} Creating issue for new PR: {self.pull_request.title}"
         )
         self.repository.create_issue(
             title=self._generate_issue_title(),
@@ -868,7 +854,7 @@ Available labels:
 
     def process_pull_request_webhook_data(self):
         hook_action = self.hook_data["action"]
-        self.app.logger.info(f"hook_action is: {hook_action}")
+        self.app.logger.info(f"{self.log_prefix} hook_action is: {hook_action}")
         self.pull_request = self._get_pull_request()
         if not self.pull_request:
             return
@@ -902,7 +888,7 @@ Available labels:
             self.close_issue_for_merged_or_closed_pr(hook_action=hook_action)
 
             if pull_request_data.get("merged"):
-                self.app.logger.info(f"{self.log_prefix}: PR is merged")
+                self.app.logger.info(f"{self.log_prefix} PR is merged")
                 self._build_and_push_container()
 
                 for _label in self.pull_request.labels:
@@ -962,8 +948,8 @@ Available labels:
                 f"{self.log_prefix} Processing push for tag: {tag_name}"
             )
             with self._clone_repository(path_suffix=f"{tag_name}-{shortuuid.uuid()}"):
-                self._checkout_tag(tag=tag_name)
-                self.upload_to_pypi(tag_name=tag_name)
+                if self._checkout_tag(tag=tag_name):
+                    self.upload_to_pypi(tag_name=tag_name)
 
     def process_pull_request_review_webhook_data(self):
         self.pull_request = self._get_pull_request()
@@ -1038,6 +1024,12 @@ Available labels:
         if not self.tox_enabled:
             return
 
+        if self.is_check_run_in_progress(check_run=TOX_STR):
+            self.app.logger.info(
+                f"{self.log_prefix} Check run is in progress, not running {TOX_STR}."
+            )
+            return
+
         self.set_run_tox_check_in_progress()
         base_path = f"/webhook_server/tox/{self.pull_request.number}"
         base_url = f"{self.webhook_url}{base_path}"
@@ -1045,28 +1037,23 @@ Available labels:
             if not self._checkout_pull_request():
                 return
 
-            try:
-                cmd = "tox"
-                if self.tox_enabled != "all":
-                    tests = self.tox_enabled.replace(" ", "")
-                    cmd += f" -e {tests}"
+            cmd = "tox"
+            if self.tox_enabled != "all":
+                tests = self.tox_enabled.replace(" ", "")
+                cmd += f" -e {tests}"
 
-                self.app.logger.info(f"Run tox command: {cmd}")
-                out = subprocess.check_output(shlex.split(cmd))
-            except subprocess.CalledProcessError as ex:
+            rc, out, err = run_command(command=cmd, log_prefix=self.log_prefix)
+            if not rc:
                 with open(base_path, "w") as fd:
-                    fd.write(ex.output.decode("utf-8"))
+                    fd.write(f"stdout: {out}, stderr: {err}")
 
-                self.set_run_tox_check_failure(
-                    target_url=base_url,
-                )
-            else:
-                with open(base_path, "w") as fd:
-                    fd.write(out.decode("utf-8"))
+                self.set_run_tox_check_failure(target_url=base_url)
+                return
 
-                self.set_run_tox_check_success(
-                    target_url=base_url,
-                )
+            with open(base_path, "w") as fd:
+                fd.write(out)
+
+            self.set_run_tox_check_success(target_url=base_url)
 
     def user_commands(self, command, reviewed_user, issue_comment_id):
         remove = False
@@ -1084,15 +1071,13 @@ Available labels:
         _args = command_and_args[1] if len(command_and_args) > 1 else ""
         if len(command_and_args) > 1 and _args == "cancel":
             self.app.logger.info(
-                f"{self.log_prefix} " f"User requested 'cancel' for command {_command}"
+                f"{self.log_prefix} User requested 'cancel' for command {_command}"
             )
             remove = True
 
         if _command in available_commands:
             if not _args:
-                error_msg = (
-                    f"{self.log_prefix} " f"retest/cherry-pick requires an argument"
-                )
+                error_msg = f"{self.log_prefix} retest/cherry-pick requires an argument"
                 self.app.logger.info(error_msg)
                 self.pull_request.create_issue_comment(error_msg)
                 return
@@ -1166,7 +1151,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     self.set_run_tox_check_in_progress()
                     self.run_tox()
 
-                elif _args == "build-container":
+                elif _args == BUILD_CONTAINER_STR:
                     if self.build_and_push_container:
                         self.create_comment_reaction(
                             issue_comment_id=issue_comment_id,
@@ -1179,7 +1164,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                         self.app.logger.info(error_msg)
                         self.pull_request.create_issue_comment(error_msg)
 
-                elif _args == "python-module-install":
+                elif _args == PYTHON_MODULE_INSTALL_STR:
                     if not self.pypi:
                         error_msg = f"{self.log_prefix} No pypi configured"
                         self.app.logger.info(error_msg)
@@ -1295,22 +1280,20 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             return
 
         self.app.logger.info(f"{self.log_prefix} Check if can be merged.")
+        last_commit_check_runs = list(self.last_commit.get_check_runs())
+        if any(
+            [
+                check_run.status == IN_PROGRESS_STR
+                for check_run in last_commit_check_runs
+            ]
+        ):
+            self.app.logger.info(
+                f"{self.log_prefix} Some check runs in progress, skipping check if can be merged."
+            )
+            return
+
         self.set_merge_check_in_progress()
         _labels = self.pull_request_labels_names()
-
-        # TODO: refactor and enable once we can use 'check run'
-        # check_retest_statuses = ["tox", "build-container", "python-module-install"]
-        # needs_retest_statuses = []
-        # if not _all_statuses_passed:
-        #     for _status in check_retest_statuses:
-        #         if _final_statuses.get(_status, {}).get("state") == PENDING_STR:
-        #             needs_retest_statuses.append(_status)
-        #
-        # if needs_retest_statuses:
-        #     issue_body = " ".join(
-        #         [f"/retest {_test}\n" for _test in check_retest_statuses]
-        #     )
-        #     self.pull_request.create_issue_comment(body=issue_body)
 
         if VERIFIED_LABEL_STR not in _labels or HOLD_LABEL_STR in _labels:
             self._remove_label(label=CAN_BE_MERGED_STR)
@@ -1325,13 +1308,15 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         all_check_runs_passed = all(
             [
                 check_run.conclusion == SUCCESS_STR
-                for check_run in self.last_commit.get_check_runs()
+                for check_run in last_commit_check_runs
                 if check_run.name != CAN_BE_MERGED_STR
             ]
         )
         if not all_check_runs_passed:
             self._remove_label(label=CAN_BE_MERGED_STR)
             self.set_merge_check_queued()
+            # TODO: Fix `run_retest_if_queued` and uncomment the call for it.
+            # self.run_retest_if_queued(last_commit_check_runs=last_commit_check_runs)
             return
 
         for _label in _labels:
@@ -1373,6 +1358,12 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             yield
 
         else:
+            if self.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR):
+                self.app.logger.info(
+                    f"{self.log_prefix} Check run is in progress, not running {BUILD_CONTAINER_STR}."
+                )
+                return
+
             self.set_container_build_in_progress()
             base_path = None
             base_url = None
@@ -1392,47 +1383,43 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 if self.pull_request and not self._checkout_pull_request():
                     yield
 
-                try:
-                    _container_repository_and_tag = self._container_repository_and_tag()
-                    build_cmd = (
-                        f"--network=host -f {self.dockerfile} "
-                        f"-t {_container_repository_and_tag}"
-                    )
-                    if self.container_build_args:
-                        build_args = [
-                            f"--build-arg {b_arg}"
-                            for b_arg in self.container_build_args
-                        ][0]
-                        build_cmd = f"{build_args} {build_cmd}"
+                _container_repository_and_tag = self._container_repository_and_tag()
+                build_cmd = (
+                    f"--network=host -f {self.dockerfile} "
+                    f"-t {_container_repository_and_tag}"
+                )
+                if self.container_build_args:
+                    build_args = [
+                        f"--build-arg {b_arg}" for b_arg in self.container_build_args
+                    ][0]
+                    build_cmd = f"{build_args} {build_cmd}"
 
-                    if self.container_command_args:
-                        build_cmd = (
-                            f"{' '.join(self.container_command_args)} {build_cmd}"
-                        )
+                if self.container_command_args:
+                    build_cmd = f"{' '.join(self.container_command_args)} {build_cmd}"
 
-                    podman_build_cmd = f"podman build {build_cmd}"
-                    self.app.logger.info(
-                        f"{self.log_prefix} Build container image for {_container_repository_and_tag}, "
-                        f"command: {podman_build_cmd}"
-                    )
-                    out = subprocess.check_output(shlex.split(podman_build_cmd))
-                    self.app.logger.info(
-                        f"{self.log_prefix} Done building {_container_repository_and_tag}"
-                    )
-                    if self.pull_request and set_check:
-                        with open(base_path, "w") as fd:
-                            fd.write(out.decode("utf-8"))
+                podman_build_cmd = f"podman build {build_cmd}"
+                self.app.logger.info(
+                    f"{self.log_prefix} Build container image for {_container_repository_and_tag}"
+                )
+                rc, out, err = run_command(
+                    command=podman_build_cmd, log_prefix=self.log_prefix
+                )
+                if not rc and self.pull_request and set_check:
+                    with open(base_path, "w") as fd:
+                        fd.write(f"stdout: {out}, stderr: {err}")
 
-                        yield self.set_container_build_success(target_url=base_url)
-                    else:
-                        yield
+                    yield self.set_container_build_failure(target_url=base_url)
 
-                except subprocess.CalledProcessError as ex:
-                    if self.pull_request and set_check:
-                        with open(base_path, "w") as fd:
-                            fd.write(ex.output.decode("utf-8"))
+                self.app.logger.info(
+                    f"{self.log_prefix} Done building {_container_repository_and_tag}"
+                )
+                if self.pull_request and set_check:
+                    with open(base_path, "w") as fd:
+                        fd.write(out)
 
-                        yield self.set_container_build_failure(target_url=base_url)
+                    yield self.set_container_build_success(target_url=base_url)
+                else:
+                    yield
 
     def _build_and_push_container(self):
         if not self.build_and_push_container:
@@ -1449,35 +1436,37 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 f"{self.log_prefix} Push container image to {_container_repository_and_tag}"
             )
 
-            try:
-                subprocess.check_output(shlex.split(push_cmd))
-                if self.pull_request:
-                    self.pull_request.create_issue_comment(
-                        f"Container {_container_repository_and_tag} pushed"
-                    )
+            if not run_command(command=push_cmd, log_prefix=self.log_prefix)[0]:
+                return
 
-                if self.slack_webhook_url:
-                    message = f"""
+            if self.pull_request:
+                self.pull_request.create_issue_comment(
+                    f"Container {_container_repository_and_tag} pushed"
+                )
+
+            if self.slack_webhook_url:
+                message = f"""
 ```
 {self.log_prefix} New container for {_container_repository_and_tag} published.
 ```
 """
-                    self.send_slack_message(
-                        message=message,
-                        webhook_url=self.slack_webhook_url,
-                    )
-
-                self.app.logger.info(
-                    f"{self.log_prefix} Done push {_container_repository_and_tag}"
+                self.send_slack_message(
+                    message=message,
+                    webhook_url=self.slack_webhook_url,
                 )
 
-            except subprocess.CalledProcessError as ex:
-                self.app.logger.error(
-                    f"{self.log_prefix} Failed to push {_container_repository_and_tag}. {ex}"
-                )
+            self.app.logger.info(
+                f"{self.log_prefix} Done push {_container_repository_and_tag}"
+            )
 
     def _install_python_module(self):
         if not self.pypi:
+            return
+
+        if self.is_check_run_in_progress(check_run=PYTHON_MODULE_INSTALL_STR):
+            self.app.logger.info(
+                f"{self.log_prefix} Check run is in progress, not running {PYTHON_MODULE_INSTALL_STR}."
+            )
             return
 
         self.set_python_module_install_in_progress()
@@ -1493,19 +1482,19 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             if not self._checkout_pull_request():
                 return
 
-            try:
-                build_cmd = "pipx install . --include-deps --force"
-                self.app.logger.info(f"{self.log_prefix} Run command: {build_cmd}")
-                out = subprocess.check_output(shlex.split(build_cmd))
+            build_cmd = "pipx install . --include-deps --force"
+            rc, out, err = run_command(command=build_cmd, log_prefix=self.log_prefix)
+            if not rc:
                 with open(base_path, "w") as fd:
-                    fd.write(out.decode("utf-8"))
-
-                self.set_python_module_install_success(target_url=base_url)
-            except subprocess.CalledProcessError as ex:
-                with open(base_path, "w") as fd:
-                    fd.write(ex.output.decode("utf-8"))
+                    fd.write(f"stdout: {out}, stderr: {err}")
 
                 self.set_python_module_install_failure(target_url=base_url)
+                return
+
+            with open(base_path, "w") as fd:
+                fd.write(out)
+
+            self.set_python_module_install_success(target_url=base_url)
 
     def send_slack_message(self, message, webhook_url):
         slack_data = {"text": message}
@@ -1543,7 +1532,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         rate_limit_remaining = rate_limit.core.remaining
         rate_limit_limit = rate_limit.core.limit
         self.app.logger.info(
-            f"{self.repository_name} API rate limit: Current {rate_limit_remaining} of {rate_limit_limit}. "
+            f"{self.log_prefix}  API rate limit: Current {rate_limit_remaining} of {rate_limit_limit}. "
             f"Reset in {rate_limit_reset} (UTC time is {datetime.datetime.utcnow()})"
         )
         while (
@@ -1556,7 +1545,9 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             time_for_limit_reset = (
                 rate_limit_reset - datetime.datetime.utcnow()
             ).seconds
-            self.app.logger.info(f"Sleeping {time_for_limit_reset} seconds")
+            self.app.logger.info(
+                f"{self.log_prefix} Sleeping {time_for_limit_reset} seconds"
+            )
             time.sleep(time_for_limit_reset + 1)
             rate_limit = self.github_api.get_rate_limit()
             rate_limit_reset = rate_limit.core.reset
@@ -1589,14 +1580,8 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
     def _checkout_pull_request(self):
         self.app.logger.info(f"{self.log_prefix} Current directory: {os.getcwd()}")
         pr_number = f"origin/pr/{self.pull_request.number}"
-        try:
-            checkout_cmd = f"git checkout {pr_number}"
-            self.app.logger.info(f"{self.log_prefix} Run command: {checkout_cmd}")
-            subprocess.check_output(shlex.split(checkout_cmd))
-        except subprocess.CalledProcessError as ex:
-            self.app.logger.error(
-                f"{self.log_prefix} checkout for {pr_number} failed: {ex}"
-            )
+        checkout_cmd = f"git checkout {pr_number}"
+        if not run_command(command=checkout_cmd, log_prefix=self.log_prefix)[0]:
             return False
         return True
 
@@ -1618,3 +1603,29 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self._install_python_module()
         with self._build_container():
             pass
+
+    def run_retest_if_queued(self):
+        last_commit_check_runs = list(self.last_commit.get_check_runs())
+        for check_run in last_commit_check_runs:
+            if check_run.status == QUEUED_STR:
+                if check_run.name == TOX_STR:
+                    self.app.logger.info(f"{self.log_prefix} retest {TOX_STR}.")
+                    self.run_tox()
+                if check_run.name == BUILD_CONTAINER_STR:
+                    self.app.logger.info(
+                        f"{self.log_prefix} retest {BUILD_CONTAINER_STR}."
+                    )
+                    with self._build_container():
+                        pass
+                if check_run.name == PYTHON_MODULE_INSTALL_STR:
+                    self.app.logger.info(
+                        f"{self.log_prefix} retest {PYTHON_MODULE_INSTALL_STR}."
+                    )
+                    self._install_python_module()
+
+    def is_check_run_in_progress(self, check_run):
+        last_commit_check_runs = list(self.last_commit.get_check_runs())
+        for run in last_commit_check_runs:
+            if run.name == check_run and run.status == IN_PROGRESS_STR:
+                return True
+        return False

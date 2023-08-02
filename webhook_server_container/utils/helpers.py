@@ -59,11 +59,12 @@ def get_github_repo_api(gapi, repository):
 
 def run_command(
     command,
-    verify_stderr=True,
+    log_prefix,
+    verify_stderr=False,
     shell=False,
     timeout=None,
     capture_output=True,
-    check=True,
+    check=False,
     **kwargs,
 ):
     """
@@ -71,6 +72,7 @@ def run_command(
 
     Args:
         command (str): Command to run
+        log_prefix (str): Prefix for log messages
         verify_stderr (bool, default True): Check command stderr
         shell (bool, default False): run subprocess with shell toggle
         timeout (int, optional): Command wait timeout
@@ -81,7 +83,7 @@ def run_command(
     Returns:
         tuple: True, out if command succeeded, False, err otherwise.
     """
-    FLASK_APP.logger.info(f"Running '{command}' command")
+    FLASK_APP.logger.info(f"{log_prefix} Running '{command}' command")
     sub_process = subprocess.run(
         shlex.split(command),
         capture_output=capture_output,
@@ -94,7 +96,11 @@ def run_command(
     out_decoded = sub_process.stdout
     err_decoded = sub_process.stderr
 
-    error_msg = f"Failed to run '{command}'. rc: {sub_process.returncode}, out: {out_decoded}, error: {err_decoded}"
+    error_msg = (
+        f"{log_prefix} Failed to run '{command}'. "
+        f"rc: {sub_process.returncode}, out: {out_decoded}, error: {err_decoded}"
+    )
+
     if sub_process.returncode != 0:
         FLASK_APP.logger.error(error_msg)
         return False, out_decoded, err_decoded
