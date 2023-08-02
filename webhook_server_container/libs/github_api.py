@@ -13,6 +13,7 @@ import shortuuid
 import yaml
 from github import Github, GithubException
 from github.GithubException import UnknownObjectException
+from sonarqube import SonarQubeClient
 
 from webhook_server_container.utils.constants import (
     ADD_STR,
@@ -36,6 +37,7 @@ from webhook_server_container.utils.constants import (
     QUEUED_STR,
     REACTIONS,
     SIZE_LABEL_PREFIX,
+    SONARQUBE_STR,
     STATIC_LABELS_DICT,
     SUCCESS_STR,
     TOX_STR,
@@ -90,6 +92,8 @@ class GitHubApi:
         self.repository_full_name = None
         self.api_user = None
         self.github_app_id = None
+        self.sonarqube = None
+        self.sonarqube_api = None
         # End of filled by self._repo_data_from_config()
 
         self._repo_data_from_config()
@@ -200,6 +204,14 @@ Available user actions:
         config_data = get_data_from_config()
         self.github_app_id = config_data["github-app-id"]
         self.token = config_data["github-token"]
+        self.sonarqube = config_data.get("sonarqube")
+        if self.sonarqube:
+            self.sonarqube_url = self.sonarqube["url"]
+            self.sonarqube_token = self.sonarqube["token"]
+            self.sonarqube_api = SonarQubeClient(
+                sonarqube_url=self.sonarqube_url, token=self.sonarqube_token
+            )
+
         repo_data = config_data["repositories"].get(self.repository_name)
         if not repo_data:
             raise RepositoryNotFoundError(
@@ -214,6 +226,9 @@ Available user actions:
         self.slack_webhook_url = repo_data.get("slack_webhook_url")
         self.build_and_push_container = repo_data.get("container")
         self.dockerhub = repo_data.get("docker")
+        if self.sonarqube:
+            self.sonarqube_project_key = repo_data["sonarqube-project-key"]
+
         if self.dockerhub:
             self.dockerhub_username = self.dockerhub["username"]
             self.dockerhub_password = self.dockerhub["password"]
@@ -621,14 +636,14 @@ Available labels:
 
     def reset_verify_label(self):
         self.app.logger.info(
-            f"{self.log_prefix} Processing reset verify label on new commit push"
+            f"{self.log_prefix} Processing reset {VERIFIED_LABEL_STR} label on new commit push"
         )
         # Remove verified label
         self._remove_label(label=VERIFIED_LABEL_STR)
 
     def set_verify_check_queued(self):
         self.app.logger.info(
-            f"{self.log_prefix} Processing set verified check {QUEUED_STR}"
+            f"{self.log_prefix} Processing set {VERIFIED_LABEL_STR} check {QUEUED_STR}"
         )
 
         self.repository_by_github_app.create_check_run(
@@ -636,7 +651,9 @@ Available labels:
         )
 
     def set_verify_check_success(self):
-        self.app.logger.info(f"{self.log_prefix} Set verified check to {SUCCESS_STR}")
+        self.app.logger.info(
+            f"{self.log_prefix} Set {VERIFIED_LABEL_STR} check to {SUCCESS_STR}"
+        )
         self.repository_by_github_app.create_check_run(
             name=VERIFIED_LABEL_STR,
             head_sha=self.last_commit.sha,
@@ -647,14 +664,16 @@ Available labels:
         if not self.tox_enabled:
             return
 
-        self.app.logger.info(f"{self.log_prefix} Processing set tox check {QUEUED_STR}")
+        self.app.logger.info(
+            f"{self.log_prefix} Processing set {TOX_STR} check {QUEUED_STR}"
+        )
         self.repository_by_github_app.create_check_run(
             name=TOX_STR, head_sha=self.last_commit.sha, status=QUEUED_STR
         )
 
     def set_run_tox_check_in_progress(self):
         self.app.logger.info(
-            f"{self.log_prefix} Processing set tox check {IN_PROGRESS_STR}"
+            f"{self.log_prefix} Processing set {TOX_STR} check {IN_PROGRESS_STR}"
         )
         self.repository_by_github_app.create_check_run(
             name=TOX_STR, head_sha=self.last_commit.sha, status=IN_PROGRESS_STR
@@ -662,7 +681,7 @@ Available labels:
 
     def set_run_tox_check_failure(self, target_url):
         self.app.logger.info(
-            f"{self.log_prefix} Processing set tox check {FAILURE_STR}"
+            f"{self.log_prefix} Processing set {TOX_STR} check {FAILURE_STR}"
         )
         self.repository_by_github_app.create_check_run(
             name=TOX_STR,
@@ -672,7 +691,7 @@ Available labels:
         )
 
     def set_run_tox_check_success(self, target_url):
-        self.app.logger.info(f"{self.log_prefix} Set tox check to {SUCCESS_STR}")
+        self.app.logger.info(f"{self.log_prefix} Set {TOX_STR} check to {SUCCESS_STR}")
         self.repository_by_github_app.create_check_run(
             name=TOX_STR,
             head_sha=self.last_commit.sha,
@@ -681,13 +700,17 @@ Available labels:
         )
 
     def set_merge_check_queued(self):
-        self.app.logger.info(f"{self.log_prefix} Set merge check to {QUEUED_STR}")
+        self.app.logger.info(
+            f"{self.log_prefix} Set {CAN_BE_MERGED_STR} check to {QUEUED_STR}"
+        )
         self.repository_by_github_app.create_check_run(
             name=CAN_BE_MERGED_STR, head_sha=self.last_commit.sha, status=QUEUED_STR
         )
 
     def set_merge_check_in_progress(self):
-        self.app.logger.info(f"{self.log_prefix} Set merge check to {IN_PROGRESS_STR}")
+        self.app.logger.info(
+            f"{self.log_prefix} Set {CAN_BE_MERGED_STR} check to {IN_PROGRESS_STR}"
+        )
         self.repository_by_github_app.create_check_run(
             name=CAN_BE_MERGED_STR,
             head_sha=self.last_commit.sha,
@@ -695,7 +718,9 @@ Available labels:
         )
 
     def set_merge_check_success(self):
-        self.app.logger.info(f"{self.log_prefix} Set merge check to {SUCCESS_STR}")
+        self.app.logger.info(
+            f"{self.log_prefix} Set {CAN_BE_MERGED_STR} check to {SUCCESS_STR}"
+        )
         self.repository_by_github_app.create_check_run(
             name=CAN_BE_MERGED_STR,
             head_sha=self.last_commit.sha,
@@ -707,7 +732,7 @@ Available labels:
             return
 
         self.app.logger.info(
-            f"{self.log_prefix} Set container build check to {QUEUED_STR}"
+            f"{self.log_prefix} Set {BUILD_CONTAINER_STR} check to {QUEUED_STR}"
         )
         self.repository_by_github_app.create_check_run(
             name=BUILD_CONTAINER_STR, head_sha=self.last_commit.sha, status=QUEUED_STR
@@ -715,7 +740,7 @@ Available labels:
 
     def set_container_build_in_progress(self):
         self.app.logger.info(
-            f"{self.log_prefix} Processing set tox check {IN_PROGRESS_STR}"
+            f"{self.log_prefix} Processing set {BUILD_CONTAINER_STR} check {IN_PROGRESS_STR}"
         )
         self.repository_by_github_app.create_check_run(
             name=BUILD_CONTAINER_STR,
@@ -725,7 +750,7 @@ Available labels:
 
     def set_container_build_success(self, target_url):
         self.app.logger.info(
-            f"{self.log_prefix} Set container build check to {SUCCESS_STR}"
+            f"{self.log_prefix} Set {BUILD_CONTAINER_STR} check to {SUCCESS_STR}"
         )
         self.repository_by_github_app.create_check_run(
             name=BUILD_CONTAINER_STR,
@@ -736,7 +761,7 @@ Available labels:
 
     def set_container_build_failure(self, target_url):
         self.app.logger.info(
-            f"{self.log_prefix} Set container build check to {FAILURE_STR}"
+            f"{self.log_prefix} Set {BUILD_CONTAINER_STR} check to {FAILURE_STR}"
         )
         self.repository_by_github_app.create_check_run(
             name=BUILD_CONTAINER_STR,
@@ -750,7 +775,7 @@ Available labels:
             return
 
         self.app.logger.info(
-            f"{self.log_prefix} Set python-module-install check to {QUEUED_STR}"
+            f"{self.log_prefix} Set {PYTHON_MODULE_INSTALL_STR} check to {QUEUED_STR}"
         )
         self.repository_by_github_app.create_check_run(
             name=PYTHON_MODULE_INSTALL_STR,
@@ -760,7 +785,7 @@ Available labels:
 
     def set_python_module_install_in_progress(self):
         self.app.logger.info(
-            f"{self.log_prefix} Processing set tox check {IN_PROGRESS_STR}"
+            f"{self.log_prefix} Processing set {PYTHON_MODULE_INSTALL_STR} check {IN_PROGRESS_STR}"
         )
         self.repository_by_github_app.create_check_run(
             name=PYTHON_MODULE_INSTALL_STR,
@@ -770,7 +795,7 @@ Available labels:
 
     def set_python_module_install_success(self, target_url):
         self.app.logger.info(
-            f"{self.log_prefix} Set python-module-install check to {SUCCESS_STR}"
+            f"{self.log_prefix} Set {PYTHON_MODULE_INSTALL_STR} check to {SUCCESS_STR}"
         )
         self.repository_by_github_app.create_check_run(
             name=PYTHON_MODULE_INSTALL_STR,
@@ -781,10 +806,55 @@ Available labels:
 
     def set_python_module_install_failure(self, target_url):
         self.app.logger.info(
-            f"{self.log_prefix} Set python-module-install check to {FAILURE_STR}"
+            f"{self.log_prefix} Set {PYTHON_MODULE_INSTALL_STR} check to {FAILURE_STR}"
         )
         self.repository_by_github_app.create_check_run(
             name=PYTHON_MODULE_INSTALL_STR,
+            head_sha=self.last_commit.sha,
+            conclusion=FAILURE_STR,
+            details_url=target_url,
+        )
+
+    def set_sonarqube_queued(self):
+        if not self.sonarqube:
+            return
+
+        self.app.logger.info(
+            f"{self.log_prefix} Set {SONARQUBE_STR} check to {QUEUED_STR}"
+        )
+        self.repository_by_github_app.create_check_run(
+            name=SONARQUBE_STR,
+            head_sha=self.last_commit.sha,
+            status=QUEUED_STR,
+        )
+
+    def set_sonarqube_in_progress(self):
+        self.app.logger.info(
+            f"{self.log_prefix} Processing set {SONARQUBE_STR} check {IN_PROGRESS_STR}"
+        )
+        self.repository_by_github_app.create_check_run(
+            name=SONARQUBE_STR,
+            head_sha=self.last_commit.sha,
+            status=IN_PROGRESS_STR,
+        )
+
+    def set_sonarqube_success(self, target_url):
+        self.app.logger.info(
+            f"{self.log_prefix} Set {SONARQUBE_STR} check to {SUCCESS_STR}"
+        )
+        self.repository_by_github_app.create_check_run(
+            name=SONARQUBE_STR,
+            head_sha=self.last_commit.sha,
+            conclusion=SUCCESS_STR,
+            details_url=target_url,
+        )
+
+    def set_sonarqube_failure(self, target_url):
+        self.app.logger.info(
+            f"{self.log_prefix} Set {SONARQUBE_STR} check to {FAILURE_STR}"
+        )
+        self.repository_by_github_app.create_check_run(
+            name=SONARQUBE_STR,
             head_sha=self.last_commit.sha,
             conclusion=FAILURE_STR,
             details_url=target_url,
@@ -1581,9 +1651,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.app.logger.info(f"{self.log_prefix} Current directory: {os.getcwd()}")
         pr_number = f"origin/pr/{self.pull_request.number}"
         checkout_cmd = f"git checkout {pr_number}"
-        if not run_command(command=checkout_cmd, log_prefix=self.log_prefix)[0]:
-            return False
-        return True
+        return run_command(command=checkout_cmd, log_prefix=self.log_prefix)[0]
 
     def process_opened_or_synchronize_pull_request(
         self, parent_committer, pull_request_branch
@@ -1592,6 +1660,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.set_run_tox_check_queued()
         self.set_python_module_install_queued()
         self.set_container_build_queued()
+        self.set_sonarqube_queued()
         self._process_verified(parent_committer=parent_committer)
         self.add_size_label()
         self._add_label(label=f"{BRANCH_LABEL_PREFIX}{pull_request_branch}")
@@ -1599,6 +1668,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.pull_request.add_to_assignees(parent_committer)
         self.assign_reviewers()
         self.create_issue_for_new_pull_request()
+        self.run_sonarqube()
         self.run_tox()
         self._install_python_module()
         with self._build_container():
@@ -1629,3 +1699,32 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             if run.name == check_run and run.status == IN_PROGRESS_STR:
                 return True
         return False
+
+    def run_sonarqube(self):
+        if not self.sonarqube:
+            return
+
+        with self._clone_repository(path_suffix=f"sonarqube-{shortuuid.uuid()}"):
+            self.app.logger.info(f"{self.log_prefix} Current directory: {os.getcwd()}")
+            if not self._checkout_pull_request():
+                return
+
+            self.set_sonarqube_in_progress()
+            target_url = f"{self.sonarqube_url}{self.sonarqube_project_key}"
+            cmd = (
+                f"/sonar-scanner-cli/bin/sonar-scanner -Dsonar.projectKey={self.sonarqube_project_key} "
+                f"-Dsonar.sources=. -Dsonar.host.url={self.sonarqube_url} "
+                f"-Dsonar.token={self.sonarqube_token}"
+            )
+            if run_command(command=cmd, log_prefix=self.log_prefix)[0]:
+                project_status = self.sonarqube_api.qualitygates.request(
+                    path="api/qualitygates/project_status",
+                    params={"projectKey": self.sonarqube_project_key},
+                ).json()
+                if project_status["projectStatus"]["status"]:
+                    self.set_sonarqube_success(target_url=target_url)
+                else:
+                    self.set_sonarqube_failure(target_url=target_url)
+
+            else:
+                self.set_sonarqube_failure(target_url=target_url)

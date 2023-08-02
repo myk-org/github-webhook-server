@@ -1385,6 +1385,20 @@ files = [
 tomli = {version = ">=1.1.0", markers = "python_version < \"3.11\""}
 
 [[package]]
+name = "python-sonarqube-api"
+version = "2.0.4"
+description = "Python wrapper for the SonarQube and SonarCloud API."
+optional = false
+python-versions = "*"
+files = [
+    {file = "python-sonarqube-api-2.0.4.tar.gz", hash = "sha256:d31bc5b1a1c834db3e0bdd8d24a3672f8bf73bf00b99147c64453413b313834b"},
+    {file = "python_sonarqube_api-2.0.4-py3-none-any.whl", hash = "sha256:ebf545290a647b16c8b9cf1b651ae75e5c736d37ed1adc4c69695ab5e694a3da"},
+]
+
+[package.dependencies]
+requests = "*"
+
+[[package]]
 name = "pywin32-ctypes"
 version = "0.2.2"
 description = "A (partial) reimplementation of pywin32 using ctypes/cffi"
@@ -2165,4 +2179,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.8"
-content-hash = "245dfdd261c74d697fa0a2279c839757fa3cb2fa951b3d40dc7995e5733646ef"
+content-hash = "72728aa6782a7f6241ad4eddd6c0faacf23b07746263ae1abed9b42e374e9e55"

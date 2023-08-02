@@ -9,6 +9,7 @@ from webhook_server_container.utils.constants import (
     BUILD_CONTAINER_STR,
     FLASK_APP,
     PYTHON_MODULE_INSTALL_STR,
+    SONARQUBE_STR,
     STATIC_LABELS_DICT,
 )
 from webhook_server_container.utils.helpers import (
@@ -86,6 +87,9 @@ def get_required_status_checks(
 
     if data.get("pypi"):
         default_status_checks.append(PYTHON_MODULE_INSTALL_STR)
+
+    if data.get("sonarqube-project-key"):
+        default_status_checks.append(SONARQUBE_STR)
 
     with contextlib.suppress(UnknownObjectException):
         repo.get_contents(".pre-commit-config.yaml")

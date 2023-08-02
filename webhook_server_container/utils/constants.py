@@ -4,6 +4,7 @@ from flask import Flask
 FLASK_APP = Flask("webhook-server")
 
 TOX_STR = "tox"
+SONARQUBE_STR = "SonarQube"
 SUCCESS_STR = "success"
 FAILURE_STR = "failure"
 IN_PROGRESS_STR = "in_progress"
