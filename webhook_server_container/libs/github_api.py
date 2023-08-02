@@ -1732,14 +1732,19 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         async def _run_check_run_async(check_run):
             return check_run()
 
-        check_runs = (
-            self._run_sonarqube,
-            self._run_tox,
-            self._install_python_module,
-            self._build_container,
+        # check_runs = (
+        #     self._run_sonarqube,
+        #     self._run_tox,
+        #     self._install_python_module,
+        #     self._build_container,
+        # )
+        # coros = [_run_check_run_async(check_run=check_run) for check_run in check_runs]
+        await asyncio.gather(
+            _run_check_run_async(check_run=self._run_sonarqube()),
+            _run_check_run_async(check_run=self._run_tox()),
+            _run_check_run_async(check_run=self._install_python_module()),
+            _run_check_run_async(check_run=self._build_container()),
         )
-        coros = [_run_check_run_async(check_run=check_run) for check_run in check_runs]
-        await asyncio.gather(*coros)
         # await asyncio.gather(*coros)
         # procs = []
         # for check_run in (
