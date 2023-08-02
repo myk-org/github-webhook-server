@@ -1,3 +1,4 @@
+import asyncio
 import contextlib
 import datetime
 import json
@@ -7,7 +8,6 @@ import shutil
 import sys
 import time
 from contextlib import contextmanager
-from multiprocessing import Process
 
 import requests
 import shortuuid
@@ -1092,7 +1092,7 @@ Available labels:
                 f"{self.log_prefix} PR {self.pull_request.number} got unsupported review state: {review_state}"
             )
 
-    def run_tox(self):
+    def _run_tox(self):
         if not self.tox_enabled:
             return
 
@@ -1221,7 +1221,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                         reaction=REACTIONS.ok,
                     )
                     self.set_run_tox_check_in_progress()
-                    self.run_tox()
+                    self._run_tox()
 
                 elif _args == BUILD_CONTAINER_STR:
                     if self.build_and_push_container:
@@ -1663,22 +1663,11 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.pull_request.add_to_assignees(parent_committer)
         self.assign_reviewers()
 
-        procs = []
-        for check_run in (
-            self.run_sonarqube,
-            self.run_tox,
-            self._install_python_module,
-            self._build_container,
-        ):
-            proc = Process(target=check_run)
-            procs.append(proc)
-            proc.start()
+        asyncio.get_event_loop().run_until_complete(self._run_check_runs_async())
 
-        for proc in procs:
-            proc.join()
         #
-        # self.run_sonarqube()
-        # self.run_tox()
+        # self._run_sonarqube()
+        # self._run_tox()
         # self._install_python_module()
         # self._build_container()
 
@@ -1688,7 +1677,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             if check_run.status == QUEUED_STR:
                 if check_run.name == TOX_STR:
                     self.app.logger.info(f"{self.log_prefix} retest {TOX_STR}.")
-                    self.run_tox()
+                    self._run_tox()
                 if check_run.name == BUILD_CONTAINER_STR:
                     self.app.logger.info(
                         f"{self.log_prefix} retest {BUILD_CONTAINER_STR}."
@@ -1708,7 +1697,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 return True
         return False
 
-    def run_sonarqube(self):
+    def _run_sonarqube(self):
         if not self.sonarqube:
             return
 
@@ -1738,3 +1727,31 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
             else:
                 self.set_sonarqube_failure(target_url=target_url)
+
+    async def _run_check_run_async(self, check_run):
+        await check_run()
+
+    async def _run_check_runs_async(self):
+        check_runs = (
+            self._run_sonarqube,
+            self._run_tox,
+            self._install_python_module,
+            self._build_container,
+        )
+        coros = [
+            self._run_check_run_async(check_run=check_run) for check_run in check_runs
+        ]
+        await asyncio.gather(*coros)
+        # procs = []
+        # for check_run in (
+        #     self._run_sonarqube,
+        #     self._run_tox,
+        #     self._install_python_module,
+        #     self._build_container,
+        # ):
+        #     proc = Process(target=check_run)
+        #     procs.append(Process(target=check_run))
+        #     proc.start()
+        #
+        # for _proc in procs:
+        #     _proc.join()
