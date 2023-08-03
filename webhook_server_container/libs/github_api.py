@@ -1540,6 +1540,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
     def process_opened_or_synchronize_pull_request(
         self, parent_committer, pull_request_branch
     ):
+        import ipdb;ipdb.set_trace()
         self.set_merge_check_queued()
         self.set_run_tox_check_queued()
         self.set_python_module_install_queued()
