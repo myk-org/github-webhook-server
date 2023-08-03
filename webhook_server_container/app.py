@@ -67,11 +67,11 @@ def process_webhook():
             missing_app_repositories=MISSING_APP_REPOSITORIES,
         )
 
-        FLASK_APP.logger.info(
-            f"{api.repository_full_name} Event type: {github_event} "
+        event_log = (
+            f"Event type: {github_event} "
             f"event ID: {request.headers.get('X-GitHub-Delivery')}"
         )
-        api.process_hook(data=github_event)
+        api.process_hook(data=github_event, event_log=event_log)
         return "process success"
     except Exception as ex:
         FLASK_APP.logger.error(f"Error: {ex}")

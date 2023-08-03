@@ -2,6 +2,7 @@ import contextlib
 import datetime
 import json
 import os
+import random
 import re
 import shutil
 import sys
@@ -13,6 +14,7 @@ import shortuuid
 import yaml
 from github import Github, GithubException
 from github.GithubException import UnknownObjectException
+from sonarqube import SonarQubeClient
 
 from webhook_server_container.utils.constants import (
     ADD_STR,
@@ -36,6 +38,7 @@ from webhook_server_container.utils.constants import (
     QUEUED_STR,
     REACTIONS,
     SIZE_LABEL_PREFIX,
+    SONARQUBE_STR,
     STATIC_LABELS_DICT,
     SUCCESS_STR,
     TOX_STR,
@@ -57,15 +60,6 @@ class RepositoryNotFoundError(Exception):
     pass
 
 
-@contextmanager
-def change_directory(directory, logger):
-    logger.info(f"Changing directory to {directory}")
-    old_cwd = os.getcwd()
-    yield os.chdir(directory)
-    logger.info(f"Changing back to directory {old_cwd}")
-    os.chdir(old_cwd)
-
-
 class GitHubApi:
     def __init__(self, hook_data, repositories_app_api, missing_app_repositories):
         self.app = FLASK_APP
@@ -75,6 +69,7 @@ class GitHubApi:
         self.missing_app_repositories = missing_app_repositories
         self.pull_request = None
         self.last_commit = None
+        self.log_prefix_with_color = None
 
         # filled by self._repo_data_from_config()
         self.dockerhub_username = None
@@ -90,9 +85,13 @@ class GitHubApi:
         self.repository_full_name = None
         self.api_user = None
         self.github_app_id = None
+        self.sonarqube = None
+        self.sonarqube_api = None
+        self.sonarqube_project_key = None
         # End of filled by self._repo_data_from_config()
 
         self._repo_data_from_config()
+        self._set_log_prefix_color()
         self.github_app_api = self.get_github_app_api()
         self.github_api = Github(login_or_token=self.token)
         self.api_user = self._api_username
@@ -148,12 +147,34 @@ Available user actions:
             )
         return self.repositories_app_api[self.repository_full_name]
 
+    def _set_log_prefix_color(self):
+        color_file = "/tmp/color.json"
+        if os.path.exists(color_file):
+            with open(color_file) as fd:
+                color_json = json.load(fd)
+        else:
+            color_json = {}
+
+        repo_str = "\033[1;{color}m{name}\033[1;0m"
+        if self.repository_name in color_json:
+            color = color_json[self.repository_name]
+        else:
+            color = random.choice(range(31, 39))
+            color_json[self.repository_name] = color
+
+        self.log_prefix_with_color = repo_str.format(
+            color=color, name=self.repository_name
+        )
+
+        with open(color_file, "w") as fd:
+            json.dump(color_json, fd)
+
     @property
     def log_prefix(self):
         return (
-            f"{self.repository_name}[PR {self.pull_request.number}]:"
+            f"{self.log_prefix_with_color}[PR {self.pull_request.number}]:"
             if self.pull_request
-            else f"{self.repository_name}:"
+            else f"{self.log_prefix_with_color}:"
         )
 
     def hash_token(self, message):
@@ -168,7 +189,8 @@ Available user actions:
         hashed_message = self.hash_token(message=message)
         self.app.logger.error(hashed_message)
 
-    def process_hook(self, data):
+    def process_hook(self, data, event_log):
+        self.app.logger.info(f"{self.log_prefix} {event_log}")
         ignore_data = ["status", "branch_protection_rule"]
         if data == "issue_comment":
             self.process_comment_webhook_data()
@@ -200,6 +222,14 @@ Available user actions:
         config_data = get_data_from_config()
         self.github_app_id = config_data["github-app-id"]
         self.token = config_data["github-token"]
+        self.sonarqube = config_data.get("sonarqube")
+        if self.sonarqube:
+            self.sonarqube_url = self.sonarqube["url"]
+            self.sonarqube_token = self.sonarqube["token"]
+            self.sonarqube_api = SonarQubeClient(
+                sonarqube_url=self.sonarqube_url, token=self.sonarqube_token
+            )
+
         repo_data = config_data["repositories"].get(self.repository_name)
         if not repo_data:
             raise RepositoryNotFoundError(
@@ -214,6 +244,9 @@ Available user actions:
         self.slack_webhook_url = repo_data.get("slack_webhook_url")
         self.build_and_push_container = repo_data.get("container")
         self.dockerhub = repo_data.get("docker")
+        if self.sonarqube:
+            self.sonarqube_project_key = repo_data.get("sonarqube-project-key")
+
         if self.dockerhub:
             self.dockerhub_username = self.dockerhub["username"]
             self.dockerhub_password = self.dockerhub["password"]
@@ -341,20 +374,30 @@ Available user actions:
         )
         git_user_name_cmd = f"git config user.name '{self.repository.owner.login}'"
         git_email_cmd = f"git config user.email '{self.repository.owner.email}'"
-        remote_update_cmd = "git remote update"
         fetch_pr_cmd = "git config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
+        remote_update_cmd = "git remote update"
 
         if run_command(command=clone_cmd, log_prefix=self.log_prefix)[0]:
-            with change_directory(_clone_path, logger=self.app.logger):
-                for cmd in [
-                    git_user_name_cmd,
-                    git_email_cmd,
-                    fetch_pr_cmd,
-                    remote_update_cmd,
-                ]:
-                    run_command(command=cmd, log_prefix=self.log_prefix)
-                yield _clone_path
+            old_cwd = os.getcwd()
+            self.app.logger.info(
+                f"{self.log_prefix} Changing directory to {_clone_path}"
+            )
+            os.chdir(_clone_path)
 
+            for cmd in [
+                git_user_name_cmd,
+                git_email_cmd,
+                fetch_pr_cmd,
+                remote_update_cmd,
+            ]:
+                run_command(command=cmd, log_prefix=self.log_prefix)
+
+            yield _clone_path
+
+            self.app.logger.info(
+                f"{self.log_prefix} Changing back to directory {old_cwd}"
+            )
+            os.chdir(old_cwd)
             self.app.logger.info(
                 f"{self.log_prefix} Removing cloned repository: {_clone_path}"
             )
@@ -621,173 +664,126 @@ Available labels:
 
     def reset_verify_label(self):
         self.app.logger.info(
-            f"{self.log_prefix} Processing reset verify label on new commit push"
+            f"{self.log_prefix} Processing reset {VERIFIED_LABEL_STR} label on new commit push"
         )
         # Remove verified label
         self._remove_label(label=VERIFIED_LABEL_STR)
 
     def set_verify_check_queued(self):
-        self.app.logger.info(
-            f"{self.log_prefix} Processing set verified check {QUEUED_STR}"
-        )
-
-        self.repository_by_github_app.create_check_run(
-            name=VERIFIED_LABEL_STR, head_sha=self.last_commit.sha, status=QUEUED_STR
+        return self.set_check_run_status(
+            check_run=VERIFIED_LABEL_STR, status=QUEUED_STR
         )
 
     def set_verify_check_success(self):
-        self.app.logger.info(f"{self.log_prefix} Set verified check to {SUCCESS_STR}")
-        self.repository_by_github_app.create_check_run(
-            name=VERIFIED_LABEL_STR,
-            head_sha=self.last_commit.sha,
-            conclusion=SUCCESS_STR,
+        return self.set_check_run_status(
+            check_run=VERIFIED_LABEL_STR, conclusion=SUCCESS_STR
         )
 
     def set_run_tox_check_queued(self):
         if not self.tox_enabled:
-            return
+            return False
 
-        self.app.logger.info(f"{self.log_prefix} Processing set tox check {QUEUED_STR}")
-        self.repository_by_github_app.create_check_run(
-            name=TOX_STR, head_sha=self.last_commit.sha, status=QUEUED_STR
-        )
+        return self.set_check_run_status(check_run=TOX_STR, status=QUEUED_STR)
 
     def set_run_tox_check_in_progress(self):
-        self.app.logger.info(
-            f"{self.log_prefix} Processing set tox check {IN_PROGRESS_STR}"
-        )
-        self.repository_by_github_app.create_check_run(
-            name=TOX_STR, head_sha=self.last_commit.sha, status=IN_PROGRESS_STR
+        return self.set_check_run_status(check_run=TOX_STR, status=IN_PROGRESS_STR)
+
+    def set_run_tox_check_failure(self, details_url):
+        return self.set_check_run_status(
+            check_run=TOX_STR, conclusion=FAILURE_STR, details_url=details_url
         )
 
-    def set_run_tox_check_failure(self, target_url):
-        self.app.logger.info(
-            f"{self.log_prefix} Processing set tox check {FAILURE_STR}"
-        )
-        self.repository_by_github_app.create_check_run(
-            name=TOX_STR,
-            head_sha=self.last_commit.sha,
-            conclusion=FAILURE_STR,
-            details_url=target_url,
-        )
-
-    def set_run_tox_check_success(self, target_url):
-        self.app.logger.info(f"{self.log_prefix} Set tox check to {SUCCESS_STR}")
-        self.repository_by_github_app.create_check_run(
-            name=TOX_STR,
-            head_sha=self.last_commit.sha,
-            conclusion=SUCCESS_STR,
-            details_url=target_url,
+    def set_run_tox_check_success(self, details_url):
+        return self.set_check_run_status(
+            check_run=TOX_STR, conclusion=SUCCESS_STR, details_url=details_url
         )
 
     def set_merge_check_queued(self):
-        self.app.logger.info(f"{self.log_prefix} Set merge check to {QUEUED_STR}")
-        self.repository_by_github_app.create_check_run(
-            name=CAN_BE_MERGED_STR, head_sha=self.last_commit.sha, status=QUEUED_STR
-        )
+        return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, status=QUEUED_STR)
 
     def set_merge_check_in_progress(self):
-        self.app.logger.info(f"{self.log_prefix} Set merge check to {IN_PROGRESS_STR}")
-        self.repository_by_github_app.create_check_run(
-            name=CAN_BE_MERGED_STR,
-            head_sha=self.last_commit.sha,
-            status=IN_PROGRESS_STR,
+        return self.set_check_run_status(
+            check_run=CAN_BE_MERGED_STR, status=IN_PROGRESS_STR
         )
 
     def set_merge_check_success(self):
-        self.app.logger.info(f"{self.log_prefix} Set merge check to {SUCCESS_STR}")
-        self.repository_by_github_app.create_check_run(
-            name=CAN_BE_MERGED_STR,
-            head_sha=self.last_commit.sha,
-            conclusion=SUCCESS_STR,
+        return self.set_check_run_status(
+            check_run=CAN_BE_MERGED_STR, conclusion=SUCCESS_STR
         )
 
     def set_container_build_queued(self):
         if not self.build_and_push_container:
             return
 
-        self.app.logger.info(
-            f"{self.log_prefix} Set container build check to {QUEUED_STR}"
-        )
-        self.repository_by_github_app.create_check_run(
-            name=BUILD_CONTAINER_STR, head_sha=self.last_commit.sha, status=QUEUED_STR
+        return self.set_check_run_status(
+            check_run=BUILD_CONTAINER_STR, status=QUEUED_STR
         )
 
     def set_container_build_in_progress(self):
-        self.app.logger.info(
-            f"{self.log_prefix} Processing set tox check {IN_PROGRESS_STR}"
-        )
-        self.repository_by_github_app.create_check_run(
-            name=BUILD_CONTAINER_STR,
-            head_sha=self.last_commit.sha,
-            status=IN_PROGRESS_STR,
+        return self.set_check_run_status(
+            check_run=BUILD_CONTAINER_STR, status=IN_PROGRESS_STR
         )
 
-    def set_container_build_success(self, target_url):
-        self.app.logger.info(
-            f"{self.log_prefix} Set container build check to {SUCCESS_STR}"
-        )
-        self.repository_by_github_app.create_check_run(
-            name=BUILD_CONTAINER_STR,
-            head_sha=self.last_commit.sha,
+    def set_container_build_success(self, details_url):
+        return self.set_check_run_status(
+            check_run=BUILD_CONTAINER_STR,
             conclusion=SUCCESS_STR,
-            details_url=target_url,
+            details_url=details_url,
         )
 
-    def set_container_build_failure(self, target_url):
-        self.app.logger.info(
-            f"{self.log_prefix} Set container build check to {FAILURE_STR}"
-        )
-        self.repository_by_github_app.create_check_run(
-            name=BUILD_CONTAINER_STR,
-            head_sha=self.last_commit.sha,
+    def set_container_build_failure(self, details_url):
+        return self.set_check_run_status(
+            check_run=BUILD_CONTAINER_STR,
             conclusion=FAILURE_STR,
-            details_url=target_url,
+            details_url=details_url,
         )
 
     def set_python_module_install_queued(self):
         if not self.pypi:
-            return
+            return False
 
-        self.app.logger.info(
-            f"{self.log_prefix} Set python-module-install check to {QUEUED_STR}"
-        )
-        self.repository_by_github_app.create_check_run(
-            name=PYTHON_MODULE_INSTALL_STR,
-            head_sha=self.last_commit.sha,
-            status=QUEUED_STR,
+        return self.set_check_run_status(
+            check_run=PYTHON_MODULE_INSTALL_STR, status=QUEUED_STR
         )
 
     def set_python_module_install_in_progress(self):
-        self.app.logger.info(
-            f"{self.log_prefix} Processing set tox check {IN_PROGRESS_STR}"
-        )
-        self.repository_by_github_app.create_check_run(
-            name=PYTHON_MODULE_INSTALL_STR,
-            head_sha=self.last_commit.sha,
-            status=IN_PROGRESS_STR,
+        return self.set_check_run_status(
+            check_run=PYTHON_MODULE_INSTALL_STR, status=IN_PROGRESS_STR
         )
 
-    def set_python_module_install_success(self, target_url):
-        self.app.logger.info(
-            f"{self.log_prefix} Set python-module-install check to {SUCCESS_STR}"
-        )
-        self.repository_by_github_app.create_check_run(
-            name=PYTHON_MODULE_INSTALL_STR,
-            head_sha=self.last_commit.sha,
+    def set_python_module_install_success(self, details_url):
+        return self.set_check_run_status(
+            check_run=PYTHON_MODULE_INSTALL_STR,
             conclusion=SUCCESS_STR,
-            details_url=target_url,
+            details_url=details_url,
         )
 
-    def set_python_module_install_failure(self, target_url):
-        self.app.logger.info(
-            f"{self.log_prefix} Set python-module-install check to {FAILURE_STR}"
-        )
-        self.repository_by_github_app.create_check_run(
-            name=PYTHON_MODULE_INSTALL_STR,
-            head_sha=self.last_commit.sha,
+    def set_python_module_install_failure(self, details_url):
+        return self.set_check_run_status(
+            check_run=PYTHON_MODULE_INSTALL_STR,
             conclusion=FAILURE_STR,
-            details_url=target_url,
+            details_url=details_url,
+        )
+
+    def set_sonarqube_queued(self):
+        if not self.sonarqube_project_key:
+            return False
+
+        return self.set_check_run_status(check_run=SONARQUBE_STR, status=QUEUED_STR)
+
+    def set_sonarqube_in_progress(self):
+        return self.set_check_run_status(
+            check_run=SONARQUBE_STR, status=IN_PROGRESS_STR
+        )
+
+    def set_sonarqube_success(self, details_url):
+        return self.set_check_run_status(
+            check_run=SONARQUBE_STR, conclusion=SUCCESS_STR, details_url=details_url
+        )
+
+    def set_sonarqube_failure(self, details_url):
+        return self.set_check_run_status(
+            check_run=SONARQUBE_STR, conclusion=FAILURE_STR, details_url=details_url
         )
 
     @ignore_exceptions(FLASK_APP.logger)
@@ -867,6 +863,7 @@ Available labels:
         if hook_action == "opened":
             self.app.logger.info(f"{self.log_prefix} Creating welcome comment")
             self.pull_request.create_issue_comment(self.welcome_msg)
+            self.create_issue_for_new_pull_request()
             self.process_opened_or_synchronize_pull_request(
                 parent_committer=parent_committer,
                 pull_request_branch=pull_request_branch,
@@ -1020,40 +1017,34 @@ Available labels:
                 f"{self.log_prefix} PR {self.pull_request.number} got unsupported review state: {review_state}"
             )
 
-    def run_tox(self):
+    def _run_tox(self):
         if not self.tox_enabled:
-            return
+            return False
 
         if self.is_check_run_in_progress(check_run=TOX_STR):
             self.app.logger.info(
                 f"{self.log_prefix} Check run is in progress, not running {TOX_STR}."
             )
-            return
+            return False
 
-        self.set_run_tox_check_in_progress()
-        base_path = f"/webhook_server/tox/{self.pull_request.number}"
+        base_path = f"/webhook_server/tox/{self.last_commit.sha}"
         base_url = f"{self.webhook_url}{base_path}"
+        cmd = TOX_STR
+        if self.tox_enabled != "all":
+            tests = self.tox_enabled.replace(" ", "")
+            cmd += f" -e {tests}"
+
         with self._clone_repository(path_suffix=f"tox-{shortuuid.uuid()}"):
-            if not self._checkout_pull_request():
-                return
+            self.set_run_tox_check_in_progress()
+            if not self._checkout_pull_request(file_path=base_path):
+                return self.set_run_tox_check_failure(details_url=base_url)
 
-            cmd = "tox"
-            if self.tox_enabled != "all":
-                tests = self.tox_enabled.replace(" ", "")
-                cmd += f" -e {tests}"
-
-            rc, out, err = run_command(command=cmd, log_prefix=self.log_prefix)
-            if not rc:
-                with open(base_path, "w") as fd:
-                    fd.write(f"stdout: {out}, stderr: {err}")
-
-                self.set_run_tox_check_failure(target_url=base_url)
-                return
-
-            with open(base_path, "w") as fd:
-                fd.write(out)
-
-            self.set_run_tox_check_success(target_url=base_url)
+            if run_command(
+                command=cmd, log_prefix=self.log_prefix, file_path=base_path
+            )[0]:
+                return self.set_run_tox_check_success(details_url=base_url)
+            else:
+                return self.set_run_tox_check_failure(details_url=base_url)
 
     def user_commands(self, command, reviewed_user, issue_comment_id):
         remove = False
@@ -1137,7 +1128,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     )
                     return
 
-                if _args == "tox":
+                if _args == TOX_STR:
                     if not self.tox_enabled:
                         error_msg = f"{self.log_prefix} Tox is not enabled."
                         self.app.logger.info(error_msg)
@@ -1148,8 +1139,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                         issue_comment_id=issue_comment_id,
                         reaction=REACTIONS.ok,
                     )
-                    self.set_run_tox_check_in_progress()
-                    self.run_tox()
+                    self._run_tox()
 
                 elif _args == BUILD_CONTAINER_STR:
                     if self.build_and_push_container:
@@ -1157,8 +1147,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                             issue_comment_id=issue_comment_id,
                             reaction=REACTIONS.ok,
                         )
-                        with self._build_container():
-                            pass
+                        self._build_container()
                     else:
                         error_msg = f"{self.log_prefix} No build-container configured"
                         self.app.logger.info(error_msg)
@@ -1176,6 +1165,19 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                         reaction=REACTIONS.ok,
                     )
                     self._install_python_module()
+
+                elif _args == SONARQUBE_STR:
+                    if not self.sonarqube:
+                        error_msg = f"{self.log_prefix} No {SONARQUBE_STR} configured for this repository"
+                        self.app.logger.info(error_msg)
+                        self.pull_request.create_issue_comment(error_msg)
+                        return
+
+                    self.create_comment_reaction(
+                        issue_comment_id=issue_comment_id,
+                        reaction=REACTIONS.ok,
+                    )
+                    self._run_sonarqube()
 
         elif _command == "build-and-push-container":
             if self.build_and_push_container:
@@ -1276,21 +1278,29 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             PR status is 'clean'.
             PR has no changed requests from approvers.
         """
+        if self.is_check_run_in_progress(check_run=CAN_BE_MERGED_STR):
+            self.app.logger.info(
+                f"{self.log_prefix} Check run is in progress, not running {TOX_STR}."
+            )
+            return False
+
         if self.skip_merged_pull_request():
-            return
+            return False
 
         self.app.logger.info(f"{self.log_prefix} Check if can be merged.")
         last_commit_check_runs = list(self.last_commit.get_check_runs())
-        if any(
-            [
-                check_run.status == IN_PROGRESS_STR
-                for check_run in last_commit_check_runs
-            ]
-        ):
+        check_runs_in_progress = [
+            check_run.name
+            for check_run in last_commit_check_runs
+            if check_run.status == IN_PROGRESS_STR
+            and check_run.name != CAN_BE_MERGED_STR
+        ]
+        if check_runs_in_progress:
             self.app.logger.info(
-                f"{self.log_prefix} Some check runs in progress, skipping check if can be merged."
+                f"{self.log_prefix} Some check runs in progress {check_runs_in_progress}, "
+                f"skipping check if can be merged."
             )
-            return
+            return False
 
         self.set_merge_check_in_progress()
         _labels = self.pull_request_labels_names()
@@ -1298,12 +1308,12 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         if VERIFIED_LABEL_STR not in _labels or HOLD_LABEL_STR in _labels:
             self._remove_label(label=CAN_BE_MERGED_STR)
             self.set_merge_check_queued()
-            return
+            return False
 
         if self.pull_request.mergeable_state == "behind":
             self._remove_label(label=CAN_BE_MERGED_STR)
             self.set_merge_check_queued()
-            return
+            return False
 
         all_check_runs_passed = all(
             [
@@ -1317,23 +1327,21 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             self.set_merge_check_queued()
             # TODO: Fix `run_retest_if_queued` and uncomment the call for it.
             # self.run_retest_if_queued(last_commit_check_runs=last_commit_check_runs)
-            return
+            return False
 
         for _label in _labels:
             if CHANGED_REQUESTED_BY_LABEL_PREFIX.lower() in _label.lower():
                 change_request_user = _label.split("-")[-1]
                 if change_request_user in self.approvers:
                     self._remove_label(label=CAN_BE_MERGED_STR)
-                    self.set_merge_check_queued()
-                    return
+                    return self.set_merge_check_queued()
 
         for _label in _labels:
             if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
                 approved_user = _label.split("-")[-1]
                 if approved_user in self.approvers:
                     self._add_label(label=CAN_BE_MERGED_STR)
-                    self.set_merge_check_success()
-                    return
+                    return self.set_merge_check_success()
 
     @staticmethod
     def _comment_with_details(title, body):
@@ -1352,74 +1360,63 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         )
         return f"{self.container_repository}:{tag}"
 
-    @contextmanager
     def _build_container(self, set_check=True):
         if not self.build_and_push_container:
-            yield
+            return False
 
-        else:
-            if self.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR):
-                self.app.logger.info(
-                    f"{self.log_prefix} Check run is in progress, not running {BUILD_CONTAINER_STR}."
-                )
-                return
+        if self.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR):
+            self.app.logger.info(
+                f"{self.log_prefix} Check run is in progress, not running {BUILD_CONTAINER_STR}."
+            )
+            return False
 
+        base_path = None
+        base_url = None
+
+        if self.pull_request:
+            base_path = f"/webhook_server/build-container/{self.last_commit.sha}"
+            base_url = f"{self.webhook_url}{base_path}"
+
+        with self._clone_repository(path_suffix=f"build-container-{shortuuid.uuid()}"):
             self.set_container_build_in_progress()
-            base_path = None
-            base_url = None
+            self.app.logger.info(
+                f"{self.log_prefix} Current directory is {os.getcwd()}"
+            )
+            if self.pull_request and not self._checkout_pull_request():
+                return self.set_container_build_failure(details_url=base_url)
 
-            if self.pull_request:
-                base_path = (
-                    f"/webhook_server/build-container/{self.pull_request.number}"
-                )
-                base_url = f"{self.webhook_url}{base_path}"
+            _container_repository_and_tag = self._container_repository_and_tag()
+            build_cmd = (
+                f"--network=host -f {self.dockerfile} "
+                f"-t {_container_repository_and_tag}"
+            )
+            if self.container_build_args:
+                build_args = [
+                    f"--build-arg {b_arg}" for b_arg in self.container_build_args
+                ][0]
+                build_cmd = f"{build_args} {build_cmd}"
 
-            with self._clone_repository(
-                path_suffix=f"build-container-{shortuuid.uuid()}"
-            ):
-                self.app.logger.info(
-                    f"{self.log_prefix} Current directory is {os.getcwd()}"
-                )
-                if self.pull_request and not self._checkout_pull_request():
-                    yield
+            if self.container_command_args:
+                build_cmd = f"{' '.join(self.container_command_args)} {build_cmd}"
 
-                _container_repository_and_tag = self._container_repository_and_tag()
-                build_cmd = (
-                    f"--network=host -f {self.dockerfile} "
-                    f"-t {_container_repository_and_tag}"
-                )
-                if self.container_build_args:
-                    build_args = [
-                        f"--build-arg {b_arg}" for b_arg in self.container_build_args
-                    ][0]
-                    build_cmd = f"{build_args} {build_cmd}"
+            podman_build_cmd = f"podman build {build_cmd}"
+            self.app.logger.info(
+                f"{self.log_prefix} Build container image for {_container_repository_and_tag}"
+            )
 
-                if self.container_command_args:
-                    build_cmd = f"{' '.join(self.container_command_args)} {build_cmd}"
-
-                podman_build_cmd = f"podman build {build_cmd}"
-                self.app.logger.info(
-                    f"{self.log_prefix} Build container image for {_container_repository_and_tag}"
-                )
-                rc, out, err = run_command(
-                    command=podman_build_cmd, log_prefix=self.log_prefix
-                )
-                if not rc and self.pull_request and set_check:
-                    with open(base_path, "w") as fd:
-                        fd.write(f"stdout: {out}, stderr: {err}")
-
-                    yield self.set_container_build_failure(target_url=base_url)
-
+            if run_command(
+                command=podman_build_cmd,
+                log_prefix=self.log_prefix,
+                file_path=base_path,
+            )[0]:
                 self.app.logger.info(
                     f"{self.log_prefix} Done building {_container_repository_and_tag}"
                 )
                 if self.pull_request and set_check:
-                    with open(base_path, "w") as fd:
-                        fd.write(out)
-
-                    yield self.set_container_build_success(target_url=base_url)
-                else:
-                    yield
+                    return self.set_container_build_success(details_url=base_url)
+            else:
+                if self.pull_request and set_check:
+                    return self.set_container_build_failure(details_url=base_url)
 
     def _build_and_push_container(self):
         if not self.build_and_push_container:
@@ -1429,72 +1426,73 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             f"{self.container_repository_username}:{self.container_repository_password}"
         )
 
-        with self._build_container(set_check=False):
-            _container_repository_and_tag = self._container_repository_and_tag()
-            push_cmd = f"podman push --creds {repository_creds} {_container_repository_and_tag}"
-            self.app.logger.info(
-                f"{self.log_prefix} Push container image to {_container_repository_and_tag}"
+        self._build_container(set_check=False)
+        _container_repository_and_tag = self._container_repository_and_tag()
+        push_cmd = (
+            f"podman push --creds {repository_creds} {_container_repository_and_tag}"
+        )
+        self.app.logger.info(
+            f"{self.log_prefix} Push container image to {_container_repository_and_tag}"
+        )
+
+        if not run_command(command=push_cmd, log_prefix=self.log_prefix)[0]:
+            return
+
+        if self.pull_request:
+            self.pull_request.create_issue_comment(
+                f"Container {_container_repository_and_tag} pushed"
             )
 
-            if not run_command(command=push_cmd, log_prefix=self.log_prefix)[0]:
-                return
-
-            if self.pull_request:
-                self.pull_request.create_issue_comment(
-                    f"Container {_container_repository_and_tag} pushed"
-                )
-
-            if self.slack_webhook_url:
-                message = f"""
+        if self.slack_webhook_url:
+            message = f"""
 ```
 {self.log_prefix} New container for {_container_repository_and_tag} published.
 ```
 """
-                self.send_slack_message(
-                    message=message,
-                    webhook_url=self.slack_webhook_url,
-                )
-
-            self.app.logger.info(
-                f"{self.log_prefix} Done push {_container_repository_and_tag}"
+            self.send_slack_message(
+                message=message,
+                webhook_url=self.slack_webhook_url,
             )
+
+        self.app.logger.info(
+            f"{self.log_prefix} Done push {_container_repository_and_tag}"
+        )
 
     def _install_python_module(self):
         if not self.pypi:
-            return
+            return False
 
         if self.is_check_run_in_progress(check_run=PYTHON_MODULE_INSTALL_STR):
             self.app.logger.info(
                 f"{self.log_prefix} Check run is in progress, not running {PYTHON_MODULE_INSTALL_STR}."
             )
-            return
-
-        self.set_python_module_install_in_progress()
+            return False
 
         self.app.logger.info(f"{self.log_prefix} Installing python module")
-        base_path = f"/webhook_server/python-module-install/{self.pull_request.number}"
+        base_path = f"/webhook_server/python-module-install/{self.last_commit.sha}"
         base_url = f"{self.webhook_url}{base_path}"
-
-        with self._clone_repository(
-            path_suffix=f"python-module-install-{shortuuid.uuid()}"
-        ):
+        repo_path_prefix = f"python-module-install-{shortuuid.uuid()}"
+        with self._clone_repository(path_suffix=repo_path_prefix):
+            self.set_python_module_install_in_progress()
             self.app.logger.info(f"{self.log_prefix} Current directory: {os.getcwd()}")
-            if not self._checkout_pull_request():
-                return
+            if not self._checkout_pull_request(file_path=base_path):
+                return self.set_python_module_install_failure(details_url=base_url)
 
-            build_cmd = "pipx install . --include-deps --force"
-            rc, out, err = run_command(command=build_cmd, log_prefix=self.log_prefix)
-            if not rc:
-                with open(base_path, "w") as fd:
-                    fd.write(f"stdout: {out}, stderr: {err}")
+            if (
+                run_command(
+                    command=f"python -m venv {repo_path_prefix}",
+                    log_prefix=self.log_prefix,
+                    file_path=base_path,
+                )[0]
+                and run_command(
+                    command="pip install .",
+                    log_prefix=self.log_prefix,
+                    file_path=base_path,
+                )[0]
+            ):
+                return self.set_python_module_install_success(details_url=base_url)
 
-                self.set_python_module_install_failure(target_url=base_url)
-                return
-
-            with open(base_path, "w") as fd:
-                fd.write(out)
-
-            self.set_python_module_install_success(target_url=base_url)
+            return self.set_python_module_install_failure(details_url=base_url)
 
     def send_slack_message(self, message, webhook_url):
         slack_data = {"text": message}
@@ -1577,13 +1575,13 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         yield
         os.environ.pop(github_token_env)
 
-    def _checkout_pull_request(self):
+    def _checkout_pull_request(self, file_path=None):
         self.app.logger.info(f"{self.log_prefix} Current directory: {os.getcwd()}")
         pr_number = f"origin/pr/{self.pull_request.number}"
         checkout_cmd = f"git checkout {pr_number}"
-        if not run_command(command=checkout_cmd, log_prefix=self.log_prefix)[0]:
-            return False
-        return True
+        return run_command(
+            command=checkout_cmd, log_prefix=self.log_prefix, file_path=file_path
+        )[0]
 
     def process_opened_or_synchronize_pull_request(
         self, parent_committer, pull_request_branch
@@ -1592,17 +1590,18 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.set_run_tox_check_queued()
         self.set_python_module_install_queued()
         self.set_container_build_queued()
+        self.set_sonarqube_queued()
         self._process_verified(parent_committer=parent_committer)
         self.add_size_label()
         self._add_label(label=f"{BRANCH_LABEL_PREFIX}{pull_request_branch}")
         self.app.logger.info(f"{self.log_prefix} Adding PR owner as assignee")
         self.pull_request.add_to_assignees(parent_committer)
         self.assign_reviewers()
-        self.create_issue_for_new_pull_request()
-        self.run_tox()
+
+        self._run_sonarqube()
+        self._run_tox()
         self._install_python_module()
-        with self._build_container():
-            pass
+        self._build_container()
 
     def run_retest_if_queued(self):
         last_commit_check_runs = list(self.last_commit.get_check_runs())
@@ -1610,13 +1609,13 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             if check_run.status == QUEUED_STR:
                 if check_run.name == TOX_STR:
                     self.app.logger.info(f"{self.log_prefix} retest {TOX_STR}.")
-                    self.run_tox()
+                    self._run_tox()
                 if check_run.name == BUILD_CONTAINER_STR:
                     self.app.logger.info(
                         f"{self.log_prefix} retest {BUILD_CONTAINER_STR}."
                     )
-                    with self._build_container():
-                        pass
+                    self._build_container()
+
                 if check_run.name == PYTHON_MODULE_INSTALL_STR:
                     self.app.logger.info(
                         f"{self.log_prefix} retest {PYTHON_MODULE_INSTALL_STR}."
@@ -1629,3 +1628,53 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             if run.name == check_run and run.status == IN_PROGRESS_STR:
                 return True
         return False
+
+    def _run_sonarqube(self):
+        if not self.sonarqube_project_key:
+            return False
+
+        with self._clone_repository(path_suffix=f"sonarqube-{shortuuid.uuid()}"):
+            self.set_sonarqube_in_progress()
+            self.app.logger.info(f"{self.log_prefix} Current directory: {os.getcwd()}")
+            target_url = (
+                f"{self.sonarqube_url}/dashboard?id={self.sonarqube_project_key}"
+            )
+            if not self._checkout_pull_request():
+                return self.set_sonarqube_failure(details_url=target_url)
+
+            cmd = (
+                f"/sonar-scanner-cli/bin/sonar-scanner -Dsonar.projectKey={self.sonarqube_project_key} "
+                f"-Dsonar.sources=. -Dsonar.host.url={self.sonarqube_url} "
+                f"-Dsonar.token={self.sonarqube_token}"
+            )
+            if run_command(command=cmd, log_prefix=self.log_prefix)[0]:
+                project_status = self.sonarqube_api.qualitygates.request(
+                    path="api/qualitygates/project_status",
+                    params={"projectKey": self.sonarqube_project_key},
+                ).json()
+                if project_status["projectStatus"]["status"] == "OK":
+                    return self.set_sonarqube_success(details_url=target_url)
+                else:
+                    return self.set_sonarqube_failure(details_url=target_url)
+
+            else:
+                return self.set_sonarqube_failure(details_url=target_url)
+
+    def set_check_run_status(
+        self, check_run, status=None, conclusion=None, details_url=None
+    ):
+        kwargs = {
+            "name": check_run,
+            "head_sha": self.last_commit.sha,
+        }
+        if status:
+            kwargs["status"] = status
+
+        if conclusion:
+            kwargs["conclusion"] = conclusion
+
+        if details_url:
+            kwargs["details_url"] = details_url
+
+        self.app.logger.info(f"{self.log_prefix} Set {check_run} check to {status}")
+        return self.repository_by_github_app.create_check_run(**kwargs)

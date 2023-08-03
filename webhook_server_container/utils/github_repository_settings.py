@@ -9,6 +9,7 @@ from webhook_server_container.utils.constants import (
     BUILD_CONTAINER_STR,
     FLASK_APP,
     PYTHON_MODULE_INSTALL_STR,
+    SONARQUBE_STR,
     STATIC_LABELS_DICT,
 )
 from webhook_server_container.utils.helpers import (
@@ -57,19 +58,22 @@ def set_repository_settings(repository):
         allow_update_branch=True,
     )
 
-    if not repository.private:
-        FLASK_APP.logger.info(f"Set repository {repository.name} security settings")
-        repository._requester.requestJsonAndCheck(
-            "PATCH",
-            repository.url,
-            input={
-                "security_and_analysis": {
-                    "secret_scanning": {"status": "enabled"},
-                    "secret_scanning_push_protection": {"status": "enabled"},
-                },
-                "code-scanning": {"default-setup": {"state": "configured"}},
+    FLASK_APP.logger.info(f"Set repository {repository.name} security settings")
+    repository._requester.requestJsonAndCheck(
+        "PATCH",
+        f"{repository.url}/code-scanning/default-setup",
+        input={"state": "not-configured"},
+    )
+    repository._requester.requestJsonAndCheck(
+        "PATCH",
+        repository.url,
+        input={
+            "security_and_analysis": {
+                "secret_scanning": {"status": "enabled"},
+                "secret_scanning_push_protection": {"status": "enabled"},
             },
-        )
+        },
+    )
 
 
 def get_required_status_checks(
@@ -86,6 +90,9 @@ def get_required_status_checks(
 
     if data.get("pypi"):
         default_status_checks.append(PYTHON_MODULE_INSTALL_STR)
+
+    if data.get("sonarqube-project-key"):
+        default_status_checks.append(SONARQUBE_STR)
 
     with contextlib.suppress(UnknownObjectException):
         repo.get_contents(".pre-commit-config.yaml")

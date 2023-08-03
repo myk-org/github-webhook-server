@@ -2,7 +2,7 @@ FROM fedora:38
 EXPOSE 5000
 
 RUN dnf -y update \
-    && dnf -y install python3.8 python3.9 python3.10 python3.11 python3-pip git hub podman \
+    && dnf -y install python3.8 python3.9 python3.10 python3.11 python3-pip git hub podman unzip \
     && dnf clean all \
     && rm -rf /var/cache/yum
 
@@ -12,6 +12,10 @@ RUN set -x \
     && tar xvf /tmp/rosa-linux.tar.gz --no-same-owner \
     && mv rosa /usr/bin/rosa \
     && chmod +x /usr/bin/rosa
+
+RUN curl -L https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.0.2966-linux.zip --output /tmp/sonar-scanner-cli.zip \
+    && unzip /tmp/sonar-scanner-cli.zip \
+    && mv -f /sonar-scanner-5.0.0.2966-linux /sonar-scanner-cli
 
 RUN ln -s /usr/bin/python3 /usr/bin/python
 
