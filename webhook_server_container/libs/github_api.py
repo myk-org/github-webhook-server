@@ -368,7 +368,7 @@ Available user actions:
 
             yield _clone_path
 
-            self.app.logger.info.info(
+            self.app.logger.info(
                 f"{self.log_prefix} Changing back to directory {old_cwd}"
             )
             os.chdir(old_cwd)
