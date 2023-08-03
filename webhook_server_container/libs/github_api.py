@@ -1001,17 +1001,17 @@ Available labels:
             )
             return False
 
-        base_path = f"/webhook_server/tox/{self.pull_request.number}"
+        base_path = f"/webhook_server/tox/{self.last_commit.sha}"
         base_url = f"{self.webhook_url}{base_path}"
+        cmd = TOX_STR
+        if self.tox_enabled != "all":
+            tests = self.tox_enabled.replace(" ", "")
+            cmd += f" -e {tests}"
+
         with self._clone_repository(path_suffix=f"tox-{shortuuid.uuid()}"):
             self.set_run_tox_check_in_progress()
-            if not self._checkout_pull_request():
+            if not self._checkout_pull_request(file_path=base_path):
                 return self.set_run_tox_check_failure(details_url=base_url)
-
-            cmd = TOX_STR
-            if self.tox_enabled != "all":
-                tests = self.tox_enabled.replace(" ", "")
-                cmd += f" -e {tests}"
 
             if run_command(
                 command=cmd, log_prefix=self.log_prefix, file_path=base_path
@@ -1344,7 +1344,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         base_url = None
 
         if self.pull_request:
-            base_path = f"/webhook_server/build-container/{self.pull_request.number}"
+            base_path = f"/webhook_server/build-container/{self.last_commit.sha}"
             base_url = f"{self.webhook_url}{base_path}"
 
         with self._clone_repository(path_suffix=f"build-container-{shortuuid.uuid()}"):
@@ -1439,13 +1439,13 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             return False
 
         self.app.logger.info(f"{self.log_prefix} Installing python module")
-        base_path = f"/webhook_server/python-module-install/{self.pull_request.number}"
+        base_path = f"/webhook_server/python-module-install/{self.last_commit.sha}"
         base_url = f"{self.webhook_url}{base_path}"
         repo_path_prefix = f"python-module-install-{shortuuid.uuid()}"
         with self._clone_repository(path_suffix=repo_path_prefix):
             self.set_python_module_install_in_progress()
             self.app.logger.info(f"{self.log_prefix} Current directory: {os.getcwd()}")
-            if not self._checkout_pull_request():
+            if not self._checkout_pull_request(file_path=base_path):
                 return self.set_python_module_install_failure(details_url=base_url)
 
             build_cmd = [f"python -m venv {repo_path_prefix}", "pip install ."]
@@ -1537,11 +1537,13 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         yield
         os.environ.pop(github_token_env)
 
-    def _checkout_pull_request(self):
+    def _checkout_pull_request(self, file_path=None):
         self.app.logger.info(f"{self.log_prefix} Current directory: {os.getcwd()}")
         pr_number = f"origin/pr/{self.pull_request.number}"
         checkout_cmd = f"git checkout {pr_number}"
-        return run_command(command=checkout_cmd, log_prefix=self.log_prefix)[0]
+        return run_command(
+            command=checkout_cmd, log_prefix=self.log_prefix, file_path=file_path
+        )[0]
 
     def process_opened_or_synchronize_pull_request(
         self, parent_committer, pull_request_branch
