@@ -56,9 +56,6 @@ from webhook_server_container.utils.helpers import (
 )
 
 
-USED_REPOSITORIES_COLORS = {}
-
-
 class RepositoryNotFoundError(Exception):
     pass
 
@@ -151,18 +148,26 @@ Available user actions:
         return self.repositories_app_api[self.repository_full_name]
 
     def _set_log_prefix_color(self):
-        global USED_REPOSITORIES_COLORS
-        if self.repository_full_name in USED_REPOSITORIES_COLORS:
-            self.log_prefix_with_color = (
-                f"\033[1;{USED_REPOSITORIES_COLORS[self.repository_name]}"
-                f"m{self.repository_name}\033[1;0m"
-            )
+        color_file = "/tmp/color.json"
+        if os.path.exists(color_file):
+            with open(color_file) as fd:
+                color_json = json.load(fd)
+        else:
+            color_json = {}
 
-        selected = random.choice(range(1, 256))
-        USED_REPOSITORIES_COLORS[self.repository_name] = selected
-        self.log_prefix_with_color = (
-            f"\033[1;{selected}m{self.repository_name}\033[1;0m"
+        repo_str = "\033[1;{color}m{name}\033[1;0m"
+        if self.repository_name in color_json:
+            color = color_json[self.repository_name]
+        else:
+            color = random.choice(range(29, 37))
+            color_json[self.repository_name] = color
+
+        self.log_prefix_with_color = repo_str.format(
+            color=color, name=self.repository_name
         )
+
+        with open(color_file, "w") as fd:
+            json.dump(color_json, fd)
 
     @property
     def log_prefix(self):
