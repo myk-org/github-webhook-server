@@ -2,6 +2,7 @@ import contextlib
 import datetime
 import json
 import os
+import random
 import re
 import shutil
 import sys
@@ -55,6 +56,9 @@ from webhook_server_container.utils.helpers import (
 )
 
 
+USED_REPOSITORIES_COLORS = {}
+
+
 class RepositoryNotFoundError(Exception):
     pass
 
@@ -68,6 +72,7 @@ class GitHubApi:
         self.missing_app_repositories = missing_app_repositories
         self.pull_request = None
         self.last_commit = None
+        self.log_prefix_with_color = None
 
         # filled by self._repo_data_from_config()
         self.dockerhub_username = None
@@ -89,6 +94,7 @@ class GitHubApi:
         # End of filled by self._repo_data_from_config()
 
         self._repo_data_from_config()
+        self._set_log_prefix_color()
         self.github_app_api = self.get_github_app_api()
         self.github_api = Github(login_or_token=self.token)
         self.api_user = self._api_username
@@ -144,12 +150,26 @@ Available user actions:
             )
         return self.repositories_app_api[self.repository_full_name]
 
+    def _set_log_prefix_color(self):
+        global USED_REPOSITORIES_COLORS
+        if self.repository_full_name in USED_REPOSITORIES_COLORS:
+            self.log_prefix_with_color = (
+                f"\033[1;{USED_REPOSITORIES_COLORS[self.repository_name]}"
+                f"m{self.repository_name}\033[1;0m"
+            )
+
+        selected = random.choice(range(1, 256))
+        USED_REPOSITORIES_COLORS[self.repository_name] = selected
+        self.log_prefix_with_color = (
+            f"\033[1;{selected}m{self.repository_name}\033[1;0m"
+        )
+
     @property
     def log_prefix(self):
         return (
-            f"{self.repository_name}[PR {self.pull_request.number}]:"
+            f"{self.log_prefix_with_color}[PR {self.pull_request.number}]:"
             if self.pull_request
-            else f"{self.repository_name}:"
+            else f"{self.log_prefix_with_color}:"
         )
 
     def hash_token(self, message):
@@ -164,7 +184,8 @@ Available user actions:
         hashed_message = self.hash_token(message=message)
         self.app.logger.error(hashed_message)
 
-    def process_hook(self, data):
+    def process_hook(self, data, event_log):
+        self.app.logger.info(f"{self.log_prefix} {event_log}")
         ignore_data = ["status", "branch_protection_rule"]
         if data == "issue_comment":
             self.process_comment_webhook_data()
@@ -1448,12 +1469,20 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             if not self._checkout_pull_request(file_path=base_path):
                 return self.set_python_module_install_failure(details_url=base_url)
 
-            build_cmd = [f"python -m venv {repo_path_prefix}", "pip install ."]
-            for _cmd in build_cmd:
-                if run_command(
-                    command=_cmd, log_prefix=self.log_prefix, file_path=base_path
-                )[0]:
-                    return self.set_python_module_install_success(details_url=base_url)
+            if (
+                run_command(
+                    command=f"python -m venv {repo_path_prefix}",
+                    log_prefix=self.log_prefix,
+                    file_path=base_path,
+                )[0]
+                and run_command(
+                    command="pip install .",
+                    log_prefix=self.log_prefix,
+                    file_path=base_path,
+                )[0]
+            ):
+                return self.set_python_module_install_success(details_url=base_url)
+
             return self.set_python_module_install_failure(details_url=base_url)
 
     def send_slack_message(self, message, webhook_url):
