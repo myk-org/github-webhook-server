@@ -1,4 +1,3 @@
-import asyncio
 import contextlib
 import datetime
 import json
@@ -1559,13 +1558,10 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.pull_request.add_to_assignees(parent_committer)
         self.assign_reviewers()
 
-        asyncio.run(self._run_check_runs_async())
-
-        #
-        # self._run_sonarqube()
-        # self._run_tox()
-        # self._install_python_module()
-        # self._build_container()
+        self._run_sonarqube()
+        self._run_tox()
+        self._install_python_module()
+        self._build_container()
 
     def run_retest_if_queued(self):
         last_commit_check_runs = list(self.last_commit.get_check_runs())
@@ -1623,16 +1619,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
             else:
                 return self.set_sonarqube_failure(details_url=target_url)
-
-    async def _run_check_runs_async(self):
-        async def _run_check_run(check_run):
-            await check_run()
-
-        async with asyncio.TaskGroup() as tg:
-            tg.create_task(_run_check_run(self._run_sonarqube))
-            tg.create_task(_run_check_run(self._run_tox))
-            tg.create_task(_run_check_run(self._install_python_module))
-            tg.create_task(_run_check_run(self._build_container))
 
     def set_check_run_status(
         self, check_run, status=None, conclusion=None, details_url=None
