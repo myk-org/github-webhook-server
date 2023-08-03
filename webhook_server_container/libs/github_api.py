@@ -1278,8 +1278,14 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             PR status is 'clean'.
             PR has no changed requests from approvers.
         """
+        if self.is_check_run_in_progress(check_run=CAN_BE_MERGED_STR):
+            self.app.logger.info(
+                f"{self.log_prefix} Check run is in progress, not running {TOX_STR}."
+            )
+            return False
+
         if self.skip_merged_pull_request():
-            return
+            return False
 
         self.app.logger.info(f"{self.log_prefix} Check if can be merged.")
         last_commit_check_runs = list(self.last_commit.get_check_runs())
@@ -1294,7 +1300,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 f"{self.log_prefix} Some check runs in progress {check_runs_in_progress}, "
                 f"skipping check if can be merged."
             )
-            return
+            return False
 
         self.set_merge_check_in_progress()
         _labels = self.pull_request_labels_names()
@@ -1302,12 +1308,12 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         if VERIFIED_LABEL_STR not in _labels or HOLD_LABEL_STR in _labels:
             self._remove_label(label=CAN_BE_MERGED_STR)
             self.set_merge_check_queued()
-            return
+            return False
 
         if self.pull_request.mergeable_state == "behind":
             self._remove_label(label=CAN_BE_MERGED_STR)
             self.set_merge_check_queued()
-            return
+            return False
 
         all_check_runs_passed = all(
             [
@@ -1321,23 +1327,21 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             self.set_merge_check_queued()
             # TODO: Fix `run_retest_if_queued` and uncomment the call for it.
             # self.run_retest_if_queued(last_commit_check_runs=last_commit_check_runs)
-            return
+            return False
 
         for _label in _labels:
             if CHANGED_REQUESTED_BY_LABEL_PREFIX.lower() in _label.lower():
                 change_request_user = _label.split("-")[-1]
                 if change_request_user in self.approvers:
                     self._remove_label(label=CAN_BE_MERGED_STR)
-                    self.set_merge_check_queued()
-                    return
+                    return self.set_merge_check_queued()
 
         for _label in _labels:
             if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
                 approved_user = _label.split("-")[-1]
                 if approved_user in self.approvers:
                     self._add_label(label=CAN_BE_MERGED_STR)
-                    self.set_merge_check_success()
-                    return
+                    return self.set_merge_check_success()
 
     @staticmethod
     def _comment_with_details(title, body):
