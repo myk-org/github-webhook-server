@@ -354,8 +354,10 @@ Available user actions:
 
         if run_command(command=clone_cmd, log_prefix=self.log_prefix)[0]:
             old_cwd = os.getcwd()
-            self.app.logger.info(f"{self.log_prefix} Changing directory to {clone_cmd}")
-            os.chdir(clone_cmd)
+            self.app.logger.info(
+                f"{self.log_prefix} Changing directory to {_clone_path}"
+            )
+            os.chdir(_clone_path)
 
             for cmd in [
                 git_user_name_cmd,
