@@ -1642,7 +1642,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         kwargs = {
             "name": check_run,
             "head_sha": self.last_commit.sha,
-            "conclusion": status,
         }
         if status:
             kwargs["status"] = status
