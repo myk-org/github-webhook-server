@@ -1626,18 +1626,13 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
     async def _run_check_runs_async(self):
         async def _run_check_run(check_run):
-            return check_run()
+            await check_run()
 
-        task1 = asyncio.create_task(_run_check_run(check_run=self._run_sonarqube))
-        task2 = asyncio.create_task(_run_check_run(check_run=self._run_tox))
-        task3 = asyncio.create_task(
-            _run_check_run(check_run=self._install_python_module)
-        )
-        task4 = asyncio.create_task(_run_check_run(check_run=self._build_container))
-        await task1
-        await task2
-        await task3
-        await task4
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(_run_check_run(check_run=self._run_sonarqube))
+            tg.create_task(_run_check_run(check_run=self._run_tox))
+            tg.create_task(_run_check_run(check_run=self._install_python_module))
+            tg.create_task(_run_check_run(check_run=self._build_container))
 
     def set_check_run_status(
         self, check_run, status=None, conclusion=None, details_url=None
