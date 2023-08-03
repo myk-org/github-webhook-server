@@ -1633,11 +1633,13 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         await task4
 
     def set_check_run_status(self, check_run, status, details_url=None):
-        import ipdb;ipdb.set_trace()
+        kwargs = {
+            "name": check_run,
+            "head_sha": self.last_commit.sha,
+            "conclusion": status,
+        }
+        if details_url:
+            kwargs["details_url"] = details_url
+
         self.app.logger.info(f"{self.log_prefix} Set {check_run} check to {status}")
-        return self.repository_by_github_app.create_check_run(
-            name=check_run,
-            head_sha=self.last_commit.sha,
-            conclusion=status,
-            details_url=details_url,
-        )
+        return self.repository_by_github_app.create_check_run(**kwargs)
