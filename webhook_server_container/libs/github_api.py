@@ -159,7 +159,7 @@ Available user actions:
         if self.repository_name in color_json:
             color = color_json[self.repository_name]
         else:
-            color = random.choice(range(29, 37))
+            color = random.choice(range(31, 39))
             color_json[self.repository_name] = color
 
         self.log_prefix_with_color = repo_str.format(
