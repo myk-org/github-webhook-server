@@ -366,7 +366,8 @@ Available user actions:
                 remote_update_cmd,
             ]:
                 run_command(command=cmd, log_prefix=self.log_prefix)
-                yield _clone_path
+
+            yield _clone_path
 
             self.app.logger.info.info(
                 f"{self.log_prefix} Changing back to directory {old_cwd}"
