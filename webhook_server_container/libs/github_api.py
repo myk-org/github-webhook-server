@@ -648,7 +648,7 @@ Available labels:
 
     def set_verify_check_success(self):
         return self.set_check_run_status(
-            check_run=VERIFIED_LABEL_STR, status=SUCCESS_STR
+            check_run=VERIFIED_LABEL_STR, conclusion=SUCCESS_STR
         )
 
     def set_run_tox_check_queued(self):
@@ -662,12 +662,12 @@ Available labels:
 
     def set_run_tox_check_failure(self, details_url):
         return self.set_check_run_status(
-            check_run=TOX_STR, status=FAILURE_STR, details_url=details_url
+            check_run=TOX_STR, conclusion=FAILURE_STR, details_url=details_url
         )
 
     def set_run_tox_check_success(self, details_url):
         return self.set_check_run_status(
-            check_run=TOX_STR, status=SUCCESS_STR, details_url=details_url
+            check_run=TOX_STR, conclusion=SUCCESS_STR, details_url=details_url
         )
 
     def set_merge_check_queued(self):
@@ -680,7 +680,7 @@ Available labels:
 
     def set_merge_check_success(self):
         return self.set_check_run_status(
-            check_run=CAN_BE_MERGED_STR, status=SUCCESS_STR
+            check_run=CAN_BE_MERGED_STR, conclusion=SUCCESS_STR
         )
 
     def set_container_build_queued(self):
@@ -698,12 +698,16 @@ Available labels:
 
     def set_container_build_success(self, details_url):
         return self.set_check_run_status(
-            check_run=BUILD_CONTAINER_STR, status=SUCCESS_STR, details_url=details_url
+            check_run=BUILD_CONTAINER_STR,
+            conclusion=SUCCESS_STR,
+            details_url=details_url,
         )
 
     def set_container_build_failure(self, details_url):
         return self.set_check_run_status(
-            check_run=BUILD_CONTAINER_STR, status=FAILURE_STR, details_url=details_url
+            check_run=BUILD_CONTAINER_STR,
+            conclusion=FAILURE_STR,
+            details_url=details_url,
         )
 
     def set_python_module_install_queued(self):
@@ -722,14 +726,14 @@ Available labels:
     def set_python_module_install_success(self, details_url):
         return self.set_check_run_status(
             check_run=PYTHON_MODULE_INSTALL_STR,
-            status=SUCCESS_STR,
+            conclusion=SUCCESS_STR,
             details_url=details_url,
         )
 
     def set_python_module_install_failure(self, details_url):
         return self.set_check_run_status(
             check_run=PYTHON_MODULE_INSTALL_STR,
-            status=FAILURE_STR,
+            conclusion=FAILURE_STR,
             details_url=details_url,
         )
 
@@ -746,12 +750,12 @@ Available labels:
 
     def set_sonarqube_success(self, details_url):
         return self.set_check_run_status(
-            check_run=SONARQUBE_STR, status=SUCCESS_STR, details_url=details_url
+            check_run=SONARQUBE_STR, conclusion=SUCCESS_STR, details_url=details_url
         )
 
     def set_sonarqube_failure(self, details_url):
         return self.set_check_run_status(
-            check_run=SONARQUBE_STR, status=FAILURE_STR, details_url=details_url
+            check_run=SONARQUBE_STR, conclusion=FAILURE_STR, details_url=details_url
         )
 
     @ignore_exceptions(FLASK_APP.logger)
@@ -1632,12 +1636,20 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         await task3
         await task4
 
-    def set_check_run_status(self, check_run, status, details_url=None):
+    def set_check_run_status(
+        self, check_run, status=None, conclusion=None, details_url=None
+    ):
         kwargs = {
             "name": check_run,
             "head_sha": self.last_commit.sha,
             "conclusion": status,
         }
+        if status:
+            kwargs["status"] = status
+
+        if conclusion:
+            kwargs["conclusion"] = conclusion
+
         if details_url:
             kwargs["details_url"] = details_url
 
