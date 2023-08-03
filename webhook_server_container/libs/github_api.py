@@ -1648,7 +1648,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     path="api/qualitygates/project_status",
                     params={"projectKey": self.sonarqube_project_key},
                 ).json()
-                if project_status["projectStatus"]["status"]:
+                if project_status["projectStatus"]["status"] == "OK":
                     return self.set_sonarqube_success(details_url=target_url)
                 else:
                     return self.set_sonarqube_failure(details_url=target_url)
