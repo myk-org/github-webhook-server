@@ -1280,7 +1280,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         """
         if self.is_check_run_in_progress(check_run=CAN_BE_MERGED_STR):
             self.app.logger.info(
-                f"{self.log_prefix} Check run is in progress, not running {TOX_STR}."
+                f"{self.log_prefix} Check run is in progress, not running {CAN_BE_MERGED_STR}."
             )
             return False
 
