@@ -17,7 +17,7 @@ logging.addLevelName(logging.ERROR, "\033[1;31mERROR\033[1;0m")
 logging.addLevelName(logging.CRITICAL, "\033[1;41mCRITICAL\033[1;0m")
 
 TOX_STR = "tox"
-SONARQUBE_STR = "SonarQube"
+SONARQUBE_STR = "sonarqube"
 SUCCESS_STR = "success"
 FAILURE_STR = "failure"
 IN_PROGRESS_STR = "in_progress"

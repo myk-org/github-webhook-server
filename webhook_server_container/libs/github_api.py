@@ -1209,7 +1209,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     )
                     return
 
-                if _args == "tox":
+                if _args == TOX_STR:
                     if not self.tox_enabled:
                         error_msg = f"{self.log_prefix} Tox is not enabled."
                         self.app.logger.info(error_msg)
@@ -1247,6 +1247,19 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                         reaction=REACTIONS.ok,
                     )
                     self._install_python_module()
+
+                elif _args == SONARQUBE_STR:
+                    if not self.sonarqube:
+                        error_msg = f"{self.log_prefix} No {SONARQUBE_STR} configured for this repository"
+                        self.app.logger.info(error_msg)
+                        self.pull_request.create_issue_comment(error_msg)
+                        return
+
+                    self.create_comment_reaction(
+                        issue_comment_id=issue_comment_id,
+                        reaction=REACTIONS.ok,
+                    )
+                    self._run_sonarqube()
 
         elif _command == "build-and-push-container":
             if self.build_and_push_container:
@@ -1356,8 +1369,9 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             check_run.name
             for check_run in last_commit_check_runs
             if check_run.status == IN_PROGRESS_STR
+            and check_run.name != CAN_BE_MERGED_STR
         ]
-        if any(check_runs_in_progress):
+        if check_runs_in_progress:
             self.app.logger.info(
                 f"{self.log_prefix} Some check runs in progress {check_runs_in_progress}, "
                 f"skipping check if can be merged."
