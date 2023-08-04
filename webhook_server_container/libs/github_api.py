@@ -20,6 +20,7 @@ from webhook_server_container.utils.constants import (
     ADD_STR,
     APPROVED_BY_LABEL_PREFIX,
     BRANCH_LABEL_PREFIX,
+    BUILD_AND_PUSH_CONTAINER_STR,
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
     CHANGED_REQUESTED_BY_LABEL_PREFIX,
@@ -1075,6 +1076,7 @@ Available labels:
         )
         command_and_args = command.split(" ", 1)
         _command = command_and_args[0]
+        not_running_msg = f"Pull request already merged, not running {_command}"
         _args = command_and_args[1] if len(command_and_args) > 1 else ""
         if len(command_and_args) > 1 and _args == "cancel":
             self.app.logger.info(
@@ -1140,16 +1142,14 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
             elif _command == "retest":
                 if self.skip_merged_pull_request():
-                    self.pull_request.create_issue_comment(
-                        "Pull request already merged, not running /retest"
-                    )
-                    return
+                    return self.pull_request.create_issue_comment(not_running_msg)
 
                 if _args == TOX_STR:
                     if not self.tox_enabled:
-                        error_msg = f"{self.log_prefix} Tox is not enabled."
+                        msg = f"No {TOX_STR} configured for this repository"
+                        error_msg = f"{self.log_prefix} {msg}."
                         self.app.logger.info(error_msg)
-                        self.pull_request.create_issue_comment(error_msg)
+                        self.pull_request.create_issue_comment(msg)
                         return
 
                     self.create_comment_reaction(
@@ -1166,9 +1166,10 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                         )
                         self._build_container()
                     else:
-                        error_msg = f"{self.log_prefix} No build-container configured"
+                        msg = f"No {BUILD_CONTAINER_STR} configured for this repository"
+                        error_msg = f"{self.log_prefix} {msg}"
                         self.app.logger.info(error_msg)
-                        self.pull_request.create_issue_comment(error_msg)
+                        self.pull_request.create_issue_comment(msg)
 
                 elif _args == PYTHON_MODULE_INSTALL_STR:
                     if not self.pypi:
@@ -1185,9 +1186,10 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
                 elif _args == SONARQUBE_STR:
                     if not self.sonarqube:
-                        error_msg = f"{self.log_prefix} No {SONARQUBE_STR} configured for this repository"
+                        msg = f"No {SONARQUBE_STR} configured for this repository"
+                        error_msg = f"{self.log_prefix} {msg}"
                         self.app.logger.info(error_msg)
-                        self.pull_request.create_issue_comment(error_msg)
+                        self.pull_request.create_issue_comment(msg)
                         return
 
                     self.create_comment_reaction(
@@ -1196,7 +1198,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     )
                     self._run_sonarqube()
 
-        elif _command == "build-and-push-container":
+        elif _command == BUILD_AND_PUSH_CONTAINER_STR:
             if self.build_and_push_container:
                 self.create_comment_reaction(
                     issue_comment_id=issue_comment_id,
@@ -1204,16 +1206,16 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 )
                 self._build_and_push_container()
             else:
-                error_msg = f"{self.log_prefix} No build-and-push-container configured"
+                msg = (
+                    f"No {BUILD_AND_PUSH_CONTAINER_STR} configured for this repository"
+                )
+                error_msg = f"{self.log_prefix} {msg}"
                 self.app.logger.info(error_msg)
-                self.pull_request.create_issue_comment(error_msg)
+                self.pull_request.create_issue_comment(msg)
 
         elif _command == WIP_STR:
             if self.skip_merged_pull_request():
-                self.pull_request.create_issue_comment(
-                    "Pull request already merged, not processing /wip"
-                )
-                return
+                return self.pull_request.create_issue_comment(not_running_msg)
 
             self.create_comment_reaction(
                 issue_comment_id=issue_comment_id,
@@ -1233,10 +1235,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
         else:
             if self.skip_merged_pull_request():
-                self.pull_request.create_issue_comment(
-                    f"Pull request already merged, not processing /{_command}"
-                )
-                return
+                return self.pull_request.create_issue_comment(not_running_msg)
 
             self.label_by_user_comment(
                 user_request=_command,
