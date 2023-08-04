@@ -4,12 +4,13 @@ services:
   github_webhook_server:
     container_name: github_webhook_server
     build: webhook-server-container
+    devices:
+      - "/dev/fuse:/dev/fuse"
+    security_opt:
+      - seccomp:unconfined
     volumes:
-      - ./config.yaml:/config.yaml:Z
-      - ./webhook-server.private-key.pem:/config/webhook-server.private-key.pem:Z
-      - ./tox-results:/webhook_server/tox
-      - ./build-container-results:/webhook_server/build-container
-      - ./python-module-install:/webhook_server/python-module-install
+      - ./webhook_server_data_dir:/webhook_server:Z # Should include config.yaml and webhook-server.private-key.pem
+      - ./containers:/home/podman/.local/share/containers # optional, to cache podman pull containers
     environment:
       - FLASK_DEBUG=1 # Debug Flask server to get logs to console.
       - PUID=1000
@@ -17,5 +18,4 @@ services:
       - TZ=Asia/Jerusalem
     ports:
       - "5000:5000"
-    privileged: true
     restart: unless-stopped

@@ -71,6 +71,9 @@ class GitHubApi:
         self.pull_request = None
         self.last_commit = None
         self.log_prefix_with_color = None
+        self.webhook_server_data_dir = os.environ.get(
+            "WEBHOOK_SERVER_DATA_DIR", "/webhook_server"
+        )
 
         # filled by self._repo_data_from_config()
         self.dockerhub_username = None
@@ -1040,7 +1043,7 @@ Available labels:
             )
             return False
 
-        base_path = f"/webhook_server/tox/{self.last_commit.sha}"
+        base_path = self._get_check_run_result_file_path(check_run=TOX_STR)
         base_url = f"{self.webhook_url}{base_path}"
         cmd = TOX_STR
         if self.tox_enabled != "all":
@@ -1301,7 +1304,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             )
             return False
 
-        self.app.logger.info(f"{self.log_prefix} Check if can be merged.")
+        self.app.logger.info(f"{self.log_prefix} Check if {CAN_BE_MERGED_STR}.")
         last_commit_check_runs = list(self.last_commit.get_check_runs())
         check_runs_in_progress = [
             check_run.name
@@ -1312,7 +1315,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         if check_runs_in_progress:
             self.app.logger.info(
                 f"{self.log_prefix} Some check runs in progress {check_runs_in_progress}, "
-                f"skipping check if can be merged."
+                f"skipping check if {CAN_BE_MERGED_STR}."
             )
             return False
 
@@ -1390,11 +1393,15 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         base_url = None
 
         if self.pull_request:
-            base_path = f"/webhook_server/build-container/{self.last_commit.sha}"
+            base_path = self._get_check_run_result_file_path(
+                check_run=BUILD_CONTAINER_STR
+            )
             base_url = f"{self.webhook_url}{base_path}"
 
         with self._clone_repository(path_suffix=f"build-container-{shortuuid.uuid()}"):
-            self.set_container_build_in_progress()
+            if set_check:
+                self.set_container_build_in_progress()
+
             self.app.logger.info(
                 f"{self.log_prefix} Current directory is {os.getcwd()}"
             )
@@ -1485,7 +1492,9 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             return False
 
         self.app.logger.info(f"{self.log_prefix} Installing python module")
-        base_path = f"/webhook_server/python-module-install/{self.last_commit.sha}"
+        base_path = self._get_check_run_result_file_path(
+            check_run=PYTHON_MODULE_INSTALL_STR
+        )
         base_url = f"{self.webhook_url}{base_path}"
         repo_path_prefix = f"python-module-install-{shortuuid.uuid()}"
         with self._clone_repository(path_suffix=repo_path_prefix):
@@ -1657,9 +1666,15 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             if not self._checkout_pull_request():
                 return self.set_sonarqube_failure(details_url=target_url)
 
+            _cli = os.path.join(
+                os.environ.get("SONAR_SCANNER_CLI_DIR", "/sonar-scanner-cli"),
+                "bin",
+                "sonar-scanner",
+            )
             cmd = (
-                f"/sonar-scanner-cli/bin/sonar-scanner -Dsonar.projectKey={self.sonarqube_project_key} "
-                f"-Dsonar.sources=. -Dsonar.host.url={self.sonarqube_url} "
+                f"{_cli} -Dsonar.projectKey={self.sonarqube_project_key} "
+                f"-Dsonar.sources=. "
+                f"-Dsonar.host.url={self.sonarqube_url} "
                 f"-Dsonar.token={self.sonarqube_token}"
             )
             if run_command(command=cmd, log_prefix=self.log_prefix)[0]:
@@ -1695,3 +1710,12 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             f"{self.log_prefix} Set {check_run} check to {status or conclusion}"
         )
         return self.repository_by_github_app.create_check_run(**kwargs)
+
+    def _get_check_run_result_file_path(self, check_run):
+        base_path = os.path.join(self.webhook_server_data_dir, check_run)
+        if not os.path.exists(base_path):
+            os.makedirs(name=base_path, exist_ok=True)
+
+        return os.path.join(
+            base_path, f"PR-{self.pull_request.number}-{self.last_commit.sha}"
+        )

@@ -10,8 +10,16 @@ On start, it will configure the following for each repository:
 
 ## Build container
 
+Using podman:
+
 ```bash
 podman build --format docker -t github-webhook-server .
+```
+
+Using docker:
+
+```bash
+docker build -t github-webhook-server .
 ```
 
 ## Setup
@@ -170,3 +178,23 @@ Supported labels:
 ### Issues
 
 * New issues can be created for this project [here](https://github.com/myakove/github-webhook-server/issues)
+
+### Development
+
+To run locally you need to export some os environment variables
+
+```bash
+export WEBHOOK_CONFIG_FILE=<path to config.yaml>
+export WEBHOOK_SERVER_PORT=<flask port>
+export WEBHOOK_APP_PRIVATE_KEY=<path to webhook-server.private-key.pem>
+export FLASK_DEBUG=1
+export WEBHOOK_SERVER_DATA_DIR=/tmp/webhook_server_data
+export SONAR_SCANNER_CLI_DIR=/tmp/sonar-scansner-cli # need to download and extract to the exported directory
+```
+
+Then run the app:
+
+```bash
+poetry run python webhook_server_container/app.py
+
+```
