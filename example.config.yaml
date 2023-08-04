@@ -1,6 +1,10 @@
 github-app-id: 123456 # GitHub app id
 github-toekn: <GITHIB TOKEN>
 
+sonarqube:
+  url: <SonaQube URL>
+  token: <SonaQube token>
+
 docker: # Used to pull images from docker.io
   username: <username>
   password: <password>
@@ -9,16 +13,15 @@ default-status-checks:
   - "WIP"
   - "dpulls"
   - "Inclusive Language",
-  - "SonarCloud Code Analysis"
   - "can-be-merged"
-  - "Code scanning results / CodeQL"
-  - "Code scanning results / SonarCloud"
 
 repositories:
-  openshift-python-wrapper:
+  my-repository:
     webhook_ip: <HTTP://IP OR URL:PORT>
-    name: RedHatQE/openshift-python-wrapper
+    name: my-org/my-repository
+    slack_webhook_url: <Slack webhook url> # Send notification to slack on several operations
     verified_job: true
+    sonarqube-project-key: <project key in SonaQube instance>
     pypi:
       token: <PYPI TOKEN>
       tool: <poetry or twine>
@@ -28,6 +31,7 @@ repositories:
       - issue_comment
     tox: all # Run all tests in tox.ini
     protected-branches:
+      dev: []
       main: # set [] in order to set all defaults run included
         include-runs:
           - "pre-commit.ci - pr"
@@ -39,6 +43,8 @@ repositories:
       password: <registry_password>
       repository: <registry_repository_full_path>
       tag: <image_tag>
-      build-args:
+      build-args: # build args to send to podman build command
         - build-arg1=1
         - build-arg2=2
+      args: # args to send to podman build command
+        - --format docker
