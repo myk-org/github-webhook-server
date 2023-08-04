@@ -1,10 +1,13 @@
+import datetime
 import os
 import shlex
 import subprocess
+import time
 from functools import wraps
 from time import sleep
 
 import yaml
+from github import Github
 
 from webhook_server_container.utils.constants import FLASK_APP
 
@@ -53,8 +56,8 @@ def ignore_exceptions(logger=None, retry=None):
 
 
 @ignore_exceptions()
-def get_github_repo_api(gapi, repository):
-    return gapi.get_repo(repository)
+def get_github_repo_api(github_api, repository):
+    return github_api.get_repo(repository)
 
 
 def run_command(
@@ -130,3 +133,32 @@ def run_command(
             with open(file_path, "w") as fd:
                 fd.write(f"stdout: {out_decoded}, stderr: {err_decoded}")
         return False, out_decoded, err_decoded
+
+
+def check_rate_limit(github_api=None):
+    if not github_api:
+        config_data = get_data_from_config()
+        github_api = Github(login_or_token=config_data["github-token"])
+
+    minimum_limit = 100
+    rate_limit = github_api.get_rate_limit()
+    rate_limit_reset = rate_limit.core.reset
+    rate_limit_remaining = rate_limit.core.remaining
+    rate_limit_limit = rate_limit.core.limit
+    FLASK_APP.logger.info(
+        f"API rate limit: Current {rate_limit_remaining} of {rate_limit_limit}. "
+        f"Reset in {rate_limit_reset} (UTC time is {datetime.datetime.utcnow()})"
+    )
+    while (
+        datetime.datetime.utcnow() < rate_limit_reset
+        and rate_limit_remaining < minimum_limit
+    ):
+        FLASK_APP.logger.warning(
+            f"Rate limit is below {minimum_limit} waiting till {rate_limit_reset}"
+        )
+        time_for_limit_reset = (rate_limit_reset - datetime.datetime.utcnow()).seconds
+        FLASK_APP.logger.info(f"Sleeping {time_for_limit_reset} seconds")
+        time.sleep(time_for_limit_reset + 1)
+        rate_limit = github_api.get_rate_limit()
+        rate_limit_reset = rate_limit.core.reset
+        rate_limit_remaining = rate_limit.core.remaining

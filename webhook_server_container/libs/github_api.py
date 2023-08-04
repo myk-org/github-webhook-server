@@ -48,6 +48,7 @@ from webhook_server_container.utils.constants import (
 )
 from webhook_server_container.utils.dockerhub_rate_limit import DockerHub
 from webhook_server_container.utils.helpers import (
+    check_rate_limit,
     extract_key_from_dict,
     get_data_from_config,
     get_github_repo_api,
@@ -94,15 +95,15 @@ class GitHubApi:
         self._set_log_prefix_color()
         self.github_app_api = self.get_github_app_api()
         self.github_api = Github(login_or_token=self.token)
+        check_rate_limit(github_api=self.github_api)
         self.api_user = self._api_username
         self.repository = get_github_repo_api(
-            gapi=self.github_api, repository=self.repository_full_name
+            github_api=self.github_api, repository=self.repository_full_name
         )
         self.repository_by_github_app = get_github_repo_api(
-            gapi=self.github_app_api, repository=self.repository_full_name
+            github_api=self.github_app_api, repository=self.repository_full_name
         )
         self.clone_repository_path = os.path.join("/", self.repository.name)
-        self.check_rate_limit()
         self.dockerhub = DockerHub(
             username=self.dockerhub_username,
             password=self.dockerhub_password,
@@ -206,10 +207,22 @@ Available user actions:
 
         elif data not in ignore_data:
             if data == "check_run":
-                if self.hook_data["check_run"]["name"] == CAN_BE_MERGED_STR:
+                _check_run = self.hook_data["check_run"]
+                if _check_run["name"] == CAN_BE_MERGED_STR:
                     return
 
-            self.pull_request = self._get_pull_request()
+                if self.hook_data["action"] == "completed":
+                    self.app.logger.info(
+                        f"{self.log_prefix} Got event check_run completed, getting pull request"
+                    )
+                    for _pull_request in self.repository.get_pulls(state="open"):
+                        _last_commit = list(_pull_request.get_commits())[-1]
+                        for _commit_check_run in _last_commit.get_check_runs():
+                            if _commit_check_run.id == int(_check_run["id"]):
+                                self.pull_request = _pull_request
+                                break
+
+            self.pull_request = self.pull_request or self._get_pull_request()
             if self.pull_request:
                 self.last_commit = self._get_last_commit()
                 self.check_if_can_be_merged()
@@ -1068,9 +1081,10 @@ Available labels:
 
         if _command in available_commands:
             if not _args:
-                error_msg = f"{self.log_prefix} retest/cherry-pick requires an argument"
+                issue_msg = f"{_command} requires an argument"
+                error_msg = f"{self.log_prefix} {issue_msg}"
                 self.app.logger.info(error_msg)
-                self.pull_request.create_issue_comment(error_msg)
+                self.pull_request.create_issue_comment(issue_msg)
                 return
 
             if _command == "cherry-pick":
@@ -1278,13 +1292,13 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             PR status is 'clean'.
             PR has no changed requests from approvers.
         """
+        if self.skip_merged_pull_request():
+            return False
+
         if self.is_check_run_in_progress(check_run=CAN_BE_MERGED_STR):
             self.app.logger.info(
                 f"{self.log_prefix} Check run is in progress, not running {CAN_BE_MERGED_STR}."
             )
-            return False
-
-        if self.skip_merged_pull_request():
             return False
 
         self.app.logger.info(f"{self.log_prefix} Check if can be merged.")
@@ -1342,6 +1356,8 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 if approved_user in self.approvers:
                     self._add_label(label=CAN_BE_MERGED_STR)
                     return self.set_merge_check_success()
+
+        return self.set_merge_check_queued()
 
     @staticmethod
     def _comment_with_details(title, body):
@@ -1623,8 +1639,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     self._install_python_module()
 
     def is_check_run_in_progress(self, check_run):
-        last_commit_check_runs = list(self.last_commit.get_check_runs())
-        for run in last_commit_check_runs:
+        for run in self.last_commit.get_check_runs():
             if run.name == check_run and run.status == IN_PROGRESS_STR:
                 return True
         return False
@@ -1676,5 +1691,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         if details_url:
             kwargs["details_url"] = details_url
 
-        self.app.logger.info(f"{self.log_prefix} Set {check_run} check to {status}")
+        self.app.logger.info(
+            f"{self.log_prefix} Set {check_run} check to {status or conclusion}"
+        )
         return self.repository_by_github_app.create_check_run(**kwargs)
