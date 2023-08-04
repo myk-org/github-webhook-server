@@ -10,7 +10,7 @@ RUN dnf -y update \
 ENV USER=podman
 ENV USER_HOME=/home/$USER
 ENV USER_BIN_DIR="$USER_HOME/.local/bin"
-ENV DATA_DIR=webhook_server
+ENV DATA_DIR=/webhook_server
 ENV APP_DIR=$USER_HOME/github-webhook-server
 ENV PATH="$USER_BIN_DIR:$PATH"
 

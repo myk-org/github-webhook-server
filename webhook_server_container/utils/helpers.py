@@ -88,6 +88,18 @@ def run_command(
     Returns:
         tuple: True, out if command succeeded, False, err otherwise.
     """
+
+    def _write_to_file(_file_path, _out_decoded, _err_decoded=None):
+        try:
+            with open(file_path, "w") as fd:
+                fd.write(f"stdout: {out_decoded}")
+                if _err_decoded:
+                    fd.write(f"\nstderr: {err_decoded}")
+        except Exception as ex:
+            FLASK_APP.logger.error(
+                f"{log_prefix} Failed to write to file: {file_path}. ex: {ex}"
+            )
+
     out_decoded, err_decoded = "", ""
     try:
         FLASK_APP.logger.info(f"{log_prefix} Running '{command}' command")
@@ -111,27 +123,37 @@ def run_command(
         if sub_process.returncode != 0:
             FLASK_APP.logger.error(error_msg)
             if file_path:
-                with open(file_path, "w") as fd:
-                    fd.write(f"stdout: {out_decoded}, stderr: {err_decoded}")
+                _write_to_file(
+                    _file_path=file_path,
+                    _out_decoded=out_decoded,
+                    _err_decoded=err_decoded,
+                )
+
             return False, out_decoded, err_decoded
 
         # From this point and onwards we are guaranteed that sub_process.returncode == 0
         if err_decoded and verify_stderr:
             FLASK_APP.logger.error(error_msg)
             if file_path:
-                with open(file_path, "w") as fd:
-                    fd.write(f"stdout: {out_decoded}, stderr: {err_decoded}")
+                _write_to_file(
+                    _file_path=file_path,
+                    _out_decoded=out_decoded,
+                    _err_decoded=err_decoded,
+                )
+
             return False, out_decoded, err_decoded
 
         if file_path:
-            with open(file_path, "w") as fd:
-                fd.write(out_decoded)
+            _write_to_file(_file_path=file_path, _out_decoded=out_decoded)
+
         return True, out_decoded, err_decoded
     except Exception as ex:
         FLASK_APP.logger.error(f"{log_prefix} Failed to run '{command}' command: {ex}")
         if file_path:
-            with open(file_path, "w") as fd:
-                fd.write(f"stdout: {out_decoded}, stderr: {err_decoded}")
+            _write_to_file(
+                _file_path=file_path, _out_decoded=out_decoded, _err_decoded=err_decoded
+            )
+
         return False, out_decoded, err_decoded
 
 
