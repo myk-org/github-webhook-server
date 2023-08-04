@@ -12,6 +12,7 @@ services:
       - ./tox-results:/webhook_server/tox
       - ./build-container-results:/webhook_server/build-container
       - ./python-module-install:/webhook_server/python-module-install
+      - ./containers:/home/podman/.local/share/containers # optional, to cache podman pull containers
     environment:
       - FLASK_DEBUG=1 # Debug Flask server to get logs to console.
       - PUID=1000

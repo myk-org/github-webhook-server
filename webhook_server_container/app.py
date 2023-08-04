@@ -30,11 +30,7 @@ FILENAME_STRING = "<string:filename>"
 
 def get_repositories_github_app_api():
     FLASK_APP.logger.info("Getting repositories GitHub app API")
-    with open(
-        os.environ.get(
-            "WEBHOOK_APP_PRIVATE_KEY", "/config/webhook-server.private-key.pem"
-        )
-    ) as fd:
+    with open(os.path.join(get_app_data_dir(), "webhook-server.private-key.pem")) as fd:
         private_key = fd.read()
 
     config_data = get_data_from_config()
@@ -83,24 +79,10 @@ def process_webhook():
         return "Process failed"
 
 
-@FLASK_APP.route(f"{APP_ROOT_PATH}/tox/{FILENAME_STRING}")
-def return_tox(filename):
-    FLASK_APP.logger.info("app.route: Processing tox file")
-    with open(f"{APP_ROOT_PATH}/tox/{filename}") as fd:
-        return Response(fd.read(), mimetype=PLAIN_TEXT_MIME_TYPE)
-
-
-@FLASK_APP.route(f"{APP_ROOT_PATH}/build-container/{FILENAME_STRING}")
-def return_build_container(filename):
-    FLASK_APP.logger.info("app.route: Processing build-container file")
-    with open(f"{APP_ROOT_PATH}/build-container/{filename}") as fd:
-        return Response(fd.read(), mimetype=PLAIN_TEXT_MIME_TYPE)
-
-
-@FLASK_APP.route(f"{APP_ROOT_PATH}/python-module-install/{FILENAME_STRING}")
-def return_python_module_install(filename):
-    FLASK_APP.logger.info("app.route: Processing python-module-install file")
-    with open(f"{APP_ROOT_PATH}/python-module-install/{filename}") as fd:
+@FLASK_APP.route(f"{APP_ROOT_PATH}{FILENAME_STRING}")
+def return_check_run_results(filename):
+    FLASK_APP.logger.info(f"app.route: Processing check run results file {filename}")
+    with open(f"{APP_ROOT_PATH}{filename}") as fd:
         return Response(fd.read(), mimetype=PLAIN_TEXT_MIME_TYPE)
 
 

@@ -17,7 +17,7 @@ def get_app_data_dir():
 
 
 def get_data_from_config():
-    config_file = os.environ.get("WEBHOOK_CONFIG_FILE", "/config/config.yaml")
+    config_file = os.path.join(get_app_data_dir(), "config.yaml")
     with open(config_file) as fd:
         return yaml.safe_load(fd)
 

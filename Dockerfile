@@ -27,12 +27,12 @@ RUN useradd -ms /bin/bash $USER \
 
 RUN set -x \
     && curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash \
-    && curl -L https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz --output /tmp/rosa-linux.tar.gz \
+    && curl https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz --output /tmp/rosa-linux.tar.gz \
     && tar xvf /tmp/rosa-linux.tar.gz --no-same-owner \
     && mv rosa $USER_BIN_DIR/rosa \
     && chmod +x $USER_BIN_DIR/rosa
 
-RUN curl -L https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.0.2966-linux.zip --output /tmp/sonar-scanner-cli.zip \
+RUN curl https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.0.2966-linux.zip --output /tmp/sonar-scanner-cli.zip \
     && unzip /tmp/sonar-scanner-cli.zip -d $DATA_DIR/ \
     && mv -f $DATA_DIR/sonar-scanner-5.0.0.2966-linux $DATA_DIR/sonar-scanner-cli
 

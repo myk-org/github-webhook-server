@@ -1043,7 +1043,7 @@ Available labels:
             )
             return False
 
-        base_path = f"{self.webhook_server_data_dir}/tox/{self.last_commit.sha}"
+        base_path = self._get_check_run_result_file_path(check_run=TOX_STR)
         base_url = f"{self.webhook_url}{base_path}"
         cmd = TOX_STR
         if self.tox_enabled != "all":
@@ -1393,8 +1393,8 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         base_url = None
 
         if self.pull_request:
-            base_path = (
-                f"{self.webhook_server_data_dir}/build-container/{self.last_commit.sha}"
+            base_path = self._get_check_run_result_file_path(
+                check_run=BUILD_CONTAINER_STR
             )
             base_url = f"{self.webhook_url}{base_path}"
 
@@ -1490,7 +1490,9 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             return False
 
         self.app.logger.info(f"{self.log_prefix} Installing python module")
-        base_path = f"{self.webhook_server_data_dir}/python-module-install/{self.last_commit.sha}"
+        base_path = self._get_check_run_result_file_path(
+            check_run=PYTHON_MODULE_INSTALL_STR
+        )
         base_url = f"{self.webhook_url}{base_path}"
         repo_path_prefix = f"python-module-install-{shortuuid.uuid()}"
         with self._clone_repository(path_suffix=repo_path_prefix):
@@ -1702,3 +1704,12 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             f"{self.log_prefix} Set {check_run} check to {status or conclusion}"
         )
         return self.repository_by_github_app.create_check_run(**kwargs)
+
+    def _get_check_run_result_file_path(self, check_run):
+        base_path = os.path.join(self.webhook_server_data_dir, check_run)
+        if not os.path.exists(base_path):
+            os.makedirs(name=base_path, exist_ok=True)
+
+        return os.path.join(
+            base_path, f"PR-{self.pull_request.number}-{self.last_commit.sha}"
+        )
