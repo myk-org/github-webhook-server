@@ -1643,7 +1643,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 return self.set_sonarqube_failure(details_url=target_url)
 
             cmd = (
-                f"/sonar-scanner-cli/bin/sonar-scanner -Dsonar.projectKey={self.sonarqube_project_key} "
+                f"/webhook_server/sonar-scanner-cli/bin/sonar-scanner -Dsonar.projectKey={self.sonarqube_project_key} "
                 f"-Dsonar.sources=. -Dsonar.host.url={self.sonarqube_url} "
                 f"-Dsonar.token={self.sonarqube_token}"
             )
