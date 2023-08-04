@@ -1304,7 +1304,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             )
             return False
 
-        self.app.logger.info(f"{self.log_prefix} Check if can be merged.")
+        self.app.logger.info(f"{self.log_prefix} Check if {CAN_BE_MERGED_STR}.")
         last_commit_check_runs = list(self.last_commit.get_check_runs())
         check_runs_in_progress = [
             check_run.name
@@ -1315,7 +1315,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         if check_runs_in_progress:
             self.app.logger.info(
                 f"{self.log_prefix} Some check runs in progress {check_runs_in_progress}, "
-                f"skipping check if can be merged."
+                f"skipping check if {CAN_BE_MERGED_STR}."
             )
             return False
 
@@ -1399,7 +1399,9 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             base_url = f"{self.webhook_url}{base_path}"
 
         with self._clone_repository(path_suffix=f"build-container-{shortuuid.uuid()}"):
-            self.set_container_build_in_progress()
+            if set_check:
+                self.set_container_build_in_progress()
+
             self.app.logger.info(
                 f"{self.log_prefix} Current directory is {os.getcwd()}"
             )

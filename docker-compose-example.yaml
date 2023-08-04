@@ -6,11 +6,10 @@ services:
     build: webhook-server-container
     devices:
       - "/dev/fuse:/dev/fuse"
-      - "/proc:/proc"
     security_opt:
       - seccomp:unconfined
     volumes:
-      - ./webhook_server_data_dir:/webhook_server:Z
+      - ./webhook_server_data_dir:/webhook_server:Z # Should include config.yaml and webhook-server.private-key.pem
       - ./containers:/home/podman/.local/share/containers # optional, to cache podman pull containers
     environment:
       - FLASK_DEBUG=1 # Debug Flask server to get logs to console.
