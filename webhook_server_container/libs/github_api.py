@@ -1666,7 +1666,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
             _cli = os.path.join(
                 os.environ.get("SONAR_SCANNER_CLI_DIR", "/sonar-scanner-cli"),
-                "sonar-scanner-cli",
                 "bin",
                 "sonar-scanner",
             )
