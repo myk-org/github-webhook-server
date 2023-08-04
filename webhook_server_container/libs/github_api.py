@@ -1664,9 +1664,14 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             if not self._checkout_pull_request():
                 return self.set_sonarqube_failure(details_url=target_url)
 
+            _cli = os.path.join(
+                os.environ.get("SONAR_SCANNER_CLI_DIR", "/sonar-scanner-cli"),
+                "sonar-scanner-cli",
+                "bin",
+                "sonar-scanner",
+            )
             cmd = (
-                f"{self.webhook_server_data_dir}/sonar-scanner-cli/bin/sonar-scanner "
-                f"-Dsonar.projectKey={self.sonarqube_project_key} "
+                f"{_cli} -Dsonar.projectKey={self.sonarqube_project_key} "
                 f"-Dsonar.sources=. "
                 f"-Dsonar.host.url={self.sonarqube_url} "
                 f"-Dsonar.token={self.sonarqube_token}"
