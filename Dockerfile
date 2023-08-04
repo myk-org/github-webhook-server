@@ -33,8 +33,8 @@ RUN set -x \
     && chmod +x $USER_BIN_DIR/rosa
 
 RUN curl https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.0.2966-linux.zip --output /tmp/sonar-scanner-cli.zip \
-    && unzip /tmp/sonar-scanner-cli.zip -d $DATA_DIR/ \
-    && mv -f $DATA_DIR/sonar-scanner-5.0.0.2966-linux $DATA_DIR/sonar-scanner-cli
+    && unzip /tmp/sonar-scanner-cli.zip -d $USER_BIN_DIR/ \
+    && mv -f $USER_BIN_DIR/sonar-scanner-5.0.0.2966-linux $USER_BIN_DIR/sonar-scanner-cli
 
 RUN ln -s /usr/bin/python3 /usr/bin/python
 

@@ -5,7 +5,12 @@ from flask import Response, request
 from github import Auth, GithubIntegration
 
 from webhook_server_container.libs.github_api import GitHubApi
-from webhook_server_container.utils.constants import FLASK_APP
+from webhook_server_container.utils.constants import (
+    BUILD_CONTAINER_STR,
+    FLASK_APP,
+    PYTHON_MODULE_INSTALL_STR,
+    TOX_STR,
+)
 from webhook_server_container.utils.github_repository_settings import (
     set_all_in_progress_check_runs_to_queued,
     set_repositories_settings,
@@ -26,6 +31,9 @@ urllib3.disable_warnings()
 PLAIN_TEXT_MIME_TYPE = "text/plain"
 APP_ROOT_PATH = get_app_data_dir()
 FILENAME_STRING = "<string:filename>"
+TOX_ROUTE_PATH = f"{APP_ROOT_PATH}/{TOX_STR}"
+BUILD_CONTAINER_ROUTE_PATH = f"{APP_ROOT_PATH}/{BUILD_CONTAINER_STR}"
+PYTHON_MODULE_INSTALL_ROUTE_PATH = f"{APP_ROOT_PATH}/{PYTHON_MODULE_INSTALL_STR}"
 
 
 def get_repositories_github_app_api():
@@ -79,10 +87,24 @@ def process_webhook():
         return "Process failed"
 
 
-@FLASK_APP.route(f"{APP_ROOT_PATH}{FILENAME_STRING}")
-def return_check_run_results(filename):
-    FLASK_APP.logger.info(f"app.route: Processing check run results file {filename}")
-    with open(f"{APP_ROOT_PATH}{filename}") as fd:
+@FLASK_APP.route(f"{TOX_ROUTE_PATH}/{FILENAME_STRING}")
+def return_tox(filename):
+    FLASK_APP.logger.info(f"app.route: Processing {TOX_STR} file")
+    with open(f"{TOX_ROUTE_PATH}/{filename}") as fd:
+        return Response(fd.read(), mimetype=PLAIN_TEXT_MIME_TYPE)
+
+
+@FLASK_APP.route(f"{BUILD_CONTAINER_ROUTE_PATH}/{FILENAME_STRING}")
+def return_build_container(filename):
+    FLASK_APP.logger.info(f"app.route: Processing {BUILD_CONTAINER_STR} file")
+    with open(f"{BUILD_CONTAINER_ROUTE_PATH}/{filename}") as fd:
+        return Response(fd.read(), mimetype=PLAIN_TEXT_MIME_TYPE)
+
+
+@FLASK_APP.route(f"{PYTHON_MODULE_INSTALL_ROUTE_PATH}/{FILENAME_STRING}")
+def return_python_module_install(filename):
+    FLASK_APP.logger.info(f"app.route: Processing {PYTHON_MODULE_INSTALL_STR} file")
+    with open(f"{PYTHON_MODULE_INSTALL_ROUTE_PATH}/{filename}") as fd:
         return Response(fd.read(), mimetype=PLAIN_TEXT_MIME_TYPE)
 
 
