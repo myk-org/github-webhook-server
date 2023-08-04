@@ -7,10 +7,14 @@ from github.GithubException import UnknownObjectException
 
 from webhook_server_container.utils.constants import (
     BUILD_CONTAINER_STR,
+    CAN_BE_MERGED_STR,
     FLASK_APP,
+    IN_PROGRESS_STR,
     PYTHON_MODULE_INSTALL_STR,
+    QUEUED_STR,
     SONARQUBE_STR,
     STATIC_LABELS_DICT,
+    TOX_STR,
 )
 from webhook_server_container.utils.helpers import (
     get_data_from_config,
@@ -142,7 +146,7 @@ def set_repository_labels(repository):
 def set_repositories_settings():
     FLASK_APP.logger.info("Processing repositories")
     config_data = get_data_from_config()
-    gapi = Github(login_or_token=config_data["github-token"])
+    github_api = Github(login_or_token=config_data["github-token"])
     default_status_checks = config_data.get("default-status-checks", [])
     docker = config_data.get("docker")
     if docker:
@@ -151,11 +155,11 @@ def set_repositories_settings():
         docker_password = docker["password"]
         os.system(f"podman login -u {docker_username} -p {docker_password} docker.io")
 
-    for repo, data in config_data["repositories"].items():
+    for _, data in config_data["repositories"].items():
         repository = data["name"]
         FLASK_APP.logger.info(f"Processing repository {repository}")
         protected_branches = data.get("protected-branches", {})
-        repo = get_github_repo_api(gapi=gapi, repository=repository)
+        repo = get_github_repo_api(github_api=github_api, repository=repository)
         if not repo:
             FLASK_APP.logger.error(f"{repository}: Failed to get repository")
             continue
@@ -195,3 +199,34 @@ def set_repositories_settings():
                 repository=repo,
                 required_status_checks=required_status_checks,
             )
+
+
+def set_all_in_progress_check_runs_to_queued(
+    repositories_app_api, missing_app_repositories
+):
+    config_data = get_data_from_config()
+    github_api = Github(login_or_token=config_data["github-token"])
+    check_runs = (PYTHON_MODULE_INSTALL_STR, CAN_BE_MERGED_STR, SONARQUBE_STR, TOX_STR)
+    for _, data in config_data["repositories"].items():
+        repository = data["name"]
+        if repository in missing_app_repositories:
+            continue
+
+        app_api = get_github_repo_api(
+            github_api=repositories_app_api[repository], repository=repository
+        )
+        repo = get_github_repo_api(github_api=github_api, repository=repository)
+        FLASK_APP.logger.info(
+            f"{repository}: Set all {IN_PROGRESS_STR} check runs to {QUEUED_STR}"
+        )
+        for pull_request in repo.get_pulls(state="open"):
+            last_commit = list(pull_request.get_commits())[-1]
+            for check_run in last_commit.get_check_runs():
+                if check_run.name in check_runs and check_run.status == IN_PROGRESS_STR:
+                    FLASK_APP.logger.info(
+                        f"{repository}: {{check_run.name}} status is {IN_PROGRESS_STR}, "
+                        f"Setting check run {check_run.name} to {QUEUED_STR}"
+                    )
+                    app_api.create_check_run(
+                        name=check_run.name, head_sha=last_commit.sha, status=QUEUED_STR
+                    )
