@@ -23,7 +23,7 @@ MISSING_APP_REPOSITORIES = []
 urllib3.disable_warnings()
 
 PLAIN_TEXT_MIME_TYPE = "text/plain"
-APP_ROOT_PATH = "/webhook_server"
+APP_ROOT_PATH = os.environ.get("WEBHOOK_SERVER_DATA_DIR", "/webhook_server")
 FILENAME_STRING = "<string:filename>"
 
 

@@ -20,7 +20,10 @@ RUN useradd -ms /bin/bash $USER \
     && mkdir -p /var/lib/containers \
     && mkdir -p $USER_BIN_DIR \
     && mkdir -p $USER_HOME/.local/share/containers \
-    && mkdir -p $DATA_DIR
+    && mkdir -p $DATA_DIR \
+    && mkdir -p $DATA_DIR/tox \
+    && mkdir -p $DATA_DIR/python-module-install \
+    && mkdir -p $DATA_DIR/build-container
 
 RUN set -x \
     && curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash \

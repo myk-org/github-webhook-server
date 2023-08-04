@@ -71,6 +71,9 @@ class GitHubApi:
         self.pull_request = None
         self.last_commit = None
         self.log_prefix_with_color = None
+        self.webhook_server_data_dir = os.environ.get(
+            "WEBHOOK_SERVER_DATA_DIR", "/webhook_server"
+        )
 
         # filled by self._repo_data_from_config()
         self.dockerhub_username = None
