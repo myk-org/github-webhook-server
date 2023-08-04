@@ -10,7 +10,7 @@ RUN dnf -y update \
 ENV USER=podman
 ENV USER_HOME=/home/$USER
 ENV USER_BIN_DIR="$USER_HOME/.local/bin"
-ENV DATA_DIR=$USER_HOME/webhook_server
+ENV DATA_DIR=webhook_server
 ENV APP_DIR=$USER_HOME/github-webhook-server
 ENV PATH="$USER_BIN_DIR:$PATH"
 
@@ -30,8 +30,7 @@ RUN set -x \
     && chmod +x $USER_BIN_DIR/rosa
 
 RUN curl -L https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.0.2966-linux.zip --output /tmp/sonar-scanner-cli.zip \
-    && unzip /tmp/sonar-scanner-cli.zip \
-    && mv -f /sonar-scanner-5.0.0.2966-linux $DATA_DIR/sonar-scanner-cli
+    && unzip /tmp/sonar-scanner-cli.zip -d $DATA_DIR/
 
 RUN ln -s /usr/bin/python3 /usr/bin/python
 
@@ -42,6 +41,7 @@ COPY pyproject.toml poetry.lock README.md $APP_DIR/
 COPY webhook_server_container $APP_DIR/webhook_server_container/
 
 RUN chown -R $USER:$USER $USER_HOME
+RUN chown -R $USER:$USER $DATA_DIR
 USER $USER
 WORKDIR $APP_DIR
 
