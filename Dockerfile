@@ -1,9 +1,8 @@
-FROM registry.fedoraproject.org/fedora:38
+FROM quay.io/podman/stable:latest
 EXPOSE 5000
 
 RUN dnf -y update \
-    && dnf -y reinstall shadow-utils \
-    && dnf -y install python3.8 python3.9 python3.10 python3.11 python3-pip git hub podman unzip fuse-overlayfs --exclude container-selinux \
+    && dnf -y install python3.8 python3.9 python3.10 python3.11 python3-pip git hub unzip \
     && dnf clean all \
     && rm -rf /var/cache /var/log/dnf* /var/log/yum.*
 
@@ -15,12 +14,11 @@ ENV APP_DIR=$USER_HOME/github-webhook-server
 ENV SONAR_SCANNER_CLI_DIR=/sonar-scanner-cli
 ENV PATH="$USER_BIN_DIR:$PATH"
 
-RUN useradd -ms /bin/bash $USER \
-    && echo podman:10000:5000 > /etc/subuid \
-    && echo podman:10000:5000 > /etc/subgid \
-    && mkdir -p /var/lib/containers \
+RUN touch /etc/subgid /etc/subuid \
+    && chmod g=u /etc/subgid /etc/subuid /etc/passwd \
+    && echo $USER:10000:5000 > /etc/subuid \
+    && echo $USER:10000:5000 > /etc/subgid \
     && mkdir -p $USER_BIN_DIR \
-    && mkdir -p $USER_HOME/.local/share/containers \
     && mkdir -p $DATA_DIR \
     && mkdir -p $DATA_DIR/tox \
     && mkdir -p $DATA_DIR/python-module-install \
@@ -31,16 +29,18 @@ RUN set -x \
     && curl https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz --output /tmp/rosa-linux.tar.gz \
     && tar xvf /tmp/rosa-linux.tar.gz --no-same-owner \
     && mv rosa $USER_BIN_DIR/rosa \
-    && chmod +x $USER_BIN_DIR/rosa
+    && chmod +x $USER_BIN_DIR/rosa \
+    && rm -rf /tmp/rosa-linux.tar.gz
 
 RUN curl https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.0.2966-linux.zip --output /sonar-scanner-cli.zip \
     && unzip /sonar-scanner-cli.zip \
-    && mv -f /sonar-scanner-5.0.0.2966-linux $SONAR_SCANNER_CLI_DIR
+    && mv -f /sonar-scanner-5.0.0.2966-linux $SONAR_SCANNER_CLI_DIR \
+    && rm -rf /sonar-scanner-cli.zip
 
 RUN ln -s /usr/bin/python3 /usr/bin/python
 
 RUN python -m pip install pip --upgrade \
-    && python -m pip install pipx importlib poetry tox
+    && python -m pip install poetry tox
 
 COPY pyproject.toml poetry.lock README.md $APP_DIR/
 COPY webhook_server_container $APP_DIR/webhook_server_container/
