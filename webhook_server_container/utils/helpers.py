@@ -12,6 +12,10 @@ from github import Github
 from webhook_server_container.utils.constants import FLASK_APP
 
 
+def get_app_data_dir():
+    return os.environ.get("WEBHOOK_SERVER_DATA_DIR", "/webhook_server")
+
+
 def get_data_from_config():
     config_file = os.environ.get("WEBHOOK_CONFIG_FILE", "/config/config.yaml")
     with open(config_file) as fd:

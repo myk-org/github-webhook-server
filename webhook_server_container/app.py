@@ -12,6 +12,7 @@ from webhook_server_container.utils.github_repository_settings import (
 )
 from webhook_server_container.utils.helpers import (
     check_rate_limit,
+    get_app_data_dir,
     get_data_from_config,
 )
 from webhook_server_container.utils.webhook import create_webhook
@@ -23,7 +24,7 @@ MISSING_APP_REPOSITORIES = []
 urllib3.disable_warnings()
 
 PLAIN_TEXT_MIME_TYPE = "text/plain"
-APP_ROOT_PATH = os.environ.get("WEBHOOK_SERVER_DATA_DIR", "/webhook_server")
+APP_ROOT_PATH = get_app_data_dir()
 FILENAME_STRING = "<string:filename>"
 
 

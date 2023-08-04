@@ -1,4 +1,4 @@
-FROM fedora:38
+FROM registry.fedoraproject.org/fedora:38
 EXPOSE 5000
 
 RUN dnf -y update \
@@ -44,8 +44,9 @@ RUN python -m pip install pip --upgrade \
 COPY pyproject.toml poetry.lock README.md $APP_DIR/
 COPY webhook_server_container $APP_DIR/webhook_server_container/
 
-RUN chown -R $USER:$USER $USER_HOME
-RUN chown -R $USER:$USER $DATA_DIR
+RUN chown -R $USER:$USER $USER_HOME \
+    && chown -R $USER:$USER $DATA_DIR
+
 USER $USER
 WORKDIR $APP_DIR
 

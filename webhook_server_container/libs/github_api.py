@@ -1043,7 +1043,7 @@ Available labels:
             )
             return False
 
-        base_path = f"/webhook_server/tox/{self.last_commit.sha}"
+        base_path = f"{self.webhook_server_data_dir}/tox/{self.last_commit.sha}"
         base_url = f"{self.webhook_url}{base_path}"
         cmd = TOX_STR
         if self.tox_enabled != "all":
@@ -1393,7 +1393,9 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         base_url = None
 
         if self.pull_request:
-            base_path = f"/webhook_server/build-container/{self.last_commit.sha}"
+            base_path = (
+                f"{self.webhook_server_data_dir}/build-container/{self.last_commit.sha}"
+            )
             base_url = f"{self.webhook_url}{base_path}"
 
         with self._clone_repository(path_suffix=f"build-container-{shortuuid.uuid()}"):
@@ -1488,7 +1490,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             return False
 
         self.app.logger.info(f"{self.log_prefix} Installing python module")
-        base_path = f"/webhook_server/python-module-install/{self.last_commit.sha}"
+        base_path = f"{self.webhook_server_data_dir}/python-module-install/{self.last_commit.sha}"
         base_url = f"{self.webhook_url}{base_path}"
         repo_path_prefix = f"python-module-install-{shortuuid.uuid()}"
         with self._clone_repository(path_suffix=repo_path_prefix):
@@ -1661,8 +1663,10 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 return self.set_sonarqube_failure(details_url=target_url)
 
             cmd = (
-                f"/webhook_server/sonar-scanner-cli/bin/sonar-scanner -Dsonar.projectKey={self.sonarqube_project_key} "
-                f"-Dsonar.sources=. -Dsonar.host.url={self.sonarqube_url} "
+                f"{self.webhook_server_data_dir}/sonar-scanner-cli/bin/sonar-scanner "
+                f"-Dsonar.projectKey={self.sonarqube_project_key} "
+                f"-Dsonar.sources=. "
+                f"-Dsonar.host.url={self.sonarqube_url} "
                 f"-Dsonar.token={self.sonarqube_token}"
             )
             if run_command(command=cmd, log_prefix=self.log_prefix)[0]:
