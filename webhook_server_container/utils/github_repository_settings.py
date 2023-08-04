@@ -2,10 +2,21 @@ import contextlib
 import os
 from copy import deepcopy
 
-from constants import BUILD_CONTAINER_STR, FLASK_APP, PYTHON_MODULE_INSTALL_STR
 from github import Github
 from github.GithubException import UnknownObjectException
-from utils import get_github_repo_api, get_repository_from_config, ignore_exceptions
+
+from webhook_server_container.utils.constants import (
+    BUILD_CONTAINER_STR,
+    FLASK_APP,
+    PYTHON_MODULE_INSTALL_STR,
+    SONARQUBE_STR,
+    STATIC_LABELS_DICT,
+)
+from webhook_server_container.utils.helpers import (
+    get_data_from_config,
+    get_github_repo_api,
+    ignore_exceptions,
+)
 
 
 @ignore_exceptions(retry=10)
@@ -14,7 +25,10 @@ def get_branch_sampler(repo, branch_name):
 
 
 def skip_repo(protected_branches, repo):
-    if not protected_branches or not repo:
+    _private = repo.private
+    if not protected_branches or not repo or _private:
+        if _private:
+            FLASK_APP.logger.info(f"{repo.name} skipped, repository is private")
         return True
 
 
@@ -44,19 +58,22 @@ def set_repository_settings(repository):
         allow_update_branch=True,
     )
 
-    if not repository.private:
-        FLASK_APP.logger.info(f"Set repository {repository.name} security settings")
-        repository._requester.requestJsonAndCheck(
-            "PATCH",
-            repository.url,
-            input={
-                "security_and_analysis": {
-                    "secret_scanning": {"status": "enabled"},
-                    "secret_scanning_push_protection": {"status": "enabled"},
-                },
-                "code-scanning": {"default-setup": {"state": "configured"}},
+    FLASK_APP.logger.info(f"Set repository {repository.name} security settings")
+    repository._requester.requestJsonAndCheck(
+        "PATCH",
+        f"{repository.url}/code-scanning/default-setup",
+        input={"state": "not-configured"},
+    )
+    repository._requester.requestJsonAndCheck(
+        "PATCH",
+        repository.url,
+        input={
+            "security_and_analysis": {
+                "secret_scanning": {"status": "enabled"},
+                "secret_scanning_push_protection": {"status": "enabled"},
             },
-        )
+        },
+    )
 
 
 def get_required_status_checks(
@@ -73,6 +90,9 @@ def get_required_status_checks(
 
     if data.get("pypi"):
         default_status_checks.append(PYTHON_MODULE_INSTALL_STR)
+
+    if data.get("sonarqube-project-key"):
+        default_status_checks.append(SONARQUBE_STR)
 
     with contextlib.suppress(UnknownObjectException):
         repo.get_contents(".pre-commit-config.yaml")
@@ -95,26 +115,56 @@ def get_user_configures_status_checks(status_checks):
     return include_status_checks, exclude_status_checks
 
 
+def set_repository_labels(repository):
+    FLASK_APP.logger.info(f"Set repository {repository.name} labels")
+    repository_labels = {}
+    for label in repository.get_labels():
+        repository_labels[label.name.lower()] = {"object": label, "color": label.color}
+
+    for label, color in STATIC_LABELS_DICT.items():
+        label_lower = label.lower()
+        if label_lower in repository_labels:
+            repo_label = repository_labels[label_lower]["object"]
+            if repository_labels[label_lower]["color"] == color:
+                continue
+            else:
+                FLASK_APP.logger.info(
+                    f"{repository.name}: Edit repository label {label} with color {color}"
+                )
+                repo_label.edit(name=repo_label.name, color=color)
+        else:
+            FLASK_APP.logger.info(
+                f"{repository.name}: Add repository label {label} with color {color}"
+            )
+            repository.create_label(name=label, color=color)
+
+
 def set_repositories_settings():
     FLASK_APP.logger.info("Processing repositories")
-    app_data = get_repository_from_config()
-    default_status_checks = app_data.get("default-status-checks", [])
-    docker = app_data.get("docker")
+    config_data = get_data_from_config()
+    gapi = Github(login_or_token=config_data["github-token"])
+    default_status_checks = config_data.get("default-status-checks", [])
+    docker = config_data.get("docker")
     if docker:
         FLASK_APP.logger.info("Login in to docker.io")
         docker_username = docker["username"]
         docker_password = docker["password"]
         os.system(f"podman login -u {docker_username} -p {docker_password} docker.io")
 
-    for repo, data in app_data["repositories"].items():
+    for repo, data in config_data["repositories"].items():
         repository = data["name"]
         FLASK_APP.logger.info(f"Processing repository {repository}")
         protected_branches = data.get("protected-branches", {})
-        gapi = Github(login_or_token=data["token"])
         repo = get_github_repo_api(gapi=gapi, repository=repository)
-        set_repository_settings(repository=repo)
+        if not repo:
+            FLASK_APP.logger.error(f"{repository}: Failed to get repository")
+            continue
+
         if skip_repo(protected_branches=protected_branches, repo=repo):
             continue
+
+        set_repository_settings(repository=repo)
+        set_repository_labels(repository=repo)
 
         for branch_name, status_checks in protected_branches.items():
             branch = get_branch_sampler(repo=repo, branch_name=branch_name)
@@ -140,14 +190,8 @@ def set_repositories_settings():
                 )
             )
 
-            if repo.private:
-                FLASK_APP.logger.info(
-                    f"{repository} is private, skipping branch protection"
-                )
-
-            else:
-                set_branch_protection(
-                    branch=branch,
-                    repository=repo,
-                    required_status_checks=required_status_checks,
-                )
+            set_branch_protection(
+                branch=branch,
+                repository=repo,
+                required_status_checks=required_status_checks,
+            )

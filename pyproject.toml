@@ -18,11 +18,23 @@ profile = "black"
 
 [tool.poetry]
 name = "github-webhook-server"
-version = "1.0.0"
-description = "A webhook server to handle Github/Gitlab reposotories."
-authors = ["Meni Yakove", "Ruth Netser"]
+version = "0.0.0"
+description = "A webhook server to manage Github reposotories and pull requests."
+authors = ["Meni Yakove <myakove@gmail.com>", "Ruth Netser <ruth.netser@gmail.com>"]
 readme = "README.md"
+license = "Apache-2.0"
+homepage = "https://github.com/myakove/github-webhook-server"
 repository = "https://github.com/myakove/github-webhook-server"
+packages = [{include = "webhook_server_container"}]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+
+
+[tool.poetry.urls]
+Download = "https://quay.io/repository/myakove/github-webhook-server"
+"Bug Tracker" = "https://github.com/myakove/github-webhook-server/issues"
 
 [tool.poetry.dependencies]
 python = "^3.8"
@@ -32,16 +44,20 @@ flask = "^2.3.2"
 pyyaml = "^6.0"
 build = "^0.10.0"
 twine = "^4.0.2"
-tox = "^4.6.4"
 shortuuid = "^1.0.11"
+python-sonarqube-api = "^2.0.4"
 
-[tool.poetry.dev-dependencies]
+[tool.poetry.group.dev.dependencies]
+ipdb = "^0.13.13"
 ipython = "*"
-ipdb = "*"
+
+[tool.poetry-dynamic-versioning]
+enable = true
+pattern = "((?P<epoch>\\d+)!)?(?P<base>\\d+(\\.\\d+)*)"
 
 [build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning"]
+build-backend = "poetry_dynamic_versioning.backend"
 
 [tool.ruff]
 line-length = 120

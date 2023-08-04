@@ -6,6 +6,8 @@ On start, it will configure the following for each repository:
 * Enable CodeQL with default setting
 * Set branch protection based on config.yaml
 
+**Private repositories are not supported.**
+
 ## Build container
 
 Using podman:
@@ -32,6 +34,7 @@ docker build -t github-webhook-server .
 Minimum config to get started
 
 ```yaml
+github-app-id: 123456
 repositories:
   my-repository-name:
     name: my-org/my-repository-name
@@ -41,8 +44,9 @@ repositories:
       main: []
 ```
 
+* `github-app-id`: The ID of the GitHub app. Need to add the APP to the repository.
 * `name`: repository full name (org or user/repository name)
-* `webhook_ip`: Ip or FQDN where this app will run, this will be add as webhook in the repository setting
+* `webhook_ip`: Ip or FQDN where this app will run, this will be added as webhook in the repository setting
 * `token`: Admin user token for the repository
 
 ```yaml
@@ -59,7 +63,7 @@ pypi:
   tool: twine
 ```
 
-if `pypi` configured for the repository a new version will be pushed to pypi on new github new release
+if `pypi` configured for the repository a new version will be pushed to pypi on new GitHub release
 
 * `token`: pypi token with push permissions
 * `tool`: The tool to use to build the package, can be `twine` or `poetry`
@@ -88,10 +92,10 @@ protected-branches:
   main: []
 ```
 
-This tool configure branch protection and set required run for each branch to pass before the PR can be merged
+This tool configure branch protection and set required to be run for each branch to pass before the PR can be merged
 
 * `protected-branches`: array of branches to set protection
-* `branch name`: List of required run to set for the branch, when empty set `default-status-checks` as required
+* `branch name`: List of required to be run to set for the branch, when empty set `default-status-checks` as required
 * `include-runs`: Only include those runs as required
 * `exclude-runs`: Exclude those runs from the `default-status-checks`
 
@@ -128,7 +132,7 @@ docker:
   password: password
 ```
 
-If `docker` is configures for the repository we login to docker.io to increase pull rate limit
+If `docker` is configures for the repository we log in to docker.io to increase pull rate limit
 
 ## Supported actions
 
@@ -143,8 +147,9 @@ Following actions are done automatically:
 
 * `/verified`: to verify a PR
 * `/verified cancel`: to undo verify
-* `/target-branch-<branch name>`: To cherry-pick the PR to the target branch once the PR is merged
 * `/cherry-pick <target_branch_name>`: cherry-pick a merged PR against a target branch
+  * Multiple target branches are allowed, separated by spaces
+  * If the current PR is nor merged label will be added and once the PR is merged it will be cherry-picked
 * `/retest tox`: run tox
 * `/retest build-container`: run build-container
 * `/retest python-module-install`: run python-module-install command
