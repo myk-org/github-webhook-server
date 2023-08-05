@@ -1052,7 +1052,9 @@ Available labels:
                 cmd += f" -e {tests}"
 
             self.set_run_tox_check_in_progress()
-            if not self._checkout_pull_request(file_path=base_path):
+            if not self._checkout_pull_request(
+                file_path=base_path, clone_path=clone_path
+            ):
                 return self.set_run_tox_check_failure(details_url=base_url)
 
             if run_command(
@@ -1143,59 +1145,61 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 if self.skip_merged_pull_request():
                     return self.pull_request.create_issue_comment(not_running_msg)
 
-                if _args == TOX_STR:
-                    if not self.tox_enabled:
-                        msg = f"No {TOX_STR} configured for this repository"
-                        error_msg = f"{self.log_prefix} {msg}."
-                        self.app.logger.info(error_msg)
-                        self.pull_request.create_issue_comment(msg)
-                        return
+                _target_tests = _args.split()
+                for _test in _target_tests:
+                    if _test == TOX_STR:
+                        if not self.tox_enabled:
+                            msg = f"No {TOX_STR} configured for this repository"
+                            error_msg = f"{self.log_prefix} {msg}."
+                            self.app.logger.info(error_msg)
+                            self.pull_request.create_issue_comment(msg)
+                            return
 
-                    self.create_comment_reaction(
-                        issue_comment_id=issue_comment_id,
-                        reaction=REACTIONS.ok,
-                    )
-                    self._run_tox()
-
-                elif _args == BUILD_CONTAINER_STR:
-                    if self.build_and_push_container:
                         self.create_comment_reaction(
                             issue_comment_id=issue_comment_id,
                             reaction=REACTIONS.ok,
                         )
-                        self._build_container()
-                    else:
-                        msg = f"No {BUILD_CONTAINER_STR} configured for this repository"
-                        error_msg = f"{self.log_prefix} {msg}"
-                        self.app.logger.info(error_msg)
-                        self.pull_request.create_issue_comment(msg)
+                        self._run_tox()
 
-                elif _args == PYTHON_MODULE_INSTALL_STR:
-                    if not self.pypi:
-                        error_msg = f"{self.log_prefix} No pypi configured"
-                        self.app.logger.info(error_msg)
-                        self.pull_request.create_issue_comment(error_msg)
-                        return
+                    elif _test == BUILD_CONTAINER_STR:
+                        if self.build_and_push_container:
+                            self.create_comment_reaction(
+                                issue_comment_id=issue_comment_id,
+                                reaction=REACTIONS.ok,
+                            )
+                            self._build_container()
+                        else:
+                            msg = f"No {BUILD_CONTAINER_STR} configured for this repository"
+                            error_msg = f"{self.log_prefix} {msg}"
+                            self.app.logger.info(error_msg)
+                            self.pull_request.create_issue_comment(msg)
 
-                    self.create_comment_reaction(
-                        issue_comment_id=issue_comment_id,
-                        reaction=REACTIONS.ok,
-                    )
-                    self._install_python_module()
+                    elif _test == PYTHON_MODULE_INSTALL_STR:
+                        if not self.pypi:
+                            error_msg = f"{self.log_prefix} No pypi configured"
+                            self.app.logger.info(error_msg)
+                            self.pull_request.create_issue_comment(error_msg)
+                            return
 
-                elif _args == SONARQUBE_STR:
-                    if not self.sonarqube_project_key:
-                        msg = f"No {SONARQUBE_STR} configured for this repository"
-                        error_msg = f"{self.log_prefix} {msg}"
-                        self.app.logger.info(error_msg)
-                        self.pull_request.create_issue_comment(msg)
-                        return
+                        self.create_comment_reaction(
+                            issue_comment_id=issue_comment_id,
+                            reaction=REACTIONS.ok,
+                        )
+                        self._install_python_module()
 
-                    self.create_comment_reaction(
-                        issue_comment_id=issue_comment_id,
-                        reaction=REACTIONS.ok,
-                    )
-                    self._run_sonarqube()
+                    elif _test == SONARQUBE_STR:
+                        if not self.sonarqube_project_key:
+                            msg = f"No {SONARQUBE_STR} configured for this repository"
+                            error_msg = f"{self.log_prefix} {msg}"
+                            self.app.logger.info(error_msg)
+                            self.pull_request.create_issue_comment(msg)
+                            return
+
+                        self.create_comment_reaction(
+                            issue_comment_id=issue_comment_id,
+                            reaction=REACTIONS.ok,
+                        )
+                        self._run_sonarqube()
 
         elif _command == BUILD_AND_PUSH_CONTAINER_STR:
             if self.build_and_push_container:
@@ -1407,7 +1411,9 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             self.app.logger.info(
                 f"{self.log_prefix} Current directory is {os.getcwd()}"
             )
-            if self.pull_request and not self._checkout_pull_request():
+            if self.pull_request and not self._checkout_pull_request(
+                clone_path=clone_path
+            ):
                 return self.set_container_build_failure(details_url=base_url)
 
             _container_repository_and_tag = self._container_repository_and_tag()
@@ -1502,7 +1508,9 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         with self._clone_repository(path_suffix=repo_path_prefix) as clone_path:
             self.set_python_module_install_in_progress()
             self.app.logger.info(f"{self.log_prefix} Current directory: {os.getcwd()}")
-            if not self._checkout_pull_request(file_path=base_path):
+            if not self._checkout_pull_request(
+                file_path=base_path, clone_path=clone_path
+            ):
                 return self.set_python_module_install_failure(details_url=base_url)
 
             if (
@@ -1602,10 +1610,10 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         yield
         os.environ.pop(github_token_env)
 
-    def _checkout_pull_request(self, file_path=None):
+    def _checkout_pull_request(self, clone_path, file_path=None):
         self.app.logger.info(f"{self.log_prefix} Current directory: {os.getcwd()}")
         pr_number = f"origin/pr/{self.pull_request.number}"
-        checkout_cmd = f"git checkout {pr_number}"
+        checkout_cmd = f"git -C {clone_path} checkout {pr_number}"
         return run_command(
             command=checkout_cmd, log_prefix=self.log_prefix, file_path=file_path
         )[0]
@@ -1672,7 +1680,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 target_url = (
                     f"{self.sonarqube_url}/dashboard?id={self.sonarqube_project_key}"
                 )
-                if not self._checkout_pull_request():
+                if not self._checkout_pull_request(clone_path=clone_path):
                     return self.set_sonarqube_failure(details_url=target_url)
 
                 if self.sonarqube_api.run_sonar_scanner(

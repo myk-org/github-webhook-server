@@ -206,7 +206,13 @@ def set_all_in_progress_check_runs_to_queued(
 ):
     config_data = get_data_from_config()
     github_api = Github(login_or_token=config_data["github-token"])
-    check_runs = (PYTHON_MODULE_INSTALL_STR, CAN_BE_MERGED_STR, SONARQUBE_STR, TOX_STR)
+    check_runs = (
+        PYTHON_MODULE_INSTALL_STR,
+        CAN_BE_MERGED_STR,
+        SONARQUBE_STR,
+        TOX_STR,
+        BUILD_CONTAINER_STR,
+    )
     for _, data in config_data["repositories"].items():
         repository = data["name"]
         if repository in missing_app_repositories:
@@ -224,7 +230,7 @@ def set_all_in_progress_check_runs_to_queued(
             for check_run in last_commit.get_check_runs():
                 if check_run.name in check_runs and check_run.status == IN_PROGRESS_STR:
                     FLASK_APP.logger.info(
-                        f"{repository}: {{check_run.name}} status is {IN_PROGRESS_STR}, "
+                        f"{repository}: {check_run.name} status is {IN_PROGRESS_STR}, "
                         f"Setting check run {check_run.name} to {QUEUED_STR}"
                     )
                     app_api.create_check_run(
