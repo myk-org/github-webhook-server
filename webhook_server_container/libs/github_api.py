@@ -14,8 +14,8 @@ import shortuuid
 import yaml
 from github import Github, GithubException
 from github.GithubException import UnknownObjectException
-from sonarqube import SonarQubeClient
 
+from webhook_server_container.libs.sonar_qube import SonarQubeExt
 from webhook_server_container.utils.constants import (
     ADD_STR,
     APPROVED_BY_LABEL_PREFIX,
@@ -90,7 +90,6 @@ class GitHubApi:
         self.repository_full_name = None
         self.api_user = None
         self.github_app_id = None
-        self.sonarqube = None
         self.sonarqube_api = None
         self.sonarqube_project_key = None
         # End of filled by self._repo_data_from_config()
@@ -239,13 +238,10 @@ Available user actions:
         config_data = get_data_from_config()
         self.github_app_id = config_data["github-app-id"]
         self.token = config_data["github-token"]
-        self.sonarqube = config_data.get("sonarqube")
-        if self.sonarqube:
-            self.sonarqube_url = self.sonarqube["url"]
-            self.sonarqube_token = self.sonarqube["token"]
-            self.sonarqube_api = SonarQubeClient(
-                sonarqube_url=self.sonarqube_url, token=self.sonarqube_token
-            )
+        sonarqube = config_data.get("sonarqube")
+        if sonarqube:
+            self.sonarqube_url = sonarqube["url"]
+            self.sonarqube_api = SonarQubeExt(**sonarqube)
 
         repo_data = config_data["repositories"].get(self.repository_name)
         if not repo_data:
@@ -261,7 +257,7 @@ Available user actions:
         self.slack_webhook_url = repo_data.get("slack_webhook_url")
         self.build_and_push_container = repo_data.get("container")
         self.dockerhub = repo_data.get("docker")
-        if self.sonarqube:
+        if sonarqube:
             self.sonarqube_project_key = repo_data.get("sonarqube-project-key")
 
         if self.dockerhub:
@@ -1185,7 +1181,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     self._install_python_module()
 
                 elif _args == SONARQUBE_STR:
-                    if not self.sonarqube:
+                    if not self.sonarqube_project_key:
                         msg = f"No {SONARQUBE_STR} configured for this repository"
                         error_msg = f"{self.log_prefix} {msg}"
                         self.app.logger.info(error_msg)
@@ -1665,22 +1661,12 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             if not self._checkout_pull_request():
                 return self.set_sonarqube_failure(details_url=target_url)
 
-            _cli = os.path.join(
-                os.environ.get("SONAR_SCANNER_CLI_DIR", "/sonar-scanner-cli"),
-                "bin",
-                "sonar-scanner",
-            )
-            cmd = (
-                f"{_cli} -Dsonar.projectKey={self.sonarqube_project_key} "
-                f"-Dsonar.sources=. "
-                f"-Dsonar.host.url={self.sonarqube_url} "
-                f"-Dsonar.token={self.sonarqube_token}"
-            )
-            if run_command(command=cmd, log_prefix=self.log_prefix)[0]:
-                project_status = self.sonarqube_api.qualitygates.request(
-                    path="api/qualitygates/project_status",
-                    params={"projectKey": self.sonarqube_project_key},
-                ).json()
+            if self.sonarqube_api.run_sonar_scanner(
+                project_key=self.sonarqube_project_key, log_prefix=self.log_prefix
+            )[0]:
+                project_status = self.sonarqube_api.get_project_quality_status(
+                    project_key=self.sonarqube_project_key
+                )
                 if project_status["projectStatus"]["status"] == "OK":
                     return self.set_sonarqube_success(details_url=target_url)
                 else:

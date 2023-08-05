@@ -20,6 +20,7 @@ from webhook_server_container.utils.helpers import (
     get_app_data_dir,
     get_data_from_config,
 )
+from webhook_server_container.utils.sonar_qube import set_sonar_qube_projects
 from webhook_server_container.utils.webhook import create_webhook
 
 
@@ -116,6 +117,7 @@ def main():
 
     get_repositories_github_app_api()
     set_repositories_settings()
+    set_sonar_qube_projects()
     set_all_in_progress_check_runs_to_queued(
         repositories_app_api=REPOSITORIES_APP_API,
         missing_app_repositories=MISSING_APP_REPOSITORIES,
