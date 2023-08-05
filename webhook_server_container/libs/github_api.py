@@ -1667,9 +1667,13 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 project_status = self.sonarqube_api.get_project_quality_status(
                     project_key=self.sonarqube_project_key
                 )
-                if project_status["projectStatus"]["status"] == "OK":
+                project_status_res = project_status["projectStatus"]["status"]
+                if project_status_res == "OK":
                     return self.set_sonarqube_success(details_url=target_url)
                 else:
+                    self.app.logger.info(
+                        f"{self.log_prefix} Sonarqube scan failed, status: {project_status_res}"
+                    )
                     return self.set_sonarqube_failure(details_url=target_url)
 
             else:
