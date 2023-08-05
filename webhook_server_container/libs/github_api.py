@@ -517,11 +517,11 @@ Available user actions:
             dist_dir = os.path.join(clone_path, "dist")
 
             rc, out, err = run_command(
-                command=f"{sys.executable} {clone_path}/setup.py sdist --dist-dir {dist_dir}",
+                command=f"{sys.executable} -m build {clone_path} --sdist --outdir {dist_dir}/",
                 log_prefix=self.log_prefix,
             )
             if rc:
-                dist_pkg = re.search(r"(.*.tar.gz)", out).group(1)
+                dist_pkg = re.search(r"Successfully built (.*.tar.gz)", out).group(1)
                 dist_pkg_path = os.path.join(dist_dir, dist_pkg)
                 rc, out, err = run_command(
                     command=f"twine check {dist_pkg_path}",
