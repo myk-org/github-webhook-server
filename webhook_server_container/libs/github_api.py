@@ -549,7 +549,7 @@ Available user actions:
             )
             message = f"""
 ```
-{self.log_prefix} Version {tag_name} published to PYPI.
+{self.repository_name} Version {tag_name} published to PYPI.
 ```
 """
             self.send_slack_message(
