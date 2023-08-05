@@ -385,18 +385,15 @@ Available user actions:
             f"git clone {self.repository.clone_url.replace('https://', f'https://{self.token}@')} "
             f"{_clone_path}"
         )
-        git_user_name_cmd = f"git config user.name '{self.repository.owner.login}'"
-        git_email_cmd = f"git config user.email '{self.repository.owner.email}'"
-        fetch_pr_cmd = "git config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
-        remote_update_cmd = "git remote update"
+        git_cmd = f"git -C {_clone_path}"
+        git_user_name_cmd = (
+            f"{git_cmd} config user.name '{self.repository.owner.login}'"
+        )
+        git_email_cmd = f"{git_cmd} config user.email '{self.repository.owner.email}'"
+        fetch_pr_cmd = f"{git_cmd} config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
+        remote_update_cmd = f"{git_cmd} remote update"
 
         if run_command(command=clone_cmd, log_prefix=self.log_prefix)[0]:
-            old_cwd = os.getcwd()
-            self.app.logger.info(
-                f"{self.log_prefix} Changing directory to {_clone_path}"
-            )
-            os.chdir(_clone_path)
-
             for cmd in [
                 git_user_name_cmd,
                 git_email_cmd,
@@ -408,24 +405,23 @@ Available user actions:
             yield _clone_path
 
             self.app.logger.info(
-                f"{self.log_prefix} Changing back to directory {old_cwd}"
-            )
-            os.chdir(old_cwd)
-            self.app.logger.info(
                 f"{self.log_prefix} Removing cloned repository: {_clone_path}"
             )
             shutil.rmtree(_clone_path, ignore_errors=True)
         else:
-            yield
+            yield _clone_path
 
-    def _checkout_tag(self, tag):
-        return run_command(command=f"git checkout {tag}", log_prefix=self.log_prefix)[0]
+    def _checkout_tag(self, tag, clone_path):
+        return run_command(
+            command=f"git -C {clone_path} checkout {tag}", log_prefix=self.log_prefix
+        )[0]
 
-    def _checkout_new_branch(self, source_branch, new_branch_name):
+    def _checkout_new_branch(self, source_branch, new_branch_name, clone_path):
+        git_cmd = f"git -C {clone_path}"
         for cmd in (
-            f"git checkout {source_branch}",
-            f"git pull origin {source_branch}",
-            f"git checkout -b {new_branch_name} origin/{source_branch}",
+            f"{git_cmd } checkout {source_branch}",
+            f"{git_cmd} pull origin {source_branch}",
+            f"{git_cmd } checkout -b {new_branch_name} origin/{source_branch}",
         ):
             run_command(command=cmd, log_prefix=self.log_prefix)
 
@@ -433,7 +429,7 @@ Available user actions:
     def is_branch_exists(self, branch):
         return self.repository.get_branch(branch)
 
-    def _cherry_pick(self, source_branch, new_branch_name):
+    def _cherry_pick(self, source_branch, new_branch_name, clone_path):
         def _issue_from_err(_out, _err, _commit_hash, _source_branch, _step):
             self.app.logger.error(
                 f"{self.log_prefix} [{_step}] Cherry pick failed: {_out} --- {_err}"
@@ -457,13 +453,14 @@ Available user actions:
         commit_msg = self.pull_request.title
         pull_request_url = self.pull_request.html_url
         user_login = self.pull_request.user.login
+        git_cmd = f"git -C {clone_path}"
 
         self.app.logger.info(
             f"{self.log_prefix} Cherry picking [PR {self.pull_request.number}]{commit_hash} "
             f"into {source_branch}, requested by {user_login}"
         )
         cherry_pick, out, err = run_command(
-            command=f"git cherry-pick {commit_hash}",
+            command=f"{git_cmd} cherry-pick {commit_hash}",
             log_prefix=self.log_prefix,
         )
         if not cherry_pick:
@@ -476,7 +473,7 @@ Available user actions:
             )
 
         git_push, out, err = run_command(
-            command=f"git push origin {new_branch_name}",
+            command=f"{git_cmd} push origin {new_branch_name}",
             log_prefix=self.log_prefix,
         )
         if not git_push:
@@ -490,7 +487,7 @@ Available user actions:
 
         with self.set_os_env_github_token():
             pull_request_cmd, out, err = run_command(
-                command=f"hub pull-request "
+                command=f"hub -C {clone_path} pull-request "
                 f"-b {source_branch} "
                 f"-h {new_branch_name} "
                 f"-l {CHERRY_PICKED_LABEL_PREFIX} "
@@ -509,7 +506,7 @@ Available user actions:
             )
         return True
 
-    def upload_to_pypi(self, tag_name):
+    def upload_to_pypi(self, tag_name, clone_path):
         tool = self.pypi["tool"]
         token = self.pypi["token"]
         self.app.logger.info(f"{self.log_prefix} Start uploading to pypi")
@@ -517,15 +514,15 @@ Available user actions:
         if tool == "twine":
             os.environ["TWINE_USERNAME"] = "__token__"
             os.environ["TWINE_PASSWORD"] = token
-            build_folder = "dist"
+            dist_dir = os.path.join(clone_path, "dist")
 
             rc, out, err = run_command(
-                command=f"{sys.executable} -m build --sdist --outdir {build_folder}/",
+                command=f"{sys.executable} {clone_path}/setup.py sdist --dist-dir {dist_dir}",
                 log_prefix=self.log_prefix,
             )
             if rc:
-                dist_pkg = re.search(r"Successfully built (.*.tar.gz)", out).group(1)
-                dist_pkg_path = os.path.join(build_folder, dist_pkg)
+                dist_pkg = re.search(r"(.*.tar.gz)", out).group(1)
+                dist_pkg_path = os.path.join(dist_dir, dist_pkg)
                 rc, out, err = run_command(
                     command=f"twine check {dist_pkg_path}",
                     log_prefix=self.log_prefix,
@@ -538,12 +535,13 @@ Available user actions:
 
         elif tool == "poetry":
             rc, out, err = run_command(
-                command=f"poetry config --local pypi-token.pypi {token}",
+                command=f"poetry -C {clone_path} config --local pypi-token.pypi {token}",
                 log_prefix=self.log_prefix,
             )
             if rc:
                 rc, out, err = run_command(
-                    command="poetry publish --build", log_prefix=self.log_prefix
+                    command=f"poetry -C {clone_path} publish --build",
+                    log_prefix=self.log_prefix,
                 )
         if rc:
             self.app.logger.info(
@@ -957,9 +955,11 @@ Available labels:
             self.app.logger.info(
                 f"{self.log_prefix} Processing push for tag: {tag_name}"
             )
-            with self._clone_repository(path_suffix=f"{tag_name}-{shortuuid.uuid()}"):
-                if self._checkout_tag(tag=tag_name):
-                    self.upload_to_pypi(tag_name=tag_name)
+            with self._clone_repository(
+                path_suffix=f"{tag_name}-{shortuuid.uuid()}"
+            ) as clone_path:
+                if self._checkout_tag(tag=tag_name, clone_path=clone_path):
+                    self.upload_to_pypi(tag_name=tag_name, clone_path=clone_path)
 
     def process_pull_request_review_webhook_data(self):
         self.pull_request = self._get_pull_request()
@@ -1042,12 +1042,15 @@ Available labels:
 
         base_path = self._get_check_run_result_file_path(check_run=TOX_STR)
         base_url = f"{self.webhook_url}{base_path}"
-        cmd = TOX_STR
-        if self.tox_enabled != "all":
-            tests = self.tox_enabled.replace(" ", "")
-            cmd += f" -e {tests}"
 
-        with self._clone_repository(path_suffix=f"tox-{shortuuid.uuid()}"):
+        with self._clone_repository(
+            path_suffix=f"{TOX_STR}-{shortuuid.uuid()}"
+        ) as clone_path:
+            cmd = f"{TOX_STR} --workdir {clone_path} -c {clone_path}/tox.ini"
+            if self.tox_enabled != "all":
+                tests = self.tox_enabled.replace(" ", "")
+                cmd += f" -e {tests}"
+
             self.set_run_tox_check_in_progress()
             if not self._checkout_pull_request(file_path=base_path):
                 return self.set_run_tox_check_failure(details_url=base_url)
@@ -1252,14 +1255,16 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             self.app.logger.error(err_msg)
             self.pull_request.create_issue_comment(err_msg)
         else:
-            with self._clone_repository(path_suffix=shortuuid.uuid()):
+            with self._clone_repository(path_suffix=shortuuid.uuid()) as clone_path:
                 self._checkout_new_branch(
                     source_branch=target_branch,
                     new_branch_name=new_branch_name,
+                    clone_path=clone_path,
                 )
                 if self._cherry_pick(
                     source_branch=target_branch,
                     new_branch_name=new_branch_name,
+                    clone_path=clone_path,
                 ):
                     self.pull_request.create_issue_comment(
                         f"Cherry-picked PR {self.pull_request.title} into {target_branch}"
@@ -1393,7 +1398,9 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             )
             base_url = f"{self.webhook_url}{base_path}"
 
-        with self._clone_repository(path_suffix=f"build-container-{shortuuid.uuid()}"):
+        with self._clone_repository(
+            path_suffix=f"{BUILD_CONTAINER_STR}-{shortuuid.uuid()}"
+        ) as clone_path:
             if set_check:
                 self.set_container_build_in_progress()
 
@@ -1405,7 +1412,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
             _container_repository_and_tag = self._container_repository_and_tag()
             build_cmd = (
-                f"--network=host -f {self.dockerfile} "
+                f"--network=host -f {clone_path}/{self.dockerfile} "
                 f"-t {_container_repository_and_tag}"
             )
             if self.container_build_args:
@@ -1491,8 +1498,8 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             check_run=PYTHON_MODULE_INSTALL_STR
         )
         base_url = f"{self.webhook_url}{base_path}"
-        repo_path_prefix = f"python-module-install-{shortuuid.uuid()}"
-        with self._clone_repository(path_suffix=repo_path_prefix):
+        repo_path_prefix = f"{PYTHON_MODULE_INSTALL_STR}-{shortuuid.uuid()}"
+        with self._clone_repository(path_suffix=repo_path_prefix) as clone_path:
             self.set_python_module_install_in_progress()
             self.app.logger.info(f"{self.log_prefix} Current directory: {os.getcwd()}")
             if not self._checkout_pull_request(file_path=base_path):
@@ -1505,7 +1512,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     file_path=base_path,
                 )[0]
                 and run_command(
-                    command="pip install .",
+                    command=f"pip install {clone_path}",
                     log_prefix=self.log_prefix,
                     file_path=base_path,
                 )[0]
@@ -1652,32 +1659,44 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         if not self.sonarqube_project_key:
             return False
 
-        with self._clone_repository(path_suffix=f"sonarqube-{shortuuid.uuid()}"):
+        with self._clone_repository(
+            path_suffix=f"{SONARQUBE_STR}-{shortuuid.uuid()}"
+        ) as clone_path:
             self.set_sonarqube_in_progress()
-            self.app.logger.info(f"{self.log_prefix} Current directory: {os.getcwd()}")
-            target_url = (
-                f"{self.sonarqube_url}/dashboard?id={self.sonarqube_project_key}"
-            )
-            if not self._checkout_pull_request():
-                return self.set_sonarqube_failure(details_url=target_url)
-
-            if self.sonarqube_api.run_sonar_scanner(
-                project_key=self.sonarqube_project_key, log_prefix=self.log_prefix
-            ):
-                project_status = self.sonarqube_api.get_project_quality_status(
-                    project_key=self.sonarqube_project_key
+            current_dir = os.getcwd()
+            try:
+                os.chdir(clone_path)
+                self.app.logger.info(
+                    f"{self.log_prefix} start {SONARQUBE_STR}, Current directory: {os.getcwd()}"
                 )
-                project_status_res = project_status["projectStatus"]["status"]
-                if project_status_res == "OK":
-                    return self.set_sonarqube_success(details_url=target_url)
-                else:
-                    self.app.logger.info(
-                        f"{self.log_prefix} Sonarqube scan failed, status: {project_status_res}"
-                    )
+                target_url = (
+                    f"{self.sonarqube_url}/dashboard?id={self.sonarqube_project_key}"
+                )
+                if not self._checkout_pull_request():
                     return self.set_sonarqube_failure(details_url=target_url)
 
-            else:
-                return self.set_sonarqube_failure(details_url=target_url)
+                if self.sonarqube_api.run_sonar_scanner(
+                    project_key=self.sonarqube_project_key, log_prefix=self.log_prefix
+                ):
+                    project_status = self.sonarqube_api.get_project_quality_status(
+                        project_key=self.sonarqube_project_key
+                    )
+                    project_status_res = project_status["projectStatus"]["status"]
+                    if project_status_res == "OK":
+                        return self.set_sonarqube_success(details_url=target_url)
+                    else:
+                        self.app.logger.info(
+                            f"{self.log_prefix} Sonarqube scan failed, status: {project_status_res}"
+                        )
+                        return self.set_sonarqube_failure(details_url=target_url)
+
+                else:
+                    return self.set_sonarqube_failure(details_url=target_url)
+            finally:
+                os.chdir(current_dir)
+                self.app.logger.info(
+                    f"{self.log_prefix} finished {SONARQUBE_STR}, Current directory: {os.getcwd()}"
+                )
 
     def set_check_run_status(
         self, check_run, status=None, conclusion=None, details_url=None
