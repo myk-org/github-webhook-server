@@ -21,7 +21,7 @@ repositories:
     name: my-org/my-repository
     slack_webhook_url: <Slack webhook url> # Send notification to slack on several operations
     verified_job: true
-    sonarqube-project-key: <project key in SonaQube instance>
+    sonarqube: true
     pypi:
       token: <PYPI TOKEN>
       tool: <poetry or twine>

@@ -258,7 +258,7 @@ Available user actions:
         self.build_and_push_container = repo_data.get("container")
         self.dockerhub = repo_data.get("docker")
         if sonarqube:
-            self.sonarqube_project_key = repo_data.get("sonarqube-project-key")
+            self.sonarqube_project_key = self.repository_full_name.replace("/", "_")
 
         if self.dockerhub:
             self.dockerhub_username = self.dockerhub["username"]
@@ -1663,7 +1663,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
             if self.sonarqube_api.run_sonar_scanner(
                 project_key=self.sonarqube_project_key, log_prefix=self.log_prefix
-            )[0]:
+            ):
                 project_status = self.sonarqube_api.get_project_quality_status(
                     project_key=self.sonarqube_project_key
                 )

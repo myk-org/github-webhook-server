@@ -95,7 +95,7 @@ def get_required_status_checks(
     if data.get("pypi"):
         default_status_checks.append(PYTHON_MODULE_INSTALL_STR)
 
-    if data.get("sonarqube-project-key"):
+    if data.get("sonarqube"):
         default_status_checks.append(SONARQUBE_STR)
 
     with contextlib.suppress(UnknownObjectException):
