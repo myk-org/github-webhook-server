@@ -32,10 +32,10 @@ class SonarQubeExt(SonarQubeClient):
             f"-Dsonar.host.url={self.base_url} "
             f"-Dsonar.token={self.token}"
         )
-        return run_command(command=cmd, log_prefix=log_prefix)
+        return run_command(command=cmd, log_prefix=log_prefix)[0]
 
     def get_project_quality_status(self, project_key):
-        self.qualitygates.request(
+        return self.qualitygates.request(
             path="api/qualitygates/project_status",
             params={"projectKey": project_key},
         ).json()
