@@ -1423,6 +1423,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         ]
         for proc in procs:
             proc.start()
+            time.sleep(1)
 
         for proc in procs:
             proc.join()
