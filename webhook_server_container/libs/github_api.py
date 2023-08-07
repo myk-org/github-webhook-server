@@ -1728,7 +1728,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         # Checkout the pull request
         clone_base_cmd += f"git checkout origin/pr/{self.pull_request.number}"
 
-        podman_base_cmd += f"quay.io/myakove/github-webhook-server bash -c '{clone_base_cmd} {command}'"
+        podman_base_cmd += f" quay.io/myakove/github-webhook-server bash -c '{clone_base_cmd} {command}'"
 
         return run_command(
             command=podman_base_cmd,
