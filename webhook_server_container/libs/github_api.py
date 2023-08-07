@@ -1290,10 +1290,14 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             if self.pull_request and set_check:
                 return self.set_container_build_success(details_url=base_url)
             if push:
+                push_msg = (
+                    f"New container for {_container_repository_and_tag} published"
+                )
+                self.pull_request.create_issue_comment(push_msg)
                 if self.slack_webhook_url:
                     message = f"""
 ```
-{self.log_prefix} New container for {_container_repository_and_tag} published.
+{self.log_prefix} {push_msg}.
 ```
 """
                     self.send_slack_message(
