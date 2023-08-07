@@ -1711,7 +1711,8 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
     def _run_in_container(self, path_suffix, command, file_path=None):
         _clone_path = f"/tmp{self.clone_repository_path}-{path_suffix}"
         podman_base_cmd = (
-            f"podman run --rm -v {_clone_path}:{self.container_repo_dir}:Z"
+            f"podman run --rm -v {_clone_path}:{self.container_repo_dir}:Z "
+            "quay.io/myakove/github-webhook-server bash -c"
         )
 
         # Clone the repository
@@ -1728,8 +1729,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         # Checkout the pull request
         clone_base_cmd += f"git checkout origin/pr/{self.pull_request.number}"
 
-        podman_base_cmd += f" quay.io/myakove/github-webhook-server bash -c '{clone_base_cmd} {command}'"
-
+        podman_base_cmd += f" '{clone_base_cmd} {command}'"
         return run_command(
             command=podman_base_cmd,
             log_prefix=self.log_prefix,
