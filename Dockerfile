@@ -34,7 +34,7 @@ RUN curl https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-s
 RUN ln -s /usr/bin/python3 /usr/bin/python
 
 RUN python -m pip install pip --upgrade \
-    && python -m pip install poetry tox
+    && python -m pip install poetry tox twine
 
 COPY pyproject.toml poetry.lock README.md $APP_DIR/
 COPY webhook_server_container $APP_DIR/webhook_server_container/
