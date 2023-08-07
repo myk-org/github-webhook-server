@@ -4,9 +4,7 @@ import json
 import os
 import random
 import re
-import shutil
 import time
-from contextlib import contextmanager
 
 import requests
 import shortuuid
@@ -377,39 +375,6 @@ Available user actions:
 
     def _generate_issue_body(self):
         return f"[Auto generated]\nNumber: [#{self.pull_request.number}]"
-
-    @contextmanager
-    def _clone_repository(self, path_suffix):
-        _clone_path = f"/tmp{self.clone_repository_path}-{path_suffix}"
-        clone_cmd = (
-            f"git clone {self.repository.clone_url.replace('https://', f'https://{self.token}@')} "
-            f"{_clone_path}"
-        )
-        git_cmd = f"git -C {_clone_path}"
-        git_user_name_cmd = (
-            f"{git_cmd} config user.name '{self.repository.owner.login}'"
-        )
-        git_email_cmd = f"{git_cmd} config user.email '{self.repository.owner.email}'"
-        fetch_pr_cmd = f"{git_cmd} config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
-        remote_update_cmd = f"{git_cmd} remote update"
-
-        if run_command(command=clone_cmd, log_prefix=self.log_prefix)[0]:
-            for cmd in [
-                git_user_name_cmd,
-                git_email_cmd,
-                fetch_pr_cmd,
-                remote_update_cmd,
-            ]:
-                run_command(command=cmd, log_prefix=self.log_prefix)
-
-            yield _clone_path
-
-            self.app.logger.info(
-                f"{self.log_prefix} Removing cloned repository: {_clone_path}"
-            )
-            shutil.rmtree(_clone_path, ignore_errors=True)
-        else:
-            yield _clone_path
 
     @ignore_exceptions()
     def is_branch_exists(self, branch):
