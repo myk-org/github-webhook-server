@@ -1708,17 +1708,15 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             base_path, f"PR-{self.pull_request.number}-{self.last_commit.sha}"
         )
 
-    def _run_in_container(self, path_suffix, command, file_path=None):
-        _clone_path = f"/tmp{self.clone_repository_path}-{path_suffix}"
+    def _run_in_container(self, command, file_path=None):
         podman_base_cmd = (
-            f"podman run --rm -v {_clone_path}:{self.container_repo_dir}:Z "
-            "quay.io/myakove/github-webhook-server bash -c"
+            "podman run --rm quay.io/myakove/github-webhook-server bash -c"
         )
 
         # Clone the repository
         clone_base_cmd = (
             f"git clone {self.repository.clone_url.replace('https://', f'https://{self.token}@')} "
-            f"{_clone_path}"
+            f"{self.container_repo_dir}"
         )
         clone_base_cmd += f"&& cd {self.container_repo_dir}"
         clone_base_cmd += f"&& git config user.name '{self.repository.owner.login}'"
