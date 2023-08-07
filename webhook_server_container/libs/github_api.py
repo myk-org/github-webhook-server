@@ -392,8 +392,8 @@ Available user actions:
         )
         rc, out, err = self._run_in_container(command=cmd, env=env)
         if rc:
+            self.app.logger.info(f"{self.log_prefix} Publish to pypi finished")
             if self.slack_webhook_url:
-                self.app.logger.info(f"{self.log_prefix} Publish to pypi finished")
                 message = f"""
 ```
 {self.repository_name} Version {tag_name} published to PYPI.
