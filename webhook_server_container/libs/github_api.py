@@ -1,7 +1,6 @@
 import contextlib
 import datetime
 import json
-import multiprocessing
 import os
 import random
 import re
@@ -1415,18 +1414,10 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.pull_request.add_to_assignees(parent_committer)
         self.assign_reviewers()
 
-        pool = multiprocessing.Pool()
-        pool.apply(self._run_sonarqube)
-        pool.apply(self._run_tox)
-        pool.apply(self._install_python_module)
-        pool.apply(self._build_container)
-        pool.close()
-        pool.join()
-
-        # self._run_sonarqube()
-        # self._run_tox()
-        # self._install_python_module()
-        # self._build_container()
+        self._run_sonarqube()
+        self._run_tox()
+        self._install_python_module()
+        self._build_container()
 
     def run_retest_if_queued(self):
         last_commit_check_runs = list(self.last_commit.get_check_runs())
