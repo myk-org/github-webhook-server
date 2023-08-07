@@ -411,100 +411,9 @@ Available user actions:
         else:
             yield _clone_path
 
-    def _checkout_tag(self, tag, clone_path):
-        return run_command(
-            command=f"git -C {clone_path} checkout {tag}", log_prefix=self.log_prefix
-        )[0]
-
-    def _checkout_new_branch(self, source_branch, new_branch_name, clone_path):
-        git_cmd = f"git -C {clone_path}"
-        for cmd in (
-            f"{git_cmd } checkout {source_branch}",
-            f"{git_cmd} pull origin {source_branch}",
-            f"{git_cmd } checkout -b {new_branch_name} origin/{source_branch}",
-        ):
-            run_command(command=cmd, log_prefix=self.log_prefix)
-
     @ignore_exceptions()
     def is_branch_exists(self, branch):
         return self.repository.get_branch(branch)
-
-    def _cherry_pick(self, source_branch, new_branch_name, clone_path):
-        def _issue_from_err(_out, _err, _commit_hash, _source_branch, _step):
-            self.app.logger.error(
-                f"{self.log_prefix} [{_step}] Cherry pick failed: {_out} --- {_err}"
-            )
-            local_branch_name = f"{self.pull_request.head.ref}-{source_branch}"
-            self.pull_request.create_issue_comment(
-                f"**Manual cherry-pick is needed**\nCherry pick failed for "
-                f"{_commit_hash} to {_source_branch}:\n"
-                f"To cherry-pick run:\n"
-                "```\n"
-                f"git checkout {_source_branch}\n"
-                f"git pull origin {_source_branch}\n"
-                f"git checkout -b {local_branch_name}\n"
-                f"git cherry-pick {_commit_hash}\n"
-                f"git push origin {local_branch_name}\n"
-                "```"
-            )
-            return False
-
-        commit_hash = self.pull_request.merge_commit_sha
-        commit_msg = self.pull_request.title
-        pull_request_url = self.pull_request.html_url
-        user_login = self.pull_request.user.login
-        git_cmd = f"git -C {clone_path}"
-
-        self.app.logger.info(
-            f"{self.log_prefix} Cherry picking [PR {self.pull_request.number}]{commit_hash} "
-            f"into {source_branch}, requested by {user_login}"
-        )
-        cherry_pick, out, err = run_command(
-            command=f"{git_cmd} cherry-pick {commit_hash}",
-            log_prefix=self.log_prefix,
-        )
-        if not cherry_pick:
-            return _issue_from_err(
-                _out=out,
-                _err=err,
-                _commit_hash=commit_hash,
-                _source_branch=source_branch,
-                _step="git cherry-pick",
-            )
-
-        git_push, out, err = run_command(
-            command=f"{git_cmd} push origin {new_branch_name}",
-            log_prefix=self.log_prefix,
-        )
-        if not git_push:
-            return _issue_from_err(
-                _out=out,
-                _err=err,
-                _commit_hash=commit_hash,
-                _source_branch=source_branch,
-                _step="git push",
-            )
-
-        with self.set_os_env_github_token():
-            pull_request_cmd, out, err = run_command(
-                command=f"hub -C {clone_path} pull-request "
-                f"-b {source_branch} "
-                f"-h {new_branch_name} "
-                f"-l {CHERRY_PICKED_LABEL_PREFIX} "
-                f"-m '{CHERRY_PICKED_LABEL_PREFIX}: [{source_branch}] {commit_msg}' "
-                f"-m 'cherry-pick {pull_request_url} into {source_branch}' "
-                f"-m 'requested-by {user_login}'",
-                log_prefix=self.log_prefix,
-            )
-        if not pull_request_cmd:
-            return _issue_from_err(
-                _out=out,
-                _err=err,
-                _commit_hash=commit_hash,
-                _source_branch=source_branch,
-                _step="create pull request",
-            )
-        return True
 
     def upload_to_pypi(self, tag_name):
         tool = self.pypi["tool"]
@@ -880,7 +789,7 @@ Available labels:
 
             if pull_request_data.get("merged"):
                 self.app.logger.info(f"{self.log_prefix} PR is merged")
-                self._build_and_push_container()
+                self._build_container(push=True, set_check=False)
 
                 for _label in self.pull_request.labels:
                     _label_name = _label.name
@@ -1175,7 +1084,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     issue_comment_id=issue_comment_id,
                     reaction=REACTIONS.ok,
                 )
-                self._build_and_push_container()
+                self._build_container(push=True)
             else:
                 msg = (
                     f"No {BUILD_AND_PUSH_CONTAINER_STR} configured for this repository"
@@ -1227,20 +1136,47 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             self.app.logger.error(err_msg)
             self.pull_request.create_issue_comment(err_msg)
         else:
-            with self._clone_repository(path_suffix=shortuuid.uuid()) as clone_path:
-                self._checkout_new_branch(
-                    source_branch=target_branch,
-                    new_branch_name=new_branch_name,
-                    clone_path=clone_path,
+            commit_hash = self.pull_request.merge_commit_sha
+            commit_msg = self.pull_request.title
+            pull_request_url = self.pull_request.html_url
+            user_login = self.pull_request.user.login
+            env = f"-e GITHUB_TOKEN={self.token}"
+            cmd = (
+                f" git checkout {target_branch}"
+                f" && git pull origin {target_branch}"
+                f" && git checkout -b {new_branch_name} origin/{target_branch}"
+                f" && git cherry-pick {commit_hash}"
+                f" && git push origin {new_branch_name}"
+                f" && hub pull-request "
+                f"-b {target_branch} "
+                f"-h {new_branch_name} "
+                f"-l {CHERRY_PICKED_LABEL_PREFIX} "
+                f"-m '{CHERRY_PICKED_LABEL_PREFIX}: [{target_branch}] {commit_msg}' "
+                f"-m 'cherry-pick {pull_request_url} into {target_branch}' "
+                f"-m 'requested-by {user_login}'"
+            )
+            rc, out, err = self._run_in_container(command=cmd, env=env)
+            if rc:
+                self.pull_request.create_issue_comment(
+                    f"Cherry-picked PR {self.pull_request.title} into {target_branch}"
                 )
-                if self._cherry_pick(
-                    source_branch=target_branch,
-                    new_branch_name=new_branch_name,
-                    clone_path=clone_path,
-                ):
-                    self.pull_request.create_issue_comment(
-                        f"Cherry-picked PR {self.pull_request.title} into {target_branch}"
-                    )
+            else:
+                self.app.logger.error(
+                    f"{self.log_prefix} Cherry pick failed: {out} --- {err}"
+                )
+                local_branch_name = f"{self.pull_request.head.ref}-{target_branch}"
+                self.pull_request.create_issue_comment(
+                    f"**Manual cherry-pick is needed**\nCherry pick failed for "
+                    f"{commit_hash} to {target_branch}:\n"
+                    f"To cherry-pick run:\n"
+                    "```\n"
+                    f"git checkout {target_branch}\n"
+                    f"git pull origin {target_branch}\n"
+                    f"git checkout -b {local_branch_name}\n"
+                    f"git cherry-pick {commit_hash}\n"
+                    f"git push origin {local_branch_name}\n"
+                    "```"
+                )
 
     def needs_rebase(self):
         for pull_request in self.repository.get_pulls():
@@ -1351,7 +1287,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         )
         return f"{self.container_repository}:{tag}"
 
-    def _build_container(self, set_check=True):
+    def _build_container(self, set_check=True, push=False):
         if not self.build_and_push_container:
             return False
 
@@ -1387,6 +1323,9 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         if self.container_command_args:
             build_cmd = f"{' '.join(self.container_command_args)} {build_cmd}"
 
+        if push:
+            repository_creds = f"{self.container_repository_username}:{self.container_repository_password}"
+            build_cmd += f" && podman push --creds {repository_creds} {_container_repository_and_tag}"
         podman_build_cmd = f"podman build {build_cmd}"
 
         if self._run_in_container(command=podman_build_cmd, file_path=base_path)[0]:
@@ -1395,49 +1334,24 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             )
             if self.pull_request and set_check:
                 return self.set_container_build_success(details_url=base_url)
-        else:
-            if self.pull_request and set_check:
-                return self.set_container_build_failure(details_url=base_url)
-
-    def _build_and_push_container(self):
-        if not self.build_and_push_container:
-            return
-
-        repository_creds = (
-            f"{self.container_repository_username}:{self.container_repository_password}"
-        )
-
-        self._build_container(set_check=False)
-        _container_repository_and_tag = self._container_repository_and_tag()
-        push_cmd = (
-            f"podman push --creds {repository_creds} {_container_repository_and_tag}"
-        )
-        self.app.logger.info(
-            f"{self.log_prefix} Push container image to {_container_repository_and_tag}"
-        )
-
-        if not run_command(command=push_cmd, log_prefix=self.log_prefix)[0]:
-            return
-
-        if self.pull_request:
-            self.pull_request.create_issue_comment(
-                f"Container {_container_repository_and_tag} pushed"
-            )
-
-        if self.slack_webhook_url:
-            message = f"""
+            if push:
+                if self.slack_webhook_url:
+                    message = f"""
 ```
 {self.log_prefix} New container for {_container_repository_and_tag} published.
 ```
 """
-            self.send_slack_message(
-                message=message,
-                webhook_url=self.slack_webhook_url,
-            )
+                    self.send_slack_message(
+                        message=message,
+                        webhook_url=self.slack_webhook_url,
+                    )
 
-        self.app.logger.info(
-            f"{self.log_prefix} Done push {_container_repository_and_tag}"
-        )
+                self.app.logger.info(
+                    f"{self.log_prefix} Done push {_container_repository_and_tag}"
+                )
+        else:
+            if self.pull_request and set_check:
+                return self.set_container_build_failure(details_url=base_url)
 
     def _install_python_module(self):
         if not self.pypi:
@@ -1532,26 +1446,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
     def create_comment_reaction(self, issue_comment_id, reaction):
         _comment = self.pull_request.get_issue_comment(issue_comment_id)
         _comment.create_reaction(reaction)
-
-    @contextmanager
-    def set_os_env_github_token(self):
-        """
-        Set os environment GitHub token for `hub` cli.
-
-        Since the code run in parallel we need to wait if we already have
-         a token configured (every repository can have different token)
-        """
-        github_token_env = "GITHUB_TOKEN"
-        os_env_github_token = os.environ.get(github_token_env)
-        if os_env_github_token and os_env_github_token != self.token:
-            while True:
-                if not os.environ.get(github_token_env):
-                    break
-                time.sleep(1)
-
-        os.environ[github_token_env] = self.token
-        yield
-        os.environ.pop(github_token_env)
 
     def _checkout_pull_request(self, clone_path, file_path=None):
         self.app.logger.info(f"{self.log_prefix} Current directory: {os.getcwd()}")
