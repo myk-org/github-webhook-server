@@ -1544,7 +1544,10 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         )
 
     def _run_in_container(self, command, env=None, file_path=None):
-        podman_base_cmd = f"podman run --rm {env} --entrypoint bash quay.io/myakove/github-webhook-server -c"
+        podman_base_cmd = (
+            f"podman run --rm {env if env else ''} "
+            f"--entrypoint bash quay.io/myakove/github-webhook-server -c"
+        )
 
         # Clone the repository
         clone_base_cmd = (
