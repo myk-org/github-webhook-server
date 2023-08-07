@@ -16,10 +16,15 @@ def set_sonar_qube_projects():
             continue
 
         project_key = data["name"].replace("/", "_")
-        if not sonarqube_api.get_project(project_key=project_key):
-            FLASK_APP.logger.info(
-                f"{repository_name}: Creating SonarQube project {project_key}"
-            )
-            sonarqube_api.create_project(
-                project_key=project_key, project_name=repository_name
+        try:
+            if not sonarqube_api.get_project(project_key=project_key):
+                FLASK_APP.logger.info(
+                    f"{repository_name}: Creating SonarQube project {project_key}"
+                )
+                sonarqube_api.create_project(
+                    project_key=project_key, project_name=repository_name
+                )
+        except Exception as ex:
+            FLASK_APP.logger.error(
+                f"{repository_name}: Failed to create SonarQube project {project_key}: {ex}"
             )
