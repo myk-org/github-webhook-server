@@ -35,10 +35,11 @@ Minimum config to get started
 
 ```yaml
 github-app-id: 123456
+webhook_ip: https://IP or FQDN
+
 repositories:
   my-repository-name:
     name: my-org/my-repository-name
-    webhook_ip: https://IP or FQDN
     token: Github token
     protected-branches:
       main: []

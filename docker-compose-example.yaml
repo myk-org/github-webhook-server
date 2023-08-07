@@ -4,11 +4,6 @@ services:
   github_webhook_server:
     container_name: github_webhook_server
     build: webhook-server-container
-    devices:
-      - "/dev/fuse:/dev/fuse"
-    security_opt:
-      - seccomp:unconfined
-    volumes:
       - ./webhook_server_data_dir:/webhook_server:Z # Should include config.yaml and webhook-server.private-key.pem
       - ./containers:/home/podman/.local/share/containers # optional, to cache podman pull containers
     environment:
@@ -18,4 +13,5 @@ services:
       - TZ=Asia/Jerusalem
     ports:
       - "5000:5000"
+    privileged: true
     restart: unless-stopped

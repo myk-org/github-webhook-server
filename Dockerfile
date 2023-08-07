@@ -6,20 +6,13 @@ RUN dnf -y update \
     && dnf clean all \
     && rm -rf /var/cache /var/log/dnf* /var/log/yum.*
 
-ENV USER=podman
-ENV USER_HOME=/home/$USER
-ENV USER_BIN_DIR="$USER_HOME/.local/bin"
+ENV USER_BIN_DIR="/root/.local/bin"
 ENV DATA_DIR=/webhook_server
-ENV APP_DIR=$USER_HOME/github-webhook-server
+ENV APP_DIR=/github-webhook-server
 ENV SONAR_SCANNER_CLI_DIR=/sonar-scanner-cli
 ENV PATH="$USER_BIN_DIR:$PATH"
 
-RUN touch /etc/subgid /etc/subuid \
-    && chmod g=u /etc/subgid /etc/subuid /etc/passwd \
-    && echo $USER:10000:5000 > /etc/subuid \
-    && echo $USER:10000:5000 > /etc/subgid \
-    && usermod --add-subuids 100000-200000 --add-subgids 100000-200000 $USER \
-    && mkdir -p $USER_BIN_DIR \
+RUN mkdir -p $USER_BIN_DIR \
     && mkdir -p $DATA_DIR \
     && mkdir -p $DATA_DIR/tox \
     && mkdir -p $DATA_DIR/python-module-install \
@@ -41,16 +34,11 @@ RUN curl https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-s
 RUN ln -s /usr/bin/python3 /usr/bin/python
 
 RUN python -m pip install pip --upgrade \
-    && python -m pip install poetry tox
+    && python -m pip install poetry tox twine
 
 COPY pyproject.toml poetry.lock README.md $APP_DIR/
 COPY webhook_server_container $APP_DIR/webhook_server_container/
 
-RUN chown -R $USER:$USER $USER_HOME \
-    && chown -R $USER:$USER $DATA_DIR \
-    && chown -R $USER:$USER $SONAR_SCANNER_CLI_DIR
-
-USER $USER
 WORKDIR $APP_DIR
 
 RUN poetry config cache-dir $APP_DIR \
