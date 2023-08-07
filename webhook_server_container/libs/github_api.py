@@ -1415,11 +1415,13 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.pull_request.add_to_assignees(parent_committer)
         self.assign_reviewers()
 
-        with multiprocessing.Pool() as pool:
-            pool.apply_async(self._run_sonarqube)
-            pool.apply_async(self._run_tox)
-            pool.apply_async(self._install_python_module)
-            pool.apply_async(self._build_container)
+        pool = multiprocessing.Pool()
+        pool.apply_async(self._run_sonarqube)
+        pool.apply_async(self._run_tox)
+        pool.apply_async(self._install_python_module)
+        pool.apply_async(self._build_container)
+        pool.close()
+        pool.join()
 
         # self._run_sonarqube()
         # self._run_tox()
