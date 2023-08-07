@@ -236,6 +236,7 @@ Available user actions:
         config_data = get_data_from_config()
         self.github_app_id = config_data["github-app-id"]
         self.token = config_data["github-token"]
+        self.webhook_url = config_data.get("webhook_ip")
         sonarqube = config_data.get("sonarqube")
         if sonarqube:
             self.sonarqube_url = sonarqube["url"]
@@ -251,7 +252,6 @@ Available user actions:
         self.pypi = repo_data.get("pypi")
         self.verified_job = repo_data.get("verified_job", True)
         self.tox_enabled = repo_data.get("tox")
-        self.webhook_url = repo_data.get("webhook_ip")
         self.slack_webhook_url = repo_data.get("slack_webhook_url")
         self.build_and_push_container = repo_data.get("container")
         self.dockerhub = repo_data.get("docker")
