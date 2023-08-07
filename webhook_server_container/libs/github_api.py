@@ -1498,7 +1498,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.set_python_module_install_in_progress()
         install_tool = self.pypi["tool"]
         if install_tool == "poetry":
-            install_cmd = "pip install poetry && poetry install -C"
+            install_cmd = "pip install poetry && poetry install"
         elif install_tool == "twine":
             install_cmd = "pip install"
         else:
