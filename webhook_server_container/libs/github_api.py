@@ -1709,14 +1709,14 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             f"git clone {self.repository.clone_url.replace('https://', f'https://{self.token}@')} "
             f"{self.container_repo_dir}"
         )
-        clone_base_cmd += f"&& cd {self.container_repo_dir}"
-        clone_base_cmd += f"&& git config user.name '{self.repository.owner.login}'"
-        clone_base_cmd += f"&& git config user.email '{self.repository.owner.email}'"
-        clone_base_cmd += "&& git config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
-        clone_base_cmd += "&& git remote update"
+        clone_base_cmd += f" && cd {self.container_repo_dir}"
+        clone_base_cmd += f" && git config user.name '{self.repository.owner.login}'"
+        clone_base_cmd += f" && git config user.email '{self.repository.owner.email}'"
+        clone_base_cmd += " && git config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
+        clone_base_cmd += " && git remote update"
 
         # Checkout the pull request
-        clone_base_cmd += f" git checkout origin/pr/{self.pull_request.number}"
+        clone_base_cmd += f" && git checkout origin/pr/{self.pull_request.number}"
 
         # final podman command
         podman_base_cmd += f" '{clone_base_cmd} {command}'"
