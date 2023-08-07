@@ -5,7 +5,6 @@ import os
 import random
 import re
 import shutil
-import sys
 import time
 from contextlib import contextmanager
 
@@ -507,43 +506,26 @@ Available user actions:
             )
         return True
 
-    def upload_to_pypi(self, tag_name, clone_path):
+    def upload_to_pypi(self, tag_name):
         tool = self.pypi["tool"]
         token = self.pypi["token"]
+        env = f"-e TWINE_USERNAME=__token__ -e TWINE_PASSWORD={token} "
+        cmd = f"git checkout {tag_name}"
         self.app.logger.info(f"{self.log_prefix} Start uploading to pypi")
-        rc, out, err = None, None, None
         if tool == "twine":
-            os.environ["TWINE_USERNAME"] = "__token__"
-            os.environ["TWINE_PASSWORD"] = token
-            dist_dir = os.path.join(clone_path, "dist")
-
-            rc, out, err = run_command(
-                command=f"{sys.executable} -m build {clone_path} --sdist --outdir {dist_dir}/",
-                log_prefix=self.log_prefix,
+            cmd += (
+                " python3 -m build --sdist --outdir /tmp/dist"
+                " && twine check /tmp/dist/$(echo *.tar.gz)"
+                " && twine upload /tmp/dist/$(echo *.tar.gz) --skip-existing"
             )
-            if rc:
-                dist_pkg = re.search(r"Successfully built (.*.tar.gz)", out).group(1)
-                dist_pkg_path = os.path.join(dist_dir, dist_pkg)
-                rc, out, err = run_command(
-                    command=f"twine check {dist_pkg_path}",
-                    log_prefix=self.log_prefix,
-                )
-                if rc:
-                    rc, out, err = run_command(
-                        command=f"twine upload {dist_pkg_path} --skip-existing",
-                        log_prefix=self.log_prefix,
-                    )
 
         elif tool == "poetry":
-            rc, out, err = run_command(
-                command=f"poetry -C {clone_path} config --local pypi-token.pypi {token}",
-                log_prefix=self.log_prefix,
+            cmd += (
+                f" poetry config --local pypi-token.pypi {token}"
+                " && poetry publish --build"
             )
-            if rc:
-                rc, out, err = run_command(
-                    command=f"poetry -C {clone_path} publish --build",
-                    log_prefix=self.log_prefix,
-                )
+
+        rc, out, err = self._run_in_container(command=cmd, env=env)
         if rc:
             self.app.logger.info(
                 f"{self.log_prefix} Publish to pypi finished [using {tool}]"
@@ -956,11 +938,7 @@ Available labels:
             self.app.logger.info(
                 f"{self.log_prefix} Processing push for tag: {tag_name}"
             )
-            with self._clone_repository(
-                path_suffix=f"{tag_name}-{shortuuid.uuid()}"
-            ) as clone_path:
-                if self._checkout_tag(tag=tag_name, clone_path=clone_path):
-                    self.upload_to_pypi(tag_name=tag_name, clone_path=clone_path)
+            self.upload_to_pypi(tag_name=tag_name)
 
     def process_pull_request_review_webhook_data(self):
         self.pull_request = self._get_pull_request()
@@ -1049,7 +1027,7 @@ Available labels:
             cmd += f" -e {tests}"
 
         self.set_run_tox_check_in_progress()
-        if self._run_in_container(command=cmd, file_path=base_path):
+        if self._run_in_container(command=cmd, file_path=base_path)[0]:
             return self.set_run_tox_check_success(details_url=base_url)
         else:
             return self.set_run_tox_check_failure(details_url=base_url)
@@ -1392,52 +1370,34 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             )
             base_url = f"{self.webhook_url}{base_path}"
 
-        with self._clone_repository(
-            path_suffix=f"{BUILD_CONTAINER_STR}-{shortuuid.uuid()}"
-        ) as clone_path:
-            if set_check:
-                self.set_container_build_in_progress()
+        if set_check:
+            self.set_container_build_in_progress()
 
+        _container_repository_and_tag = self._container_repository_and_tag()
+        build_cmd = (
+            f"--network=host -f {self.container_repo_dir}/{self.dockerfile} "
+            f"-t {_container_repository_and_tag}"
+        )
+        if self.container_build_args:
+            build_args = [
+                f"--build-arg {b_arg}" for b_arg in self.container_build_args
+            ][0]
+            build_cmd = f"{build_args} {build_cmd}"
+
+        if self.container_command_args:
+            build_cmd = f"{' '.join(self.container_command_args)} {build_cmd}"
+
+        podman_build_cmd = f"podman build {build_cmd}"
+
+        if self._run_in_container(command=podman_build_cmd, file_path=base_path)[0]:
             self.app.logger.info(
-                f"{self.log_prefix} Current directory is {os.getcwd()}"
+                f"{self.log_prefix} Done building {_container_repository_and_tag}"
             )
-            if self.pull_request and not self._checkout_pull_request(
-                clone_path=clone_path
-            ):
+            if self.pull_request and set_check:
+                return self.set_container_build_success(details_url=base_url)
+        else:
+            if self.pull_request and set_check:
                 return self.set_container_build_failure(details_url=base_url)
-
-            _container_repository_and_tag = self._container_repository_and_tag()
-            build_cmd = (
-                f"--network=host -f {clone_path}/{self.dockerfile} "
-                f"-t {_container_repository_and_tag}"
-            )
-            if self.container_build_args:
-                build_args = [
-                    f"--build-arg {b_arg}" for b_arg in self.container_build_args
-                ][0]
-                build_cmd = f"{build_args} {build_cmd}"
-
-            if self.container_command_args:
-                build_cmd = f"{' '.join(self.container_command_args)} {build_cmd}"
-
-            podman_build_cmd = f"podman build {build_cmd}"
-            self.app.logger.info(
-                f"{self.log_prefix} Build container image for {_container_repository_and_tag}"
-            )
-
-            if run_command(
-                command=podman_build_cmd,
-                log_prefix=self.log_prefix,
-                file_path=base_path,
-            )[0]:
-                self.app.logger.info(
-                    f"{self.log_prefix} Done building {_container_repository_and_tag}"
-                )
-                if self.pull_request and set_check:
-                    return self.set_container_build_success(details_url=base_url)
-            else:
-                if self.pull_request and set_check:
-                    return self.set_container_build_failure(details_url=base_url)
 
     def _build_and_push_container(self):
         if not self.build_and_push_container:
@@ -1507,7 +1467,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             )
             return self.set_python_module_install_failure(details_url=base_url)
 
-        if self._run_in_container(command=install_cmd, file_path=base_path):
+        if self._run_in_container(command=install_cmd, file_path=base_path)[0]:
             return self.set_python_module_install_success(details_url=base_url)
 
         return self.set_python_module_install_failure(details_url=base_url)
@@ -1655,7 +1615,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         cmd = self.sonarqube_api.get_sonar_scanner_command(
             project_key=self.sonarqube_project_key
         )
-        if self._run_in_container(command=cmd):
+        if self._run_in_container(command=cmd)[0]:
             project_status = self.sonarqube_api.get_project_quality_status(
                 project_key=self.sonarqube_project_key
             )
@@ -1699,10 +1659,12 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             base_path, f"PR-{self.pull_request.number}-{self.last_commit.sha}"
         )
 
-    def _run_in_container(self, command, file_path=None):
+    def _run_in_container(self, command, env=None, file_path=None):
         podman_base_cmd = (
             "podman run --rm --entrypoint bash quay.io/myakove/github-webhook-server -c"
         )
+        if env:
+            podman_base_cmd += f" {env}"
 
         # Clone the repository
         clone_base_cmd = (
@@ -1716,7 +1678,8 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         clone_base_cmd += " && git remote update"
 
         # Checkout the pull request
-        clone_base_cmd += f" && git checkout origin/pr/{self.pull_request.number}"
+        if self.pull_request:
+            clone_base_cmd += f" && git checkout origin/pr/{self.pull_request.number}"
 
         # final podman command
         podman_base_cmd += f" '{clone_base_cmd} && {command}'"
@@ -1724,4 +1687,4 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             command=podman_base_cmd,
             log_prefix=self.log_prefix,
             file_path=file_path,
-        )[0]
+        )
