@@ -1732,4 +1732,4 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             command=podman_base_cmd,
             log_prefix=self.log_prefix,
             file_path=file_path,
-        )
+        )[0]
