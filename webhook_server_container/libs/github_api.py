@@ -1513,18 +1513,17 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             ):
                 return self.set_python_module_install_failure(details_url=base_url)
 
-            if (
-                run_command(
-                    command=f"python -m venv {repo_path_prefix}",
-                    log_prefix=self.log_prefix,
-                    file_path=base_path,
-                )[0]
-                and run_command(
-                    command=f"pip install {clone_path}",
-                    log_prefix=self.log_prefix,
-                    file_path=base_path,
-                )[0]
-            ):
+            install_tool = self.pypi["tool"]
+            if install_tool == "poetry":
+                install_cmd = "pip install poetry && poetry install -C"
+            elif install_tool == "twine":
+                install_cmd = "pip install"
+            podman_command = f"podman run --rm -v {clone_path}:/tmp/repo:Z python bash -c '{install_cmd} /tmp/repo'"
+            if run_command(
+                command=podman_command,
+                log_prefix=self.log_prefix,
+                file_path=base_path,
+            )[0]:
                 return self.set_python_module_install_success(details_url=base_url)
 
             return self.set_python_module_install_failure(details_url=base_url)
