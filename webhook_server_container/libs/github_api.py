@@ -1360,17 +1360,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         base_url = f"{self.webhook_url}{base_path}"
         f"{PYTHON_MODULE_INSTALL_STR}-{shortuuid.uuid()}"
         self.set_python_module_install_in_progress()
-        install_tool = self.pypi["tool"]
-        if install_tool == "poetry":
-            install_cmd = "pip install poetry && poetry install"
-        elif install_tool == "twine":
-            install_cmd = "pip install"
-        else:
-            self.app.logger.error(
-                f"{self.log_prefix} pypi is not configured with one of the supported install tools (poetry/twine)"
-            )
-            return self.set_python_module_install_failure(details_url=base_url)
-
+        install_cmd = "pip install"
         if self._run_in_container(command=install_cmd, file_path=base_path)[0]:
             return self.set_python_module_install_success(details_url=base_url)
 
