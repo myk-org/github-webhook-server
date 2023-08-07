@@ -11,14 +11,13 @@ from webhook_server_container.utils.helpers import (
 
 
 @ignore_exceptions()
-def process_github_webhook(data, github_api):
+def process_github_webhook(data, github_api, webhook_ip):
     repository = data["name"]
     repo = get_github_repo_api(github_api=github_api, repository=repository)
     if not repo:
         FLASK_APP.logger.error(f"Could not find repository {repository}")
         return
 
-    webhook_ip = data["webhook_ip"]
     config = {"url": f"{webhook_ip}/webhook_server", "content_type": "json"}
     events = data.get("events", ["*"])
 
@@ -50,10 +49,11 @@ def create_webhook():
 
     procs = []
     github_api = Github(login_or_token=config_data["github-token"])
+    webhook_ip = config_data["webhook_ip"]
     for repo, data in config_data["repositories"].items():
         proc = Process(
             target=process_github_webhook,
-            kwargs={"data": data, "github_api": github_api},
+            kwargs={"data": data, "github_api": github_api, "webhook_ip": webhook_ip},
         )
         procs.append(proc)
         proc.start()
