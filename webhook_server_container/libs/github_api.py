@@ -1049,11 +1049,7 @@ Available labels:
             cmd += f" -e {tests}"
 
         self.set_run_tox_check_in_progress()
-        if self._run_in_container(
-            path_suffix=f"{TOX_STR}-{shortuuid.uuid()}",
-            command=cmd,
-            file_path=base_path,
-        ):
+        if self._run_in_container(command=cmd, file_path=base_path):
             return self.set_run_tox_check_success(details_url=base_url)
         else:
             return self.set_run_tox_check_failure(details_url=base_url)
@@ -1498,7 +1494,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             check_run=PYTHON_MODULE_INSTALL_STR
         )
         base_url = f"{self.webhook_url}{base_path}"
-        repo_path_prefix = f"{PYTHON_MODULE_INSTALL_STR}-{shortuuid.uuid()}"
+        f"{PYTHON_MODULE_INSTALL_STR}-{shortuuid.uuid()}"
         self.set_python_module_install_in_progress()
         install_tool = self.pypi["tool"]
         if install_tool == "poetry":
@@ -1511,9 +1507,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             )
             return self.set_python_module_install_failure(details_url=base_url)
 
-        if self._run_in_container(
-            path_suffix=repo_path_prefix, command=install_cmd, file_path=base_path
-        ):
+        if self._run_in_container(command=install_cmd, file_path=base_path):
             return self.set_python_module_install_success(details_url=base_url)
 
         return self.set_python_module_install_failure(details_url=base_url)
@@ -1661,10 +1655,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         cmd = self.sonarqube_api.get_sonar_scanner_command(
             project_key=self.sonarqube_project_key
         )
-        if self._run_in_container(
-            path_suffix=f"{SONARQUBE_STR}-{shortuuid.uuid()}",
-            command=cmd,
-        ):
+        if self._run_in_container(command=cmd):
             project_status = self.sonarqube_api.get_project_quality_status(
                 project_key=self.sonarqube_project_key
             )
