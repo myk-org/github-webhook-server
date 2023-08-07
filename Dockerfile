@@ -18,6 +18,7 @@ RUN touch /etc/subgid /etc/subuid \
     && chmod g=u /etc/subgid /etc/subuid /etc/passwd \
     && echo $USER:10000:5000 > /etc/subuid \
     && echo $USER:10000:5000 > /etc/subgid \
+    && usermod --add-subuids 100000-200000 --add-subgids 100000-200000 $USER \
     && mkdir -p $USER_BIN_DIR \
     && mkdir -p $DATA_DIR \
     && mkdir -p $DATA_DIR/tox \
