@@ -416,30 +416,19 @@ Available user actions:
         return self.repository.get_branch(branch)
 
     def upload_to_pypi(self, tag_name):
-        tool = self.pypi["tool"]
         token = self.pypi["token"]
         env = f"-e TWINE_USERNAME=__token__ -e TWINE_PASSWORD={token} "
         cmd = f"git checkout {tag_name}"
         self.app.logger.info(f"{self.log_prefix} Start uploading to pypi")
-        if tool == "twine":
-            cmd += (
-                " && python3 -m build --sdist --outdir /tmp/dist"
-                " && twine check /tmp/dist/$(echo *.tar.gz)"
-                " && twine upload /tmp/dist/$(echo *.tar.gz) --skip-existing"
-            )
-
-        elif tool == "poetry":
-            cmd += (
-                f" && poetry config --local pypi-token.pypi {token}"
-                " && poetry publish --build"
-            )
-
+        cmd += (
+            " && python3 -m build --sdist --outdir /tmp/dist"
+            " && twine check /tmp/dist/$(echo *.tar.gz)"
+            " && twine upload /tmp/dist/$(echo *.tar.gz) --skip-existing"
+        )
         rc, out, err = self._run_in_container(command=cmd, env=env)
         if rc:
             if self.slack_webhook_url:
-                self.app.logger.info(
-                    f"{self.log_prefix} Publish to pypi finished [using {tool}]"
-                )
+                self.app.logger.info(f"{self.log_prefix} Publish to pypi finished")
                 message = f"""
 ```
 {self.repository_name} Version {tag_name} published to PYPI.
@@ -451,7 +440,7 @@ Available user actions:
                 )
 
         else:
-            err = f"Publish to pypi failed [using {tool}]"
+            err = "Publish to pypi failed"
             self.app.logger.error(f"{self.log_prefix} {err}")
             self.repository.create_issue(
                 title=err,
