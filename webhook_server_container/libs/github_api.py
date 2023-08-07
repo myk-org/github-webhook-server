@@ -423,14 +423,14 @@ Available user actions:
         self.app.logger.info(f"{self.log_prefix} Start uploading to pypi")
         if tool == "twine":
             cmd += (
-                " python3 -m build --sdist --outdir /tmp/dist"
+                " && python3 -m build --sdist --outdir /tmp/dist"
                 " && twine check /tmp/dist/$(echo *.tar.gz)"
                 " && twine upload /tmp/dist/$(echo *.tar.gz) --skip-existing"
             )
 
         elif tool == "poetry":
             cmd += (
-                f" poetry config --local pypi-token.pypi {token}"
+                f" && poetry config --local pypi-token.pypi {token}"
                 " && poetry publish --build"
             )
 
@@ -1554,11 +1554,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         )
 
     def _run_in_container(self, command, env=None, file_path=None):
-        podman_base_cmd = (
-            "podman run --rm --entrypoint bash quay.io/myakove/github-webhook-server -c"
-        )
-        if env:
-            podman_base_cmd += f" {env}"
+        podman_base_cmd = f"podman run --rm {env} --entrypoint bash quay.io/myakove/github-webhook-server -c"
 
         # Clone the repository
         clone_base_cmd = (
