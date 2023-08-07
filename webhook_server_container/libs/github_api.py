@@ -1716,7 +1716,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         clone_base_cmd += "&& git remote update"
 
         # Checkout the pull request
-        clone_base_cmd += f"git checkout origin/pr/{self.pull_request.number}"
+        clone_base_cmd += f" git checkout origin/pr/{self.pull_request.number}"
 
         # final podman command
         podman_base_cmd += f" '{clone_base_cmd} {command}'"
