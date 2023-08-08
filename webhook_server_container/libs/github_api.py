@@ -1297,7 +1297,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 if self.slack_webhook_url:
                     message = f"""
 ```
-{self.log_prefix} {push_msg}.
+{self.repository_full_name} {push_msg}.
 ```
 """
                     self.send_slack_message(
