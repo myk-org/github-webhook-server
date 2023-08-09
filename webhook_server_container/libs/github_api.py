@@ -32,6 +32,7 @@ from webhook_server_container.utils.constants import (
     IN_PROGRESS_STR,
     LGTM_STR,
     NEEDS_REBASE_LABEL_STR,
+    PRE_COMMIT_CI_BOT_USER,
     PYTHON_MODULE_INSTALL_STR,
     QUEUED_STR,
     REACTIONS,
@@ -645,7 +646,12 @@ Available labels:
         )
 
     @ignore_exceptions(FLASK_APP.logger)
-    def create_issue_for_new_pull_request(self):
+    def create_issue_for_new_pull_request(self, parent_committer):
+        if parent_committer in (
+            self.api_user,
+            PRE_COMMIT_CI_BOT_USER,
+        ):
+            return
         self.app.logger.info(
             f"{self.log_prefix} Creating issue for new PR: {self.pull_request.title}"
         )
@@ -721,7 +727,7 @@ Available labels:
         if hook_action == "opened":
             self.app.logger.info(f"{self.log_prefix} Creating welcome comment")
             self.pull_request.create_issue_comment(self.welcome_msg)
-            self.create_issue_for_new_pull_request()
+            self.create_issue_for_new_pull_request(parent_committer=parent_committer)
             self.process_opened_or_synchronize_pull_request(
                 parent_committer=parent_committer,
                 pull_request_branch=pull_request_branch,
@@ -766,7 +772,7 @@ Available labels:
                 and parent_committer
                 in (
                     self.api_user,
-                    "pre-commit-ci[bot]",
+                    PRE_COMMIT_CI_BOT_USER,
                 )
             ):
                 self.app.logger.info(
@@ -1352,7 +1358,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         if not self.verified_job:
             return
 
-        if parent_committer in (self.api_user, "pre-commit-ci[bot]"):
+        if parent_committer in (self.api_user, PRE_COMMIT_CI_BOT_USER):
             self.app.logger.info(
                 f"{self.log_prefix} Committer {parent_committer} == API user "
                 f"{parent_committer}, Setting verified label"
