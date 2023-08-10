@@ -200,6 +200,6 @@ curl $SONAR_SCANNER_URL --output /tmp/sonar-scanner-cli.zip \
 
 export FLASK_DEBUG=1
 export WEBHOOK_SERVER_DATA_DIR=$WEBHOOK_SERVER_DATA_DIR
-export SONAR_SCANNER_CLI_DIR=/tmp/sonar-scansner-cli
+export SONAR_SCANNER_CLI_DIR=/tmp/sonar-scanner-cli
 poetry run python webhook_server_container/app.py
 ```

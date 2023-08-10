@@ -9,6 +9,7 @@ from github import Auth, GithubIntegration
 
 from webhook_server_container.libs.github_api import GitHubApi
 from webhook_server_container.utils.constants import (
+    APP_ROOT_PATH,
     BUILD_CONTAINER_STR,
     PYTHON_MODULE_INSTALL_STR,
     TOX_STR,
@@ -34,11 +35,10 @@ MISSING_APP_REPOSITORIES = []
 urllib3.disable_warnings()
 
 PLAIN_TEXT_MIME_TYPE = "text/plain"
-APP_ROOT_PATH = get_app_data_dir()
-FILENAME_STRING = "<string:filename>"
-TOX_ROUTE_PATH = f"{APP_ROOT_PATH}/{TOX_STR}"
-BUILD_CONTAINER_ROUTE_PATH = f"{APP_ROOT_PATH}/{BUILD_CONTAINER_STR}"
-PYTHON_MODULE_INSTALL_ROUTE_PATH = f"{APP_ROOT_PATH}/{PYTHON_MODULE_INSTALL_STR}"
+APP_DATA_ROOT_PATH = get_app_data_dir()
+TOX_ROUTE_PATH = f"{APP_DATA_ROOT_PATH}/{TOX_STR}"
+BUILD_CONTAINER_ROUTE_PATH = f"{APP_DATA_ROOT_PATH}/{BUILD_CONTAINER_STR}"
+PYTHON_MODULE_INSTALL_ROUTE_PATH = f"{APP_DATA_ROOT_PATH}/{PYTHON_MODULE_INSTALL_STR}"
 
 
 def get_repositories_github_app_api():
@@ -70,10 +70,10 @@ def healthcheck():
     return "alive"
 
 
-@app.post(APP_ROOT_PATH, response_class=PlainTextResponse)
-def process_webhook(request: Request):
+@app.post(APP_ROOT_PATH)
+async def process_webhook(request: Request):
     try:
-        hook_data = request.json
+        hook_data = await request.json()
         github_event = request.headers.get("X-GitHub-Event")
         api = GitHubApi(
             hook_data=hook_data,
@@ -86,22 +86,20 @@ def process_webhook(request: Request):
             f"event ID: {request.headers.get('X-GitHub-Delivery')}"
         )
         api.process_hook(data=github_event, event_log=event_log)
-        return "process success"
+        return {"status": "success"}
     except Exception as ex:
         logger.error(f"Error: {ex}")
-        return "Process failed"
+        return {"status": "failed"}
 
 
-@app.get(f"{TOX_ROUTE_PATH}/{FILENAME_STRING}", response_class=PlainTextResponse)
+@app.get("/webhook_server/tox/{filename}", response_class=PlainTextResponse)
 def return_tox(filename):
     logger.info(f"app.route: Processing {TOX_STR} file")
     with open(f"{TOX_ROUTE_PATH}/{filename}") as fd:
         return fd.read()
 
 
-@app.get(
-    f"{BUILD_CONTAINER_ROUTE_PATH}/{FILENAME_STRING}", response_class=PlainTextResponse
-)
+@app.get("/webhook_server/build-container/{filename}", response_class=PlainTextResponse)
 def return_build_container(filename):
     logger.info(f"app.route: Processing {BUILD_CONTAINER_STR} file")
     with open(f"{BUILD_CONTAINER_ROUTE_PATH}/{filename}") as fd:
@@ -109,7 +107,7 @@ def return_build_container(filename):
 
 
 @app.get(
-    f"{PYTHON_MODULE_INSTALL_ROUTE_PATH}/{FILENAME_STRING}",
+    "/webhook_server/python-module-install/{filename}",
     response_class=PlainTextResponse,
 )
 def return_python_module_install(filename):
@@ -120,10 +118,6 @@ def return_python_module_install(filename):
 
 def main():
     check_rate_limit()
-
-    for proc in create_webhook():
-        proc.join()
-
     get_repositories_github_app_api()
     set_repositories_settings()
     set_sonar_qube_projects()
@@ -131,6 +125,10 @@ def main():
         repositories_app_api=REPOSITORIES_APP_API,
         missing_app_repositories=MISSING_APP_REPOSITORIES,
     )
+
+    for proc in create_webhook():
+        proc.join()
+
     logger.info(f"Starting {app.title} app")
     uvicorn.run(
         app,
