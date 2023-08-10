@@ -1,9 +1,5 @@
 import logging
 
-from flask import Flask
-
-
-FLASK_APP = Flask("webhook-server")
 
 # Set up logging
 log_format = "%(asctime)s %(levelname)s \033[1;36m%(filename)s:%(lineno)d\033[1;0m %(name)s: %(message)s"

@@ -1,13 +1,15 @@
 import os
 
 import urllib3
-from flask import Response, request
+import uvicorn
+from fastapi import FastAPI, Request
+from fastapi.logger import logger
+from fastapi.responses import PlainTextResponse
 from github import Auth, GithubIntegration
 
 from webhook_server_container.libs.github_api import GitHubApi
 from webhook_server_container.utils.constants import (
     BUILD_CONTAINER_STR,
-    FLASK_APP,
     PYTHON_MODULE_INSTALL_STR,
     TOX_STR,
 )
@@ -24,6 +26,8 @@ from webhook_server_container.utils.sonar_qube import set_sonar_qube_projects
 from webhook_server_container.utils.webhook import create_webhook
 
 
+app = FastAPI(title="webhook-server")
+
 REPOSITORIES_APP_API = {}
 MISSING_APP_REPOSITORIES = []
 
@@ -38,7 +42,7 @@ PYTHON_MODULE_INSTALL_ROUTE_PATH = f"{APP_ROOT_PATH}/{PYTHON_MODULE_INSTALL_STR}
 
 
 def get_repositories_github_app_api():
-    FLASK_APP.logger.info("Getting repositories GitHub app API")
+    logger.info("Getting repositories GitHub app API")
     with open(os.path.join(get_app_data_dir(), "webhook-server.private-key.pem")) as fd:
         private_key = fd.read()
 
@@ -54,20 +58,20 @@ def get_repositories_github_app_api():
     for data in config_data["repositories"].values():
         full_name = data["name"]
         if not REPOSITORIES_APP_API.get(full_name):
-            FLASK_APP.logger.error(
+            logger.error(
                 f"Repository {full_name} not found by manage-repositories-app, "
                 f"make sure the app installed (https://github.com/apps/manage-repositories-app)"
             )
             MISSING_APP_REPOSITORIES.append(full_name)
 
 
-@FLASK_APP.route(f"{APP_ROOT_PATH}/healthcheck")
+@app.get(f"{APP_ROOT_PATH}/healthcheck", response_class=PlainTextResponse)
 def healthcheck():
     return "alive"
 
 
-@FLASK_APP.route(APP_ROOT_PATH, methods=["POST"])
-def process_webhook():
+@app.post(APP_ROOT_PATH, response_class=PlainTextResponse)
+def process_webhook(request: Request):
     try:
         hook_data = request.json
         github_event = request.headers.get("X-GitHub-Event")
@@ -84,29 +88,34 @@ def process_webhook():
         api.process_hook(data=github_event, event_log=event_log)
         return "process success"
     except Exception as ex:
-        FLASK_APP.logger.error(f"Error: {ex}")
+        logger.error(f"Error: {ex}")
         return "Process failed"
 
 
-@FLASK_APP.route(f"{TOX_ROUTE_PATH}/{FILENAME_STRING}")
+@app.get(f"{TOX_ROUTE_PATH}/{FILENAME_STRING}", response_class=PlainTextResponse)
 def return_tox(filename):
-    FLASK_APP.logger.info(f"app.route: Processing {TOX_STR} file")
+    logger.info(f"app.route: Processing {TOX_STR} file")
     with open(f"{TOX_ROUTE_PATH}/{filename}") as fd:
-        return Response(fd.read(), mimetype=PLAIN_TEXT_MIME_TYPE)
+        return fd.read()
 
 
-@FLASK_APP.route(f"{BUILD_CONTAINER_ROUTE_PATH}/{FILENAME_STRING}")
+@app.get(
+    f"{BUILD_CONTAINER_ROUTE_PATH}/{FILENAME_STRING}", response_class=PlainTextResponse
+)
 def return_build_container(filename):
-    FLASK_APP.logger.info(f"app.route: Processing {BUILD_CONTAINER_STR} file")
+    logger.info(f"app.route: Processing {BUILD_CONTAINER_STR} file")
     with open(f"{BUILD_CONTAINER_ROUTE_PATH}/{filename}") as fd:
-        return Response(fd.read(), mimetype=PLAIN_TEXT_MIME_TYPE)
+        return fd.read()
 
 
-@FLASK_APP.route(f"{PYTHON_MODULE_INSTALL_ROUTE_PATH}/{FILENAME_STRING}")
+@app.get(
+    f"{PYTHON_MODULE_INSTALL_ROUTE_PATH}/{FILENAME_STRING}",
+    response_class=PlainTextResponse,
+)
 def return_python_module_install(filename):
-    FLASK_APP.logger.info(f"app.route: Processing {PYTHON_MODULE_INSTALL_STR} file")
+    logger.info(f"app.route: Processing {PYTHON_MODULE_INSTALL_STR} file")
     with open(f"{PYTHON_MODULE_INSTALL_ROUTE_PATH}/{filename}") as fd:
-        return Response(fd.read(), mimetype=PLAIN_TEXT_MIME_TYPE)
+        return fd.read()
 
 
 def main():
@@ -122,11 +131,12 @@ def main():
         repositories_app_api=REPOSITORIES_APP_API,
         missing_app_repositories=MISSING_APP_REPOSITORIES,
     )
-    FLASK_APP.logger.info(f"Starting {FLASK_APP.name} app")
-    FLASK_APP.run(
+    logger.info(f"Starting {app.title} app")
+    uvicorn.run(
+        app,
         port=int(os.environ.get("WEBHOOK_SERVER_PORT", 5000)),
         host="0.0.0.0",
-        use_reloader=True if os.environ.get("WEBHOOK_SERVER_USE_RELOAD") else False,
+        reload=True if os.environ.get("WEBHOOK_SERVER_USE_RELOAD") else False,
     )
 
 

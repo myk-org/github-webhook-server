@@ -7,9 +7,8 @@ from functools import wraps
 from time import sleep
 
 import yaml
+from fastapi.logger import logger
 from github import Github
-
-from webhook_server_container.utils.constants import FLASK_APP
 
 
 def get_app_data_dir():
@@ -100,13 +99,11 @@ def run_command(
                 if _err_decoded:
                     fd.write(f"\nstderr: {err_decoded}")
         except Exception as ex:
-            FLASK_APP.logger.error(
-                f"{log_prefix} Failed to write to file: {file_path}. ex: {ex}"
-            )
+            logger.error(f"{log_prefix} Failed to write to file: {file_path}. ex: {ex}")
 
     out_decoded, err_decoded = "", ""
     try:
-        FLASK_APP.logger.info(f"{log_prefix} Running '{command}' command")
+        logger.info(f"{log_prefix} Running '{command}' command")
         sub_process = subprocess.run(
             shlex.split(command),
             capture_output=capture_output,
@@ -125,7 +122,7 @@ def run_command(
         )
 
         if sub_process.returncode != 0:
-            FLASK_APP.logger.error(error_msg)
+            logger.error(error_msg)
             if file_path:
                 _write_to_file(
                     _file_path=file_path,
@@ -137,7 +134,7 @@ def run_command(
 
         # From this point and onwards we are guaranteed that sub_process.returncode == 0
         if err_decoded and verify_stderr:
-            FLASK_APP.logger.error(error_msg)
+            logger.error(error_msg)
             if file_path:
                 _write_to_file(
                     _file_path=file_path,
@@ -152,7 +149,7 @@ def run_command(
 
         return True, out_decoded, err_decoded
     except Exception as ex:
-        FLASK_APP.logger.error(f"{log_prefix} Failed to run '{command}' command: {ex}")
+        logger.error(f"{log_prefix} Failed to run '{command}' command: {ex}")
         if file_path:
             _write_to_file(
                 _file_path=file_path, _out_decoded=out_decoded, _err_decoded=err_decoded
@@ -171,7 +168,7 @@ def check_rate_limit(github_api=None):
     rate_limit_reset = rate_limit.core.reset
     rate_limit_remaining = rate_limit.core.remaining
     rate_limit_limit = rate_limit.core.limit
-    FLASK_APP.logger.info(
+    logger.info(
         f"API rate limit: Current {rate_limit_remaining} of {rate_limit_limit}. "
         f"Reset in {rate_limit_reset} (UTC time is {datetime.datetime.utcnow()})"
     )
@@ -179,11 +176,11 @@ def check_rate_limit(github_api=None):
         datetime.datetime.utcnow() < rate_limit_reset
         and rate_limit_remaining < minimum_limit
     ):
-        FLASK_APP.logger.warning(
+        logger.warning(
             f"Rate limit is below {minimum_limit} waiting till {rate_limit_reset}"
         )
         time_for_limit_reset = (rate_limit_reset - datetime.datetime.utcnow()).seconds
-        FLASK_APP.logger.info(f"Sleeping {time_for_limit_reset} seconds")
+        logger.info(f"Sleeping {time_for_limit_reset} seconds")
         time.sleep(time_for_limit_reset + 1)
         rate_limit = github_api.get_rate_limit()
         rate_limit_reset = rate_limit.core.reset

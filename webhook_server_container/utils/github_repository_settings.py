@@ -2,13 +2,13 @@ import contextlib
 import os
 from copy import deepcopy
 
+from fastapi.logger import logger
 from github import Github
 from github.GithubException import UnknownObjectException
 
 from webhook_server_container.utils.constants import (
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
-    FLASK_APP,
     IN_PROGRESS_STR,
     PYTHON_MODULE_INSTALL_STR,
     QUEUED_STR,
@@ -32,13 +32,13 @@ def skip_repo(protected_branches, repo):
     _private = repo.private
     if not protected_branches or not repo or _private:
         if _private:
-            FLASK_APP.logger.info(f"{repo.name} skipped, repository is private")
+            logger.info(f"{repo.name} skipped, repository is private")
         return True
 
 
-@ignore_exceptions(FLASK_APP.logger)
+@ignore_exceptions(logger)
 def set_branch_protection(branch, repository, required_status_checks):
-    FLASK_APP.logger.info(
+    logger.info(
         f"Set repository {repository.name} branch {branch} settings [checks: {required_status_checks}]"
     )
     branch.edit_protection(
@@ -51,16 +51,16 @@ def set_branch_protection(branch, repository, required_status_checks):
     )
 
 
-@ignore_exceptions(FLASK_APP.logger)
+@ignore_exceptions(logger)
 def set_repository_settings(repository):
-    FLASK_APP.logger.info(f"Set repository {repository.name} settings")
+    logger.info(f"Set repository {repository.name} settings")
     repository.edit(
         delete_branch_on_merge=True,
         allow_auto_merge=True,
         allow_update_branch=True,
     )
 
-    FLASK_APP.logger.info(f"Set repository {repository.name} security settings")
+    logger.info(f"Set repository {repository.name} security settings")
     repository._requester.requestJsonAndCheck(
         "PATCH",
         f"{repository.url}/code-scanning/default-setup",
@@ -118,7 +118,7 @@ def get_user_configures_status_checks(status_checks):
 
 
 def set_repository_labels(repository):
-    FLASK_APP.logger.info(f"Set repository {repository.name} labels")
+    logger.info(f"Set repository {repository.name} labels")
     repository_labels = {}
     for label in repository.get_labels():
         repository_labels[label.name.lower()] = {"object": label, "color": label.color}
@@ -130,36 +130,36 @@ def set_repository_labels(repository):
             if repository_labels[label_lower]["color"] == color:
                 continue
             else:
-                FLASK_APP.logger.info(
+                logger.info(
                     f"{repository.name}: Edit repository label {label} with color {color}"
                 )
                 repo_label.edit(name=repo_label.name, color=color)
         else:
-            FLASK_APP.logger.info(
+            logger.info(
                 f"{repository.name}: Add repository label {label} with color {color}"
             )
             repository.create_label(name=label, color=color)
 
 
 def set_repositories_settings():
-    FLASK_APP.logger.info("Processing repositories")
+    logger.info("Processing repositories")
     config_data = get_data_from_config()
     github_api = Github(login_or_token=config_data["github-token"])
     default_status_checks = config_data.get("default-status-checks", [])
     docker = config_data.get("docker")
     if docker:
-        FLASK_APP.logger.info("Login in to docker.io")
+        logger.info("Login in to docker.io")
         docker_username = docker["username"]
         docker_password = docker["password"]
         os.system(f"podman login -u {docker_username} -p {docker_password} docker.io")
 
     for _, data in config_data["repositories"].items():
         repository = data["name"]
-        FLASK_APP.logger.info(f"Processing repository {repository}")
+        logger.info(f"Processing repository {repository}")
         protected_branches = data.get("protected-branches", {})
         repo = get_github_repo_api(github_api=github_api, repository=repository)
         if not repo:
-            FLASK_APP.logger.error(f"{repository}: Failed to get repository")
+            logger.error(f"{repository}: Failed to get repository")
             continue
 
         if skip_repo(protected_branches=protected_branches, repo=repo):
@@ -171,9 +171,7 @@ def set_repositories_settings():
         for branch_name, status_checks in protected_branches.items():
             branch = get_branch_sampler(repo=repo, branch_name=branch_name)
             if not branch:
-                FLASK_APP.logger.error(
-                    f"{repository}: Failed to get branch {branch_name}"
-                )
+                logger.error(f"{repository}: Failed to get branch {branch_name}")
                 continue
 
             _default_status_checks = deepcopy(default_status_checks)
@@ -220,14 +218,14 @@ def set_all_in_progress_check_runs_to_queued(
             github_api=repositories_app_api[repository], repository=repository
         )
         repo = get_github_repo_api(github_api=github_api, repository=repository)
-        FLASK_APP.logger.info(
+        logger.info(
             f"{repository}: Set all {IN_PROGRESS_STR} check runs to {QUEUED_STR}"
         )
         for pull_request in repo.get_pulls(state="open"):
             last_commit = list(pull_request.get_commits())[-1]
             for check_run in last_commit.get_check_runs():
                 if check_run.name in check_runs and check_run.status == IN_PROGRESS_STR:
-                    FLASK_APP.logger.info(
+                    logger.info(
                         f"{repository}: {check_run.name} status is {IN_PROGRESS_STR}, "
                         f"Setting check run {check_run.name} to {QUEUED_STR}"
                     )
