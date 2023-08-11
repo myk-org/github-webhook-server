@@ -1410,7 +1410,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
         requests.post(
             url=f"{self.webhook_url}{APP_ROOT_PATH}/run/{TOX_STR}",
-            json={"pull_request": self},
+            data={"pull_request": self},
         )
         # self._run_sonarqube()
         # self._run_tox()
