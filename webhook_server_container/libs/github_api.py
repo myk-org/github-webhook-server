@@ -988,10 +988,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                             issue_comment_id=issue_comment_id,
                             reaction=REACTIONS.ok,
                         )
-                        requests.post(
-                            url=f"{self.webhook_url}{APP_ROOT_PATH}/run/{TOX_STR}",
-                            data={"pull_request": self},
-                        )
+
                         self._run_tox()
 
                     elif _test == BUILD_CONTAINER_STR:

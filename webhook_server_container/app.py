@@ -116,11 +116,6 @@ def return_python_module_install(filename):
         return fd.read()
 
 
-@app.post(f"{APP_ROOT_PATH}/run/{TOX_STR}")
-def run_tox(pull_request):
-    pull_request["pull_request"]._run_tox()
-
-
 def main():
     check_rate_limit()
     get_repositories_github_app_api()
