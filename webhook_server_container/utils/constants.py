@@ -16,6 +16,7 @@ logging.addLevelName(logging.WARNING, "\033[1;33mWARNING\033[1;0m")
 logging.addLevelName(logging.ERROR, "\033[1;31mERROR\033[1;0m")
 logging.addLevelName(logging.CRITICAL, "\033[1;41mCRITICAL\033[1;0m")
 
+APP_ROOT_PATH = "/webhook_server"
 PRE_COMMIT_CI_BOT_USER = "pre-commit-ci[bot]"
 TOX_STR = "tox"
 SONARQUBE_STR = "sonarqube"

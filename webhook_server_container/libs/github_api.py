@@ -15,6 +15,7 @@ from github.GithubException import UnknownObjectException
 from webhook_server_container.libs.sonar_qube import SonarQubeExt
 from webhook_server_container.utils.constants import (
     ADD_STR,
+    APP_ROOT_PATH,
     APPROVED_BY_LABEL_PREFIX,
     BRANCH_LABEL_PREFIX,
     BUILD_AND_PUSH_CONTAINER_STR,
@@ -889,18 +890,17 @@ Available labels:
             )
             return False
 
-        base_path = self._get_check_run_result_file_path(check_run=TOX_STR)
-        base_url = f"{self.webhook_url}{base_path}"
+        file_path, url_path = self._get_check_run_result_file_path(check_run=TOX_STR)
         cmd = f"{TOX_STR}"
         if self.tox_enabled != "all":
             tests = self.tox_enabled.replace(" ", "")
             cmd += f" -e {tests}"
 
         self.set_run_tox_check_in_progress()
-        if self._run_in_container(command=cmd, file_path=base_path)[0]:
-            return self.set_run_tox_check_success(details_url=base_url)
+        if self._run_in_container(command=cmd, file_path=file_path)[0]:
+            return self.set_run_tox_check_success(details_url=url_path)
         else:
-            return self.set_run_tox_check_failure(details_url=base_url)
+            return self.set_run_tox_check_failure(details_url=url_path)
 
     def user_commands(self, command, reviewed_user, issue_comment_id):
         remove = False
@@ -1258,14 +1258,12 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             )
             return False
 
-        base_path = None
-        base_url = None
+        file_path, url_path = None, None
 
         if self.pull_request:
-            base_path = self._get_check_run_result_file_path(
+            file_path, url_path = self._get_check_run_result_file_path(
                 check_run=BUILD_CONTAINER_STR
             )
-            base_url = f"{self.webhook_url}{base_path}"
 
         if set_check:
             self.set_container_build_in_progress()
@@ -1289,12 +1287,12 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             build_cmd += f" && podman push --creds {repository_creds} {_container_repository_and_tag}"
         podman_build_cmd = f"podman build {build_cmd}"
 
-        if self._run_in_container(command=podman_build_cmd, file_path=base_path)[0]:
+        if self._run_in_container(command=podman_build_cmd, file_path=file_path)[0]:
             self.app.logger.info(
                 f"{self.log_prefix} Done building {_container_repository_and_tag}"
             )
             if self.pull_request and set_check:
-                return self.set_container_build_success(details_url=base_url)
+                return self.set_container_build_success(details_url=url_path)
             if push:
                 push_msg = (
                     f"New container for {_container_repository_and_tag} published"
@@ -1316,7 +1314,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 )
         else:
             if self.pull_request and set_check:
-                return self.set_container_build_failure(details_url=base_url)
+                return self.set_container_build_failure(details_url=url_path)
 
     def _install_python_module(self):
         if not self.pypi:
@@ -1329,16 +1327,15 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             return False
 
         self.app.logger.info(f"{self.log_prefix} Installing python module")
-        base_path = self._get_check_run_result_file_path(
+        file_path, url_path = self._get_check_run_result_file_path(
             check_run=PYTHON_MODULE_INSTALL_STR
         )
-        base_url = f"{self.webhook_url}{base_path}"
         f"{PYTHON_MODULE_INSTALL_STR}-{shortuuid.uuid()}"
         self.set_python_module_install_in_progress()
-        if self._run_in_container(command="pip install .", file_path=base_path)[0]:
-            return self.set_python_module_install_success(details_url=base_url)
+        if self._run_in_container(command="pip install .", file_path=file_path)[0]:
+            return self.set_python_module_install_success(details_url=url_path)
 
-        return self.set_python_module_install_failure(details_url=base_url)
+        return self.set_python_module_install_failure(details_url=url_path)
 
     def send_slack_message(self, message, webhook_url):
         slack_data = {"text": message}
@@ -1503,13 +1500,14 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         if not os.path.exists(base_path):
             os.makedirs(name=base_path, exist_ok=True)
 
-        return os.path.join(
-            base_path, f"PR-{self.pull_request.number}-{self.last_commit.sha}"
-        )
+        file_name = f"PR-{self.pull_request.number}-{self.last_commit.sha}"
+        file_path = os.path.join(base_path, file_name)
+        url_path = f"{self.webhook_url}{APP_ROOT_PATH}/{check_run}/{file_name}"
+        return file_path, url_path
 
     def _run_in_container(self, command, env=None, file_path=None):
         podman_base_cmd = (
-            f"podman run --privileged --rm {env if env else ''} "
+            f"podman run --privileged -v /var/lib/containers:/var/lib/containers --rm {env if env else ''} "
             f"--entrypoint bash quay.io/myakove/github-webhook-server -c"
         )
 

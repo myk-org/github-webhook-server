@@ -1,11 +1,11 @@
 # All ${} taken from .env file, create .env file in root of project.
 version: "3.8"
 services:
-  github_webhook_server:
-    container_name: github_webhook_server
+  github-webhook-server:
+    container_name: github-webhook-server
     build: webhook-server-container
       - ./webhook_server_data_dir:/webhook_server:Z # Should include config.yaml and webhook-server.private-key.pem
-      - ./containers:/home/podman/.local/share/containers # optional, to cache podman pull containers
+      - ./containers:/var/lib/containers # optional, to cache podman pull containers
     environment:
       - FLASK_DEBUG=1 # Debug Flask server to get logs to console.
       - PUID=1000
