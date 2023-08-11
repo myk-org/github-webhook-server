@@ -1,4 +1,4 @@
-github-app-id: 123456 # GitHub app id
+github-app-id: 123456 # GitHub APP id
 github-toekn: <GITHIB TOKEN>
 webhook_ip: <HTTP://IP OR URL:PORT>
 

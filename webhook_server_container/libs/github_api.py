@@ -145,8 +145,8 @@ Available user actions:
     def get_github_app_api(self):
         if self.repository_full_name in self.missing_app_repositories:
             raise RepositoryNotFoundError(
-                f"Repository {self.repository_full_name} not found by manage-repositories-app, "
-                f"make sure the app installed (https://github.com/apps/manage-repositories-app)"
+                f"Repository {self.repository_full_name} not found by manage-repositories-APP, "
+                f"make sure the APP installed (https://github.com/apps/manage-repositories-app)"
             )
         return self.repositories_app_api[self.repository_full_name]
 
@@ -235,7 +235,7 @@ Available user actions:
 
     def _repo_data_from_config(self):
         config_data = get_data_from_config()
-        self.github_app_id = config_data["github-app-id"]
+        self.github_app_id = config_data["github-APP-id"]
         self.token = config_data["github-token"]
         self.webhook_url = config_data.get("webhook_ip")
         sonarqube = config_data.get("sonarqube")
