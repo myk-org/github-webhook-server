@@ -1,4 +1,3 @@
-import asyncio
 import contextlib
 import datetime
 import json
@@ -1409,7 +1408,10 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.pull_request.add_to_assignees(parent_committer)
         self.assign_reviewers()
 
-        self.run_checks()
+        requests.post(
+            url=f"{self.webhook_url}{APP_ROOT_PATH}/run/{TOX_STR}",
+            json={"pull_request": self},
+        )
         # self._run_sonarqube()
         # self._run_tox()
         # self._install_python_module()
@@ -1521,14 +1523,3 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             log_prefix=self.log_prefix,
             file_path=file_path,
         )
-
-    def run_checks(self):
-        async def _run_checks():
-            await asyncio.gather(
-                self._run_sonarqube(),
-                self._run_tox(),
-                self._install_python_module(),
-                self._build_container(),
-            )
-
-        return asyncio.run(_run_checks())
