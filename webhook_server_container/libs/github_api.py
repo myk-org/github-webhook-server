@@ -1409,7 +1409,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.pull_request.add_to_assignees(parent_committer)
         self.assign_reviewers()
 
-        asyncio.run(self.run_checks())
+        self.run_checks()
         # self._run_sonarqube()
         # self._run_tox()
         # self._install_python_module()
@@ -1522,13 +1522,16 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             file_path=file_path,
         )
 
-    async def run_checks(self):
-        _run_sonarqube = asyncio.create_task(self._run_sonarqube())
-        _run_tox = asyncio.create_task(self._run_tox())
-        _install_python_module = asyncio.create_task(self._install_python_module())
-        _build_container = asyncio.create_task(self._build_container())
+    def run_checks(self):
+        async def _run_checks():
+            _run_sonarqube = asyncio.create_task(self._run_sonarqube())
+            _run_tox = asyncio.create_task(self._run_tox())
+            _install_python_module = asyncio.create_task(self._install_python_module())
+            _build_container = asyncio.create_task(self._build_container())
 
-        await _run_sonarqube
-        await _install_python_module
-        await _build_container
-        await _run_tox
+            await _run_sonarqube
+            await _install_python_module
+            await _build_container
+            await _run_tox
+
+        return asyncio.run(_run_checks())
