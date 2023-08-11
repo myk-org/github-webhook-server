@@ -195,7 +195,7 @@ Available user actions:
 
     def process_hook(self, data, event_log):
         self.app.logger.info(f"{self.log_prefix} {event_log}")
-        ignore_data = ["status", "branch_protection_rule"]
+        ignore_data = ["status", "branch_protection_rule", "meta", "ping"]
         if data == "issue_comment":
             self.process_comment_webhook_data()
 
