@@ -1,3 +1,4 @@
+import asyncio
 import contextlib
 import datetime
 import json
@@ -1408,6 +1409,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.pull_request.add_to_assignees(parent_committer)
         self.assign_reviewers()
 
+        asyncio.run(self.run_checks())
         # self._run_sonarqube()
         # self._run_tox()
         # self._install_python_module()
