@@ -1408,12 +1408,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.pull_request.add_to_assignees(parent_committer)
         self.assign_reviewers()
 
-        from starlette.concurrency import run_in_threadpool
-
-        run_in_threadpool(self._run_sonarqube)
-        run_in_threadpool(self._run_tox)
-        run_in_threadpool(self._install_python_module)
-        run_in_threadpool(self._build_container)
         # self._run_sonarqube()
         # self._run_tox()
         # self._install_python_module()
@@ -1525,3 +1519,11 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             log_prefix=self.log_prefix,
             file_path=file_path,
         )
+
+    async def run_checks(self):
+        from starlette.concurrency import run_in_threadpool
+
+        await run_in_threadpool(self._run_sonarqube)
+        await run_in_threadpool(self._run_tox)
+        await run_in_threadpool(self._install_python_module)
+        await run_in_threadpool(self._build_container)
