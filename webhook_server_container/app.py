@@ -117,7 +117,7 @@ def return_python_module_install(filename):
 
 
 @app.post(f"{APP_ROOT_PATH}/run/{TOX_STR}")
-async def run_tox(pull_request):
+def run_tox(pull_request):
     pull_request._run_tox()
 
 
