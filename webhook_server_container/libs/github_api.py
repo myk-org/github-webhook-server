@@ -988,7 +988,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                             issue_comment_id=issue_comment_id,
                             reaction=REACTIONS.ok,
                         )
-
                         self._run_tox()
 
                     elif _test == BUILD_CONTAINER_STR:
@@ -1409,14 +1408,10 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.pull_request.add_to_assignees(parent_committer)
         self.assign_reviewers()
 
-        requests.post(
-            url=f"{self.webhook_url}{APP_ROOT_PATH}/run/{TOX_STR}",
-            data={"pull_request": self},
-        )
-        # self._run_sonarqube()
-        # self._run_tox()
-        # self._install_python_module()
-        # self._build_container()
+        self._run_sonarqube()
+        self._run_tox()
+        self._install_python_module()
+        self._build_container()
 
     def run_retest_if_queued(self):
         last_commit_check_runs = list(self.last_commit.get_check_runs())
