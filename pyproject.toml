@@ -40,7 +40,6 @@ Download = "https://quay.io/repository/myakove/github-webhook-server"
 python = "^3.8"
 poetry-dynamic-versioning = {extras = ["plugin"], version = "^0.25.0"}
 pygithub = "^1.59.0"
-flask = "^2.3.2"
 pyyaml = "^6.0"
 build = "^0.10.0"
 shortuuid = "^1.0.11"
