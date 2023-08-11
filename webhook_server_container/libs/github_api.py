@@ -5,7 +5,6 @@ import os
 import random
 import re
 import time
-from multiprocessing import Process
 
 import requests
 import shortuuid
@@ -1409,20 +1408,12 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.pull_request.add_to_assignees(parent_committer)
         self.assign_reviewers()
 
-        procs = []
-        for check_run in (
-            self._run_sonarqube,
-            self._run_tox,
-            self._install_python_module,
-            self._build_container,
-        ):
-            proc = Process(target=check_run)
-            procs.append(proc)
-            proc.start()
+        from starlette.concurrency import run_in_threadpool
 
-        for proc in procs:
-            proc.join()
-
+        run_in_threadpool(self._run_sonarqube)
+        run_in_threadpool(self._run_tox)
+        run_in_threadpool(self._install_python_module)
+        run_in_threadpool(self._build_container)
         # self._run_sonarqube()
         # self._run_tox()
         # self._install_python_module()
