@@ -646,6 +646,25 @@ Available labels:
             check_run=SONARQUBE_STR, conclusion=FAILURE_STR, details_url=details_url
         )
 
+    def set_cherry_pick_in_progress(self):
+        return self.set_check_run_status(
+            check_run=CHERRY_PICKED_LABEL_PREFIX, status=IN_PROGRESS_STR
+        )
+
+    def set_cherry_pick_success(self, details_url):
+        return self.set_check_run_status(
+            check_run=CHERRY_PICKED_LABEL_PREFIX,
+            conclusion=SUCCESS_STR,
+            details_url=details_url,
+        )
+
+    def set_cherry_pick_failure(self, details_url):
+        return self.set_check_run_status(
+            check_run=CHERRY_PICKED_LABEL_PREFIX,
+            conclusion=FAILURE_STR,
+            details_url=details_url,
+        )
+
     @ignore_exceptions(FLASK_APP.logger)
     def create_issue_for_new_pull_request(self, parent_committer):
         if parent_committer in (
@@ -1097,6 +1116,10 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             self.app.logger.error(err_msg)
             self.pull_request.create_issue_comment(err_msg)
         else:
+            self.set_cherry_pick_in_progress()
+            file_path, url_path = self._get_check_run_result_file_path(
+                check_run=CHERRY_PICKED_LABEL_PREFIX
+            )
             commit_hash = self.pull_request.merge_commit_sha
             commit_msg = self.pull_request.title
             pull_request_url = self.pull_request.html_url
@@ -1115,12 +1138,16 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 f"-m 'cherry-pick {pull_request_url} into {target_branch}' "
                 f"-m 'requested-by {requested_by}'"
             )
-            rc, out, err = self._run_in_container(command=cmd, env=env)
+            rc, out, err = self._run_in_container(
+                command=cmd, env=env, file_path=file_path
+            )
             if rc:
+                self.set_cherry_pick_success(details_url=url_path)
                 self.pull_request.create_issue_comment(
                     f"Cherry-picked PR {self.pull_request.title} into {target_branch}"
                 )
             else:
+                self.set_cherry_pick_failure(details_url=url_path)
                 self.app.logger.error(
                     f"{self.log_prefix} Cherry pick failed: {out} --- {err}"
                 )
