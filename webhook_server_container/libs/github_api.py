@@ -195,7 +195,7 @@ Available user actions:
 
     def process_hook(self, data, event_log):
         self.app.logger.info(f"{self.log_prefix} {event_log}")
-        ignore_data = ["status", "branch_protection_rule", "meta", "ping"]
+        ignore_data = ["status", "branch_protection_rule"]
         if data == "issue_comment":
             self.process_comment_webhook_data()
 
@@ -1086,9 +1086,9 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             )
 
     def cherry_pick(self, target_branch, reviewed_user=None):
+        requested_by = reviewed_user or "by target-branch label"
         self.app.logger.info(
-            f"{self.log_prefix} Cherry-pick requested by user: "
-            f"{reviewed_user or 'by target-branch label'}"
+            f"{self.log_prefix} Cherry-pick requested by user: {requested_by}"
         )
 
         new_branch_name = f"{CHERRY_PICKED_LABEL_PREFIX}-{self.pull_request.head.ref}-{shortuuid.uuid()[:5]}"
@@ -1100,7 +1100,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             commit_hash = self.pull_request.merge_commit_sha
             commit_msg = self.pull_request.title
             pull_request_url = self.pull_request.html_url
-            user_login = self.pull_request.user.login
             env = f"-e GITHUB_TOKEN={self.token}"
             cmd = (
                 f" git checkout {target_branch}"
@@ -1114,7 +1113,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 f"-l {CHERRY_PICKED_LABEL_PREFIX} "
                 f"-m '{CHERRY_PICKED_LABEL_PREFIX}: [{target_branch}] {commit_msg}' "
                 f"-m 'cherry-pick {pull_request_url} into {target_branch}' "
-                f"-m 'requested-by {user_login}'"
+                f"-m 'requested-by {requested_by}'"
             )
             rc, out, err = self._run_in_container(command=cmd, env=env)
             if rc:
