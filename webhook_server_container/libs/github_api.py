@@ -152,17 +152,16 @@ Available user actions:
         return self.repositories_app_api[self.repository_full_name]
 
     def _set_log_prefix_color(self):
+        repo_str = "\033[1;{color}m{name}\033[1;0m"
         color_file = "/tmp/color.json"
-        if os.path.exists(color_file):
+        try:
             with open(color_file) as fd:
                 color_json = json.load(fd)
-        else:
+        except Exception:
             color_json = {}
 
-        repo_str = "\033[1;{color}m{name}\033[1;0m"
-        if self.repository_name in color_json:
-            color = color_json[self.repository_name]
-        else:
+        color = color_json.get(self.repository_name)
+        if not color:
             color = random.choice(range(31, 39))
             color_json[self.repository_name] = color
 
@@ -1134,9 +1133,9 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 f"-b {target_branch} "
                 f"-h {new_branch_name} "
                 f"-l {CHERRY_PICKED_LABEL_PREFIX} "
-                f"-m '{CHERRY_PICKED_LABEL_PREFIX}: [{target_branch}] {commit_msg}' "
-                f"-m 'cherry-pick {pull_request_url} into {target_branch}' "
-                f"-m 'requested-by {requested_by}'"
+                f'-m "{CHERRY_PICKED_LABEL_PREFIX}: [{target_branch}] {commit_msg}" '
+                f'-m "cherry-pick {pull_request_url} into {target_branch}" '
+                f'-m "requested-by {requested_by}"'
             )
             rc, out, err = self._run_in_container(
                 command=cmd, env=env, file_path=file_path
@@ -1214,48 +1213,51 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             )
             return False
 
-        self.set_merge_check_in_progress()
-        _labels = self.pull_request_labels_names()
+        try:
+            self.set_merge_check_in_progress()
+            _labels = self.pull_request_labels_names()
 
-        if VERIFIED_LABEL_STR not in _labels or HOLD_LABEL_STR in _labels:
-            self._remove_label(label=CAN_BE_MERGED_STR)
-            self.set_merge_check_queued()
-            return False
+            if VERIFIED_LABEL_STR not in _labels or HOLD_LABEL_STR in _labels:
+                self._remove_label(label=CAN_BE_MERGED_STR)
+                self.set_merge_check_queued()
+                return False
 
-        if self.pull_request.mergeable_state == "behind":
-            self._remove_label(label=CAN_BE_MERGED_STR)
-            self.set_merge_check_queued()
-            return False
+            if self.pull_request.mergeable_state == "behind":
+                self._remove_label(label=CAN_BE_MERGED_STR)
+                self.set_merge_check_queued()
+                return False
 
-        all_check_runs_passed = all(
-            [
-                check_run.conclusion == SUCCESS_STR
-                for check_run in last_commit_check_runs
-                if check_run.name != CAN_BE_MERGED_STR
-            ]
-        )
-        if not all_check_runs_passed:
-            self._remove_label(label=CAN_BE_MERGED_STR)
-            self.set_merge_check_queued()
-            # TODO: Fix `run_retest_if_queued` and uncomment the call for it.
-            # self.run_retest_if_queued(last_commit_check_runs=last_commit_check_runs)
-            return False
+            all_check_runs_passed = all(
+                [
+                    check_run.conclusion == SUCCESS_STR
+                    for check_run in last_commit_check_runs
+                    if check_run.name != CAN_BE_MERGED_STR
+                ]
+            )
+            if not all_check_runs_passed:
+                self._remove_label(label=CAN_BE_MERGED_STR)
+                self.set_merge_check_queued()
+                # TODO: Fix `run_retest_if_queued` and uncomment the call for it.
+                # self.run_retest_if_queued(last_commit_check_runs=last_commit_check_runs)
+                return False
 
-        for _label in _labels:
-            if CHANGED_REQUESTED_BY_LABEL_PREFIX.lower() in _label.lower():
-                change_request_user = _label.split("-")[-1]
-                if change_request_user in self.approvers:
-                    self._remove_label(label=CAN_BE_MERGED_STR)
-                    return self.set_merge_check_queued()
+            for _label in _labels:
+                if CHANGED_REQUESTED_BY_LABEL_PREFIX.lower() in _label.lower():
+                    change_request_user = _label.split("-")[-1]
+                    if change_request_user in self.approvers:
+                        self._remove_label(label=CAN_BE_MERGED_STR)
+                        return self.set_merge_check_queued()
 
-        for _label in _labels:
-            if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
-                approved_user = _label.split("-")[-1]
-                if approved_user in self.approvers:
-                    self._add_label(label=CAN_BE_MERGED_STR)
-                    return self.set_merge_check_success()
+            for _label in _labels:
+                if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
+                    approved_user = _label.split("-")[-1]
+                    if approved_user in self.approvers:
+                        self._add_label(label=CAN_BE_MERGED_STR)
+                        return self.set_merge_check_success()
 
-        return self.set_merge_check_queued()
+            return self.set_merge_check_queued()
+        except Exception:
+            return self.set_merge_check_queued()
 
     @staticmethod
     def _comment_with_details(title, body):

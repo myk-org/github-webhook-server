@@ -74,24 +74,34 @@ def healthcheck():
 
 @FLASK_APP.route(APP_ROOT_PATH, methods=["POST"])
 def process_webhook():
+    process_failed_msg = "Process failed"
     try:
         hook_data = request.json
-        github_event = request.headers.get("X-GitHub-Event")
+    except Exception as ex:
+        FLASK_APP.logger.error(f"Error get JSON from request: {ex}")
+        return process_failed_msg
+
+    try:
         api = GitHubApi(
             hook_data=hook_data,
             repositories_app_api=REPOSITORIES_APP_API,
             missing_app_repositories=MISSING_APP_REPOSITORIES,
         )
+    except Exception as ex:
+        FLASK_APP.logger.error(f"Failed to initialized GitHubApi instance: {ex}")
+        return process_failed_msg
 
-        event_log = (
-            f"Event type: {github_event} "
-            f"event ID: {request.headers.get('X-GitHub-Delivery')}"
-        )
+    github_event = request.headers.get("X-GitHub-Event")
+    event_log = (
+        f"Event type: {github_event} "
+        f"event ID: {request.headers.get('X-GitHub-Delivery')}"
+    )
+    try:
         api.process_hook(data=github_event, event_log=event_log)
         return "process success"
     except Exception as ex:
-        FLASK_APP.logger.error(f"Error: {ex}")
-        return "Process failed"
+        FLASK_APP.logger.error(f"Failed to process hook: {ex}")
+        return process_failed_msg
 
 
 @FLASK_APP.route(f"{APP_ROOT_PATH}/{TOX_STR}/{FILENAME_STRING}")
