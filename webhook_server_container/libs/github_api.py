@@ -5,6 +5,7 @@ import os
 import random
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 import shortuuid
@@ -1449,8 +1450,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.pull_request.add_to_assignees(parent_committer)
         self.assign_reviewers()
 
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-
         futures = []
         with ThreadPoolExecutor() as executor:
             futures.append(executor.submit(self._run_sonarqube))
@@ -1458,8 +1457,8 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             futures.append(executor.submit(self._install_python_module))
             futures.append(executor.submit(self._build_container))
 
-        for future in as_completed(futures):
-            print(future.result())
+        for _ in as_completed(futures):
+            pass
 
     def run_retest_if_queued(self):
         last_commit_check_runs = list(self.last_commit.get_check_runs())
