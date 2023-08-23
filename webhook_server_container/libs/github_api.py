@@ -1449,10 +1449,13 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.pull_request.add_to_assignees(parent_committer)
         self.assign_reviewers()
 
-        self._run_sonarqube()
-        self._run_tox()
-        self._install_python_module()
-        self._build_container()
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor() as executor:
+            executor.submit(self._run_sonarqube)
+            executor.submit(self._run_tox)
+            executor.submit(self._install_python_module)
+            executor.submit(self._build_container)
 
     def run_retest_if_queued(self):
         last_commit_check_runs = list(self.last_commit.get_check_runs())
