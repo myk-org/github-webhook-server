@@ -37,7 +37,8 @@ def skip_repo(protected_branches, repo):
 
 
 @ignore_exceptions(FLASK_APP.logger)
-def set_branch_protection(branch, repository, required_status_checks):
+def set_branch_protection(branch, repository, required_status_checks, github_api):
+    api_user = github_api.get_user().login
     FLASK_APP.logger.info(
         f"Set repository {repository.name} branch {branch} settings [checks: {required_status_checks}]"
     )
@@ -48,6 +49,10 @@ def set_branch_protection(branch, repository, required_status_checks):
         require_code_owner_reviews=False,
         dismiss_stale_reviews=True,
         required_approving_review_count=0,
+        required_linear_history=True,
+        users_bypass_pull_request_allowances=[api_user],
+        teams_bypass_pull_request_allowances=[api_user],
+        apps_bypass_pull_request_allowances=[api_user],
     )
 
 
@@ -196,6 +201,7 @@ def set_repositories_settings():
                 branch=branch,
                 repository=repo,
                 required_status_checks=required_status_checks,
+                github_api=github_api,
             )
 
 
