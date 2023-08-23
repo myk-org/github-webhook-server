@@ -51,7 +51,7 @@ def ignore_exceptions(logger=None, retry=None):
                             sleep(1)
 
                 if logger:
-                    logger.info(ex)
+                    logger.error(ex)
                 return None
 
         return inner
