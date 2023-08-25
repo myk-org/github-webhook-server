@@ -1,4 +1,5 @@
 import datetime
+import json
 import os
 import shlex
 import subprocess
@@ -6,6 +7,7 @@ import time
 from functools import wraps
 from time import sleep
 
+import requests
 import yaml
 from github import Github
 
@@ -188,3 +190,19 @@ def check_rate_limit(github_api=None):
         rate_limit = github_api.get_rate_limit()
         rate_limit_reset = rate_limit.core.reset
         rate_limit_remaining = rate_limit.core.remaining
+
+
+def send_slack_message(message, webhook_url, log_prefix):
+    slack_data = {"text": message}
+    FLASK_APP.logger.info(f"{log_prefix} Sending message to slack: {message}")
+    response = requests.post(
+        webhook_url,
+        data=json.dumps(slack_data),
+        headers={"Content-Type": "application/json"},
+    )
+    if response.status_code != 200:
+        FLASK_APP.logger.error(
+            f"{log_prefix} Failed to send message to slack: {message}. error: {response.text}"
+        )
+        return False
+    return True

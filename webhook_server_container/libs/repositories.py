@@ -1,7 +1,5 @@
-import json
 import re
 
-import requests
 import yaml
 from github import UnknownObjectException
 
@@ -14,7 +12,7 @@ from webhook_server_container.utils.constants import (
     PRE_COMMIT_CI_BOT_USER,
     VERIFIED_LABEL_STR,
 )
-from webhook_server_container.utils.helpers import ignore_exceptions
+from webhook_server_container.utils.helpers import ignore_exceptions, send_slack_message
 
 
 class Repositories(PullRequest):
@@ -49,20 +47,6 @@ class Repositories(PullRequest):
     @ignore_exceptions()
     def is_branch_exists(self, branch):
         return self.repository.get_branch(branch)
-
-    def send_slack_message(self, message, webhook_url):
-        slack_data = {"text": message}
-        self.logger.info(f"{self.log_prefix} Sending message to slack: {message}")
-        response = requests.post(
-            webhook_url,
-            data=json.dumps(slack_data),
-            headers={"Content-Type": "application/json"},
-        )
-        if response.status_code != 200:
-            raise ValueError(
-                f"Request to slack returned an error {response.status_code} with the following message: "
-                f"{response.text}"
-            )
 
     def process_comment_webhook_data(self):
         if self.hook_data["action"] in ("action", "deleted"):
@@ -147,7 +131,13 @@ class Repositories(PullRequest):
 
             if pull_request_data.get("merged"):
                 self.logger.info(f"{self.log_prefix} PR is merged")
-                self.build_container(push=True, set_check=False)
+                self.build_container(
+                    last_commit=self.last_commit,
+                    pull_request=self.pull_request,
+                    container_repository_and_tag=self.container_repository_and_tag,
+                    push=True,
+                    set_check=False,
+                )
 
                 for _label in self.pull_request.labels:
                     _label_name = _label.name
@@ -188,17 +178,19 @@ class Repositories(PullRequest):
             )
             if self.verified_job and labeled == VERIFIED_LABEL_STR:
                 if hook_action == "labeled":
-                    self.set_verify_check_success()
+                    self.set_verify_check_success(last_commit=self.last_commit)
 
                 if hook_action == "unlabeled":
-                    self.set_verify_check_queued()
+                    self.set_verify_check_queued(last_commit=self.last_commit)
 
             if (
                 CAN_BE_MERGED_STR
                 not in self.pull_request_labels_names(pull_request=self.pull_request)
                 or labeled != CAN_BE_MERGED_STR
             ):
-                self.check_if_can_be_merged(approvers=self.approvers)
+                self.check_if_can_be_merged(
+                    approvers=self.approvers, last_commit=self.last_commit
+                )
 
     def process_unknown_webhook_data(self):
         if self.hook_data == "check_run":
@@ -210,7 +202,9 @@ class Repositories(PullRequest):
                 self.process_check_run_complete(check_run=_check_run)
 
         if self.pull_request:
-            self.check_if_can_be_merged(approvers=self.approvers)
+            self.check_if_can_be_merged(
+                approvers=self.approvers, last_commit=self.last_commit
+            )
 
     def process_check_run_complete(self, check_run):
         self.logger.info(
@@ -242,9 +236,10 @@ class Repositories(PullRequest):
 {self.repository_name} Version {tag_name} published to PYPI.
 ```
 """
-                self.send_slack_message(
+                send_slack_message(
                     message=message,
                     webhook_url=self.slack_webhook_url,
+                    log_prefix=self.log_prefix,
                 )
 
         else:

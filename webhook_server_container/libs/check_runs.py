@@ -18,7 +18,7 @@ from webhook_server_container.utils.constants import (
     TOX_STR,
     VERIFIED_LABEL_STR,
 )
-from webhook_server_container.utils.helpers import run_command
+from webhook_server_container.utils.helpers import run_command, send_slack_message
 
 
 class CheckRuns(Labels):
@@ -220,20 +220,13 @@ class CheckRuns(Labels):
 
     def build_container(
         self,
-        build_and_push_container,
         last_commit,
         pull_request,
-        container_repo_dir,
-        dockerfile,
-        container_build_args,
-        container_command_args,
-        container_repository_username,
-        container_repository_password,
-        slack_webhook_url,
+        container_repository_and_tag,
         set_check=True,
         push=False,
     ):
-        if not build_and_push_container:
+        if not self.build_and_push_container:
             return False
 
         if self.is_check_run_in_progress(
@@ -254,51 +247,49 @@ class CheckRuns(Labels):
         if set_check:
             self.set_container_build_in_progress(last_commit=last_commit)
 
-        _container_repository_and_tag = self._container_repository_and_tag()
         build_cmd = (
-            f"--network=host -f {container_repo_dir}/{dockerfile} "
-            f"-t {_container_repository_and_tag}"
+            f"--network=host -f {self.container_repo_dir}/{self.dockerfile} "
+            f"-t {container_repository_and_tag}"
         )
-        if container_build_args:
-            build_args = [f"--build-arg {b_arg}" for b_arg in container_build_args][0]
+        if self.container_build_args:
+            build_args = [
+                f"--build-arg {b_arg}" for b_arg in self.container_build_args
+            ][0]
             build_cmd = f"{build_args} {build_cmd}"
 
-        if container_command_args:
-            build_cmd = f"{' '.join(container_command_args)} {build_cmd}"
+        if self.container_command_args:
+            build_cmd = f"{' '.join(self.container_command_args)} {build_cmd}"
 
         if push:
-            repository_creds = (
-                f"{container_repository_username}:{container_repository_password}"
-            )
-            build_cmd += f" && podman push --creds {repository_creds} {_container_repository_and_tag}"
+            repository_creds = f"{self.container_repository_username}:{self.container_repository_password}"
+            build_cmd += f" && podman push --creds {repository_creds} {container_repository_and_tag}"
         podman_build_cmd = f"podman build {build_cmd}"
 
         if self._run_in_container(command=podman_build_cmd, file_path=file_path)[0]:
             self.logger.info(
-                f"{self.log_prefix} Done building {_container_repository_and_tag}"
+                f"{self.log_prefix} Done building {container_repository_and_tag}"
             )
             if pull_request and set_check:
                 return self.set_container_build_success(
                     details_url=url_path, last_commit=last_commit
                 )
             if push:
-                push_msg = (
-                    f"New container for {_container_repository_and_tag} published"
-                )
+                push_msg = f"New container for {container_repository_and_tag} published"
                 pull_request.create_issue_comment(push_msg)
-                if slack_webhook_url:
+                if self.slack_webhook_url:
                     message = f"""
 ```
 {self.repository_name} {push_msg}.
 ```
 """
-                    self.send_slack_message(
+                    send_slack_message(
                         message=message,
-                        webhook_url=slack_webhook_url,
+                        webhook_url=self.slack_webhook_url,
+                        log_prefix=self.log_prefix,
                     )
 
                 self.logger.info(
-                    f"{self.log_prefix} Done push {_container_repository_and_tag}"
+                    f"{self.log_prefix} Done push {container_repository_and_tag}"
                 )
         else:
             if pull_request and set_check:

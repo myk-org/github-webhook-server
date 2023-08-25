@@ -57,7 +57,11 @@ class PullRequest(CheckRuns, Labels):
 
         check_rate_limit(github_api=self.github_api)
         self.pull_request = self.get_pull_request()
-        self.last_commit = self.get_last_commit() if self.pull_request else None
+        if not self.pull_request:
+            return
+
+        self.last_commit = self.get_last_commit()
+        self.container_repository_and_tag = self._container_repository_and_tag()
 
         log = Logs(repository_name=self.repository_name)
         self.logger = log.logger
@@ -210,16 +214,9 @@ Available user actions:
             futures.append(
                 executor.submit(
                     self.build_container,
-                    self.build_and_push_container,
                     self.last_commit,
                     self.pull_request,
-                    self.container_repo_dir,
-                    self.dockerfile,
-                    self.container_build_args,
-                    self.container_command_args,
-                    self.container_repository_username,
-                    self.container_repository_password,
-                    self.slack_webhook_url,
+                    self.container_repository_and_tag,
                 )
             )
 
@@ -354,7 +351,7 @@ Available user actions:
                     "```"
                 )
 
-    def check_if_can_be_merged(self, approvers):
+    def check_if_can_be_merged(self, approvers, last_commit):
         """
         Check if PR can be merged and set the job for it
 
@@ -368,7 +365,9 @@ Available user actions:
         if self.skip_merged_pull_request():
             return False
 
-        if self.is_check_run_in_progress(check_run=CAN_BE_MERGED_STR):
+        if self.is_check_run_in_progress(
+            check_run=CAN_BE_MERGED_STR, last_commit=last_commit
+        ):
             self.logger.info(
                 f"{self.log_prefix} Check run is in progress, not running {CAN_BE_MERGED_STR}."
             )
@@ -655,7 +654,11 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                                 issue_comment_id=issue_comment_id,
                                 reaction=REACTIONS.ok,
                             )
-                            self.build_container()
+                            self.build_container(
+                                last_commit=self.last_commit,
+                                pull_request=self.pull_request,
+                                container_repository_and_tag=self.container_repository_and_tag,
+                            )
                         else:
                             msg = f"No {BUILD_CONTAINER_STR} configured for this repository"
                             error_msg = f"{self.log_prefix} {msg}"
@@ -695,7 +698,12 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     issue_comment_id=issue_comment_id,
                     reaction=REACTIONS.ok,
                 )
-                self.build_container(push=True)
+                self.build_container(
+                    last_commit=self.last_commit,
+                    pull_request=self.pull_request,
+                    container_repository_and_tag=self.container_repository_and_tag,
+                    push=True,
+                )
             else:
                 msg = (
                     f"No {BUILD_AND_PUSH_CONTAINER_STR} configured for this repository"
