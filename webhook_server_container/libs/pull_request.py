@@ -188,7 +188,7 @@ Available user actions:
             verified_job=verified_job,
             api_user=api_user,
         )
-        self.add_size_label()
+        self.add_size_label(pull_request=self.pull_request)
         self.add_label(label=f"{BRANCH_LABEL_PREFIX}{pull_request_branch}")
         self.logger.info(f"{self.log_prefix} Adding PR owner as assignee")
         self.pull_request.add_to_assignees(parent_committer)
