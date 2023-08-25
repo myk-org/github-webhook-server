@@ -396,14 +396,14 @@ Available user actions:
                 self.remove_label(
                     label=CAN_BE_MERGED_STR, pull_request=self.pull_request
                 )
-                self.set_merge_check_queued()
+                self.set_merge_check_queued(last_commit=self.last_commit)
                 return False
 
             if self.pull_request.mergeable_state == "behind":
                 self.remove_label(
                     label=CAN_BE_MERGED_STR, pull_request=self.pull_request
                 )
-                self.set_merge_check_queued()
+                self.set_merge_check_queued(last_commit=self.last_commit)
                 return False
 
             all_check_runs_passed = all(
@@ -417,7 +417,7 @@ Available user actions:
                 self.remove_label(
                     label=CAN_BE_MERGED_STR, pull_request=self.pull_request
                 )
-                self.set_merge_check_queued()
+                self.set_merge_check_queued(last_commit=self.last_commit)
                 # TODO: Fix `run_retest_if_queued` and uncomment the call for it.
                 # self.run_retest_if_queued(last_commit_check_runs=last_commit_check_runs)
                 return False
@@ -429,7 +429,7 @@ Available user actions:
                         self.remove_label(
                             label=CAN_BE_MERGED_STR, pull_request=self.pull_request
                         )
-                        return self.set_merge_check_queued()
+                        return self.set_merge_check_queued(last_commit=self.last_commit)
 
             for _label in _labels:
                 if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
