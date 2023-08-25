@@ -152,7 +152,7 @@ Available user actions:
         tag = (
             self.container_tag
             if self.pull_request.is_merged()
-            else self.pull_request.number
+            else f"pr-{self.pull_request.number}"
         )
         return f"{self.container_repository}:{tag}"
 
@@ -546,10 +546,6 @@ Available labels:
         command,
         reviewed_user,
         issue_comment_id,
-        tox_enabled,
-        build_and_push_container,
-        pypi,
-        sonarqube_project_key,
     ):
         remove = False
         available_commands = ["retest", "cherry-pick"]
@@ -636,7 +632,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 _target_tests = _args.split()
                 for _test in _target_tests:
                     if _test == TOX_STR:
-                        if not tox_enabled:
+                        if not self.tox_enabled:
                             msg = f"No {TOX_STR} configured for this repository"
                             error_msg = f"{self.log_prefix} {msg}."
                             self.logger.info(error_msg)
@@ -652,7 +648,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                         )
 
                     elif _test == BUILD_CONTAINER_STR:
-                        if build_and_push_container:
+                        if self.build_and_push_container:
                             self.create_comment_reaction(
                                 issue_comment_id=issue_comment_id,
                                 reaction=REACTIONS.ok,
@@ -669,7 +665,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                             self.pull_request.create_issue_comment(msg)
 
                     elif _test == PYTHON_MODULE_INSTALL_STR:
-                        if not pypi:
+                        if not self.pypi:
                             error_msg = f"{self.log_prefix} No pypi configured"
                             self.logger.info(error_msg)
                             self.pull_request.create_issue_comment(error_msg)
@@ -684,7 +680,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                         )
 
                     elif _test == SONARQUBE_STR:
-                        if not sonarqube_project_key:
+                        if not self.sonarqube_project_key:
                             msg = f"No {SONARQUBE_STR} configured for this repository"
                             error_msg = f"{self.log_prefix} {msg}"
                             self.logger.info(error_msg)
@@ -700,7 +696,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                         )
 
         elif _command == BUILD_AND_PUSH_CONTAINER_STR:
-            if build_and_push_container:
+            if self.build_and_push_container:
                 self.create_comment_reaction(
                     issue_comment_id=issue_comment_id,
                     reaction=REACTIONS.ok,

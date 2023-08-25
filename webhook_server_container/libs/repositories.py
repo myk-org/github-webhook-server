@@ -80,10 +80,6 @@ class Repositories(PullRequest):
                 command=user_command,
                 reviewed_user=user_login,
                 issue_comment_id=self.hook_data["comment"]["id"],
-                tox_enabled=self.tox_enabled,
-                build_and_push_container=self.build_and_push_container,
-                pypi=self.pypi,
-                sonarqube_project_key=self.sonarqube_project_key,
             )
 
     def process_pull_request_webhook_data(self):
