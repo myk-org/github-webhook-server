@@ -440,9 +440,9 @@ Available user actions:
                         )
                         return self.set_merge_check_success()
 
-            return self.set_merge_check_queued()
+            return self.set_merge_check_queued(last_commit=self.last_commit)
         except Exception:
-            return self.set_merge_check_queued()
+            return self.set_merge_check_queued(last_commit=self.last_commit)
 
     def manage_reviewed_by_label(self, review_state, action, reviewed_user):
         self.logger.info(
