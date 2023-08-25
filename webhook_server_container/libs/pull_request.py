@@ -370,7 +370,8 @@ Available user actions:
             check_run=CAN_BE_MERGED_STR, last_commit=last_commit
         ):
             self.logger.info(
-                f"{self.log_prefix} Check run is in progress, not running {CAN_BE_MERGED_STR}."
+                f"{self.log_prefix} Check run {CAN_BE_MERGED_STR} is in progress, "
+                f"not running {CAN_BE_MERGED_STR} again."
             )
             return False
 

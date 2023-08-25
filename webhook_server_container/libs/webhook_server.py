@@ -25,4 +25,4 @@ class WebhookServer(Repositories):
             self.process_pull_request_review_webhook_data()
 
         elif data not in ignore_data:
-            self.process_unknown_webhook_data()
+            self.process_unknown_webhook_data(data=data)

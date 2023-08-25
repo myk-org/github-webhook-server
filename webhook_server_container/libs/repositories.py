@@ -184,8 +184,8 @@ class Repositories(PullRequest):
                     approvers=self.approvers, last_commit=self.last_commit
                 )
 
-    def process_unknown_webhook_data(self):
-        if self.hook_data == "check_run":
+    def process_unknown_webhook_data(self, data):
+        if data == "check_run":
             _check_run = self.hook_data["check_run"]
             if _check_run["name"] == CAN_BE_MERGED_STR:
                 return
