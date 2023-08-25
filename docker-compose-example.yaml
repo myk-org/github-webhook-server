@@ -5,7 +5,7 @@ services:
     container_name: github-webhook-server
     build: webhook-server-container
       - ./webhook_server_data_dir:/webhook_server:Z # Should include config.yaml and webhook-server.private-key.pem
-      - ./containers:/var/lib/containers # optional, to cache podman pull containers
+      - ./containers:/containers:Z # optional, to cache podman pull containers
     environment:
       - FLASK_DEBUG=1 # Debug Flask server to get logs to console.
       - PUID=1000
