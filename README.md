@@ -185,21 +185,19 @@ Supported labels:
 To run locally you need to export some os environment variables
 
 ```bash
+#!/bin/bash
+
 poetry install
 
 WEBHOOK_SERVER_DATA_DIR=/tmp/webhook_server_data
-SONAR_SCANNER_URL=https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.0.2966-linux.zip
 
 mkdir -p $WEBHOOK_SERVER_DATA_DIR
-cp -f webhook-server.private-key.pem $WEBHOOK_SERVER_DATA_DIR/webhook-server.private-key.pem
-cp -f config.yaml $WEBHOOK_SERVER_DATA_DIR/config.yaml
-export WEBHOOK_SERVER_PORT=5003
-curl $SONAR_SCANNER_URL --output /tmp/sonar-scanner-cli.zip \
-    && unzip -o /tmp/sonar-scanner-cli.zip -d /tmp/sonar-scanner-cli \
-    && rm -rf /tmp/sonar-scanner-cli.zip
+mkdir -p /tmp/containers
+cp -f /home/myakove/docker-data/github_webhook_server_myakove/webhook_server/webhook-server.private-key.pem $WEBHOOK_SERVER_DATA_DIR/webhook-server.private-key.pem
+cp config.yaml $WEBHOOK_SERVER_DATA_DIR/config.yaml
 
+export WEBHOOK_SERVER_PORT=9999
 export FLASK_DEBUG=1
 export WEBHOOK_SERVER_DATA_DIR=$WEBHOOK_SERVER_DATA_DIR
-export SONAR_SCANNER_CLI_DIR=/tmp/sonar-scansner-cli
 poetry run python webhook_server_container/app.py
 ```

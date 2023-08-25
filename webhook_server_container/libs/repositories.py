@@ -80,7 +80,6 @@ class Repositories(PullRequest):
                 command=user_command,
                 reviewed_user=user_login,
                 issue_comment_id=self.hook_data["comment"]["id"],
-                github_token=self.token,
                 tox_enabled=self.tox_enabled,
                 build_and_push_container=self.build_and_push_container,
                 pypi=self.pypi,
