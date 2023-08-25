@@ -166,30 +166,22 @@ Available user actions:
         """
 
     def process_opened_or_synchronize_pull_request(
-        self, parent_committer, pull_request_branch, verified_job, api_user, reviewers
+        self, parent_committer, pull_request_branch, api_user, reviewers
     ):
         self.set_merge_check_queued(last_commit=self.last_commit)
-        self.set_run_tox_check_queued(
-            tox_enabled=self.tox_enabled, last_commit=self.last_commit
-        )
-        self.set_python_module_install_queued(
-            pypi=self.pypi, last_commit=self.last_commit
-        )
-        self.set_container_build_queued(
-            build_and_push_container=self.build_and_push_container,
-            last_commit=self.last_commit,
-        )
-        self.set_sonarqube_queued(
-            sonarqube_project_key=self.sonarqube_project_key,
-            last_commit=self.last_commit,
-        )
+        self.set_run_tox_check_queued(last_commit=self.last_commit)
+        self.set_python_module_install_queued(last_commit=self.last_commit)
+        self.set_container_build_queued(last_commit=self.last_commit)
+        self.set_sonarqube_queued(last_commit=self.last_commit)
         self._process_verified(
             parent_committer=parent_committer,
-            verified_job=verified_job,
             api_user=api_user,
         )
         self.add_size_label(pull_request=self.pull_request)
-        self.add_label(label=f"{BRANCH_LABEL_PREFIX}{pull_request_branch}")
+        self.add_label(
+            label=f"{BRANCH_LABEL_PREFIX}{pull_request_branch}",
+            pull_request=self.pull_request,
+        )
         self.logger.info(f"{self.log_prefix} Adding PR owner as assignee")
         self.pull_request.add_to_assignees(parent_committer)
         self.assign_reviewers(reviewers=reviewers)
@@ -199,23 +191,23 @@ Available user actions:
             futures.append(
                 executor.submit(
                     self.run_sonarqube,
-                    self.sonarqube_project_key,
-                    self.sonarqube_url,
-                    self.sonarqube_api,
+                    self.pull_request,
                     self.last_commit,
                 )
             )
             futures.append(
-                executor.submit(self.run_tox, self.tox_enabled, self.last_commit)
+                executor.submit(self.run_tox, self.pull_request, self.last_commit)
             )
             futures.append(
-                executor.submit(self.install_python_module, self.pypi, self.last_commit)
+                executor.submit(
+                    self.install_python_module, self.pull_request, self.last_commit
+                )
             )
             futures.append(
                 executor.submit(
                     self.build_container,
-                    self.last_commit,
                     self.pull_request,
+                    self.last_commit,
                     self.container_repository_and_tag,
                 )
             )
@@ -239,8 +231,8 @@ Available user actions:
                         f"{self.log_prefix} Failed to add reviewer {reviewer}. {ex}"
                     )
 
-    def _process_verified(self, parent_committer, verified_job, api_user):
-        if not verified_job:
+    def _process_verified(self, parent_committer, api_user):
+        if not self.verified_job:
             return
 
         if parent_committer in (api_user, PRE_COMMIT_CI_BOT_USER):
@@ -249,7 +241,7 @@ Available user actions:
                 f"{parent_committer}, Setting verified label"
             )
             self.add_label(label=VERIFIED_LABEL_STR, pull_request=self.pull_request)
-            self.set_verify_check_success()
+            self.set_verify_check_success(last_commit=self.last_commit)
         else:
             self.reset_verify_label(pull_request=self.pull_request)
             self.set_verify_check_queued(last_commit=self.last_commit)
@@ -286,7 +278,7 @@ Available user actions:
                 issue.edit(state="closed")
                 break
 
-    def cherry_pick(self, target_branch, github_token, reviewed_user=None):
+    def cherry_pick(self, target_branch, reviewed_user=None):
         @ignore_exceptions()
         def is_branch_exists(self, branch):
             return self.repository.get_branch(branch)
@@ -302,14 +294,16 @@ Available user actions:
             self.logger.error(err_msg)
             self.pull_request.create_issue_comment(err_msg)
         else:
-            self.set_cherry_pick_in_progress()
+            self.set_cherry_pick_in_progress(last_commit=self.last_commit)
             file_path, url_path = self._get_check_run_result_file_path(
-                check_run=CHERRY_PICKED_LABEL_PREFIX
+                check_run=CHERRY_PICKED_LABEL_PREFIX,
+                pull_request=self.pull_request,
+                last_commit=self.last_commit,
             )
             commit_hash = self.pull_request.merge_commit_sha
             commit_msg = self.pull_request.title
             pull_request_url = self.pull_request.html_url
-            env = f"-e GITHUB_TOKEN={github_token}"
+            env = f"-e GITHUB_TOKEN={self.token}"
             cmd = (
                 f" git checkout {target_branch}"
                 f" && git pull origin {target_branch}"
@@ -325,15 +319,22 @@ Available user actions:
                 f'-m "requested-by {requested_by}"'
             )
             rc, out, err = self._run_in_container(
-                command=cmd, env=env, file_path=file_path
+                command=cmd,
+                pull_request=self.pull_request,
+                env=env,
+                file_path=file_path,
             )
             if rc:
-                self.set_cherry_pick_success(details_url=url_path)
+                self.set_cherry_pick_success(
+                    details_url=url_path, last_commit=self.last_commit
+                )
                 self.pull_request.create_issue_comment(
                     f"Cherry-picked PR {self.pull_request.title} into {target_branch}"
                 )
             else:
-                self.set_cherry_pick_failure(details_url=url_path)
+                self.set_cherry_pick_failure(
+                    details_url=url_path, last_commit=self.last_commit
+                )
                 self.logger.error(
                     f"{self.log_prefix} Cherry pick failed: {out} --- {err}"
                 )
@@ -389,7 +390,7 @@ Available user actions:
             return False
 
         try:
-            self.set_merge_check_in_progress()
+            self.set_merge_check_in_progress(last_commit=self.last_commit)
             _labels = self.pull_request_labels_names(pull_request=self.pull_request)
 
             if VERIFIED_LABEL_STR not in _labels or HOLD_LABEL_STR in _labels:
@@ -438,7 +439,9 @@ Available user actions:
                         self.add_label(
                             label=CAN_BE_MERGED_STR, pull_request=self.pull_request
                         )
-                        return self.set_merge_check_success()
+                        return self.set_merge_check_success(
+                            last_commit=self.last_commit
+                        )
 
             return self.set_merge_check_queued(last_commit=self.last_commit)
         except Exception:
@@ -536,14 +539,13 @@ Available labels:
 
         else:
             label_func = self.remove_label if remove else self.add_label
-            label_func(label=user_request)
+            label_func(label=user_request, pull_request=self.pull_request)
 
     def user_commands(
         self,
         command,
         reviewed_user,
         issue_comment_id,
-        github_token,
         tox_enabled,
         build_and_push_container,
         pypi,
@@ -624,7 +626,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                         for _exits_target_branch in _exits_target_branches:
                             self.cherry_pick(
                                 target_branch=_exits_target_branch,
-                                github_token=github_token,
                                 reviewed_user=reviewed_user,
                             )
 
@@ -646,7 +647,9 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                             issue_comment_id=issue_comment_id,
                             reaction=REACTIONS.ok,
                         )
-                        self.run_tox()
+                        self.run_tox(
+                            pull_request=self.pull_request, last_commit=self.last_commit
+                        )
 
                     elif _test == BUILD_CONTAINER_STR:
                         if build_and_push_container:
@@ -676,7 +679,9 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                             issue_comment_id=issue_comment_id,
                             reaction=REACTIONS.ok,
                         )
-                        self.install_python_module()
+                        self.install_python_module(
+                            pull_request=self.pull_request, last_commit=self.last_commit
+                        )
 
                     elif _test == SONARQUBE_STR:
                         if not sonarqube_project_key:
@@ -690,7 +695,9 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                             issue_comment_id=issue_comment_id,
                             reaction=REACTIONS.ok,
                         )
-                        self.run_sonarqube()
+                        self.run_sonarqube(
+                            pull_request=self.pull_request, last_commit=self.last_commit
+                        )
 
         elif _command == BUILD_AND_PUSH_CONTAINER_STR:
             if build_and_push_container:

@@ -52,8 +52,8 @@ class CheckRuns(Labels):
             last_commit=last_commit,
         )
 
-    def set_run_tox_check_queued(self, tox_enabled, last_commit):
-        if not tox_enabled:
+    def set_run_tox_check_queued(self, last_commit):
+        if not self.tox_enabled:
             return False
 
         return self.set_check_run_status(
@@ -96,8 +96,8 @@ class CheckRuns(Labels):
             check_run=CAN_BE_MERGED_STR, conclusion=SUCCESS_STR, last_commit=last_commit
         )
 
-    def set_container_build_queued(self, build_and_push_container, last_commit):
-        if not build_and_push_container:
+    def set_container_build_queued(self, last_commit):
+        if not self.build_and_push_container:
             return
 
         return self.set_check_run_status(
@@ -127,8 +127,8 @@ class CheckRuns(Labels):
             last_commit=last_commit,
         )
 
-    def set_python_module_install_queued(self, pypi, last_commit):
-        if not pypi:
+    def set_python_module_install_queued(self, last_commit):
+        if not self.pypi:
             return False
 
         return self.set_check_run_status(
@@ -160,8 +160,8 @@ class CheckRuns(Labels):
             last_commit=last_commit,
         )
 
-    def set_sonarqube_queued(self, sonarqube_project_key, last_commit):
-        if not sonarqube_project_key:
+    def set_sonarqube_queued(self, last_commit):
+        if not self.sonarqube_project_key:
             return False
 
         return self.set_check_run_status(
@@ -220,8 +220,8 @@ class CheckRuns(Labels):
 
     def build_container(
         self,
-        last_commit,
         pull_request,
+        last_commit,
         container_repository_and_tag,
         set_check=True,
         push=False,
@@ -241,7 +241,9 @@ class CheckRuns(Labels):
 
         if pull_request:
             file_path, url_path = self._get_check_run_result_file_path(
-                check_run=BUILD_CONTAINER_STR
+                check_run=BUILD_CONTAINER_STR,
+                pull_request=pull_request,
+                last_commit=last_commit,
             )
 
         if set_check:
@@ -265,7 +267,9 @@ class CheckRuns(Labels):
             build_cmd += f" && podman push --creds {repository_creds} {container_repository_and_tag}"
         podman_build_cmd = f"podman build {build_cmd}"
 
-        if self._run_in_container(command=podman_build_cmd, file_path=file_path)[0]:
+        if self._run_in_container(
+            command=podman_build_cmd, pull_request=pull_request, file_path=file_path
+        )[0]:
             self.logger.info(
                 f"{self.log_prefix} Done building {container_repository_and_tag}"
             )
@@ -297,8 +301,8 @@ class CheckRuns(Labels):
                     details_url=url_path, last_commit=last_commit
                 )
 
-    def install_python_module(self, pypi, last_commit):
-        if not pypi:
+    def install_python_module(self, pull_request, last_commit):
+        if not self.pypi:
             return False
 
         if self.is_check_run_in_progress(
@@ -311,11 +315,15 @@ class CheckRuns(Labels):
 
         self.logger.info(f"{self.log_prefix} Installing python module")
         file_path, url_path = self._get_check_run_result_file_path(
-            check_run=PYTHON_MODULE_INSTALL_STR
+            check_run=PYTHON_MODULE_INSTALL_STR,
+            pull_request=pull_request,
+            last_commit=last_commit,
         )
         f"{PYTHON_MODULE_INSTALL_STR}-{shortuuid.uuid()}"
         self.set_python_module_install_in_progress(last_commit=last_commit)
-        if self._run_in_container(command="pip install .", file_path=file_path)[0]:
+        if self._run_in_container(
+            command="pip install .", pull_request=pull_request, file_path=file_path
+        )[0]:
             return self.set_python_module_install_success(
                 details_url=url_path, last_commit=last_commit
             )
@@ -324,8 +332,8 @@ class CheckRuns(Labels):
             details_url=url_path, last_commit=last_commit
         )
 
-    def run_tox(self, tox_enabled, last_commit):
-        if not tox_enabled:
+    def run_tox(self, pull_request, last_commit):
+        if not self.tox_enabled:
             return False
 
         if self.is_check_run_in_progress(check_run=TOX_STR, last_commit=last_commit):
@@ -334,14 +342,18 @@ class CheckRuns(Labels):
             )
             return False
 
-        file_path, url_path = self._get_check_run_result_file_path(check_run=TOX_STR)
+        file_path, url_path = self._get_check_run_result_file_path(
+            check_run=TOX_STR, pull_request=pull_request, last_commit=last_commit
+        )
         cmd = f"{TOX_STR}"
-        if tox_enabled != "all":
-            tests = tox_enabled.replace(" ", "")
+        if self.tox_enabled != "all":
+            tests = self.tox_enabled.replace(" ", "")
             cmd += f" -e {tests}"
 
         self.set_run_tox_check_in_progress(last_commit=last_commit)
-        if self._run_in_container(command=cmd, file_path=file_path)[0]:
+        if self._run_in_container(
+            command=cmd, pull_request=pull_request, file_path=file_path
+        )[0]:
             return self.set_run_tox_check_success(
                 details_url=url_path, last_commit=last_commit
             )
@@ -350,18 +362,18 @@ class CheckRuns(Labels):
                 details_url=url_path, last_commit=last_commit
             )
 
-    def run_sonarqube(
-        self, sonarqube_project_key, sonarqube_url, sonarqube_api, last_commit
-    ):
-        if not sonarqube_project_key:
+    def run_sonarqube(self, pull_request, last_commit):
+        if not self.sonarqube_project_key:
             return False
 
         self.set_sonarqube_in_progress(last_commit=last_commit)
-        target_url = f"{sonarqube_url}/dashboard?id={sonarqube_project_key}"
-        cmd = sonarqube_api.get_sonar_scanner_command(project_key=sonarqube_project_key)
-        if self._run_in_container(command=cmd)[0]:
-            project_status = sonarqube_api.get_project_quality_status(
-                project_key=sonarqube_project_key
+        target_url = f"{self.sonarqube_url}/dashboard?id={self.sonarqube_project_key}"
+        cmd = self.sonarqube_api.get_sonar_scanner_command(
+            project_key=self.sonarqube_project_key
+        )
+        if self._run_in_container(command=cmd, pull_request=pull_request)[0]:
+            project_status = self.sonarqube_api.get_project_quality_status(
+                project_key=self.sonarqube_project_key
             )
             project_status_res = project_status["projectStatus"]["status"]
             if project_status_res == "OK":
@@ -400,17 +412,17 @@ class CheckRuns(Labels):
         )
         return self.repository_by_github_app.create_check_run(**kwargs)
 
-    def _get_check_run_result_file_path(self, check_run):
+    def _get_check_run_result_file_path(self, check_run, pull_request, last_commit):
         base_path = os.path.join(self.webhook_server_data_dir, check_run)
         if not os.path.exists(base_path):
             os.makedirs(name=base_path, exist_ok=True)
 
-        file_name = f"PR-{self.pull_request.number}-{self.last_commit.sha}"
+        file_name = f"PR-{pull_request.number}-{last_commit.sha}"
         file_path = os.path.join(base_path, file_name)
         url_path = f"{self.webhook_url}{APP_ROOT_PATH}/{check_run}/{file_name}"
         return file_path, url_path
 
-    def _run_in_container(self, command, env=None, file_path=None):
+    def _run_in_container(self, command, pull_request, env=None, file_path=None):
         podman_base_cmd = (
             f"podman run --privileged -v /tmp/containers:/var/lib/containers/:Z --rm {env if env else ''} "
             f"--entrypoint bash quay.io/myakove/github-webhook-server -c"
@@ -428,8 +440,8 @@ class CheckRuns(Labels):
         clone_base_cmd += " && git remote update"
 
         # Checkout the pull request
-        if self.pull_request:
-            clone_base_cmd += f" && git checkout origin/pr/{self.pull_request.number}"
+        if pull_request:
+            clone_base_cmd += f" && git checkout origin/pr/{pull_request.number}"
 
         # final podman command
         podman_base_cmd += f" '{clone_base_cmd} && {command}'"
