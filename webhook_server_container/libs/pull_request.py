@@ -251,8 +251,8 @@ Available user actions:
             self.add_label(label=VERIFIED_LABEL_STR, pull_request=self.pull_request)
             self.set_verify_check_success()
         else:
-            self.reset_verify_label()
-            self.set_verify_check_queued()
+            self.reset_verify_label(pull_request=self.pull_request)
+            self.set_verify_check_queued(last_commit=self.last_commit)
 
     def needs_rebase(self):
         for pull_request in self.repository.get_pulls():
