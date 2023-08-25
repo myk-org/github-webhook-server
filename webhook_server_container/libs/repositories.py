@@ -188,6 +188,9 @@ class Repositories(PullRequest):
         if data == "check_run":
             _check_run = self.hook_data["check_run"]
             if _check_run["name"] == CAN_BE_MERGED_STR:
+                self.logger.info(
+                    f"{self.log_prefix} event is for {CAN_BE_MERGED_STR}, not processing."
+                )
                 return
 
             if self.hook_data["action"] == "completed":
