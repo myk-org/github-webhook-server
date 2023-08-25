@@ -62,7 +62,11 @@ class PullRequest(CheckRuns, Labels):
 
         self.last_commit = self.get_last_commit()
 
-        log = Logs(repository_name=self.repository_name)
+        log = Logs(
+            repository_name=self.repository_name,
+            pull_request=self.pull_request,
+            token=self.token,
+        )
         self.logger = log.logger
         self.log_prefix = log.log_prefix
 
