@@ -105,7 +105,6 @@ class Repositories(PullRequest):
             self.process_opened_or_synchronize_pull_request(
                 parent_committer=parent_committer,
                 pull_request_branch=pull_request_branch,
-                verified_job=self.verified_job,
                 api_user=self.api_user,
                 reviewers=self.reviewers,
             )
@@ -120,7 +119,6 @@ class Repositories(PullRequest):
             self.process_opened_or_synchronize_pull_request(
                 parent_committer=parent_committer,
                 pull_request_branch=pull_request_branch,
-                verified_job=self.verified_job,
                 api_user=self.api_user,
                 reviewers=self.reviewers,
             )
