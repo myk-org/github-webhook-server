@@ -139,7 +139,6 @@ class Repositories(PullRequest):
                             target_branch=_label_name.replace(
                                 CHERRY_PICK_LABEL_PREFIX, ""
                             ),
-                            github_token=self.token,
                         )
 
                 self.needs_rebase()
@@ -220,7 +219,9 @@ class Repositories(PullRequest):
             " && twine check /tmp/dist/$(echo *.tar.gz)"
             " && twine upload /tmp/dist/$(echo *.tar.gz) --skip-existing"
         )
-        rc, out, err = self._run_in_container(command=cmd, env=env)
+        rc, out, err = self._run_in_container(
+            command=cmd, pull_request=self.pull_request, env=env
+        )
         if rc:
             self.logger.info(f"{self.log_prefix} Publish to pypi finished")
             if self.slack_webhook_url:
@@ -268,4 +269,6 @@ stderr: `{err}`
                 action=ADD_STR,
                 reviewed_user=self.hook_data["review"]["user"]["login"],
             )
-        self.check_if_can_be_merged(approvers=self.approvers)
+        self.check_if_can_be_merged(
+            approvers=self.approvers, last_commit=self.last_commit
+        )

@@ -61,7 +61,6 @@ class PullRequest(CheckRuns, Labels):
             return
 
         self.last_commit = self.get_last_commit()
-        self.container_repository_and_tag = self._container_repository_and_tag()
 
         log = Logs(repository_name=self.repository_name)
         self.logger = log.logger
@@ -148,7 +147,8 @@ Available user actions:
         _comment = self.pull_request.get_issue_comment(issue_comment_id)
         _comment.create_reaction(reaction)
 
-    def _container_repository_and_tag(self):
+    @property
+    def container_repository_and_tag(self):
         tag = (
             self.container_tag
             if self.pull_request.is_merged()
@@ -376,6 +376,48 @@ Available user actions:
 
         self.logger.info(f"{self.log_prefix} Check if {CAN_BE_MERGED_STR}.")
         last_commit_check_runs = list(self.last_commit.get_check_runs())
+
+        if self.check_if_check_runs_in_progress(
+            last_commit_check_runs=last_commit_check_runs
+        ):
+            return False
+
+        try:
+            self.set_merge_check_in_progress(last_commit=self.last_commit)
+            _labels = self.pull_request_labels_names(pull_request=self.pull_request)
+
+            if self.check_if_pull_request_is_not_verified(_labels=_labels):
+                return False
+
+            if self.pull_request.mergeable_state == "behind":
+                self.remove_label(
+                    label=CAN_BE_MERGED_STR, pull_request=self.pull_request
+                )
+                self.set_merge_check_queued(last_commit=self.last_commit)
+                return False
+
+            if self.check_if_not_all_check_runs_passed(
+                last_commit_check_runs=last_commit_check_runs
+            ):
+                return False
+
+            for _label in _labels:
+                if self.check_if_pull_request_has_change_request_review_label(
+                    _label=_label, approvers=approvers
+                ):
+                    return self.set_merge_check_queued(last_commit=self.last_commit)
+
+            for _label in _labels:
+                if self.check_if_pull_request_has_approved_label(
+                    _label=_label, approvers=approvers
+                ):
+                    return self.set_merge_check_success(last_commit=self.last_commit)
+
+            return self.set_merge_check_queued(last_commit=self.last_commit)
+        except Exception:
+            return self.set_merge_check_queued(last_commit=self.last_commit)
+
+    def check_if_check_runs_in_progress(self, last_commit_check_runs):
         check_runs_in_progress = [
             check_run.name
             for check_run in last_commit_check_runs
@@ -387,65 +429,47 @@ Available user actions:
                 f"{self.log_prefix} Some check runs in progress {check_runs_in_progress}, "
                 f"skipping check if {CAN_BE_MERGED_STR}."
             )
-            return False
+            return True
+        return False
 
-        try:
-            self.set_merge_check_in_progress(last_commit=self.last_commit)
-            _labels = self.pull_request_labels_names(pull_request=self.pull_request)
+    def check_if_pull_request_is_not_verified(self, _labels):
+        if VERIFIED_LABEL_STR not in _labels or HOLD_LABEL_STR in _labels:
+            self.remove_label(label=CAN_BE_MERGED_STR, pull_request=self.pull_request)
+            self.set_merge_check_queued(last_commit=self.last_commit)
+            return True
+        return False
 
-            if VERIFIED_LABEL_STR not in _labels or HOLD_LABEL_STR in _labels:
+    def check_if_not_all_check_runs_passed(self, last_commit_check_runs):
+        all_check_runs_passed = all(
+            [
+                check_run.conclusion == SUCCESS_STR
+                for check_run in last_commit_check_runs
+                if check_run.name != CAN_BE_MERGED_STR
+            ]
+        )
+        if not all_check_runs_passed:
+            self.remove_label(label=CAN_BE_MERGED_STR, pull_request=self.pull_request)
+            self.set_merge_check_queued(last_commit=self.last_commit)
+            return True
+        return False
+
+    def check_if_pull_request_has_change_request_review_label(self, _label, approvers):
+        if CHANGED_REQUESTED_BY_LABEL_PREFIX.lower() in _label.lower():
+            change_request_user = _label.split("-")[-1]
+            if change_request_user in approvers:
                 self.remove_label(
                     label=CAN_BE_MERGED_STR, pull_request=self.pull_request
                 )
-                self.set_merge_check_queued(last_commit=self.last_commit)
-                return False
+                return True
+        return False
 
-            if self.pull_request.mergeable_state == "behind":
-                self.remove_label(
-                    label=CAN_BE_MERGED_STR, pull_request=self.pull_request
-                )
-                self.set_merge_check_queued(last_commit=self.last_commit)
-                return False
-
-            all_check_runs_passed = all(
-                [
-                    check_run.conclusion == SUCCESS_STR
-                    for check_run in last_commit_check_runs
-                    if check_run.name != CAN_BE_MERGED_STR
-                ]
-            )
-            if not all_check_runs_passed:
-                self.remove_label(
-                    label=CAN_BE_MERGED_STR, pull_request=self.pull_request
-                )
-                self.set_merge_check_queued(last_commit=self.last_commit)
-                # TODO: Fix `run_retest_if_queued` and uncomment the call for it.
-                # self.run_retest_if_queued(last_commit_check_runs=last_commit_check_runs)
-                return False
-
-            for _label in _labels:
-                if CHANGED_REQUESTED_BY_LABEL_PREFIX.lower() in _label.lower():
-                    change_request_user = _label.split("-")[-1]
-                    if change_request_user in approvers:
-                        self.remove_label(
-                            label=CAN_BE_MERGED_STR, pull_request=self.pull_request
-                        )
-                        return self.set_merge_check_queued(last_commit=self.last_commit)
-
-            for _label in _labels:
-                if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
-                    approved_user = _label.split("-")[-1]
-                    if approved_user in approvers:
-                        self.add_label(
-                            label=CAN_BE_MERGED_STR, pull_request=self.pull_request
-                        )
-                        return self.set_merge_check_success(
-                            last_commit=self.last_commit
-                        )
-
-            return self.set_merge_check_queued(last_commit=self.last_commit)
-        except Exception:
-            return self.set_merge_check_queued(last_commit=self.last_commit)
+    def check_if_pull_request_has_approved_label(self, _label, approvers):
+        if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
+            approved_user = _label.split("-")[-1]
+            if approved_user in approvers:
+                self.add_label(label=CAN_BE_MERGED_STR, pull_request=self.pull_request)
+                return True
+        return False
 
     def manage_reviewed_by_label(self, review_state, action, reviewed_user):
         self.logger.info(
@@ -461,18 +485,9 @@ Available user actions:
         )
 
         if review_state in ("approved", LGTM_STR):
-            base_dict = self.hook_data.get("issue", self.hook_data.get("pull_request"))
-            pr_owner = base_dict["user"]["login"]
-            if pr_owner == reviewed_user:
-                self.logger.info(
-                    f"{self.log_prefix} PR owner {pr_owner} set /lgtm, not adding label."
-                )
-                return
-
-            label_prefix = APPROVED_BY_LABEL_PREFIX
-            _remove_label = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{reviewed_user}"
-            if _remove_label in pull_request_labels:
-                label_to_remove = _remove_label
+            label_prefix, label_to_remove = self.process_user_review_lgtm_approve(
+                reviewed_user=reviewed_user, pull_request_labels=pull_request_labels
+            )
 
         elif review_state == "changes_requested":
             label_prefix = CHANGED_REQUESTED_BY_LABEL_PREFIX
@@ -499,6 +514,23 @@ Available user actions:
             self.logger.warning(
                 f"{self.log_prefix} PR {self.pull_request.number} got unsupported review state: {review_state}"
             )
+
+    def process_user_review_lgtm_approve(self, reviewed_user, pull_request_labels):
+        label_to_remove = None
+        base_dict = self.hook_data.get("issue", self.hook_data.get("pull_request"))
+        pr_owner = base_dict["user"]["login"]
+        if pr_owner == reviewed_user:
+            self.logger.info(
+                f"{self.log_prefix} PR owner {pr_owner} set /lgtm, not adding label."
+            )
+            return
+
+        label_prefix = APPROVED_BY_LABEL_PREFIX
+        _remove_label = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{reviewed_user}"
+        if _remove_label in pull_request_labels:
+            label_to_remove = _remove_label
+
+        return label_prefix, label_to_remove
 
     def label_by_user_comment(
         self, user_request, remove, reviewed_user, issue_comment_id
@@ -547,7 +579,6 @@ Available labels:
         reviewed_user,
         issue_comment_id,
     ):
-        remove = False
         available_commands = ["retest", "cherry-pick"]
         if "sonarsource.github.io" in command:
             self.logger.info(f"{self.log_prefix} command is in ignore list")
@@ -557,15 +588,9 @@ Available labels:
             f"{self.log_prefix} Processing label/user command {command} "
             f"by user {reviewed_user}"
         )
-        command_and_args = command.split(" ", 1)
-        _command = command_and_args[0]
+
+        _command, _args, remove = self.get_user_command_and_args(command=command)
         not_running_msg = f"Pull request already merged, not running {_command}"
-        _args = command_and_args[1] if len(command_and_args) > 1 else ""
-        if len(command_and_args) > 1 and _args == "cancel":
-            self.logger.info(
-                f"{self.log_prefix} User requested 'cancel' for command {_command}"
-            )
-            remove = True
 
         if _command in available_commands:
             if not _args:
@@ -576,164 +601,30 @@ Available labels:
                 return
 
             if _command == "cherry-pick":
-                self.create_comment_reaction(
+                self.process_user_command_cherry_pick(
+                    _args=_args,
                     issue_comment_id=issue_comment_id,
-                    reaction=REACTIONS.ok,
+                    reviewed_user=reviewed_user,
                 )
-                _target_branches = _args.split()
-                _exits_target_branches = set()
-                _non_exits_target_branches_msg = ""
-
-                for _target_branch in _target_branches:
-                    try:
-                        self.repository.get_branch(_target_branch)
-                    except Exception:
-                        _non_exits_target_branches_msg += (
-                            f"Target branch `{_target_branch}` does not exist\n"
-                        )
-
-                    _exits_target_branches.add(_target_branch)
-
-                if _non_exits_target_branches_msg:
-                    self.logger.info(
-                        f"{self.log_prefix} {_non_exits_target_branches_msg}"
-                    )
-                    self.pull_request.create_issue_comment(
-                        _non_exits_target_branches_msg
-                    )
-
-                if _exits_target_branches:
-                    if not self.pull_request.is_merged():
-                        cp_labels = [
-                            f"{CHERRY_PICK_LABEL_PREFIX}{_target_branch}"
-                            for _target_branch in _exits_target_branches
-                        ]
-                        info_msg = f"""
-Cherry-pick requested for PR: `{self.pull_request.title}` by user `{reviewed_user}`
-Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automatic cheery-pick once the PR is merged
-"""
-                        self.logger.info(f"{self.log_prefix} {info_msg}")
-                        self.pull_request.create_issue_comment(info_msg)
-                        for _cp_label in cp_labels:
-                            self.add_label(
-                                label=_cp_label, pull_request=self.pull_request
-                            )
-                    else:
-                        for _exits_target_branch in _exits_target_branches:
-                            self.cherry_pick(
-                                target_branch=_exits_target_branch,
-                                reviewed_user=reviewed_user,
-                            )
 
             elif _command == "retest":
-                if self.skip_merged_pull_request():
-                    return self.pull_request.create_issue_comment(not_running_msg)
-
-                _target_tests = _args.split()
-                for _test in _target_tests:
-                    if _test == TOX_STR:
-                        if not self.tox_enabled:
-                            msg = f"No {TOX_STR} configured for this repository"
-                            error_msg = f"{self.log_prefix} {msg}."
-                            self.logger.info(error_msg)
-                            self.pull_request.create_issue_comment(msg)
-                            return
-
-                        self.create_comment_reaction(
-                            issue_comment_id=issue_comment_id,
-                            reaction=REACTIONS.ok,
-                        )
-                        self.run_tox(
-                            pull_request=self.pull_request, last_commit=self.last_commit
-                        )
-
-                    elif _test == BUILD_CONTAINER_STR:
-                        if self.build_and_push_container:
-                            self.create_comment_reaction(
-                                issue_comment_id=issue_comment_id,
-                                reaction=REACTIONS.ok,
-                            )
-                            self.build_container(
-                                last_commit=self.last_commit,
-                                pull_request=self.pull_request,
-                                container_repository_and_tag=self.container_repository_and_tag,
-                            )
-                        else:
-                            msg = f"No {BUILD_CONTAINER_STR} configured for this repository"
-                            error_msg = f"{self.log_prefix} {msg}"
-                            self.logger.info(error_msg)
-                            self.pull_request.create_issue_comment(msg)
-
-                    elif _test == PYTHON_MODULE_INSTALL_STR:
-                        if not self.pypi:
-                            error_msg = f"{self.log_prefix} No pypi configured"
-                            self.logger.info(error_msg)
-                            self.pull_request.create_issue_comment(error_msg)
-                            return
-
-                        self.create_comment_reaction(
-                            issue_comment_id=issue_comment_id,
-                            reaction=REACTIONS.ok,
-                        )
-                        self.install_python_module(
-                            pull_request=self.pull_request, last_commit=self.last_commit
-                        )
-
-                    elif _test == SONARQUBE_STR:
-                        if not self.sonarqube_project_key:
-                            msg = f"No {SONARQUBE_STR} configured for this repository"
-                            error_msg = f"{self.log_prefix} {msg}"
-                            self.logger.info(error_msg)
-                            self.pull_request.create_issue_comment(msg)
-                            return
-
-                        self.create_comment_reaction(
-                            issue_comment_id=issue_comment_id,
-                            reaction=REACTIONS.ok,
-                        )
-                        self.run_sonarqube(
-                            pull_request=self.pull_request, last_commit=self.last_commit
-                        )
+                self.process_retest_commands(
+                    not_running_msg=not_running_msg,
+                    _args=_args,
+                    issue_comment_id=issue_comment_id,
+                )
 
         elif _command == BUILD_AND_PUSH_CONTAINER_STR:
-            if self.build_and_push_container:
-                self.create_comment_reaction(
-                    issue_comment_id=issue_comment_id,
-                    reaction=REACTIONS.ok,
-                )
-                self.build_container(
-                    last_commit=self.last_commit,
-                    pull_request=self.pull_request,
-                    container_repository_and_tag=self.container_repository_and_tag,
-                    push=True,
-                )
-            else:
-                msg = (
-                    f"No {BUILD_AND_PUSH_CONTAINER_STR} configured for this repository"
-                )
-                error_msg = f"{self.log_prefix} {msg}"
-                self.logger.info(error_msg)
-                self.pull_request.create_issue_comment(msg)
+            self.process_user_command_build_and_push_container(
+                issue_comment_id=issue_comment_id
+            )
 
         elif _command == WIP_STR:
-            if self.skip_merged_pull_request():
-                return self.pull_request.create_issue_comment(not_running_msg)
-
-            self.create_comment_reaction(
+            self.process_user_command_wip(
                 issue_comment_id=issue_comment_id,
-                reaction=REACTIONS.ok,
+                not_running_msg=not_running_msg,
+                remove=remove,
             )
-            wip_for_title = f"{WIP_STR.upper()}:"
-            if remove:
-                self.remove_label(label=WIP_STR, pull_request=self.pull_request)
-                self.pull_request.edit(
-                    title=self.pull_request.title.replace(wip_for_title, "")
-                )
-            else:
-                self.add_label(label=WIP_STR, pull_request=self.pull_request)
-                self.pull_request.edit(
-                    title=f"{wip_for_title} {self.pull_request.title}"
-                )
 
         else:
             if self.skip_merged_pull_request():
@@ -745,3 +636,178 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 reviewed_user=reviewed_user,
                 issue_comment_id=issue_comment_id,
             )
+
+    def get_user_command_and_args(self, command):
+        remove = False
+        command_and_args = command.split(" ", 1)
+        _command = command_and_args[0]
+        _args = command_and_args[1] if len(command_and_args) > 1 else ""
+        if len(command_and_args) > 1 and _args == "cancel":
+            self.logger.info(
+                f"{self.log_prefix} User requested 'cancel' for command {_command}"
+            )
+            remove = True
+
+        return _command, _args, remove
+
+    def process_user_command_cherry_pick(self, _args, issue_comment_id, reviewed_user):
+        self.create_comment_reaction(
+            issue_comment_id=issue_comment_id,
+            reaction=REACTIONS.ok,
+        )
+        _target_branches = _args.split()
+        _exits_target_branches = set()
+        _non_exits_target_branches_msg = ""
+
+        for _target_branch in _target_branches:
+            try:
+                self.repository.get_branch(_target_branch)
+            except Exception:
+                _non_exits_target_branches_msg += (
+                    f"Target branch `{_target_branch}` does not exist\n"
+                )
+
+            _exits_target_branches.add(_target_branch)
+
+        if _non_exits_target_branches_msg:
+            self.logger.info(f"{self.log_prefix} {_non_exits_target_branches_msg}")
+            self.pull_request.create_issue_comment(_non_exits_target_branches_msg)
+
+        if _exits_target_branches:
+            if not self.pull_request.is_merged():
+                cp_labels = [
+                    f"{CHERRY_PICK_LABEL_PREFIX}{_target_branch}"
+                    for _target_branch in _exits_target_branches
+                ]
+                info_msg = f"""
+    Cherry-pick requested for PR: `{self.pull_request.title}` by user `{reviewed_user}`
+    Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automatic cheery-pick once the PR is merged
+    """
+                self.logger.info(f"{self.log_prefix} {info_msg}")
+                self.pull_request.create_issue_comment(info_msg)
+                for _cp_label in cp_labels:
+                    self.add_label(label=_cp_label, pull_request=self.pull_request)
+            else:
+                for _exits_target_branch in _exits_target_branches:
+                    self.cherry_pick(
+                        target_branch=_exits_target_branch,
+                        reviewed_user=reviewed_user,
+                    )
+
+    def process_retest_commands(self, not_running_msg, _args, issue_comment_id):
+        if self.skip_merged_pull_request():
+            return self.pull_request.create_issue_comment(not_running_msg)
+
+        _target_tests = _args.split()
+        for _test in _target_tests:
+            if _test == TOX_STR:
+                self.process_user_retest_tox(issue_comment_id=issue_comment_id)
+
+            elif _test == BUILD_CONTAINER_STR:
+                self.process_user_retest_build_container(
+                    issue_comment_id=issue_comment_id
+                )
+
+            elif _test == PYTHON_MODULE_INSTALL_STR:
+                self.process_user_retest_python_module_install(
+                    issue_comment_id=issue_comment_id
+                )
+
+            elif _test == SONARQUBE_STR:
+                self.process_user_retest_sonarqube(issue_comment_id=issue_comment_id)
+
+    def process_user_retest_tox(self, issue_comment_id):
+        if not self.tox_enabled:
+            msg = f"No {TOX_STR} configured for this repository"
+            error_msg = f"{self.log_prefix} {msg}."
+            self.logger.info(error_msg)
+            self.pull_request.create_issue_comment(msg)
+            return
+
+        self.create_comment_reaction(
+            issue_comment_id=issue_comment_id,
+            reaction=REACTIONS.ok,
+        )
+        self.run_tox(pull_request=self.pull_request, last_commit=self.last_commit)
+
+    def process_user_retest_build_container(self, issue_comment_id):
+        if self.build_and_push_container:
+            self.create_comment_reaction(
+                issue_comment_id=issue_comment_id,
+                reaction=REACTIONS.ok,
+            )
+            self.build_container(
+                last_commit=self.last_commit,
+                pull_request=self.pull_request,
+                container_repository_and_tag=self.container_repository_and_tag,
+            )
+        else:
+            msg = f"No {BUILD_CONTAINER_STR} configured for this repository"
+            error_msg = f"{self.log_prefix} {msg}"
+            self.logger.info(error_msg)
+            self.pull_request.create_issue_comment(msg)
+
+    def process_user_retest_python_module_install(self, issue_comment_id):
+        if not self.pypi:
+            error_msg = f"{self.log_prefix} No pypi configured"
+            self.logger.info(error_msg)
+            self.pull_request.create_issue_comment(error_msg)
+            return
+
+        self.create_comment_reaction(
+            issue_comment_id=issue_comment_id,
+            reaction=REACTIONS.ok,
+        )
+        self.install_python_module(
+            pull_request=self.pull_request, last_commit=self.last_commit
+        )
+
+    def process_user_retest_sonarqube(self, issue_comment_id):
+        if not self.sonarqube_project_key:
+            msg = f"No {SONARQUBE_STR} configured for this repository"
+            error_msg = f"{self.log_prefix} {msg}"
+            self.logger.info(error_msg)
+            self.pull_request.create_issue_comment(msg)
+            return
+
+        self.create_comment_reaction(
+            issue_comment_id=issue_comment_id,
+            reaction=REACTIONS.ok,
+        )
+        self.run_sonarqube(pull_request=self.pull_request, last_commit=self.last_commit)
+
+    def process_user_command_build_and_push_container(self, issue_comment_id):
+        if self.build_and_push_container:
+            self.create_comment_reaction(
+                issue_comment_id=issue_comment_id,
+                reaction=REACTIONS.ok,
+            )
+            self.build_container(
+                last_commit=self.last_commit,
+                pull_request=self.pull_request,
+                container_repository_and_tag=self.container_repository_and_tag,
+                push=True,
+            )
+        else:
+            msg = f"No {BUILD_AND_PUSH_CONTAINER_STR} configured for this repository"
+            error_msg = f"{self.log_prefix} {msg}"
+            self.logger.info(error_msg)
+            self.pull_request.create_issue_comment(msg)
+
+    def process_user_command_wip(self, issue_comment_id, not_running_msg, remove):
+        if self.skip_merged_pull_request():
+            return self.pull_request.create_issue_comment(not_running_msg)
+
+        self.create_comment_reaction(
+            issue_comment_id=issue_comment_id,
+            reaction=REACTIONS.ok,
+        )
+        wip_for_title = f"{WIP_STR.upper()}:"
+        if remove:
+            self.remove_label(label=WIP_STR, pull_request=self.pull_request)
+            self.pull_request.edit(
+                title=self.pull_request.title.replace(wip_for_title, "")
+            )
+        else:
+            self.add_label(label=WIP_STR, pull_request=self.pull_request)
+            self.pull_request.edit(title=f"{wip_for_title} {self.pull_request.title}")
