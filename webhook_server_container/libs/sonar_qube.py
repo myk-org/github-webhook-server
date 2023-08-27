@@ -32,7 +32,7 @@ class SonarQubeExt(SonarQubeClient):
 
     def get_sonar_scanner_command(self, project_key):
         _cli = os.path.join(
-            os.environ.get("SONAR_SCANNER_CLI_DIR", "/sonar-scanner-cli"),
+            "/sonar-scanner-cli",
             "bin",
             "sonar-scanner",
         )

@@ -4,7 +4,7 @@ import urllib3
 from flask import Response, request
 from github import Auth, GithubIntegration
 
-from webhook_server_container.libs.github_api import GitHubApi
+from webhook_server_container.libs.webhook_server import WebhookServer
 from webhook_server_container.utils.constants import (
     APP_ROOT_PATH,
     BUILD_CONTAINER_STR,
@@ -82,13 +82,13 @@ def process_webhook():
         return process_failed_msg
 
     try:
-        api = GitHubApi(
+        webhook_server_api = WebhookServer(
             hook_data=hook_data,
             repositories_app_api=REPOSITORIES_APP_API,
             missing_app_repositories=MISSING_APP_REPOSITORIES,
         )
     except Exception as ex:
-        FLASK_APP.logger.error(f"Failed to initialized GitHubApi instance: {ex}")
+        FLASK_APP.logger.error(f"Failed to initialized WebhookServer instance: {ex}")
         return process_failed_msg
 
     github_event = request.headers.get("X-GitHub-Event")
@@ -97,7 +97,7 @@ def process_webhook():
         f"event ID: {request.headers.get('X-GitHub-Delivery')}"
     )
     try:
-        api.process_hook(data=github_event, event_log=event_log)
+        webhook_server_api.process_hook(data=github_event, event_log=event_log)
         return "process success"
     except Exception as ex:
         FLASK_APP.logger.error(f"Failed to process hook: {ex}")
