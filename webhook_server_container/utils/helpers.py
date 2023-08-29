@@ -1,10 +1,10 @@
 import datetime
+import inspect
 import json
 import os
 import shlex
 import subprocess
 import time
-import types
 from functools import wraps
 from time import sleep
 
@@ -164,16 +164,19 @@ def run_command(
         return False, out_decoded, err_decoded
 
 
-def sleep_if_rate_limit_is_low():
-    def wrapper(func):
-        @wraps(func)
-        def inner(*args, **kwargs):
-            check_rate_limit()
-            return func(*args, **kwargs)
+def sleep_if_rate_limit_is_low(fn):
+    def inner(*args, **kwargs):
+        check_rate_limit()
+        fn(*args, **kwargs)
 
-        return inner
+    inner.__name__ = fn.__name__
+    return inner
 
-    return wrapper
+
+def class_decorator(cls):
+    for name, method in inspect.getmembers(cls, inspect.isfunction):
+        setattr(cls, name, sleep_if_rate_limit_is_low(method))
+    return cls
 
 
 def check_rate_limit(github_api=None):
@@ -219,10 +222,3 @@ def send_slack_message(message, webhook_url, log_prefix):
         )
         return False
     return True
-
-
-def decorate_all_in_module(module, decorator):
-    for name in dir(module):
-        obj = getattr(module, name)
-        if isinstance(obj, types.FunctionType):
-            setattr(module, name, decorator(obj))

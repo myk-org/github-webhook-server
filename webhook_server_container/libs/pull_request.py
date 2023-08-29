@@ -36,16 +36,13 @@ from webhook_server_container.utils.constants import (
     WIP_STR,
 )
 from webhook_server_container.utils.helpers import (
-    decorate_all_in_module,
+    class_decorator,
     extract_key_from_dict,
     ignore_exceptions,
-    sleep_if_rate_limit_is_low,
 )
 
 
-decorate_all_in_module(".", sleep_if_rate_limit_is_low)
-
-
+@class_decorator
 class PullRequest(CheckRuns, Labels):
     def __init__(
         self, hook_data, github_event, repositories_app_api, missing_app_repositories
@@ -76,11 +73,9 @@ class PullRequest(CheckRuns, Labels):
         self.logger = log.logger
         self.log_prefix = log.log_prefix
 
-        self.logger.info(f"{self.log_prefix} Check rate limit")
-
         if not self.pull_request:
             self.logger.warning(
-                f"{self.log_prefix} No pull request found for {self.github_event}"
+                f"{self.log_prefix} No pull request found for event: {self.github_event}"
             )
 
         self.supported_user_labels_str = "".join(

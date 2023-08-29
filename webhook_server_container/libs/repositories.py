@@ -13,16 +13,13 @@ from webhook_server_container.utils.constants import (
     VERIFIED_LABEL_STR,
 )
 from webhook_server_container.utils.helpers import (
-    decorate_all_in_module,
+    class_decorator,
     ignore_exceptions,
     send_slack_message,
-    sleep_if_rate_limit_is_low,
 )
 
 
-decorate_all_in_module(".", sleep_if_rate_limit_is_low)
-
-
+@class_decorator
 class Repositories(PullRequest):
     def __init__(
         self, hook_data, github_event, repositories_app_api, missing_app_repositories
@@ -41,8 +38,6 @@ class Repositories(PullRequest):
         )
         self.logger = log.logger
         self.log_prefix = log.log_prefix
-
-        self.logger.info(f"{self.log_prefix} Check rate limit")
 
     @property
     def owners_content(self):

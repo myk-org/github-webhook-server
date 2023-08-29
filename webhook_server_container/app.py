@@ -18,10 +18,8 @@ from webhook_server_container.utils.github_repository_settings import (
 )
 from webhook_server_container.utils.helpers import (
     check_rate_limit,
-    decorate_all_in_module,
     get_app_data_dir,
     get_data_from_config,
-    sleep_if_rate_limit_is_low,
 )
 from webhook_server_container.utils.sonar_qube import set_sonar_qube_projects
 from webhook_server_container.utils.webhook import create_webhook
@@ -43,9 +41,6 @@ BUILD_CONTAINER_DATA_PATH = os.path.join(APP_DATA_ROOT_PATH, BUILD_CONTAINER_STR
 PYTHON_MODULE_INSTALL_DATA_PATH = os.path.join(
     APP_DATA_ROOT_PATH, PYTHON_MODULE_INSTALL_STR
 )
-
-
-decorate_all_in_module(".", sleep_if_rate_limit_is_low)
 
 
 def get_repositories_github_app_api():

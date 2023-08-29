@@ -1,14 +1,9 @@
 from webhook_server_container.libs.logs import Logs
 from webhook_server_container.libs.repositories import Repositories
-from webhook_server_container.utils.helpers import (
-    decorate_all_in_module,
-    sleep_if_rate_limit_is_low,
-)
+from webhook_server_container.utils.helpers import class_decorator
 
 
-decorate_all_in_module(".", sleep_if_rate_limit_is_low)
-
-
+@class_decorator
 class WebhookServer(Repositories):
     def __init__(
         self, hook_data, github_event, repositories_app_api, missing_app_repositories
@@ -27,7 +22,6 @@ class WebhookServer(Repositories):
         )
         self.logger = log.logger
         self.log_prefix = log.log_prefix
-        self.logger.info(f"{self.log_prefix} Check rate limit")
 
     def process_hook(self, event_log):
         self.logger.info(f"{self.log_prefix} {event_log}")
