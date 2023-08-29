@@ -6,10 +6,14 @@ from webhook_server_container.libs.logs import Logs
 from webhook_server_container.libs.sonar_qube import SonarQubeExt
 from webhook_server_container.utils.dockerhub_rate_limit import DockerHub
 from webhook_server_container.utils.helpers import (
-    check_rate_limit,
+    decorate_all_in_module,
     get_data_from_config,
     get_github_repo_api,
+    sleep_if_rate_limit_is_low,
 )
+
+
+decorate_all_in_module(".", sleep_if_rate_limit_is_low)
 
 
 class RepositoryNotFoundError(Exception):
@@ -72,7 +76,6 @@ class RepositoriesConfig:
         self.log_prefix = log.log_prefix
 
         self.logger.info(f"{self.log_prefix} Check rate limit")
-        check_rate_limit()
 
     def _repo_data_from_config(self):
         config_data = get_data_from_config()

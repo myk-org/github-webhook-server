@@ -19,10 +19,14 @@ from webhook_server_container.utils.constants import (
     VERIFIED_LABEL_STR,
 )
 from webhook_server_container.utils.helpers import (
-    check_rate_limit,
+    decorate_all_in_module,
     run_command,
     send_slack_message,
+    sleep_if_rate_limit_is_low,
 )
+
+
+decorate_all_in_module(".", sleep_if_rate_limit_is_low)
 
 
 class CheckRuns(Labels):
@@ -41,7 +45,6 @@ class CheckRuns(Labels):
         self.log_prefix = log.log_prefix
 
         self.logger.info(f"{self.log_prefix} Check rate limit")
-        check_rate_limit()
 
     def reset_verify_label(self, pull_request):
         self.logger.info(

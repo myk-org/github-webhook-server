@@ -4,6 +4,7 @@ import os
 import shlex
 import subprocess
 import time
+import types
 from functools import wraps
 from time import sleep
 
@@ -163,6 +164,18 @@ def run_command(
         return False, out_decoded, err_decoded
 
 
+def sleep_if_rate_limit_is_low():
+    def wrapper(func):
+        @wraps(func)
+        def inner(*args, **kwargs):
+            check_rate_limit()
+            return func(*args, **kwargs)
+
+        return inner
+
+    return wrapper
+
+
 def check_rate_limit(github_api=None):
     if not github_api:
         config_data = get_data_from_config()
@@ -206,3 +219,10 @@ def send_slack_message(message, webhook_url, log_prefix):
         )
         return False
     return True
+
+
+def decorate_all_in_module(module, decorator):
+    for name in dir(module):
+        obj = getattr(module, name)
+        if isinstance(obj, types.FunctionType):
+            setattr(module, name, decorator(obj))

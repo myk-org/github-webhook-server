@@ -36,10 +36,14 @@ from webhook_server_container.utils.constants import (
     WIP_STR,
 )
 from webhook_server_container.utils.helpers import (
-    check_rate_limit,
+    decorate_all_in_module,
     extract_key_from_dict,
     ignore_exceptions,
+    sleep_if_rate_limit_is_low,
 )
+
+
+decorate_all_in_module(".", sleep_if_rate_limit_is_low)
 
 
 class PullRequest(CheckRuns, Labels):
@@ -73,7 +77,6 @@ class PullRequest(CheckRuns, Labels):
         self.log_prefix = log.log_prefix
 
         self.logger.info(f"{self.log_prefix} Check rate limit")
-        check_rate_limit()
 
         if not self.pull_request:
             self.logger.warning(

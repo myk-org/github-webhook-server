@@ -7,7 +7,13 @@ from webhook_server_container.utils.constants import (
     SIZE_LABEL_PREFIX,
     STATIC_LABELS_DICT,
 )
-from webhook_server_container.utils.helpers import check_rate_limit
+from webhook_server_container.utils.helpers import (
+    decorate_all_in_module,
+    sleep_if_rate_limit_is_low,
+)
+
+
+decorate_all_in_module(".", sleep_if_rate_limit_is_low)
 
 
 class Labels(RepositoriesConfig):
@@ -26,7 +32,6 @@ class Labels(RepositoriesConfig):
         self.log_prefix = log.log_prefix
 
         self.logger.info(f"{self.log_prefix} Check rate limit")
-        check_rate_limit()
 
     def label_exists_in_pull_request(self, label, pull_request):
         return any(
