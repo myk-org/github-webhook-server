@@ -36,13 +36,12 @@ from webhook_server_container.utils.constants import (
     WIP_STR,
 )
 from webhook_server_container.utils.helpers import (
-    class_decorator,
+    check_rate_limit,
     extract_key_from_dict,
     ignore_exceptions,
 )
 
 
-@class_decorator
 class PullRequest(CheckRuns, Labels):
     def __init__(
         self, hook_data, github_event, repositories_app_api, missing_app_repositories
@@ -72,6 +71,9 @@ class PullRequest(CheckRuns, Labels):
         )
         self.logger = log.logger
         self.log_prefix = log.log_prefix
+
+        self.logger.info(f"{self.log_prefix} Check rate limit")
+        check_rate_limit()
 
         if not self.pull_request:
             self.logger.warning(
