@@ -79,6 +79,7 @@ class PullRequest(CheckRuns, Labels):
             self.logger.warning(
                 f"{self.log_prefix} No pull request found for event: {self.github_event}"
             )
+            return
 
         self.supported_user_labels_str = "".join(
             [f" * {label}\n" for label in USER_LABELS_DICT.keys()]

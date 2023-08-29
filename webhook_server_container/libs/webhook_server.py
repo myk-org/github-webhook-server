@@ -27,7 +27,7 @@ class WebhookServer(Repositories):
 
     def process_hook(self, event_log):
         self.logger.info(f"{self.log_prefix} {event_log}")
-        ignore_data = ["status", "branch_protection_rule"]
+        ignore_data = ["status", "branch_protection_rule", "meta", "ping"]
         if self.github_event == "issue_comment":
             self.process_comment_webhook_data()
 
@@ -42,3 +42,7 @@ class WebhookServer(Repositories):
 
         elif self.github_event not in ignore_data:
             self.process_unknown_webhook_data()
+        else:
+            self.logger.warning(
+                f"{self.github_event}: not processing, event is in ignore events list"
+            )
