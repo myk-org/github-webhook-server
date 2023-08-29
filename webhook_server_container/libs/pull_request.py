@@ -43,24 +43,26 @@ from webhook_server_container.utils.helpers import (
 
 
 class PullRequest(CheckRuns, Labels):
-    def __init__(self, hook_data, repositories_app_api, missing_app_repositories):
+    def __init__(
+        self, hook_data, github_event, repositories_app_api, missing_app_repositories
+    ):
         super(CheckRuns, self).__init__(
             hook_data=hook_data,
+            github_event=github_event,
             repositories_app_api=repositories_app_api,
             missing_app_repositories=missing_app_repositories,
         )
         super(Labels, self).__init__(
             hook_data=hook_data,
+            github_event=github_event,
             repositories_app_api=repositories_app_api,
             missing_app_repositories=missing_app_repositories,
         )
 
-        check_rate_limit(github_api=self.github_api)
+        self.last_commit = None
         self.pull_request = self.get_pull_request()
-        if not self.pull_request:
-            return
-
-        self.last_commit = self.get_last_commit()
+        if self.pull_request:
+            self.last_commit = self.get_last_commit()
 
         log = Logs(
             repository_name=self.repository_name,
@@ -69,6 +71,14 @@ class PullRequest(CheckRuns, Labels):
         )
         self.logger = log.logger
         self.log_prefix = log.log_prefix
+
+        self.logger.info(f"{self.log_prefix} Check rate limit")
+        check_rate_limit()
+
+        if not self.pull_request:
+            self.logger.warning(
+                f"{self.log_prefix} No pull request found for {self.github_event}"
+            )
 
         self.supported_user_labels_str = "".join(
             [f" * {label}\n" for label in USER_LABELS_DICT.keys()]

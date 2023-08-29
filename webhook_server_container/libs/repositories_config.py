@@ -2,9 +2,11 @@ import os
 
 from github import Github
 
+from webhook_server_container.libs.logs import Logs
 from webhook_server_container.libs.sonar_qube import SonarQubeExt
 from webhook_server_container.utils.dockerhub_rate_limit import DockerHub
 from webhook_server_container.utils.helpers import (
+    check_rate_limit,
     get_data_from_config,
     get_github_repo_api,
 )
@@ -15,7 +17,10 @@ class RepositoryNotFoundError(Exception):
 
 
 class RepositoriesConfig:
-    def __init__(self, hook_data, repositories_app_api, missing_app_repositories):
+    def __init__(
+        self, hook_data, github_event, repositories_app_api, missing_app_repositories
+    ):
+        self.github_event = github_event
         self.hook_data = hook_data
         self.repository_name = self.hook_data["repository"]["name"]
         self.repositories_app_api = repositories_app_api
@@ -61,6 +66,13 @@ class RepositoriesConfig:
         )
 
         self.api_user = self._api_username
+
+        log = Logs(repository_name=self.repository_name, token=self.token)
+        self.logger = log.logger
+        self.log_prefix = log.log_prefix
+
+        self.logger.info(f"{self.log_prefix} Check rate limit")
+        check_rate_limit()
 
     def _repo_data_from_config(self):
         config_data = get_data_from_config()

@@ -81,9 +81,13 @@ def process_webhook():
         FLASK_APP.logger.error(f"Error get JSON from request: {ex}")
         return process_failed_msg
 
+    github_event = request.headers.get("X-GitHub-Event")
+
     try:
+        check_rate_limit()
         webhook_server_api = WebhookServer(
             hook_data=hook_data,
+            github_event=github_event,
             repositories_app_api=REPOSITORIES_APP_API,
             missing_app_repositories=MISSING_APP_REPOSITORIES,
         )
@@ -91,13 +95,12 @@ def process_webhook():
         FLASK_APP.logger.error(f"Failed to initialized WebhookServer instance: {ex}")
         return process_failed_msg
 
-    github_event = request.headers.get("X-GitHub-Event")
     event_log = (
         f"Event type: {github_event} "
         f"event ID: {request.headers.get('X-GitHub-Delivery')}"
     )
     try:
-        webhook_server_api.process_hook(data=github_event, event_log=event_log)
+        webhook_server_api.process_hook(event_log=event_log)
         return "process success"
     except Exception as ex:
         FLASK_APP.logger.error(f"Failed to process hook: {ex}")

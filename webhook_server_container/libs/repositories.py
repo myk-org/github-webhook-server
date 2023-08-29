@@ -12,13 +12,20 @@ from webhook_server_container.utils.constants import (
     PRE_COMMIT_CI_BOT_USER,
     VERIFIED_LABEL_STR,
 )
-from webhook_server_container.utils.helpers import ignore_exceptions, send_slack_message
+from webhook_server_container.utils.helpers import (
+    check_rate_limit,
+    ignore_exceptions,
+    send_slack_message,
+)
 
 
 class Repositories(PullRequest):
-    def __init__(self, hook_data, repositories_app_api, missing_app_repositories):
+    def __init__(
+        self, hook_data, github_event, repositories_app_api, missing_app_repositories
+    ):
         super().__init__(
             hook_data=hook_data,
+            github_event=github_event,
             repositories_app_api=repositories_app_api,
             missing_app_repositories=missing_app_repositories,
         )
@@ -30,6 +37,9 @@ class Repositories(PullRequest):
         )
         self.logger = log.logger
         self.log_prefix = log.log_prefix
+
+        self.logger.info(f"{self.log_prefix} Check rate limit")
+        check_rate_limit()
 
     @property
     def owners_content(self):
@@ -188,8 +198,8 @@ class Repositories(PullRequest):
                     approvers=self.approvers, last_commit=self.last_commit
                 )
 
-    def process_unknown_webhook_data(self, data):
-        if data == "check_run":
+    def process_unknown_webhook_data(self):
+        if self.github_event == "check_run":
             _check_run = self.hook_data["check_run"]
             if _check_run["name"] == CAN_BE_MERGED_STR:
                 self.logger.info(

@@ -168,7 +168,7 @@ def check_rate_limit(github_api=None):
         config_data = get_data_from_config()
         github_api = Github(login_or_token=config_data["github-token"])
 
-    minimum_limit = 100
+    minimum_limit = 200
     rate_limit = github_api.get_rate_limit()
     rate_limit_reset = rate_limit.core.reset
     rate_limit_remaining = rate_limit.core.remaining
