@@ -222,7 +222,8 @@ class CheckRuns(Labels):
             last_commit=last_commit,
         )
 
-    def is_check_run_in_progress(self, check_run, last_commit):
+    @staticmethod
+    def is_check_run_in_progress(check_run, last_commit):
         for run in last_commit.get_check_runs():
             if run.name == check_run and run.status == IN_PROGRESS_STR:
                 return True
