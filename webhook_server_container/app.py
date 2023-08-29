@@ -101,6 +101,7 @@ def process_webhook():
     try:
         webhook_server_api.process_hook(event_log=event_log)
         return "process success"
+
     except Exception as ex:
         FLASK_APP.logger.error(f"Failed to process hook: {ex}")
         return process_failed_msg
