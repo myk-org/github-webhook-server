@@ -1447,7 +1447,13 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.add_size_label()
         self._add_label(label=f"{BRANCH_LABEL_PREFIX}{pull_request_branch}")
         self.app.logger.info(f"{self.log_prefix} Adding PR owner as assignee")
-        self.pull_request.add_to_assignees(parent_committer)
+
+        try:
+            self.pull_request.add_to_assignees(parent_committer)
+        except Exception:
+            if self.approvers:
+                self.pull_request.add_to_assignees(self.approvers[0])
+
         self.assign_reviewers()
 
         futures = []
