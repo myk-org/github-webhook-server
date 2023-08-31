@@ -196,7 +196,6 @@ Available user actions:
 
     def process_hook(self, data, event_log):
         self.app.logger.info(f"{self.log_prefix} {event_log}")
-        ignore_data = ["status", "branch_protection_rule"]
         if data == "issue_comment":
             self.process_comment_webhook_data()
 
@@ -209,27 +208,29 @@ Available user actions:
         elif data == "pull_request_review":
             self.process_pull_request_review_webhook_data()
 
-        elif data not in ignore_data:
-            if data == "check_run":
-                _check_run = self.hook_data["check_run"]
-                if _check_run["name"] == CAN_BE_MERGED_STR:
-                    return
+        elif data == "check_run":
+            self.get_pull_request_from_check_run_event()
 
-                if self.hook_data["action"] == "completed":
-                    self.app.logger.info(
-                        f"{self.log_prefix} Got event check_run completed, getting pull request"
-                    )
-                    for _pull_request in self.repository.get_pulls(state="open"):
-                        _last_commit = list(_pull_request.get_commits())[-1]
-                        for _commit_check_run in _last_commit.get_check_runs():
-                            if _commit_check_run.id == int(_check_run["id"]):
-                                self.pull_request = _pull_request
-                                break
+        self.pull_request = self.pull_request or self._get_pull_request()
+        if self.pull_request:
+            self.last_commit = self._get_last_commit()
+            self.check_if_can_be_merged()
 
-            self.pull_request = self.pull_request or self._get_pull_request()
-            if self.pull_request:
-                self.last_commit = self._get_last_commit()
-                self.check_if_can_be_merged()
+    def get_pull_request_from_check_run_event(self):
+        _check_run = self.hook_data["check_run"]
+        if _check_run["name"] == CAN_BE_MERGED_STR:
+            return
+
+        if self.hook_data["action"] == "completed":
+            self.app.logger.info(
+                f"{self.log_prefix} Got event check_run completed, getting pull request"
+            )
+            for _pull_request in self.repository.get_pulls(state="open"):
+                _last_commit = list(_pull_request.get_commits())[-1]
+                for _commit_check_run in _last_commit.get_check_runs():
+                    if _commit_check_run.id == int(_check_run["id"]):
+                        self.pull_request = _pull_request
+                        break
 
     @property
     def _api_username(self):
@@ -561,11 +562,6 @@ Available labels:
 
     def set_merge_check_queued(self):
         return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, status=QUEUED_STR)
-
-    def set_merge_check_in_progress(self):
-        return self.set_check_run_status(
-            check_run=CAN_BE_MERGED_STR, status=IN_PROGRESS_STR
-        )
 
     def set_merge_check_success(self):
         return self.set_check_run_status(
@@ -1234,7 +1230,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             return False
 
         try:
-            self.set_merge_check_in_progress()
             _labels = self.pull_request_labels_names()
 
             if VERIFIED_LABEL_STR not in _labels or HOLD_LABEL_STR in _labels:

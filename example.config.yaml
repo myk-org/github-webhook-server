@@ -28,6 +28,8 @@ repositories:
       - push
       - pull_request
       - issue_comment
+      - check_run
+      - pull_request_review
     tox: all # Run all tests in tox.ini
     protected-branches:
       dev: []

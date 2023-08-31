@@ -93,7 +93,7 @@ def process_webhook():
 
     github_event = request.headers.get("X-GitHub-Event")
     event_log = (
-        f"Event type: {github_event} "
+        f"Event type: {github_event}. "
         f"event ID: {request.headers.get('X-GitHub-Delivery')}"
     )
     try:
