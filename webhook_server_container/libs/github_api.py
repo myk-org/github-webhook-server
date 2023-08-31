@@ -789,25 +789,6 @@ Available labels:
             if labeled == CAN_BE_MERGED_STR:
                 return
 
-            if (
-                hook_action == "labeled"
-                and labeled == CAN_BE_MERGED_STR
-                and parent_committer
-                in (
-                    self.api_user,
-                    PRE_COMMIT_CI_BOT_USER,
-                )
-            ):
-                self.app.logger.info(
-                    f"{self.log_prefix} "
-                    f"will be merged automatically. owner: {self.api_user}"
-                )
-                self.pull_request.create_issue_comment(
-                    f"Owner of the pull request is `{self.api_user}`\nPull request is merged automatically."
-                )
-                self.pull_request.merge(merge_method="squash")
-                return
-
             self.app.logger.info(
                 f"{self.log_prefix} PR {self.pull_request.number} {hook_action} with {labeled}"
             )
@@ -1179,7 +1160,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.app.logger.info(
             f"{self.log_prefix} Sleep for 10 seconds before getting all opened PRs"
         )
-        time.sleep(10)
+        time.sleep(30)
 
         for pull_request in self.repository.get_pulls(state="open"):
             self.app.logger.info(
@@ -1198,7 +1179,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             else:
                 self._remove_label(label=HAS_CONFLICTS_LABEL_STR)
 
-    def check_if_can_be_merged(self):
+    def check_if_can_be_merged(self, parent_committer=None):
         """
         Check if PR can be merged and set the job for it
 
@@ -1272,7 +1253,18 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     approved_user = _label.split("-")[-1]
                     if approved_user in self.approvers:
                         self._add_label(label=CAN_BE_MERGED_STR)
-                        return self.set_merge_check_success()
+                        self.set_merge_check_success()
+                        if parent_committer in (self.api_user, PRE_COMMIT_CI_BOT_USER):
+                            self.app.logger.info(
+                                f"{self.log_prefix} "
+                                f"will be merged automatically. owner: {self.api_user}"
+                            )
+                            self.pull_request.create_issue_comment(
+                                f"Owner of the pull request is `{self.api_user}`\n"
+                                "Pull request is merged automatically."
+                            )
+                            self.pull_request.merge(merge_method="squash")
+                            return
 
             return self.set_merge_check_queued()
         except Exception:
