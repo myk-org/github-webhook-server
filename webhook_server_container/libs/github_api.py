@@ -209,16 +209,20 @@ Available user actions:
             self.process_pull_request_review_webhook_data()
 
         elif data == "check_run":
-            self.get_pull_request_from_check_run_event()
+            self.process_pull_request_check_run_webhook_data()
 
-    def get_pull_request_from_check_run_event(self):
+    def process_pull_request_check_run_webhook_data(self):
         _check_run = self.hook_data["check_run"]
-        if _check_run["name"] == CAN_BE_MERGED_STR:
+        check_run_name = _check_run["name"]
+        if check_run_name == CAN_BE_MERGED_STR:
             return
 
-        if self.hook_data["action"] == "completed":
+        if (
+            self.hook_data["action"] == "completed"
+            and _check_run["conclusion"] == SUCCESS_STR
+        ):
             self.app.logger.info(
-                f"{self.log_prefix} Got event check_run completed, getting pull request"
+                f"{self.log_prefix} check_run '{check_run_name}' completed and {SUCCESS_STR}"
             )
             for _pull_request in self.repository.get_pulls(state="open"):
                 _last_commit = list(_pull_request.get_commits())[-1]
@@ -781,6 +785,8 @@ Available labels:
 
         if hook_action in ("labeled", "unlabeled"):
             labeled = self.hook_data["label"]["name"].lower()
+            if labeled == CAN_BE_MERGED_STR:
+                return
 
             if (
                 hook_action == "labeled"
@@ -807,15 +813,11 @@ Available labels:
             if self.verified_job and labeled == VERIFIED_LABEL_STR:
                 if hook_action == "labeled":
                     self.set_verify_check_success()
+                    if CAN_BE_MERGED_STR not in self.pull_request_labels_names():
+                        self.check_if_can_be_merged()
 
                 if hook_action == "unlabeled":
                     self.set_verify_check_queued()
-
-            if (
-                CAN_BE_MERGED_STR not in self.pull_request_labels_names()
-                or labeled != CAN_BE_MERGED_STR
-            ):
-                self.check_if_can_be_merged()
 
     def process_push_webhook_data(self):
         tag = re.search(r"refs/tags/?(.*)", self.hook_data["ref"])
