@@ -1265,6 +1265,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                             )
                             self.pull_request.merge(merge_method="squash")
                             return
+                        return
 
             return self.set_merge_check_queued()
         except Exception:
