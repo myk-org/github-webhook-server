@@ -30,6 +30,7 @@ from webhook_server_container.utils.constants import (
     DYNAMIC_LABELS_DICT,
     FAILURE_STR,
     FLASK_APP,
+    HAS_CONFLICTS_LABEL_STR,
     HOLD_LABEL_STR,
     IN_PROGRESS_STR,
     LGTM_STR,
@@ -783,7 +784,7 @@ Available labels:
                             ),
                         )
 
-                self.needs_rebase()
+                self.label_by_pull_request_mergeable_state()
 
         if hook_action in ("labeled", "unlabeled"):
             labeled = self.hook_data["label"]["name"].lower()
@@ -1168,7 +1169,18 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 )
 
     @ignore_exceptions(FLASK_APP.logger)
-    def needs_rebase(self):
+    def label_by_pull_request_mergeable_state(self):
+        """
+        Labels pull requests based on their mergeable state.
+
+        If the mergeable state is 'behind', the 'needs rebase' label is added.
+        If the mergeable state is 'dirty', the 'has conflicts' label is added.
+        """
+        self.app.logger.info(
+            f"{self.log_prefix} Sleep for 10 seconds before getting all opened PRs"
+        )
+        time.sleep(10)
+
         for pull_request in self.repository.get_pulls(state="open"):
             self.app.logger.info(
                 f"{self.log_prefix} "
@@ -1181,6 +1193,10 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 self._add_label(label=NEEDS_REBASE_LABEL_STR)
             else:
                 self._remove_label(label=NEEDS_REBASE_LABEL_STR)
+            if merge_state == "dirty":
+                self._add_label(label=HAS_CONFLICTS_LABEL_STR)
+            else:
+                self._remove_label(label=HAS_CONFLICTS_LABEL_STR)
 
     def check_if_can_be_merged(self):
         """
