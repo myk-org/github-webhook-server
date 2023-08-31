@@ -1160,7 +1160,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.app.logger.info(
             f"{self.log_prefix} Sleep for 10 seconds before getting all opened PRs"
         )
-        time.sleep(10)
+        time.sleep(30)
 
         for pull_request in self.repository.get_pulls(state="open"):
             self.app.logger.info(
