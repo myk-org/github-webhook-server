@@ -176,10 +176,11 @@ Available user actions:
 
     @property
     def log_prefix(self):
+        log_uuid = shortuuid.uuid()[:5]
         return (
-            f"{self.log_prefix_with_color}[PR {self.pull_request.number}]:"
+            f"{self.log_prefix_with_color}({log_uuid})[PR {self.pull_request.number}]:"
             if self.pull_request
-            else f"{self.log_prefix_with_color}:"
+            else f"{self.log_prefix_with_color}:({log_uuid})"
         )
 
     def hash_token(self, message):
