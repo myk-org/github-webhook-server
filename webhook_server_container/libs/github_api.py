@@ -73,6 +73,7 @@ class GitHubApi:
         self.pull_request = None
         self.last_commit = None
         self.log_prefix_with_color = None
+        self.parent_committer = None
         self.container_repo_dir = "/tmp/repository"
         self.webhook_server_data_dir = os.environ.get(
             "WEBHOOK_SERVER_DATA_DIR", "/webhook_server"
@@ -665,8 +666,8 @@ Available labels:
         )
 
     @ignore_exceptions(FLASK_APP.logger)
-    def create_issue_for_new_pull_request(self, parent_committer):
-        if parent_committer in (
+    def create_issue_for_new_pull_request(self):
+        if self.parent_committer in (
             self.api_user,
             PRE_COMMIT_CI_BOT_USER,
         ):
@@ -741,15 +742,14 @@ Available labels:
 
         self.last_commit = self._get_last_commit()
         pull_request_data = self.hook_data["pull_request"]
-        parent_committer = pull_request_data["user"]["login"]
+        self.parent_committer = pull_request_data["user"]["login"]
         pull_request_branch = pull_request_data["base"]["ref"]
 
         if hook_action == "opened":
             self.app.logger.info(f"{self.log_prefix} Creating welcome comment")
             self.pull_request.create_issue_comment(self.welcome_msg)
-            self.create_issue_for_new_pull_request(parent_committer=parent_committer)
+            self.create_issue_for_new_pull_request()
             self.process_opened_or_synchronize_pull_request(
-                parent_committer=parent_committer,
                 pull_request_branch=pull_request_branch,
             )
 
@@ -761,7 +761,6 @@ Available labels:
                 self._remove_label(label=_reviewed_label)
 
             self.process_opened_or_synchronize_pull_request(
-                parent_committer=parent_committer,
                 pull_request_branch=pull_request_branch,
             )
 
@@ -1088,6 +1087,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 issue_comment_id=issue_comment_id,
             )
 
+    @ignore_exceptions(FLASK_APP.logger)
     def cherry_pick(self, target_branch, reviewed_user=None):
         requested_by = reviewed_user or "by target-branch label"
         self.app.logger.info(
@@ -1158,7 +1158,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         If the mergeable state is 'dirty', the 'has conflicts' label is added.
         """
         self.app.logger.info(
-            f"{self.log_prefix} Sleep for 10 seconds before getting all opened PRs"
+            f"{self.log_prefix} Sleep for 30 seconds before getting all opened PRs"
         )
         time.sleep(30)
 
@@ -1179,7 +1179,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             else:
                 self._remove_label(label=HAS_CONFLICTS_LABEL_STR)
 
-    def check_if_can_be_merged(self, parent_committer=None):
+    def check_if_can_be_merged(self):
         """
         Check if PR can be merged and set the job for it
 
@@ -1237,8 +1237,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             if not all_check_runs_passed:
                 self._remove_label(label=CAN_BE_MERGED_STR)
                 self.set_merge_check_queued()
-                # TODO: Fix `run_retest_if_queued` and uncomment the call for it.
-                # self.run_retest_if_queued(last_commit_check_runs=last_commit_check_runs)
                 return False
 
             for _label in _labels:
@@ -1254,7 +1252,10 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     if approved_user in self.approvers:
                         self._add_label(label=CAN_BE_MERGED_STR)
                         self.set_merge_check_success()
-                        if parent_committer in (self.api_user, PRE_COMMIT_CI_BOT_USER):
+                        if self.parent_committer in (
+                            self.api_user,
+                            PRE_COMMIT_CI_BOT_USER,
+                        ):
                             self.app.logger.info(
                                 f"{self.log_prefix} "
                                 f"will be merged automatically. owner: {self.api_user}"
@@ -1407,14 +1408,14 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 f"{response.text}"
             )
 
-    def _process_verified(self, parent_committer):
+    def _process_verified(self):
         if not self.verified_job:
             return
 
-        if parent_committer in (self.api_user, PRE_COMMIT_CI_BOT_USER):
+        if self.parent_committer in (self.api_user, PRE_COMMIT_CI_BOT_USER):
             self.app.logger.info(
-                f"{self.log_prefix} Committer {parent_committer} == API user "
-                f"{parent_committer}, Setting verified label"
+                f"{self.log_prefix} Committer {self.parent_committer} == API user "
+                f"{self.parent_committer}, Setting verified label"
             )
             self._add_label(label=VERIFIED_LABEL_STR)
             self.set_verify_check_success()
@@ -1462,21 +1463,19 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             command=checkout_cmd, log_prefix=self.log_prefix, file_path=file_path
         )[0]
 
-    def process_opened_or_synchronize_pull_request(
-        self, parent_committer, pull_request_branch
-    ):
+    def process_opened_or_synchronize_pull_request(self, pull_request_branch):
         self.set_merge_check_queued()
         self.set_run_tox_check_queued()
         self.set_python_module_install_queued()
         self.set_container_build_queued()
         self.set_sonarqube_queued()
-        self._process_verified(parent_committer=parent_committer)
+        self._process_verified()
         self.add_size_label()
         self._add_label(label=f"{BRANCH_LABEL_PREFIX}{pull_request_branch}")
         self.app.logger.info(f"{self.log_prefix} Adding PR owner as assignee")
 
         try:
-            self.pull_request.add_to_assignees(parent_committer)
+            self.pull_request.add_to_assignees()
         except Exception:
             if self.approvers:
                 self.pull_request.add_to_assignees(self.approvers[0])
@@ -1492,25 +1491,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
         for _ in as_completed(futures):
             pass
-
-    def run_retest_if_queued(self):
-        last_commit_check_runs = list(self.last_commit.get_check_runs())
-        for check_run in last_commit_check_runs:
-            if check_run.status == QUEUED_STR:
-                if check_run.name == TOX_STR:
-                    self.app.logger.info(f"{self.log_prefix} retest {TOX_STR}.")
-                    self._run_tox()
-                if check_run.name == BUILD_CONTAINER_STR:
-                    self.app.logger.info(
-                        f"{self.log_prefix} retest {BUILD_CONTAINER_STR}."
-                    )
-                    self._build_container()
-
-                if check_run.name == PYTHON_MODULE_INSTALL_STR:
-                    self.app.logger.info(
-                        f"{self.log_prefix} retest {PYTHON_MODULE_INSTALL_STR}."
-                    )
-                    self._install_python_module()
 
     def is_check_run_in_progress(self, check_run):
         for run in self.last_commit.get_check_runs():
