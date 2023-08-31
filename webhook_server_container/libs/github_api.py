@@ -1348,6 +1348,19 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     f"{self.log_prefix} Done push {_container_repository_and_tag}"
                 )
         else:
+            if push:
+                err_msg = f"Failed to create and push {_container_repository_and_tag}"
+                self.pull_request.create_issue_comment(err_msg)
+                if self.slack_webhook_url:
+                    message = f"""
+```
+{self.repository_full_name} {err_msg}.
+```
+                    """
+                    self.send_slack_message(
+                        message=message,
+                        webhook_url=self.slack_webhook_url,
+                    )
             if self.pull_request and set_check:
                 return self.set_container_build_failure(details_url=url_path)
 
