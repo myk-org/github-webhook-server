@@ -35,6 +35,7 @@ from webhook_server_container.utils.constants import (
     IN_PROGRESS_STR,
     LGTM_STR,
     NEEDS_REBASE_LABEL_STR,
+    PENDING_STR,
     PRE_COMMIT_CI_BOT_USER,
     PYTHON_MODULE_INSTALL_STR,
     QUEUED_STR,
@@ -558,14 +559,6 @@ Available labels:
     def set_run_tox_check_success(self, details_url):
         return self.set_check_run_status(
             check_run=TOX_STR, conclusion=SUCCESS_STR, details_url=details_url
-        )
-
-    def set_merge_check_queued(self):
-        return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, status=QUEUED_STR)
-
-    def set_merge_check_success(self):
-        return self.set_check_run_status(
-            check_run=CAN_BE_MERGED_STR, conclusion=SUCCESS_STR
         )
 
     def set_container_build_queued(self):
@@ -1208,19 +1201,13 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         if self.skip_merged_pull_request():
             return False
 
-        if self.is_check_run_in_progress(check_run=CAN_BE_MERGED_STR):
-            self.app.logger.info(
-                f"{self.log_prefix} Check run is in progress, not running {CAN_BE_MERGED_STR}."
-            )
-            return False
-
         self.app.logger.info(f"{self.log_prefix} Check if {CAN_BE_MERGED_STR}.")
         last_commit_check_runs = list(self.last_commit.get_check_runs())
         check_runs_in_progress = [
             check_run.name
             for check_run in last_commit_check_runs
             if check_run.status == IN_PROGRESS_STR
-            and check_run.name != CAN_BE_MERGED_STR
+            # and check_run.name != CAN_BE_MERGED_STR
         ]
         if check_runs_in_progress:
             self.app.logger.info(
@@ -1232,14 +1219,21 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         try:
             _labels = self.pull_request_labels_names()
 
-            if VERIFIED_LABEL_STR not in _labels or HOLD_LABEL_STR in _labels:
-                self._remove_label(label=CAN_BE_MERGED_STR)
-                self.set_merge_check_queued()
-                return False
-
             if self.pull_request.mergeable_state == "behind":
                 self._remove_label(label=CAN_BE_MERGED_STR)
-                self.set_merge_check_queued()
+                self._add_label(label=NEEDS_REBASE_LABEL_STR)
+                self.last_commit.create_status(
+                    state=PENDING_STR,
+                    context=CAN_BE_MERGED_STR,
+                )
+                return False
+
+            if VERIFIED_LABEL_STR not in _labels or HOLD_LABEL_STR in _labels:
+                self._remove_label(label=CAN_BE_MERGED_STR)
+                self.last_commit.create_status(
+                    state=PENDING_STR,
+                    context=CAN_BE_MERGED_STR,
+                )
                 return False
 
             all_check_runs_passed = all(
@@ -1251,9 +1245,10 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             )
             if not all_check_runs_passed:
                 self._remove_label(label=CAN_BE_MERGED_STR)
-                self.set_merge_check_queued()
-                # TODO: Fix `run_retest_if_queued` and uncomment the call for it.
-                # self.run_retest_if_queued(last_commit_check_runs=last_commit_check_runs)
+                self.last_commit.create_status(
+                    state=PENDING_STR,
+                    context=CAN_BE_MERGED_STR,
+                )
                 return False
 
             for _label in _labels:
@@ -1261,18 +1256,30 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     change_request_user = _label.split("-")[-1]
                     if change_request_user in self.approvers:
                         self._remove_label(label=CAN_BE_MERGED_STR)
-                        return self.set_merge_check_queued()
+                        return self.last_commit.create_status(
+                            state=PENDING_STR,
+                            context=CAN_BE_MERGED_STR,
+                        )
 
             for _label in _labels:
                 if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
                     approved_user = _label.split("-")[-1]
                     if approved_user in self.approvers:
                         self._add_label(label=CAN_BE_MERGED_STR)
-                        return self.set_merge_check_success()
+                        return self.last_commit.create_status(
+                            state=SUCCESS_STR,
+                            context=CAN_BE_MERGED_STR,
+                        )
 
-            return self.set_merge_check_queued()
+            return self.last_commit.create_status(
+                state=PENDING_STR,
+                context=CAN_BE_MERGED_STR,
+            )
         except Exception:
-            return self.set_merge_check_queued()
+            return self.last_commit.create_status(
+                state=PENDING_STR,
+                context=CAN_BE_MERGED_STR,
+            )
 
     @staticmethod
     def _comment_with_details(title, body):
@@ -1468,7 +1475,10 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
     def process_opened_or_synchronize_pull_request(
         self, parent_committer, pull_request_branch
     ):
-        self.set_merge_check_queued()
+        self.last_commit.create_status(
+            state=PENDING_STR,
+            context=CAN_BE_MERGED_STR,
+        )
         self.set_run_tox_check_queued()
         self.set_python_module_install_queued()
         self.set_container_build_queued()
@@ -1495,25 +1505,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
         for _ in as_completed(futures):
             pass
-
-    def run_retest_if_queued(self):
-        last_commit_check_runs = list(self.last_commit.get_check_runs())
-        for check_run in last_commit_check_runs:
-            if check_run.status == QUEUED_STR:
-                if check_run.name == TOX_STR:
-                    self.app.logger.info(f"{self.log_prefix} retest {TOX_STR}.")
-                    self._run_tox()
-                if check_run.name == BUILD_CONTAINER_STR:
-                    self.app.logger.info(
-                        f"{self.log_prefix} retest {BUILD_CONTAINER_STR}."
-                    )
-                    self._build_container()
-
-                if check_run.name == PYTHON_MODULE_INSTALL_STR:
-                    self.app.logger.info(
-                        f"{self.log_prefix} retest {PYTHON_MODULE_INSTALL_STR}."
-                    )
-                    self._install_python_module()
 
     def is_check_run_in_progress(self, check_run):
         for run in self.last_commit.get_check_runs():
