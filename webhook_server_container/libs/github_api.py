@@ -769,9 +769,10 @@ Available labels:
         if hook_action == "closed":
             self.close_issue_for_merged_or_closed_pr(hook_action=hook_action)
 
-            if pull_request_data.get("merged"):
+            is_merged = pull_request_data.get("merged")
+            if is_merged:
                 self.app.logger.info(f"{self.log_prefix} PR is merged")
-                self._build_container(push=True, set_check=False)
+                self._build_container(push=True, set_check=False, is_merged=is_merged)
 
                 for _label in self.pull_request.labels:
                     _label_name = _label.name
@@ -1279,11 +1280,14 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         )
         return f"{self.container_repository}:{tag}"
 
-    def _build_container(self, set_check=True, push=False):
+    def _build_container(self, set_check=True, push=False, is_merged=None):
         if not self.build_and_push_container:
             return False
 
-        if self.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR):
+        if (
+            self.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR)
+            and not is_merged
+        ):
             self.app.logger.info(
                 f"{self.log_prefix} Check run is in progress, not running {BUILD_CONTAINER_STR}."
             )
