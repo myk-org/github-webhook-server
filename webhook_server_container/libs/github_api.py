@@ -70,10 +70,8 @@ class GitHubApi:
         self.repository_name = hook_data["repository"]["name"]
         self.repositories_app_api = repositories_app_api
         self.missing_app_repositories = missing_app_repositories
-        self.pull_request = None
-        self.last_commit = None
         self.log_prefix_with_color = None
-        self.parent_committer = None
+        self.pull_request = None
         self.container_repo_dir = "/tmp/repository"
         self.webhook_server_data_dir = os.environ.get(
             "WEBHOOK_SERVER_DATA_DIR", "/webhook_server"
@@ -114,6 +112,12 @@ class GitHubApi:
             username=self.dockerhub_username,
             password=self.dockerhub_password,
         )
+
+        self.pull_request = self._get_pull_request()
+        if self.pull_request:
+            self.last_commit = self._get_last_commit()
+            self.parent_committer = self.pull_request.user.login
+
         self.supported_user_labels_str = "".join(
             [f" * {label}\n" for label in USER_LABELS_DICT.keys()]
         )
@@ -703,11 +707,8 @@ Available labels:
         issue_number = self.hook_data["issue"]["number"]
         self.app.logger.info(f"{self.log_prefix} Processing issue {issue_number}")
 
-        self.pull_request = self._get_pull_request()
         if not self.pull_request:
             return
-
-        self.last_commit = self._get_last_commit()
 
         body = self.hook_data["comment"]["body"]
 
@@ -736,11 +737,9 @@ Available labels:
     def process_pull_request_webhook_data(self):
         hook_action = self.hook_data["action"]
         self.app.logger.info(f"{self.log_prefix} hook_action is: {hook_action}")
-        self.pull_request = self._get_pull_request()
         if not self.pull_request:
             return
 
-        self.last_commit = self._get_last_commit()
         pull_request_data = self.hook_data["pull_request"]
         self.parent_committer = pull_request_data["user"]["login"]
         pull_request_branch = pull_request_data["base"]["ref"]
@@ -810,11 +809,8 @@ Available labels:
             self.upload_to_pypi(tag_name=tag_name)
 
     def process_pull_request_review_webhook_data(self):
-        self.pull_request = self._get_pull_request()
         if not self.pull_request:
             return
-
-        self.last_commit = self._get_last_commit()
 
         if self.hook_data["action"] == "submitted":
             """
