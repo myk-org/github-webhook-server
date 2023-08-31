@@ -378,7 +378,7 @@ Available user actions:
     def _generate_issue_body(self):
         return f"[Auto generated]\nNumber: [#{self.pull_request.number}]"
 
-    @ignore_exceptions()
+    @ignore_exceptions(FLASK_APP.logger)
     def is_branch_exists(self, branch):
         return self.repository.get_branch(branch)
 
@@ -681,6 +681,7 @@ Available labels:
             assignee=self.pull_request.user.login,
         )
 
+    @ignore_exceptions(FLASK_APP.logger)
     def close_issue_for_merged_or_closed_pr(self, hook_action):
         for issue in self.repository.get_issues():
             if issue.body == self._generate_issue_body():
@@ -1165,8 +1166,9 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     "```"
                 )
 
+    @ignore_exceptions(FLASK_APP.logger)
     def needs_rebase(self):
-        for pull_request in self.repository.get_pulls():
+        for pull_request in self.repository.get_pulls(state="open"):
             self.app.logger.info(
                 f"{self.log_prefix} "
                 "Sleep for 30 seconds before checking if rebase needed"
@@ -1547,8 +1549,8 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
     def _run_in_container(self, command, env=None, file_path=None):
         podman_base_cmd = (
-            f"podman run --privileged -v /tmp/containers:/var/lib/containers/:Z --rm {env if env else ''} "
-            f"--entrypoint bash quay.io/myakove/github-webhook-server -c"
+            "podman run --network=host --privileged -v /tmp/containers:/var/lib/containers/:Z "
+            f"--rm {env if env else ''} --entrypoint bash quay.io/myakove/github-webhook-server -c"
         )
 
         # Clone the repository
