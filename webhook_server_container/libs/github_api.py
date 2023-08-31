@@ -780,7 +780,10 @@ Available labels:
                             ),
                         )
 
+                # label_by_pull_request_mergeable_state will override self.pull_request
+                original_pull_request = self.pull_request
                 self.label_by_pull_request_mergeable_state()
+                self.pull_request = original_pull_request
 
         if hook_action in ("labeled", "unlabeled"):
             labeled = self.hook_data["label"]["name"].lower()
@@ -1159,12 +1162,8 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         time.sleep(30)
 
         for pull_request in self.repository.get_pulls(state="open"):
-            self.app.logger.info(
-                f"{self.log_prefix} "
-                "Sleep for 30 seconds before checking if rebase needed"
-            )
-            time.sleep(30)
-            merge_state = pull_request.mergeable_state
+            self.pull_request = pull_request
+            merge_state = self.pull_request.mergeable_state
             self.app.logger.info(f"{self.log_prefix} Mergeable state is {merge_state}")
             if merge_state == "behind":
                 self._add_label(label=NEEDS_REBASE_LABEL_STR)
