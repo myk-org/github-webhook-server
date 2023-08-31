@@ -176,10 +176,11 @@ Available user actions:
 
     @property
     def log_prefix(self):
+        log_uuid = shortuuid.uuid()[:5]
         return (
-            f"{self.log_prefix_with_color}[PR {self.pull_request.number}]:"
+            f"{self.log_prefix_with_color}({log_uuid})[PR {self.pull_request.number}]:"
             if self.pull_request
-            else f"{self.log_prefix_with_color}:"
+            else f"{self.log_prefix_with_color}:({log_uuid})"
         )
 
     def hash_token(self, message):
@@ -209,27 +210,28 @@ Available user actions:
             self.process_pull_request_review_webhook_data()
 
         elif data == "check_run":
-            self.get_pull_request_from_check_run_event()
+            self.process_pull_request_check_run_webhook_data()
 
-        self.pull_request = self.pull_request or self._get_pull_request()
-        if self.pull_request:
-            self.last_commit = self._get_last_commit()
-            self.check_if_can_be_merged()
-
-    def get_pull_request_from_check_run_event(self):
+    def process_pull_request_check_run_webhook_data(self):
         _check_run = self.hook_data["check_run"]
-        if _check_run["name"] == CAN_BE_MERGED_STR:
+        check_run_name = _check_run["name"]
+        if check_run_name == CAN_BE_MERGED_STR:
             return
 
-        if self.hook_data["action"] == "completed":
+        if (
+            self.hook_data["action"] == "completed"
+            and _check_run["conclusion"] == SUCCESS_STR
+        ):
             self.app.logger.info(
-                f"{self.log_prefix} Got event check_run completed, getting pull request"
+                f"{self.log_prefix} check_run '{check_run_name}' completed and {SUCCESS_STR}"
             )
             for _pull_request in self.repository.get_pulls(state="open"):
                 _last_commit = list(_pull_request.get_commits())[-1]
                 for _commit_check_run in _last_commit.get_check_runs():
                     if _commit_check_run.id == int(_check_run["id"]):
                         self.pull_request = _pull_request
+                        self.last_commit = self._get_last_commit()
+                        self.check_if_can_be_merged()
                         break
 
     @property
@@ -784,6 +786,8 @@ Available labels:
 
         if hook_action in ("labeled", "unlabeled"):
             labeled = self.hook_data["label"]["name"].lower()
+            if labeled == CAN_BE_MERGED_STR:
+                return
 
             if (
                 hook_action == "labeled"
@@ -810,15 +814,11 @@ Available labels:
             if self.verified_job and labeled == VERIFIED_LABEL_STR:
                 if hook_action == "labeled":
                     self.set_verify_check_success()
+                    if CAN_BE_MERGED_STR not in self.pull_request_labels_names():
+                        self.check_if_can_be_merged()
 
                 if hook_action == "unlabeled":
                     self.set_verify_check_queued()
-
-            if (
-                CAN_BE_MERGED_STR not in self.pull_request_labels_names()
-                or labeled != CAN_BE_MERGED_STR
-            ):
-                self.check_if_can_be_merged()
 
     def process_push_webhook_data(self):
         tag = re.search(r"refs/tags/?(.*)", self.hook_data["ref"])
@@ -847,7 +847,6 @@ Available labels:
                 action=ADD_STR,
                 reviewed_user=self.hook_data["review"]["user"]["login"],
             )
-        self.check_if_can_be_merged()
 
     def manage_reviewed_by_label(self, review_state, action, reviewed_user):
         self.app.logger.info(
@@ -857,6 +856,7 @@ Available labels:
         )
         label_prefix = None
         label_to_remove = None
+        check_if_can_be_merged = False
 
         pull_request_labels = self.pull_request_labels_names()
 
@@ -873,6 +873,7 @@ Available labels:
             _remove_label = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{reviewed_user}"
             if _remove_label in pull_request_labels:
                 label_to_remove = _remove_label
+            check_if_can_be_merged = True
 
         elif review_state == "changes_requested":
             label_prefix = CHANGED_REQUESTED_BY_LABEL_PREFIX
@@ -890,6 +891,9 @@ Available labels:
                 self._add_label(label=reviewer_label)
                 if label_to_remove:
                     self._remove_label(label=label_to_remove)
+
+                if check_if_can_be_merged:
+                    self.check_if_can_be_merged()
 
             if action == DELETE_STR:
                 self._remove_label(label=reviewer_label)
