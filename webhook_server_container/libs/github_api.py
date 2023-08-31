@@ -211,11 +211,6 @@ Available user actions:
         elif data == "check_run":
             self.get_pull_request_from_check_run_event()
 
-        self.pull_request = self.pull_request or self._get_pull_request()
-        if self.pull_request:
-            self.last_commit = self._get_last_commit()
-            self.check_if_can_be_merged()
-
     def get_pull_request_from_check_run_event(self):
         _check_run = self.hook_data["check_run"]
         if _check_run["name"] == CAN_BE_MERGED_STR:
@@ -230,6 +225,8 @@ Available user actions:
                 for _commit_check_run in _last_commit.get_check_runs():
                     if _commit_check_run.id == int(_check_run["id"]):
                         self.pull_request = _pull_request
+                        self.last_commit = self._get_last_commit()
+                        self.check_if_can_be_merged()
                         break
 
     @property
@@ -847,7 +844,6 @@ Available labels:
                 action=ADD_STR,
                 reviewed_user=self.hook_data["review"]["user"]["login"],
             )
-        self.check_if_can_be_merged()
 
     def manage_reviewed_by_label(self, review_state, action, reviewed_user):
         self.app.logger.info(
@@ -857,6 +853,7 @@ Available labels:
         )
         label_prefix = None
         label_to_remove = None
+        check_if_can_be_merged = False
 
         pull_request_labels = self.pull_request_labels_names()
 
@@ -873,6 +870,7 @@ Available labels:
             _remove_label = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{reviewed_user}"
             if _remove_label in pull_request_labels:
                 label_to_remove = _remove_label
+            check_if_can_be_merged = True
 
         elif review_state == "changes_requested":
             label_prefix = CHANGED_REQUESTED_BY_LABEL_PREFIX
@@ -890,6 +888,9 @@ Available labels:
                 self._add_label(label=reviewer_label)
                 if label_to_remove:
                     self._remove_label(label=label_to_remove)
+
+                if check_if_can_be_merged:
+                    self.check_if_can_be_merged()
 
             if action == DELETE_STR:
                 self._remove_label(label=reviewer_label)
