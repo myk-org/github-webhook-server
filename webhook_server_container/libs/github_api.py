@@ -1492,7 +1492,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         for result in as_completed(futures):
             if result.exception():
                 self.app.logger.error(f"{self.log_prefix} {result.exception()}")
-            self.app.logger.error(f"{self.log_prefix} {result.result()}")
+            self.app.logger.info(f"{self.log_prefix} {result.result()}")
 
     def is_check_run_in_progress(self, check_run):
         for run in self.last_commit.get_check_runs():
