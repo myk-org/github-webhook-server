@@ -1489,8 +1489,10 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             futures.append(executor.submit(self._install_python_module))
             futures.append(executor.submit(self._build_container))
 
-        for _ in as_completed(futures):
-            pass
+        for result in as_completed(futures):
+            if result.exception():
+                self.app.logger.error(f"{self.log_prefix} {result.exception()}")
+            self.app.logger.error(f"{self.log_prefix} {result.result()}")
 
     def is_check_run_in_progress(self, check_run):
         for run in self.last_commit.get_check_runs():
@@ -1540,7 +1542,8 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.app.logger.info(
             f"{self.log_prefix} Set {check_run} check to {status or conclusion}"
         )
-        return self.repository_by_github_app.create_check_run(**kwargs)
+        self.repository_by_github_app.create_check_run(**kwargs)
+        return f"Done setting check run status: {kwargs}"
 
     def _get_check_run_result_file_path(self, check_run):
         base_path = os.path.join(self.webhook_server_data_dir, check_run)
