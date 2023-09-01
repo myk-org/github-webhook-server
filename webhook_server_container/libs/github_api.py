@@ -1108,7 +1108,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 check_run=CHERRY_PICKED_LABEL_PREFIX
             )
             commit_hash = self.pull_request.merge_commit_sha
-            commit_msg = self.pull_request.title
+            commit_msg_striped = self.pull_request.title.replace("'", "")
             pull_request_url = self.pull_request.html_url
             env = f"-e GITHUB_TOKEN={self.token}"
             cmd = (
@@ -1121,7 +1121,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 f"-b {target_branch} "
                 f"-h {new_branch_name} "
                 f"-l {CHERRY_PICKED_LABEL_PREFIX} "
-                f'-m "{CHERRY_PICKED_LABEL_PREFIX}: [{target_branch}] {commit_msg}" '
+                f'-m "{CHERRY_PICKED_LABEL_PREFIX}: [{target_branch}] {commit_msg_striped}" '
                 f'-m "cherry-pick {pull_request_url} into {target_branch}" '
                 f'-m "requested-by {requested_by}"'
             )
@@ -1144,6 +1144,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     f"{commit_hash} to {target_branch}:\n"
                     f"To cherry-pick run:\n"
                     "```\n"
+                    f"git remote update\n"
                     f"git checkout {target_branch}\n"
                     f"git pull origin {target_branch}\n"
                     f"git checkout -b {local_branch_name}\n"
