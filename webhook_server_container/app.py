@@ -134,10 +134,7 @@ def main():
         repositories_app_api=REPOSITORIES_APP_API,
         missing_app_repositories=MISSING_APP_REPOSITORIES,
     )
-
-    for proc in create_webhook():
-        proc.join()
-
+    create_webhook()
     FLASK_APP.logger.info(f"Starting {FLASK_APP.name} app")
     FLASK_APP.run(
         port=int(os.environ.get("WEBHOOK_SERVER_PORT", 5000)),

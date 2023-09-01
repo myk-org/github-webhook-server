@@ -1,4 +1,4 @@
-from multiprocessing import Process
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from github import Github
 
@@ -41,21 +41,23 @@ def process_github_webhook(data, github_api, webhook_ip):
         f"Creating webhook: {config['url']} for {repository} with events: {events}"
     )
     repo.create_hook(name="web", config=config, events=events, active=True)
+    return f"{repository}: Create webhook is done"
 
 
 def create_webhook():
     FLASK_APP.logger.info("Preparing webhook configuration")
     config_data = get_data_from_config()
-
-    procs = []
     github_api = Github(login_or_token=config_data["github-token"])
     webhook_ip = config_data["webhook_ip"]
-    for repo, data in config_data["repositories"].items():
-        proc = Process(
-            target=process_github_webhook,
-            kwargs={"data": data, "github_api": github_api, "webhook_ip": webhook_ip},
-        )
-        procs.append(proc)
-        proc.start()
 
-    return procs
+    futures = []
+    with ThreadPoolExecutor() as executor:
+        for repo, data in config_data["repositories"].items():
+            futures.append(
+                executor.submit(process_github_webhook, data, github_api, webhook_ip)
+            )
+
+    for result in as_completed(futures):
+        if result.exception():
+            FLASK_APP.logger.error(result.exception())
+        FLASK_APP.logger.info(result.result())
