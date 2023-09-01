@@ -72,6 +72,8 @@ class GitHubApi:
         self.missing_app_repositories = missing_app_repositories
         self.log_prefix_with_color = None
         self.pull_request = None
+        self.parent_committer = None
+        self.log_uuid = shortuuid.uuid()[:5]
         self.container_repo_dir = "/tmp/repository"
         self.webhook_server_data_dir = os.environ.get(
             "WEBHOOK_SERVER_DATA_DIR", "/webhook_server"
@@ -181,11 +183,10 @@ Available user actions:
 
     @property
     def log_prefix(self):
-        log_uuid = shortuuid.uuid()[:5]
         return (
-            f"{self.log_prefix_with_color}({log_uuid})[PR {self.pull_request.number}]:"
+            f"{self.log_prefix_with_color}({self.log_uuid})[PR {self.pull_request.number}]:"
             if self.pull_request
-            else f"{self.log_prefix_with_color}:({log_uuid})"
+            else f"{self.log_prefix_with_color}:({self.log_uuid})"
         )
 
     def hash_token(self, message):
@@ -202,6 +203,9 @@ Available user actions:
 
     def process_hook(self, data, event_log):
         self.app.logger.info(f"{self.log_prefix} {event_log}")
+        if data == "ping":
+            return
+
         if data == "issue_comment":
             self.process_comment_webhook_data()
 
@@ -1259,12 +1263,12 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                                 f"Owner of the pull request is `{self.api_user}`\n"
                                 "Pull request is merged automatically."
                             )
-                            self.pull_request.merge(merge_method="squash")
-                            return
-                        return
+                            return self.pull_request.merge(merge_method="squash")
 
-            return self.set_merge_check_queued()
-        except Exception:
+        except Exception as ex:
+            self.app.logger.error(
+                f"{self.log_prefix} Failed to check if can be merged, set check run to {QUEUED_STR} {ex}"
+            )
             return self.set_merge_check_queued()
 
     @staticmethod
