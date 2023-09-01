@@ -42,7 +42,7 @@ poetry-dynamic-versioning = {extras = ["plugin"], version = "^1.0.0"}
 pygithub = "^1.59.0"
 flask = "^2.3.2"
 pyyaml = "^6.0"
-build = "^0.10.0"
+build = "^1.0.0"
 shortuuid = "^1.0.11"
 python-sonarqube-api = "^2.0.4"
 colorlog = "^6.7.0"
