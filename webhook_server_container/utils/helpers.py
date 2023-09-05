@@ -7,6 +7,7 @@ from functools import wraps
 from time import sleep
 
 import yaml
+from colorama import Fore
 from github import Github
 
 from webhook_server_container.utils.constants import FLASK_APP
@@ -171,9 +172,18 @@ def check_rate_limit(github_api=None):
     rate_limit_reset = rate_limit.core.reset
     rate_limit_remaining = rate_limit.core.remaining
     rate_limit_limit = rate_limit.core.limit
+    time_for_limit_reset = (rate_limit_reset - datetime.datetime.utcnow()).seconds
+
+    if rate_limit_remaining < 500:
+        rate_limit_str = f"{Fore.RED}{rate_limit_remaining}{Fore.RESET}"
+    elif rate_limit_remaining < 2000:
+        rate_limit_str = f"{Fore.YELLOW}{rate_limit_remaining}{Fore.RESET}"
+    else:
+        rate_limit_str = f"{Fore.GREEN}{rate_limit_remaining}{Fore.RESET}"
+
     FLASK_APP.logger.info(
-        f"API rate limit: Current {rate_limit_remaining} of {rate_limit_limit}. "
-        f"Reset in {rate_limit_reset} (UTC time is {datetime.datetime.utcnow()})"
+        f"API rate limit: Current {rate_limit_str} of {rate_limit_limit}. "
+        f"Reset in {rate_limit_reset} [{time_for_limit_reset} seconds] (UTC time is {datetime.datetime.utcnow()})"
     )
     while (
         datetime.datetime.utcnow() < rate_limit_reset
@@ -182,7 +192,6 @@ def check_rate_limit(github_api=None):
         FLASK_APP.logger.warning(
             f"Rate limit is below {minimum_limit} waiting till {rate_limit_reset}"
         )
-        time_for_limit_reset = (rate_limit_reset - datetime.datetime.utcnow()).seconds
         FLASK_APP.logger.info(f"Sleeping {time_for_limit_reset} seconds")
         time.sleep(time_for_limit_reset + 1)
         rate_limit = github_api.get_rate_limit()

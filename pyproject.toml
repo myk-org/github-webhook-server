@@ -46,6 +46,7 @@ build = "^1.0.0"
 shortuuid = "^1.0.11"
 python-sonarqube-api = "^2.0.4"
 colorlog = "^6.7.0"
+colorama = "^0.4.6"
 
 [tool.poetry.group.dev.dependencies]
 ipdb = "^0.13.13"
