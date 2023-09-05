@@ -326,6 +326,7 @@ Available user actions:
             self.app.logger.info(f"{self.log_prefix}: PR is merged, not processing")
             return True
 
+    @ignore_exceptions(FLASK_APP.logger)
     def _remove_label(self, label):
         if self.label_exists_in_pull_request(label=label):
             self.app.logger.info(f"{self.log_prefix} Removing label {label}")
@@ -335,6 +336,7 @@ Available user actions:
             f"{self.log_prefix} Label {label} not found and cannot be removed"
         )
 
+    @ignore_exceptions(FLASK_APP.logger)
     def _add_label(self, label):
         label = label.strip()
         if len(label) > 49:
