@@ -766,6 +766,7 @@ Available labels:
             self.process_opened_or_synchronize_pull_request(
                 pull_request_branch=pull_request_branch,
             )
+            self.label_pull_request_by_merge_state()
 
         if hook_action == "closed":
             self.close_issue_for_merged_or_closed_pr(hook_action=hook_action)
@@ -784,9 +785,9 @@ Available labels:
                             ),
                         )
 
-                # label_by_pull_request_mergeable_state will override self.pull_request
+                # label_by_pull_requests_merge_state_after_merged will override self.pull_request
                 original_pull_request = self.pull_request
-                self.label_by_pull_request_mergeable_state()
+                self.label_by_pull_requests_merge_state_after_merged()
                 self.pull_request = original_pull_request
 
         if hook_action in ("labeled", "unlabeled"):
@@ -1154,7 +1155,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 )
 
     @ignore_exceptions(FLASK_APP.logger)
-    def label_by_pull_request_mergeable_state(self):
+    def label_by_pull_requests_merge_state_after_merged(self):
         """
         Labels pull requests based on their mergeable state.
 
@@ -1167,20 +1168,31 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         time.sleep(30)
 
         for pull_request in self.repository.get_pulls(state="open"):
-            self.pull_request = pull_request
-            merge_state = self.pull_request.mergeable_state
-            self.app.logger.info(f"{self.log_prefix} Mergeable state is {merge_state}")
-            if merge_state == "unknown":
-                continue
+            self.label_pull_request_by_merge_state(
+                pull_request=pull_request, _sleep=False
+            )
 
-            if merge_state == "behind":
-                self._add_label(label=NEEDS_REBASE_LABEL_STR)
-            else:
-                self._remove_label(label=NEEDS_REBASE_LABEL_STR)
-            if merge_state == "dirty":
-                self._add_label(label=HAS_CONFLICTS_LABEL_STR)
-            else:
-                self._remove_label(label=HAS_CONFLICTS_LABEL_STR)
+    def label_pull_request_by_merge_state(self, pull_request=None, _sleep=True):
+        if _sleep:
+            self.app.logger.info(
+                f"{self.log_prefix} Sleep for 30 seconds before checking merge state"
+            )
+            time.sleep(30)
+
+        pull_request = pull_request or self.pull_request
+        merge_state = pull_request.mergeable_state
+        self.app.logger.info(f"{self.log_prefix} Mergeable state is {merge_state}")
+        if merge_state == "unknown":
+            return
+
+        if merge_state == "behind":
+            self._add_label(label=NEEDS_REBASE_LABEL_STR)
+        else:
+            self._remove_label(label=NEEDS_REBASE_LABEL_STR)
+        if merge_state == "dirty":
+            self._add_label(label=HAS_CONFLICTS_LABEL_STR)
+        else:
+            self._remove_label(label=HAS_CONFLICTS_LABEL_STR)
 
     def check_if_can_be_merged(self):
         """
