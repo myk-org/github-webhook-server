@@ -1170,6 +1170,9 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             self.pull_request = pull_request
             merge_state = self.pull_request.mergeable_state
             self.app.logger.info(f"{self.log_prefix} Mergeable state is {merge_state}")
+            if merge_state == "unknown":
+                continue
+
             if merge_state == "behind":
                 self._add_label(label=NEEDS_REBASE_LABEL_STR)
             else:
