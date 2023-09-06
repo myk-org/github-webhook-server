@@ -182,8 +182,9 @@ def check_rate_limit(github_api=None):
         rate_limit_str = f"{Fore.GREEN}{rate_limit_remaining}{Fore.RESET}"
 
     FLASK_APP.logger.info(
-        f"API rate limit: Current {rate_limit_str} of {rate_limit_limit}. "
-        f"Reset in {rate_limit_reset} [{time_for_limit_reset} seconds] (UTC time is {datetime.datetime.utcnow()})"
+        f"{Fore.CYAN}API rate limit:{Fore.RESET} Current {rate_limit_str} of {rate_limit_limit}. "
+        f"Reset in {rate_limit_reset} [{datetime.timedelta(seconds=time_for_limit_reset)}] "
+        f"(UTC time is {datetime.datetime.utcnow()})"
     )
     while (
         datetime.datetime.utcnow() < rate_limit_reset

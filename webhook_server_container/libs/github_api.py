@@ -1,5 +1,4 @@
 import contextlib
-import datetime
 import json
 import os
 import random
@@ -1439,34 +1438,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         else:
             self.reset_verify_label()
             self.set_verify_check_queued()
-
-    def check_rate_limit(self):
-        minimum_limit = 50
-        rate_limit = self.github_api.get_rate_limit()
-        rate_limit_reset = rate_limit.core.reset
-        rate_limit_remaining = rate_limit.core.remaining
-        rate_limit_limit = rate_limit.core.limit
-        self.app.logger.info(
-            f"{self.log_prefix}  API rate limit: Current {rate_limit_remaining} of {rate_limit_limit}. "
-            f"Reset in {rate_limit_reset} (UTC time is {datetime.datetime.utcnow()})"
-        )
-        while (
-            datetime.datetime.utcnow() < rate_limit_reset
-            and rate_limit_remaining < minimum_limit
-        ):
-            self.app.logger.warning(
-                f"{self.log_prefix} Rate limit is below {minimum_limit} waiting till {rate_limit_reset}"
-            )
-            time_for_limit_reset = (
-                rate_limit_reset - datetime.datetime.utcnow()
-            ).seconds
-            self.app.logger.info(
-                f"{self.log_prefix} Sleeping {time_for_limit_reset} seconds"
-            )
-            time.sleep(time_for_limit_reset + 1)
-            rate_limit = self.github_api.get_rate_limit()
-            rate_limit_reset = rate_limit.core.reset
-            rate_limit_remaining = rate_limit.core.remaining
 
     def create_comment_reaction(self, issue_comment_id, reaction):
         _comment = self.pull_request.get_issue_comment(issue_comment_id)
