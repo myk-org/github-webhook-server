@@ -52,7 +52,7 @@ def ignore_exceptions(logger=None, retry=None):
                             sleep(1)
 
                 if logger:
-                    logger.error(ex)
+                    logger.error(f"{func.__name__}({args} {kwargs}). Error: {ex}")
                 return None
 
         return inner
@@ -60,7 +60,7 @@ def ignore_exceptions(logger=None, retry=None):
     return wrapper
 
 
-@ignore_exceptions()
+@ignore_exceptions(logger=FLASK_APP.logger, retry=5)
 def get_github_repo_api(github_api, repository):
     return github_api.get_repo(repository)
 
@@ -162,6 +162,7 @@ def run_command(
         return False, out_decoded, err_decoded
 
 
+@ignore_exceptions(logger=FLASK_APP.logger, retry=5)
 def check_rate_limit(github_api=None):
     if not github_api:
         config_data = get_data_from_config()

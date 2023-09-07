@@ -108,6 +108,10 @@ class GitHubApi:
         self.repository_by_github_app = get_github_repo_api(
             github_api=self.github_app_api, repository=self.repository_full_name
         )
+        if not (self.repository or self.repository_by_github_app):
+            self.app.logger.error(f"{self.log_prefix} Failed to get repository.")
+            return
+
         self.clone_repository_path = os.path.join("/", self.repository.name)
         self.dockerhub = DockerHub(
             username=self.dockerhub_username,

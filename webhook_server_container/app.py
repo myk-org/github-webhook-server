@@ -20,6 +20,7 @@ from webhook_server_container.utils.helpers import (
     check_rate_limit,
     get_app_data_dir,
     get_data_from_config,
+    ignore_exceptions,
 )
 from webhook_server_container.utils.sonar_qube import set_sonar_qube_projects
 from webhook_server_container.utils.webhook import create_webhook
@@ -43,6 +44,7 @@ PYTHON_MODULE_INSTALL_DATA_PATH = os.path.join(
 )
 
 
+@ignore_exceptions(logger=FLASK_APP.logger, retry=5)
 def get_repositories_github_app_api():
     FLASK_APP.logger.info("Getting repositories GitHub app API")
     with open(os.path.join(get_app_data_dir(), "webhook-server.private-key.pem")) as fd:
@@ -53,6 +55,7 @@ def get_repositories_github_app_api():
     auth = Auth.AppAuth(app_id=github_app_id, private_key=private_key)
     for installation in GithubIntegration(auth=auth).get_installations():
         for repo in installation.get_repos():
+            FLASK_APP.logger.info(f"Getting repository {repo.full_name} GitHub app API")
             REPOSITORIES_APP_API[
                 repo.full_name
             ] = installation.get_github_for_installation()
