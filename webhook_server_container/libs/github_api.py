@@ -143,17 +143,31 @@ Available user actions:
  * To cherry pick a merged PR comment `/cherry-pick <target branch to cherry-pick to>` in the PR.
     * Multiple target branches can be cherry-picked, separated by spaces. (`/cherry-pick branch1 branch2`)
     * Cherry-pick will be started when PR is merged
- * To re-run tox comment `/retest tox` in the PR.
- * To re-run build-container command `/retest build-container` in the PR.
- * To re-run python-module-install command `/retest python-module-install` in the PR.
  * To build and push container image command `/build-and-push-container` in the PR (tag will be the PR number).
  * To add a label by comment use `/<label name>`, to remove, use `/<label name> cancel`
+<details>
+<summary>Supported /retest check runs</summary>
+{self.prepare_retest_wellcome_msg()}
+<details>
 <details>
 <summary>Supported labels</summary>
 
 {self.supported_user_labels_str}
 </details>
     """
+
+    def prepare_retest_wellcome_msg(self):
+        retest_msg = ""
+        if self.tox_enabled:
+            retest_msg += f" * /retest {TOX_STR} - Retest tox\n"
+        if self.build_and_push_container:
+            retest_msg += f" * /retest {BUILD_CONTAINER_STR} - Retest build-container\n"
+        if self.sonarqube_project_key:
+            retest_msg += f" * /retest {SONARQUBE_STR} - Retest sonarqube\n"
+        if self.pypi:
+            retest_msg += f" * /retest {PYTHON_MODULE_INSTALL_STR} - Retest python-module-install\n"
+
+        return retest_msg
 
     def get_github_app_api(self):
         if self.repository_full_name in self.missing_app_repositories:
@@ -329,7 +343,7 @@ Available user actions:
             self.app.logger.info(f"{self.log_prefix}: PR is merged, not processing")
             return True
 
-    @ignore_exceptions(FLASK_APP.logger)
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def _remove_label(self, label):
         if self.label_exists_in_pull_request(label=label):
             self.app.logger.info(f"{self.log_prefix} Removing label {label}")
@@ -339,7 +353,7 @@ Available user actions:
             f"{self.log_prefix} Label {label} not found and cannot be removed"
         )
 
-    @ignore_exceptions(FLASK_APP.logger)
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def _add_label(self, label):
         label = label.strip()
         if len(label) > 49:
@@ -396,7 +410,7 @@ Available user actions:
     def _generate_issue_body(self):
         return f"[Auto generated]\nNumber: [#{self.pull_request.number}]"
 
-    @ignore_exceptions(FLASK_APP.logger)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def is_branch_exists(self, branch):
         return self.repository.get_branch(branch)
 
@@ -547,43 +561,52 @@ Available labels:
         # Remove verified label
         self._remove_label(label=VERIFIED_LABEL_STR)
 
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_verify_check_queued(self):
         return self.set_check_run_status(
             check_run=VERIFIED_LABEL_STR, status=QUEUED_STR
         )
 
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_verify_check_success(self):
         return self.set_check_run_status(
             check_run=VERIFIED_LABEL_STR, conclusion=SUCCESS_STR
         )
 
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_run_tox_check_queued(self):
         if not self.tox_enabled:
             return False
 
         return self.set_check_run_status(check_run=TOX_STR, status=QUEUED_STR)
 
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_run_tox_check_in_progress(self):
         return self.set_check_run_status(check_run=TOX_STR, status=IN_PROGRESS_STR)
 
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_run_tox_check_failure(self, details_url):
         return self.set_check_run_status(
             check_run=TOX_STR, conclusion=FAILURE_STR, details_url=details_url
         )
 
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_run_tox_check_success(self, details_url):
         return self.set_check_run_status(
             check_run=TOX_STR, conclusion=SUCCESS_STR, details_url=details_url
         )
 
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_merge_check_queued(self):
         return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, status=QUEUED_STR)
 
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_merge_check_success(self):
         return self.set_check_run_status(
             check_run=CAN_BE_MERGED_STR, conclusion=SUCCESS_STR
         )
 
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_container_build_queued(self):
         if not self.build_and_push_container:
             return
@@ -592,11 +615,13 @@ Available labels:
             check_run=BUILD_CONTAINER_STR, status=QUEUED_STR
         )
 
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_container_build_in_progress(self):
         return self.set_check_run_status(
             check_run=BUILD_CONTAINER_STR, status=IN_PROGRESS_STR
         )
 
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_container_build_success(self, details_url):
         return self.set_check_run_status(
             check_run=BUILD_CONTAINER_STR,
@@ -604,6 +629,7 @@ Available labels:
             details_url=details_url,
         )
 
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_container_build_failure(self, details_url):
         return self.set_check_run_status(
             check_run=BUILD_CONTAINER_STR,
@@ -611,6 +637,7 @@ Available labels:
             details_url=details_url,
         )
 
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_python_module_install_queued(self):
         if not self.pypi:
             return False
@@ -619,11 +646,13 @@ Available labels:
             check_run=PYTHON_MODULE_INSTALL_STR, status=QUEUED_STR
         )
 
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_python_module_install_in_progress(self):
         return self.set_check_run_status(
             check_run=PYTHON_MODULE_INSTALL_STR, status=IN_PROGRESS_STR
         )
 
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_python_module_install_success(self, details_url):
         return self.set_check_run_status(
             check_run=PYTHON_MODULE_INSTALL_STR,
@@ -631,6 +660,7 @@ Available labels:
             details_url=details_url,
         )
 
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_python_module_install_failure(self, details_url):
         return self.set_check_run_status(
             check_run=PYTHON_MODULE_INSTALL_STR,
@@ -638,32 +668,38 @@ Available labels:
             details_url=details_url,
         )
 
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_sonarqube_queued(self):
         if not self.sonarqube_project_key:
             return False
 
         return self.set_check_run_status(check_run=SONARQUBE_STR, status=QUEUED_STR)
 
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_sonarqube_in_progress(self):
         return self.set_check_run_status(
             check_run=SONARQUBE_STR, status=IN_PROGRESS_STR
         )
 
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_sonarqube_success(self, details_url):
         return self.set_check_run_status(
             check_run=SONARQUBE_STR, conclusion=SUCCESS_STR, details_url=details_url
         )
 
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_sonarqube_failure(self, details_url):
         return self.set_check_run_status(
             check_run=SONARQUBE_STR, conclusion=FAILURE_STR, details_url=details_url
         )
 
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_cherry_pick_in_progress(self):
         return self.set_check_run_status(
             check_run=CHERRY_PICKED_LABEL_PREFIX, status=IN_PROGRESS_STR
         )
 
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_cherry_pick_success(self, details_url):
         return self.set_check_run_status(
             check_run=CHERRY_PICKED_LABEL_PREFIX,
@@ -671,6 +707,7 @@ Available labels:
             details_url=details_url,
         )
 
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_cherry_pick_failure(self, details_url):
         return self.set_check_run_status(
             check_run=CHERRY_PICKED_LABEL_PREFIX,
@@ -678,7 +715,7 @@ Available labels:
             details_url=details_url,
         )
 
-    @ignore_exceptions(FLASK_APP.logger)
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def create_issue_for_new_pull_request(self):
         if self.parent_committer in (
             self.api_user,
@@ -694,7 +731,7 @@ Available labels:
             assignee=self.pull_request.user.login,
         )
 
-    @ignore_exceptions(FLASK_APP.logger)
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def close_issue_for_merged_or_closed_pr(self, hook_action):
         for issue in self.repository.get_issues():
             if issue.body == self._generate_issue_body():
@@ -779,7 +816,9 @@ Available labels:
             is_merged = pull_request_data.get("merged")
             if is_merged:
                 self.app.logger.info(f"{self.log_prefix} PR is merged")
-                self._build_container(push=True, set_check=False, is_merged=is_merged)
+                self._run_build_container(
+                    push=True, set_check=False, is_merged=is_merged
+                )
 
                 for _label in self.pull_request.labels:
                     _label_name = _label.name
@@ -1016,7 +1055,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                                 issue_comment_id=issue_comment_id,
                                 reaction=REACTIONS.ok,
                             )
-                            self._build_container()
+                            self._run_build_container()
                         else:
                             msg = f"No {BUILD_CONTAINER_STR} configured for this repository"
                             error_msg = f"{self.log_prefix} {msg}"
@@ -1034,7 +1073,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                             issue_comment_id=issue_comment_id,
                             reaction=REACTIONS.ok,
                         )
-                        self._install_python_module()
+                        self._run_install_python_module()
 
                     elif _test == SONARQUBE_STR:
                         if not self.sonarqube_project_key:
@@ -1056,7 +1095,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     issue_comment_id=issue_comment_id,
                     reaction=REACTIONS.ok,
                 )
-                self._build_container(push=True)
+                self._run_build_container(push=True)
             else:
                 msg = (
                     f"No {BUILD_AND_PUSH_CONTAINER_STR} configured for this repository"
@@ -1096,7 +1135,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 issue_comment_id=issue_comment_id,
             )
 
-    @ignore_exceptions(FLASK_APP.logger)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def cherry_pick(self, target_branch, reviewed_user=None):
         requested_by = reviewed_user or "by target-branch label"
         self.app.logger.info(
@@ -1159,7 +1198,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     "```"
                 )
 
-    @ignore_exceptions(FLASK_APP.logger)
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def label_by_pull_requests_merge_state_after_merged(self):
         """
         Labels pull requests based on their mergeable state.
@@ -1309,7 +1348,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         )
         return f"{self.container_repository}:{tag}"
 
-    def _build_container(self, set_check=True, push=False, is_merged=None):
+    def _run_build_container(self, set_check=True, push=False, is_merged=None):
         if not self.build_and_push_container:
             return False
 
@@ -1393,7 +1432,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             if self.pull_request and set_check:
                 return self.set_container_build_failure(details_url=url_path)
 
-    def _install_python_module(self):
+    def _run_install_python_module(self):
         if not self.pypi:
             return False
 
@@ -1478,8 +1517,8 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         with ThreadPoolExecutor() as executor:
             futures.append(executor.submit(self._run_sonarqube))
             futures.append(executor.submit(self._run_tox))
-            futures.append(executor.submit(self._install_python_module))
-            futures.append(executor.submit(self._build_container))
+            futures.append(executor.submit(self._run_install_python_module))
+            futures.append(executor.submit(self._run_build_container))
 
         for result in as_completed(futures):
             if result.exception():
@@ -1501,7 +1540,12 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         cmd = self.sonarqube_api.get_sonar_scanner_command(
             project_key=self.sonarqube_project_key
         )
-        if self._run_in_container(command=cmd)[0]:
+
+        file_path, url_path = self._get_check_run_result_file_path(
+            check_run=SONARQUBE_STR
+        )
+        rc, _, _ = self._run_in_container(command=cmd, file_path=file_path)
+        if rc:
             project_status = self.sonarqube_api.get_project_quality_status(
                 project_key=self.sonarqube_project_key
             )
@@ -1513,7 +1557,9 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     f"{self.log_prefix} Sonarqube scan failed, status: {project_status_res}"
                 )
                 return self.set_sonarqube_failure(details_url=target_url)
-        return self.set_sonarqube_failure(details_url=target_url)
+        else:
+            self.app.logger.info(f"{self.log_prefix} Sonarqube scan failed, rc: {rc}")
+            return self.set_sonarqube_failure(details_url=url_path)
 
     def set_check_run_status(
         self, check_run, status=None, conclusion=None, details_url=None
@@ -1542,7 +1588,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         if not os.path.exists(base_path):
             os.makedirs(name=base_path, exist_ok=True)
 
-        file_name = f"PR-{self.pull_request.number}-{self.last_commit.sha}"
+        file_name = f"{self.repository_name}-PR-{self.pull_request.number}-{self.last_commit.sha}"
         file_path = os.path.join(base_path, file_name)
         url_path = f"{self.webhook_url}{APP_ROOT_PATH}/{check_run}/{file_name}"
         return file_path, url_path

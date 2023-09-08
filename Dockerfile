@@ -18,6 +18,7 @@ RUN mkdir -p $USER_BIN_DIR \
     && mkdir -p $DATA_DIR/python-module-install \
     && mkdir -p $DATA_DIR/build-container \
     && mkdir -p $DATA_DIR/CherryPicked \
+    && mkdir -p $DATA_DIR/sonarqube \
     && mkdir -p $DATA_DIR/logs \
     && mkdir -p /tmp/containers
 
