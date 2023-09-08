@@ -10,6 +10,7 @@ from webhook_server_container.utils.constants import (
     BUILD_CONTAINER_STR,
     FLASK_APP,
     PYTHON_MODULE_INSTALL_STR,
+    SONARQUBE_STR,
     TOX_STR,
 )
 from webhook_server_container.utils.github_repository_settings import (
@@ -20,6 +21,7 @@ from webhook_server_container.utils.helpers import (
     check_rate_limit,
     get_app_data_dir,
     get_data_from_config,
+    ignore_exceptions,
 )
 from webhook_server_container.utils.sonar_qube import set_sonar_qube_projects
 from webhook_server_container.utils.webhook import create_webhook
@@ -33,16 +35,15 @@ urllib3.disable_warnings()
 PLAIN_TEXT_MIME_TYPE = "text/plain"
 FILENAME_STRING = "<string:filename>"
 APP_DATA_ROOT_PATH = get_app_data_dir()
-TOX_ROUTE_PATH = f"{APP_DATA_ROOT_PATH}/{TOX_STR}"
-BUILD_CONTAINER_ROUTE_PATH = f"{APP_DATA_ROOT_PATH}/{BUILD_CONTAINER_STR}"
-PYTHON_MODULE_INSTALL_ROUTE_PATH = f"{APP_DATA_ROOT_PATH}/{PYTHON_MODULE_INSTALL_STR}"
 TOX_DATA_PATH = os.path.join(APP_DATA_ROOT_PATH, TOX_STR)
 BUILD_CONTAINER_DATA_PATH = os.path.join(APP_DATA_ROOT_PATH, BUILD_CONTAINER_STR)
 PYTHON_MODULE_INSTALL_DATA_PATH = os.path.join(
     APP_DATA_ROOT_PATH, PYTHON_MODULE_INSTALL_STR
 )
+SONARQUBE_DATA_PATH = os.path.join(APP_DATA_ROOT_PATH, SONARQUBE_STR)
 
 
+@ignore_exceptions(logger=FLASK_APP.logger, retry=5)
 def get_repositories_github_app_api():
     FLASK_APP.logger.info("Getting repositories GitHub app API")
     with open(os.path.join(get_app_data_dir(), "webhook-server.private-key.pem")) as fd:
@@ -53,6 +54,7 @@ def get_repositories_github_app_api():
     auth = Auth.AppAuth(app_id=github_app_id, private_key=private_key)
     for installation in GithubIntegration(auth=auth).get_installations():
         for repo in installation.get_repos():
+            FLASK_APP.logger.info(f"Getting repository {repo.full_name} GitHub app API")
             REPOSITORIES_APP_API[
                 repo.full_name
             ] = installation.get_github_for_installation()
@@ -122,6 +124,13 @@ def return_build_container(filename):
 def return_python_module_install(filename):
     FLASK_APP.logger.info(f"app.route: Processing {PYTHON_MODULE_INSTALL_STR} file")
     with open(os.path.join(PYTHON_MODULE_INSTALL_DATA_PATH, filename)) as fd:
+        return Response(fd.read(), mimetype=PLAIN_TEXT_MIME_TYPE)
+
+
+@FLASK_APP.route(f"{APP_ROOT_PATH}/{SONARQUBE_STR}/{FILENAME_STRING}")
+def return_sonarqube(filename):
+    FLASK_APP.logger.info(f"app.route: Processing {SONARQUBE_STR} file")
+    with open(os.path.join(SONARQUBE_DATA_PATH, filename)) as fd:
         return Response(fd.read(), mimetype=PLAIN_TEXT_MIME_TYPE)
 
 

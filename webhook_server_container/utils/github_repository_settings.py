@@ -37,11 +37,11 @@ def skip_repo(protected_branches, repo):
         return True
 
 
-@ignore_exceptions(FLASK_APP.logger)
+@ignore_exceptions(logger=FLASK_APP.logger, retry=5)
 def set_branch_protection(branch, repository, required_status_checks, github_api):
     api_user = github_api.get_user().login
     FLASK_APP.logger.info(
-        f"Set repository {repository.name} branch {branch} settings [checks: {required_status_checks}]"
+        f"Set repository {repository.name} {branch} settings. enabled checks: {required_status_checks}"
     )
     branch.edit_protection(
         strict=True,
@@ -57,7 +57,7 @@ def set_branch_protection(branch, repository, required_status_checks, github_api
     )
 
 
-@ignore_exceptions(FLASK_APP.logger)
+@ignore_exceptions(logger=FLASK_APP.logger, retry=5)
 def set_repository_settings(repository):
     FLASK_APP.logger.info(f"Set repository {repository.name} settings")
     repository.edit(
@@ -146,6 +146,8 @@ def set_repository_labels(repository):
             )
             repository.create_label(name=label, color=color)
 
+    return f"{repository}: Setting repository labels is done"
+
 
 def set_repositories_settings():
     FLASK_APP.logger.info("Processing repositories")
@@ -188,6 +190,7 @@ def set_repository(data, github_api, default_status_checks):
     set_repository_labels(repository=repo)
 
     for branch_name, status_checks in protected_branches.items():
+        FLASK_APP.logger.info(f"{repository}: Getting branch {branch_name}")
         branch = get_branch_sampler(repo=repo, branch_name=branch_name)
         if not branch:
             FLASK_APP.logger.error(f"{repository}: Failed to get branch {branch_name}")
@@ -212,7 +215,8 @@ def set_repository(data, github_api, default_status_checks):
             required_status_checks=required_status_checks,
             github_api=github_api,
         )
-        return f"{repository}: Setting repository settings is done"
+
+    return f"{repository}: Setting repository settings is done"
 
 
 def set_all_in_progress_check_runs_to_queued(
