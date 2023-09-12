@@ -1212,18 +1212,19 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         time.sleep(30)
 
         for pull_request in self.repository.get_pulls(state="open"):
-            self.label_pull_request_by_merge_state(
-                pull_request=pull_request, _sleep=False
-            )
+            self.label_pull_request_by_merge_state(pull_request=pull_request, _sleep=10)
 
-    def label_pull_request_by_merge_state(self, pull_request=None, _sleep=True):
+    def label_pull_request_by_merge_state(self, pull_request=None, _sleep=30):
         if _sleep:
             self.app.logger.info(
                 f"{self.log_prefix} Sleep for 30 seconds before checking merge state"
             )
-            time.sleep(30)
+            time.sleep(_sleep)
 
         pull_request = pull_request or self.pull_request
+        if pull_request.is_merged():
+            return
+
         merge_state = pull_request.mergeable_state
         self.app.logger.info(f"{self.log_prefix} Mergeable state is {merge_state}")
         if merge_state == "unknown":
