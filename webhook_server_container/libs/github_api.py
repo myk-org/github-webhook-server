@@ -1206,29 +1206,27 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         If the mergeable state is 'behind', the 'needs rebase' label is added.
         If the mergeable state is 'dirty', the 'has conflicts' label is added.
         """
-        time_sleep = 60 * 2
+        time_sleep = 30
         self.app.logger.info(
             f"{self.log_prefix} Sleep for {time_sleep} seconds before getting all opened PRs"
         )
         time.sleep(time_sleep)
 
         for pull_request in self.repository.get_pulls(state="open"):
-            self.label_pull_request_by_merge_state(pull_request=pull_request)
+            self.pull_request = pull_request
+            self.app.logger.info(
+                f"{self.log_prefix} check label pull request after merge"
+            )
+            self.label_pull_request_by_merge_state()
 
-    def label_pull_request_by_merge_state(self, pull_request=None, _sleep=30):
+    def label_pull_request_by_merge_state(self, _sleep=30):
         if _sleep:
             self.app.logger.info(
                 f"{self.log_prefix} Sleep for 30 seconds before checking merge state"
             )
             time.sleep(_sleep)
 
-        pull_request = pull_request or self.repository.get_pull(
-            self.pull_request.number
-        )
-        if pull_request.is_merged():
-            return
-
-        merge_state = pull_request.mergeable_state
+        merge_state = self.pull_request.mergeable_state
         self.app.logger.info(f"{self.log_prefix} Mergeable state is {merge_state}")
         if merge_state == "unknown":
             return
