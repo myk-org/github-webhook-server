@@ -145,10 +145,13 @@ Available user actions:
     * Cherry-pick will be started when PR is merged
  * To build and push container image command `/build-and-push-container` in the PR (tag will be the PR number).
  * To add a label by comment use `/<label name>`, to remove, use `/<label name> cancel`
+
 <details>
 <summary>Supported /retest check runs</summary>
-{self.prepare_retest_wellcome_msg()}
-<details>
+
+{self.prepare_retest_wellcome_msg}
+</details>
+
 <details>
 <summary>Supported labels</summary>
 
@@ -156,6 +159,7 @@ Available user actions:
 </details>
     """
 
+    @property
     def prepare_retest_wellcome_msg(self):
         retest_msg = ""
         if self.tox_enabled:
