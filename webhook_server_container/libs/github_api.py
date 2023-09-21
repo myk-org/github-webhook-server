@@ -163,13 +163,15 @@ Available user actions:
     def prepare_retest_wellcome_msg(self):
         retest_msg = ""
         if self.tox_enabled:
-            retest_msg += f" * /retest {TOX_STR} - Retest tox\n"
+            retest_msg += f" * `/retest {TOX_STR}`: Retest tox\n"
         if self.build_and_push_container:
-            retest_msg += f" * /retest {BUILD_CONTAINER_STR} - Retest build-container\n"
+            retest_msg += (
+                f" * `/retest {BUILD_CONTAINER_STR}`: Retest build-container\n"
+            )
         if self.sonarqube_project_key:
-            retest_msg += f" * /retest {SONARQUBE_STR} - Retest sonarqube\n"
+            retest_msg += f" * `/retest {SONARQUBE_STR}`: Retest sonarqube\n"
         if self.pypi:
-            retest_msg += f" * /retest {PYTHON_MODULE_INSTALL_STR} - Retest python-module-install\n"
+            retest_msg += f" * `/retest {PYTHON_MODULE_INSTALL_STR}`: Retest python-module-install\n"
 
         return retest_msg
 
