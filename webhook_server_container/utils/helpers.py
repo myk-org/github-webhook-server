@@ -187,10 +187,10 @@ def check_rate_limit(github_api=None):
     FLASK_APP.logger.info(
         f"{Fore.CYAN}API rate limit:{Fore.RESET} Current {rate_limit_str} of {rate_limit_limit}. "
         f"Reset in {rate_limit_reset} [{datetime.timedelta(seconds=time_for_limit_reset)}] "
-        f"(UTC time is {datetime.datetime.utcnow()})"
+        f"(UTC time is {datetime.datetime.now(tz=datetime.timezone.utc)})"
     )
     while (
-        datetime.datetime.utcnow() < rate_limit_reset
+        datetime.datetime.now(tz=datetime.timezone.utc) < rate_limit_reset
         and rate_limit_remaining < minimum_limit
     ):
         FLASK_APP.logger.warning(
