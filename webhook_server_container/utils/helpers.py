@@ -173,7 +173,9 @@ def check_rate_limit(github_api=None):
     rate_limit_reset = rate_limit.core.reset
     rate_limit_remaining = rate_limit.core.remaining
     rate_limit_limit = rate_limit.core.limit
-    time_for_limit_reset = (rate_limit_reset - datetime.datetime.utcnow()).seconds
+    time_for_limit_reset = (
+        rate_limit_reset - datetime.datetime.now(tz=datetime.timezone.utc)
+    ).seconds
 
     if rate_limit_remaining < 500:
         rate_limit_str = f"{Fore.RED}{rate_limit_remaining}{Fore.RESET}"
