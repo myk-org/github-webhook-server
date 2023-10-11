@@ -196,7 +196,9 @@ def check_rate_limit(github_api=None):
         FLASK_APP.logger.warning(
             f"Rate limit is below {minimum_limit} waiting till {rate_limit_reset}"
         )
-        FLASK_APP.logger.info(f"Sleeping {time_for_limit_reset} seconds")
+        FLASK_APP.logger.info(
+            f"Sleeping {time_for_limit_reset} seconds [{datetime.timedelta(seconds=time_for_limit_reset)}]"
+        )
         time.sleep(time_for_limit_reset + 1)
         rate_limit = github_api.get_rate_limit()
         rate_limit_reset = rate_limit.core.reset
