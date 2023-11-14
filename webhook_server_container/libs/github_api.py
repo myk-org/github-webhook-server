@@ -74,9 +74,7 @@ class GitHubApi:
         self.parent_committer = None
         self.log_uuid = shortuuid.uuid()[:5]
         self.container_repo_dir = "/tmp/repository"
-        self.webhook_server_data_dir = os.environ.get(
-            "WEBHOOK_SERVER_DATA_DIR", "/webhook_server"
-        )
+        self.webhook_server_data_dir = os.environ.get("WEBHOOK_SERVER_DATA_DIR", "/webhook_server")
 
         # filled by self._repo_data_from_config()
         self.dockerhub_username = None
@@ -102,9 +100,7 @@ class GitHubApi:
         self.github_api = Github(login_or_token=self.token)
         check_rate_limit(github_api=self.github_api)
         self.api_user = self._api_username
-        self.repository = get_github_repo_api(
-            github_api=self.github_api, repository=self.repository_full_name
-        )
+        self.repository = get_github_repo_api(github_api=self.github_api, repository=self.repository_full_name)
         self.repository_by_github_app = get_github_repo_api(
             github_api=self.github_app_api, repository=self.repository_full_name
         )
@@ -113,19 +109,14 @@ class GitHubApi:
             return
 
         self.clone_repository_path = os.path.join("/", self.repository.name)
-        self.dockerhub = DockerHub(
-            username=self.dockerhub_username,
-            password=self.dockerhub_password,
-        )
+        self.dockerhub = DockerHub(username=self.dockerhub_username, password=self.dockerhub_password)
 
         self.pull_request = self._get_pull_request()
         if self.pull_request:
             self.last_commit = self._get_last_commit()
             self.parent_committer = self.pull_request.user.login
 
-        self.supported_user_labels_str = "".join(
-            [f" * {label}\n" for label in USER_LABELS_DICT.keys()]
-        )
+        self.supported_user_labels_str = "".join([f" * {label}\n" for label in USER_LABELS_DICT.keys()])
         self.welcome_msg = f"""
 Report bugs in [Issues](https://github.com/myakove/github-webhook-server/issues)
 
@@ -165,9 +156,7 @@ Available user actions:
         if self.tox_enabled:
             retest_msg += f" * `/retest {TOX_STR}`: Retest tox\n"
         if self.build_and_push_container:
-            retest_msg += (
-                f" * `/retest {BUILD_CONTAINER_STR}`: Retest build-container\n"
-            )
+            retest_msg += f" * `/retest {BUILD_CONTAINER_STR}`: Retest build-container\n"
         if self.sonarqube_project_key:
             retest_msg += f" * `/retest {SONARQUBE_STR}`: Retest sonarqube\n"
         if self.pypi:
@@ -197,9 +186,7 @@ Available user actions:
             color = random.choice(range(31, 39))
             color_json[self.repository_name] = color
 
-        self.log_prefix_with_color = repo_str.format(
-            color=color, name=self.repository_name
-        )
+        self.log_prefix_with_color = repo_str.format(color=color, name=self.repository_name)
 
         with open(color_file, "w") as fd:
             json.dump(color_json, fd)
@@ -250,13 +237,8 @@ Available user actions:
         if check_run_name == CAN_BE_MERGED_STR:
             return
 
-        if (
-            self.hook_data["action"] == "completed"
-            and _check_run["conclusion"] == SUCCESS_STR
-        ):
-            self.app.logger.info(
-                f"{self.log_prefix} check_run '{check_run_name}' completed and {SUCCESS_STR}"
-            )
+        if self.hook_data["action"] == "completed" and _check_run["conclusion"] == SUCCESS_STR:
+            self.app.logger.info(f"{self.log_prefix} check_run '{check_run_name}' completed and {SUCCESS_STR}")
             for _pull_request in self.repository.get_pulls(state="open"):
                 _last_commit = list(_pull_request.get_commits())[-1]
                 for _commit_check_run in _last_commit.get_check_runs():
@@ -278,9 +260,7 @@ Available user actions:
 
         repo_data = config_data["repositories"].get(self.repository_name)
         if not repo_data:
-            raise RepositoryNotFoundError(
-                f"Repository {self.repository_name} not found in config file"
-            )
+            raise RepositoryNotFoundError(f"Repository {self.repository_name} not found in config file")
 
         self.repository_full_name = repo_data["name"]
         sonarqube = config_data.get("sonarqube")
@@ -302,16 +282,10 @@ Available user actions:
             self.dockerhub_password = self.dockerhub["password"]
 
         if self.build_and_push_container:
-            self.container_repository_username = self.build_and_push_container[
-                "username"
-            ]
-            self.container_repository_password = self.build_and_push_container[
-                "password"
-            ]
+            self.container_repository_username = self.build_and_push_container["username"]
+            self.container_repository_password = self.build_and_push_container["password"]
             self.container_repository = self.build_and_push_container["repository"]
-            self.dockerfile = self.build_and_push_container.get(
-                "dockerfile", "Dockerfile"
-            )
+            self.dockerfile = self.build_and_push_container.get("dockerfile", "Dockerfile")
             self.container_tag = self.build_and_push_container.get("tag", "latest")
             self.container_build_args = self.build_and_push_container.get("build-args")
             self.container_command_args = self.build_and_push_container.get("args")
@@ -332,9 +306,7 @@ Available user actions:
             with contextlib.suppress(Exception):
                 return commit_obj.get_pulls()[0]
 
-        self.app.logger.info(
-            f"{self.log_prefix} No issue or pull_request found in hook data"
-        )
+        self.app.logger.info(f"{self.log_prefix} No issue or pull_request found in hook data")
 
     def _get_last_commit(self):
         return list(self.pull_request.get_commits())[-1]
@@ -356,9 +328,7 @@ Available user actions:
             self.app.logger.info(f"{self.log_prefix} Removing label {label}")
             return self.pull_request.remove_from_labels(label)
 
-        self.app.logger.warning(
-            f"{self.log_prefix} Label {label} not found and cannot be removed"
-        )
+        self.app.logger.warning(f"{self.log_prefix} Label {label} not found and cannot be removed")
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def _add_label(self, label):
@@ -368,47 +338,29 @@ Available user actions:
             return
 
         if self.label_exists_in_pull_request(label=label):
-            self.app.logger.info(
-                f"{self.log_prefix} Label {label} already assign to PR {self.pull_request.number}"
-            )
+            self.app.logger.info(f"{self.log_prefix} Label {label} already assign to PR {self.pull_request.number}")
             return
 
         if label in STATIC_LABELS_DICT:
-            self.app.logger.info(
-                f"{self.log_prefix} Adding pull request label {label} to {self.pull_request.number}"
-            )
+            self.app.logger.info(f"{self.log_prefix} Adding pull request label {label} to {self.pull_request.number}")
             return self.pull_request.add_to_labels(label)
 
-        _color = [
-            DYNAMIC_LABELS_DICT[_label]
-            for _label in DYNAMIC_LABELS_DICT
-            if _label in label
-        ]
+        _color = [DYNAMIC_LABELS_DICT[_label] for _label in DYNAMIC_LABELS_DICT if _label in label]
         self.app.logger.info(
-            f"{self.log_prefix} Label {label} was "
-            f"{'found' if _color else 'not found'} in labels dict"
+            f"{self.log_prefix} Label {label} was " f"{'found' if _color else 'not found'} in labels dict"
         )
         color = _color[0] if _color else "D4C5F9"
-        self.app.logger.info(
-            f"{self.log_prefix} Adding label {label} with color {color}"
-        )
+        self.app.logger.info(f"{self.log_prefix} Adding label {label} with color {color}")
 
         try:
             _repo_label = self.repository.get_label(label)
             _repo_label.edit(name=_repo_label.name, color=color)
-            self.app.logger.info(
-                f"{self.log_prefix} "
-                f"Edit repository label {label} with color {color}"
-            )
+            self.app.logger.info(f"{self.log_prefix} " f"Edit repository label {label} with color {color}")
         except UnknownObjectException:
-            self.app.logger.info(
-                f"{self.log_prefix} Add repository label {label} with color {color}"
-            )
+            self.app.logger.info(f"{self.log_prefix} Add repository label {label} with color {color}")
             self.repository.create_label(name=label, color=color)
 
-        self.app.logger.info(
-            f"{self.log_prefix} Adding pull request label {label} to {self.pull_request.number}"
-        )
+        self.app.logger.info(f"{self.log_prefix} Adding pull request label {label} to {self.pull_request.number}")
         return self.pull_request.add_to_labels(label)
 
     def _generate_issue_title(self):
@@ -440,10 +392,7 @@ Available user actions:
 {self.repository_name} Version {tag_name} published to PYPI.
 ```
 """
-                self.send_slack_message(
-                    message=message,
-                    webhook_url=self.slack_webhook_url,
-                )
+                self.send_slack_message(message=message, webhook_url=self.slack_webhook_url)
 
         else:
             err = "Publish to pypi failed"
@@ -480,9 +429,7 @@ stderr: `{err}`
                 try:
                     self.pull_request.create_review_request([reviewer])
                 except GithubException as ex:
-                    self.app.logger.error(
-                        f"{self.log_prefix} Failed to add reviewer {reviewer}. {ex}"
-                    )
+                    self.app.logger.error(f"{self.log_prefix} Failed to add reviewer {reviewer}. {ex}")
 
     def add_size_label(self):
         size = self.pull_request.additions + self.pull_request.deletions
@@ -509,27 +456,17 @@ stderr: `{err}`
         if size_label in self.pull_request_labels_names():
             return
 
-        exists_size_label = [
-            label
-            for label in self.pull_request_labels_names()
-            if label.startswith(SIZE_LABEL_PREFIX)
-        ]
+        exists_size_label = [label for label in self.pull_request_labels_names() if label.startswith(SIZE_LABEL_PREFIX)]
 
         if exists_size_label:
             self._remove_label(label=exists_size_label[0])
 
         self._add_label(label=size_label)
 
-    def label_by_user_comment(
-        self, user_request, remove, reviewed_user, issue_comment_id
-    ):
-        if not any(
-            user_request.startswith(label_name) for label_name in USER_LABELS_DICT
-        ):
+    def label_by_user_comment(self, user_request, remove, reviewed_user, issue_comment_id):
+        if not any(user_request.startswith(label_name) for label_name in USER_LABELS_DICT):
             self.app.logger.info(
-                f"{self.log_prefix} "
-                f"Label {user_request} is not a predefined one, "
-                "will not be added / removed."
+                f"{self.log_prefix} " f"Label {user_request} is not a predefined one, " "will not be added / removed."
             )
             self.pull_request.create_issue_comment(
                 body=f"""
@@ -537,7 +474,7 @@ Label {user_request} is not a predefined one, will not be added / removed.
 Available labels:
 
 {self.supported_user_labels_str}
-""",
+"""
             )
             return
 
@@ -545,16 +482,11 @@ Available labels:
             f"{self.log_prefix} {'Remove' if remove else 'Add'} "
             f"label requested by user {reviewed_user}: {user_request}"
         )
-        self.create_comment_reaction(
-            issue_comment_id=issue_comment_id,
-            reaction=REACTIONS.ok,
-        )
+        self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
 
         if user_request == LGTM_STR:
             self.manage_reviewed_by_label(
-                review_state=LGTM_STR,
-                action=DELETE_STR if remove else ADD_STR,
-                reviewed_user=reviewed_user,
+                review_state=LGTM_STR, action=DELETE_STR if remove else ADD_STR, reviewed_user=reviewed_user
             )
 
         else:
@@ -562,23 +494,17 @@ Available labels:
             label_func(label=user_request)
 
     def reset_verify_label(self):
-        self.app.logger.info(
-            f"{self.log_prefix} Processing reset {VERIFIED_LABEL_STR} label on new commit push"
-        )
+        self.app.logger.info(f"{self.log_prefix} Processing reset {VERIFIED_LABEL_STR} label on new commit push")
         # Remove verified label
         self._remove_label(label=VERIFIED_LABEL_STR)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_verify_check_queued(self):
-        return self.set_check_run_status(
-            check_run=VERIFIED_LABEL_STR, status=QUEUED_STR
-        )
+        return self.set_check_run_status(check_run=VERIFIED_LABEL_STR, status=QUEUED_STR)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_verify_check_success(self):
-        return self.set_check_run_status(
-            check_run=VERIFIED_LABEL_STR, conclusion=SUCCESS_STR
-        )
+        return self.set_check_run_status(check_run=VERIFIED_LABEL_STR, conclusion=SUCCESS_STR)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_run_tox_check_queued(self):
@@ -593,15 +519,11 @@ Available labels:
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_run_tox_check_failure(self, details_url):
-        return self.set_check_run_status(
-            check_run=TOX_STR, conclusion=FAILURE_STR, details_url=details_url
-        )
+        return self.set_check_run_status(check_run=TOX_STR, conclusion=FAILURE_STR, details_url=details_url)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_run_tox_check_success(self, details_url):
-        return self.set_check_run_status(
-            check_run=TOX_STR, conclusion=SUCCESS_STR, details_url=details_url
-        )
+        return self.set_check_run_status(check_run=TOX_STR, conclusion=SUCCESS_STR, details_url=details_url)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_merge_check_queued(self):
@@ -609,70 +531,48 @@ Available labels:
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_merge_check_success(self):
-        return self.set_check_run_status(
-            check_run=CAN_BE_MERGED_STR, conclusion=SUCCESS_STR
-        )
+        return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, conclusion=SUCCESS_STR)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_container_build_queued(self):
         if not self.build_and_push_container:
             return
 
-        return self.set_check_run_status(
-            check_run=BUILD_CONTAINER_STR, status=QUEUED_STR
-        )
+        return self.set_check_run_status(check_run=BUILD_CONTAINER_STR, status=QUEUED_STR)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_container_build_in_progress(self):
-        return self.set_check_run_status(
-            check_run=BUILD_CONTAINER_STR, status=IN_PROGRESS_STR
-        )
+        return self.set_check_run_status(check_run=BUILD_CONTAINER_STR, status=IN_PROGRESS_STR)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_container_build_success(self, details_url):
-        return self.set_check_run_status(
-            check_run=BUILD_CONTAINER_STR,
-            conclusion=SUCCESS_STR,
-            details_url=details_url,
-        )
+        return self.set_check_run_status(check_run=BUILD_CONTAINER_STR, conclusion=SUCCESS_STR, details_url=details_url)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_container_build_failure(self, details_url):
-        return self.set_check_run_status(
-            check_run=BUILD_CONTAINER_STR,
-            conclusion=FAILURE_STR,
-            details_url=details_url,
-        )
+        return self.set_check_run_status(check_run=BUILD_CONTAINER_STR, conclusion=FAILURE_STR, details_url=details_url)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_python_module_install_queued(self):
         if not self.pypi:
             return False
 
-        return self.set_check_run_status(
-            check_run=PYTHON_MODULE_INSTALL_STR, status=QUEUED_STR
-        )
+        return self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, status=QUEUED_STR)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_python_module_install_in_progress(self):
-        return self.set_check_run_status(
-            check_run=PYTHON_MODULE_INSTALL_STR, status=IN_PROGRESS_STR
-        )
+        return self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, status=IN_PROGRESS_STR)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_python_module_install_success(self, details_url):
         return self.set_check_run_status(
-            check_run=PYTHON_MODULE_INSTALL_STR,
-            conclusion=SUCCESS_STR,
-            details_url=details_url,
+            check_run=PYTHON_MODULE_INSTALL_STR, conclusion=SUCCESS_STR, details_url=details_url
         )
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_python_module_install_failure(self, details_url):
         return self.set_check_run_status(
-            check_run=PYTHON_MODULE_INSTALL_STR,
-            conclusion=FAILURE_STR,
-            details_url=details_url,
+            check_run=PYTHON_MODULE_INSTALL_STR, conclusion=FAILURE_STR, details_url=details_url
         )
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
@@ -684,58 +584,39 @@ Available labels:
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_sonarqube_in_progress(self):
-        return self.set_check_run_status(
-            check_run=SONARQUBE_STR, status=IN_PROGRESS_STR
-        )
+        return self.set_check_run_status(check_run=SONARQUBE_STR, status=IN_PROGRESS_STR)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_sonarqube_success(self, details_url):
-        return self.set_check_run_status(
-            check_run=SONARQUBE_STR, conclusion=SUCCESS_STR, details_url=details_url
-        )
+        return self.set_check_run_status(check_run=SONARQUBE_STR, conclusion=SUCCESS_STR, details_url=details_url)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_sonarqube_failure(self, details_url):
-        return self.set_check_run_status(
-            check_run=SONARQUBE_STR, conclusion=FAILURE_STR, details_url=details_url
-        )
+        return self.set_check_run_status(check_run=SONARQUBE_STR, conclusion=FAILURE_STR, details_url=details_url)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_cherry_pick_in_progress(self):
-        return self.set_check_run_status(
-            check_run=CHERRY_PICKED_LABEL_PREFIX, status=IN_PROGRESS_STR
-        )
+        return self.set_check_run_status(check_run=CHERRY_PICKED_LABEL_PREFIX, status=IN_PROGRESS_STR)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_cherry_pick_success(self, details_url):
         return self.set_check_run_status(
-            check_run=CHERRY_PICKED_LABEL_PREFIX,
-            conclusion=SUCCESS_STR,
-            details_url=details_url,
+            check_run=CHERRY_PICKED_LABEL_PREFIX, conclusion=SUCCESS_STR, details_url=details_url
         )
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_cherry_pick_failure(self, details_url):
         return self.set_check_run_status(
-            check_run=CHERRY_PICKED_LABEL_PREFIX,
-            conclusion=FAILURE_STR,
-            details_url=details_url,
+            check_run=CHERRY_PICKED_LABEL_PREFIX, conclusion=FAILURE_STR, details_url=details_url
         )
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def create_issue_for_new_pull_request(self):
-        if self.parent_committer in (
-            self.api_user,
-            PRE_COMMIT_CI_BOT_USER,
-        ):
+        if self.parent_committer in (self.api_user, PRE_COMMIT_CI_BOT_USER):
             return
-        self.app.logger.info(
-            f"{self.log_prefix} Creating issue for new PR: {self.pull_request.title}"
-        )
+        self.app.logger.info(f"{self.log_prefix} Creating issue for new PR: {self.pull_request.title}")
         self.repository.create_issue(
-            title=self._generate_issue_title(),
-            body=self._generate_issue_body(),
-            assignee=self.pull_request.user.login,
+            title=self._generate_issue_title(), body=self._generate_issue_body(), assignee=self.pull_request.user.login
         )
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
@@ -743,12 +624,10 @@ Available labels:
         for issue in self.repository.get_issues():
             if issue.body == self._generate_issue_body():
                 self.app.logger.info(
-                    f"{self.log_prefix} Closing issue {issue.title} for PR: "
-                    f"{self.pull_request.title}"
+                    f"{self.log_prefix} Closing issue {issue.title} for PR: " f"{self.pull_request.title}"
                 )
                 issue.create_comment(
-                    f"{self.log_prefix} Closing issue for PR: "
-                    f"{self.pull_request.title}.\nPR was {hook_action}."
+                    f"{self.log_prefix} Closing issue for PR: " f"{self.pull_request.title}.\nPR was {hook_action}."
                 )
                 issue.edit(state="closed")
                 break
@@ -767,24 +646,16 @@ Available labels:
 
         if body == self.welcome_msg:
             self.app.logger.info(
-                f"{self.log_prefix} Welcome message found in issue "
-                f"{self.pull_request.title}. Not processing"
+                f"{self.log_prefix} Welcome message found in issue " f"{self.pull_request.title}. Not processing"
             )
             return
 
         striped_body = body.strip()
-        _user_commands = list(
-            filter(
-                lambda x: x,
-                striped_body.split("/") if striped_body.startswith("/") else [],
-            )
-        )
+        _user_commands = list(filter(lambda x: x, striped_body.split("/") if striped_body.startswith("/") else []))
         user_login = self.hook_data["sender"]["login"]
         for user_command in _user_commands:
             self.user_commands(
-                command=user_command,
-                reviewed_user=user_login,
-                issue_comment_id=self.hook_data["comment"]["id"],
+                command=user_command, reviewed_user=user_login, issue_comment_id=self.hook_data["comment"]["id"]
             )
 
     def process_pull_request_webhook_data(self):
@@ -801,20 +672,14 @@ Available labels:
             self.app.logger.info(f"{self.log_prefix} Creating welcome comment")
             self.pull_request.create_issue_comment(self.welcome_msg)
             self.create_issue_for_new_pull_request()
-            self.process_opened_or_synchronize_pull_request(
-                pull_request_branch=pull_request_branch,
-            )
+            self.process_opened_or_synchronize_pull_request(pull_request_branch=pull_request_branch)
 
         if hook_action == "synchronize":
-            reviewed_by_labels = [
-                label.name for label in self.pull_request.labels if "By-" in label.name
-            ]
+            reviewed_by_labels = [label.name for label in self.pull_request.labels if "By-" in label.name]
             for _reviewed_label in reviewed_by_labels:
                 self._remove_label(label=_reviewed_label)
 
-            self.process_opened_or_synchronize_pull_request(
-                pull_request_branch=pull_request_branch,
-            )
+            self.process_opened_or_synchronize_pull_request(pull_request_branch=pull_request_branch)
             self.label_pull_request_by_merge_state()
 
         if hook_action == "closed":
@@ -823,18 +688,12 @@ Available labels:
             is_merged = pull_request_data.get("merged")
             if is_merged:
                 self.app.logger.info(f"{self.log_prefix} PR is merged")
-                self._run_build_container(
-                    push=True, set_check=False, is_merged=is_merged
-                )
+                self._run_build_container(push=True, set_check=False, is_merged=is_merged)
 
                 for _label in self.pull_request.labels:
                     _label_name = _label.name
                     if _label_name.startswith(CHERRY_PICK_LABEL_PREFIX):
-                        self.cherry_pick(
-                            target_branch=_label_name.replace(
-                                CHERRY_PICK_LABEL_PREFIX, ""
-                            ),
-                        )
+                        self.cherry_pick(target_branch=_label_name.replace(CHERRY_PICK_LABEL_PREFIX, ""))
 
                 # label_by_pull_requests_merge_state_after_merged will override self.pull_request
                 original_pull_request = self.pull_request
@@ -846,9 +705,7 @@ Available labels:
             if labeled == CAN_BE_MERGED_STR:
                 return
 
-            self.app.logger.info(
-                f"{self.log_prefix} PR {self.pull_request.number} {hook_action} with {labeled}"
-            )
+            self.app.logger.info(f"{self.log_prefix} PR {self.pull_request.number} {hook_action} with {labeled}")
             if self.verified_job and labeled == VERIFIED_LABEL_STR:
                 if hook_action == "labeled":
                     self.set_verify_check_success()
@@ -862,9 +719,7 @@ Available labels:
         tag = re.search(r"refs/tags/?(.*)", self.hook_data["ref"])
         if tag and self.pypi:
             tag_name = tag.group(1)
-            self.app.logger.info(
-                f"{self.log_prefix} Processing push for tag: {tag_name}"
-            )
+            self.app.logger.info(f"{self.log_prefix} Processing push for tag: {tag_name}")
             self.upload_to_pypi(tag_name=tag_name)
 
     def process_pull_request_review_webhook_data(self):
@@ -899,9 +754,7 @@ Available labels:
             base_dict = self.hook_data.get("issue", self.hook_data.get("pull_request"))
             pr_owner = base_dict["user"]["login"]
             if pr_owner == reviewed_user:
-                self.app.logger.info(
-                    f"{self.log_prefix} PR owner {pr_owner} set /lgtm, not adding label."
-                )
+                self.app.logger.info(f"{self.log_prefix} PR owner {pr_owner} set /lgtm, not adding label.")
                 return
 
             label_prefix = APPROVED_BY_LABEL_PREFIX
@@ -942,9 +795,7 @@ Available labels:
             return False
 
         if self.is_check_run_in_progress(check_run=TOX_STR):
-            self.app.logger.info(
-                f"{self.log_prefix} Check run is in progress, not running {TOX_STR}."
-            )
+            self.app.logger.info(f"{self.log_prefix} Check run is in progress, not running {TOX_STR}.")
             return False
 
         file_path, url_path = self._get_check_run_result_file_path(check_run=TOX_STR)
@@ -966,18 +817,13 @@ Available labels:
             self.app.logger.info(f"{self.log_prefix} command is in ignore list")
             return
 
-        self.app.logger.info(
-            f"{self.log_prefix} Processing label/user command {command} "
-            f"by user {reviewed_user}"
-        )
+        self.app.logger.info(f"{self.log_prefix} Processing label/user command {command} " f"by user {reviewed_user}")
         command_and_args = command.split(" ", 1)
         _command = command_and_args[0]
         not_running_msg = f"Pull request already merged, not running {_command}"
         _args = command_and_args[1] if len(command_and_args) > 1 else ""
         if len(command_and_args) > 1 and _args == "cancel":
-            self.app.logger.info(
-                f"{self.log_prefix} User requested 'cancel' for command {_command}"
-            )
+            self.app.logger.info(f"{self.log_prefix} User requested 'cancel' for command {_command}")
             remove = True
 
         if _command in available_commands:
@@ -989,10 +835,7 @@ Available labels:
                 return
 
             if _command == "cherry-pick":
-                self.create_comment_reaction(
-                    issue_comment_id=issue_comment_id,
-                    reaction=REACTIONS.ok,
-                )
+                self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
                 _target_branches = _args.split()
                 _exits_target_branches = set()
                 _non_exits_target_branches_msg = ""
@@ -1001,25 +844,18 @@ Available labels:
                     try:
                         self.repository.get_branch(_target_branch)
                     except Exception:
-                        _non_exits_target_branches_msg += (
-                            f"Target branch `{_target_branch}` does not exist\n"
-                        )
+                        _non_exits_target_branches_msg += f"Target branch `{_target_branch}` does not exist\n"
 
                     _exits_target_branches.add(_target_branch)
 
                 if _non_exits_target_branches_msg:
-                    self.app.logger.info(
-                        f"{self.log_prefix} {_non_exits_target_branches_msg}"
-                    )
-                    self.pull_request.create_issue_comment(
-                        _non_exits_target_branches_msg
-                    )
+                    self.app.logger.info(f"{self.log_prefix} {_non_exits_target_branches_msg}")
+                    self.pull_request.create_issue_comment(_non_exits_target_branches_msg)
 
                 if _exits_target_branches:
                     if not self.pull_request.is_merged():
                         cp_labels = [
-                            f"{CHERRY_PICK_LABEL_PREFIX}{_target_branch}"
-                            for _target_branch in _exits_target_branches
+                            f"{CHERRY_PICK_LABEL_PREFIX}{_target_branch}" for _target_branch in _exits_target_branches
                         ]
                         info_msg = f"""
 Cherry-pick requested for PR: `{self.pull_request.title}` by user `{reviewed_user}`
@@ -1031,10 +867,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                             self._add_label(label=_cp_label)
                     else:
                         for _exits_target_branch in _exits_target_branches:
-                            self.cherry_pick(
-                                target_branch=_exits_target_branch,
-                                reviewed_user=reviewed_user,
-                            )
+                            self.cherry_pick(target_branch=_exits_target_branch, reviewed_user=reviewed_user)
 
             elif _command == "retest":
                 if self.skip_merged_pull_request():
@@ -1050,18 +883,12 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                             self.pull_request.create_issue_comment(msg)
                             return
 
-                        self.create_comment_reaction(
-                            issue_comment_id=issue_comment_id,
-                            reaction=REACTIONS.ok,
-                        )
+                        self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
                         self._run_tox()
 
                     elif _test == BUILD_CONTAINER_STR:
                         if self.build_and_push_container:
-                            self.create_comment_reaction(
-                                issue_comment_id=issue_comment_id,
-                                reaction=REACTIONS.ok,
-                            )
+                            self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
                             self._run_build_container()
                         else:
                             msg = f"No {BUILD_CONTAINER_STR} configured for this repository"
@@ -1076,10 +903,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                             self.pull_request.create_issue_comment(error_msg)
                             return
 
-                        self.create_comment_reaction(
-                            issue_comment_id=issue_comment_id,
-                            reaction=REACTIONS.ok,
-                        )
+                        self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
                         self._run_install_python_module()
 
                     elif _test == SONARQUBE_STR:
@@ -1090,23 +914,15 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                             self.pull_request.create_issue_comment(msg)
                             return
 
-                        self.create_comment_reaction(
-                            issue_comment_id=issue_comment_id,
-                            reaction=REACTIONS.ok,
-                        )
+                        self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
                         self._run_sonarqube()
 
         elif _command == BUILD_AND_PUSH_CONTAINER_STR:
             if self.build_and_push_container:
-                self.create_comment_reaction(
-                    issue_comment_id=issue_comment_id,
-                    reaction=REACTIONS.ok,
-                )
+                self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
                 self._run_build_container(push=True)
             else:
-                msg = (
-                    f"No {BUILD_AND_PUSH_CONTAINER_STR} configured for this repository"
-                )
+                msg = f"No {BUILD_AND_PUSH_CONTAINER_STR} configured for this repository"
                 error_msg = f"{self.log_prefix} {msg}"
                 self.app.logger.info(error_msg)
                 self.pull_request.create_issue_comment(msg)
@@ -1115,39 +931,27 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             if self.skip_merged_pull_request():
                 return self.pull_request.create_issue_comment(not_running_msg)
 
-            self.create_comment_reaction(
-                issue_comment_id=issue_comment_id,
-                reaction=REACTIONS.ok,
-            )
+            self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
             wip_for_title = f"{WIP_STR.upper()}:"
             if remove:
                 self._remove_label(label=WIP_STR)
-                self.pull_request.edit(
-                    title=self.pull_request.title.replace(wip_for_title, "")
-                )
+                self.pull_request.edit(title=self.pull_request.title.replace(wip_for_title, ""))
             else:
                 self._add_label(label=WIP_STR)
-                self.pull_request.edit(
-                    title=f"{wip_for_title} {self.pull_request.title}"
-                )
+                self.pull_request.edit(title=f"{wip_for_title} {self.pull_request.title}")
 
         else:
             if self.skip_merged_pull_request():
                 return self.pull_request.create_issue_comment(not_running_msg)
 
             self.label_by_user_comment(
-                user_request=_command,
-                remove=remove,
-                reviewed_user=reviewed_user,
-                issue_comment_id=issue_comment_id,
+                user_request=_command, remove=remove, reviewed_user=reviewed_user, issue_comment_id=issue_comment_id
             )
 
     @ignore_exceptions(logger=FLASK_APP.logger)
     def cherry_pick(self, target_branch, reviewed_user=None):
         requested_by = reviewed_user or "by target-branch label"
-        self.app.logger.info(
-            f"{self.log_prefix} Cherry-pick requested by user: {requested_by}"
-        )
+        self.app.logger.info(f"{self.log_prefix} Cherry-pick requested by user: {requested_by}")
 
         new_branch_name = f"{CHERRY_PICKED_LABEL_PREFIX}-{self.pull_request.head.ref}-{shortuuid.uuid()[:5]}"
         if not self.is_branch_exists(branch=target_branch):
@@ -1156,9 +960,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             self.pull_request.create_issue_comment(err_msg)
         else:
             self.set_cherry_pick_in_progress()
-            file_path, url_path = self._get_check_run_result_file_path(
-                check_run=CHERRY_PICKED_LABEL_PREFIX
-            )
+            file_path, url_path = self._get_check_run_result_file_path(check_run=CHERRY_PICKED_LABEL_PREFIX)
             commit_hash = self.pull_request.merge_commit_sha
             commit_msg_striped = self.pull_request.title.replace("'", "")
             pull_request_url = self.pull_request.html_url
@@ -1177,9 +979,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 f'-m "cherry-pick {pull_request_url} into {target_branch}" '
                 f'-m "requested-by {requested_by}"'
             )
-            rc, out, err = self._run_in_container(
-                command=cmd, env=env, file_path=file_path
-            )
+            rc, out, err = self._run_in_container(command=cmd, env=env, file_path=file_path)
             if rc:
                 self.set_cherry_pick_success(details_url=url_path)
                 self.pull_request.create_issue_comment(
@@ -1187,9 +987,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 )
             else:
                 self.set_cherry_pick_failure(details_url=url_path)
-                self.app.logger.error(
-                    f"{self.log_prefix} Cherry pick failed: {out} --- {err}"
-                )
+                self.app.logger.error(f"{self.log_prefix} Cherry pick failed: {out} --- {err}")
                 local_branch_name = f"{self.pull_request.head.ref}-{target_branch}"
                 self.pull_request.create_issue_comment(
                     f"**Manual cherry-pick is needed**\nCherry pick failed for "
@@ -1214,23 +1012,17 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         If the mergeable state is 'dirty', the 'has conflicts' label is added.
         """
         time_sleep = 30
-        self.app.logger.info(
-            f"{self.log_prefix} Sleep for {time_sleep} seconds before getting all opened PRs"
-        )
+        self.app.logger.info(f"{self.log_prefix} Sleep for {time_sleep} seconds before getting all opened PRs")
         time.sleep(time_sleep)
 
         for pull_request in self.repository.get_pulls(state="open"):
             self.pull_request = pull_request
-            self.app.logger.info(
-                f"{self.log_prefix} check label pull request after merge"
-            )
+            self.app.logger.info(f"{self.log_prefix} check label pull request after merge")
             self.label_pull_request_by_merge_state()
 
     def label_pull_request_by_merge_state(self, _sleep=30):
         if _sleep:
-            self.app.logger.info(
-                f"{self.log_prefix} Sleep for 30 seconds before checking merge state"
-            )
+            self.app.logger.info(f"{self.log_prefix} Sleep for 30 seconds before checking merge state")
             time.sleep(_sleep)
 
         merge_state = self.pull_request.mergeable_state
@@ -1263,9 +1055,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             return False
 
         if self.is_check_run_in_progress(check_run=CAN_BE_MERGED_STR):
-            self.app.logger.info(
-                f"{self.log_prefix} Check run is in progress, not running {CAN_BE_MERGED_STR}."
-            )
+            self.app.logger.info(f"{self.log_prefix} Check run is in progress, not running {CAN_BE_MERGED_STR}.")
             return False
 
         self.app.logger.info(f"{self.log_prefix} Check if {CAN_BE_MERGED_STR}.")
@@ -1273,8 +1063,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         check_runs_in_progress = [
             check_run.name
             for check_run in last_commit_check_runs
-            if check_run.status == IN_PROGRESS_STR
-            and check_run.name != CAN_BE_MERGED_STR
+            if check_run.status == IN_PROGRESS_STR and check_run.name != CAN_BE_MERGED_STR
         ]
         if check_runs_in_progress:
             self.app.logger.info(
@@ -1321,13 +1110,9 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     if approved_user in self.approvers:
                         self._add_label(label=CAN_BE_MERGED_STR)
                         self.set_merge_check_success()
-                        if self.parent_committer in (
-                            self.api_user,
-                            PRE_COMMIT_CI_BOT_USER,
-                        ):
+                        if self.parent_committer in (self.api_user, PRE_COMMIT_CI_BOT_USER):
                             self.app.logger.info(
-                                f"{self.log_prefix} "
-                                f"will be merged automatically. owner: {self.api_user}"
+                                f"{self.log_prefix} " f"will be merged automatically. owner: {self.api_user}"
                             )
                             self.pull_request.create_issue_comment(
                                 f"Owner of the pull request is `{self.api_user}`\n"
@@ -1351,45 +1136,31 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         """
 
     def _container_repository_and_tag(self):
-        tag = (
-            self.container_tag
-            if self.pull_request.is_merged()
-            else self.pull_request.number
-        )
+        tag = self.container_tag if self.pull_request.is_merged() else self.pull_request.number
         return f"{self.container_repository}:{tag}"
 
     def _run_build_container(self, set_check=True, push=False, is_merged=None):
         if not self.build_and_push_container:
             return False
 
-        if (
-            self.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR)
-            and not is_merged
-        ):
-            self.app.logger.info(
-                f"{self.log_prefix} Check run is in progress, not running {BUILD_CONTAINER_STR}."
-            )
+        if self.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR) and not is_merged:
+            self.app.logger.info(f"{self.log_prefix} Check run is in progress, not running {BUILD_CONTAINER_STR}.")
             return False
 
         file_path, url_path = None, None
 
         if self.pull_request:
-            file_path, url_path = self._get_check_run_result_file_path(
-                check_run=BUILD_CONTAINER_STR
-            )
+            file_path, url_path = self._get_check_run_result_file_path(check_run=BUILD_CONTAINER_STR)
 
         if set_check:
             self.set_container_build_in_progress()
 
         _container_repository_and_tag = self._container_repository_and_tag()
         build_cmd = (
-            f"--network=host -f {self.container_repo_dir}/{self.dockerfile} "
-            f"-t {_container_repository_and_tag}"
+            f"--network=host -f {self.container_repo_dir}/{self.dockerfile} " f"-t {_container_repository_and_tag}"
         )
         if self.container_build_args:
-            build_args = [
-                f"--build-arg {b_arg}" for b_arg in self.container_build_args
-            ][0]
+            build_args = [f"--build-arg {b_arg}" for b_arg in self.container_build_args][0]
             build_cmd = f"{build_args} {build_cmd}"
 
         if self.container_command_args:
@@ -1401,15 +1172,11 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         podman_build_cmd = f"podman build {build_cmd}"
 
         if self._run_in_container(command=podman_build_cmd, file_path=file_path)[0]:
-            self.app.logger.info(
-                f"{self.log_prefix} Done building {_container_repository_and_tag}"
-            )
+            self.app.logger.info(f"{self.log_prefix} Done building {_container_repository_and_tag}")
             if self.pull_request and set_check:
                 return self.set_container_build_success(details_url=url_path)
             if push:
-                push_msg = (
-                    f"New container for {_container_repository_and_tag} published"
-                )
+                push_msg = f"New container for {_container_repository_and_tag} published"
                 self.pull_request.create_issue_comment(push_msg)
                 if self.slack_webhook_url:
                     message = f"""
@@ -1417,14 +1184,9 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 {self.repository_full_name} {push_msg}.
 ```
 """
-                    self.send_slack_message(
-                        message=message,
-                        webhook_url=self.slack_webhook_url,
-                    )
+                    self.send_slack_message(message=message, webhook_url=self.slack_webhook_url)
 
-                self.app.logger.info(
-                    f"{self.log_prefix} Done push {_container_repository_and_tag}"
-                )
+                self.app.logger.info(f"{self.log_prefix} Done push {_container_repository_and_tag}")
         else:
             if push:
                 err_msg = f"Failed to create and push {_container_repository_and_tag}"
@@ -1435,10 +1197,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 {self.repository_full_name} {err_msg}.
 ```
                     """
-                    self.send_slack_message(
-                        message=message,
-                        webhook_url=self.slack_webhook_url,
-                    )
+                    self.send_slack_message(message=message, webhook_url=self.slack_webhook_url)
             if self.pull_request and set_check:
                 return self.set_container_build_failure(details_url=url_path)
 
@@ -1453,9 +1212,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             return False
 
         self.app.logger.info(f"{self.log_prefix} Installing python module")
-        file_path, url_path = self._get_check_run_result_file_path(
-            check_run=PYTHON_MODULE_INSTALL_STR
-        )
+        file_path, url_path = self._get_check_run_result_file_path(check_run=PYTHON_MODULE_INSTALL_STR)
         f"{PYTHON_MODULE_INSTALL_STR}-{shortuuid.uuid()}"
         self.set_python_module_install_in_progress()
         if self._run_in_container(command="pip install .", file_path=file_path)[0]:
@@ -1466,11 +1223,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
     def send_slack_message(self, message, webhook_url):
         slack_data = {"text": message}
         self.app.logger.info(f"{self.log_prefix} Sending message to slack: {message}")
-        response = requests.post(
-            webhook_url,
-            data=json.dumps(slack_data),
-            headers={"Content-Type": "application/json"},
-        )
+        response = requests.post(webhook_url, data=json.dumps(slack_data), headers={"Content-Type": "application/json"})
         if response.status_code != 200:
             raise ValueError(
                 f"Request to slack returned an error {response.status_code} with the following message: "
@@ -1500,9 +1253,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.app.logger.info(f"{self.log_prefix} Current directory: {os.getcwd()}")
         pr_number = f"origin/pr/{self.pull_request.number}"
         checkout_cmd = f"git -C {clone_path} checkout {pr_number}"
-        return run_command(
-            command=checkout_cmd, log_prefix=self.log_prefix, file_path=file_path
-        )[0]
+        return run_command(command=checkout_cmd, log_prefix=self.log_prefix, file_path=file_path)[0]
 
     def process_opened_or_synchronize_pull_request(self, pull_request_branch):
         self.set_merge_check_queued()
@@ -1547,37 +1298,24 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
         self.set_sonarqube_in_progress()
         target_url = f"{self.sonarqube_url}/dashboard?id={self.sonarqube_project_key}"
-        cmd = self.sonarqube_api.get_sonar_scanner_command(
-            project_key=self.sonarqube_project_key
-        )
+        cmd = self.sonarqube_api.get_sonar_scanner_command(project_key=self.sonarqube_project_key)
 
-        file_path, url_path = self._get_check_run_result_file_path(
-            check_run=SONARQUBE_STR
-        )
+        file_path, url_path = self._get_check_run_result_file_path(check_run=SONARQUBE_STR)
         rc, _, _ = self._run_in_container(command=cmd, file_path=file_path)
         if rc:
-            project_status = self.sonarqube_api.get_project_quality_status(
-                project_key=self.sonarqube_project_key
-            )
+            project_status = self.sonarqube_api.get_project_quality_status(project_key=self.sonarqube_project_key)
             project_status_res = project_status["projectStatus"]["status"]
             if project_status_res == "OK":
                 return self.set_sonarqube_success(details_url=target_url)
             else:
-                self.app.logger.info(
-                    f"{self.log_prefix} Sonarqube scan failed, status: {project_status_res}"
-                )
+                self.app.logger.info(f"{self.log_prefix} Sonarqube scan failed, status: {project_status_res}")
                 return self.set_sonarqube_failure(details_url=target_url)
         else:
             self.app.logger.info(f"{self.log_prefix} Sonarqube scan failed, rc: {rc}")
             return self.set_sonarqube_failure(details_url=url_path)
 
-    def set_check_run_status(
-        self, check_run, status=None, conclusion=None, details_url=None
-    ):
-        kwargs = {
-            "name": check_run,
-            "head_sha": self.last_commit.sha,
-        }
+    def set_check_run_status(self, check_run, status=None, conclusion=None, details_url=None):
+        kwargs = {"name": check_run, "head_sha": self.last_commit.sha}
         if status:
             kwargs["status"] = status
 
@@ -1587,9 +1325,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         if details_url:
             kwargs["details_url"] = details_url
 
-        self.app.logger.info(
-            f"{self.log_prefix} Set {check_run} check to {status or conclusion}"
-        )
+        self.app.logger.info(f"{self.log_prefix} Set {check_run} check to {status or conclusion}")
         self.repository_by_github_app.create_check_run(**kwargs)
         return f"Done setting check run status: {kwargs}"
 
@@ -1626,8 +1362,4 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
         # final podman command
         podman_base_cmd += f" '{clone_base_cmd} && {command}'"
-        return run_command(
-            command=podman_base_cmd,
-            log_prefix=self.log_prefix,
-            file_path=file_path,
-        )
+        return run_command(command=podman_base_cmd, log_prefix=self.log_prefix, file_path=file_path)

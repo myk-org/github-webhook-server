@@ -28,9 +28,7 @@ def setup_logger():
 
     log_file = os.environ.get("WEBHOOK_SERVER_LOG_FILE")
     if log_file:
-        log_handler = RotatingFileHandler(
-            filename=log_file, maxBytes=104857600, backupCount=20
-        )
+        log_handler = RotatingFileHandler(filename=log_file, maxBytes=104857600, backupCount=20)
         file_log_formatter = WrapperLogFormatter(
             fmt="%(asctime)s %(levelname)s \033[1;36m%(filename)s:%(lineno)d\033[1;0m %(name)s: %(message)s",
             log_colors={
@@ -78,12 +76,7 @@ HOLD_LABEL_STR = "hold"
 SIZE_LABEL_PREFIX = "size/"
 
 # Gitlab colors require a '#' prefix; e.g: #
-USER_LABELS_DICT = {
-    HOLD_LABEL_STR: "B60205",
-    VERIFIED_LABEL_STR: "0E8A16",
-    WIP_STR: "B60205",
-    LGTM_STR: "0E8A16",
-}
+USER_LABELS_DICT = {HOLD_LABEL_STR: "B60205", VERIFIED_LABEL_STR: "0E8A16", WIP_STR: "B60205", LGTM_STR: "0E8A16"}
 
 STATIC_LABELS_DICT = {
     **USER_LABELS_DICT,

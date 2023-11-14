@@ -37,9 +37,7 @@ FILENAME_STRING = "<string:filename>"
 APP_DATA_ROOT_PATH = get_app_data_dir()
 TOX_DATA_PATH = os.path.join(APP_DATA_ROOT_PATH, TOX_STR)
 BUILD_CONTAINER_DATA_PATH = os.path.join(APP_DATA_ROOT_PATH, BUILD_CONTAINER_STR)
-PYTHON_MODULE_INSTALL_DATA_PATH = os.path.join(
-    APP_DATA_ROOT_PATH, PYTHON_MODULE_INSTALL_STR
-)
+PYTHON_MODULE_INSTALL_DATA_PATH = os.path.join(APP_DATA_ROOT_PATH, PYTHON_MODULE_INSTALL_STR)
 SONARQUBE_DATA_PATH = os.path.join(APP_DATA_ROOT_PATH, SONARQUBE_STR)
 
 
@@ -55,9 +53,7 @@ def get_repositories_github_app_api():
     for installation in GithubIntegration(auth=auth).get_installations():
         for repo in installation.get_repos():
             FLASK_APP.logger.info(f"Getting repository {repo.full_name} GitHub app API")
-            REPOSITORIES_APP_API[
-                repo.full_name
-            ] = installation.get_github_for_installation()
+            REPOSITORIES_APP_API[repo.full_name] = installation.get_github_for_installation()
 
     for data in config_data["repositories"].values():
         full_name = data["name"]
@@ -94,10 +90,7 @@ def process_webhook():
         return process_failed_msg
 
     github_event = request.headers.get("X-GitHub-Event")
-    event_log = (
-        f"Event type: {github_event}. "
-        f"event ID: {request.headers.get('X-GitHub-Delivery')}"
-    )
+    event_log = f"Event type: {github_event}. " f"event ID: {request.headers.get('X-GitHub-Delivery')}"
     try:
         api.process_hook(data=github_event, event_log=event_log)
         return "process success"
@@ -140,8 +133,7 @@ def main():
     set_repositories_settings()
     set_sonar_qube_projects()
     set_all_in_progress_check_runs_to_queued(
-        repositories_app_api=REPOSITORIES_APP_API,
-        missing_app_repositories=MISSING_APP_REPOSITORIES,
+        repositories_app_api=REPOSITORIES_APP_API, missing_app_repositories=MISSING_APP_REPOSITORIES
     )
     create_webhook()
     FLASK_APP.logger.info(f"Starting {FLASK_APP.name} app")
