@@ -7,12 +7,9 @@ class DockerHub:
     def __init__(self, username, password):
         self.repository = "ratelimitpreview/test"
         self.token_url = (
-            f"https://auth.docker.io/token?service=registry.docker.io&"
-            f"scope=repository:{self.repository}:pull"
+            f"https://auth.docker.io/token?service=registry.docker.io&" f"scope=repository:{self.repository}:pull"
         )
-        self.registry_url = (
-            f"https://registry-1.docker.io/v2/{self.repository}/manifests/latest"
-        )
+        self.registry_url = f"https://registry-1.docker.io/v2/{self.repository}/manifests/latest"
         self.username = username
         self.password = password
 
@@ -44,9 +41,7 @@ class DockerHub:
         return token
 
     def get_registry_limits(self):
-        r_registry = requests.head(
-            self.registry_url, headers={"Authorization": f"Bearer {self.get_token()}"}
-        )
+        r_registry = requests.head(self.registry_url, headers={"Authorization": f"Bearer {self.get_token()}"})
         r_registry.raise_for_status()
         resp_headers = r_registry.headers
 

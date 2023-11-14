@@ -101,9 +101,7 @@ def run_command(
                 if _err_decoded:
                     fd.write(f"\nstderr: {err_decoded}")
         except Exception as ex:
-            FLASK_APP.logger.error(
-                f"{log_prefix} Failed to write to file: {file_path}. ex: {ex}"
-            )
+            FLASK_APP.logger.error(f"{log_prefix} Failed to write to file: {file_path}. ex: {ex}")
 
     out_decoded, err_decoded = "", ""
     try:
@@ -128,11 +126,7 @@ def run_command(
         if sub_process.returncode != 0:
             FLASK_APP.logger.error(error_msg)
             if file_path:
-                _write_to_file(
-                    _file_path=file_path,
-                    _out_decoded=out_decoded,
-                    _err_decoded=err_decoded,
-                )
+                _write_to_file(_file_path=file_path, _out_decoded=out_decoded, _err_decoded=err_decoded)
 
             return False, out_decoded, err_decoded
 
@@ -140,11 +134,7 @@ def run_command(
         if err_decoded and verify_stderr:
             FLASK_APP.logger.error(error_msg)
             if file_path:
-                _write_to_file(
-                    _file_path=file_path,
-                    _out_decoded=out_decoded,
-                    _err_decoded=err_decoded,
-                )
+                _write_to_file(_file_path=file_path, _out_decoded=out_decoded, _err_decoded=err_decoded)
 
             return False, out_decoded, err_decoded
 
@@ -155,9 +145,7 @@ def run_command(
     except Exception as ex:
         FLASK_APP.logger.error(f"{log_prefix} Failed to run '{command}' command: {ex}")
         if file_path:
-            _write_to_file(
-                _file_path=file_path, _out_decoded=out_decoded, _err_decoded=err_decoded
-            )
+            _write_to_file(_file_path=file_path, _out_decoded=out_decoded, _err_decoded=err_decoded)
 
         return False, out_decoded, err_decoded
 
@@ -173,9 +161,7 @@ def check_rate_limit(github_api=None):
     rate_limit_reset = rate_limit.core.reset
     rate_limit_remaining = rate_limit.core.remaining
     rate_limit_limit = rate_limit.core.limit
-    time_for_limit_reset = (
-        rate_limit_reset - datetime.datetime.now(tz=datetime.timezone.utc)
-    ).seconds
+    time_for_limit_reset = (rate_limit_reset - datetime.datetime.now(tz=datetime.timezone.utc)).seconds
 
     if rate_limit_remaining < 500:
         rate_limit_str = f"{Fore.RED}{rate_limit_remaining}{Fore.RESET}"
@@ -189,13 +175,8 @@ def check_rate_limit(github_api=None):
         f"Reset in {rate_limit_reset} [{datetime.timedelta(seconds=time_for_limit_reset)}] "
         f"(UTC time is {datetime.datetime.now(tz=datetime.timezone.utc)})"
     )
-    while (
-        datetime.datetime.now(tz=datetime.timezone.utc) < rate_limit_reset
-        and rate_limit_remaining < minimum_limit
-    ):
-        FLASK_APP.logger.warning(
-            f"Rate limit is below {minimum_limit} waiting till {rate_limit_reset}"
-        )
+    while datetime.datetime.now(tz=datetime.timezone.utc) < rate_limit_reset and rate_limit_remaining < minimum_limit:
+        FLASK_APP.logger.warning(f"Rate limit is below {minimum_limit} waiting till {rate_limit_reset}")
         FLASK_APP.logger.info(
             f"Sleeping {time_for_limit_reset} seconds [{datetime.timedelta(seconds=time_for_limit_reset)}]"
         )

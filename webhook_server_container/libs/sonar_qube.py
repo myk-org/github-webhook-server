@@ -15,9 +15,7 @@ class SonarQubeExt(SonarQubeClient):
 
     def create_project(self, project_key, project_name):
         self.projects.request(
-            method="POST",
-            path="api/projects/create",
-            params={"name": project_name, "project": project_key},
+            method="POST", path="api/projects/create", params={"name": project_name, "project": project_key}
         )
 
     def run_sonar_scanner(self, project_key, log_prefix):
@@ -26,16 +24,11 @@ class SonarQubeExt(SonarQubeClient):
 
     def get_project_quality_status(self, project_key):
         return self.qualitygates.request(
-            path="api/qualitygates/project_status",
-            params={"projectKey": project_key},
+            path="api/qualitygates/project_status", params={"projectKey": project_key}
         ).json()
 
     def get_sonar_scanner_command(self, project_key):
-        _cli = os.path.join(
-            os.environ.get("SONAR_SCANNER_CLI_DIR", "/sonar-scanner-cli"),
-            "bin",
-            "sonar-scanner",
-        )
+        _cli = os.path.join(os.environ.get("SONAR_SCANNER_CLI_DIR", "/sonar-scanner-cli"), "bin", "sonar-scanner")
         return (
             f"{_cli} -Dsonar.projectKey={project_key} "
             f"-Dsonar.sources=. "
