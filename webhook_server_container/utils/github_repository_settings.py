@@ -17,11 +17,7 @@ from webhook_server_container.utils.constants import (
     STATIC_LABELS_DICT,
     TOX_STR,
 )
-from webhook_server_container.utils.helpers import (
-    get_data_from_config,
-    get_github_repo_api,
-    ignore_exceptions,
-)
+from webhook_server_container.utils.helpers import get_data_from_config, get_github_repo_api, ignore_exceptions
 
 
 @ignore_exceptions(retry=10)
@@ -60,17 +56,11 @@ def set_branch_protection(branch, repository, required_status_checks, github_api
 @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
 def set_repository_settings(repository):
     FLASK_APP.logger.info(f"Set repository {repository.name} settings")
-    repository.edit(
-        delete_branch_on_merge=True,
-        allow_auto_merge=True,
-        allow_update_branch=True,
-    )
+    repository.edit(delete_branch_on_merge=True, allow_auto_merge=True, allow_update_branch=True)
 
     FLASK_APP.logger.info(f"Set repository {repository.name} security settings")
     repository._requester.requestJsonAndCheck(
-        "PATCH",
-        f"{repository.url}/code-scanning/default-setup",
-        input={"state": "not-configured"},
+        "PATCH", f"{repository.url}/code-scanning/default-setup", input={"state": "not-configured"}
     )
     repository._requester.requestJsonAndCheck(
         "PATCH",
@@ -79,14 +69,12 @@ def set_repository_settings(repository):
             "security_and_analysis": {
                 "secret_scanning": {"status": "enabled"},
                 "secret_scanning_push_protection": {"status": "enabled"},
-            },
+            }
         },
     )
 
 
-def get_required_status_checks(
-    repo, data, default_status_checks, exclude_status_checks
-):
+def get_required_status_checks(repo, data, default_status_checks, exclude_status_checks):
     if data.get("tox"):
         default_status_checks.append("tox")
 
@@ -136,14 +124,10 @@ def set_repository_labels(repository):
             if repository_labels[label_lower]["color"] == color:
                 continue
             else:
-                FLASK_APP.logger.info(
-                    f"{repository.name}: Edit repository label {label} with color {color}"
-                )
+                FLASK_APP.logger.info(f"{repository.name}: Edit repository label {label} with color {color}")
                 repo_label.edit(name=repo_label.name, color=color)
         else:
-            FLASK_APP.logger.info(
-                f"{repository.name}: Add repository label {label} with color {color}"
-            )
+            FLASK_APP.logger.info(f"{repository.name}: Add repository label {label} with color {color}")
             repository.create_label(name=label, color=color)
 
     return f"{repository}: Setting repository labels is done"
@@ -164,9 +148,7 @@ def set_repositories_settings():
     futures = []
     with ThreadPoolExecutor() as executor:
         for _, data in config_data["repositories"].items():
-            futures.append(
-                executor.submit(set_repository, data, github_api, default_status_checks)
-            )
+            futures.append(executor.submit(set_repository, data, github_api, default_status_checks))
 
     for result in as_completed(futures):
         if result.exception():
@@ -197,10 +179,7 @@ def set_repository(data, github_api, default_status_checks):
             continue
 
         _default_status_checks = deepcopy(default_status_checks)
-        (
-            include_status_checks,
-            exclude_status_checks,
-        ) = get_user_configures_status_checks(status_checks=status_checks)
+        (include_status_checks, exclude_status_checks) = get_user_configures_status_checks(status_checks=status_checks)
 
         required_status_checks = include_status_checks or get_required_status_checks(
             repo=repo,
@@ -210,27 +189,16 @@ def set_repository(data, github_api, default_status_checks):
         )
 
         set_branch_protection(
-            branch=branch,
-            repository=repo,
-            required_status_checks=required_status_checks,
-            github_api=github_api,
+            branch=branch, repository=repo, required_status_checks=required_status_checks, github_api=github_api
         )
 
     return f"{repository}: Setting repository settings is done"
 
 
-def set_all_in_progress_check_runs_to_queued(
-    repositories_app_api, missing_app_repositories
-):
+def set_all_in_progress_check_runs_to_queued(repositories_app_api, missing_app_repositories):
     config_data = get_data_from_config()
     github_api = Github(login_or_token=config_data["github-token"])
-    check_runs = (
-        PYTHON_MODULE_INSTALL_STR,
-        CAN_BE_MERGED_STR,
-        SONARQUBE_STR,
-        TOX_STR,
-        BUILD_CONTAINER_STR,
-    )
+    check_runs = (PYTHON_MODULE_INSTALL_STR, CAN_BE_MERGED_STR, SONARQUBE_STR, TOX_STR, BUILD_CONTAINER_STR)
     futures = []
     with ThreadPoolExecutor() as executor:
         for _, data in config_data["repositories"].items():
@@ -251,20 +219,14 @@ def set_all_in_progress_check_runs_to_queued(
         FLASK_APP.logger.info(result.result())
 
 
-def set_repository_check_runs_to_queued(
-    data, missing_app_repositories, repositories_app_api, github_api, check_runs
-):
+def set_repository_check_runs_to_queued(data, missing_app_repositories, repositories_app_api, github_api, check_runs):
     repository = data["name"]
     if repository in missing_app_repositories:
         return
 
-    app_api = get_github_repo_api(
-        github_api=repositories_app_api[repository], repository=repository
-    )
+    app_api = get_github_repo_api(github_api=repositories_app_api[repository], repository=repository)
     repo = get_github_repo_api(github_api=github_api, repository=repository)
-    FLASK_APP.logger.info(
-        f"{repository}: Set all {IN_PROGRESS_STR} check runs to {QUEUED_STR}"
-    )
+    FLASK_APP.logger.info(f"{repository}: Set all {IN_PROGRESS_STR} check runs to {QUEUED_STR}")
     for pull_request in repo.get_pulls(state="open"):
         last_commit = list(pull_request.get_commits())[-1]
         for check_run in last_commit.get_check_runs():
@@ -273,8 +235,6 @@ def set_repository_check_runs_to_queued(
                     f"{repository}: {check_run.name} status is {IN_PROGRESS_STR}, "
                     f"Setting check run {check_run.name} to {QUEUED_STR}"
                 )
-                app_api.create_check_run(
-                    name=check_run.name, head_sha=last_commit.sha, status=QUEUED_STR
-                )
+                app_api.create_check_run(name=check_run.name, head_sha=last_commit.sha, status=QUEUED_STR)
 
     return f"{repository}: Set check run status to {QUEUED_STR} is done"
