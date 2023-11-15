@@ -675,9 +675,14 @@ Available labels:
             self.process_opened_or_synchronize_pull_request(pull_request_branch=pull_request_branch)
 
         if hook_action == "synchronize":
-            reviewed_by_labels = [label.name for label in self.pull_request.labels if "By-" in label.name]
-            for _reviewed_label in reviewed_by_labels:
-                self._remove_label(label=_reviewed_label)
+            for _label in self.pull_request.labels:
+                _label_name = _label.name
+                if (
+                    _label_name.startswith(APPROVED_BY_LABEL_PREFIX)
+                    or _label_name.startswith(COMMENTED_BY_LABEL_PREFIX)
+                    or _label_name.startswith(CHANGED_REQUESTED_BY_LABEL_PREFIX)
+                ):
+                    self._remove_label(label=_label_name)
 
             self.process_opened_or_synchronize_pull_request(pull_request_branch=pull_request_branch)
             self.label_pull_request_by_merge_state()
