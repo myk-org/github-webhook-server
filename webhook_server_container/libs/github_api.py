@@ -267,7 +267,7 @@ Available user actions:
         if sonarqube:
             self.sonarqube_url = sonarqube["url"]
             self.sonarqube_api = SonarQubeExt(**sonarqube)
-            if repo_data.get("sonarqube-enabled", True):
+            if repo_data.get("sonarqube", False):
                 self.sonarqube_project_key = self.repository_full_name.replace("/", "_")
 
         self.pypi = repo_data.get("pypi")
