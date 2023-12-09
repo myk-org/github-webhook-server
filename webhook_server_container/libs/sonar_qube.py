@@ -6,10 +6,9 @@ from webhook_server_container.utils.helpers import run_command
 
 
 class SonarQubeExt(SonarQubeClient):
-    def __init__(self, url, token, internal_url=None):
+    def __init__(self, url, token):
         super().__init__(sonarqube_url=url, token=token)
         self.token = token
-        self.internal_url = internal_url
 
     def get_project(self, project_key):
         return self.projects.get_project(project_key)
@@ -28,11 +27,11 @@ class SonarQubeExt(SonarQubeClient):
             path="api/qualitygates/project_status", params={"projectKey": project_key}
         ).json()
 
-    def get_sonar_scanner_command(self, project_key):
+    def get_sonar_scanner_command(self, project_key, internal_url=None):
         _cli = os.path.join(os.environ.get("SONAR_SCANNER_CLI_DIR", "/sonar-scanner-cli"), "bin", "sonar-scanner")
         return (
             f"{_cli} -Dsonar.projectKey={project_key} "
             f"-Dsonar.sources=. "
-            f"-Dsonar.host.url={self.internal_url or self.base_url} "
+            f"-Dsonar.host.url={internal_url or self.base_url} "
             f"-Dsonar.token={self.token}"
         )
