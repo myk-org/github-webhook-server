@@ -1093,13 +1093,11 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 self.set_merge_check_queued()
                 return False
 
-            all_check_runs_passed = all(
-                [
-                    check_run.conclusion == SUCCESS_STR
-                    for check_run in last_commit_check_runs
-                    if check_run.name != CAN_BE_MERGED_STR
-                ]
-            )
+            all_check_runs_passed = all([
+                check_run.conclusion == SUCCESS_STR
+                for check_run in last_commit_check_runs
+                if check_run.name != CAN_BE_MERGED_STR
+            ])
             if not all_check_runs_passed:
                 self._remove_label(label=CAN_BE_MERGED_STR)
                 self.set_merge_check_queued()
