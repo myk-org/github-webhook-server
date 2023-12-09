@@ -6,9 +6,10 @@ from webhook_server_container.utils.helpers import run_command
 
 
 class SonarQubeExt(SonarQubeClient):
-    def __init__(self, url, token):
+    def __init__(self, url, token, internal_url=None):
         super().__init__(sonarqube_url=url, token=token)
         self.token = token
+        self.internal_url = internal_url
 
     def get_project(self, project_key):
         return self.projects.get_project(project_key)
@@ -32,6 +33,6 @@ class SonarQubeExt(SonarQubeClient):
         return (
             f"{_cli} -Dsonar.projectKey={project_key} "
             f"-Dsonar.sources=. "
-            f"-Dsonar.host.url={self.base_url} "
+            f"-Dsonar.host.url={self.internal_url or self.base_url} "
             f"-Dsonar.token={self.token}"
         )
