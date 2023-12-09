@@ -203,3 +203,18 @@ export WEBHOOK_SERVER_DATA_DIR=$WEBHOOK_SERVER_DATA_DIR
 export SONAR_SCANNER_CLI_DIR=/tmp/sonar-scansner-cli
 poetry run python webhook_server_container/app.py
 ```
+### Webhook Server Functionality
+
+This server is designed to automate various tasks related to managing GitHub repositories. Here are some of the key functionalities:
+
+- **CodeQL**: On start, the server enables CodeQL with default settings for each repository.
+- **Branch Protection**: The server sets branch protection based on the configuration provided in `config.yaml`.
+- **Webhooks**: The server adds itself as a webhook in the repository settings, allowing it to respond to various events.
+- **Slack Integration**: If a `slack_webhook_url` is configured for the repository, the server sends messages to the configured Slack channel about new releases to PyPI and new containers that were pushed.
+- **PyPI Integration**: If `pypi` is configured for the repository, the server pushes a new version to PyPI on a new GitHub release.
+- **Tox Integration**: If `tox` is configured for the repository, the server runs a tox job on each push and new commits.
+- **Branch Protection**: The server configures branch protection and sets required checks to be run for each branch before a PR can be merged.
+- **Container Building**: If `container` is configured for the repository, the server creates a `build-container` run that builds the container on each PR push/commit. Once the PR is merged, the container is built and pushed to the repository.
+- **Docker Integration**: If `docker` is configured for the repository, the server logs in to docker.io to increase the pull rate limit.
+
+Please note that the server does not currently support private repositories.
