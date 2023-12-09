@@ -54,14 +54,7 @@ def test_process_pull_request_review_webhook_data():
 def test_check_if_can_be_merged():
     """
     Test the check_if_can_be_merged function of the GitHubApi class.
-
     This function mocks the set_merge_check_queued method and verifies that it is called once.
-
-    Parameters:
-        None
-
-    Returns:
-        None
     """
     with mock.patch.object(GitHubApi, "set_merge_check_queued") as mock_set_merge:
         github_api = GitHubApi(hook_data={}, repositories_app_api={}, missing_app_repositories={})
