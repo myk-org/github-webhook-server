@@ -9,7 +9,9 @@ def set_sonar_qube_projects():
     if not sonarqube:
         return
 
-    sonarqube_api = SonarQubeExt(**sonarqube)
+    sonarqube_url = sonarqube["url"]
+    sonarqube_token = sonarqube["token"]
+    sonarqube_api = SonarQubeExt(url=sonarqube_url, token=sonarqube_token)
     for repository_name, data in config_data["repositories"].items():
         sonarqube = data.get("sonarqube")
         if not sonarqube:
