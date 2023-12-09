@@ -6,7 +6,7 @@ from webhook_server_container.libs.github_api import GitHubApi
 def test_process_hook():
     with mock.patch.object(GitHubApi, "process_comment_webhook_data") as mock_process_comment:
         github_api = GitHubApi(
-            hook_data={"action": "issue_comment", "repository": {}}, repositories_app_api={}, missing_app_repositories={}
+            hook_data={"action": "issue_comment", "repository": {"name": "test_repo"}}, repositories_app_api={}, missing_app_repositories={}
         )
         github_api.process_hook(data="issue_comment", event_log="test")
         mock_process_comment.assert_called_once()
@@ -14,7 +14,7 @@ def test_process_hook():
 
 def test_process_pull_request_webhook_data():
     with mock.patch.object(GitHubApi, "process_opened_or_synchronize_pull_request") as mock_process_opened:
-        github_api = GitHubApi(hook_data={"action": "opened", "repository": {}}, repositories_app_api={}, missing_app_repositories={})
+        github_api = GitHubApi(hook_data={"action": "opened", "repository": {"name": "test_repo"}}, repositories_app_api={}, missing_app_repositories={})
         github_api.process_pull_request_webhook_data()
         mock_process_opened.assert_called_once()
 
@@ -22,7 +22,7 @@ def test_process_pull_request_webhook_data():
 def test_process_push_webhook_data():
     with mock.patch.object(GitHubApi, "upload_to_pypi") as mock_upload:
         github_api = GitHubApi(
-            hook_data={"ref": "refs/tags/test", "repository": {}}, repositories_app_api={}, missing_app_repositories={}
+            hook_data={"ref": "refs/tags/test", "repository": {"name": "test_repo"}}, repositories_app_api={}, missing_app_repositories={}
         )
         github_api.process_push_webhook_data()
         mock_upload.assert_called_once()
@@ -30,7 +30,7 @@ def test_process_push_webhook_data():
 
 def test_process_pull_request_review_webhook_data():
     with mock.patch.object(GitHubApi, "manage_reviewed_by_label") as mock_manage_review:
-        github_api = GitHubApi(hook_data={"action": "submitted", "repository": {}}, repositories_app_api={}, missing_app_repositories={})
+        github_api = GitHubApi(hook_data={"action": "submitted", "repository": {"name": "test_repo"}}, repositories_app_api={}, missing_app_repositories={})
         github_api.process_pull_request_review_webhook_data()
         mock_manage_review.assert_called_once()
 
