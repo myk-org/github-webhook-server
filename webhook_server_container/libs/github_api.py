@@ -264,11 +264,12 @@ Available user actions:
 
         self.repository_full_name = repo_data["name"]
         sonarqube = config_data.get("sonarqube")
-        if sonarqube:
+        if sonarqube and repo_data.get("sonarqube", False):
             self.sonarqube_url = sonarqube["url"]
-            self.sonarqube_api = SonarQubeExt(**sonarqube)
-            if repo_data.get("sonarqube", False):
-                self.sonarqube_project_key = self.repository_full_name.replace("/", "_")
+            self.sonarqube_token = sonarqube["token"]
+            self.sonarqube_internal_url = sonarqube.get("internal-url")
+            self.sonarqube_api = SonarQubeExt(url=self.sonarqube_url, token=self.sonarqube_token)
+            self.sonarqube_project_key = self.repository_full_name.replace("/", "_")
 
         self.pypi = repo_data.get("pypi")
         self.verified_job = repo_data.get("verified_job", True)
@@ -1303,7 +1304,9 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
         self.set_sonarqube_in_progress()
         target_url = f"{self.sonarqube_url}/dashboard?id={self.sonarqube_project_key}"
-        cmd = self.sonarqube_api.get_sonar_scanner_command(project_key=self.sonarqube_project_key)
+        cmd = self.sonarqube_api.get_sonar_scanner_command(
+            project_key=self.sonarqube_project_key, internal_url=self.sonarqube_internal_url
+        )
 
         file_path, url_path = self._get_check_run_result_file_path(check_run=SONARQUBE_STR)
         rc, _, _ = self._run_in_container(command=cmd, file_path=file_path)
