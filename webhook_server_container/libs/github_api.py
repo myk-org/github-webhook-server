@@ -268,7 +268,9 @@ Available user actions:
             self.sonarqube_url = sonarqube["url"]
             self.sonarqube_token = sonarqube["token"]
             self.sonarqube_internal_url = sonarqube.get("internal-url")
-            self.sonarqube_api = SonarQubeExt(url=self.sonarqube_url, token=self.sonarqube_token)
+            self.sonarqube_api = SonarQubeExt(
+                url=self.sonarqube_internal_url or self.sonarqube_url, token=self.sonarqube_token
+            )
             self.sonarqube_project_key = self.repository_full_name.replace("/", "_")
 
         self.pypi = repo_data.get("pypi")

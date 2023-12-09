@@ -11,9 +11,10 @@ def set_sonar_qube_projects():
 
     sonarqube_url = sonarqube["url"]
     sonarqube_token = sonarqube["token"]
-    sonarqube_api = SonarQubeExt(url=sonarqube_url, token=sonarqube_token)
+    sonarqube_internal_url = sonarqube.get("internal-url")
+    sonarqube_api = SonarQubeExt(url=sonarqube_internal_url or sonarqube_url, token=sonarqube_token)
     for repository_name, data in config_data["repositories"].items():
-        sonarqube = data.get("sonarqube")
+        sonarqube = data.get("sonarqube", False)
         if not sonarqube:
             continue
 
