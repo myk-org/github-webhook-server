@@ -266,8 +266,9 @@ Available user actions:
         sonarqube = config_data.get("sonarqube")
         if sonarqube:
             self.sonarqube_url = sonarqube["url"]
-            self.sonarqube_api = SonarQubeExt(**sonarqube)
+            self.sonarqube_token = sonarqube["token"]
             self.sonarqube_internal_url = sonarqube.get("internal-url")
+            self.sonarqube_api = SonarQubeExt(url=self.sonarqube_url, token=self.sonarqube_token)
             if repo_data.get("sonarqube", False):
                 self.sonarqube_project_key = self.repository_full_name.replace("/", "_")
 
