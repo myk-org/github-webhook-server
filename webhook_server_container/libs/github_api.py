@@ -254,13 +254,13 @@ Available user actions:
 
     def _repo_data_from_config(self):
         config_data = get_data_from_config()
-        self.github_app_id = config_data["github-app-id"]
-        self.token = config_data["github-token"]
-        self.webhook_url = config_data.get("webhook_ip")
-
         repo_data = config_data["repositories"].get(self.repository_name)
         if not repo_data:
             raise RepositoryNotFoundError(f"Repository {self.repository_name} not found in config file")
+
+        self.github_app_id = config_data["github-app-id"]
+        self.token = config_data["github-token"]
+        self.webhook_url = config_data.get("webhook_ip")
 
         self.repository_full_name = repo_data["name"]
         sonarqube = config_data.get("sonarqube")
