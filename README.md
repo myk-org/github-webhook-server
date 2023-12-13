@@ -1,5 +1,11 @@
 # github-webhook-server
 
+A Flask-based webhook server for managing GitHub repositories. It handles tasks such as repository setup, branch protection, and webhook configuration.
+
+## Build container
+
+Using podman:
+
 Webhook server to manage GitHub repositories.
 On start, it will configure the following for each repository:
 
@@ -28,6 +34,16 @@ docker build -t github-webhook-server .
 [docker-compose-example.yaml](https://github.com/myakove/github-webhook-server/blob/main/docker-compose-example.yaml)
 
 ## Getting started
+
+## Setup
+
+Before running the application, ensure to set the following environment variables and configuration file:
+
+* `WEBHOOK_SERVER_LOG_FILE`: Path to the log file where the server logs are to be stored.
+* `WEBHOOK_SERVER_DATA_DIR`: Path to the data directory where the `config.yaml` file is located.
+* `config.yaml`: Configuration file that contains settings for the server and repositories, which should be placed in the `WEBHOOK_SERVER_DATA_DIR` directory.
+
+Follow the instructions to build the container using either podman or docker as described in the Build container section. Once that is done, proceed with the configurations outlined below.
 
 ### Config file
 
@@ -179,6 +195,24 @@ Supported labels:
 ### Issues
 
 * New issues can be created for this project [here](https://github.com/myakove/github-webhook-server/issues)
+
+## Main Functionalities
+
+### Logging Setup
+
+The webhook server configures custom logging with color-coded log level names to enhance readability. It also supports optional logging to a file when 'WEBHOOK_SERVER_LOG_FILE' is set in the environment. This feature uses a rotating file handler to manage log rotation and is defined in the `constants.py` file.
+
+### SonarQube Project Management
+
+The server manages SonarQube projects for each GitHub repository defined in the `sonar_qube.py` file. It facilitates the automatic setup of SonarQube projects, ensuring added repositories are monitored for code quality and analysis.
+
+### Webhook Creation
+
+Webhooks are automatically created for GitHub repositories based on settings defined in `webhook.py`. These webhooks enable real-time integration with GitHub events such as push, pull requests, and more.
+
+### Usage Guide
+
+To use the webhook server, first prepare the `config.yaml` file with the necessary repository and server configurations. Set the required environment variables, including `WEBHOOK_SERVER_LOG_FILE` and `WEBHOOK_SERVER_DATA_DIR`. Build and start the server using the instructions in the 'Build container' section.
 
 ### Development
 
