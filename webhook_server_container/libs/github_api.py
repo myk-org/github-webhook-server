@@ -349,16 +349,14 @@ Available user actions:
             return self.pull_request.add_to_labels(label)
 
         _color = [DYNAMIC_LABELS_DICT[_label] for _label in DYNAMIC_LABELS_DICT if _label in label]
-        self.app.logger.info(
-            f"{self.log_prefix} Label {label} was " f"{'found' if _color else 'not found'} in labels dict"
-        )
+        self.app.logger.info(f"{self.log_prefix} Label {label} was {'found' if _color else 'not found'} in labels dict")
         color = _color[0] if _color else "D4C5F9"
         self.app.logger.info(f"{self.log_prefix} Adding label {label} with color {color}")
 
         try:
             _repo_label = self.repository.get_label(label)
             _repo_label.edit(name=_repo_label.name, color=color)
-            self.app.logger.info(f"{self.log_prefix} " f"Edit repository label {label} with color {color}")
+            self.app.logger.info(f"{self.log_prefix} Edit repository label {label} with color {color}")
         except UnknownObjectException:
             self.app.logger.info(f"{self.log_prefix} Add repository label {label} with color {color}")
             self.repository.create_label(name=label, color=color)
@@ -469,7 +467,7 @@ stderr: `{err}`
     def label_by_user_comment(self, user_request, remove, reviewed_user, issue_comment_id):
         if not any(user_request.startswith(label_name) for label_name in USER_LABELS_DICT):
             self.app.logger.info(
-                f"{self.log_prefix} " f"Label {user_request} is not a predefined one, " "will not be added / removed."
+                f"{self.log_prefix} Label {user_request} is not a predefined one, will not be added / removed."
             )
             self.pull_request.create_issue_comment(
                 body=f"""
@@ -626,11 +624,9 @@ Available labels:
     def close_issue_for_merged_or_closed_pr(self, hook_action):
         for issue in self.repository.get_issues():
             if issue.body == self._generate_issue_body():
-                self.app.logger.info(
-                    f"{self.log_prefix} Closing issue {issue.title} for PR: " f"{self.pull_request.title}"
-                )
+                self.app.logger.info(f"{self.log_prefix} Closing issue {issue.title} for PR: {self.pull_request.title}")
                 issue.create_comment(
-                    f"{self.log_prefix} Closing issue for PR: " f"{self.pull_request.title}.\nPR was {hook_action}."
+                    f"{self.log_prefix} Closing issue for PR: {self.pull_request.title}.\nPR was {hook_action}."
                 )
                 issue.edit(state="closed")
                 break
@@ -649,7 +645,7 @@ Available labels:
 
         if body == self.welcome_msg:
             self.app.logger.info(
-                f"{self.log_prefix} Welcome message found in issue " f"{self.pull_request.title}. Not processing"
+                f"{self.log_prefix} Welcome message found in issue {self.pull_request.title}. Not processing"
             )
             return
 
@@ -825,7 +821,7 @@ Available labels:
             self.app.logger.info(f"{self.log_prefix} command is in ignore list")
             return
 
-        self.app.logger.info(f"{self.log_prefix} Processing label/user command {command} " f"by user {reviewed_user}")
+        self.app.logger.info(f"{self.log_prefix} Processing label/user command {command} by user {reviewed_user}")
         command_and_args = command.split(" ", 1)
         _command = command_and_args[0]
         not_running_msg = f"Pull request already merged, not running {_command}"
@@ -1118,7 +1114,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                         self.set_merge_check_success()
                         if self.parent_committer in (self.api_user, PRE_COMMIT_CI_BOT_USER):
                             self.app.logger.info(
-                                f"{self.log_prefix} " f"will be merged automatically. owner: {self.api_user}"
+                                f"{self.log_prefix} will be merged automatically. owner: {self.api_user}"
                             )
                             self.pull_request.create_issue_comment(
                                 f"Owner of the pull request is `{self.api_user}`\n"
