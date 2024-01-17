@@ -1254,7 +1254,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 return True
         return False
 
-    def set_check_run_status(self, check_run, status=None, conclusion=None, output=None, details_url=None):
+    def set_check_run_status(self, check_run, status=None, conclusion=None, output=None):
         kwargs = {"name": check_run, "head_sha": self.last_commit.sha}
         if status:
             kwargs["status"] = status
@@ -1264,9 +1264,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
         if output:
             kwargs["output"] = output
-
-        if details_url:
-            kwargs["details_url"] = details_url
 
         self.app.logger.info(f"{self.log_prefix} Set {check_run} check to {status or conclusion}")
         self.repository_by_github_app.create_check_run(**kwargs)
