@@ -1,3 +1,19 @@
+'''Helper functions for the webhook server container.
+
+This file contains various helper functions used in the webhook server application.
+'''
+'''Webhook server helper functions.
+
+This file contains various helper functions used in the webhook server application.
+'''
+'''Webhook server helper functions.
+
+This file contains various helper functions used in the webhook server application.
+'''
+'''Helper functions for the webhook server container.
+
+This file contains various helper functions used in the webhook server application.
+'''
 import datetime
 import os
 import shlex
@@ -9,6 +25,11 @@ from time import sleep
 import yaml
 from colorama import Fore
 from github import Github
+
+
+'''
+Helper functions for the webhook server container.
+'''
 
 from webhook_server_container.utils.constants import FLASK_APP
 
