@@ -39,6 +39,10 @@ PYTHON_MODULE_INSTALL_DATA_PATH = os.path.join(APP_DATA_ROOT_PATH, PYTHON_MODULE
 
 
 @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+'''Function to get repositories GitHub app API.
+
+This function retrieves repositories from the GitHub app API, using the private key and app ID from the configuration file.
+'''
 def get_repositories_github_app_api():
     FLASK_APP.logger.info("Getting repositories GitHub app API")
     with open(os.path.join(get_app_data_dir(), "webhook-server.private-key.pem")) as fd:
@@ -63,11 +67,19 @@ def get_repositories_github_app_api():
 
 
 @FLASK_APP.route(f"{APP_ROOT_PATH}/healthcheck")
+'''Healthcheck route.
+
+This function handles the healthcheck endpoint, returning a simple 'alive' message to confirm that the server is running.
+'''
 def healthcheck():
     return "alive"
 
 
 @FLASK_APP.route(APP_ROOT_PATH, methods=["POST"])
+'''Process webhook route.
+
+This function processes the incoming webhook data from GitHub, initializes the GitHubApi instance, processes the webhook data, and returns the processing status.
+'''
 def process_webhook():
     process_failed_msg = "Process failed"
     try:
@@ -97,6 +109,10 @@ def process_webhook():
 
 
 def main():
+'''Main function.
+
+This function contains the main logic for the application, including calling other functions to set up the app, process webhooks, and start the server.
+'''
     check_rate_limit()
     get_repositories_github_app_api()
     set_repositories_settings()
