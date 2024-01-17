@@ -128,6 +128,8 @@ Available user actions:
  * To mark PR as verified comment `/verified` to the PR, to un-verify comment `/verified cancel` to the PR.
         verified label removed on each new commit push.
  * To cherry pick a merged PR comment `/cherry-pick <target branch to cherry-pick to>` in the PR.
+ * Multiple target branches can be cherry-picked, separated by spaces. (`/cherry-pick branch1 branch2`)
+    * Cherry-pick will be started when PR is merged
     * Multiple target branches can be cherry-picked, separated by spaces. (`/cherry-pick branch1 branch2`)
     * Cherry-pick will be started when PR is merged
  * To build and push container image command `/build-and-push-container` in the PR (tag will be the PR number).
