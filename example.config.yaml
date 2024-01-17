@@ -12,6 +12,10 @@ default-status-checks:
   - "Inclusive Language",
   - "can-be-merged"
 
+auto-verified-users:
+  - "renovate[bot]"
+  - "pre-commit-ci[bot]"
+
 repositories:
   my-repository:
     name: my-org/my-repository
