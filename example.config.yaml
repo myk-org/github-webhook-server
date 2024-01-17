@@ -12,7 +12,7 @@ default-status-checks:
   - "Inclusive Language",
   - "can-be-merged"
 
-auto-verified-users:
+auto-verified-and-merged-users:
   - "renovate[bot]"
   - "pre-commit-ci[bot]"
 
@@ -48,5 +48,5 @@ repositories:
         - build-arg2=2
       args: # args to send to podman build command
         - --format docker
-    auto-verified-users: # Update auto verified users per repository
+    auto-verified-and-merged-users: # Update auto verified users per repository
       - "my[bot]"

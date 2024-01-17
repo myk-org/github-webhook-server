@@ -277,8 +277,8 @@ Available user actions:
             self.container_build_args = self.build_and_push_container.get("build-args")
             self.container_command_args = self.build_and_push_container.get("args")
 
-        self.auto_verified_users = [self.api_user]
-        self.auto_verified_users.extend(
+        self.auto_verified_and_merged_users = [self.api_user]
+        self.auto_verified_and_merged_users.extend(
             config_data.get("auto-verified-users", repo_data.get("auto-verified-users", []))
         )
 
@@ -575,7 +575,7 @@ Available labels:
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def create_issue_for_new_pull_request(self):
-        if self.parent_committer in self.auto_verified_users:
+        if self.parent_committer in self.auto_verified_and_merged_users:
             return
 
         self.app.logger.info(f"{self.log_prefix} Creating issue for new PR: {self.pull_request.title}")
@@ -1074,7 +1074,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     if approved_user in self.approvers:
                         self._add_label(label=CAN_BE_MERGED_STR)
                         self.set_merge_check_success()
-                        if self.parent_committer in self.auto_verified_users:
+                        if self.parent_committer in self.auto_verified_and_merged_users:
                             self.app.logger.info(
                                 f"{self.log_prefix} will be merged automatically. owner: {self.api_user}"
                             )
@@ -1202,7 +1202,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         if not self.verified_job:
             return
 
-        if self.parent_committer in self.auto_verified_users:
+        if self.parent_committer in self.auto_verified_and_merged_users:
             self.app.logger.info(
                 f"{self.log_prefix} Committer {self.parent_committer} == API user "
                 f"{self.parent_committer}, Setting verified label"
