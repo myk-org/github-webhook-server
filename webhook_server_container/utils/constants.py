@@ -50,7 +50,6 @@ setup_logger()
 APP_ROOT_PATH = "/webhook_server"
 PRE_COMMIT_CI_BOT_USER = "pre-commit-ci[bot]"
 TOX_STR = "tox"
-SONARQUBE_STR = "sonarqube"
 BUILD_AND_PUSH_CONTAINER_STR = "build-and-push-container"
 SUCCESS_STR = "success"
 FAILURE_STR = "failure"

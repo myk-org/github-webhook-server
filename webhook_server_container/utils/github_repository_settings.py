@@ -13,7 +13,6 @@ from webhook_server_container.utils.constants import (
     IN_PROGRESS_STR,
     PYTHON_MODULE_INSTALL_STR,
     QUEUED_STR,
-    SONARQUBE_STR,
     STATIC_LABELS_DICT,
     TOX_STR,
 )
@@ -86,9 +85,6 @@ def get_required_status_checks(repo, data, default_status_checks, exclude_status
 
     if data.get("pypi"):
         default_status_checks.append(PYTHON_MODULE_INSTALL_STR)
-
-    if data.get("sonarqube"):
-        default_status_checks.append(SONARQUBE_STR)
 
     with contextlib.suppress(UnknownObjectException):
         repo.get_contents(".pre-commit-config.yaml")
@@ -198,7 +194,7 @@ def set_repository(data, github_api, default_status_checks):
 def set_all_in_progress_check_runs_to_queued(repositories_app_api, missing_app_repositories):
     config_data = get_data_from_config()
     github_api = Github(login_or_token=config_data["github-token"])
-    check_runs = (PYTHON_MODULE_INSTALL_STR, CAN_BE_MERGED_STR, SONARQUBE_STR, TOX_STR, BUILD_CONTAINER_STR)
+    check_runs = (PYTHON_MODULE_INSTALL_STR, CAN_BE_MERGED_STR, TOX_STR, BUILD_CONTAINER_STR)
     futures = []
     with ThreadPoolExecutor() as executor:
         for _, data in config_data["repositories"].items():

@@ -9,7 +9,6 @@ RUN dnf -y update \
 ENV USER_BIN_DIR="/root/.local/bin"
 ENV DATA_DIR=/webhook_server
 ENV APP_DIR=/github-webhook-server
-ENV SONAR_SCANNER_CLI_DIR=/sonar-scanner-cli
 ENV PATH="$USER_BIN_DIR:$PATH"
 ENV SONAR_SCANNER_CLI_VERSION="5.0.1.3006"
 
@@ -19,7 +18,6 @@ RUN mkdir -p $USER_BIN_DIR \
   && mkdir -p $DATA_DIR/python-module-install \
   && mkdir -p $DATA_DIR/build-container \
   && mkdir -p $DATA_DIR/CherryPicked \
-  && mkdir -p $DATA_DIR/sonarqube \
   && mkdir -p $DATA_DIR/logs \
   && mkdir -p /tmp/containers
 
@@ -30,12 +28,6 @@ RUN set -x \
   && mv rosa $USER_BIN_DIR/rosa \
   && chmod +x $USER_BIN_DIR/rosa \
   && rm -rf /tmp/rosa-linux.tar.gz
-
-
-RUN curl https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${SONAR_SCANNER_CLI_VERSION}-linux.zip --output /sonar-scanner-cli.zip \
-  && unzip /sonar-scanner-cli.zip \
-  && mv -f /sonar-scanner-${SONAR_SCANNER_CLI_VERSION}-linux $SONAR_SCANNER_CLI_DIR \
-  && rm -rf /sonar-scanner-cli.zip
 
 RUN ln -s /usr/bin/python3 /usr/bin/python
 

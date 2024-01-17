@@ -1,7 +1,7 @@
 import os
 
 import urllib3
-from flask import Response, request
+from flask import request
 from github import Auth, GithubIntegration
 
 from webhook_server_container.libs.github_api import GitHubApi
@@ -10,7 +10,6 @@ from webhook_server_container.utils.constants import (
     BUILD_CONTAINER_STR,
     FLASK_APP,
     PYTHON_MODULE_INSTALL_STR,
-    SONARQUBE_STR,
     TOX_STR,
 )
 from webhook_server_container.utils.github_repository_settings import (
@@ -23,7 +22,6 @@ from webhook_server_container.utils.helpers import (
     get_data_from_config,
     ignore_exceptions,
 )
-from webhook_server_container.utils.sonar_qube import set_sonar_qube_projects
 from webhook_server_container.utils.webhook import create_webhook
 
 
@@ -38,7 +36,6 @@ APP_DATA_ROOT_PATH = get_app_data_dir()
 TOX_DATA_PATH = os.path.join(APP_DATA_ROOT_PATH, TOX_STR)
 BUILD_CONTAINER_DATA_PATH = os.path.join(APP_DATA_ROOT_PATH, BUILD_CONTAINER_STR)
 PYTHON_MODULE_INSTALL_DATA_PATH = os.path.join(APP_DATA_ROOT_PATH, PYTHON_MODULE_INSTALL_STR)
-SONARQUBE_DATA_PATH = os.path.join(APP_DATA_ROOT_PATH, SONARQUBE_STR)
 
 
 @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
@@ -99,39 +96,10 @@ def process_webhook():
         return process_failed_msg
 
 
-@FLASK_APP.route(f"{APP_ROOT_PATH}/{TOX_STR}/{FILENAME_STRING}")
-def return_tox(filename):
-    FLASK_APP.logger.info(f"app.route: Processing {TOX_STR} file")
-    with open(os.path.join(TOX_DATA_PATH, filename)) as fd:
-        return Response(fd.read(), mimetype=PLAIN_TEXT_MIME_TYPE)
-
-
-@FLASK_APP.route(f"{APP_ROOT_PATH}/{BUILD_CONTAINER_STR}/{FILENAME_STRING}")
-def return_build_container(filename):
-    FLASK_APP.logger.info(f"app.route: Processing {BUILD_CONTAINER_STR} file")
-    with open(os.path.join(BUILD_CONTAINER_DATA_PATH, filename)) as fd:
-        return Response(fd.read(), mimetype=PLAIN_TEXT_MIME_TYPE)
-
-
-@FLASK_APP.route(f"{APP_ROOT_PATH}/{PYTHON_MODULE_INSTALL_STR}/{FILENAME_STRING}")
-def return_python_module_install(filename):
-    FLASK_APP.logger.info(f"app.route: Processing {PYTHON_MODULE_INSTALL_STR} file")
-    with open(os.path.join(PYTHON_MODULE_INSTALL_DATA_PATH, filename)) as fd:
-        return Response(fd.read(), mimetype=PLAIN_TEXT_MIME_TYPE)
-
-
-@FLASK_APP.route(f"{APP_ROOT_PATH}/{SONARQUBE_STR}/{FILENAME_STRING}")
-def return_sonarqube(filename):
-    FLASK_APP.logger.info(f"app.route: Processing {SONARQUBE_STR} file")
-    with open(os.path.join(SONARQUBE_DATA_PATH, filename)) as fd:
-        return Response(fd.read(), mimetype=PLAIN_TEXT_MIME_TYPE)
-
-
 def main():
     check_rate_limit()
     get_repositories_github_app_api()
     set_repositories_settings()
-    set_sonar_qube_projects()
     set_all_in_progress_check_runs_to_queued(
         repositories_app_api=REPOSITORIES_APP_API, missing_app_repositories=MISSING_APP_REPOSITORIES
     )

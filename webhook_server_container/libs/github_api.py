@@ -12,10 +12,8 @@ import yaml
 from github import Github, GithubException
 from github.GithubException import UnknownObjectException
 
-from webhook_server_container.libs.sonar_qube import SonarQubeExt
 from webhook_server_container.utils.constants import (
     ADD_STR,
-    APP_ROOT_PATH,
     APPROVED_BY_LABEL_PREFIX,
     BRANCH_LABEL_PREFIX,
     BUILD_AND_PUSH_CONTAINER_STR,
@@ -39,7 +37,6 @@ from webhook_server_container.utils.constants import (
     QUEUED_STR,
     REACTIONS,
     SIZE_LABEL_PREFIX,
-    SONARQUBE_STR,
     STATIC_LABELS_DICT,
     SUCCESS_STR,
     TOX_STR,
@@ -90,8 +87,7 @@ class GitHubApi:
         self.repository_full_name = None
         self.api_user = None
         self.github_app_id = None
-        self.sonarqube_api = None
-        self.sonarqube_project_key = None
+
         # End of filled by self._repo_data_from_config()
 
         self._repo_data_from_config()
@@ -157,8 +153,6 @@ Available user actions:
             retest_msg += f" * `/retest {TOX_STR}`: Retest tox\n"
         if self.build_and_push_container:
             retest_msg += f" * `/retest {BUILD_CONTAINER_STR}`: Retest build-container\n"
-        if self.sonarqube_project_key:
-            retest_msg += f" * `/retest {SONARQUBE_STR}`: Retest sonarqube\n"
         if self.pypi:
             retest_msg += f" * `/retest {PYTHON_MODULE_INSTALL_STR}`: Retest python-module-install\n"
 
@@ -263,15 +257,6 @@ Available user actions:
         self.webhook_url = config_data.get("webhook_ip")
 
         self.repository_full_name = repo_data["name"]
-        sonarqube = config_data.get("sonarqube")
-        if sonarqube and repo_data.get("sonarqube", False):
-            self.sonarqube_url = sonarqube["url"]
-            self.sonarqube_token = sonarqube["token"]
-            self.sonarqube_internal_url = sonarqube.get("internal-url")
-            self.sonarqube_api = SonarQubeExt(
-                url=self.sonarqube_internal_url or self.sonarqube_url, token=self.sonarqube_token
-            )
-            self.sonarqube_project_key = self.repository_full_name.replace("/", "_")
 
         self.pypi = repo_data.get("pypi")
         self.verified_job = repo_data.get("verified_job", True)
@@ -519,12 +504,12 @@ Available labels:
         return self.set_check_run_status(check_run=TOX_STR, status=IN_PROGRESS_STR)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
-    def set_run_tox_check_failure(self, details_url):
-        return self.set_check_run_status(check_run=TOX_STR, conclusion=FAILURE_STR, details_url=details_url)
+    def set_run_tox_check_failure(self, output):
+        return self.set_check_run_status(check_run=TOX_STR, conclusion=FAILURE_STR, output=output)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
-    def set_run_tox_check_success(self, details_url):
-        return self.set_check_run_status(check_run=TOX_STR, conclusion=SUCCESS_STR, details_url=details_url)
+    def set_run_tox_check_success(self, output):
+        return self.set_check_run_status(check_run=TOX_STR, conclusion=SUCCESS_STR, output=output)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_merge_check_queued(self):
@@ -546,12 +531,12 @@ Available labels:
         return self.set_check_run_status(check_run=BUILD_CONTAINER_STR, status=IN_PROGRESS_STR)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
-    def set_container_build_success(self, details_url):
-        return self.set_check_run_status(check_run=BUILD_CONTAINER_STR, conclusion=SUCCESS_STR, details_url=details_url)
+    def set_container_build_success(self, output):
+        return self.set_check_run_status(check_run=BUILD_CONTAINER_STR, conclusion=SUCCESS_STR, output=output)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
-    def set_container_build_failure(self, details_url):
-        return self.set_check_run_status(check_run=BUILD_CONTAINER_STR, conclusion=FAILURE_STR, details_url=details_url)
+    def set_container_build_failure(self, output):
+        return self.set_check_run_status(check_run=BUILD_CONTAINER_STR, conclusion=FAILURE_STR, output=output)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_python_module_install_queued(self):
@@ -565,51 +550,24 @@ Available labels:
         return self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, status=IN_PROGRESS_STR)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
-    def set_python_module_install_success(self, details_url):
-        return self.set_check_run_status(
-            check_run=PYTHON_MODULE_INSTALL_STR, conclusion=SUCCESS_STR, details_url=details_url
-        )
+    def set_python_module_install_success(self, output):
+        return self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, conclusion=SUCCESS_STR, output=output)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
-    def set_python_module_install_failure(self, details_url):
-        return self.set_check_run_status(
-            check_run=PYTHON_MODULE_INSTALL_STR, conclusion=FAILURE_STR, details_url=details_url
-        )
-
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
-    def set_sonarqube_queued(self):
-        if not self.sonarqube_project_key:
-            return False
-
-        return self.set_check_run_status(check_run=SONARQUBE_STR, status=QUEUED_STR)
-
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
-    def set_sonarqube_in_progress(self):
-        return self.set_check_run_status(check_run=SONARQUBE_STR, status=IN_PROGRESS_STR)
-
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
-    def set_sonarqube_success(self, details_url):
-        return self.set_check_run_status(check_run=SONARQUBE_STR, conclusion=SUCCESS_STR, details_url=details_url)
-
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
-    def set_sonarqube_failure(self, details_url):
-        return self.set_check_run_status(check_run=SONARQUBE_STR, conclusion=FAILURE_STR, details_url=details_url)
+    def set_python_module_install_failure(self, output):
+        return self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, conclusion=FAILURE_STR, output=output)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_cherry_pick_in_progress(self):
         return self.set_check_run_status(check_run=CHERRY_PICKED_LABEL_PREFIX, status=IN_PROGRESS_STR)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
-    def set_cherry_pick_success(self, details_url):
-        return self.set_check_run_status(
-            check_run=CHERRY_PICKED_LABEL_PREFIX, conclusion=SUCCESS_STR, details_url=details_url
-        )
+    def set_cherry_pick_success(self, output):
+        return self.set_check_run_status(check_run=CHERRY_PICKED_LABEL_PREFIX, conclusion=SUCCESS_STR, output=output)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
-    def set_cherry_pick_failure(self, details_url):
-        return self.set_check_run_status(
-            check_run=CHERRY_PICKED_LABEL_PREFIX, conclusion=FAILURE_STR, details_url=details_url
-        )
+    def set_cherry_pick_failure(self, output):
+        return self.set_check_run_status(check_run=CHERRY_PICKED_LABEL_PREFIX, conclusion=FAILURE_STR, output=output)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def create_issue_for_new_pull_request(self):
@@ -802,17 +760,22 @@ Available labels:
             self.app.logger.info(f"{self.log_prefix} Check run is in progress, not running {TOX_STR}.")
             return False
 
-        file_path, url_path = self._get_check_run_result_file_path(check_run=TOX_STR)
         cmd = f"{TOX_STR}"
         if self.tox_enabled != "all":
             tests = self.tox_enabled.replace(" ", "")
             cmd += f" -e {tests}"
 
         self.set_run_tox_check_in_progress()
-        if self._run_in_container(command=cmd, file_path=file_path)[0]:
-            return self.set_run_tox_check_success(details_url=url_path)
+        rc, out, err = self._run_in_container(command=cmd)
+        output = {
+            "title": "Tox",
+            "summary": "",
+            "text": f"```\n{out if rc else err}\n```",
+        }
+        if rc:
+            return self.set_run_tox_check_success(output=output)
         else:
-            return self.set_run_tox_check_failure(details_url=url_path)
+            return self.set_run_tox_check_failure(output=output)
 
     def user_commands(self, command, reviewed_user, issue_comment_id):
         remove = False
@@ -910,17 +873,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                         self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
                         self._run_install_python_module()
 
-                    elif _test == SONARQUBE_STR:
-                        if not self.sonarqube_project_key:
-                            msg = f"No {SONARQUBE_STR} configured for this repository"
-                            error_msg = f"{self.log_prefix} {msg}"
-                            self.app.logger.info(error_msg)
-                            self.pull_request.create_issue_comment(msg)
-                            return
-
-                        self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
-                        self._run_sonarqube()
-
         elif _command == BUILD_AND_PUSH_CONTAINER_STR:
             if self.build_and_push_container:
                 self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
@@ -964,7 +916,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             self.pull_request.create_issue_comment(err_msg)
         else:
             self.set_cherry_pick_in_progress()
-            file_path, url_path = self._get_check_run_result_file_path(check_run=CHERRY_PICKED_LABEL_PREFIX)
             commit_hash = self.pull_request.merge_commit_sha
             commit_msg_striped = self.pull_request.title.replace("'", "")
             pull_request_url = self.pull_request.html_url
@@ -983,14 +934,20 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 f'-m "cherry-pick {pull_request_url} into {target_branch}" '
                 f'-m "requested-by {requested_by}"'
             )
-            rc, out, err = self._run_in_container(command=cmd, env=env, file_path=file_path)
+            rc, out, err = self._run_in_container(command=cmd, env=env)
+
+            output = {
+                "title": "Cherry-pick details",
+                "summary": "",
+                "text": f"```\n{out if rc else err}\n```",
+            }
             if rc:
-                self.set_cherry_pick_success(details_url=url_path)
+                self.set_cherry_pick_success(output=output)
                 self.pull_request.create_issue_comment(
                     f"Cherry-picked PR {self.pull_request.title} into {target_branch}"
                 )
             else:
-                self.set_cherry_pick_failure(details_url=url_path)
+                self.set_cherry_pick_failure(output=output)
                 self.app.logger.error(f"{self.log_prefix} Cherry pick failed: {out} --- {err}")
                 local_branch_name = f"{self.pull_request.head.ref}-{target_branch}"
                 self.pull_request.create_issue_comment(
@@ -1149,18 +1106,11 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             self.app.logger.info(f"{self.log_prefix} Check run is in progress, not running {BUILD_CONTAINER_STR}.")
             return False
 
-        file_path, url_path = None, None
-
-        if self.pull_request:
-            file_path, url_path = self._get_check_run_result_file_path(check_run=BUILD_CONTAINER_STR)
-
         if set_check:
             self.set_container_build_in_progress()
 
         _container_repository_and_tag = self._container_repository_and_tag()
-        build_cmd = (
-            f"--network=host -f {self.container_repo_dir}/{self.dockerfile} " f"-t {_container_repository_and_tag}"
-        )
+        build_cmd = f"--network=host -f {self.container_repo_dir}/{self.dockerfile} -t {_container_repository_and_tag}"
         if self.container_build_args:
             build_args = [f"--build-arg {b_arg}" for b_arg in self.container_build_args][0]
             build_cmd = f"{build_args} {build_cmd}"
@@ -1173,10 +1123,16 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             build_cmd += f" && podman push --creds {repository_creds} {_container_repository_and_tag}"
         podman_build_cmd = f"podman build {build_cmd}"
 
-        if self._run_in_container(command=podman_build_cmd, file_path=file_path)[0]:
+        rc, out, err = self._run_in_container(command=podman_build_cmd)
+        output = {
+            "title": "Build container",
+            "summary": "",
+            "text": f"```\n{out if rc else err}\n```",
+        }
+        if rc:
             self.app.logger.info(f"{self.log_prefix} Done building {_container_repository_and_tag}")
             if self.pull_request and set_check:
-                return self.set_container_build_success(details_url=url_path)
+                return self.set_container_build_success(output=output)
             if push:
                 push_msg = f"New container for {_container_repository_and_tag} published"
                 self.pull_request.create_issue_comment(push_msg)
@@ -1201,7 +1157,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     """
                     self.send_slack_message(message=message, webhook_url=self.slack_webhook_url)
             if self.pull_request and set_check:
-                return self.set_container_build_failure(details_url=url_path)
+                return self.set_container_build_failure(output=output)
 
     def _run_install_python_module(self):
         if not self.pypi:
@@ -1214,13 +1170,18 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             return False
 
         self.app.logger.info(f"{self.log_prefix} Installing python module")
-        file_path, url_path = self._get_check_run_result_file_path(check_run=PYTHON_MODULE_INSTALL_STR)
         f"{PYTHON_MODULE_INSTALL_STR}-{shortuuid.uuid()}"
         self.set_python_module_install_in_progress()
-        if self._run_in_container(command="pip install .", file_path=file_path)[0]:
-            return self.set_python_module_install_success(details_url=url_path)
+        rc, out, err = self._run_in_container(command="pip install .")
+        output = {
+            "title": "Python module installation",
+            "summary": "",
+            "text": f"```\n{out if rc else err}\n```",
+        }
+        if rc:
+            return self.set_python_module_install_success(output=output)
 
-        return self.set_python_module_install_failure(details_url=url_path)
+        return self.set_python_module_install_failure(output=output)
 
     def send_slack_message(self, message, webhook_url):
         slack_data = {"text": message}
@@ -1251,18 +1212,11 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         _comment = self.pull_request.get_issue_comment(issue_comment_id)
         _comment.create_reaction(reaction)
 
-    def _checkout_pull_request(self, clone_path, file_path=None):
-        self.app.logger.info(f"{self.log_prefix} Current directory: {os.getcwd()}")
-        pr_number = f"origin/pr/{self.pull_request.number}"
-        checkout_cmd = f"git -C {clone_path} checkout {pr_number}"
-        return run_command(command=checkout_cmd, log_prefix=self.log_prefix, file_path=file_path)[0]
-
     def process_opened_or_synchronize_pull_request(self, pull_request_branch):
         self.set_merge_check_queued()
         self.set_run_tox_check_queued()
         self.set_python_module_install_queued()
         self.set_container_build_queued()
-        self.set_sonarqube_queued()
         self._process_verified()
         self.add_size_label()
         self._add_label(label=f"{BRANCH_LABEL_PREFIX}{pull_request_branch}")
@@ -1278,7 +1232,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
         futures = []
         with ThreadPoolExecutor() as executor:
-            futures.append(executor.submit(self._run_sonarqube))
             futures.append(executor.submit(self._run_tox))
             futures.append(executor.submit(self._run_install_python_module))
             futures.append(executor.submit(self._run_build_container))
@@ -1294,29 +1247,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 return True
         return False
 
-    def _run_sonarqube(self):
-        if not self.sonarqube_project_key:
-            return False
-
-        self.set_sonarqube_in_progress()
-        target_url = f"{self.sonarqube_url}/dashboard?id={self.sonarqube_project_key}"
-        cmd = self.sonarqube_api.get_sonar_scanner_command(project_key=self.sonarqube_project_key)
-
-        file_path, url_path = self._get_check_run_result_file_path(check_run=SONARQUBE_STR)
-        rc, _, _ = self._run_in_container(command=cmd, file_path=file_path)
-        if rc:
-            project_status = self.sonarqube_api.get_project_quality_status(project_key=self.sonarqube_project_key)
-            project_status_res = project_status["projectStatus"]["status"]
-            if project_status_res == "OK":
-                return self.set_sonarqube_success(details_url=target_url)
-            else:
-                self.app.logger.info(f"{self.log_prefix} Sonarqube scan failed, status: {project_status_res}")
-                return self.set_sonarqube_failure(details_url=target_url)
-        else:
-            self.app.logger.info(f"{self.log_prefix} Sonarqube scan failed, rc: {rc}")
-            return self.set_sonarqube_failure(details_url=url_path)
-
-    def set_check_run_status(self, check_run, status=None, conclusion=None, details_url=None):
+    def set_check_run_status(self, check_run, status=None, conclusion=None, output=None):
         kwargs = {"name": check_run, "head_sha": self.last_commit.sha}
         if status:
             kwargs["status"] = status
@@ -1324,24 +1255,14 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         if conclusion:
             kwargs["conclusion"] = conclusion
 
-        if details_url:
-            kwargs["details_url"] = details_url
+        if output:
+            kwargs["output"] = output
 
         self.app.logger.info(f"{self.log_prefix} Set {check_run} check to {status or conclusion}")
         self.repository_by_github_app.create_check_run(**kwargs)
         return f"Done setting check run status: {kwargs}"
 
-    def _get_check_run_result_file_path(self, check_run):
-        base_path = os.path.join(self.webhook_server_data_dir, check_run)
-        if not os.path.exists(base_path):
-            os.makedirs(name=base_path, exist_ok=True)
-
-        file_name = f"{self.repository_name}-PR-{self.pull_request.number}-{self.last_commit.sha}"
-        file_path = os.path.join(base_path, file_name)
-        url_path = f"{self.webhook_url}{APP_ROOT_PATH}/{check_run}/{file_name}"
-        return file_path, url_path
-
-    def _run_in_container(self, command, env=None, file_path=None):
+    def _run_in_container(self, command, env=None):
         podman_base_cmd = (
             "podman run --network=host --privileged -v /tmp/containers:/var/lib/containers/:Z "
             f"--rm {env if env else ''} --entrypoint bash quay.io/myakove/github-webhook-server -c"
@@ -1364,4 +1285,4 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
         # final podman command
         podman_base_cmd += f" '{clone_base_cmd} && {command}'"
-        return run_command(command=podman_base_cmd, log_prefix=self.log_prefix, file_path=file_path)
+        return run_command(command=podman_base_cmd, log_prefix=self.log_prefix)
