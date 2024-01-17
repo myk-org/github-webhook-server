@@ -1212,12 +1212,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         _comment = self.pull_request.get_issue_comment(issue_comment_id)
         _comment.create_reaction(reaction)
 
-    def _checkout_pull_request(self, clone_path, file_path=None):
-        self.app.logger.info(f"{self.log_prefix} Current directory: {os.getcwd()}")
-        pr_number = f"origin/pr/{self.pull_request.number}"
-        checkout_cmd = f"git -C {clone_path} checkout {pr_number}"
-        return run_command(command=checkout_cmd, log_prefix=self.log_prefix, file_path=file_path)[0]
-
     def process_opened_or_synchronize_pull_request(self, pull_request_branch):
         self.set_merge_check_queued()
         self.set_run_tox_check_queued()
@@ -1268,7 +1262,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.repository_by_github_app.create_check_run(**kwargs)
         return f"Done setting check run status: {kwargs}"
 
-    def _run_in_container(self, command, env=None, file_path=None):
+    def _run_in_container(self, command, env=None):
         podman_base_cmd = (
             "podman run --network=host --privileged -v /tmp/containers:/var/lib/containers/:Z "
             f"--rm {env if env else ''} --entrypoint bash quay.io/myakove/github-webhook-server -c"
@@ -1291,4 +1285,4 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
         # final podman command
         podman_base_cmd += f" '{clone_base_cmd} && {command}'"
-        return run_command(command=podman_base_cmd, log_prefix=self.log_prefix, file_path=file_path)
+        return run_command(command=podman_base_cmd, log_prefix=self.log_prefix)
