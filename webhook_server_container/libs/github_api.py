@@ -279,7 +279,7 @@ Available user actions:
 
         self.auto_verified_and_merged_users = [self.api_user]
         self.auto_verified_and_merged_users.extend(
-            config_data.get("auto-verified-users", repo_data.get("auto-verified-users", []))
+            config_data.get("auto-verified-and-merged-users", repo_data.get("auto-verified-and-merged-users", []))
         )
 
     def _get_pull_request(self, number=None):
