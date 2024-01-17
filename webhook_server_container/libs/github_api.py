@@ -14,7 +14,6 @@ from github.GithubException import UnknownObjectException
 
 from webhook_server_container.utils.constants import (
     ADD_STR,
-    APP_ROOT_PATH,
     APPROVED_BY_LABEL_PREFIX,
     BRANCH_LABEL_PREFIX,
     BUILD_AND_PUSH_CONTAINER_STR,
@@ -1268,16 +1267,6 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.app.logger.info(f"{self.log_prefix} Set {check_run} check to {status or conclusion}")
         self.repository_by_github_app.create_check_run(**kwargs)
         return f"Done setting check run status: {kwargs}"
-
-    def _get_check_run_result_file_path(self, check_run):
-        base_path = os.path.join(self.webhook_server_data_dir, check_run)
-        if not os.path.exists(base_path):
-            os.makedirs(name=base_path, exist_ok=True)
-
-        file_name = f"{self.repository_name}-PR-{self.pull_request.number}-{self.last_commit.sha}"
-        file_path = os.path.join(base_path, file_name)
-        url_path = f"{self.webhook_url}{APP_ROOT_PATH}/{check_run}/{file_name}"
-        return file_path, url_path
 
     def _run_in_container(self, command, env=None, file_path=None):
         podman_base_cmd = (
