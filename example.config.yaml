@@ -48,3 +48,5 @@ repositories:
         - build-arg2=2
       args: # args to send to podman build command
         - --format docker
+    auto-verified-users: # Update auto verified users per repository
+      - "my[bot]"
