@@ -772,7 +772,7 @@ Available labels:
             "summary": "",
             "text": f"```\n{out if rc else err}\n```",
         }
-        if not rc:
+        if rc:
             return self.set_run_tox_check_success(output=output)
         else:
             return self.set_run_tox_check_failure(output=output)
