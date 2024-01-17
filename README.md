@@ -202,10 +202,6 @@ Supported labels:
 
 The webhook server configures custom logging with color-coded log level names to enhance readability. It also supports optional logging to a file when 'WEBHOOK_SERVER_LOG_FILE' is set in the environment. This feature uses a rotating file handler to manage log rotation and is defined in the `constants.py` file.
 
-### SonarQube Project Management
-
-The server manages SonarQube projects for each GitHub repository defined in the `sonar_qube.py` file. It facilitates the automatic setup of SonarQube projects, ensuring added repositories are monitored for code quality and analysis.
-
 ### Webhook Creation
 
 Webhooks are automatically created for GitHub repositories based on settings defined in `webhook.py`. These webhooks enable real-time integration with GitHub events such as push, pull requests, and more.
@@ -222,18 +218,13 @@ To run locally you need to export some os environment variables
 poetry install
 
 WEBHOOK_SERVER_DATA_DIR=/tmp/webhook_server_data
-SONAR_SCANNER_URL=https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.0.2966-linux.zip
 
 mkdir -p $WEBHOOK_SERVER_DATA_DIR
 cp -f webhook-server.private-key.pem $WEBHOOK_SERVER_DATA_DIR/webhook-server.private-key.pem
 cp -f config.yaml $WEBHOOK_SERVER_DATA_DIR/config.yaml
 export WEBHOOK_SERVER_PORT=5003
-curl $SONAR_SCANNER_URL --output /tmp/sonar-scanner-cli.zip \
-    && unzip -o /tmp/sonar-scanner-cli.zip -d /tmp/sonar-scanner-cli \
-    && rm -rf /tmp/sonar-scanner-cli.zip
 
 export FLASK_DEBUG=1
 export WEBHOOK_SERVER_DATA_DIR=$WEBHOOK_SERVER_DATA_DIR
-export SONAR_SCANNER_CLI_DIR=/tmp/sonar-scansner-cli
 poetry run python webhook_server_container/app.py
 ```

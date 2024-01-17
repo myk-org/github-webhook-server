@@ -2,10 +2,6 @@ github-app-id: 123456 # GitHub app id
 github-toekn: <GITHIB TOKEN>
 webhook_ip: <HTTP://IP OR URL:PORT>
 
-sonarqube:
-  url: <SonaQube URL>
-  token: <SonaQube token>
-
 docker: # Used to pull images from docker.io
   username: <username>
   password: <password>
@@ -21,7 +17,6 @@ repositories:
     name: my-org/my-repository
     slack_webhook_url: <Slack webhook url> # Send notification to slack on several operations
     verified_job: true
-    sonarqube: true
     pypi:
       token: <PYPI TOKEN>
     events:  # To listen to all events do not send events
