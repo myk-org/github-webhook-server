@@ -65,6 +65,8 @@ def get_repositories_github_app_api():
 @FLASK_APP.route(f"{APP_ROOT_PATH}/healthcheck")
 def healthcheck():
     return "alive"
+def healthcheck():
+    return "alive"
 
 
 @FLASK_APP.route(APP_ROOT_PATH, methods=["POST"])
