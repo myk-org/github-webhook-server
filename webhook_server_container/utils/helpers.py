@@ -127,36 +127,61 @@ def run_command(
 
 
 @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
-def check_rate_limit(github_api=None):
-    if not github_api:
-        config_data = get_data_from_config()
-        github_api = Github(login_or_token=config_data["github-token"])
-
+def check_rate_limit():
     minimum_limit = 200
-    rate_limit = github_api.get_rate_limit()
-    rate_limit_reset = rate_limit.core.reset
-    rate_limit_remaining = rate_limit.core.remaining
-    rate_limit_limit = rate_limit.core.limit
-    time_for_limit_reset = (rate_limit_reset - datetime.datetime.now(tz=datetime.timezone.utc)).seconds
+    config_data = get_data_from_config()
+    api, token = None, None
 
-    if rate_limit_remaining < 500:
-        rate_limit_str = f"{Fore.RED}{rate_limit_remaining}{Fore.RESET}"
-    elif rate_limit_remaining < 2000:
-        rate_limit_str = f"{Fore.YELLOW}{rate_limit_remaining}{Fore.RESET}"
-    else:
-        rate_limit_str = f"{Fore.GREEN}{rate_limit_remaining}{Fore.RESET}"
-
-    FLASK_APP.logger.info(
-        f"{Fore.CYAN}API rate limit:{Fore.RESET} Current {rate_limit_str} of {rate_limit_limit}. "
-        f"Reset in {rate_limit_reset} [{datetime.timedelta(seconds=time_for_limit_reset)}] "
-        f"(UTC time is {datetime.datetime.now(tz=datetime.timezone.utc)})"
-    )
-    while datetime.datetime.now(tz=datetime.timezone.utc) < rate_limit_reset and rate_limit_remaining < minimum_limit:
-        FLASK_APP.logger.warning(f"Rate limit is below {minimum_limit} waiting till {rate_limit_reset}")
-        FLASK_APP.logger.info(
-            f"Sleeping {time_for_limit_reset} seconds [{datetime.timedelta(seconds=time_for_limit_reset)}]"
-        )
-        time.sleep(time_for_limit_reset + 1)
-        rate_limit = github_api.get_rate_limit()
+    for _token in config_data["github-tokens"]:
+        _api = Github(login_or_token=_token)
+        _api_user = _api.get_user().login
+        rate_limit = _api.get_rate_limit()
         rate_limit_reset = rate_limit.core.reset
         rate_limit_remaining = rate_limit.core.remaining
+        rate_limit_limit = rate_limit.core.limit
+        time_for_limit_reset = (rate_limit_reset - datetime.datetime.now(tz=datetime.timezone.utc)).seconds
+
+        if rate_limit_remaining < 500:
+            rate_limit_str = f"{Fore.RED}{rate_limit_remaining}{Fore.RESET}"
+        elif rate_limit_remaining < 2000:
+            rate_limit_str = f"{Fore.YELLOW}{rate_limit_remaining}{Fore.RESET}"
+        else:
+            rate_limit_str = f"{Fore.GREEN}{rate_limit_remaining}{Fore.RESET}"
+
+        FLASK_APP.logger.info(
+            f"{Fore.CYAN}[{_api_user}] API rate limit:{Fore.RESET} Current {rate_limit_str} of {rate_limit_limit}. "
+            f"Reset in {rate_limit_reset} [{datetime.timedelta(seconds=time_for_limit_reset)}] "
+            f"(UTC time is {datetime.datetime.now(tz=datetime.timezone.utc)})"
+        )
+
+        if not (
+            datetime.datetime.now(tz=datetime.timezone.utc) < rate_limit_reset and rate_limit_remaining < minimum_limit
+        ):
+            api, token = _api, _token
+            break
+
+    else:
+        _token = config_data["github-tokens"][0]
+        _api = Github(login_or_token=_token)
+        _api_user = _api.get_user().login
+        rate_limit = _api.get_rate_limit()
+        rate_limit_reset = rate_limit.core.reset
+        rate_limit_remaining = rate_limit.core.remaining
+        time_for_limit_reset = (rate_limit_reset - datetime.datetime.now(tz=datetime.timezone.utc)).seconds
+
+        while (
+            datetime.datetime.now(tz=datetime.timezone.utc) < rate_limit_reset and rate_limit_remaining < minimum_limit
+        ):
+            FLASK_APP.logger.warning(
+                f"[{_api_user}] Rate limit is below {minimum_limit} waiting till {rate_limit_reset}"
+            )
+            FLASK_APP.logger.info(
+                f"Sleeping {time_for_limit_reset} seconds [{datetime.timedelta(seconds=time_for_limit_reset)}]"
+            )
+            time.sleep(time_for_limit_reset + 1)
+            rate_limit = _api.get_rate_limit()
+            rate_limit_reset = rate_limit.core.reset
+            rate_limit_remaining = rate_limit.core.remaining
+            api, token = _api, _token
+
+    return api, token

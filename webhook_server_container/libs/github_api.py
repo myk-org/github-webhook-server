@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 import shortuuid
 import yaml
-from github import Github, GithubException
+from github import GithubException
 from github.GithubException import UnknownObjectException
 
 from webhook_server_container.utils.constants import (
@@ -82,7 +82,6 @@ class GitHubApi:
         self.container_tag = None
         self.container_build_args = None
         self.container_command_args = None
-        self.token = None
         self.repository_full_name = None
         self.github_app_id = None
 
@@ -90,11 +89,10 @@ class GitHubApi:
 
         self._repo_data_from_config()
         self._set_log_prefix_color()
-        self.github_api = Github(login_or_token=self.token)
         self.github_app_api = self.get_github_app_api()
-        self.auto_verified_and_merged_users.append(self.github_api.get_user().login)
 
-        check_rate_limit(github_api=self.github_api)
+        self.github_api, self.token = check_rate_limit()
+        self.auto_verified_and_merged_users.append(self.github_api.get_user().login)
 
         self.repository = get_github_repo_api(github_api=self.github_api, repository=self.repository_full_name)
         self.repository_by_github_app = get_github_repo_api(
@@ -250,7 +248,6 @@ Available user actions:
             raise RepositoryNotFoundError(f"Repository {self.repository_name} not found in config file")
 
         self.github_app_id = config_data["github-app-id"]
-        self.token = config_data["github-token"]
         self.webhook_url = config_data.get("webhook_ip")
         self.repository_full_name = repo_data["name"]
         self.pypi = repo_data.get("pypi")
