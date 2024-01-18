@@ -112,7 +112,7 @@ def main():
     create_webhook()
     FLASK_APP.logger.info(f"Starting {FLASK_APP.name} app")
     FLASK_APP.run(
-        port=int(os.environ.get("WEBHOOK_SERVER_PORT", 5000)),
+        port=5000,
         host="0.0.0.0",
         use_reloader=True if os.environ.get("WEBHOOK_SERVER_USE_RELOAD") else False,
     )
