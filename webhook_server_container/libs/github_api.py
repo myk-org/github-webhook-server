@@ -93,7 +93,6 @@ class GitHubApi:
         self.github_api = Github(login_or_token=self.token)
         self.github_app_api = self.get_github_app_api()
         self.auto_verified_and_merged_users.append(self.github_api.get_user().login)
-        self.app.logger.info(f"{self.log_prefix} Auto verified and merged users: {self.auto_verified_and_merged_users}")
 
         check_rate_limit(github_api=self.github_api)
 
@@ -572,7 +571,10 @@ Available labels:
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def create_issue_for_new_pull_request(self):
         if self.parent_committer in self.auto_verified_and_merged_users:
-            self.app.logger.info(f"{self.log_prefix} Committer is {self.parent_committer}, will not create issue.")
+            self.app.logger.info(
+                f"{self.log_prefix} Committer {self.parent_committer} is part of "
+                f"{self.auto_verified_and_merged_users}, will not create issue."
+            )
             return
 
         self.app.logger.info(f"{self.log_prefix} Creating issue for new PR: {self.pull_request.title}")
@@ -1073,10 +1075,12 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                         self.set_merge_check_success()
                         if self.parent_committer in self.auto_verified_and_merged_users:
                             self.app.logger.info(
-                                f"{self.log_prefix} will be merged automatically. owner: {self.parent_committer}"
+                                f"{self.log_prefix} will be merged automatically. owner: {self.parent_committer} "
+                                f"is part of {self.auto_verified_and_merged_users}"
                             )
                             self.pull_request.create_issue_comment(
-                                f"Owner of the pull request is `{self.parent_committer}`\n"
+                                f"Owner of the pull request `{self.parent_committer} "
+                                f"is part of {self.auto_verified_and_merged_users}`\n"
                                 "Pull request is merged automatically."
                             )
                             return self.pull_request.merge(merge_method="squash")
@@ -1201,7 +1205,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
         if self.parent_committer in self.auto_verified_and_merged_users:
             self.app.logger.info(
-                f"{self.log_prefix} Committer {self.parent_committer} is part of auto-verified-and-merged-users group"
+                f"{self.log_prefix} Committer {self.parent_committer} is part of {self.auto_verified_and_merged_users}"
                 ", Setting verified label"
             )
             self._add_label(label=VERIFIED_LABEL_STR)
