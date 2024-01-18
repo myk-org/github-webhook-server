@@ -23,7 +23,7 @@ from webhook_server_container.utils.helpers import (check_rate_limit, ignore_exc
     get_data_from_config,
     ignore_exceptions,
 )
-from webhook_server_container.utils.webhook import create_webhook
+from webhook_server_container.utils.webhook import create_webhook, WebhookManager
 
 
 REPOSITORIES_APP_API = {}
@@ -108,6 +108,7 @@ def main():
     set_all_in_progress_check_runs_to_queued(
         repositories_app_api=REPOSITORIES_APP_API, missing_app_repositories=MISSING_APP_REPOSITORIES
     )
+    create_webhook()
     create_webhook()
     FLASK_APP.logger.info(f"Starting {FLASK_APP.name} app")
     FLASK_APP.run(
