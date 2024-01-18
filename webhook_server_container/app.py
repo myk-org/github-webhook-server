@@ -13,9 +13,9 @@ from webhook_server_container.utils.constants import (
     TOX_STR,
 )
 from webhook_server_container.utils.github_repository_settings import (
-    set_all_in_progress_check_runs_to_queued,
     set_repositories_settings,
 )
+from webhook_server_container.utils.check_run_manager import set_all_in_progress_check_runs_to_queued
 from webhook_server_container.utils.repository_settings_manager import set_repositories_settings
 from webhook_server_container.utils.helpers import (check_rate_limit, ignore_exceptions, get_rate_limit,
     check_rate_limit,
