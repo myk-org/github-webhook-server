@@ -16,6 +16,7 @@ from webhook_server_container.utils.github_repository_settings import (
     set_all_in_progress_check_runs_to_queued,
     set_repositories_settings,
 )
+from webhook_server_container.utils.repository_settings_manager import set_repositories_settings
 from webhook_server_container.utils.helpers import (check_rate_limit, ignore_exceptions, get_rate_limit,
     check_rate_limit,
     get_app_data_dir,
@@ -116,5 +117,6 @@ def main():
     )
 
 
+set_repositories_settings()
 if __name__ == "__main__":
     main()
