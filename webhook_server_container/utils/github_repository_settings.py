@@ -164,29 +164,35 @@ def set_repository(data, github_api, default_status_checks):
     if skip_repo(protected_branches=protected_branches, repo=repo):
         return
 
-    set_repository_settings(repository=repo)
-    set_repository_labels(repository=repo)
+    try:
+        set_repository_settings(repository=repo)
 
-    for branch_name, status_checks in protected_branches.items():
-        FLASK_APP.logger.info(f"{repository}: Getting branch {branch_name}")
-        branch = get_branch_sampler(repo=repo, branch_name=branch_name)
-        if not branch:
-            FLASK_APP.logger.error(f"{repository}: Failed to get branch {branch_name}")
-            continue
+        set_repository_labels(repository=repo)
 
-        _default_status_checks = deepcopy(default_status_checks)
-        (include_status_checks, exclude_status_checks) = get_user_configures_status_checks(status_checks=status_checks)
+        for branch_name, status_checks in protected_branches.items():
+            FLASK_APP.logger.info(f"{repository}: Getting branch {branch_name}")
+            branch = get_branch_sampler(repo=repo, branch_name=branch_name)
+            if not branch:
+                FLASK_APP.logger.error(f"{repository}: Failed to get branch {branch_name}")
+                continue
 
-        required_status_checks = include_status_checks or get_required_status_checks(
-            repo=repo,
-            data=data,
-            default_status_checks=_default_status_checks,
-            exclude_status_checks=exclude_status_checks,
-        )
+            _default_status_checks = deepcopy(default_status_checks)
+            (include_status_checks, exclude_status_checks) = get_user_configures_status_checks(
+                status_checks=status_checks
+            )
 
-        set_branch_protection(
-            branch=branch, repository=repo, required_status_checks=required_status_checks, github_api=github_api
-        )
+            required_status_checks = include_status_checks or get_required_status_checks(
+                repo=repo,
+                data=data,
+                default_status_checks=_default_status_checks,
+                exclude_status_checks=exclude_status_checks,
+            )
+
+            set_branch_protection(
+                branch=branch, repository=repo, required_status_checks=required_status_checks, github_api=github_api
+            )
+    except UnknownObjectException:
+        FLASK_APP.logger.error(f"{repository}: Failed to get repository settings")
 
     return f"{repository}: Setting repository settings is done"
 
