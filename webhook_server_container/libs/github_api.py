@@ -90,8 +90,10 @@ class GitHubApi:
 
         self._repo_data_from_config()
         self._set_log_prefix_color()
-        self.github_app_api = self.get_github_app_api()
         self.github_api = Github(login_or_token=self.token)
+        self.github_app_api = self.get_github_app_api()
+        self.auto_verified_and_merged_users.append(self.github_api.get_user().login)
+        self.app.logger.info(f"{self.log_prefix} Auto verified and merged users: {self.auto_verified_and_merged_users}")
 
         check_rate_limit(github_api=self.github_api)
 
@@ -272,11 +274,9 @@ Available user actions:
             self.container_build_args = self.build_and_push_container.get("build-args")
             self.container_command_args = self.build_and_push_container.get("args")
 
-        self.auto_verified_and_merged_users = [self.github_api.get_user().login]
-        self.auto_verified_and_merged_users.extend(
-            config_data.get("auto-verified-and-merged-users", repo_data.get("auto-verified-and-merged-users", []))
+        self.auto_verified_and_merged_users = config_data.get(
+            "auto-verified-and-merged-users", repo_data.get("auto-verified-and-merged-users", [])
         )
-        self.app.logger.info(f"{self.log_prefix} Auto verified and merged users: {self.auto_verified_and_merged_users}")
 
     def _get_pull_request(self, number=None):
         if number:
