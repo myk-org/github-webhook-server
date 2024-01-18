@@ -84,7 +84,6 @@ class GitHubApi:
         self.container_command_args = None
         self.token = None
         self.repository_full_name = None
-        self.api_user = None
         self.github_app_id = None
 
         # End of filled by self._repo_data_from_config()
@@ -93,8 +92,9 @@ class GitHubApi:
         self._set_log_prefix_color()
         self.github_app_api = self.get_github_app_api()
         self.github_api = Github(login_or_token=self.token)
+
         check_rate_limit(github_api=self.github_api)
-        self.api_user = self._api_username
+
         self.repository = get_github_repo_api(github_api=self.github_api, repository=self.repository_full_name)
         self.repository_by_github_app = get_github_repo_api(
             github_api=self.github_app_api, repository=self.repository_full_name
@@ -241,22 +241,17 @@ Available user actions:
                         self.check_if_can_be_merged()
                         break
 
-    @property
-    def _api_username(self):
-        return self.github_api.get_user().login
-
     def _repo_data_from_config(self):
-        config_data = get_data_from_config()
-        repo_data = config_data["repositories"].get(self.repository_name)
+        config_data = get_data_from_config()  # Global repositories configuration
+        repo_data = config_data["repositories"].get(self.repository_name)  # Specific repository configuration
+
         if not repo_data:
             raise RepositoryNotFoundError(f"Repository {self.repository_name} not found in config file")
 
         self.github_app_id = config_data["github-app-id"]
         self.token = config_data["github-token"]
         self.webhook_url = config_data.get("webhook_ip")
-
         self.repository_full_name = repo_data["name"]
-
         self.pypi = repo_data.get("pypi")
         self.verified_job = repo_data.get("verified_job", True)
         self.tox_enabled = repo_data.get("tox")
@@ -277,10 +272,11 @@ Available user actions:
             self.container_build_args = self.build_and_push_container.get("build-args")
             self.container_command_args = self.build_and_push_container.get("args")
 
-        self.auto_verified_and_merged_users = [self.api_user]
+        self.auto_verified_and_merged_users = [self.github_api.get_user().login]
         self.auto_verified_and_merged_users.extend(
             config_data.get("auto-verified-and-merged-users", repo_data.get("auto-verified-and-merged-users", []))
         )
+        self.app.logger.info(f"{self.log_prefix} Auto verified and merged users: {self.auto_verified_and_merged_users}")
 
     def _get_pull_request(self, number=None):
         if number:
@@ -576,6 +572,7 @@ Available labels:
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def create_issue_for_new_pull_request(self):
         if self.parent_committer in self.auto_verified_and_merged_users:
+            self.app.logger.info(f"{self.log_prefix} Committer is {self.parent_committer}, will not create issue.")
             return
 
         self.app.logger.info(f"{self.log_prefix} Creating issue for new PR: {self.pull_request.title}")
@@ -1076,10 +1073,10 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                         self.set_merge_check_success()
                         if self.parent_committer in self.auto_verified_and_merged_users:
                             self.app.logger.info(
-                                f"{self.log_prefix} will be merged automatically. owner: {self.api_user}"
+                                f"{self.log_prefix} will be merged automatically. owner: {self.parent_committer}"
                             )
                             self.pull_request.create_issue_comment(
-                                f"Owner of the pull request is `{self.api_user}`\n"
+                                f"Owner of the pull request is `{self.parent_committer}`\n"
                                 "Pull request is merged automatically."
                             )
                             return self.pull_request.merge(merge_method="squash")
@@ -1204,8 +1201,8 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
         if self.parent_committer in self.auto_verified_and_merged_users:
             self.app.logger.info(
-                f"{self.log_prefix} Committer {self.parent_committer} == API user "
-                f"{self.parent_committer}, Setting verified label"
+                f"{self.log_prefix} Committer {self.parent_committer} is part of auto-verified-and-merged-users group"
+                ", Setting verified label"
             )
             self._add_label(label=VERIFIED_LABEL_STR)
             self.set_verify_check_success()
