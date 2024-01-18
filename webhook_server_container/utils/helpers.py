@@ -130,6 +130,7 @@ def run_command(
 def check_rate_limit():
     minimum_limit = 200
     config_data = get_data_from_config()
+    api, token = None, None
 
     for _token in config_data["github-tokens"]:
         _api = Github(login_or_token=_token)
@@ -156,7 +157,8 @@ def check_rate_limit():
         if not (
             datetime.datetime.now(tz=datetime.timezone.utc) < rate_limit_reset and rate_limit_remaining < minimum_limit
         ):
-            return _api, _token
+            api, token = _api, _token
+            break
 
     else:
         _token = config_data["github-tokens"][0]
@@ -180,5 +182,6 @@ def check_rate_limit():
             rate_limit = _api.get_rate_limit()
             rate_limit_reset = rate_limit.core.reset
             rate_limit_remaining = rate_limit.core.remaining
+            api, token = _api, _token
 
-        return _api, _token
+    return api, token
