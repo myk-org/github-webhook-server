@@ -11,6 +11,7 @@ import shortuuid
 import yaml
 from github import GithubException
 from github.GithubException import UnknownObjectException
+from timeout_sampler import TimeoutSampler, TimeoutExpiredError
 
 from webhook_server_container.utils.constants import (
     ADD_STR,
@@ -299,7 +300,7 @@ Available user actions:
         return any(lb for lb in self.pull_request_labels_names() if lb == label)
 
     def pull_request_labels_names(self):
-        return [lb.name for lb in self.pull_request.labels]
+        return [lb.name for lb in self._get_pull_request().labels]
 
     def skip_merged_pull_request(self):
         if self.pull_request.is_merged():
@@ -310,7 +311,8 @@ Available user actions:
     def _remove_label(self, label):
         if self.label_exists_in_pull_request(label=label):
             self.app.logger.info(f"{self.log_prefix} Removing label {label}")
-            return self.pull_request.remove_from_labels(label)
+            self.pull_request.remove_from_labels(label)
+            return self.wait_for_label(label=label, exists=False)
 
         self.app.logger.warning(f"{self.log_prefix} Label {label} not found and cannot be removed")
 
@@ -343,7 +345,16 @@ Available user actions:
             self.repository.create_label(name=label, color=color)
 
         self.app.logger.info(f"{self.log_prefix} Adding pull request label {label} to {self.pull_request.number}")
-        return self.pull_request.add_to_labels(label)
+        self.pull_request.add_to_labels(label)
+        return self.wait_for_label(label=label, exists=True)
+
+    def wait_for_label(self, label, exists):
+        try:
+            for sample in TimeoutSampler(wait_timeout=30, sleep=5, func=self.label_exists_in_pull_request, label=label):
+                if sample == exists:
+                    return True
+        except TimeoutExpiredError:
+            self.app.logger.warning(f"{self.log_prefix} Label {label} {'not found' if exists else 'found'}")
 
     def _generate_issue_title(self):
         return f"{self.pull_request.title} - {self.pull_request.number}"
@@ -664,19 +675,19 @@ Available labels:
                 self.pull_request = original_pull_request
 
         if hook_action in ("labeled", "unlabeled"):
+            action_labeled = hook_action == "labeled"
             labeled = self.hook_data["label"]["name"].lower()
             if labeled == CAN_BE_MERGED_STR:
                 return
 
             self.app.logger.info(f"{self.log_prefix} PR {self.pull_request.number} {hook_action} with {labeled}")
             if self.verified_job and labeled == VERIFIED_LABEL_STR:
-                if hook_action == "labeled":
+                if action_labeled:
                     self.set_verify_check_success()
                     if CAN_BE_MERGED_STR not in self.pull_request_labels_names():
-                        self.check_if_can_be_merged()
+                        return self.check_if_can_be_merged()
 
-                if hook_action == "unlabeled":
-                    self.set_verify_check_queued()
+                self.set_verify_check_queued()
 
     def process_push_webhook_data(self):
         tag = re.search(r"refs/tags/?(.*)", self.hook_data["ref"])
@@ -1064,6 +1075,8 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                         self._remove_label(label=CAN_BE_MERGED_STR)
                         return self.set_merge_check_queued()
 
+            self.app.logger.info(f"{self.log_prefix} check if can be merged PR labels are: {_labels}")
+
             for _label in _labels:
                 if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
                     approved_user = _label.split("-")[-1]
@@ -1081,6 +1094,8 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                                 "Pull request is merged automatically."
                             )
                             return self.pull_request.merge(merge_method="squash")
+                    else:
+                        self.app.logger.warning(f"{self.log_prefix} approved user not in approvers: {approved_user}")
 
         except Exception as ex:
             self.app.logger.error(
