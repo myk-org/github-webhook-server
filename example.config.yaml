@@ -1,5 +1,8 @@
 github-app-id: 123456 # GitHub app id
-github-toekn: <GITHIB TOKEN>
+github-toekns:
+  - <GITHIB TOKEN1>
+  - <GITHIB TOKEN2>
+
 webhook_ip: <HTTP://IP OR URL:PORT>
 
 docker: # Used to pull images from docker.io
