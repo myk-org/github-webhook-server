@@ -17,7 +17,7 @@ from webhook_server_container.utils.github_repository_settings import (
     set_repositories_settings,
 )
 from webhook_server_container.utils.helpers import (
-    check_rate_limit,
+    get_api_with_highest_rate_limit,
     get_app_data_dir,
     get_data_from_config,
     ignore_exceptions,
@@ -97,7 +97,7 @@ def process_webhook():
 
 
 def main():
-    check_rate_limit()
+    get_api_with_highest_rate_limit()
     get_repositories_github_app_api()
     set_repositories_settings()
     set_all_in_progress_check_runs_to_queued(
