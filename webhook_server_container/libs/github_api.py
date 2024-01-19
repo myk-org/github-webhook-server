@@ -45,7 +45,7 @@ from webhook_server_container.utils.constants import (
 )
 from webhook_server_container.utils.dockerhub_rate_limit import DockerHub
 from webhook_server_container.utils.helpers import (
-    check_rate_limit,
+    get_api_with_highest_rate_limit,
     extract_key_from_dict,
     get_data_from_config,
     get_github_repo_api,
@@ -91,7 +91,7 @@ class GitHubApi:
         self._set_log_prefix_color()
         self.github_app_api = self.get_github_app_api()
 
-        self.github_api, self.token = check_rate_limit()
+        self.github_api, self.token = get_api_with_highest_rate_limit()
         self.auto_verified_and_merged_users.append(self.github_api.get_user().login)
 
         self.repository = get_github_repo_api(github_api=self.github_api, repository=self.repository_full_name)
