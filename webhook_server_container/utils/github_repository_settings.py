@@ -132,7 +132,7 @@ def set_repository_labels(repository):
 def set_repositories_settings():
     FLASK_APP.logger.info("Processing repositories")
     config_data = get_data_from_config()
-    github_api = Github(login_or_token=config_data["github-token"])
+    github_api = Github(login_or_token=config_data["github-tokens"][0])
     default_status_checks = config_data.get("default-status-checks", [])
     docker = config_data.get("docker")
     if docker:
@@ -199,7 +199,7 @@ def set_repository(data, github_api, default_status_checks):
 
 def set_all_in_progress_check_runs_to_queued(repositories_app_api, missing_app_repositories):
     config_data = get_data_from_config()
-    github_api = Github(login_or_token=config_data["github-token"])
+    github_api = Github(login_or_token=config_data["github-tokens"][0])
     check_runs = (PYTHON_MODULE_INSTALL_STR, CAN_BE_MERGED_STR, TOX_STR, BUILD_CONTAINER_STR)
     futures = []
     with ThreadPoolExecutor() as executor:

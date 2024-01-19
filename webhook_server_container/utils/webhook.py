@@ -37,7 +37,7 @@ def process_github_webhook(data, github_api, webhook_ip):
 def create_webhook():
     FLASK_APP.logger.info("Preparing webhook configuration")
     config_data = get_data_from_config()
-    github_api = Github(login_or_token=config_data["github-token"])
+    github_api = Github(login_or_token=config_data["github-tokens"][0])
     webhook_ip = config_data["webhook_ip"]
 
     futures = []
