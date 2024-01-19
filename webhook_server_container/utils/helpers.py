@@ -142,6 +142,8 @@ def wait_for_rate_limit_reset(tokens):
         if _time_for_limit_reset < time_for_limit_reset:
             api, token, time_for_limit_reset = _api, _token, _time_for_limit_reset
 
+        FLASK_APP.logger.info(f"Rate limit reset for {api_user} is in {time_for_limit_reset} seconds")
+
     while (
         datetime.datetime.now(tz=datetime.timezone.utc) < rate_limit.core.reset
         and rate_limit.core.remaining < minimum_limit
@@ -173,10 +175,12 @@ def get_api_with_highest_rate_limit():
         rate_limit = _api.get_rate_limit()
         if rate_limit.core.remaining > remaining:
             remaining = rate_limit.core.remaining
+            FLASK_APP.logger.info(f"API user {_api_user} remaining rate limit: {remaining}")
             api, token = _api, _token
 
     log_rate_limit(rate_limit=rate_limit, api_user=_api_user)
     if remaining < minimum_limit:
+        FLASK_APP.logger.error(f"All API users have rate limit below {minimum_limit}")
         return wait_for_rate_limit_reset(tokens=tokens)
 
     FLASK_APP.logger.info(f"API user {_api_user} selected with highest rate limit: {remaining}")
