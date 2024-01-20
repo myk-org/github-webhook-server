@@ -87,7 +87,7 @@ def process_webhook():
         return process_failed_msg
 
     github_event = request.headers.get("X-GitHub-Event")
-    event_log = f"Event type: {github_event}. " f"event ID: {request.headers.get('X-GitHub-Delivery')}"
+    event_log = f"Event type: {github_event}. event ID: {request.headers.get('X-GitHub-Delivery')}"
     try:
         api.process_hook(data=github_event, event_log=event_log)
         return "process success"
