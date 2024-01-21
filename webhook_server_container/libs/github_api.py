@@ -687,8 +687,7 @@ Available labels:
                 else:
                     self.set_verify_check_queued()
 
-            if CAN_BE_MERGED_STR not in self.pull_request_labels_names():
-                return self.check_if_can_be_merged()
+            return self.check_if_can_be_merged()
 
     def process_push_webhook_data(self):
         tag = re.search(r"refs/tags/?(.*)", self.hook_data["ref"])
@@ -1084,8 +1083,8 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                                 f"is part of {self.auto_verified_and_merged_users}"
                             )
                             self.pull_request.create_issue_comment(
-                                f"Owner of the pull request `{self.parent_committer} "
-                                f"is part of {self.auto_verified_and_merged_users}`\n"
+                                f"Owner of the pull request {self.parent_committer} "
+                                f"is part of:\n`{self.auto_verified_and_merged_users}`\n"
                                 "Pull request is merged automatically."
                             )
                             return self.pull_request.merge(merge_method="squash")
