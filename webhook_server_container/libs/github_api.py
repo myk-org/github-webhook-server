@@ -302,7 +302,7 @@ Available user actions:
     def pull_request_labels_names(self):
         return [lb.name for lb in self._get_pull_request().labels]
 
-    def skip_merged_pull_request(self):
+    def skip_if_pull_request_already_merged(self):
         if self.pull_request.is_merged():
             self.app.logger.info(f"{self.log_prefix}: PR is merged, not processing")
             return True
@@ -849,7 +849,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                             self.cherry_pick(target_branch=_exits_target_branch, reviewed_user=reviewed_user)
 
             elif _command == "retest":
-                if self.skip_merged_pull_request():
+                if self.skip_if_pull_request_already_merged():
                     return self.pull_request.create_issue_comment(not_running_msg)
 
                 _target_tests = _args.split()
@@ -896,7 +896,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 self.pull_request.create_issue_comment(msg)
 
         elif _command == WIP_STR:
-            if self.skip_merged_pull_request():
+            if self.skip_if_pull_request_already_merged():
                 return self.pull_request.create_issue_comment(not_running_msg)
 
             self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
@@ -909,7 +909,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 self.pull_request.edit(title=f"{wip_for_title} {self.pull_request.title}")
 
         else:
-            if self.skip_merged_pull_request():
+            if self.skip_if_pull_request_already_merged():
                 return self.pull_request.create_issue_comment(not_running_msg)
 
             self.label_by_user_comment(
@@ -1024,19 +1024,13 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             PR status is 'clean'.
             PR has no changed requests from approvers.
         """
-        if self.skip_merged_pull_request():
-            return False
-
-        if self.is_check_run_in_progress(check_run=CAN_BE_MERGED_STR):
-            self.app.logger.info(f"{self.log_prefix} Check run is in progress, not running {CAN_BE_MERGED_STR}.")
+        if self.skip_if_pull_request_already_merged():
             return False
 
         self.app.logger.info(f"{self.log_prefix} Check if {CAN_BE_MERGED_STR}.")
         last_commit_check_runs = list(self.last_commit.get_check_runs())
         check_runs_in_progress = [
-            check_run.name
-            for check_run in last_commit_check_runs
-            if check_run.status == IN_PROGRESS_STR and check_run.name != CAN_BE_MERGED_STR
+            check_run.name for check_run in last_commit_check_runs if check_run.status == IN_PROGRESS_STR
         ]
         if check_runs_in_progress:
             self.app.logger.info(
