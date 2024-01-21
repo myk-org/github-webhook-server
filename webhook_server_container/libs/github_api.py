@@ -684,10 +684,11 @@ Available labels:
             if self.verified_job and labeled == VERIFIED_LABEL_STR:
                 if action_labeled:
                     self.set_verify_check_success()
-                    if CAN_BE_MERGED_STR not in self.pull_request_labels_names():
-                        return self.check_if_can_be_merged()
+                else:
+                    self.set_verify_check_queued()
 
-                self.set_verify_check_queued()
+            if CAN_BE_MERGED_STR not in self.pull_request_labels_names():
+                return self.check_if_can_be_merged()
 
     def process_push_webhook_data(self):
         tag = re.search(r"refs/tags/?(.*)", self.hook_data["ref"])
@@ -1042,7 +1043,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         try:
             _labels = self.pull_request_labels_names()
 
-            if VERIFIED_LABEL_STR not in _labels or HOLD_LABEL_STR in _labels:
+            if VERIFIED_LABEL_STR not in _labels or HOLD_LABEL_STR in _labels or WIP_STR in _labels:
                 self._remove_label(label=CAN_BE_MERGED_STR)
                 self.set_merge_check_queued()
                 return False
