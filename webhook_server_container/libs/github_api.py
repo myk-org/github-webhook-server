@@ -300,7 +300,7 @@ Available user actions:
         return any(lb for lb in self.pull_request_labels_names() if lb == label)
 
     def pull_request_labels_names(self):
-        return [lb.name for lb in self._get_pull_request().labels]
+        return [lb.name for lb in self._get_pull_request(number=self.pull_request.number).labels]
 
     def skip_if_pull_request_already_merged(self):
         if self.pull_request.is_merged():
