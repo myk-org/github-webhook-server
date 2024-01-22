@@ -53,3 +53,6 @@ repositories:
         - --format docker
     auto-verified-and-merged-users: # override auto verified users per repository
       - "my[bot]"
+    github-tokens: # override GitHub tokens per repository
+      - <GITHUB TOKEN1>
+      - <GITHUB TOKEN2>

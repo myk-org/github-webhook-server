@@ -16,7 +16,7 @@ from webhook_server_container.utils.constants import (
     STATIC_LABELS_DICT,
     TOX_STR,
 )
-from webhook_server_container.utils.helpers import get_data_from_config, get_github_repo_api, ignore_exceptions
+from webhook_server_container.utils.helpers import get_github_repo_api, ignore_exceptions
 
 
 @ignore_exceptions(retry=10)
@@ -129,9 +129,9 @@ def set_repository_labels(repository):
     return f"{repository}: Setting repository labels is done"
 
 
-def set_repositories_settings():
+def set_repositories_settings(config):
     FLASK_APP.logger.info("Processing repositories")
-    config_data = get_data_from_config()
+    config_data = config.data
     github_api = Github(login_or_token=config_data["github-tokens"][0])
     default_status_checks = config_data.get("default-status-checks", [])
     docker = config_data.get("docker")
@@ -197,13 +197,12 @@ def set_repository(data, github_api, default_status_checks):
     return f"{repository}: Setting repository settings is done"
 
 
-def set_all_in_progress_check_runs_to_queued(repositories_app_api, missing_app_repositories):
-    config_data = get_data_from_config()
-    github_api = Github(login_or_token=config_data["github-tokens"][0])
+def set_all_in_progress_check_runs_to_queued(config, repositories_app_api, missing_app_repositories):
+    github_api = Github(login_or_token=config.data["github-tokens"][0])
     check_runs = (PYTHON_MODULE_INSTALL_STR, CAN_BE_MERGED_STR, TOX_STR, BUILD_CONTAINER_STR)
     futures = []
     with ThreadPoolExecutor() as executor:
-        for _, data in config_data["repositories"].items():
+        for _, data in config.data["repositories"].items():
             futures.append(
                 executor.submit(
                     set_repository_check_runs_to_queued,
