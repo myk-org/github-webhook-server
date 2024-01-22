@@ -1,26 +1,14 @@
 import datetime
-import os
 import shlex
 import subprocess
 import time
 from functools import wraps
 from time import sleep
 
-import yaml
 from colorama import Fore
 from github import Github
 
 from webhook_server_container.utils.constants import FLASK_APP
-
-
-def get_app_data_dir():
-    return os.environ.get("WEBHOOK_SERVER_DATA_DIR", "/webhook_server")
-
-
-def get_data_from_config():
-    config_file = os.path.join(get_app_data_dir(), "config.yaml")
-    with open(config_file) as fd:
-        return yaml.safe_load(fd)
 
 
 def extract_key_from_dict(key, _dict):
@@ -162,9 +150,15 @@ def wait_for_rate_limit_reset(tokens):
 
 
 @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
-def get_api_with_highest_rate_limit():
-    config_data = get_data_from_config()
-    tokens = config_data["github-tokens"]
+def get_api_with_highest_rate_limit(config, repository_name=None):
+    tokens = None
+    if repository_name:
+        repo_data = config.get_repository(repository_name=repository_name)
+        tokens = repo_data.get("github-tokens")
+
+    if not tokens:
+        tokens = config.data["github-tokens"]
+
     api, token, _api_user, rate_limit = None, None, None, None
     remaining = 0
     minimum_limit = 200

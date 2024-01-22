@@ -13,6 +13,7 @@ from github import GithubException
 from github.GithubException import UnknownObjectException
 from timeout_sampler import TimeoutSampler, TimeoutExpiredError
 
+from webhook_server_container.libs.config import Config
 from webhook_server_container.utils.constants import (
     ADD_STR,
     APPROVED_BY_LABEL_PREFIX,
@@ -48,7 +49,6 @@ from webhook_server_container.utils.dockerhub_rate_limit import DockerHub
 from webhook_server_container.utils.helpers import (
     get_api_with_highest_rate_limit,
     extract_key_from_dict,
-    get_data_from_config,
     get_github_repo_api,
     ignore_exceptions,
     run_command,
@@ -71,7 +71,6 @@ class GitHubApi:
         self.parent_committer = None
         self.log_uuid = shortuuid.uuid()[:5]
         self.container_repo_dir = "/tmp/repository"
-        self.webhook_server_data_dir = os.environ.get("WEBHOOK_SERVER_DATA_DIR", "/webhook_server")
 
         # filled by self._repo_data_from_config()
         self.dockerhub_username = None
@@ -85,14 +84,16 @@ class GitHubApi:
         self.container_command_args = None
         self.repository_full_name = None
         self.github_app_id = None
-
         # End of filled by self._repo_data_from_config()
 
+        self.config = Config()
         self._repo_data_from_config()
         self._set_log_prefix_color()
         self.github_app_api = self.get_github_app_api()
 
-        self.github_api, self.token = get_api_with_highest_rate_limit()
+        self.github_api, self.token = get_api_with_highest_rate_limit(
+            config=self.config, repository_name=self.repository_name
+        )
         self.auto_verified_and_merged_users.append(self.github_api.get_user().login)
 
         self.repository = get_github_repo_api(github_api=self.github_api, repository=self.repository_full_name)
@@ -242,8 +243,10 @@ Available user actions:
                         break
 
     def _repo_data_from_config(self):
-        config_data = get_data_from_config()  # Global repositories configuration
-        repo_data = config_data["repositories"].get(self.repository_name)  # Specific repository configuration
+        config_data = self.config.data  # Global repositories configuration
+        repo_data = self.config.get_repository(
+            repository_name=self.repository_name
+        )  # Specific repository configuration
 
         if not repo_data:
             raise RepositoryNotFoundError(f"Repository {self.repository_name} not found in config file")

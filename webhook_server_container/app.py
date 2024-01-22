@@ -4,6 +4,7 @@ import urllib3
 from flask import request
 from github import Auth, GithubIntegration
 
+from webhook_server_container.libs.config import Config
 from webhook_server_container.libs.github_api import GitHubApi
 from webhook_server_container.utils.constants import (
     APP_ROOT_PATH,
@@ -18,13 +19,11 @@ from webhook_server_container.utils.github_repository_settings import (
 )
 from webhook_server_container.utils.helpers import (
     get_api_with_highest_rate_limit,
-    get_app_data_dir,
-    get_data_from_config,
     ignore_exceptions,
 )
 from webhook_server_container.utils.webhook import create_webhook
 
-
+CONFIG = Config()
 REPOSITORIES_APP_API = {}
 MISSING_APP_REPOSITORIES = []
 
@@ -32,27 +31,26 @@ urllib3.disable_warnings()
 
 PLAIN_TEXT_MIME_TYPE = "text/plain"
 FILENAME_STRING = "<string:filename>"
-APP_DATA_ROOT_PATH = get_app_data_dir()
+APP_DATA_ROOT_PATH = CONFIG.data_dir
 TOX_DATA_PATH = os.path.join(APP_DATA_ROOT_PATH, TOX_STR)
 BUILD_CONTAINER_DATA_PATH = os.path.join(APP_DATA_ROOT_PATH, BUILD_CONTAINER_STR)
 PYTHON_MODULE_INSTALL_DATA_PATH = os.path.join(APP_DATA_ROOT_PATH, PYTHON_MODULE_INSTALL_STR)
 
 
 @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
-def get_repositories_github_app_api():
+def get_repositories_github_app_api(config):
     FLASK_APP.logger.info("Getting repositories GitHub app API")
-    with open(os.path.join(get_app_data_dir(), "webhook-server.private-key.pem")) as fd:
+    with open(os.path.join(config.data_dir, "webhook-server.private-key.pem")) as fd:
         private_key = fd.read()
 
-    config_data = get_data_from_config()
-    github_app_id = config_data["github-app-id"]
+    github_app_id = config.data["github-app-id"]
     auth = Auth.AppAuth(app_id=github_app_id, private_key=private_key)
     for installation in GithubIntegration(auth=auth).get_installations():
         for repo in installation.get_repos():
             FLASK_APP.logger.info(f"Getting repository {repo.full_name} GitHub app API")
             REPOSITORIES_APP_API[repo.full_name] = installation.get_github_for_installation()
 
-    for data in config_data["repositories"].values():
+    for data in config.data["repositories"].values():
         full_name = data["name"]
         if not REPOSITORIES_APP_API.get(full_name):
             FLASK_APP.logger.error(
@@ -91,19 +89,20 @@ def process_webhook():
     try:
         api.process_hook(data=github_event, event_log=event_log)
         return "process success"
+
     except Exception as ex:
         FLASK_APP.logger.error(f"Failed to process hook: {ex}")
         return process_failed_msg
 
 
 def main():
-    get_api_with_highest_rate_limit()
-    get_repositories_github_app_api()
-    set_repositories_settings()
+    get_api_with_highest_rate_limit(config=CONFIG)
+    get_repositories_github_app_api(config=CONFIG)
+    set_repositories_settings(config=CONFIG)
     set_all_in_progress_check_runs_to_queued(
-        repositories_app_api=REPOSITORIES_APP_API, missing_app_repositories=MISSING_APP_REPOSITORIES
+        config=CONFIG, repositories_app_api=REPOSITORIES_APP_API, missing_app_repositories=MISSING_APP_REPOSITORIES
     )
-    create_webhook()
+    create_webhook(config=CONFIG)
     FLASK_APP.logger.info(f"Starting {FLASK_APP.name} app")
     FLASK_APP.run(
         port=int(os.environ.get("WEBHOOK_SERVER_PORT", 5000)),
