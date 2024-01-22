@@ -8,10 +8,7 @@ from webhook_server_container.libs.config import Config
 from webhook_server_container.libs.github_api import GitHubApi
 from webhook_server_container.utils.constants import (
     APP_ROOT_PATH,
-    BUILD_CONTAINER_STR,
     FLASK_APP,
-    PYTHON_MODULE_INSTALL_STR,
-    TOX_STR,
 )
 from webhook_server_container.utils.github_repository_settings import (
     set_all_in_progress_check_runs_to_queued,
@@ -23,7 +20,6 @@ from webhook_server_container.utils.helpers import (
 )
 from webhook_server_container.utils.webhook import create_webhook
 
-CONFIG = Config()
 REPOSITORIES_APP_API = {}
 MISSING_APP_REPOSITORIES = []
 
@@ -31,10 +27,6 @@ urllib3.disable_warnings()
 
 PLAIN_TEXT_MIME_TYPE = "text/plain"
 FILENAME_STRING = "<string:filename>"
-APP_DATA_ROOT_PATH = CONFIG.data_dir
-TOX_DATA_PATH = os.path.join(APP_DATA_ROOT_PATH, TOX_STR)
-BUILD_CONTAINER_DATA_PATH = os.path.join(APP_DATA_ROOT_PATH, BUILD_CONTAINER_STR)
-PYTHON_MODULE_INSTALL_DATA_PATH = os.path.join(APP_DATA_ROOT_PATH, PYTHON_MODULE_INSTALL_STR)
 
 
 @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
@@ -96,13 +88,14 @@ def process_webhook():
 
 
 def main():
-    get_api_with_highest_rate_limit(config=CONFIG)
-    get_repositories_github_app_api(config=CONFIG)
-    set_repositories_settings(config=CONFIG)
+    config = Config()
+    get_api_with_highest_rate_limit(config=config)
+    get_repositories_github_app_api(config=config)
+    set_repositories_settings(config=config)
     set_all_in_progress_check_runs_to_queued(
-        config=CONFIG, repositories_app_api=REPOSITORIES_APP_API, missing_app_repositories=MISSING_APP_REPOSITORIES
+        config=config, repositories_app_api=REPOSITORIES_APP_API, missing_app_repositories=MISSING_APP_REPOSITORIES
     )
-    create_webhook(config=CONFIG)
+    create_webhook(config=config)
     FLASK_APP.logger.info(f"Starting {FLASK_APP.name} app")
     FLASK_APP.run(
         port=int(os.environ.get("WEBHOOK_SERVER_PORT", 5000)),
