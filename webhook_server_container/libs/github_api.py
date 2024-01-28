@@ -785,7 +785,7 @@ Available labels:
         output = {
             "title": "Tox",
             "summary": "",
-            "text": f"```\n{out if rc else err}\n```",
+            "text": f"```\n{err}\n\n{out}\n```",
         }
         if rc:
             return self.set_run_tox_check_success(output=output)
@@ -954,7 +954,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             output = {
                 "title": "Cherry-pick details",
                 "summary": "",
-                "text": f"```\n{out if rc else err}\n```",
+                "text": f"```\n{err}\n\n{out}\n```",
             }
             if rc:
                 self.set_cherry_pick_success(output=output)
@@ -1142,7 +1142,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         output = {
             "title": "Build container",
             "summary": "",
-            "text": f"```\n{out if rc else err}\n```",
+            "text": f"```\n{err}\n\n{out}\n```",
         }
         if rc:
             self.app.logger.info(f"{self.log_prefix} Done building {_container_repository_and_tag}")
@@ -1191,7 +1191,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         output = {
             "title": "Python module installation",
             "summary": "",
-            "text": f"```\n{out if rc else err}\n```",
+            "text": f"```\n{err}\n\n{out}\n```",
         }
         if rc:
             return self.set_python_module_install_success(output=output)
