@@ -782,10 +782,11 @@ Available labels:
 
         self.set_run_tox_check_in_progress()
         rc, out, err = self._run_in_container(command=cmd)
+
         output = {
             "title": "Tox",
             "summary": "",
-            "text": f"```\n{err}\n\n{out}\n```",
+            "text": self.get_checkrun_text(err=err, out=out),
         }
         if rc:
             return self.set_run_tox_check_success(output=output)
@@ -954,7 +955,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             output = {
                 "title": "Cherry-pick details",
                 "summary": "",
-                "text": f"```\n{err}\n\n{out}\n```",
+                "text": self.get_checkrun_text(err=err, out=out),
             }
             if rc:
                 self.set_cherry_pick_success(output=output)
@@ -1142,7 +1143,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         output = {
             "title": "Build container",
             "summary": "",
-            "text": f"```\n{err}\n\n{out}\n```",
+            "text": self.get_checkrun_text(err=err, out=out),
         }
         if rc:
             self.app.logger.info(f"{self.log_prefix} Done building {_container_repository_and_tag}")
@@ -1191,7 +1192,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         output = {
             "title": "Python module installation",
             "summary": "",
-            "text": f"```\n{err}\n\n{out}\n```",
+            "text": self.get_checkrun_text(err=err, out=out),
         }
         if rc:
             return self.set_python_module_install_success(output=output)
@@ -1274,7 +1275,11 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             kwargs["output"] = output
 
         self.app.logger.info(f"{self.log_prefix} Set {check_run} check to {status or conclusion}")
-        self.repository_by_github_app.create_check_run(**kwargs)
+        try:
+            self.repository_by_github_app.create_check_run(**kwargs)
+        except Exception:
+            self.app.logger.info(f"{self.log_prefix} Failed to set {check_run} check to {status or conclusion}")
+            self.repository_by_github_app.create_check_run(conclusion=FAILURE_STR)
         return f"Done setting check run status: {kwargs}"
 
     def _run_in_container(self, command, env=None):
@@ -1292,7 +1297,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         clone_base_cmd += f" && git config user.name '{self.repository.owner.login}'"
         clone_base_cmd += f" && git config user.email '{self.repository.owner.email}'"
         clone_base_cmd += " && git config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
-        clone_base_cmd += " && git remote update"
+        clone_base_cmd += " && git remote update >/dev/null 2>&1"
 
         # Checkout the pull request
         if self.pull_request:
@@ -1301,3 +1306,10 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         # final podman command
         podman_base_cmd += f" '{clone_base_cmd} && {command}'"
         return run_command(command=podman_base_cmd, log_prefix=self.log_prefix)
+
+    def get_checkrun_text(self, err, out):
+        total_len = len(err) + len(out)
+        if total_len > 65534:  # Github limit is 65535 characters
+            return f"```\n{err}\n\n{out}\n```"[:65534]
+        else:
+            return f"```\n{err}\n\n{out}\n```"
