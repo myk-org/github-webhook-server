@@ -37,7 +37,7 @@ build = "^1.0.0"
 shortuuid = "^1.0.11"
 colorlog = "^6.7.0"
 colorama = "^0.4.6"
-ruff = "^0.1.5"
+ruff = "^0.2.0"
 timeout-sampler = "^0.0.3"
 
 [tool.poetry.group.dev.dependencies]
