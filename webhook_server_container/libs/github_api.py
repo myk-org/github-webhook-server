@@ -892,7 +892,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         elif _command == BUILD_AND_PUSH_CONTAINER_STR:
             if self.build_and_push_container:
                 self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
-                self._run_build_container(push=True)
+                self._run_build_container(push=True, set_check=False)
             else:
                 msg = f"No {BUILD_AND_PUSH_CONTAINER_STR} configured for this repository"
                 error_msg = f"{self.log_prefix} {msg}"
@@ -1112,17 +1112,17 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
     def _container_repository_and_tag(self):
         tag = self.container_tag if self.pull_request.is_merged() else self.pull_request.number
-        return f"{self.container_repository}:{tag}"
+        return f"{self.container_repository}:pr-{tag}"
 
     def _run_build_container(self, set_check=True, push=False, is_merged=None):
         if not self.build_and_push_container:
             return False
 
-        if self.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR) and not is_merged:
-            self.app.logger.info(f"{self.log_prefix} Check run is in progress, not running {BUILD_CONTAINER_STR}.")
-            return False
-
         if set_check:
+            if self.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR) and not is_merged:
+                self.app.logger.info(f"{self.log_prefix} Check run is in progress, not running {BUILD_CONTAINER_STR}.")
+                return False
+
             self.set_container_build_in_progress()
 
         _container_repository_and_tag = self._container_repository_and_tag()
