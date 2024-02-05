@@ -1111,8 +1111,8 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         """
 
     def _container_repository_and_tag(self):
-        tag = self.container_tag if self.pull_request.is_merged() else self.pull_request.number
-        return f"{self.container_repository}:pr-{tag}"
+        tag = self.container_tag if self.pull_request.is_merged() else f"pr-{self.pull_request.number}"
+        return f"{self.container_repository}:{tag}"
 
     def _run_build_container(self, set_check=True, push=False, is_merged=None):
         if not self.build_and_push_container:
