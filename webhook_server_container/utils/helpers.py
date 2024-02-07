@@ -116,7 +116,13 @@ def run_command(
 
 def wait_for_rate_limit_reset(tokens):
     minimum_limit = 200
-    api, token, rate_limit, time_for_limit_reset, api_user = None, None, None, None, None
+    api, token, rate_limit, time_for_limit_reset, api_user = (
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
 
     for _token in tokens:
         _api = Github(login_or_token=_token)
@@ -161,7 +167,7 @@ def get_api_with_highest_rate_limit(config, repository_name=None):
 
     api, token, _api_user, rate_limit = None, None, None, None
     remaining = 0
-    minimum_limit = 200
+    minimum_limit = 500
 
     for _token in tokens:
         _api = Github(login_or_token=_token)
@@ -183,7 +189,7 @@ def get_api_with_highest_rate_limit(config, repository_name=None):
 
 def log_rate_limit(rate_limit, api_user):
     time_for_limit_reset = (rate_limit.core.reset - datetime.datetime.now(tz=datetime.timezone.utc)).seconds
-    if rate_limit.core.remaining < 500:
+    if rate_limit.core.remaining < 700:
         rate_limit_str = f"{Fore.RED}{rate_limit.core.remaining}{Fore.RESET}"
     elif rate_limit.core.remaining < 2000:
         rate_limit_str = f"{Fore.YELLOW}{rate_limit.core.remaining}{Fore.RESET}"
