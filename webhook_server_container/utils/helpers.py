@@ -156,8 +156,10 @@ def wait_for_rate_limit_reset(apis_and_tokens):
 
 def get_apis_and_tokes_from_config(config, repository_name=None):
     apis_and_tokens = []
-    repo_data = config.get_repository(repository_name=repository_name)
-    tokens = repo_data.get("github-tokens")
+    tokens = None
+    if repository_name:
+        repo_data = config.get_repository(repository_name=repository_name)
+        tokens = repo_data.get("github-tokens")
 
     if not tokens:
         tokens = config.data["github-tokens"]
