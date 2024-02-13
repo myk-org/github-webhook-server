@@ -52,6 +52,7 @@ from webhook_server_container.utils.helpers import (
     get_github_repo_api,
     ignore_exceptions,
     run_command,
+    get_apis_and_tokes_from_config,
 )
 
 
@@ -94,7 +95,7 @@ class GitHubApi:
         self.github_api, self.token = get_api_with_highest_rate_limit(
             config=self.config, repository_name=self.repository_name
         )
-        self.auto_verified_and_merged_users.append(self.github_api.get_user().login)
+        self.add_api_users_to_auto_verified_and_merged_users()
 
         self.repository = get_github_repo_api(github_api=self.github_api, repository=self.repository_full_name)
         self.repository_by_github_app = get_github_repo_api(
@@ -165,6 +166,10 @@ Available user actions:
                 f"make sure the app installed (https://github.com/apps/manage-repositories-app)"
             )
         return self.repositories_app_api[self.repository_full_name]
+
+    def add_api_users_to_auto_verified_and_merged_users(self):
+        apis_and_tokens = get_apis_and_tokes_from_config(config=self.config, repository_name=self.repository_name)
+        self.auto_verified_and_merged_users.extend([_api[0].get_user().login for _api in apis_and_tokens])
 
     def _set_log_prefix_color(self):
         repo_str = "\033[1;{color}m{name}\033[1;0m"
