@@ -25,9 +25,6 @@ MISSING_APP_REPOSITORIES = []
 
 urllib3.disable_warnings()
 
-PLAIN_TEXT_MIME_TYPE = "text/plain"
-FILENAME_STRING = "<string:filename>"
-
 
 @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
 def get_repositories_github_app_api(config):

@@ -114,7 +114,7 @@ def run_command(
         return False, out_decoded, err_decoded
 
 
-def wait_for_rate_limit_reset(tokens):
+def wait_for_rate_limit_reset(apis_and_tokens):
     minimum_limit = 200
     api, token, rate_limit, time_for_limit_reset, api_user = (
         None,
@@ -124,8 +124,7 @@ def wait_for_rate_limit_reset(tokens):
         None,
     )
 
-    for _token in tokens:
-        _api = Github(login_or_token=_token)
+    for _api, _token in apis_and_tokens:
         api_user = _api.get_user().login
         rate_limit = _api.get_rate_limit()
         _time_for_limit_reset = (rate_limit.core.reset - datetime.datetime.now(tz=datetime.timezone.utc)).seconds
@@ -155,22 +154,28 @@ def wait_for_rate_limit_reset(tokens):
     return api, token
 
 
-@ignore_exceptions(logger=FLASK_APP.logger, retry=5)
-def get_api_with_highest_rate_limit(config, repository_name=None):
-    tokens = None
-    if repository_name:
-        repo_data = config.get_repository(repository_name=repository_name)
-        tokens = repo_data.get("github-tokens")
+def get_apis_and_tokes_from_config(config, repository_name=None):
+    apis_and_tokens = []
+    repo_data = config.get_repository(repository_name=repository_name)
+    tokens = repo_data.get("github-tokens")
 
     if not tokens:
         tokens = config.data["github-tokens"]
 
+    for _token in tokens:
+        apis_and_tokens.append((Github(login_or_token=_token), _token))
+
+    return apis_and_tokens
+
+
+@ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+def get_api_with_highest_rate_limit(config, repository_name=None):
     api, token, _api_user, rate_limit = None, None, None, None
     remaining = 0
     minimum_limit = 500
 
-    for _token in tokens:
-        _api = Github(login_or_token=_token)
+    apis_and_tokens = get_apis_and_tokes_from_config(config=config, repository_name=repository_name)
+    for _api, _token in apis_and_tokens:
         _api_user = _api.get_user().login
         rate_limit = _api.get_rate_limit()
         if rate_limit.core.remaining > remaining:
@@ -181,7 +186,7 @@ def get_api_with_highest_rate_limit(config, repository_name=None):
     log_rate_limit(rate_limit=rate_limit, api_user=_api_user)
     if remaining < minimum_limit:
         FLASK_APP.logger.error(f"All API users have rate limit below {minimum_limit}")
-        return wait_for_rate_limit_reset(tokens=tokens)
+        return wait_for_rate_limit_reset(apis_and_tokens=apis_and_tokens)
 
     FLASK_APP.logger.info(f"API user {_api_user} selected with highest rate limit: {remaining}")
     return api, token
