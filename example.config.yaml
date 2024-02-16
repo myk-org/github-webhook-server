@@ -33,6 +33,7 @@ repositories:
       - check_run
       - pull_request_review
     tox: all # Run all tests in tox.ini
+    pre-commit: true # Run pre-commit check
     protected-branches:
       dev: []
       main: # set [] in order to set all defaults run included

@@ -44,6 +44,7 @@ from webhook_server_container.utils.constants import (
     USER_LABELS_DICT,
     VERIFIED_LABEL_STR,
     WIP_STR,
+    PRE_COMMIT_STR,
 )
 from webhook_server_container.utils.dockerhub_rate_limit import DockerHub
 from webhook_server_container.utils.helpers import (
@@ -265,6 +266,7 @@ Available user actions:
         self.slack_webhook_url = repo_data.get("slack_webhook_url")
         self.build_and_push_container = repo_data.get("container")
         self.dockerhub = repo_data.get("docker")
+        self.pre_commit = repo_data.get("pre-commit")
 
         if self.dockerhub:
             self.dockerhub_username = self.dockerhub["username"]
@@ -525,6 +527,25 @@ Available labels:
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_run_tox_check_success(self, output):
         return self.set_check_run_status(check_run=TOX_STR, conclusion=SUCCESS_STR, output=output)
+
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    def set_run_pre_commit_check_queued(self):
+        if not self.pre_commit:
+            return False
+
+        return self.set_check_run_status(check_run=PRE_COMMIT_STR, status=QUEUED_STR)
+
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    def set_run_pre_commit_check_in_progress(self):
+        return self.set_check_run_status(check_run=PRE_COMMIT_STR, status=IN_PROGRESS_STR)
+
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    def set_run_pre_commit_check_failure(self, output):
+        return self.set_check_run_status(check_run=PRE_COMMIT_STR, conclusion=FAILURE_STR, output=output)
+
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    def set_run_pre_commit_check_success(self, output):
+        return self.set_check_run_status(check_run=PRE_COMMIT_STR, conclusion=SUCCESS_STR, output=output)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_merge_check_queued(self):
@@ -798,6 +819,28 @@ Available labels:
         else:
             return self.set_run_tox_check_failure(output=output)
 
+    def _run_pre_commit(self):
+        if not self.pre_commit:
+            return False
+
+        if self.is_check_run_in_progress(check_run=PRE_COMMIT_STR):
+            self.app.logger.info(f"{self.log_prefix} Check run is in progress, not running {PRE_COMMIT_STR}.")
+            return False
+
+        cmd = f"{PRE_COMMIT_STR} run --all-files"
+        self.set_run_pre_commit_check_in_progress()
+        rc, out, err = self._run_in_container(command=cmd)
+
+        output = {
+            "title": "Pre-Commit",
+            "summary": "",
+            "text": self.get_checkrun_text(err=err, out=out),
+        }
+        if rc:
+            return self.set_run_pre_commit_check_success(output=output)
+        else:
+            return self.set_run_pre_commit_check_failure(output=output)
+
     def user_commands(self, command, reviewed_user, issue_comment_id):
         remove = False
         available_commands = ["retest", "cherry-pick"]
@@ -873,6 +916,10 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
                         self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
                         self._run_tox()
+
+                    elif _test == PRE_COMMIT_STR:
+                        self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
+                        self._run_pre_commit()
 
                     elif _test == BUILD_CONTAINER_STR:
                         if self.build_and_push_container:
@@ -1236,6 +1283,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
     def process_opened_or_synchronize_pull_request(self, pull_request_branch):
         self.set_merge_check_queued()
         self.set_run_tox_check_queued()
+        self.set_run_pre_commit_check_queued()
         self.set_python_module_install_queued()
         self.set_container_build_queued()
         self._process_verified()
@@ -1254,6 +1302,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         futures = []
         with ThreadPoolExecutor() as executor:
             futures.append(executor.submit(self._run_tox))
+            futures.append(executor.submit(self._run_pre_commit))
             futures.append(executor.submit(self._run_install_python_module))
             futures.append(executor.submit(self._run_build_container))
 
