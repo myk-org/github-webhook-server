@@ -2,7 +2,7 @@ FROM quay.io/podman/stable:latest
 EXPOSE 5000
 
 RUN dnf -y update \
-  && dnf -y install python3.8 python3.9 python3.10 python3.11 python3.12 python3-pip git hub unzip \
+  && dnf -y install python3.8 python3.9 python3.10 python3.11 python3.12 python3-pip git hub unzip libcurl-devel \
   && dnf clean all \
   && rm -rf /var/cache /var/log/dnf* /var/log/yum.*
 
