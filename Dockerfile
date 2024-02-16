@@ -32,7 +32,7 @@ RUN set -x \
 RUN ln -s /usr/bin/python3 /usr/bin/python
 
 RUN python -m pip install --no-cache-dir pip --upgrade \
-  && python -m pip install --no-cache-dir poetry tox twine
+  && python -m pip install --no-cache-dir poetry tox twine pre-commit
 
 COPY pyproject.toml poetry.lock README.md $APP_DIR/
 COPY webhook_server_container $APP_DIR/webhook_server_container/
