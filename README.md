@@ -161,10 +161,27 @@ docker:
 
 Following actions are done automatically:
 
-* Add reviewers from OWNERS file
+* Add reviewers from [OWNERS](OWNERS) file
 * Set PR size label.
 * New issue is created for the PR.
 * Issues get closed when PR is merged/closed.
+
+## OWNERS file example
+```
+approvers:
+  - myakove
+  - rnetser
+reviewers:
+  any: # will be added to all PRs
+      - myakove
+      - rnetser
+  files: # will be added to PRs if files in the list are changed
+    Dockerfile:
+        - myakove
+  folders: # will be added to PRs if folders in the list are changed
+    github-webhook-server:
+        - myakove
+```
 
 ### Supported user actions via adding comment
 
@@ -233,21 +250,4 @@ export WEBHOOK_SERVER_PORT=5003
 export FLASK_DEBUG=1
 export WEBHOOK_SERVER_DATA_DIR=$WEBHOOK_SERVER_DATA_DIR
 poetry run python webhook_server_container/app.py
-```
-
-## OWNERS file example
-```
-approvers:
-  - myakove
-  - rnetser
-reviewers:
-  any: # will be added to all PRs
-      - myakove
-      - rnetser
-  files: # will be added to PRs if files in the list are changed
-    Dockerfile:
-        - myakove
-  folders: # will be added to PRs if folders in the list are changed
-    github-webhook-server:
-        - myakove
 ```
