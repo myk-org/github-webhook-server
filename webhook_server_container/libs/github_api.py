@@ -414,7 +414,7 @@ stderr: `{err}`
     def get_owners_content(self):
         try:
             owners_content = self.repository.get_contents("OWNERS")
-            self.owners_content = yaml.safe_load(owners_content.decoded_content)
+            return yaml.safe_load(owners_content.decoded_content)
         except UnknownObjectException:
             self.app.logger.error(f"{self.log_prefix} OWNERS file not found")
             return {}
