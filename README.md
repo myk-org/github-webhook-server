@@ -194,6 +194,7 @@ reviewers:
 * `/retest build-container`: run build-container
 * `/retest python-module-install`: run python-module-install command
 * `/build-and-push-container`: build and push container image (tag will be the PR number).
+* `/assign-reviewers`: assign reviewers based on OWNERS file
 
 ### Supported user labels
 

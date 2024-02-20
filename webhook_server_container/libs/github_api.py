@@ -137,6 +137,7 @@ Available user actions:
     * Cherry-pick will be started when PR is merged
  * To build and push container image command `/build-and-push-container` in the PR (tag will be the PR number).
  * To add a label by comment use `/<label name>`, to remove, use `/<label name> cancel`
+ * To assign reviewers based on OWNERS file use `/assign-reviewers`
 
 <details>
 <summary>Supported /retest check runs</summary>
@@ -414,16 +415,23 @@ stderr: `{err}`
     def get_owners_content(self):
         try:
             owners_content = self.repository.get_contents("OWNERS")
-            return yaml.safe_load(owners_content.decoded_content)
+            _content = yaml.safe_load(owners_content.decoded_content)
+            self.app.logger.info(f"{self.log_prefix} OWNERS file content: {_content}")
+            return _content
         except UnknownObjectException:
             self.app.logger.error(f"{self.log_prefix} OWNERS file not found")
             return {}
 
     @property
     def reviewers(self):
+        any_reviewers = []
         bc_reviewers = self.owners_content.get("reviewers", [])
-        any_reviewers = self.owners_content.get("reviewers", {}).get("any", [])
-        return list(set(bc_reviewers if isinstance(bc_reviewers, list) else [] + any_reviewers))
+        if not bc_reviewers:
+            any_reviewers = self.owners_content.get("reviewers", {}).get("any", [])
+
+        _reviewers = bc_reviewers or any_reviewers
+        self.app.logger.info(f"{self.log_prefix} Reviewers: {_reviewers}")
+        return _reviewers
 
     @property
     def files_reviewers(self):
@@ -441,6 +449,7 @@ stderr: `{err}`
         return [fd["filename"] for fd in self.last_commit.raw_data["files"]]
 
     def assign_reviewers(self):
+        self.app.logger.info(f"{self.log_prefix} Assign reviewers")
         changed_files = self.list_changed_commit_files()
         reviewers_to_add = self.reviewers
         for _file, _reviewers in self.files_reviewers.items():
@@ -451,7 +460,9 @@ stderr: `{err}`
             if any(fl for fl in changed_files if Path(_folder) == Path(fl).parent):
                 reviewers_to_add.extend(_reviewers)
 
-        for reviewer in set(reviewers_to_add):
+        _to_add = list(set(reviewers_to_add))
+        self.app.logger.info(f"{self.log_prefix} Reviewers to add: {_to_add}")
+        for reviewer in _to_add:
             if reviewer != self.pull_request.user.login:
                 self.app.logger.info(f"{self.log_prefix} Adding reviewer {reviewer}")
                 try:
@@ -868,7 +879,7 @@ Available labels:
 
     def user_commands(self, command, reviewed_user, issue_comment_id):
         remove = False
-        available_commands = ["retest", "cherry-pick"]
+        available_commands = ["retest", "cherry-pick", "assign-reviewers"]
         if "sonarsource.github.io" in command:
             self.app.logger.info(f"{self.log_prefix} command is in ignore list")
             return
@@ -883,11 +894,15 @@ Available labels:
             remove = True
 
         if _command in available_commands:
-            if not _args:
+            if not _args and _command != "assign-reviewers":
                 issue_msg = f"{_command} requires an argument"
                 error_msg = f"{self.log_prefix} {issue_msg}"
                 self.app.logger.info(error_msg)
                 self.pull_request.create_issue_comment(issue_msg)
+                return
+
+            if _command == "assign-reviewers":
+                self.assign_reviewers()
                 return
 
             if _command == "cherry-pick":
