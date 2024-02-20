@@ -167,7 +167,7 @@ Following actions are done automatically:
 * Issues get closed when PR is merged/closed.
 
 ## OWNERS file example
-```
+```yaml
 approvers:
   - myakove
   - rnetser
