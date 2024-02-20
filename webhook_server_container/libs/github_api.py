@@ -423,7 +423,7 @@ stderr: `{err}`
     def reviewers(self):
         bc_reviewers = self.owners_content.get("reviewers", [])
         any_reviewers = self.owners_content.get("reviewers", {}).get("any", [])
-        return list(set(bc_reviewers + any_reviewers))
+        return list(set(bc_reviewers if isinstance(bc_reviewers, list) else [] + any_reviewers))
 
     @property
     def files_reviewers(self):
@@ -451,7 +451,7 @@ stderr: `{err}`
             if any(fl for fl in changed_files if Path(_folder) == Path(fl).parent):
                 reviewers_to_add.extend(_reviewers)
 
-        for reviewer in reviewers_to_add:
+        for reviewer in set(reviewers_to_add):
             if reviewer != self.pull_request.user.login:
                 self.app.logger.info(f"{self.log_prefix} Adding reviewer {reviewer}")
                 try:
