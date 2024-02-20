@@ -424,22 +424,26 @@ stderr: `{err}`
 
     @property
     def reviewers(self):
-        any_reviewers = []
         bc_reviewers = self.owners_content.get("reviewers", [])
-        if not bc_reviewers:
-            any_reviewers = self.owners_content.get("reviewers", {}).get("any", [])
+        if isinstance(bc_reviewers, dict):
+            _reviewers = self.owners_content.get("reviewers").get("any", [])
+        else:
+            _reviewers = bc_reviewers
 
-        _reviewers = bc_reviewers or any_reviewers
         self.app.logger.info(f"{self.log_prefix} Reviewers: {_reviewers}")
         return _reviewers
 
     @property
     def files_reviewers(self):
-        return self.owners_content.get("reviewers", {}).get("files", {})
+        _reviewers = self.owners_content.get("reviewers")
+        if isinstance(_reviewers, dict):
+            return _reviewers.get("files", {})
 
     @property
     def folders_reviewers(self):
-        return self.owners_content.get("reviewers", {}).get("folders", {})
+        _reviewers = self.owners_content.get("reviewers")
+        if isinstance(_reviewers, dict):
+            return _reviewers.get("folders", {})
 
     @property
     def approvers(self):
