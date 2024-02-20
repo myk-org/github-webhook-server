@@ -438,12 +438,14 @@ stderr: `{err}`
         _reviewers = self.owners_content.get("reviewers")
         if isinstance(_reviewers, dict):
             return _reviewers.get("files", {})
+        return {}
 
     @property
     def folders_reviewers(self):
         _reviewers = self.owners_content.get("reviewers")
         if isinstance(_reviewers, dict):
             return _reviewers.get("folders", {})
+        return {}
 
     @property
     def approvers(self):
