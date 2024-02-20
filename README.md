@@ -161,7 +161,7 @@ docker:
 
 Following actions are done automatically:
 
-* Add reviewers from [OWNERS](OWNERS) file
+* Add reviewers from [OWNERS](OWNERS) file, support add different reviewers based on files/folders.
 * Set PR size label.
 * New issue is created for the PR.
 * Issues get closed when PR is merged/closed.
@@ -179,7 +179,7 @@ reviewers:
     Dockerfile:
         - myakove
   folders: # will be added to PRs if folders in the list are changed
-    github-webhook-server:
+    webhook_server_container/libs: # path is relative to the repository root
         - myakove
 ```
 
