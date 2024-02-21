@@ -86,13 +86,16 @@ def process_webhook():
 
 def main():
     config = Config()
-    get_api_with_highest_rate_limit(config=config)
+    api, _ = get_api_with_highest_rate_limit(config=config)
     get_repositories_github_app_api(config=config)
-    set_repositories_settings(config=config)
+    set_repositories_settings(config=config, github_api=api)
     set_all_in_progress_check_runs_to_queued(
-        config=config, repositories_app_api=REPOSITORIES_APP_API, missing_app_repositories=MISSING_APP_REPOSITORIES
+        config=config,
+        repositories_app_api=REPOSITORIES_APP_API,
+        missing_app_repositories=MISSING_APP_REPOSITORIES,
+        github_api=api,
     )
-    create_webhook(config=config)
+    create_webhook(config=config, github_api=api)
     FLASK_APP.logger.info(f"Starting {FLASK_APP.name} app")
     FLASK_APP.run(
         port=int(os.environ.get("WEBHOOK_SERVER_PORT", 5000)),

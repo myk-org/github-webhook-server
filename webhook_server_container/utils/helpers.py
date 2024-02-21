@@ -114,43 +114,21 @@ def run_command(
         return False, out_decoded, err_decoded
 
 
-def wait_for_rate_limit_reset(apis_and_tokens):
-    minimum_limit = 200
-    api, token, rate_limit, time_for_limit_reset, api_user = (
-        None,
-        None,
-        None,
-        None,
-        None,
-    )
-
+def wait_for_rate_limit_reset(apis_and_tokens, minimum_limit):
+    shorter_time_for_limit_reset, api, token, api_user, rate_limit = None, None, None, None, None
     for _api, _token in apis_and_tokens:
-        api_user = _api.get_user().login
-        rate_limit = _api.get_rate_limit()
-        _time_for_limit_reset = (rate_limit.core.reset - datetime.datetime.now(tz=datetime.timezone.utc)).seconds
-        if not time_for_limit_reset:
-            api, token, time_for_limit_reset = _api, _token, _time_for_limit_reset
-            continue
+        _api_user = _api.get_user().login
+        _rate_limit = _api.get_rate_limit()
+        _time_for_limit_reset = (_rate_limit.core.reset - datetime.datetime.now(tz=datetime.timezone.utc)).seconds
+        if not shorter_time_for_limit_reset or _time_for_limit_reset < shorter_time_for_limit_reset:
+            shorter_time_for_limit_reset = _time_for_limit_reset
+            api, token, api_user, rate_limit = _api, _token, _api_user, _rate_limit
 
-        if _time_for_limit_reset < time_for_limit_reset:
-            api, token, time_for_limit_reset = _api, _token, _time_for_limit_reset
-
-        FLASK_APP.logger.info(f"Rate limit reset for {api_user} is in {time_for_limit_reset} seconds")
-
-    while (
-        datetime.datetime.now(tz=datetime.timezone.utc) < rate_limit.core.reset
-        and rate_limit.core.remaining < minimum_limit
-    ):
-        FLASK_APP.logger.warning(
-            f"[{api_user}] Rate limit is below {minimum_limit} waiting till {rate_limit.core.reset}"
-        )
-        FLASK_APP.logger.info(
-            f"Sleeping {time_for_limit_reset} seconds [{datetime.timedelta(seconds=time_for_limit_reset)}]"
-        )
-        time.sleep(time_for_limit_reset + 1)
-        rate_limit = api.get_rate_limit()
-        api, token = api, token
-
+    FLASK_APP.logger.warning(f"[{api_user}] Rate limit is below {minimum_limit} waiting till {rate_limit.core.reset}")
+    FLASK_APP.logger.info(
+        f"Sleeping {shorter_time_for_limit_reset} seconds [{datetime.timedelta(seconds=shorter_time_for_limit_reset)}]"
+    )
+    time.sleep(shorter_time_for_limit_reset + 1)
     return api, token
 
 
@@ -174,7 +152,7 @@ def get_apis_and_tokes_from_config(config, repository_name=None):
 def get_api_with_highest_rate_limit(config, repository_name=None):
     api, token, _api_user, rate_limit = None, None, None, None
     remaining = 0
-    minimum_limit = 1000
+    minimum_limit = 500
 
     apis_and_tokens = get_apis_and_tokes_from_config(config=config, repository_name=repository_name)
     for _api, _token in apis_and_tokens:
@@ -187,8 +165,8 @@ def get_api_with_highest_rate_limit(config, repository_name=None):
 
     log_rate_limit(rate_limit=rate_limit, api_user=_api_user)
     if remaining < minimum_limit:
-        FLASK_APP.logger.error(f"All API users have rate limit below {minimum_limit}")
-        return wait_for_rate_limit_reset(apis_and_tokens=apis_and_tokens)
+        FLASK_APP.logger.warning(f"All API users have rate limit below {minimum_limit}")
+        return wait_for_rate_limit_reset(apis_and_tokens=apis_and_tokens, minimum_limit=minimum_limit)
 
     FLASK_APP.logger.info(f"API user {_api_user} selected with highest rate limit: {remaining}")
     return api, token

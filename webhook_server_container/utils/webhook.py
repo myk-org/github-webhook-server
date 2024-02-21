@@ -1,6 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from github import Github
 
 from webhook_server_container.utils.constants import FLASK_APP
 from webhook_server_container.utils.helpers import get_github_repo_api, ignore_exceptions
@@ -34,9 +33,8 @@ def process_github_webhook(data, github_api, webhook_ip):
     return f"{repository}: Create webhook is done"
 
 
-def create_webhook(config):
+def create_webhook(config, github_api):
     FLASK_APP.logger.info("Preparing webhook configuration")
-    github_api = Github(login_or_token=config.data["github-tokens"][0])
     webhook_ip = config.data["webhook_ip"]
 
     futures = []
