@@ -174,7 +174,7 @@ def get_apis_and_tokes_from_config(config, repository_name=None):
 def get_api_with_highest_rate_limit(config, repository_name=None):
     api, token, _api_user, rate_limit = None, None, None, None
     remaining = 0
-    minimum_limit = 500
+    minimum_limit = 1000
 
     apis_and_tokens = get_apis_and_tokes_from_config(config=config, repository_name=repository_name)
     for _api, _token in apis_and_tokens:
