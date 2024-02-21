@@ -138,6 +138,7 @@ Once the PR is merged, the container will be build and push to the repository
 * `password`: The password for the username
 * `repository`: the repository to push the container, for example `quay.io/myakove/github-webhook-server`
 * `tag`: The container tag to use when pushing the container
+* `release`: if `true` a new container will be pushed with the release version as the tag
 
 
 ```yaml

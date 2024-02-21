@@ -47,6 +47,7 @@ repositories:
       password: <registry_password>
       repository: <registry_repository_full_path>
       tag: <image_tag>
+      release: true # Push image to registry on new release with release as the tag
       build-args: # build args to send to podman build command
         - build-arg1=1
         - build-arg2=2

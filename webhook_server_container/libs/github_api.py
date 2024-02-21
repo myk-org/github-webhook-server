@@ -284,6 +284,7 @@ Available user actions:
             self.container_tag = self.build_and_push_container.get("tag", "latest")
             self.container_build_args = self.build_and_push_container.get("build-args")
             self.container_command_args = self.build_and_push_container.get("args")
+            self.container_release = self.build_and_push_container.get("release")
 
         self.auto_verified_and_merged_users = config_data.get(
             "auto-verified-and-merged-users", repo_data.get("auto-verified-and-merged-users", [])
@@ -762,10 +763,13 @@ Available labels:
 
     def process_push_webhook_data(self):
         tag = re.search(r"refs/tags/?(.*)", self.hook_data["ref"])
-        if tag and self.pypi:
+        if tag:
             tag_name = tag.group(1)
-            self.app.logger.info(f"{self.log_prefix} Processing push for tag: {tag_name}")
-            self.upload_to_pypi(tag_name=tag_name)
+            if self.pypi:
+                self.app.logger.info(f"{self.log_prefix} Processing push for tag: {tag_name}")
+                self.upload_to_pypi(tag_name=tag_name)
+            if self.container_release:
+                self._run_build_container(push=True, set_check=False, tag=tag_name)
 
     def process_pull_request_review_webhook_data(self):
         if not self.pull_request:
@@ -1208,11 +1212,11 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 </details>
         """
 
-    def _container_repository_and_tag(self):
-        tag = self.container_tag if self.pull_request.is_merged() else f"pr-{self.pull_request.number}"
+    def _container_repository_and_tag(self, tag=None):
+        tag = tag or self.container_tag if self.pull_request.is_merged() else f"pr-{self.pull_request.number}"
         return f"{self.container_repository}:{tag}"
 
-    def _run_build_container(self, set_check=True, push=False, is_merged=None):
+    def _run_build_container(self, set_check=True, push=False, is_merged=None, tag=None):
         if not self.build_and_push_container:
             return False
 
@@ -1223,7 +1227,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
 
             self.set_container_build_in_progress()
 
-        _container_repository_and_tag = self._container_repository_and_tag()
+        _container_repository_and_tag = self._container_repository_and_tag(tag=tag)
         build_cmd = f"--network=host -f {self.container_repo_dir}/{self.dockerfile} -t {_container_repository_and_tag}"
         if self.container_build_args:
             build_args = [f"--build-arg {b_arg}" for b_arg in self.container_build_args][0]
