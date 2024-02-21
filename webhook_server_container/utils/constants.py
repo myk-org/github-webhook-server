@@ -1,15 +1,6 @@
-from datetime import datetime
-
-from colorlog import ColoredFormatter
 from flask import Flask
 from flask.logging import default_handler
 from simple_logger.logger import get_logger
-
-
-class WrapperLogFormatter(ColoredFormatter):
-    def formatTime(self, record, datefmt=None):  # noqa: N802
-        return datetime.fromtimestamp(record.created).isoformat()
-
 
 FLASK_APP = Flask("webhook-server")
 FLASK_APP.logger.removeHandler(default_handler)
