@@ -1185,7 +1185,11 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
             failed_check_runs = []
             for check_run in last_commit_check_runs:
-                if check_run.name == CAN_BE_MERGED_STR or check_run.conclusion == SUCCESS_STR:
+                if (
+                    check_run.name == CAN_BE_MERGED_STR
+                    or check_run.conclusion == SUCCESS_STR
+                    or check_run.conclusion == QUEUED_STR
+                ):
                     continue
 
                 failed_check_runs.append(check_run.name)
