@@ -953,7 +953,7 @@ Available labels:
                         ]
                         info_msg = f"""
 Cherry-pick requested for PR: `{self.pull_request.title}` by user `{reviewed_user}`
-Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automatic cheery-pick once the PR is merged
+Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automatic cheery-pick once the PR is merged
 """
                         self.app.logger.info(f"{self.log_prefix} {info_msg}")
                         self.pull_request.create_issue_comment(info_msg)
