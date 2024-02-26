@@ -138,6 +138,7 @@ Available user actions:
  * To build and push container image command `/build-and-push-container` in the PR (tag will be the PR number).
  * To add a label by comment use `/<label name>`, to remove, use `/<label name> cancel`
  * To assign reviewers based on OWNERS file use `/assign-reviewers`
+ * To check if PR can be merged use `/check-can-merge`
 
 <details>
 <summary>Supported /retest check runs</summary>
@@ -595,8 +596,16 @@ Available labels:
         return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, status=QUEUED_STR)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    def set_merge_check_in_progress(self):
+        return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, status=IN_PROGRESS_STR)
+
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_merge_check_success(self):
         return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, conclusion=SUCCESS_STR)
+
+    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    def set_merge_check_failure(self, output):
+        return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, conclusion=FAILURE_STR, output=output)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_container_build_queued(self):
@@ -904,7 +913,7 @@ Available labels:
             remove = True
 
         if _command in available_commands:
-            if not _args and _command != "assign-reviewers":
+            if not _args and _command not in ("assign-reviewers", "check-can-merge"):
                 issue_msg = f"{_command} requires an argument"
                 error_msg = f"{self.log_prefix} {issue_msg}"
                 self.app.logger.info(error_msg)
@@ -913,6 +922,10 @@ Available labels:
 
             if _command == "assign-reviewers":
                 self.assign_reviewers()
+                return
+
+            if _command == "check-can-merge":
+                self.check_if_can_be_merged()
                 return
 
             if _command == "cherry-pick":
@@ -1133,6 +1146,8 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         if self.skip_if_pull_request_already_merged():
             return False
 
+        self.set_merge_check_in_progress()
+
         self.app.logger.info(f"{self.log_prefix} Check if {CAN_BE_MERGED_STR}.")
         last_commit_check_runs = list(self.last_commit.get_check_runs())
         check_runs_in_progress = [
@@ -1143,19 +1158,30 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                 f"{self.log_prefix} Some check runs in progress {check_runs_in_progress}, "
                 f"skipping check if {CAN_BE_MERGED_STR}."
             )
+            self.set_merge_check_failure(output=f"Some check runs in progress {check_runs_in_progress}")
             return False
 
         try:
             _labels = self.pull_request_labels_names()
 
-            if VERIFIED_LABEL_STR not in _labels or HOLD_LABEL_STR in _labels or WIP_STR in _labels:
+            failure_output = ""
+            missing_verified = VERIFIED_LABEL_STR not in _labels
+            is_hold = HOLD_LABEL_STR in _labels
+            is_wip = WIP_STR in _labels
+            if missing_verified or is_hold or is_wip:
                 self._remove_label(label=CAN_BE_MERGED_STR)
-                self.set_merge_check_queued()
+                if missing_verified:
+                    failure_output += "Missing verified label."
+                if is_hold:
+                    failure_output += "\nHold label exists."
+                if is_wip:
+                    failure_output += "\nWIP label exists."
+                self.set_merge_check_failure(output=failure_output)
                 return False
 
             if self.pull_request.mergeable_state == "behind":
                 self._remove_label(label=CAN_BE_MERGED_STR)
-                self.set_merge_check_queued()
+                self.set_merge_check_failure(output="PR needs rebase")
                 return False
 
             all_check_runs_passed = all([
@@ -1165,7 +1191,7 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
             ])
             if not all_check_runs_passed:
                 self._remove_label(label=CAN_BE_MERGED_STR)
-                self.set_merge_check_queued()
+                self.set_merge_check_failure(output="Some check runs failed")
                 return False
 
             for _label in _labels:
@@ -1173,7 +1199,8 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                     change_request_user = _label.split("-")[-1]
                     if change_request_user in self.approvers:
                         self._remove_label(label=CAN_BE_MERGED_STR)
-                        return self.set_merge_check_queued()
+                        self.set_merge_check_failure(output="PR has changed requests from approvers")
+                        return False
 
             self.app.logger.info(f"{self.log_prefix} check if can be merged PR labels are: {_labels}")
 
@@ -1196,12 +1223,13 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
                             return self.pull_request.merge(merge_method="squash")
                     else:
                         self.app.logger.warning(f"{self.log_prefix} approved user not in approvers: {approved_user}")
+                        self.set_merge_check_failure(output=f"Missing lgtm/approved from approvers [{self.approvers}]")
 
         except Exception as ex:
             self.app.logger.error(
-                f"{self.log_prefix} Failed to check if can be merged, set check run to {QUEUED_STR} {ex}"
+                f"{self.log_prefix} Failed to check if can be merged, set check run to {FAILURE_STR} {ex}"
             )
-            return self.set_merge_check_queued()
+            return self.set_merge_check_failure(output="Failed to check if can be merged, check logs")
 
     @staticmethod
     def _comment_with_details(title, body):
