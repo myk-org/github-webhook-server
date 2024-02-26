@@ -588,12 +588,12 @@ Available labels:
         return self.set_check_run_status(check_run=PRE_COMMIT_STR, conclusion=FAILURE_STR, output=output)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
-    def set_run_pre_commit_check_success(self, output):
-        return self.set_check_run_status(check_run=PRE_COMMIT_STR, conclusion=SUCCESS_STR, output=output)
+    def set_run_pre_commit_check_success(self):
+        return self.set_check_run_status(check_run=PRE_COMMIT_STR, conclusion=SUCCESS_STR)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
-    def set_merge_check_queued(self):
-        return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, status=QUEUED_STR)
+    def set_merge_check_queued(self, output=None):
+        return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, status=QUEUED_STR, output=output)
 
     @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
     def set_merge_check_in_progress(self):
@@ -898,7 +898,7 @@ Available labels:
 
     def user_commands(self, command, reviewed_user, issue_comment_id):
         remove = False
-        available_commands = ["retest", "cherry-pick", "assign-reviewers"]
+        available_commands = ["retest", "cherry-pick", "assign-reviewers", "check-can-merge"]
         if "sonarsource.github.io" in command:
             self.app.logger.info(f"{self.log_prefix} command is in ignore list")
             return
@@ -1146,90 +1146,100 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         if self.skip_if_pull_request_already_merged():
             return False
 
-        self.set_merge_check_in_progress()
-
-        self.app.logger.info(f"{self.log_prefix} Check if {CAN_BE_MERGED_STR}.")
-        last_commit_check_runs = list(self.last_commit.get_check_runs())
-        check_runs_in_progress = [
-            check_run.name for check_run in last_commit_check_runs if check_run.status == IN_PROGRESS_STR
-        ]
-        if check_runs_in_progress:
-            self.app.logger.info(
-                f"{self.log_prefix} Some check runs in progress {check_runs_in_progress}, "
-                f"skipping check if {CAN_BE_MERGED_STR}."
-            )
-            self.set_merge_check_failure(output=f"Some check runs in progress {check_runs_in_progress}")
-            return False
+        output = {
+            "title": "Check if can be merged",
+            "summary": "",
+            "text": None,
+        }
+        failure_output = ""
 
         try:
-            _labels = self.pull_request_labels_names()
+            self.app.logger.info(f"{self.log_prefix} Check if {CAN_BE_MERGED_STR}.")
+            self.set_merge_check_queued()
+            last_commit_check_runs = list(self.last_commit.get_check_runs())
+            check_runs_in_progress = [
+                check_run.name
+                for check_run in last_commit_check_runs
+                if check_run.status == IN_PROGRESS_STR and check_run.name != CAN_BE_MERGED_STR
+            ]
+            if check_runs_in_progress:
+                self.app.logger.info(
+                    f"{self.log_prefix} Some check runs in progress {check_runs_in_progress}, "
+                    f"skipping check if {CAN_BE_MERGED_STR}."
+                )
+                failure_output += f"Some check runs in progress {check_runs_in_progress}\n"
 
-            failure_output = ""
-            missing_verified = VERIFIED_LABEL_STR not in _labels
+            _labels = self.pull_request_labels_names()
             is_hold = HOLD_LABEL_STR in _labels
             is_wip = WIP_STR in _labels
-            if missing_verified or is_hold or is_wip:
+            if is_hold or is_wip:
                 self._remove_label(label=CAN_BE_MERGED_STR)
-                if missing_verified:
-                    failure_output += "Missing verified label."
                 if is_hold:
-                    failure_output += "\nHold label exists."
+                    failure_output += "Hold label exists.\n"
                 if is_wip:
-                    failure_output += "\nWIP label exists."
-                self.set_merge_check_failure(output=failure_output)
-                return False
+                    failure_output += "WIP label exists.\n"
 
             if self.pull_request.mergeable_state == "behind":
                 self._remove_label(label=CAN_BE_MERGED_STR)
-                self.set_merge_check_failure(output="PR needs rebase")
-                return False
+                failure_output += "PR needs rebase\n"
 
-            all_check_runs_passed = all([
-                check_run.conclusion == SUCCESS_STR
-                for check_run in last_commit_check_runs
-                if check_run.name != CAN_BE_MERGED_STR
-            ])
-            if not all_check_runs_passed:
+            failed_check_runs = []
+            for check_run in last_commit_check_runs:
+                if check_run.name == CAN_BE_MERGED_STR or check_run.conclusion == SUCCESS_STR:
+                    continue
+
+                failed_check_runs.append(check_run.name)
+
+            if failed_check_runs:
                 self._remove_label(label=CAN_BE_MERGED_STR)
-                self.set_merge_check_failure(output="Some check runs failed")
-                return False
+                failure_output += f"Some check runs failed: {failed_check_runs}\n"
 
             for _label in _labels:
                 if CHANGED_REQUESTED_BY_LABEL_PREFIX.lower() in _label.lower():
                     change_request_user = _label.split("-")[-1]
                     if change_request_user in self.approvers:
                         self._remove_label(label=CAN_BE_MERGED_STR)
-                        self.set_merge_check_failure(output="PR has changed requests from approvers")
-                        return False
+                        failure_output += "PR has changed requests from approvers\n"
 
-            self.app.logger.info(f"{self.log_prefix} check if can be merged PR labels are: {_labels}")
+            self.app.logger.info(f"{self.log_prefix} check if can be merged. PR labels are: {_labels}")
 
+            pr_approved = False
             for _label in _labels:
                 if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
                     approved_user = _label.split("-")[-1]
                     if approved_user in self.approvers:
-                        self._add_label(label=CAN_BE_MERGED_STR)
-                        self.set_merge_check_success()
-                        if self.parent_committer in self.auto_verified_and_merged_users:
-                            self.app.logger.info(
-                                f"{self.log_prefix} will be merged automatically. owner: {self.parent_committer} "
-                                f"is part of {self.auto_verified_and_merged_users}"
-                            )
-                            self.pull_request.create_issue_comment(
-                                f"Owner of the pull request {self.parent_committer} "
-                                f"is part of:\n`{self.auto_verified_and_merged_users}`\n"
-                                "Pull request is merged automatically."
-                            )
-                            return self.pull_request.merge(merge_method="squash")
-                    else:
-                        self.app.logger.warning(f"{self.log_prefix} approved user not in approvers: {approved_user}")
-                        self.set_merge_check_failure(output=f"Missing lgtm/approved from approvers [{self.approvers}]")
+                        pr_approved = True
+                        break
+
+            if pr_approved and not failure_output:
+                self._add_label(label=CAN_BE_MERGED_STR)
+                self.set_merge_check_success()
+                if self.parent_committer in self.auto_verified_and_merged_users:
+                    self.app.logger.info(
+                        f"{self.log_prefix} will be merged automatically. owner: {self.parent_committer} "
+                        f"is part of {self.auto_verified_and_merged_users}"
+                    )
+                    self.pull_request.create_issue_comment(
+                        f"Owner of the pull request {self.parent_committer} "
+                        f"is part of:\n`{self.auto_verified_and_merged_users}`\n"
+                        "Pull request is merged automatically."
+                    )
+                    return self.pull_request.merge(merge_method="squash")
+
+            if not pr_approved:
+                failure_output += f"Missing lgtm/approved from approvers {self.approvers}\n"
+
+            if failure_output:
+                self.app.logger.info(f"{self.log_prefix} cannot be merged: {failure_output}")
+                output["text"] = failure_output
+                self.set_merge_check_failure(output=output)
 
         except Exception as ex:
             self.app.logger.error(
                 f"{self.log_prefix} Failed to check if can be merged, set check run to {FAILURE_STR} {ex}"
             )
-            return self.set_merge_check_failure(output="Failed to check if can be merged, check logs")
+            output["text"] = "Failed to check if can be merged, check logs"
+            return self.set_merge_check_failure(output=output)
 
     @staticmethod
     def _comment_with_details(title, body):
@@ -1409,9 +1419,10 @@ Adding label/s `{' '.join([_cp_label for _cp_label in cp_labels])}` for automati
         self.app.logger.info(f"{self.log_prefix} Set {check_run} check to {status or conclusion}")
         try:
             self.repository_by_github_app.create_check_run(**kwargs)
-        except Exception:
-            self.app.logger.info(f"{self.log_prefix} Failed to set {check_run} check to {status or conclusion}")
-            self.repository_by_github_app.create_check_run(conclusion=FAILURE_STR)
+        except Exception as ex:
+            self.app.logger.info(f"{self.log_prefix} Failed to set {check_run} check to {status or conclusion}, {ex}")
+            kwargs["conclusion"] = FAILURE_STR
+            self.repository_by_github_app.create_check_run(**kwargs)
         return f"Done setting check run status: {kwargs}"
 
     def _run_in_container(self, command, env=None):
