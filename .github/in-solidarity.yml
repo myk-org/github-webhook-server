@@ -1,15 +1,16 @@
+---
 rules:
-  master:
-    level: failure  # default rules are set to warning
-  slave:
-    level: failure
-  blacklist:
-    level: failure
-  whitelist:
-    level: failure
+    master:
+        level: failure # default rules are set to warning
+    slave:
+        level: failure
+    blacklist:
+        level: failure
+    whitelist:
+        level: failure
 ignore:
- - ".github/in-solidarity.yml"  # default
- - ".github/workflows/*.yml"
- - "**/*.yml"
- - ".release-it.json"
- - ".github/ISSUE_TEMPLATE/sweep-template.yml"
+    - .github/in-solidarity.yml # default
+    - .github/workflows/*.yml
+    - '**/*.yml'
+    - .release-it.json
+    - .github/ISSUE_TEMPLATE/sweep-template.yml
