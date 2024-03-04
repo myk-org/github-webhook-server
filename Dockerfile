@@ -10,14 +10,9 @@ ENV USER_BIN_DIR="/root/.local/bin"
 ENV DATA_DIR=/webhook_server
 ENV APP_DIR=/github-webhook-server
 ENV PATH="$USER_BIN_DIR:$PATH"
-ENV SONAR_SCANNER_CLI_VERSION="5.0.1.3006"
 
 RUN mkdir -p $USER_BIN_DIR \
   && mkdir -p $DATA_DIR \
-  && mkdir -p $DATA_DIR/tox \
-  && mkdir -p $DATA_DIR/python-module-install \
-  && mkdir -p $DATA_DIR/build-container \
-  && mkdir -p $DATA_DIR/CherryPicked \
   && mkdir -p $DATA_DIR/logs \
   && mkdir -p /tmp/containers
 
