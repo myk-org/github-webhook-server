@@ -26,7 +26,7 @@ MISSING_APP_REPOSITORIES = []
 urllib3.disable_warnings()
 
 
-@ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+@ignore_exceptions(logger=FLASK_APP.logger)
 def get_repositories_github_app_api(config):
     FLASK_APP.logger.info("Getting repositories GitHub app API")
     with open(os.path.join(config.data_dir, "webhook-server.private-key.pem")) as fd:
