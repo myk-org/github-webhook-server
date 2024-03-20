@@ -5,7 +5,7 @@ from webhook_server_container.utils.constants import FLASK_APP
 from webhook_server_container.utils.helpers import get_github_repo_api, ignore_exceptions
 
 
-@ignore_exceptions()
+@ignore_exceptions(logger=FLASK_APP.logger)
 def process_github_webhook(data, github_api, webhook_ip):
     repository = data["name"]
     repo = get_github_repo_api(github_api=github_api, repository=repository)

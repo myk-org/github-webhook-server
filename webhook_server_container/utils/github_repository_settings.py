@@ -18,7 +18,7 @@ from webhook_server_container.utils.constants import (
 from webhook_server_container.utils.helpers import get_github_repo_api, ignore_exceptions
 
 
-@ignore_exceptions(retry=10)
+@ignore_exceptions(logger=FLASK_APP.logger)
 def get_branch_sampler(repo, branch_name):
     return repo.get_branch(branch=branch_name)
 
