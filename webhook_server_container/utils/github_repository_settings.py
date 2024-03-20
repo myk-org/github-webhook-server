@@ -18,7 +18,7 @@ from webhook_server_container.utils.constants import (
 from webhook_server_container.utils.helpers import get_github_repo_api, ignore_exceptions
 
 
-@ignore_exceptions(retry=10)
+@ignore_exceptions(logger=FLASK_APP.logger)
 def get_branch_sampler(repo, branch_name):
     return repo.get_branch(branch=branch_name)
 
@@ -31,7 +31,7 @@ def skip_repo(protected_branches, repo):
         return True
 
 
-@ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+@ignore_exceptions(logger=FLASK_APP.logger)
 def set_branch_protection(branch, repository, required_status_checks, github_api):
     api_user = github_api.get_user().login
     FLASK_APP.logger.info(
@@ -51,7 +51,7 @@ def set_branch_protection(branch, repository, required_status_checks, github_api
     )
 
 
-@ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+@ignore_exceptions(logger=FLASK_APP.logger)
 def set_repository_settings(repository):
     FLASK_APP.logger.info(f"Set repository {repository.name} settings")
     repository.edit(delete_branch_on_merge=True, allow_auto_merge=True, allow_update_branch=True)

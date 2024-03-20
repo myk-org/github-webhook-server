@@ -2,7 +2,6 @@ import datetime
 import shlex
 import subprocess
 from functools import wraps
-from time import sleep
 
 from colorama import Fore
 from github import Github
@@ -24,20 +23,13 @@ def extract_key_from_dict(key, _dict):
                         yield result
 
 
-def ignore_exceptions(logger=None, retry=None):
+def ignore_exceptions(logger=None):
     def wrapper(func):
         @wraps(func)
         def inner(*args, **kwargs):
             try:
                 return func(*args, **kwargs)
             except Exception as ex:
-                if retry:
-                    for _ in range(0, retry):
-                        try:
-                            return func(*args, **kwargs)
-                        except Exception:
-                            sleep(1)
-
                 if logger:
                     logger.error(f"{func.__name__}({args} {kwargs}). Error: {ex}")
                 return None
@@ -47,7 +39,7 @@ def ignore_exceptions(logger=None, retry=None):
     return wrapper
 
 
-@ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+@ignore_exceptions(logger=FLASK_APP.logger)
 def get_github_repo_api(github_api, repository):
     return github_api.get_repo(repository)
 
@@ -129,7 +121,7 @@ def get_apis_and_tokes_from_config(config, repository_name=None):
     return apis_and_tokens
 
 
-@ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+@ignore_exceptions(logger=FLASK_APP.logger)
 def get_api_with_highest_rate_limit(config, repository_name=None):
     """
     Get API with the highest rate limit

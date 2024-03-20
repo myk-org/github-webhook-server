@@ -324,7 +324,7 @@ Available user actions:
             self.app.logger.info(f"{self.log_prefix}: PR is merged, not processing")
             return True
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def _remove_label(self, label):
         if self.label_exists_in_pull_request(label=label):
             self.app.logger.info(f"{self.log_prefix} Removing label {label}")
@@ -333,7 +333,7 @@ Available user actions:
 
         self.app.logger.warning(f"{self.log_prefix} Label {label} not found and cannot be removed")
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def _add_label(self, label):
         label = label.strip()
         if len(label) > 49:
@@ -546,119 +546,119 @@ Available labels:
         # Remove verified label
         self._remove_label(label=VERIFIED_LABEL_STR)
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def set_verify_check_queued(self):
         return self.set_check_run_status(check_run=VERIFIED_LABEL_STR, status=QUEUED_STR)
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def set_verify_check_success(self):
         return self.set_check_run_status(check_run=VERIFIED_LABEL_STR, conclusion=SUCCESS_STR)
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def set_run_tox_check_queued(self):
         if not self.tox_enabled:
             return False
 
         return self.set_check_run_status(check_run=TOX_STR, status=QUEUED_STR)
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def set_run_tox_check_in_progress(self):
         return self.set_check_run_status(check_run=TOX_STR, status=IN_PROGRESS_STR)
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def set_run_tox_check_failure(self, output):
         return self.set_check_run_status(check_run=TOX_STR, conclusion=FAILURE_STR, output=output)
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def set_run_tox_check_success(self, output):
         return self.set_check_run_status(check_run=TOX_STR, conclusion=SUCCESS_STR, output=output)
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def set_run_pre_commit_check_queued(self):
         if not self.pre_commit:
             return False
 
         return self.set_check_run_status(check_run=PRE_COMMIT_STR, status=QUEUED_STR)
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def set_run_pre_commit_check_in_progress(self):
         return self.set_check_run_status(check_run=PRE_COMMIT_STR, status=IN_PROGRESS_STR)
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def set_run_pre_commit_check_failure(self, output):
         return self.set_check_run_status(check_run=PRE_COMMIT_STR, conclusion=FAILURE_STR, output=output)
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def set_run_pre_commit_check_success(self):
         return self.set_check_run_status(check_run=PRE_COMMIT_STR, conclusion=SUCCESS_STR)
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def set_merge_check_queued(self, output=None):
         return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, status=QUEUED_STR, output=output)
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def set_merge_check_in_progress(self):
         return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, status=IN_PROGRESS_STR)
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def set_merge_check_success(self):
         return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, conclusion=SUCCESS_STR)
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def set_merge_check_failure(self, output):
         return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, conclusion=FAILURE_STR, output=output)
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def set_container_build_queued(self):
         if not self.build_and_push_container:
             return
 
         return self.set_check_run_status(check_run=BUILD_CONTAINER_STR, status=QUEUED_STR)
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def set_container_build_in_progress(self):
         return self.set_check_run_status(check_run=BUILD_CONTAINER_STR, status=IN_PROGRESS_STR)
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def set_container_build_success(self, output):
         return self.set_check_run_status(check_run=BUILD_CONTAINER_STR, conclusion=SUCCESS_STR, output=output)
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def set_container_build_failure(self, output):
         return self.set_check_run_status(check_run=BUILD_CONTAINER_STR, conclusion=FAILURE_STR, output=output)
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def set_python_module_install_queued(self):
         if not self.pypi:
             return False
 
         return self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, status=QUEUED_STR)
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def set_python_module_install_in_progress(self):
         return self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, status=IN_PROGRESS_STR)
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def set_python_module_install_success(self, output):
         return self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, conclusion=SUCCESS_STR, output=output)
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def set_python_module_install_failure(self, output):
         return self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, conclusion=FAILURE_STR, output=output)
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def set_cherry_pick_in_progress(self):
         return self.set_check_run_status(check_run=CHERRY_PICKED_LABEL_PREFIX, status=IN_PROGRESS_STR)
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def set_cherry_pick_success(self, output):
         return self.set_check_run_status(check_run=CHERRY_PICKED_LABEL_PREFIX, conclusion=SUCCESS_STR, output=output)
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def set_cherry_pick_failure(self, output):
         return self.set_check_run_status(check_run=CHERRY_PICKED_LABEL_PREFIX, conclusion=FAILURE_STR, output=output)
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def create_issue_for_new_pull_request(self):
         if self.parent_committer in self.auto_verified_and_merged_users:
             self.app.logger.info(
@@ -672,7 +672,7 @@ Available labels:
             title=self._generate_issue_title(), body=self._generate_issue_body(), assignee=self.pull_request.user.login
         )
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def close_issue_for_merged_or_closed_pr(self, hook_action):
         for issue in self.repository.get_issues():
             if issue.body == self._generate_issue_body():
@@ -1096,7 +1096,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     "```"
                 )
 
-    @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def label_by_pull_requests_merge_state_after_merged(self):
         """
         Labels pull requests based on their mergeable state.
