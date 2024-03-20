@@ -92,12 +92,12 @@ class GitHubApi:
         self.config = Config()
         self._repo_data_from_config()
         self._set_log_prefix_color()
+
         self.github_app_api = self.get_github_app_api()
 
         self.github_api, self.token = get_api_with_highest_rate_limit(
             config=self.config, repository_name=self.repository_name
         )
-        self.add_api_users_to_auto_verified_and_merged_users()
 
         self.repository = get_github_repo_api(github_api=self.github_api, repository=self.repository_full_name)
         self.repository_by_github_app = get_github_repo_api(
@@ -107,6 +107,7 @@ class GitHubApi:
             self.app.logger.error(f"{self.log_prefix} Failed to get repository.")
             return
 
+        self.add_api_users_to_auto_verified_and_merged_users()
         self.clone_repository_path = os.path.join("/", self.repository.name)
         self.dockerhub = DockerHub(username=self.dockerhub_username, password=self.dockerhub_password)
 

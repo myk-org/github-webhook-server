@@ -1,7 +1,6 @@
 import datetime
 import shlex
 import subprocess
-import time
 from functools import wraps
 from time import sleep
 
@@ -114,24 +113,6 @@ def run_command(
         return False, out_decoded, err_decoded
 
 
-def wait_for_rate_limit_reset(apis_and_tokens, minimum_limit):
-    shorter_time_for_limit_reset, api, token, api_user, rate_limit = None, None, None, None, None
-    for _api, _token in apis_and_tokens:
-        _api_user = _api.get_user().login
-        _rate_limit = _api.get_rate_limit()
-        _time_for_limit_reset = (_rate_limit.core.reset - datetime.datetime.now(tz=datetime.timezone.utc)).seconds
-        if not shorter_time_for_limit_reset or _time_for_limit_reset < shorter_time_for_limit_reset:
-            shorter_time_for_limit_reset = _time_for_limit_reset
-            api, token, api_user, rate_limit = _api, _token, _api_user, _rate_limit
-
-    FLASK_APP.logger.warning(f"[{api_user}] Rate limit is below {minimum_limit} waiting till {rate_limit.core.reset}")
-    FLASK_APP.logger.info(
-        f"Sleeping {shorter_time_for_limit_reset} seconds [{datetime.timedelta(seconds=shorter_time_for_limit_reset)}]"
-    )
-    time.sleep(shorter_time_for_limit_reset + 1)
-    return api, token
-
-
 def get_apis_and_tokes_from_config(config, repository_name=None):
     apis_and_tokens = []
     tokens = None
@@ -150,9 +131,18 @@ def get_apis_and_tokes_from_config(config, repository_name=None):
 
 @ignore_exceptions(logger=FLASK_APP.logger, retry=5)
 def get_api_with_highest_rate_limit(config, repository_name=None):
+    """
+    Get API with the highest rate limit
+
+    Args:
+        config (Config): Config object
+        repository_name (str, optional): Repository name, if provided try to get token set in config repository section.
+
+    Returns:
+        tuple: API, token
+    """
     api, token, _api_user, rate_limit = None, None, None, None
     remaining = 0
-    minimum_limit = 500
 
     apis_and_tokens = get_apis_and_tokes_from_config(config=config, repository_name=repository_name)
     for _api, _token in apis_and_tokens:
@@ -164,10 +154,6 @@ def get_api_with_highest_rate_limit(config, repository_name=None):
             api, token = _api, _token
 
     log_rate_limit(rate_limit=rate_limit, api_user=_api_user)
-    if remaining < minimum_limit:
-        FLASK_APP.logger.warning(f"All API users have rate limit below {minimum_limit}")
-        return wait_for_rate_limit_reset(apis_and_tokens=apis_and_tokens, minimum_limit=minimum_limit)
-
     FLASK_APP.logger.info(f"API user {_api_user} selected with highest rate limit: {remaining}")
     return api, token
 
