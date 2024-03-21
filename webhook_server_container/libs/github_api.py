@@ -1272,6 +1272,9 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         _container_repository_and_tag = self._container_repository_and_tag(tag=tag)
         build_cmd = f"--network=host -f {self.container_repo_dir}/{self.dockerfile} -t {_container_repository_and_tag}"
+        if self.container_tag == _container_repository_and_tag.split(":")[-1]:
+            build_cmd += " --no-cache"
+
         if self.container_build_args:
             build_args = [f"--build-arg {b_arg}" for b_arg in self.container_build_args][0]
             build_cmd = f"{build_args} {build_cmd}"
