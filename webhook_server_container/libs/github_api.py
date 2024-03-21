@@ -1302,7 +1302,8 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 return self.set_container_build_success(output=output)
             if push:
                 push_msg = f"New container for {_container_repository_and_tag} published"
-                self.pull_request.create_issue_comment(push_msg)
+                if self.pull_request:
+                    self.pull_request.create_issue_comment(push_msg)
                 if self.slack_webhook_url:
                     message = f"""
 ```
@@ -1315,7 +1316,8 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         else:
             if push:
                 err_msg = f"Failed to create and push {_container_repository_and_tag}"
-                self.pull_request.create_issue_comment(err_msg)
+                if self.pull_request:
+                    self.pull_request.create_issue_comment(err_msg)
                 if self.slack_webhook_url:
                     message = f"""
 ```
