@@ -776,9 +776,10 @@ Available labels:
         if tag:
             tag_name = tag.group(1)
             if self.pypi:
-                self.app.logger.info(f"{self.log_prefix} Processing push for tag: {tag_name}")
+                self.app.logger.info(f"{self.log_prefix} Processing upload to pypi for tag: {tag_name}")
                 self.upload_to_pypi(tag_name=tag_name)
             if self.container_release:
+                self.app.logger.info(f"{self.log_prefix} Processing build and push container for tag: {tag_name}")
                 self._run_build_container(push=True, set_check=False, tag=tag_name)
 
     def process_pull_request_review_webhook_data(self):
@@ -1256,7 +1257,11 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         """
 
     def _container_repository_and_tag(self, tag=None):
-        tag = tag or self.container_tag if self.pull_request.is_merged() else f"pr-{self.pull_request.number}"
+        tag = (
+            tag or self.container_tag
+            if self.pull_request and self.pull_request.is_merged()
+            else f"pr-{self.pull_request.number}"
+        )
         return f"{self.container_repository}:{tag}"
 
     def _run_build_container(self, set_check=True, push=False, is_merged=None, tag=None):
