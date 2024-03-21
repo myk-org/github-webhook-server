@@ -775,6 +775,7 @@ Available labels:
         tag = re.search(r"refs/tags/?(.*)", self.hook_data["ref"])
         if tag:
             tag_name = tag.group(1)
+            self.app.logger.info(f"{self.log_prefix} Processing push for tag: {tag.group(1)}")
             if self.pypi:
                 self.app.logger.info(f"{self.log_prefix} Processing upload to pypi for tag: {tag_name}")
                 self.upload_to_pypi(tag_name=tag_name)
