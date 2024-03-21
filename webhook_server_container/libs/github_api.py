@@ -1259,6 +1259,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
     def _container_repository_and_tag(self, tag=None):
         tag = tag or (self.container_tag if self.pull_request.is_merged() else f"pr-{self.pull_request.number}")
+        self.app.logger.info(f"{self.log_prefix} Tag is: {tag}")
         return f"{self.container_repository}:{tag}"
 
     def _run_build_container(self, set_check=True, push=False, is_merged=None, tag=None):
