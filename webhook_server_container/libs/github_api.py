@@ -1275,9 +1275,9 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             self.set_container_build_in_progress()
 
         _container_repository_and_tag = self._container_repository_and_tag(tag=tag)
-        build_cmd = f"--network=host -f {self.container_repo_dir}/{self.dockerfile} -t {_container_repository_and_tag}"
-        if self.container_tag == _container_repository_and_tag.split(":")[-1]:
-            build_cmd += " --no-cache"
+        no_cache = " --no-cache" if self.container_tag == _container_repository_and_tag.split(":")[-1] else ""
+
+        build_cmd = f"--network=host {no_cache} -f {self.container_repo_dir}/{self.dockerfile} -t {_container_repository_and_tag}"
 
         if self.container_build_args:
             build_args = [f"--build-arg {b_arg}" for b_arg in self.container_build_args][0]
