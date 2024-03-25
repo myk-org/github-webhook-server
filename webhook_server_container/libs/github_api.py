@@ -87,6 +87,7 @@ class GitHubApi:
         self.container_command_args = None
         self.repository_full_name = None
         self.github_app_id = None
+        self.container_release = None
         # End of filled by self._repo_data_from_config()
 
         self.config = Config()
