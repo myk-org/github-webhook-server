@@ -745,12 +745,15 @@ Available labels:
             is_merged = pull_request_data.get("merged")
             if is_merged:
                 self.app.logger.info(f"{self.log_prefix} PR is merged")
-                self._run_build_container(push=True, set_check=False, is_merged=is_merged)
 
                 for _label in self.pull_request.labels:
                     _label_name = _label.name
                     if _label_name.startswith(CHERRY_PICK_LABEL_PREFIX):
                         self.cherry_pick(target_branch=_label_name.replace(CHERRY_PICK_LABEL_PREFIX, ""))
+
+                self._run_build_container(
+                    push=True, set_check=False, is_merged=is_merged, pull_request_branch=pull_request_branch
+                )
 
                 # label_by_pull_requests_merge_state_after_merged will override self.pull_request
                 original_pull_request = self.pull_request
@@ -1258,12 +1261,19 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 </details>
         """
 
-    def _container_repository_and_tag(self, tag=None):
-        tag = tag or (self.container_tag if self.pull_request.is_merged() else f"pr-{self.pull_request.number}")
-        self.app.logger.info(f"{self.log_prefix} Tag is: {tag}")
-        return f"{self.container_repository}:{tag}"
+    def _container_repository_and_tag(self, is_merged=None, tag=None, pull_request_branch=None):
+        if tag:
+            _tag = f"{self.container_repository}:{tag}"
+        elif is_merged:
+            _tag = pull_request_branch if pull_request_branch not in ("master", "main") else self.container_tag
+        else:
+            _tag = f"pr-{self.pull_request.number}"
 
-    def _run_build_container(self, set_check=True, push=False, is_merged=None, tag=None):
+        self.app.logger.info(f"{self.log_prefix} Tag is: {_tag}")
+        return f"{self.container_repository}:{_tag}"
+
+    @ignore_exceptions(logger=FLASK_APP.logger)
+    def _run_build_container(self, set_check=True, push=False, is_merged=None, tag=None, pull_request_branch=None):
         if not self.build_and_push_container:
             return False
 
@@ -1274,7 +1284,9 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
             self.set_container_build_in_progress()
 
-        _container_repository_and_tag = self._container_repository_and_tag(tag=tag)
+        _container_repository_and_tag = self._container_repository_and_tag(
+            tag=tag, is_merged=is_merged, pull_request_branch=pull_request_branch
+        )
         no_cache = " --no-cache" if (tag or self.container_tag == _container_repository_and_tag.split(":")[-1]) else ""
         build_cmd = f"--network=host {no_cache} -f {self.container_repo_dir}/{self.dockerfile} -t {_container_repository_and_tag}"
 
