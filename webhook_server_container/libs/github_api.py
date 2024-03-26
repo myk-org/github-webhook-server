@@ -46,6 +46,7 @@ from webhook_server_container.utils.constants import (
     VERIFIED_LABEL_STR,
     WIP_STR,
     PRE_COMMIT_STR,
+    OTHER_MAIN_BRANCH,
 )
 from webhook_server_container.utils.dockerhub_rate_limit import DockerHub
 from webhook_server_container.utils.helpers import (
@@ -1265,7 +1266,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         if tag:
             _tag = f"{self.container_repository}:{tag}"
         elif is_merged:
-            _tag = pull_request_branch if pull_request_branch not in ("master", "main") else self.container_tag
+            _tag = pull_request_branch if pull_request_branch not in (OTHER_MAIN_BRANCH, "main") else self.container_tag
         else:
             _tag = f"pr-{self.pull_request.number}"
 

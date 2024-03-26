@@ -6,6 +6,8 @@ FLASK_APP = Flask("webhook-server")
 FLASK_APP.logger.removeHandler(default_handler)
 FLASK_APP.logger.addHandler(get_logger(FLASK_APP.logger.name).handlers[0])
 
+OTHER_MAIN_BRANCH = "master"
+
 APP_ROOT_PATH = "/webhook_server"
 TOX_STR = "tox"
 PRE_COMMIT_STR = "pre-commit"
