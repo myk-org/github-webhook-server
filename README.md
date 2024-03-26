@@ -130,9 +130,11 @@ In order to not add this job set `verified_job` to `false`
 verified_job: false
 ```
 
-if `container` is configures for the repository we create `build-container` run that will build the container on each
+if `container` is configured for the repository we create `build-container` run that will build the container on each
 PR push/commit
 Once the PR is merged, the container will be build and push to the repository
+if `release` is set to `true` a new container will be pushed with the release version as the tag
+if the merged PR is in any other branch than `main` or `master` the tag will be set to `branch name`, otherwise `tag` will be used
 
 * `username`: User with push permissions to the repository
 * `password`: The password for the username
@@ -140,13 +142,13 @@ Once the PR is merged, the container will be build and push to the repository
 * `tag`: The container tag to use when pushing the container
 * `release`: if `true` a new container will be pushed with the release version as the tag
 
-
 ```yaml
 container:
   username: username
   password: password
   repository: repository path
   tag: latest
+  release: true
 ```
 
 If `docker` is configured for the repository we log in to docker.io to increase pull rate limit
