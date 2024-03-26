@@ -1264,13 +1264,13 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
     def _container_repository_and_tag(self, is_merged=None, tag=None, pull_request_branch=None):
         if tag:
-            _tag = f"{self.container_repository}:{tag}"
+            _tag = tag
         elif is_merged:
             _tag = pull_request_branch if pull_request_branch not in (OTHER_MAIN_BRANCH, "main") else self.container_tag
         else:
             _tag = f"pr-{self.pull_request.number}"
 
-        self.app.logger.info(f"{self.log_prefix} Tag is: {_tag}")
+        self.app.logger.info(f"{self.log_prefix} container tag is: {_tag}")
         return f"{self.container_repository}:{_tag}"
 
     @ignore_exceptions(logger=FLASK_APP.logger)
