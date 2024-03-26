@@ -15,4 +15,4 @@ ignore:
     - .release-it.json
     - .github/ISSUE_TEMPLATE/sweep-template.yml
     - README.md
-    - utils/constant.py
+    - webhook_server_container/utils/constants.py
