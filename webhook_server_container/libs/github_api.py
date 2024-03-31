@@ -291,7 +291,8 @@ Available user actions:
             self.container_release = self.build_and_push_container.get("release")
 
         self.auto_verified_and_merged_users = config_data.get(
-            "auto-verified-and-merged-users", repo_data.get("auto-verified-and-merged-users", [])
+            "auto-verified-and-merged-users",
+            repo_data.get("auto-verified-and-merged-users", []),
         )
 
     def _get_pull_request(self, number=None):
@@ -369,7 +370,12 @@ Available user actions:
 
     def wait_for_label(self, label, exists):
         try:
-            for sample in TimeoutSampler(wait_timeout=30, sleep=5, func=self.label_exists_in_pull_request, label=label):
+            for sample in TimeoutSampler(
+                wait_timeout=30,
+                sleep=5,
+                func=self.label_exists_in_pull_request,
+                label=label,
+            ):
                 if sample == exists:
                     return True
         except TimeoutExpiredError:
@@ -411,6 +417,7 @@ Available user actions:
             self.app.logger.error(f"{self.log_prefix} {err}")
             self.repository.create_issue(
                 title=err,
+                assignee=self.approvers[0] if self.approvers else None,
                 body=f"""
 stdout: `{out}`
 stderr: `{err}`
@@ -536,7 +543,9 @@ Available labels:
 
         if user_request == LGTM_STR:
             self.manage_reviewed_by_label(
-                review_state=LGTM_STR, action=DELETE_STR if remove else ADD_STR, reviewed_user=reviewed_user
+                review_state=LGTM_STR,
+                action=DELETE_STR if remove else ADD_STR,
+                reviewed_user=reviewed_user,
             )
 
         else:
@@ -671,7 +680,9 @@ Available labels:
 
         self.app.logger.info(f"{self.log_prefix} Creating issue for new PR: {self.pull_request.title}")
         self.repository.create_issue(
-            title=self._generate_issue_title(), body=self._generate_issue_body(), assignee=self.pull_request.user.login
+            title=self._generate_issue_title(),
+            body=self._generate_issue_body(),
+            assignee=self.pull_request.user.login,
         )
 
     @ignore_exceptions(logger=FLASK_APP.logger)
@@ -704,11 +715,18 @@ Available labels:
             return
 
         striped_body = body.strip()
-        _user_commands = list(filter(lambda x: x, striped_body.split("/") if striped_body.startswith("/") else []))
+        _user_commands = list(
+            filter(
+                lambda x: x,
+                striped_body.split("/") if striped_body.startswith("/") else [],
+            )
+        )
         user_login = self.hook_data["sender"]["login"]
         for user_command in _user_commands:
             self.user_commands(
-                command=user_command, reviewed_user=user_login, issue_comment_id=self.hook_data["comment"]["id"]
+                command=user_command,
+                reviewed_user=user_login,
+                issue_comment_id=self.hook_data["comment"]["id"],
             )
 
     def process_pull_request_webhook_data(self):
@@ -753,7 +771,10 @@ Available labels:
                         self.cherry_pick(target_branch=_label_name.replace(CHERRY_PICK_LABEL_PREFIX, ""))
 
                 self._run_build_container(
-                    push=True, set_check=False, is_merged=is_merged, pull_request_branch=pull_request_branch
+                    push=True,
+                    set_check=False,
+                    is_merged=is_merged,
+                    pull_request_branch=pull_request_branch,
                 )
 
                 # label_by_pull_requests_merge_state_after_merged will override self.pull_request
@@ -906,7 +927,12 @@ Available labels:
 
     def user_commands(self, command, reviewed_user, issue_comment_id):
         remove = False
-        available_commands = ["retest", "cherry-pick", "assign-reviewers", "check-can-merge"]
+        available_commands = [
+            "retest",
+            "cherry-pick",
+            "assign-reviewers",
+            "check-can-merge",
+        ]
         if "sonarsource.github.io" in command:
             self.app.logger.info(f"{self.log_prefix} command is in ignore list")
             return
@@ -969,7 +995,10 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                             self._add_label(label=_cp_label)
                     else:
                         for _exits_target_branch in _exits_target_branches:
-                            self.cherry_pick(target_branch=_exits_target_branch, reviewed_user=reviewed_user)
+                            self.cherry_pick(
+                                target_branch=_exits_target_branch,
+                                reviewed_user=reviewed_user,
+                            )
 
             elif _command == "retest":
                 if self.skip_if_pull_request_already_merged():
@@ -1040,7 +1069,10 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 return self.pull_request.create_issue_comment(not_running_msg)
 
             self.label_by_user_comment(
-                user_request=_command, remove=remove, reviewed_user=reviewed_user, issue_comment_id=issue_comment_id
+                user_request=_command,
+                remove=remove,
+                reviewed_user=reviewed_user,
+                issue_comment_id=issue_comment_id,
             )
 
     @ignore_exceptions(logger=FLASK_APP.logger)
@@ -1274,7 +1306,14 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         return f"{self.container_repository}:{_tag}"
 
     @ignore_exceptions(logger=FLASK_APP.logger)
-    def _run_build_container(self, set_check=True, push=False, is_merged=None, tag=None, pull_request_branch=None):
+    def _run_build_container(
+        self,
+        set_check=True,
+        push=False,
+        is_merged=None,
+        tag=None,
+        pull_request_branch=None,
+    ):
         if not self.build_and_push_container:
             return False
 
@@ -1368,7 +1407,11 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
     def send_slack_message(self, message, webhook_url):
         slack_data = {"text": message}
         self.app.logger.info(f"{self.log_prefix} Sending message to slack: {message}")
-        response = requests.post(webhook_url, data=json.dumps(slack_data), headers={"Content-Type": "application/json"})
+        response = requests.post(
+            webhook_url,
+            data=json.dumps(slack_data),
+            headers={"Content-Type": "application/json"},
+        )
         if response.status_code != 200:
             raise ValueError(
                 f"Request to slack returned an error {response.status_code} with the following message: "
