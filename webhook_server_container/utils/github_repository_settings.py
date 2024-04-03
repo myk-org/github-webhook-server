@@ -10,12 +10,16 @@ from webhook_server_container.utils.constants import (
     CAN_BE_MERGED_STR,
     FLASK_APP,
     IN_PROGRESS_STR,
+    PRE_COMMIT_STR,
     PYTHON_MODULE_INSTALL_STR,
     QUEUED_STR,
     STATIC_LABELS_DICT,
     TOX_STR,
 )
-from webhook_server_container.utils.helpers import get_github_repo_api, ignore_exceptions
+from webhook_server_container.utils.helpers import (
+    get_github_repo_api,
+    ignore_exceptions,
+)
 
 
 @ignore_exceptions(logger=FLASK_APP.logger)
@@ -58,7 +62,9 @@ def set_repository_settings(repository):
 
     FLASK_APP.logger.info(f"Set repository {repository.name} security settings")
     repository._requester.requestJsonAndCheck(
-        "PATCH", f"{repository.url}/code-scanning/default-setup", input={"state": "not-configured"}
+        "PATCH",
+        f"{repository.url}/code-scanning/default-setup",
+        input={"state": "not-configured"},
     )
     repository._requester.requestJsonAndCheck(
         "PATCH",
@@ -175,9 +181,10 @@ def set_repository(data, github_api, default_status_checks):
                 continue
 
             _default_status_checks = deepcopy(default_status_checks)
-            (include_status_checks, exclude_status_checks) = get_user_configures_status_checks(
-                status_checks=status_checks
-            )
+            (
+                include_status_checks,
+                exclude_status_checks,
+            ) = get_user_configures_status_checks(status_checks=status_checks)
 
             required_status_checks = include_status_checks or get_required_status_checks(
                 repo=repo,
@@ -187,7 +194,10 @@ def set_repository(data, github_api, default_status_checks):
             )
 
             set_branch_protection(
-                branch=branch, repository=repo, required_status_checks=required_status_checks, github_api=github_api
+                branch=branch,
+                repository=repo,
+                required_status_checks=required_status_checks,
+                github_api=github_api,
             )
     except UnknownObjectException:
         FLASK_APP.logger.error(f"{repository}: Failed to get repository settings")
@@ -196,7 +206,13 @@ def set_repository(data, github_api, default_status_checks):
 
 
 def set_all_in_progress_check_runs_to_queued(config, repositories_app_api, missing_app_repositories, github_api):
-    check_runs = (PYTHON_MODULE_INSTALL_STR, CAN_BE_MERGED_STR, TOX_STR, BUILD_CONTAINER_STR)
+    check_runs = (
+        PYTHON_MODULE_INSTALL_STR,
+        CAN_BE_MERGED_STR,
+        TOX_STR,
+        BUILD_CONTAINER_STR,
+        PRE_COMMIT_STR,
+    )
     futures = []
     with ThreadPoolExecutor() as executor:
         for _, data in config.data["repositories"].items():
