@@ -600,8 +600,8 @@ Available labels:
         return self.set_check_run_status(check_run=PRE_COMMIT_STR, conclusion=FAILURE_STR, output=output)
 
     @ignore_exceptions(logger=FLASK_APP.logger)
-    def set_run_pre_commit_check_success(self):
-        return self.set_check_run_status(check_run=PRE_COMMIT_STR, conclusion=SUCCESS_STR)
+    def set_run_pre_commit_check_success(self, output):
+        return self.set_check_run_status(check_run=PRE_COMMIT_STR, conclusion=SUCCESS_STR, output=output)
 
     @ignore_exceptions(logger=FLASK_APP.logger)
     def set_merge_check_queued(self, output=None):
