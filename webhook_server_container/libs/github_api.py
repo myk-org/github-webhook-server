@@ -271,6 +271,7 @@ Available user actions:
         self.pypi = repo_data.get("pypi")
         self.verified_job = repo_data.get("verified_job", True)
         self.tox_enabled = repo_data.get("tox")
+        self.tox_python_version = repo_data.get("tox_python_version", "python")
         self.slack_webhook_url = repo_data.get("slack_webhook_url")
         self.build_and_push_container = repo_data.get("container")
         self.dockerhub = repo_data.get("docker")
@@ -885,7 +886,7 @@ Available labels:
             self.app.logger.info(f"{self.log_prefix} Check run is in progress, not running {TOX_STR}.")
             return False
 
-        cmd = f"{TOX_STR}"
+        cmd = f"{self.tox_python_version} -m {TOX_STR}"
         if self.tox_enabled != "all":
             tests = self.tox_enabled.replace(" ", "")
             cmd += f" -e {tests}"

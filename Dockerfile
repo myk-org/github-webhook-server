@@ -29,6 +29,17 @@ RUN ln -s /usr/bin/python3 /usr/bin/python
 RUN python -m pip install --no-cache-dir pip --upgrade \
   && python -m pip install --no-cache-dir poetry tox twine pre-commit
 
+RUN python3.8 -m ensurepip \
+  && python3.9 -m ensurepip \
+  && python3.10 -m ensurepip \
+  && python3.11 -m ensurepip \
+  && python3.12 -m ensurepip \
+  && python3.8 -m pip install tox \
+  && python3.9 -m pip install tox \
+  && python3.10 -m pip install tox \
+  && python3.11 -m pip install tox \
+  && python3.12 -m pip install tox
+
 COPY pyproject.toml poetry.lock README.md $APP_DIR/
 COPY webhook_server_container $APP_DIR/webhook_server_container/
 

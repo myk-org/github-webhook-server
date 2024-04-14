@@ -3,6 +3,7 @@
 A Flask-based webhook server for managing GitHub repositories. It handles tasks such as repository setup, branch protection, and webhook configuration.
 
 Pre-build container images available in:
+
 - quay.io/myakove/github-webhook-server
 
 ## Build container
@@ -10,7 +11,7 @@ Pre-build container images available in:
 Webhook server to manage GitHub repositories.
 On start, it will configure the following for each repository:
 
-* Set branch protection based on config.yaml
+- Set branch protection based on config.yaml
 
 **Private repositories are not supported.**
 
@@ -39,9 +40,9 @@ docker build -t github-webhook-server .
 
 Before running the application, ensure to set the following environment variables and configuration file:
 
-* `WEBHOOK_SERVER_LOG_FILE`: Path to the log file where the server logs are to be stored.
-* `WEBHOOK_SERVER_DATA_DIR`: Path to the data directory where the `config.yaml` file is located.
-* `config.yaml`: Configuration file that contains settings for the server and repositories, which should be placed in the `WEBHOOK_SERVER_DATA_DIR` directory.
+- `WEBHOOK_SERVER_LOG_FILE`: Path to the log file where the server logs are to be stored.
+- `WEBHOOK_SERVER_DATA_DIR`: Path to the data directory where the `config.yaml` file is located.
+- `config.yaml`: Configuration file that contains settings for the server and repositories, which should be placed in the `WEBHOOK_SERVER_DATA_DIR` directory.
 
 Follow the instructions to build the container using either podman or docker as described in the Build container section. Once that is done, proceed with the configurations outlined below.
 
@@ -62,25 +63,22 @@ repositories:
       main: []
 ```
 
-* `github-app-id`: The ID of the GitHub app. Need to add the APP to the repository.
-* `name`: repository full name (org or user/repository name)
-* `webhook_ip`: Ip or FQDN where this app will run, this will be added as webhook in the repository setting
-* `github-toekns`: List of admin users token for the repositories
+- `github-app-id`: The ID of the GitHub app. Need to add the APP to the repository.
+- `name`: repository full name (org or user/repository name)
+- `webhook_ip`: Ip or FQDN where this app will run, this will be added as webhook in the repository setting
+- `github-toekns`: List of admin users token for the repositories
 
-
-* If `slack_webhook_url` configured for the repository a slack massages will be sent to the configured channel
-about new releases to pypi, new containers that was pushed
+- If `slack_webhook_url` configured for the repository a slack massages will be sent to the configured channel
+  about new releases to pypi, new containers that was pushed
 
 ```yaml
 slack_webhook_url: https://hooks.slack.com/services/<channel>
 ```
 
-
 if `pypi` configured for the repository a new version will be pushed to pypi on new GitHub release
 
-* `token`: pypi token with push permissions
-* `tool`: The tool to use to build the package, can be `twine` or `poetry`
-
+- `token`: pypi token with push permissions
+- `tool`: The tool to use to build the package, can be `twine` or `poetry`
 
 ```yaml
 pypi:
@@ -89,10 +87,12 @@ pypi:
 ```
 
 if `tox` configured for the repository a tox job will run on each push and new commits
-* `tox`: The tox tests to run, can be set of tests separated by `,` or `all` to run all tests defined in tox.ini
+
+- `tox`: The tox tests to run, can be set of tests separated by `,` or `all` to run all tests defined in tox.ini
 
 ```yaml
 tox: all
+tox_python_version: python3.11 # if passed run on specified python version else run on default
 ```
 
 Top level array which define the defaults required check runs for all the repositories
@@ -106,7 +106,6 @@ default-status-checks:
   - "can-be-merged"
 ```
 
-
 ```yaml
 protected-branches:
   main: []
@@ -117,11 +116,10 @@ This tool configure branch protection and set required to be run for each branch
 if the repository have the file `.pre-commit-config.yaml` then `pre-commit.ci - pr` will be added, can be excluded by
 set it in `exclude-runs`
 
-* `protected-branches`: array of branches to set protection
-* `branch name`: List of required to be run to set for the branch, when empty set `default-status-checks` as required
-* `include-runs`: Only include those runs as required
-* `exclude-runs`: Exclude those runs from the `default-status-checks`
-
+- `protected-branches`: array of branches to set protection
+- `branch name`: List of required to be run to set for the branch, when empty set `default-status-checks` as required
+- `include-runs`: Only include those runs as required
+- `exclude-runs`: Exclude those runs from the `default-status-checks`
 
 By default, we create a `verified_job` run, for each PR the owner needs to comment `/verified` to mark the PR as verified
 In order to not add this job set `verified_job` to `false`
@@ -136,11 +134,11 @@ Once the PR is merged, the container will be build and push to the repository
 if `release` is set to `true` a new container will be pushed with the release version as the tag
 if the merged PR is in any other branch than `main` or `master` the tag will be set to `branch name`, otherwise `tag` will be used
 
-* `username`: User with push permissions to the repository
-* `password`: The password for the username
-* `repository`: the repository to push the container, for example `quay.io/myakove/github-webhook-server`
-* `tag`: The container tag to use when pushing the container
-* `release`: if `true` a new container will be pushed with the release version as the tag
+- `username`: User with push permissions to the repository
+- `password`: The password for the username
+- `repository`: the repository to push the container, for example `quay.io/myakove/github-webhook-server`
+- `tag`: The container tag to use when pushing the container
+- `release`: if `true` a new container will be pushed with the release version as the tag
 
 ```yaml
 container:
@@ -153,7 +151,6 @@ container:
 
 If `docker` is configured for the repository we log in to docker.io to increase pull rate limit
 
-
 ```yaml
 docker:
   username: username
@@ -164,64 +161,65 @@ docker:
 
 Following actions are done automatically:
 
-* Add reviewers from [OWNERS](OWNERS) file, support add different reviewers based on files/folders.
-* Set PR size label.
-* New issue is created for the PR.
-* Issues get closed when PR is merged/closed.
+- Add reviewers from [OWNERS](OWNERS) file, support add different reviewers based on files/folders.
+- Set PR size label.
+- New issue is created for the PR.
+- Issues get closed when PR is merged/closed.
 
 ## OWNERS file example
+
 ```yaml
 approvers:
   - myakove
   - rnetser
 reviewers:
   any: # will be added to all PRs
-      - myakove
-      - rnetser
+    - myakove
+    - rnetser
   files: # will be added to PRs if files in the list are changed
     Dockerfile:
-        - myakove
+      - myakove
   folders: # will be added to PRs if folders in the list are changed
     webhook_server_container/libs: # path is relative to the repository root
-        - myakove
+      - myakove
 ```
 
 ### Supported user actions via adding comment
 
-* `/verified`: to verify a PR
-* `/verified cancel`: to undo verify
-* `/cherry-pick <target_branch_name>`: cherry-pick a merged PR against a target branch
-  * Multiple target branches are allowed, separated by spaces
-  * If the current PR is nor merged label will be added and once the PR is merged it will be cherry-picked
-* `/retest tox`: run tox
-* `/retest build-container`: run build-container
-* `/retest python-module-install`: run python-module-install command
-* `/build-and-push-container`: build and push container image (tag will be the PR number).
-* `/assign-reviewers`: assign reviewers based on OWNERS file
+- `/verified`: to verify a PR
+- `/verified cancel`: to undo verify
+- `/cherry-pick <target_branch_name>`: cherry-pick a merged PR against a target branch
+  - Multiple target branches are allowed, separated by spaces
+  - If the current PR is nor merged label will be added and once the PR is merged it will be cherry-picked
+- `/retest tox`: run tox
+- `/retest build-container`: run build-container
+- `/retest python-module-install`: run python-module-install command
+- `/build-and-push-container`: build and push container image (tag will be the PR number).
+- `/assign-reviewers`: assign reviewers based on OWNERS file
 
 ### Supported user labels
 
 Usage:
 
-* `/<label name>`: add a label to a PR
-* `/<label name> cancel`: remove label
+- `/<label name>`: add a label to a PR
+- `/<label name> cancel`: remove label
 
 Supported labels:
 
-* hold
-* verified
-* wip
-* lgtm
-* approve
+- hold
+- verified
+- wip
+- lgtm
+- approve
 
 ### Note
 
-* verified label removed on each new commit push.
-* Cherry-picking is supported only on merged PRs
+- verified label removed on each new commit push.
+- Cherry-picking is supported only on merged PRs
 
 ### Issues
 
-* New issues can be created for this project [here](https://github.com/myakove/github-webhook-server/issues)
+- New issues can be created for this project [here](https://github.com/myakove/github-webhook-server/issues)
 
 ## Main Functionalities
 
