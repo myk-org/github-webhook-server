@@ -166,7 +166,7 @@ Available user actions:
         if self.pypi:
             retest_msg += f" * `/retest {PYTHON_MODULE_INSTALL_STR}`: Retest python-module-install\n"
 
-        return retest_msg
+        return " * This repository does not support retest actions" if not retest_msg else retest_msg
 
     def get_github_app_api(self):
         if self.repository_full_name in self.missing_app_repositories:
