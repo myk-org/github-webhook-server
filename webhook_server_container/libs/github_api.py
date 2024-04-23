@@ -757,7 +757,6 @@ Available labels:
                     self._remove_label(label=_label_name)
 
             self.process_opened_or_synchronize_pull_request(pull_request_branch=pull_request_branch)
-            self.label_pull_request_by_merge_state()
 
         if hook_action == "closed":
             self.close_issue_for_merged_or_closed_pr(hook_action=hook_action)
@@ -806,6 +805,7 @@ Available labels:
             if self.pypi:
                 self.app.logger.info(f"{self.log_prefix} Processing upload to pypi for tag: {tag_name}")
                 self.upload_to_pypi(tag_name=tag_name)
+
             if self.container_release:
                 self.app.logger.info(f"{self.log_prefix} Processing build and push container for tag: {tag_name}")
                 self._run_build_container(push=True, set_check=False, tag=tag_name)
@@ -1181,7 +1181,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             Has verified label.
             Has approved from one of the approvers.
             All required run check passed.
-            PR status is 'clean'.
+            PR status is not 'dirty'.
             PR has no changed requests from approvers.
         """
         if self.skip_if_pull_request_already_merged():
@@ -1217,12 +1217,13 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 self._remove_label(label=CAN_BE_MERGED_STR)
                 if is_hold:
                     failure_output += "Hold label exists.\n"
+
                 if is_wip:
                     failure_output += "WIP label exists.\n"
 
-            if self.pull_request.mergeable_state == "behind":
+            if not self.pull_request.mergeable:
                 self._remove_label(label=CAN_BE_MERGED_STR)
-                failure_output += "PR needs rebase\n"
+                failure_output += "PR is not mergeable: {self.pull_request.mergeable_state}\n"
 
             failed_check_runs = []
             for check_run in last_commit_check_runs:
@@ -1456,6 +1457,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 self.pull_request.add_to_assignees(self.approvers[0])
 
         self.assign_reviewers()
+        self.label_pull_request_by_merge_state()
 
         futures = []
         with ThreadPoolExecutor() as executor:
