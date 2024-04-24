@@ -12,7 +12,7 @@ docker: # Used to pull images from docker.io
 default-status-checks:
   - "WIP"
   - "dpulls"
-  - "Inclusive Language",
+  - "Inclusive Language"
   - "can-be-merged"
 
 auto-verified-and-merged-users:
@@ -26,7 +26,8 @@ repositories:
     verified_job: true
     pypi:
       token: <PYPI TOKEN>
-    events:  # To listen to all events do not send events
+
+    events: # To listen to all events do not send events
       - push
       - pull_request
       - issue_comment
@@ -34,6 +35,7 @@ repositories:
       - pull_request_review
     tox: all # Run all tests in tox.ini
     pre-commit: true # Run pre-commit check
+
     protected-branches:
       dev: []
       main: # set [] in order to set all defaults run included
@@ -53,8 +55,14 @@ repositories:
         - build-arg2=2
       args: # args to send to podman build command
         - --format docker
+
     auto-verified-and-merged-users: # override auto verified users per repository
       - "my[bot]"
+
     github-tokens: # override GitHub tokens per repository
       - <GITHUB TOKEN1>
       - <GITHUB TOKEN2>
+
+    can-be-merged-required-labels: # check for extra labels to set PR as can be merged
+      - my-label1
+      - my-label2

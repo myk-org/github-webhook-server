@@ -89,6 +89,7 @@ class GitHubApi:
         self.repository_full_name = None
         self.github_app_id = None
         self.container_release = None
+        self.can_be_merged_required_labels = []
         # End of filled by self._repo_data_from_config()
 
         self.config = Config()
@@ -295,6 +296,7 @@ Available user actions:
             "auto-verified-and-merged-users",
             repo_data.get("auto-verified-and-merged-users", []),
         )
+        self.can_be_merged_required_labels = config_data.get("can-be-merged-required-labels", [])
 
     def _get_pull_request(self, number=None):
         if number:
@@ -1240,14 +1242,14 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 self._remove_label(label=CAN_BE_MERGED_STR)
                 failure_output += f"Some check runs failed: {failed_check_runs}\n"
 
+            self.app.logger.info(f"{self.log_prefix} check if can be merged. PR labels are: {_labels}")
+
             for _label in _labels:
                 if CHANGED_REQUESTED_BY_LABEL_PREFIX.lower() in _label.lower():
                     change_request_user = _label.split("-")[-1]
                     if change_request_user in self.approvers:
                         self._remove_label(label=CAN_BE_MERGED_STR)
                         failure_output += "PR has changed requests from approvers\n"
-
-            self.app.logger.info(f"{self.log_prefix} check if can be merged. PR labels are: {_labels}")
 
             pr_approved = False
             for _label in _labels:
@@ -1256,6 +1258,15 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     if approved_user in self.approvers:
                         pr_approved = True
                         break
+
+            missing_required_labels = []
+            for _req_label in self.can_be_merged_required_labels:
+                if _req_label not in _labels:
+                    missing_required_labels.append(_req_label)
+
+            if missing_required_labels:
+                self._remove_label(label=CAN_BE_MERGED_STR)
+                failure_output += f"Missing required labels: {missing_required_labels}\n"
 
             if pr_approved and not failure_output:
                 self._add_label(label=CAN_BE_MERGED_STR)
