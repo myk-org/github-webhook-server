@@ -34,6 +34,7 @@ NEEDS_REBASE_LABEL_STR = "needs-rebase"
 HAS_CONFLICTS_LABEL_STR = "has-conflicts"
 HOLD_LABEL_STR = "hold"
 SIZE_LABEL_PREFIX = "size/"
+JIRA_STR = "JIRA"
 
 # Gitlab colors require a '#' prefix; e.g: #
 USER_LABELS_DICT = {HOLD_LABEL_STR: "B60205", VERIFIED_LABEL_STR: "0E8A16", WIP_STR: "B60205", LGTM_STR: "0E8A16"}

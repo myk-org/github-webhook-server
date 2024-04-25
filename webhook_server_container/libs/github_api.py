@@ -15,6 +15,7 @@ from github.GithubException import UnknownObjectException
 from timeout_sampler import TimeoutSampler, TimeoutExpiredError
 
 from webhook_server_container.libs.config import Config
+from webhook_server_container.libs.jira_api import JiraApi
 from webhook_server_container.utils.constants import (
     ADD_STR,
     APPROVED_BY_LABEL_PREFIX,
@@ -33,6 +34,7 @@ from webhook_server_container.utils.constants import (
     HAS_CONFLICTS_LABEL_STR,
     HOLD_LABEL_STR,
     IN_PROGRESS_STR,
+    JIRA_STR,
     LGTM_STR,
     NEEDS_REBASE_LABEL_STR,
     PYTHON_MODULE_INSTALL_STR,
@@ -75,6 +77,8 @@ class GitHubApi:
         self.parent_committer = None
         self.log_uuid = shortuuid.uuid()[:5]
         self.container_repo_dir = "/tmp/repository"
+        self.jira_conn = None
+        self.jira_track_pr = False
 
         # filled by self._repo_data_from_config()
         self.dockerhub_username = None
@@ -90,6 +94,7 @@ class GitHubApi:
         self.github_app_id = None
         self.container_release = None
         self.can_be_merged_required_labels = []
+        self.jira = None
         # End of filled by self._repo_data_from_config()
 
         self.config = Config()
@@ -115,11 +120,15 @@ class GitHubApi:
         self.dockerhub = DockerHub(username=self.dockerhub_username, password=self.dockerhub_password)
 
         self.pull_request = self._get_pull_request()
+        self.owners_content = self.get_owners_content()
+
         if self.pull_request:
             self.last_commit = self._get_last_commit()
             self.parent_committer = self.pull_request.user.login
 
-        self.owners_content = self.get_owners_content()
+            if self.jira and self.parent_committer in self.reviewers + self.approvers:
+                self.jira_assignee = self.jira_user_mapping.get(self.parent_committer, self.parent_committer)
+                self.jira_track_pr = True
 
         self.supported_user_labels_str = "".join([f" * {label}\n" for label in USER_LABELS_DICT.keys()])
         self.welcome_msg = f"""
@@ -277,6 +286,13 @@ Available user actions:
         self.build_and_push_container = repo_data.get("container")
         self.dockerhub = repo_data.get("docker")
         self.pre_commit = repo_data.get("pre-commit")
+        self.jira = repo_data.get("jira", config_data.get("jira"))
+
+        if self.jira:
+            self.jira_server = self.jira.get("server")
+            self.jira_project = self.jira.get("project")
+            self.jira_token = self.jira.get("token")
+            self.jira_user_mapping = self.jira.get("user-mapping", {})
 
         if self.dockerhub:
             self.dockerhub_username = self.dockerhub["username"]
@@ -747,6 +763,13 @@ Available labels:
             self.pull_request.create_issue_comment(self.welcome_msg)
             self.create_issue_for_new_pull_request()
             self.process_opened_or_synchronize_pull_request(pull_request_branch=pull_request_branch)
+            if self.jira_track_pr:
+                self.get_jira_conn()
+                self.app.logger.info(f"{self.log_prefix} Creating Jira story")
+                jira_story_key = self.jira_conn.create_story(
+                    title=f"PR: {self.pull_request.title}", body=self.pull_request.url
+                )
+                self._add_label(label=f"{JIRA_STR}:{jira_story_key}")
 
         if hook_action == "synchronize":
             for _label in self.pull_request.labels:
@@ -758,12 +781,33 @@ Available labels:
                 ):
                     self._remove_label(label=_label_name)
 
+            if self.jira_track_pr:
+                _story_label = [_label for _label in self.pull_request.labels if _label.name.startswith(JIRA_STR)]
+                if _story_label:
+                    _story_key = _story_label[0].split(":")[-1]
+                    self.get_jira_conn()
+                    self.app.logger.info(f"{self.log_prefix} Creating sub-task for Jira story {_story_key}")
+                    self.jira_conn.create_closed_subtask(
+                        parent_key=_story_key,
+                        body=f"PR: {self.pull_request.title}, new commit pushed by {self.parent_committer}",
+                    )
+
             self.process_opened_or_synchronize_pull_request(pull_request_branch=pull_request_branch)
 
         if hook_action == "closed":
             self.close_issue_for_merged_or_closed_pr(hook_action=hook_action)
-
             is_merged = pull_request_data.get("merged")
+
+            if self.jira_track_pr:
+                _story_label = [_label for _label in self.pull_request.labels if _label.name.startswith(JIRA_STR)]
+                if _story_label:
+                    _story_key = _story_label[0].split(":")[-1]
+                    self.get_jira_conn()
+                    self.app.logger.info(f"{self.log_prefix} Closing Jira story")
+                    self.jira_conn.close_issue(
+                        key=_story_key, comment=f"PR: {self.pull_request.title} is closed. Megred: {is_merged}"
+                    )
+
             if is_merged:
                 self.app.logger.info(f"{self.log_prefix} PR is merged")
 
@@ -822,11 +866,23 @@ Available labels:
             approved
             changes_requested
             """
+            reviewed_user = self.hook_data["review"]["user"]["login"]
+
             self.manage_reviewed_by_label(
                 review_state=self.hook_data["review"]["state"],
                 action=ADD_STR,
-                reviewed_user=self.hook_data["review"]["user"]["login"],
+                reviewed_user=reviewed_user,
             )
+
+            if self.jira_track_pr:
+                _story_label = [_label for _label in self.pull_request.labels if _label.name.startswith(JIRA_STR)]
+                if _story_label:
+                    _story_key = _story_label[0].split(":")[-1]
+                    self.get_jira_conn()
+                    self.app.logger.info(f"{self.log_prefix} Creating sub-task for Jira story {_story_key}")
+                    self.jira_conn.create_closed_subtask(
+                        parent_key=_story_key, body=f"PR: {self.pull_request.title}, reviewed by: {reviewed_user}"
+                    )
 
     def manage_reviewed_by_label(self, review_state, action, reviewed_user):
         self.app.logger.info(
@@ -1539,3 +1595,11 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             return f"```\n{err}\n\n{out}\n```"[:65534]
         else:
             return f"```\n{err}\n\n{out}\n```"
+
+    def get_jira_conn(self):
+        self.jira_conn = JiraApi(
+            jira_server=self.jira_server,
+            jira_project=self.jira_project,
+            jira_token=self.jira_token,
+            assignee=self.jira_assignee,
+        )
