@@ -1283,6 +1283,9 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     )
                     return self.pull_request.merge(merge_method="squash")
 
+            if self.pull_requet.mergeable_state != "clean":
+                failure_output += f"PR is not clean: {self.pull_requet.mergeable_state}\n"
+
             if not pr_approved:
                 failure_output += f"Missing lgtm/approved from approvers {self.approvers}\n"
 
