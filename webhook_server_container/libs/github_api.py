@@ -527,7 +527,7 @@ stderr: `{err}`
                 reviewers_to_add.extend(_reviewers)
 
         for _folder, _reviewers in self.folders_reviewers.items():
-            if any(fl for fl in changed_files if Path(_folder) == Path(fl).parent):
+            if any(cf for cf in changed_files if _folder in str(Path(cf).parent)):
                 reviewers_to_add.extend(_reviewers)
 
         _to_add = list(set(reviewers_to_add))
