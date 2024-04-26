@@ -95,6 +95,8 @@ class GitHubApi:
         self.container_release = None
         self.can_be_merged_required_labels = []
         self.jira = None
+        self.jira_tracking = False
+        self.jira_enabled_repository = False
         # End of filled by self._repo_data_from_config()
 
         self.config = Config()
@@ -126,9 +128,17 @@ class GitHubApi:
             self.last_commit = self._get_last_commit()
             self.parent_committer = self.pull_request.user.login
 
-            if self.jira and self.parent_committer in self.reviewers + self.approvers:
-                self.jira_assignee = self.jira_user_mapping.get(self.parent_committer, self.parent_committer)
-                self.jira_track_pr = True
+            if self.jira_enabled_repository:
+                reviewers_and_approvers = self.reviewers + self.approvers
+                if self.parent_committer in reviewers_and_approvers:
+                    self.jira_assignee = self.jira_user_mapping.get(self.parent_committer, self.parent_committer)
+                    self.jira_track_pr = True
+                    self.app.logger.info(f"{self.log_prefix} Jira tracking is enabled for the current pull request.")
+                else:
+                    self.app.logger.info(
+                        f"{self.log_prefix} Jira tracking is disabled for the current pull request. "
+                        f"Committer {self.parent_committer} is not in {reviewers_and_approvers}"
+                    )
 
         self.supported_user_labels_str = "".join([f" * {label}\n" for label in USER_LABELS_DICT.keys()])
         self.welcome_msg = f"""
@@ -293,6 +303,13 @@ Available user actions:
             self.jira_project = self.jira.get("project")
             self.jira_token = self.jira.get("token")
             self.jira_user_mapping = self.jira.get("user-mapping", {})
+            self.jira_tracking = self.jira.get("jira-tracking")
+            if self.jira_tracking:
+                self.jira_enabled_repository = all([self.jira_server, self.jira_project, self.jira_token])
+                if not self.jira_enabled_repository:
+                    self.app.logger.error(
+                        f"{self.log_prefix} Jira configuration is not valid. Server: {self.jira_server}, Project: {self.jira_project}, Token: {self.jira_token}"
+                    )
 
         if self.dockerhub:
             self.dockerhub_username = self.dockerhub["username"]
@@ -762,14 +779,22 @@ Available labels:
             self.app.logger.info(f"{self.log_prefix} Creating welcome comment")
             self.pull_request.create_issue_comment(self.welcome_msg)
             self.create_issue_for_new_pull_request()
-            self.process_opened_or_synchronize_pull_request(pull_request_branch=pull_request_branch)
+
+            self.app.logger.info(f"{self.log_prefix} Jira: {self.jira}")
+            self.app.logger.info(f"{self.log_prefix} Jira Tracking: {self.jira_tracking}")
+            self.app.logger.info(f"{self.log_prefix} Jira Enabled Repository: {self.jira_enabled_repository}")
+            self.app.logger.info(f"{self.log_prefix} Jira track PR: {self.jira_track_pr}")
+
             if self.jira_track_pr:
                 self.get_jira_conn()
                 self.app.logger.info(f"{self.log_prefix} Creating Jira story")
                 jira_story_key = self.jira_conn.create_story(
-                    title=f"PR: {self.pull_request.title}", body=self.pull_request.url
+                    title=f"[AUTO:FROM:GITHUB] PR [{self.pull_request.number}]: {self.pull_request.title}",
+                    body=self.pull_request.url,
                 )
                 self._add_label(label=f"{JIRA_STR}:{jira_story_key}")
+
+            self.process_opened_or_synchronize_pull_request(pull_request_branch=pull_request_branch)
 
         if hook_action == "synchronize":
             for _label in self.pull_request.labels:
