@@ -1,5 +1,8 @@
 from typing import Any, Dict
 from jira import JIRA
+from pyhelper_utils.general import ignore_exceptions
+
+from webhook_server_container.utils.constants import FLASK_APP
 
 
 class JiraApi:
@@ -22,6 +25,7 @@ class JiraApi:
         self.assignee = assignee
         self.fields: Dict[str, Any] = {"project": {"key": self.jira_project}, "assignee": {"name": self.assignee}}
 
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def create_story(self, title: str, body: str) -> str:
         self.fields.update({
             "summary": title,
@@ -31,6 +35,7 @@ class JiraApi:
         _issue = self.conn.create_issue(fields=self.fields)
         return _issue.key
 
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def create_closed_subtask(self, title: str, body: str, parent_key: str) -> None:
         self.fields.update({
             "summary": title,
@@ -41,6 +46,7 @@ class JiraApi:
         _issue = self.conn.create_issue(fields=self.fields)
         self.close_issue(key=_issue.key)
 
+    @ignore_exceptions(logger=FLASK_APP.logger)
     def close_issue(self, key: str, comment: str = "") -> None:
         self.conn.transition_issue(
             issue=key,
