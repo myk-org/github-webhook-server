@@ -129,7 +129,7 @@ class GitHubApi:
 
         if self.pull_request:
             self.last_commit = self._get_last_commit()
-            self.parent_committer = self.pull_request.user.login
+            self.parent_committer = self.last_commit.committer.login
 
             if self.jira_enabled_repository:
                 reviewers_and_approvers = self.reviewers + self.approvers
