@@ -80,5 +80,6 @@ repositories:
       server: <JIRA URL>
       project: <PROJECT KEY>
       token: <JIRA TOKEN>
+      epic: <EPIC KEY> # Optional
       user-mapping:
         <GITHUB USER>: <JIRA USER> # if github user is not the same as jira

@@ -164,6 +164,7 @@ On reviewed PR create closed sub-task under the PR story with the reviewer as as
 - `server`: FQDN Jira server url
 - `project`: project key to open the issue
 - `token`: Jira token
+- `epic`: epic name, if provided a new issue will be created under the epic
 - `user-mapping`: mapping from github username to jira username if different
 
 `jira` setting can be placed as global (for all repositories) or per repository.
@@ -174,6 +175,7 @@ jira:
   server: jira server url
   project: project key to open the issue
   token: jira token
+  epic: epic name # Optional
   user-mapping:
     github username: jira username
 ```
