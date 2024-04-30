@@ -1931,12 +1931,12 @@ tests = ["cython", "littleutils", "pygments", "pytest", "typeguard"]
 
 [[package]]
 name = "timeout-sampler"
-version = "0.0.25"
+version = "0.0.26"
 description = "Timeout utility class to wait for any function output and interact with it in given time"
 optional = false
 python-versions = "<4.0,>=3.8"
 files = [
-    {file = "timeout_sampler-0.0.25.tar.gz", hash = "sha256:9f7ef75a83cdc940a0bf8b83c6052fd99bc1e4d88e7f6de8e137778e9e8d6deb"},
+    {file = "timeout_sampler-0.0.26.tar.gz", hash = "sha256:272caa29bc27512bc29a68847f52955940e3a9cb23712a78ff8c7cc2da2a6c67"},
 ]
 
 [package.dependencies]
@@ -2247,4 +2247,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.8"
-content-hash = "83f857fec2bf34ce8fdf452c661eebac0f6d3ea1c28af427c1c576cfee68569e"
+content-hash = "12a889a5ecd3dc89bf96ce5dab7bac255c17636a91381ae534cb7706518262b8"
