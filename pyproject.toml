@@ -41,7 +41,7 @@ ruff = "^0.4.0"
 timeout-sampler = "^0.0.26"
 requests = "^2.31.0"
 jira = "^3.8.0"
-pyhelper-utils = "^0.0.13"
+pyhelper-utils = "^0.0.14"
 
 [tool.poetry.group.dev.dependencies]
 ipdb = "^0.13.13"
