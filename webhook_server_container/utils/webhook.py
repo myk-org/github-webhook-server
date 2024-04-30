@@ -2,7 +2,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 from webhook_server_container.utils.constants import FLASK_APP
-from webhook_server_container.utils.helpers import get_github_repo_api, ignore_exceptions
+from webhook_server_container.utils.helpers import get_github_repo_api
+from pyhelper_utils.general import ignore_exceptions
 
 
 @ignore_exceptions(logger=FLASK_APP.logger)

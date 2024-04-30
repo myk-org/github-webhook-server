@@ -40,6 +40,8 @@ colorama = "^0.4.6"
 ruff = "^0.4.0"
 timeout-sampler = "^0.0.25"
 requests = "^2.31.0"
+jira = "^3.8.0"
+pyhelper-utils = "^0.0.13"
 
 [tool.poetry.group.dev.dependencies]
 ipdb = "^0.13.13"

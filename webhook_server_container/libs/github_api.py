@@ -15,6 +15,7 @@ from github.GithubException import UnknownObjectException
 from timeout_sampler import TimeoutSampler, TimeoutExpiredError
 
 from webhook_server_container.libs.config import Config
+from webhook_server_container.libs.jira_api import JiraApi
 from webhook_server_container.utils.constants import (
     ADD_STR,
     APPROVED_BY_LABEL_PREFIX,
@@ -33,6 +34,7 @@ from webhook_server_container.utils.constants import (
     HAS_CONFLICTS_LABEL_STR,
     HOLD_LABEL_STR,
     IN_PROGRESS_STR,
+    JIRA_STR,
     LGTM_STR,
     NEEDS_REBASE_LABEL_STR,
     PYTHON_MODULE_INSTALL_STR,
@@ -48,12 +50,13 @@ from webhook_server_container.utils.constants import (
     PRE_COMMIT_STR,
     OTHER_MAIN_BRANCH,
 )
+from pyhelper_utils.general import ignore_exceptions
 from webhook_server_container.utils.dockerhub_rate_limit import DockerHub
 from webhook_server_container.utils.helpers import (
     get_api_with_highest_rate_limit,
     extract_key_from_dict,
     get_github_repo_api,
-    ignore_exceptions,
+    get_value_from_dicts,
     run_command,
     get_apis_and_tokes_from_config,
 )
@@ -75,6 +78,9 @@ class GitHubApi:
         self.parent_committer = None
         self.log_uuid = shortuuid.uuid()[:5]
         self.container_repo_dir = "/tmp/repository"
+        self.jira_conn = None
+        self.jira_track_pr = False
+        self.issue_title = None
 
         # filled by self._repo_data_from_config()
         self.dockerhub_username = None
@@ -90,11 +96,15 @@ class GitHubApi:
         self.github_app_id = None
         self.container_release = None
         self.can_be_merged_required_labels = []
+        self.jira = None
+        self.jira_tracking = False
+        self.jira_enabled_repository = False
         # End of filled by self._repo_data_from_config()
 
         self.config = Config()
         self._repo_data_from_config()
         self._set_log_prefix_color()
+        # self.log_repository_features()
 
         self.github_app_api = self.get_github_app_api()
 
@@ -115,11 +125,24 @@ class GitHubApi:
         self.dockerhub = DockerHub(username=self.dockerhub_username, password=self.dockerhub_password)
 
         self.pull_request = self._get_pull_request()
+        self.owners_content = self.get_owners_content()
+
         if self.pull_request:
             self.last_commit = self._get_last_commit()
             self.parent_committer = self.pull_request.user.login
 
-        self.owners_content = self.get_owners_content()
+            if self.jira_enabled_repository:
+                reviewers_and_approvers = self.reviewers + self.approvers
+                if self.parent_committer in reviewers_and_approvers:
+                    self.jira_assignee = self.jira_user_mapping.get(self.parent_committer, self.parent_committer)
+                    self.jira_track_pr = True
+                    self.issue_title = f"[AUTO:FROM:GITHUB] PR [{self.pull_request.number}]: {self.pull_request.title}"
+                    self.app.logger.info(f"{self.log_prefix} Jira tracking is enabled for the current pull request.")
+                else:
+                    self.app.logger.info(
+                        f"{self.log_prefix} Jira tracking is disabled for the current pull request. "
+                        f"Committer {self.parent_committer} is not in {reviewers_and_approvers}"
+                    )
 
         self.supported_user_labels_str = "".join([f" * {label}\n" for label in USER_LABELS_DICT.keys()])
         self.welcome_msg = f"""
@@ -266,17 +289,44 @@ Available user actions:
         if not repo_data:
             raise RepositoryNotFoundError(f"Repository {self.repository_name} not found in config file")
 
-        self.github_app_id = config_data["github-app-id"]
-        self.webhook_url = config_data.get("webhook_ip")
+        self.github_app_id = get_value_from_dicts(
+            primary_dict=repo_data, secondary_dict=config_data, key="github-app-id"
+        )
         self.repository_full_name = repo_data["name"]
-        self.pypi = repo_data.get("pypi")
-        self.verified_job = repo_data.get("verified_job", True)
-        self.tox_enabled = repo_data.get("tox")
-        self.tox_python_version = repo_data.get("tox_python_version", "python")
-        self.slack_webhook_url = repo_data.get("slack_webhook_url")
+        self.pypi = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="pypi")
+        self.verified_job = get_value_from_dicts(
+            primary_dict=repo_data, secondary_dict=config_data, key="verified-job", return_on_none=True
+        )
+        self.tox_enabled = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="tox")
+        self.tox_python_version = get_value_from_dicts(
+            primary_dict=repo_data, secondary_dict=config_data, key="tox-python-version", return_on_none="python"
+        )
+        self.slack_webhook_url = get_value_from_dicts(
+            primary_dict=repo_data, secondary_dict=config_data, key="slack_webhook_url"
+        )
         self.build_and_push_container = repo_data.get("container")
-        self.dockerhub = repo_data.get("docker")
-        self.pre_commit = repo_data.get("pre-commit")
+        self.dockerhub = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="docker")
+        self.pre_commit = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="pre-commit")
+        self.jira = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="jira")
+
+        if self.jira:
+            self.jira_server = self.jira.get("server")
+            self.jira_project = self.jira.get("project")
+            self.jira_token = self.jira.get("token")
+            self.jira_epic = self.jira.get("epic")
+            self.jira_user_mapping = self.jira.get("user-mapping", {})
+
+            # Check if repository is enabled for jira
+            self.jira_tracking = get_value_from_dicts(
+                primary_dict=repo_data, secondary_dict=config_data, key="jira-tracking"
+            )
+            if self.jira_tracking:
+                self.jira_enabled_repository = all([self.jira_server, self.jira_project, self.jira_token])
+                if not self.jira_enabled_repository:
+                    # if not (self.jira_enabled_repository := all([self.jira_server, self.jira_project, self.jira_token])):
+                    self.app.logger.error(
+                        f"{self.log_prefix} Jira configuration is not valid. Server: {self.jira_server}, Project: {self.jira_project}, Token: {self.jira_token}"
+                    )
 
         if self.dockerhub:
             self.dockerhub_username = self.dockerhub["username"]
@@ -292,11 +342,12 @@ Available user actions:
             self.container_command_args = self.build_and_push_container.get("args")
             self.container_release = self.build_and_push_container.get("release")
 
-        self.auto_verified_and_merged_users = config_data.get(
-            "auto-verified-and-merged-users",
-            repo_data.get("auto-verified-and-merged-users", []),
+        self.auto_verified_and_merged_users = get_value_from_dicts(
+            primary_dict=repo_data, secondary_dict=config_data, key="auto-verified-and-merged-users", return_on_none=[]
         )
-        self.can_be_merged_required_labels = config_data.get("can-be-merged-required-labels", [])
+        self.can_be_merged_required_labels = get_value_from_dicts(
+            primary_dict=repo_data, secondary_dict=config_data, key="can-be-merged-required-labels", return_on_none=[]
+        )
 
     def _get_pull_request(self, number=None):
         if number:
@@ -746,6 +797,22 @@ Available labels:
             self.app.logger.info(f"{self.log_prefix} Creating welcome comment")
             self.pull_request.create_issue_comment(self.welcome_msg)
             self.create_issue_for_new_pull_request()
+
+            if self.jira_track_pr:
+                self.get_jira_conn()
+                if not self.jira_conn:
+                    self.app.logger.error(f"{self.log_prefix} Jira connection not found")
+                    return
+
+                self.app.logger.info(f"{self.log_prefix} Creating Jira story")
+                jira_story_key = self.jira_conn.create_story(
+                    title=self.issue_title,
+                    body=self.pull_request.html_url,
+                    epic_key=self.jira_epic,
+                    assignee=self.jira_assignee,
+                )
+                self._add_label(label=f"{JIRA_STR}:{jira_story_key}")
+
             self.process_opened_or_synchronize_pull_request(pull_request_branch=pull_request_branch)
 
         if hook_action == "synchronize":
@@ -758,12 +825,29 @@ Available labels:
                 ):
                     self._remove_label(label=_label_name)
 
+            if self.jira_track_pr:
+                if _story_key := self.get_story_key_with_jira_connection():
+                    self.app.logger.info(f"{self.log_prefix} Creating sub-task for Jira story {_story_key}")
+                    self.jira_conn.create_closed_subtask(
+                        title=f"{self.issue_title}: New commit from {self.parent_committer}",
+                        parent_key=_story_key,
+                        assignee=self.jira_assignee,
+                        body=f"PR: {self.pull_request.title}, new commit pushed by {self.parent_committer}",
+                    )
+
             self.process_opened_or_synchronize_pull_request(pull_request_branch=pull_request_branch)
 
         if hook_action == "closed":
             self.close_issue_for_merged_or_closed_pr(hook_action=hook_action)
-
             is_merged = pull_request_data.get("merged")
+
+            if self.jira_track_pr:
+                if _story_key := self.get_story_key_with_jira_connection():
+                    self.app.logger.info(f"{self.log_prefix} Closing Jira story")
+                    self.jira_conn.close_issue(
+                        key=_story_key, comment=f"PR: {self.pull_request.title} is closed. Megred: {is_merged}"
+                    )
+
             if is_merged:
                 self.app.logger.info(f"{self.log_prefix} PR is merged")
 
@@ -822,11 +906,37 @@ Available labels:
             approved
             changes_requested
             """
+            reviewed_user = self.hook_data["review"]["user"]["login"]
+
+            review_state = self.hook_data["review"]["state"]
             self.manage_reviewed_by_label(
-                review_state=self.hook_data["review"]["state"],
+                review_state=review_state,
                 action=ADD_STR,
-                reviewed_user=self.hook_data["review"]["user"]["login"],
+                reviewed_user=reviewed_user,
             )
+
+            if self.jira_track_pr:
+                _story_label = [_label for _label in self.pull_request.labels if _label.name.startswith(JIRA_STR)]
+                if _story_label:
+                    if reviewed_user == self.parent_committer:
+                        self.app.logger.info(
+                            f"{self.log_prefix} Skipping Jira review sub-task creation for review by {reviewed_user} which is parent committer"
+                        )
+                        return
+
+                    _story_key = _story_label[0].name.split(":")[-1]
+                    self.get_jira_conn()
+                    if not self.jira_conn:
+                        self.app.logger.error(f"{self.log_prefix} Jira connection not found")
+                        return
+
+                    self.app.logger.info(f"{self.log_prefix} Creating sub-task for Jira story {_story_key}")
+                    self.jira_conn.create_closed_subtask(
+                        title=f"{self.issue_title}: reviewed by: {reviewed_user} - {review_state}",
+                        parent_key=_story_key,
+                        assignee=self.jira_user_mapping.get(reviewed_user, self.parent_committer),
+                        body=f"PR: {self.pull_request.title}, reviewed by: {reviewed_user}",
+                    )
 
     def manage_reviewed_by_label(self, review_state, action, reviewed_user):
         self.app.logger.info(
@@ -1539,3 +1649,41 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             return f"```\n{err}\n\n{out}\n```"[:65534]
         else:
             return f"```\n{err}\n\n{out}\n```"
+
+    @ignore_exceptions(logger=FLASK_APP.logger)
+    def get_jira_conn(self):
+        self.jira_conn = JiraApi(
+            server=self.jira_server,
+            project=self.jira_project,
+            token=self.jira_token,
+        )
+
+    def log_repository_features(self):
+        repository_features = f"""
+                        auto-verified-and-merged-users: {self.auto_verified_and_merged_users}
+                        can-be-merged-required-labels: {self.can_be_merged_required_labels}
+                        pypi: {self.pypi}
+                        verified-job: {self.verified_job}
+                        tox-enabled: {self.tox_enabled}
+                        tox-python-version: {self.tox_python_version}
+                        docker: {self.dockerhub}
+                        pre-commit: {self.pre_commit}
+                        slack-webhook-url: {self.slack_webhook_url}
+                        container: {self.build_and_push_container}
+                        jira-tracking: {self.jira_tracking}
+                        jira-server: {self.jira_server}
+                        jira-project: {self.jira_project}
+                        jira-token: {self.jira_token}
+                        jira-enabled-repository: {self.jira_enabled_repository}
+                        jira-user-mapping: {self.jira_user_mapping}
+"""
+        self.app.logger.info(f"{self.log_prefix} Repository features: {repository_features}")
+
+    def get_story_key_with_jira_connection(self):
+        _story_label = [_label for _label in self.pull_request.labels if _label.name.startswith(JIRA_STR)]
+        if _story_key := _story_label[0].name.split(":")[-1]:
+            self.get_jira_conn()
+            if not self.jira_conn:
+                self.app.logger.error(f"{self.log_prefix} Jira connection not found")
+                return None
+        return _story_key

@@ -157,6 +157,37 @@ docker:
   password: password
 ```
 
+if Jira is configured for the repository we create a new issue (story) for the PR and assign it to the owner.
+On new commit create closed sub-task under the PR story with the commiter as assignee
+On reviewed PR create closed sub-task under the PR story with the reviewer as assignee
+
+- `server`: FQDN Jira server url
+- `project`: project key to open the issue
+- `token`: Jira token
+- `epic`: epic name, if provided a new issue will be created under the epic
+- `user-mapping`: mapping from github username to jira username if different
+
+`jira` setting can be placed as global (for all repositories) or per repository.
+`jira` in repository setting will override `jira` in global setting for the repository
+
+```yaml
+jira:
+  server: jira server url
+  project: project key to open the issue
+  token: jira token
+  epic: epic name # Optional
+  user-mapping:
+    github username: jira username
+```
+
+To enable jira for a repository, set `jira-tracking: true` in repository settings
+
+```yaml
+repositories:
+  my-repository:
+    jira-tracking: true
+```
+
 ## Supported actions
 
 Following actions are done automatically:

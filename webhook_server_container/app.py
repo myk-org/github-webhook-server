@@ -14,9 +14,9 @@ from webhook_server_container.utils.github_repository_settings import (
     set_all_in_progress_check_runs_to_queued,
     set_repositories_settings,
 )
+from pyhelper_utils.general import ignore_exceptions
 from webhook_server_container.utils.helpers import (
     get_api_with_highest_rate_limit,
-    ignore_exceptions,
 )
 from webhook_server_container.utils.webhook import create_webhook
 

@@ -16,9 +16,9 @@ from webhook_server_container.utils.constants import (
     STATIC_LABELS_DICT,
     TOX_STR,
 )
+from pyhelper_utils.general import ignore_exceptions
 from webhook_server_container.utils.helpers import (
     get_github_repo_api,
-    ignore_exceptions,
 )
 
 

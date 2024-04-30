@@ -1,8 +1,8 @@
 import datetime
 import shlex
 import subprocess
-from functools import wraps
-
+from typing import Any, Dict, Optional
+from pyhelper_utils.general import ignore_exceptions
 from colorama import Fore
 from github import Github
 
@@ -21,22 +21,6 @@ def extract_key_from_dict(key, _dict):
                 for _item in _val:
                     for result in extract_key_from_dict(key, _item):
                         yield result
-
-
-def ignore_exceptions(logger=None):
-    def wrapper(func):
-        @wraps(func)
-        def inner(*args, **kwargs):
-            try:
-                return func(*args, **kwargs)
-            except Exception as ex:
-                if logger:
-                    logger.error(f"{func.__name__}({args} {kwargs}). Error: {ex}")
-                return None
-
-        return inner
-
-    return wrapper
 
 
 @ignore_exceptions(logger=FLASK_APP.logger)
@@ -163,3 +147,14 @@ def log_rate_limit(rate_limit, api_user):
         f"Reset in {rate_limit.core.reset} [{datetime.timedelta(seconds=time_for_limit_reset)}] "
         f"(UTC time is {datetime.datetime.now(tz=datetime.timezone.utc)})"
     )
+
+
+def get_value_from_dicts(
+    primary_dict: Dict[Any, Any], secondary_dict: Dict[Any, Any], key: str, return_on_none: Optional[Any] = None
+) -> Any:
+    """
+    Get value from two dictionaries.
+
+    If value is not found in primary_dict, try to get it from secondary_dict, otherwise return return_on_none.
+    """
+    return primary_dict.get(key, secondary_dict.get(key, return_on_none))

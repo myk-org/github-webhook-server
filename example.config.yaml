@@ -19,6 +19,13 @@ auto-verified-and-merged-users:
   - "renovate[bot]"
   - "pre-commit-ci[bot]"
 
+jira:
+  server: <JIRA URL>
+  project: <PROJECT KEY>
+  tokan: <JIRA TOKEN>
+  user-mapping:
+    <GITHUB USER>: <JIRA USER> # if github user is not the same as jira
+
 repositories:
   my-repository:
     name: my-org/my-repository
@@ -66,3 +73,13 @@ repositories:
     can-be-merged-required-labels: # check for extra labels to set PR as can be merged
       - my-label1
       - my-label2
+
+    jira-tracking: true
+
+    jira: # override Jira global settings
+      server: <JIRA URL>
+      project: <PROJECT KEY>
+      token: <JIRA TOKEN>
+      epic: <EPIC KEY> # Optional
+      user-mapping:
+        <GITHUB USER>: <JIRA USER> # if github user is not the same as jira
