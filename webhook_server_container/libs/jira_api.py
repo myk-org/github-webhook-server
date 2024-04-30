@@ -6,7 +6,7 @@ from webhook_server_container.utils.constants import FLASK_APP
 
 
 class JiraApi:
-    def __init__(self, server: str, project: str, token: str, assignee: str):
+    def __init__(self, server: str, project: str, token: str):
         self.server = server
         self.project = project
         self.token = token
@@ -16,15 +16,15 @@ class JiraApi:
             token_auth=self.token,
         )
         self.conn.my_permissions()
-        self.assignee = assignee
-        self.fields: Dict[str, Any] = {"project": {"key": self.project}, "assignee": {"name": self.assignee}}
+        self.fields: Dict[str, Any] = {"project": {"key": self.project}}
 
     @ignore_exceptions(logger=FLASK_APP.logger)
-    def create_story(self, title: str, body: str, epic_key: str) -> str:
+    def create_story(self, title: str, body: str, epic_key: str, assignee: str) -> str:
         self.fields.update({
             "summary": title,
             "description": body,
             "issuetype": {"name": "Story"},
+            "assignee": {"name": assignee},
         })
         if epic_key:
             if epic_custom_field := self.get_epic_custom_field():
@@ -34,12 +34,13 @@ class JiraApi:
         return _issue.key
 
     @ignore_exceptions(logger=FLASK_APP.logger)
-    def create_closed_subtask(self, title: str, body: str, parent_key: str) -> None:
+    def create_closed_subtask(self, title: str, body: str, parent_key: str, assignee: str) -> None:
         self.fields.update({
             "summary": title,
             "description": body,
             "parent": {"key": parent_key},
             "issuetype": {"name": "Sub-task"},
+            "assignee": {"name": assignee},
         })
         _issue = self.conn.create_issue(fields=self.fields)
         self.close_issue(key=_issue.key)

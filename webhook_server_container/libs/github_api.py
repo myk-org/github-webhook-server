@@ -292,7 +292,6 @@ Available user actions:
         self.github_app_id = get_value_from_dicts(
             primary_dict=repo_data, secondary_dict=config_data, key="github-app-id"
         )
-        self.webhook_url = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="webhook-url")
         self.repository_full_name = repo_data["name"]
         self.pypi = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="pypi")
         self.verified_job = get_value_from_dicts(
@@ -810,6 +809,7 @@ Available labels:
                     title=self.issue_title,
                     body=self.pull_request.html_url,
                     epic_key=self.jira_epic,
+                    assignee=self.jira_assignee,
                 )
                 self._add_label(label=f"{JIRA_STR}:{jira_story_key}")
 
@@ -831,6 +831,7 @@ Available labels:
                     self.jira_conn.create_closed_subtask(
                         title=f"{self.issue_title}: New commit from {self.parent_committer}",
                         parent_key=_story_key,
+                        assignee=self.jira_assignee,
                         body=f"PR: {self.pull_request.title}, new commit pushed by {self.parent_committer}",
                     )
 
@@ -933,6 +934,7 @@ Available labels:
                     self.jira_conn.create_closed_subtask(
                         title=f"{self.issue_title}: reviewed by: {reviewed_user} - {review_state}",
                         parent_key=_story_key,
+                        assignee=self.jira_user_mapping.get(reviewed_user, self.parent_committer),
                         body=f"PR: {self.pull_request.title}, reviewed by: {reviewed_user}",
                     )
 
@@ -1654,7 +1656,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             server=self.jira_server,
             project=self.jira_project,
             token=self.jira_token,
-            assignee=self.jira_assignee,
         )
 
     def log_repository_features(self):
