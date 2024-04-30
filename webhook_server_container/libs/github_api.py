@@ -314,7 +314,9 @@ Available user actions:
             self.jira_server = self.jira.get("server")
             self.jira_project = self.jira.get("project")
             self.jira_token = self.jira.get("token")
+            self.jira_epic = self.jira.get("epic")
             self.jira_user_mapping = self.jira.get("user-mapping", {})
+
             # Check if repository is enabled for jira
             self.jira_tracking = get_value_from_dicts(
                 primary_dict=repo_data, secondary_dict=config_data, key="jira-tracking"
@@ -322,6 +324,7 @@ Available user actions:
             if self.jira_tracking:
                 self.jira_enabled_repository = all([self.jira_server, self.jira_project, self.jira_token])
                 if not self.jira_enabled_repository:
+                    # if not (self.jira_enabled_repository := all([self.jira_server, self.jira_project, self.jira_token])):
                     self.app.logger.error(
                         f"{self.log_prefix} Jira configuration is not valid. Server: {self.jira_server}, Project: {self.jira_project}, Token: {self.jira_token}"
                     )
@@ -805,7 +808,8 @@ Available labels:
                 self.app.logger.info(f"{self.log_prefix} Creating Jira story")
                 jira_story_key = self.jira_conn.create_story(
                     title=self.issue_title,
-                    body=self.pull_request.url,
+                    body=self.pull_request.html_url,
+                    epic_key=self.jira_epic,
                 )
                 self._add_label(label=f"{JIRA_STR}:{jira_story_key}")
 
@@ -822,14 +826,7 @@ Available labels:
                     self._remove_label(label=_label_name)
 
             if self.jira_track_pr:
-                _story_label = [_label for _label in self.pull_request.labels if _label.name.startswith(JIRA_STR)]
-                if _story_label:
-                    _story_key = _story_label[0].name.split(":")[-1]
-                    self.get_jira_conn()
-                    if not self.jira_conn:
-                        self.app.logger.error(f"{self.log_prefix} Jira connection not found")
-                        return
-
+                if _story_key := self.get_story_key_with_jira_connection():
                     self.app.logger.info(f"{self.log_prefix} Creating sub-task for Jira story {_story_key}")
                     self.jira_conn.create_closed_subtask(
                         title=f"{self.issue_title}: New commit from {self.parent_committer}",
@@ -844,14 +841,7 @@ Available labels:
             is_merged = pull_request_data.get("merged")
 
             if self.jira_track_pr:
-                _story_label = [_label for _label in self.pull_request.labels if _label.name.startswith(JIRA_STR)]
-                if _story_label:
-                    _story_key = _story_label[0].name.split(":")[-1]
-                    self.get_jira_conn()
-                    if not self.jira_conn:
-                        self.app.logger.error(f"{self.log_prefix} Jira connection not found")
-                        return
-
+                if _story_key := self.get_story_key_with_jira_connection():
                     self.app.logger.info(f"{self.log_prefix} Closing Jira story")
                     self.jira_conn.close_issue(
                         key=_story_key, comment=f"PR: {self.pull_request.title} is closed. Megred: {is_merged}"
@@ -1661,9 +1651,9 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
     @ignore_exceptions(logger=FLASK_APP.logger)
     def get_jira_conn(self):
         self.jira_conn = JiraApi(
-            jira_server=self.jira_server,
-            jira_project=self.jira_project,
-            jira_token=self.jira_token,
+            server=self.jira_server,
+            project=self.jira_project,
+            token=self.jira_token,
             assignee=self.jira_assignee,
         )
 
@@ -1687,3 +1677,12 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                         jira-user-mapping: {self.jira_user_mapping}
 """
         self.app.logger.info(f"{self.log_prefix} Repository features: {repository_features}")
+
+    def get_story_key_with_jira_connection(self):
+        _story_label = [_label for _label in self.pull_request.labels if _label.name.startswith(JIRA_STR)]
+        if _story_key := _story_label[0].name.split(":")[-1]:
+            self.get_jira_conn()
+            if not self.jira_conn:
+                self.app.logger.error(f"{self.log_prefix} Jira connection not found")
+                return None
+        return _story_key

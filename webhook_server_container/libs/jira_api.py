@@ -6,32 +6,30 @@ from webhook_server_container.utils.constants import FLASK_APP
 
 
 class JiraApi:
-    def __init__(
-        self,
-        jira_server: str,
-        jira_project: str,
-        jira_token: str,
-        assignee: str,
-    ):
-        self.jira_server = jira_server
-        self.jira_project = jira_project
-        self.jira_token = jira_token
+    def __init__(self, server: str, project: str, token: str, assignee: str):
+        self.server = server
+        self.project = project
+        self.token = token
 
         self.conn = JIRA(
-            server=self.jira_server,
-            token_auth=self.jira_token,
+            server=self.server,
+            token_auth=self.token,
         )
         self.conn.my_permissions()
         self.assignee = assignee
-        self.fields: Dict[str, Any] = {"project": {"key": self.jira_project}, "assignee": {"name": self.assignee}}
+        self.fields: Dict[str, Any] = {"project": {"key": self.project}, "assignee": {"name": self.assignee}}
 
     @ignore_exceptions(logger=FLASK_APP.logger)
-    def create_story(self, title: str, body: str) -> str:
+    def create_story(self, title: str, body: str, epic_key: str) -> str:
         self.fields.update({
             "summary": title,
             "description": body,
             "issuetype": {"name": "Story"},
         })
+        if epic_key:
+            if epic_custom_field := self.get_epic_custom_field():
+                self.fields.update({epic_custom_field: epic_key})
+
         _issue = self.conn.create_issue(fields=self.fields)
         return _issue.key
 
@@ -53,3 +51,7 @@ class JiraApi:
             transition="closed",
             comment=comment,
         )
+
+    def get_epic_custom_field(self) -> str:
+        _epic_field_id = [cf["id"] for cf in self.conn.fields() if "Epic Link" in cf["name"]]
+        return _epic_field_id[0] if _epic_field_id else ""
