@@ -136,7 +136,7 @@ class GitHubApi:
                 if self.parent_committer in reviewers_and_approvers:
                     self.jira_assignee = self.jira_user_mapping.get(self.parent_committer, self.parent_committer)
                     self.jira_track_pr = True
-                    self.issue_title = f"[AUTO:FROM:GITHUB] PR [{self.pull_request.number}]: {self.pull_request.title}"
+                    self.issue_title = f"[AUTO:FROM:GITHUB] [{self.repository_name}] PR [{self.pull_request.number}]: {self.pull_request.title}"
                     self.app.logger.info(f"{self.log_prefix} Jira tracking is enabled for the current pull request.")
                 else:
                     self.app.logger.info(
