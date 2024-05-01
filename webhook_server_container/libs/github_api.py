@@ -129,7 +129,8 @@ class GitHubApi:
 
         if self.pull_request:
             self.last_commit = self._get_last_commit()
-            self.parent_committer = self.last_commit.committer.login
+            self.parent_committer = self.pull_request.user.login
+            self.last_committer = self.last_commit.committer.login
 
             if self.jira_enabled_repository:
                 reviewers_and_approvers = self.reviewers + self.approvers
@@ -829,10 +830,10 @@ Available labels:
                 if _story_key := self.get_story_key_with_jira_connection():
                     self.app.logger.info(f"{self.log_prefix} Creating sub-task for Jira story {_story_key}")
                     self.jira_conn.create_closed_subtask(
-                        title=f"{self.issue_title}: New commit from {self.parent_committer}",
+                        title=f"{self.issue_title}: New commit from {self.last_committer}",
                         parent_key=_story_key,
                         assignee=self.jira_assignee,
-                        body=f"PR: {self.pull_request.title}, new commit pushed by {self.parent_committer}",
+                        body=f"PR: {self.pull_request.title}, new commit pushed by {self.last_committer}",
                     )
 
             self.process_opened_or_synchronize_pull_request(pull_request_branch=pull_request_branch)
@@ -918,9 +919,9 @@ Available labels:
             if self.jira_track_pr:
                 _story_label = [_label for _label in self.pull_request.labels if _label.name.startswith(JIRA_STR)]
                 if _story_label:
-                    if reviewed_user == self.parent_committer:
+                    if reviewed_user == self.parent_committer or reviewed_user == self.last_committer:
                         self.app.logger.info(
-                            f"{self.log_prefix} Skipping Jira review sub-task creation for review by {reviewed_user} which is parent committer"
+                            f"{self.log_prefix} Skipping Jira review sub-task creation for review by {reviewed_user} which is parent or last committer"
                         )
                         return
 
