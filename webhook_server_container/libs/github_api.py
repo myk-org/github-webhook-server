@@ -141,11 +141,12 @@ class GitHubApi:
                             f"{self.log_prefix} Jira tracking is disabled for the current pull request. "
                             f"Committer {self.parent_committer} is not in configures in jira-user-mapping"
                         )
-                        return
-
-                    self.jira_track_pr = True
-                    self.issue_title = f"[AUTO:FROM:GITHUB] [{self.repository_name}] PR [{self.pull_request.number}]: {self.pull_request.title}"
-                    self.app.logger.info(f"{self.log_prefix} Jira tracking is enabled for the current pull request.")
+                    else:
+                        self.jira_track_pr = True
+                        self.issue_title = f"[AUTO:FROM:GITHUB] [{self.repository_name}] PR [{self.pull_request.number}]: {self.pull_request.title}"
+                        self.app.logger.info(
+                            f"{self.log_prefix} Jira tracking is enabled for the current pull request."
+                        )
                 else:
                     self.app.logger.info(
                         f"{self.log_prefix} Jira tracking is disabled for the current pull request. "
