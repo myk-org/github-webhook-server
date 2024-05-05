@@ -61,11 +61,17 @@ def set_repository_settings(repository):
     repository.edit(delete_branch_on_merge=True, allow_auto_merge=True, allow_update_branch=True)
 
     FLASK_APP.logger.info(f"Set repository {repository.name} security settings")
+
+    if repository.private:
+        FLASK_APP.logger.warning(f"{repository.name}: Repository is private, skipping setting security settings")
+        return
+
     repository._requester.requestJsonAndCheck(
         "PATCH",
         f"{repository.url}/code-scanning/default-setup",
         input={"state": "not-configured"},
     )
+
     repository._requester.requestJsonAndCheck(
         "PATCH",
         repository.url,
@@ -167,14 +173,11 @@ def set_repository(data, github_api, default_status_checks):
 
     try:
         set_repository_labels(repository=repo)
+        set_repository_settings(repository=repo)
 
         if repo.private:
-            FLASK_APP.logger.warning(
-                f"{repository}: Repository is private, skipping setting branch and security settings"
-            )
+            FLASK_APP.logger.warning(f"{repository}: Repository is private, skipping setting branch settings")
             return
-
-        set_repository_settings(repository=repo)
 
         for branch_name, status_checks in protected_branches.items():
             FLASK_APP.logger.info(f"{repository}: Getting branch {branch_name}")
