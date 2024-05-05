@@ -169,7 +169,9 @@ def set_repository(data, github_api, default_status_checks):
         set_repository_labels(repository=repo)
 
         if repo.private:
-            FLASK_APP.logger.warning(f"{repository}: Repository is private, skipping setting branch settings")
+            FLASK_APP.logger.warning(
+                f"{repository}: Repository is private, skipping setting branch and security settings"
+            )
             return
 
         set_repository_settings(repository=repo)
