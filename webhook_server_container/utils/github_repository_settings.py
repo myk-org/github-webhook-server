@@ -29,7 +29,7 @@ def get_branch_sampler(repo, branch_name):
 
 def skip_repo(protected_branches, repo):
     _private = repo.private
-    if not protected_branches or not repo or _private:
+    if not protected_branches or _private:
         if _private:
             FLASK_APP.logger.info(f"{repo.name} skipped, repository is private")
         return True
@@ -165,13 +165,14 @@ def set_repository(data, github_api, default_status_checks):
         FLASK_APP.logger.error(f"{repository}: Failed to get repository")
         return
 
-    if skip_repo(protected_branches=protected_branches, repo=repo):
-        return
-
     try:
-        set_repository_settings(repository=repo)
-
         set_repository_labels(repository=repo)
+
+        if repo.private:
+            FLASK_APP.logger.warning(f"{repository}: Repository is private, skipping setting branch settings")
+            return
+
+        set_repository_settings(repository=repo)
 
         for branch_name, status_checks in protected_branches.items():
             FLASK_APP.logger.info(f"{repository}: Getting branch {branch_name}")
