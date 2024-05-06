@@ -101,7 +101,6 @@ Top level array which define the defaults required check runs for all the reposi
 default-status-checks:
   - "WIP"
   - "dpulls"
-  - "Inclusive Language",
   - "SonarCloud Code Analysis"
   - "can-be-merged"
 ```

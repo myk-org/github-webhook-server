@@ -131,6 +131,8 @@ class GitHubApi:
             self.last_commit = self._get_last_commit()
             self.parent_committer = self.pull_request.user.login
             self.last_committer = self.last_commit.committer.login
+            self.pull_request_branch = self.pull_request.base.ref
+            self.all_required_status_checks = self.get_all_required_status_checks()
 
             if self.jira_enabled_repository:
                 reviewers_and_approvers = self.reviewers + self.approvers
@@ -276,9 +278,14 @@ Available user actions:
         _check_run = self.hook_data["check_run"]
         check_run_name = _check_run["name"]
         if check_run_name == CAN_BE_MERGED_STR:
+            self.app.logger.info(f"{self.log_prefix} check_run '{check_run_name}' skipped")
             return
 
-        if self.hook_data["action"] == "completed" and _check_run["conclusion"] == SUCCESS_STR:
+        if (
+            self.hook_data["action"] == "completed"
+            and _check_run["conclusion"] == SUCCESS_STR
+            and check_run_name in self.all_required_status_checks
+        ):
             self.app.logger.info(f"{self.log_prefix} check_run '{check_run_name}' completed and {SUCCESS_STR}")
             for _pull_request in self.repository.get_pulls(state="open"):
                 _last_commit = list(_pull_request.get_commits())[-1]
@@ -460,7 +467,7 @@ Available user actions:
         cmd = f"git checkout {tag_name}"
         self.app.logger.info(f"{self.log_prefix} Start uploading to pypi")
         cmd += (
-            " && python3 -m build --sdist --outdir /tmp/dist"
+            " && python3 -m build --sdist --outdir /dist"
             " && twine check /tmp/dist/$(echo *.tar.gz)"
             " && twine upload /tmp/dist/$(echo *.tar.gz) --skip-existing"
         )
@@ -800,7 +807,7 @@ Available labels:
 
         pull_request_data = self.hook_data["pull_request"]
         self.parent_committer = pull_request_data["user"]["login"]
-        pull_request_branch = pull_request_data["base"]["ref"]
+        self.pull_request_branch = pull_request_data["base"]["ref"]
 
         if hook_action == "opened":
             self.app.logger.info(f"{self.log_prefix} Creating welcome comment")
@@ -822,7 +829,7 @@ Available labels:
                 )
                 self._add_label(label=f"{JIRA_STR}:{jira_story_key}")
 
-            self.process_opened_or_synchronize_pull_request(pull_request_branch=pull_request_branch)
+            self.process_opened_or_synchronize_pull_request()
 
         if hook_action == "synchronize":
             for _label in self.pull_request.labels:
@@ -844,7 +851,7 @@ Available labels:
                         body=f"PR: {self.pull_request.title}, new commit pushed by {self.last_committer}",
                     )
 
-            self.process_opened_or_synchronize_pull_request(pull_request_branch=pull_request_branch)
+            self.process_opened_or_synchronize_pull_request()
 
         if hook_action == "closed":
             self.close_issue_for_merged_or_closed_pr(hook_action=hook_action)
@@ -869,7 +876,6 @@ Available labels:
                     push=True,
                     set_check=False,
                     is_merged=is_merged,
-                    pull_request_branch=pull_request_branch,
                 )
 
                 # label_by_pull_requests_merge_state_after_merged will override self.pull_request
@@ -1322,14 +1328,16 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             check_runs_in_progress = [
                 check_run.name
                 for check_run in last_commit_check_runs
-                if check_run.status == IN_PROGRESS_STR and check_run.name != CAN_BE_MERGED_STR
+                if check_run.status == IN_PROGRESS_STR
+                and check_run.name != CAN_BE_MERGED_STR
+                and check_run.name in self.all_required_status_checks
             ]
             if check_runs_in_progress:
                 self.app.logger.info(
-                    f"{self.log_prefix} Some check runs in progress {check_runs_in_progress}, "
+                    f"{self.log_prefix} Some required check runs in progress {check_runs_in_progress}, "
                     f"skipping check if {CAN_BE_MERGED_STR}."
                 )
-                failure_output += f"Some check runs in progress {check_runs_in_progress}\n"
+                failure_output += f"Some required check runs in progress {check_runs_in_progress}\n"
 
             _labels = self.pull_request_labels_names()
             is_hold = HOLD_LABEL_STR in _labels
@@ -1352,6 +1360,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     check_run.name == CAN_BE_MERGED_STR
                     or check_run.conclusion == SUCCESS_STR
                     or check_run.conclusion == QUEUED_STR
+                    or check_run.name not in self.all_required_status_checks
                 ):
                     continue
 
@@ -1426,11 +1435,15 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 </details>
         """
 
-    def _container_repository_and_tag(self, is_merged=None, tag=None, pull_request_branch=None):
+    def _container_repository_and_tag(self, is_merged=None, tag=None):
         if tag:
             _tag = tag
         elif is_merged:
-            _tag = pull_request_branch if pull_request_branch not in (OTHER_MAIN_BRANCH, "main") else self.container_tag
+            _tag = (
+                self.pull_request_branch
+                if self.pull_request_branch not in (OTHER_MAIN_BRANCH, "main")
+                else self.container_tag
+            )
         else:
             _tag = f"pr-{self.pull_request.number}"
 
@@ -1444,7 +1457,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         push=False,
         is_merged=None,
         tag=None,
-        pull_request_branch=None,
     ):
         if not self.build_and_push_container:
             return False
@@ -1457,7 +1469,8 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             self.set_container_build_in_progress()
 
         _container_repository_and_tag = self._container_repository_and_tag(
-            tag=tag, is_merged=is_merged, pull_request_branch=pull_request_branch
+            tag=tag,
+            is_merged=is_merged,
         )
         no_cache = " --no-cache" if (tag or self.container_tag == _container_repository_and_tag.split(":")[-1]) else ""
         build_cmd = f"--network=host {no_cache} -f {self.container_repo_dir}/{self.dockerfile} . -t {_container_repository_and_tag}"
@@ -1569,7 +1582,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         _comment = self.pull_request.get_issue_comment(issue_comment_id)
         _comment.create_reaction(reaction)
 
-    def process_opened_or_synchronize_pull_request(self, pull_request_branch):
+    def process_opened_or_synchronize_pull_request(self):
         self.set_merge_check_queued()
         self.set_run_tox_check_queued()
         self.set_run_pre_commit_check_queued()
@@ -1577,7 +1590,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         self.set_container_build_queued()
         self._process_verified()
         self.add_size_label()
-        self._add_label(label=f"{BRANCH_LABEL_PREFIX}{pull_request_branch}")
+        self._add_label(label=f"{BRANCH_LABEL_PREFIX}{self.pull_request_branch}")
         self.app.logger.info(f"{self.log_prefix} Adding PR owner as assignee")
 
         try:
@@ -1696,3 +1709,32 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 self.app.logger.error(f"{self.log_prefix} Jira connection not found")
                 return None
         return _story_key
+
+    @ignore_exceptions(logger=FLASK_APP.logger, return_on_error=[])
+    def get_branch_required_status_checks(self):
+        if self.repository.private:
+            self.app.logger.info(
+                f"{self.log_prefix} Repository is private, skipping getting branch protection required status checks"
+            )
+            return []
+
+        pull_request_branch = self.repository.get_branch(self.pull_request_branch)
+        branch_protaction = pull_request_branch.get_protection()
+        return branch_protaction.required_status_checks.contexts
+
+    def get_all_required_status_checks(self):
+        all_required_status_checks = []
+        branch_required_status_checks = self.get_branch_required_status_checks()
+        if self.tox_enabled:
+            all_required_status_checks.append(TOX_STR)
+
+        if self.verified_job:
+            all_required_status_checks.append(VERIFIED_LABEL_STR)
+
+        if self.build_and_push_container:
+            all_required_status_checks.append(BUILD_CONTAINER_STR)
+
+        if self.pypi:
+            all_required_status_checks.append(PYTHON_MODULE_INSTALL_STR)
+
+        return branch_required_status_checks + all_required_status_checks

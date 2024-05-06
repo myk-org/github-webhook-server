@@ -12,7 +12,6 @@ docker: # Used to pull images from docker.io
 default-status-checks:
   - "WIP"
   - "dpulls"
-  - "Inclusive Language"
   - "can-be-merged"
 
 auto-verified-and-merged-users:
