@@ -7,7 +7,7 @@ class DockerHub:
     def __init__(self, username, password):
         self.repository = "ratelimitpreview/test"
         self.token_url = (
-            f"https://auth.docker.io/token?service=registry.docker.io&" f"scope=repository:{self.repository}:pull"
+            f"https://auth.docker.io/token?service=registry.docker.io&scope=repository:{self.repository}:pull"
         )
         self.registry_url = f"https://registry-1.docker.io/v2/{self.repository}/manifests/latest"
         self.username = username
