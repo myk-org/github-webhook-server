@@ -467,7 +467,7 @@ Available user actions:
         cmd = f"git checkout {tag_name}"
         self.app.logger.info(f"{self.log_prefix} Start uploading to pypi")
         cmd += (
-            " && python3 -m build --sdist --outdir /dist"
+            " && python3 -m build --sdist --outdir /tmp/dist"
             " && twine check /tmp/dist/$(echo *.tar.gz)"
             " && twine upload /tmp/dist/$(echo *.tar.gz) --skip-existing"
         )
