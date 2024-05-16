@@ -466,10 +466,11 @@ Available user actions:
         env = f"-e TWINE_USERNAME=__token__ -e TWINE_PASSWORD={token} "
         cmd = f"git checkout {tag_name}"
         self.app.logger.info(f"{self.log_prefix} Start uploading to pypi")
+        _dist_dir = "/tmp/dist"
         cmd += (
-            " && python3 -m build --sdist --outdir /tmp/dist"
-            " && twine check /tmp/dist/$(echo *.tar.gz)"
-            " && twine upload /tmp/dist/$(echo *.tar.gz) --skip-existing"
+            f" && python3 -m build --sdist --outdir {_dist_dir} ."
+            f" && twine check {_dist_dir}/$(echo *.tar.gz)"
+            f" && twine upload {_dist_dir}/$(echo *.tar.gz) --skip-existing"
         )
         rc, out, err = self._run_in_container(command=cmd, env=env)
         if rc:
