@@ -1704,6 +1704,9 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
     def get_story_key_with_jira_connection(self):
         _story_label = [_label for _label in self.pull_request.labels if _label.name.startswith(JIRA_STR)]
+        if not _story_label:
+            return None
+
         if _story_key := _story_label[0].name.split(":")[-1]:
             self.get_jira_conn()
             if not self.jira_conn:
