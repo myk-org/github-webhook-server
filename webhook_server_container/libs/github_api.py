@@ -81,6 +81,7 @@ class GitHubApi:
         self.jira_conn = None
         self.jira_track_pr = False
         self.issue_title = None
+        self.all_required_status_checks = []
 
         # filled by self._repo_data_from_config()
         self.dockerhub_username = None
