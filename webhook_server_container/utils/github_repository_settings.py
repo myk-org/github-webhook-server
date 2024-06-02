@@ -3,8 +3,10 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 
+from github import GithubIntegration, Auth
 from github.GithubException import UnknownObjectException
 
+from webhook_server_container.libs.config import Config
 from webhook_server_container.utils.constants import (
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
@@ -18,6 +20,7 @@ from webhook_server_container.utils.constants import (
 )
 from pyhelper_utils.general import ignore_exceptions
 from webhook_server_container.utils.helpers import (
+    get_api_with_highest_rate_limit,
     get_github_repo_api,
 )
 
@@ -211,7 +214,7 @@ def set_repository(data, github_api, default_status_checks):
     return f"{repository}: Setting repository settings is done"
 
 
-def set_all_in_progress_check_runs_to_queued(config, repositories_app_api, missing_app_repositories, github_api):
+def set_all_in_progress_check_runs_to_queued(config, github_api):
     check_runs = (
         PYTHON_MODULE_INSTALL_STR,
         CAN_BE_MERGED_STR,
@@ -225,9 +228,8 @@ def set_all_in_progress_check_runs_to_queued(config, repositories_app_api, missi
             futures.append(
                 executor.submit(
                     set_repository_check_runs_to_queued,
+                    config,
                     data,
-                    missing_app_repositories,
-                    repositories_app_api,
                     github_api,
                     check_runs,
                 )
@@ -239,12 +241,13 @@ def set_all_in_progress_check_runs_to_queued(config, repositories_app_api, missi
         FLASK_APP.logger.info(result.result())
 
 
-def set_repository_check_runs_to_queued(data, missing_app_repositories, repositories_app_api, github_api, check_runs):
+def set_repository_check_runs_to_queued(config, data, github_api, check_runs):
     repository = data["name"]
-    if repository in missing_app_repositories:
+    repository_app_api = get_repository_github_app_api(config=config, repository=repository)
+    if not repository_app_api:
         return
 
-    app_api = get_github_repo_api(github_api=repositories_app_api[repository], repository=repository)
+    app_api = get_github_repo_api(github_api=repository_app_api, repository=repository)
     repo = get_github_repo_api(github_api=github_api, repository=repository)
     FLASK_APP.logger.info(f"{repository}: Set all {IN_PROGRESS_STR} check runs to {QUEUED_STR}")
     for pull_request in repo.get_pulls(state="open"):
@@ -258,3 +261,32 @@ def set_repository_check_runs_to_queued(data, missing_app_repositories, reposito
                 app_api.create_check_run(name=check_run.name, head_sha=last_commit.sha, status=QUEUED_STR)
 
     return f"{repository}: Set check run status to {QUEUED_STR} is done"
+
+
+@ignore_exceptions(logger=FLASK_APP.logger)
+def get_repository_github_app_api(config, repository):
+    FLASK_APP.logger.info("Getting repositories GitHub app API")
+    with open(os.path.join(config.data_dir, "webhook-server.private-key.pem")) as fd:
+        private_key = fd.read()
+
+    github_app_id = config.data["github-app-id"]
+    auth = Auth.AppAuth(app_id=github_app_id, private_key=private_key)
+    app_instance = GithubIntegration(auth=auth)
+    owner, repo = repository.split("/")
+    try:
+        return app_instance.get_repo_installation(owner=owner, repo=repo).get_github_for_installation()
+    except UnknownObjectException:
+        FLASK_APP.logger.error(
+            f"Repository {repository} not found by manage-repositories-app, "
+            f"make sure the app installed (https://github.com/apps/manage-repositories-app)"
+        )
+
+
+if __name__ == "__main__":
+    config = Config()
+    api, _ = get_api_with_highest_rate_limit(config=config)
+    set_repositories_settings(config=config, github_api=api)
+    set_all_in_progress_check_runs_to_queued(
+        config=config,
+        github_api=api,
+    )

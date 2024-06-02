@@ -40,7 +40,7 @@ RUN python3.8 -m ensurepip \
   && python3.11 -m pip install tox \
   && python3.12 -m pip install tox
 
-COPY pyproject.toml poetry.lock README.md $APP_DIR/
+COPY entrypoint.sh pyproject.toml poetry.lock README.md $APP_DIR/
 COPY webhook_server_container $APP_DIR/webhook_server_container/
 
 WORKDIR $APP_DIR
@@ -51,4 +51,4 @@ RUN poetry config cache-dir $APP_DIR \
   && poetry install
 
 HEALTHCHECK CMD curl --fail http://127.0.0.1:5000/webhook_server/healthcheck || exit 1
-ENTRYPOINT ["poetry", "run", "python3", "webhook_server_container/app.py"]
+ENTRYPOINT ["./entrypoint.sh"]

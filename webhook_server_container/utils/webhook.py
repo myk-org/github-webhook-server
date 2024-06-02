@@ -1,8 +1,9 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
+from webhook_server_container.libs.config import Config
 from webhook_server_container.utils.constants import FLASK_APP
-from webhook_server_container.utils.helpers import get_github_repo_api
+from webhook_server_container.utils.helpers import get_api_with_highest_rate_limit, get_github_repo_api
 from pyhelper_utils.general import ignore_exceptions
 
 
@@ -47,3 +48,9 @@ def create_webhook(config, github_api):
         if result.exception():
             FLASK_APP.logger.error(result.exception())
         FLASK_APP.logger.info(result.result())
+
+
+if __name__ == "__main__":
+    config = Config()
+    api, _ = get_api_with_highest_rate_limit(config=config)
+    create_webhook(config=config, github_api=api)
