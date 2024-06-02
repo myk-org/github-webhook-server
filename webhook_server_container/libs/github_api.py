@@ -52,6 +52,7 @@ from webhook_server_container.utils.constants import (
 )
 from pyhelper_utils.general import ignore_exceptions
 from webhook_server_container.utils.dockerhub_rate_limit import DockerHub
+from webhook_server_container.utils.github_repository_settings import get_repository_github_app_api
 from webhook_server_container.utils.helpers import (
     get_api_with_highest_rate_limit,
     extract_key_from_dict,
@@ -67,12 +68,10 @@ class RepositoryNotFoundError(Exception):
 
 
 class GitHubApi:
-    def __init__(self, hook_data, repositories_app_api, missing_app_repositories):
+    def __init__(self, hook_data):
         self.app = FLASK_APP
         self.hook_data = hook_data
         self.repository_name = hook_data["repository"]["name"]
-        self.repositories_app_api = repositories_app_api
-        self.missing_app_repositories = missing_app_repositories
         self.log_prefix_with_color = None
         self.pull_request = None
         self.parent_committer = None
@@ -107,7 +106,13 @@ class GitHubApi:
         self._set_log_prefix_color()
         # self.log_repository_features()
 
-        self.github_app_api = self.get_github_app_api()
+        self.github_app_api = get_repository_github_app_api(config=self.config, repository=self.repository_full_name)
+        if not self.github_app_api:
+            FLASK_APP.logger.error(
+                f"Repository {self.repository_full_name} not found by manage-repositories-app, "
+                f"make sure the app installed (https://github.com/apps/manage-repositories-app)"
+            )
+            return
 
         self.github_api, self.token = get_api_with_highest_rate_limit(
             config=self.config, repository_name=self.repository_name
@@ -203,14 +208,6 @@ Available user actions:
             retest_msg += f" * `/retest {PYTHON_MODULE_INSTALL_STR}`: Retest python-module-install\n"
 
         return " * This repository does not support retest actions" if not retest_msg else retest_msg
-
-    def get_github_app_api(self):
-        if self.repository_full_name in self.missing_app_repositories:
-            raise RepositoryNotFoundError(
-                f"Repository {self.repository_full_name} not found by manage-repositories-app, "
-                f"make sure the app installed (https://github.com/apps/manage-repositories-app)"
-            )
-        return self.repositories_app_api[self.repository_full_name]
 
     def add_api_users_to_auto_verified_and_merged_users(self):
         apis_and_tokens = get_apis_and_tokes_from_config(config=self.config, repository_name=self.repository_name)
