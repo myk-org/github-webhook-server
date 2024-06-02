@@ -51,4 +51,4 @@ RUN poetry config cache-dir $APP_DIR \
   && poetry install
 
 HEALTHCHECK CMD curl --fail http://127.0.0.1:5000/webhook_server/healthcheck || exit 1
-ENTRYPOINT ["poetry", "run", "python3", "webhook_server_container/app.py"]
+ENTRYPOINT ["./entrypoint.sh"]
