@@ -1474,7 +1474,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             tag=tag,
             is_merged=is_merged,
         )
-        no_cache = " --no-cache" if (tag or self.container_tag == _container_repository_and_tag.split(":")[-1]) else ""
+        no_cache = " --no-cache" if is_merged else ""
         build_cmd = f"--network=host {no_cache} -f {self.container_repo_dir}/{self.dockerfile} . -t {_container_repository_and_tag}"
 
         if self.container_build_args:
