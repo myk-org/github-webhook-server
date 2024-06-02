@@ -40,7 +40,7 @@ RUN python3.8 -m ensurepip \
   && python3.11 -m pip install tox \
   && python3.12 -m pip install tox
 
-COPY pyproject.toml poetry.lock README.md $APP_DIR/
+COPY entrypoint.sh pyproject.toml poetry.lock README.md $APP_DIR/
 COPY webhook_server_container $APP_DIR/webhook_server_container/
 
 WORKDIR $APP_DIR
