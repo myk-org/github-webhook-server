@@ -22,7 +22,6 @@ from webhook_server_container.utils.webhook import create_webhook
 
 REPOSITORIES_APP_API = {}
 MISSING_APP_REPOSITORIES = []
-
 urllib3.disable_warnings()
 
 
@@ -98,9 +97,10 @@ def main():
     create_webhook(config=config, github_api=api)
     FLASK_APP.logger.info(f"Starting {FLASK_APP.name} app")
     FLASK_APP.run(
-        port=int(os.environ.get("WEBHOOK_SERVER_PORT", 5000)),
+        port=5000,
         host="0.0.0.0",
-        use_reloader=True if os.environ.get("WEBHOOK_SERVER_USE_RELOAD") else False,
+        use_reloader=bool(os.getenv("WEBHOOK_SERVER_USE_RELOAD", False)),
+        debug=bool(os.getenv("WEBHOOK_SERVER_USE_DEBUG", False)),
     )
 
 
