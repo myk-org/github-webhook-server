@@ -1489,7 +1489,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             build_cmd += f" && podman push --creds {repository_creds} {_container_repository_and_tag}"
         podman_build_cmd = f"podman build {build_cmd}"
 
-        rc, out, err = self._run_in_container(command=podman_build_cmd, ignore_pull_request=is_merged is not None)
+        rc, out, err = self._run_in_container(command=podman_build_cmd, is_merged=is_merged)
         output = {
             "title": "Build container",
             "summary": "",
@@ -1642,7 +1642,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             self.repository_by_github_app.create_check_run(**kwargs)
         return f"Done setting check run status: {kwargs}"
 
-    def _run_in_container(self, command, env=None, ignore_pull_request=False):
+    def _run_in_container(self, command, env=None, is_merged=False):
         podman_base_cmd = (
             "podman run --network=host --privileged -v /tmp/containers:/var/lib/containers/:Z "
             f"--rm {env if env else ''} --entrypoint bash quay.io/myakove/github-webhook-server -c"
@@ -1659,8 +1659,12 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         clone_base_cmd += " && git config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
         clone_base_cmd += " && git remote update >/dev/null 2>&1"
 
+        # Checkout the branch if pull request is merged
+        if is_merged:
+            clone_base_cmd += f" && git checkout {self.pull_request_branch}"
+
         # Checkout the pull request
-        if self.pull_request and not ignore_pull_request:
+        else:
             clone_base_cmd += f" && git checkout origin/pr/{self.pull_request.number}"
 
         # final podman command
