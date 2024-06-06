@@ -595,14 +595,7 @@ stderr: `{err}`
             self.app.logger.info(
                 f"{self.log_prefix} Label {user_request} is not a predefined one, will not be added / removed."
             )
-            #             self.pull_request.create_issue_comment(
-            #                 body=f"""
-            # Label {user_request} is not a predefined one, will not be added / removed.
-            # Available labels:
-            #
-            # {self.supported_user_labels_str}
-            # """
-            #             )
+
             return
 
         self.app.logger.info(
