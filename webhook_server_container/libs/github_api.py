@@ -908,7 +908,7 @@ stderr: `{err}`
 
             if self.container_release:
                 self.app.logger.info(f"{self.log_prefix} Processing build and push container for tag: {tag_name}")
-                self._run_build_container(push=True, set_check=False, tag=tag_name)
+                self._run_build_container(push=True, set_check=False, tag=tag_name, is_merged=True)
 
     def process_pull_request_review_webhook_data(self):
         if not self.pull_request:
@@ -1454,7 +1454,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         self,
         set_check=True,
         push=False,
-        is_merged=None,
+        is_merged=False,
         tag=None,
     ):
         if not self.build_and_push_container:
