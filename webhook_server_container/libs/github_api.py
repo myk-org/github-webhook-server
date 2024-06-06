@@ -460,29 +460,30 @@ Available user actions:
         return self.repository.get_branch(branch)
 
     def upload_to_pypi(self, tag_name):
+        out, err = "", ""
         token = self.pypi["token"]
         env = f"-e TWINE_USERNAME=__token__ -e TWINE_PASSWORD={token} "
-        cmd = f"git checkout {tag_name}"
         self.app.logger.info(f"{self.log_prefix} Start uploading to pypi")
         _dist_dir = "/tmp/dist"
-        cmd += (
-            f" && python3 -m build --sdist --outdir {_dist_dir} ."
+        cmd = (
+            f" python3 -m build --sdist --outdir {_dist_dir} ."
             f" && twine check {_dist_dir}/$(echo *.tar.gz)"
             f" && twine upload {_dist_dir}/$(echo *.tar.gz) --skip-existing"
         )
-        rc, out, err = self._run_in_container(command=cmd, env=env, is_merged=True)
-        if rc:
-            self.app.logger.info(f"{self.log_prefix} Publish to pypi finished")
-            if self.slack_webhook_url:
-                message = f"""
+        try:
+            rc, out, err = self._run_in_container(command=cmd, env=env, checkout=tag_name)
+            if rc:
+                self.app.logger.info(f"{self.log_prefix} Publish to pypi finished")
+                if self.slack_webhook_url:
+                    message = f"""
 ```
 {self.repository_name} Version {tag_name} published to PYPI.
 ```
 """
-                self.send_slack_message(message=message, webhook_url=self.slack_webhook_url)
+                    self.send_slack_message(message=message, webhook_url=self.slack_webhook_url)
 
-        else:
-            err = "Publish to pypi failed"
+        except Exception as exp:
+            err = f"Publish to pypi failed: {exp}"
             self.app.logger.error(f"{self.log_prefix} {err}")
             self.repository.create_issue(
                 title=err,
@@ -507,7 +508,7 @@ stderr: `{err}`
     def reviewers(self):
         bc_reviewers = self.owners_content.get("reviewers", [])
         if isinstance(bc_reviewers, dict):
-            _reviewers = self.owners_content.get("reviewers").get("any", [])
+            _reviewers = self.owners_content.get("reviewers", {}).get("any", [])
         else:
             _reviewers = bc_reviewers
 
@@ -908,7 +909,7 @@ stderr: `{err}`
 
             if self.container_release:
                 self.app.logger.info(f"{self.log_prefix} Processing build and push container for tag: {tag_name}")
-                self._run_build_container(push=True, set_check=False, tag=tag_name, is_merged=True)
+                self._run_build_container(push=True, set_check=False, tag=tag_name)
 
     def process_pull_request_review_webhook_data(self):
         if not self.pull_request:
@@ -1434,10 +1435,8 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 </details>
         """
 
-    def _container_repository_and_tag(self, is_merged=None, tag=None):
-        if tag:
-            _tag = tag
-        elif is_merged:
+    def _container_repository_and_tag(self, is_merged=None):
+        if is_merged:
             _tag = (
                 self.pull_request_branch
                 if self.pull_request_branch not in (OTHER_MAIN_BRANCH, "main")
@@ -1467,8 +1466,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
             self.set_container_build_in_progress()
 
-        _container_repository_and_tag = self._container_repository_and_tag(
-            tag=tag,
+        _container_repository_and_tag = tag or self._container_repository_and_tag(
             is_merged=is_merged,
         )
         no_cache = " --no-cache" if is_merged else ""
@@ -1639,7 +1637,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             self.repository_by_github_app.create_check_run(**kwargs)
         return f"Done setting check run status: {kwargs}"
 
-    def _run_in_container(self, command, env=None, is_merged=False):
+    def _run_in_container(self, command, env=None, is_merged=False, checkout=None):
         podman_base_cmd = (
             "podman run --network=host --privileged -v /tmp/containers:/var/lib/containers/:Z "
             f"--rm {env if env else ''} --entrypoint bash quay.io/myakove/github-webhook-server -c"
@@ -1656,13 +1654,18 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         clone_base_cmd += " && git config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
         clone_base_cmd += " && git remote update >/dev/null 2>&1"
 
-        # Checkout the branch if pull request is merged
-        if is_merged:
-            clone_base_cmd += f" && git checkout {self.pull_request_branch}"
+        # Checkout to requested branch/tag
+        if checkout:
+            clone_base_cmd += f" && git checkout {checkout}"
 
-        # Checkout the pull request
+        # Checkout the branch if pull request is merged
         else:
-            clone_base_cmd += f" && git checkout origin/pr/{self.pull_request.number}"
+            if is_merged:
+                clone_base_cmd += f" && git checkout {self.pull_request_branch}"
+
+            # Checkout the pull request
+            else:
+                clone_base_cmd += f" && git checkout origin/pr/{self.pull_request.number}"
 
         # final podman command
         podman_base_cmd += f" '{clone_base_cmd} && {command}'"

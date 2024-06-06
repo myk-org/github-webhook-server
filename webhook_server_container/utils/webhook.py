@@ -25,10 +25,9 @@ def process_github_webhook(data, github_api, webhook_ip):
         return
 
     for _hook in hooks:
-        hook_exists = webhook_ip in _hook.config["url"]
-        if hook_exists:
-            FLASK_APP.logger.info(f"Deleting existing webhook for {repository}: {_hook.config['url']}")
-            _hook.delete()
+        if webhook_ip in _hook.config["url"]:
+            FLASK_APP.logger.info(f"webhook already exists, not creating new one: {repository}: {_hook.config['url']}")
+            return f"{repository}: Hook already exists"
 
     FLASK_APP.logger.info(f"Creating webhook: {config['url']} for {repository} with events: {events}")
     repo.create_hook(name="web", config=config, events=events, active=True)
