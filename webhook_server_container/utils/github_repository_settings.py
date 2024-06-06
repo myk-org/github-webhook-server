@@ -30,14 +30,6 @@ def get_branch_sampler(repo, branch_name):
     return repo.get_branch(branch=branch_name)
 
 
-def skip_repo(protected_branches, repo):
-    _private = repo.private
-    if not protected_branches or _private:
-        if _private:
-            FLASK_APP.logger.info(f"{repo.name} skipped, repository is private")
-        return True
-
-
 @ignore_exceptions(logger=FLASK_APP.logger)
 def set_branch_protection(branch, repository, required_status_checks, github_api):
     api_user = github_api.get_user().login
