@@ -470,7 +470,7 @@ Available user actions:
             f" && twine check {_dist_dir}/$(echo *.tar.gz)"
             f" && twine upload {_dist_dir}/$(echo *.tar.gz) --skip-existing"
         )
-        rc, out, err = self._run_in_container(command=cmd, env=env)
+        rc, out, err = self._run_in_container(command=cmd, env=env, is_merged=True)
         if rc:
             self.app.logger.info(f"{self.log_prefix} Publish to pypi finished")
             if self.slack_webhook_url:
