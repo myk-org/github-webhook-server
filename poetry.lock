@@ -1487,12 +1487,12 @@ windows-terminal = ["colorama (>=0.4.6)"]
 
 [[package]]
 name = "pyhelper-utils"
-version = "0.0.22"
+version = "0.0.24"
 description = "Collective utility functions for python projects"
 optional = false
 python-versions = "<4.0,>=3.8"
 files = [
-    {file = "pyhelper_utils-0.0.22.tar.gz", hash = "sha256:9706d61ed25bb273277285c062b165be65824f76e543084ff0a3af6217166d28"},
+    {file = "pyhelper_utils-0.0.24.tar.gz", hash = "sha256:0a802a98c2c122a757cbe16c20c8f9e746344b7de30be679b62111cbc78aa270"},
 ]
 
 [package.dependencies]
@@ -1931,12 +1931,12 @@ tests = ["cython", "littleutils", "pygments", "pytest", "typeguard"]
 
 [[package]]
 name = "timeout-sampler"
-version = "0.0.32"
+version = "0.0.34"
 description = "Timeout utility class to wait for any function output and interact with it in given time"
 optional = false
 python-versions = "<4.0,>=3.8"
 files = [
-    {file = "timeout_sampler-0.0.32.tar.gz", hash = "sha256:aa833218fb4fddd07a3f0d1bf82714a8e94710aa6dad9ccf4546f04a0497dd98"},
+    {file = "timeout_sampler-0.0.34.tar.gz", hash = "sha256:1d964dc370c1cbd616c1e877ac996a8bf3e24b8aeecc9a70158e46e638217367"},
 ]
 
 [package.dependencies]
@@ -2246,4 +2246,4 @@ test = ["big-O", "jaraco.functools", "jaraco.itertools", "jaraco.test", "more-it
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.8"
-content-hash = "3de7bb1041bf7a68a517adf28c56d9ab81eaa2c59fdd9849dae5a24e2442e603"
+content-hash = "6920ff39af41269887f9baafdc294c16b809cd9c69c91decacc166fe4880705a"
