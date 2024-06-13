@@ -1428,18 +1428,23 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 </details>
         """
 
-    def _container_repository_and_tag(self, is_merged=None):
-        if is_merged:
-            _tag = (
-                self.pull_request_branch
-                if self.pull_request_branch not in (OTHER_MAIN_BRANCH, "main")
-                else self.container_tag
-            )
-        else:
-            _tag = f"pr-{self.pull_request.number}"
+    def _container_repository_and_tag(self, is_merged=None, tag=None):
+        if not tag:
+            if is_merged:
+                tag = (
+                    self.pull_request_branch
+                    if self.pull_request_branch not in (OTHER_MAIN_BRANCH, "main")
+                    else self.container_tag
+                )
+            else:
+                if self.pull_request:
+                    tag = f"pr-{self.pull_request.number}"
 
-        self.app.logger.info(f"{self.log_prefix} container tag is: {_tag}")
-        return f"{self.container_repository}:{_tag}"
+        if tag:
+            self.app.logger.info(f"{self.log_prefix} container tag is: {tag}")
+            return f"{self.container_repository}:{tag}"
+
+        self.app.logger.error(f"{self.log_prefix} container tag not found")
 
     @ignore_exceptions(logger=FLASK_APP.logger)
     def _run_build_container(
@@ -1459,9 +1464,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
             self.set_container_build_in_progress()
 
-        _container_repository_and_tag = tag or self._container_repository_and_tag(
-            is_merged=is_merged,
-        )
+        _container_repository_and_tag = self._container_repository_and_tag(is_merged=is_merged, tag=tag)
         no_cache = " --no-cache" if is_merged else ""
         build_cmd = f"--network=host {no_cache} -f {self.container_repo_dir}/{self.dockerfile} . -t {_container_repository_and_tag}"
 
@@ -1477,7 +1480,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             build_cmd += f" && podman push --creds {repository_creds} {_container_repository_and_tag}"
         podman_build_cmd = f"podman build {build_cmd}"
 
-        rc, out, err = self._run_in_container(command=podman_build_cmd, is_merged=is_merged)
+        rc, out, err = self._run_in_container(command=podman_build_cmd, is_merged=is_merged, tag_name=tag)
         output = {
             "title": "Build container",
             "summary": "",
@@ -1630,7 +1633,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             self.repository_by_github_app.create_check_run(**kwargs)
         return f"Done setting check run status: {kwargs}"
 
-    def _run_in_container(self, command, env=None, is_merged=False, checkout=None):
+    def _run_in_container(self, command, env=None, is_merged=False, checkout=None, tag_name=None):
         podman_base_cmd = (
             "podman run --network=host --privileged -v /tmp/containers:/var/lib/containers/:Z "
             f"--rm {env if env else ''} --entrypoint bash quay.io/myakove/github-webhook-server -c"
@@ -1651,13 +1654,19 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         if checkout:
             clone_base_cmd += f" && git checkout {checkout}"
 
-        # Checkout the branch if pull request is merged
+        # Checkout the branch if pull request is merged or for release
         else:
             if is_merged:
                 clone_base_cmd += f" && git checkout {self.pull_request_branch}"
 
+            elif tag_name:
+                clone_base_cmd += f" && git checkout {tag_name}"
+
             # Checkout the pull request
             else:
+                if not self.pull_request:
+                    self.app.logger.error(f"{self.log_prefix} [func:_run_in_container] No pull request found")
+                    return
                 clone_base_cmd += f" && git checkout origin/pr/{self.pull_request.number}"
 
         # final podman command
