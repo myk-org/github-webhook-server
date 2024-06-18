@@ -1624,11 +1624,16 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         if output:
             kwargs["output"] = output
 
-        self.app.logger.info(f"{self.log_prefix} Set {check_run} check to {status or conclusion}")
+        msg = f"{self.log_prefix} Set {check_run} check to {status or conclusion}"
+        self.app.logger.info(msg)
+
         try:
             self.repository_by_github_app.create_check_run(**kwargs)
+            if conclusion == SUCCESS_STR:
+                self.app.logger.success(msg)
+
         except Exception as ex:
-            self.app.logger.info(f"{self.log_prefix} Failed to set {check_run} check to {status or conclusion}, {ex}")
+            self.app.logger.error(f"{self.log_prefix} Failed to set {check_run} check to {status or conclusion}, {ex}")
             kwargs["conclusion"] = FAILURE_STR
             self.repository_by_github_app.create_check_run(**kwargs)
         return f"Done setting check run status: {kwargs}"
