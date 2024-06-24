@@ -772,7 +772,6 @@ stderr: `{err}`
         rc, _, _ = run_command(
             command=f"{base_regctl_command} registry login {registry_url} -u {self.container_repository_username} "
             f"-p {self.container_repository_password}",
-            verify_stderr=True,
             log_prefix=self.log_prefix,
         )
         if rc:
