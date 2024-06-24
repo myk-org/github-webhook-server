@@ -766,9 +766,12 @@ stderr: `{err}`
         base_regctl_command = (
             "podman run -i --rm --net host  -v regctl-conf:/home/appuser/.regctl/ ghcr.io/regclient/regctl:latest"
         )
+        registry_info = self.container_repository.split("/")
+        registry_url = "" if len(registry_info) < 2 else registry_info[0]
+        self.app.logger.info(f"Using registry url: {registry_url}")
         # First we need to execute regctl login command before we can delete the tag:
         rc, _, _ = run_command(
-            command=f"{base_regctl_command} registry login quay.io -u {self.container_repository_username} "
+            command=f"{base_regctl_command} registry login {registry_url} -u {self.container_repository_username} "
             f"-p {self.container_repository_password}",
             verify_stderr=True,
             log_prefix=self.log_prefix,
