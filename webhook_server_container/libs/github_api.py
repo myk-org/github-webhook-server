@@ -785,7 +785,6 @@ stderr: `{err}`
                 rc, _, _ = run_command(
                     command=f"{base_regctl_command} tag delete {self.container_repository}:{pr_tag}",
                     log_prefix=self.log_prefix,
-                    verify_stderr=True,
                 )
                 if rc:
                     self.pull_request.create_issue_comment(f"Successfully removed PR tag: {pr_tag}.")
