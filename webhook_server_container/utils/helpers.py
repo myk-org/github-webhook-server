@@ -44,11 +44,11 @@ def run_command(
     Args:
         command (str): Command to run
         log_prefix (str): Prefix for log messages
-        verify_stderr (bool, default True): Check command stderr
+        verify_stderr (bool, default False): Check command stderr
         shell (bool, default False): run subprocess with shell toggle
         timeout (int, optional): Command wait timeout
-        capture_output (bool, default False): Capture command output
-        check (boot, default True):  If check is True and the exit code was non-zero, it raises a
+        capture_output (bool, default True): Capture command output
+        check (boot, default False):  If check is True and the exit code was non-zero, it raises a
             CalledProcessError
 
     Returns:
