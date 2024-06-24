@@ -764,8 +764,7 @@ stderr: `{err}`
         pr_tag = f"pr-{self.pull_request.number}"
         # run regctl as a container:
         base_regctl_command = (
-            "podman container run -i --rm --net host  -v regctl-conf:/home/appuser/.regctl/ "
-            "ghcr.io/regclient/regctl:latest"
+            "podman run -i --rm --net host  -v regctl-conf:/home/appuser/.regctl/ ghcr.io/regclient/regctl:latest"
         )
         # First we need to execute regctl login command before we can delete the tag:
         rc, _, _ = run_command(
@@ -789,9 +788,6 @@ stderr: `{err}`
                 )
                 if rc:
                     self.pull_request.create_issue_comment(f"Successfully removed PR tag: {pr_tag}.")
-            else:
-                self.pull_request.create_issue_comment(f"PR tag: {pr_tag} does not exist, not attempting to delete it.")
-
         else:
             # login command failed add a comment to the PR that the tag was not deleted
             self.pull_request.create_issue_comment(f"Failed to delete tag: {pr_tag}. Please delete it manually.")
