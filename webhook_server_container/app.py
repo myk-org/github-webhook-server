@@ -1,6 +1,5 @@
 import requests
 import urllib3
-from flask import request
 from simple_logger.logger import get_logger
 
 from webhook_server_container.libs.github_api import GitHubApi
@@ -22,7 +21,7 @@ def healthcheck():
 
 
 @FastAPI_APP.post(APP_ROOT_PATH)
-async def process_webhook():
+def process_webhook(request):
     process_failed_msg = {"status": requests.status_codes.codes.server_error, "Message": "Process failed"}
     try:
         hook_data = request.json
