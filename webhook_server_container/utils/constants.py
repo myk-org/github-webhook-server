@@ -1,10 +1,7 @@
-from flask import Flask
-from flask.logging import default_handler
-from simple_logger.logger import get_logger
+from fastapi import FastAPI
 
-FLASK_APP = Flask("webhook-server")
-FLASK_APP.logger.removeHandler(default_handler)
-FLASK_APP.logger.addHandler(get_logger(FLASK_APP.logger.name).handlers[0])
+
+FastAPI_APP = FastAPI(title="webhook-server")
 
 OTHER_MAIN_BRANCH = "master"
 

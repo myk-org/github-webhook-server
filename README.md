@@ -1,6 +1,6 @@
 # github-webhook-server
 
-A Flask-based webhook server for managing GitHub repositories. It handles tasks such as repository setup, branch protection, and webhook configuration.
+A [FastAPI-based](https://fastapi.tiangolo.com) webhook server for managing GitHub repositories. It handles tasks such as repository setup, branch protection, and webhook configuration.
 
 Pre-build container images available in:
 
@@ -264,22 +264,3 @@ Webhooks are automatically created for GitHub repositories based on settings def
 ### Usage Guide
 
 To use the webhook server, first prepare the `config.yaml` file with the necessary repository and server configurations. Set the required environment variables, including `WEBHOOK_SERVER_LOG_FILE` and `WEBHOOK_SERVER_DATA_DIR`. Build and start the server using the instructions in the 'Build container' section.
-
-### Development
-
-To run locally you need to export some os environment variables
-
-```bash
-poetry install
-
-WEBHOOK_SERVER_DATA_DIR=/tmp/webhook_server_data
-
-mkdir -p $WEBHOOK_SERVER_DATA_DIR
-cp -f webhook-server.private-key.pem $WEBHOOK_SERVER_DATA_DIR/webhook-server.private-key.pem
-cp -f config.yaml $WEBHOOK_SERVER_DATA_DIR/config.yaml
-export WEBHOOK_SERVER_PORT=5003
-
-export FLASK_DEBUG=1
-export WEBHOOK_SERVER_DATA_DIR=$WEBHOOK_SERVER_DATA_DIR
-poetry run python webhook_server_container/app.py
-```

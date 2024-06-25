@@ -5,8 +5,10 @@ from typing import Any, Dict, Optional
 from pyhelper_utils.general import ignore_exceptions
 from colorama import Fore
 from github import Github
+from simple_logger.logger import get_logger
 
-from webhook_server_container.utils.constants import FLASK_APP
+
+LOGGER = get_logger(name="helpers")
 
 
 def extract_key_from_dict(key, _dict):
@@ -23,7 +25,7 @@ def extract_key_from_dict(key, _dict):
                         yield result
 
 
-@ignore_exceptions(logger=FLASK_APP.logger)
+@ignore_exceptions(logger=LOGGER)
 def get_github_repo_api(github_api, repository):
     return github_api.get_repo(repository)
 
@@ -56,7 +58,7 @@ def run_command(
     """
     out_decoded, err_decoded = "", ""
     try:
-        FLASK_APP.logger.info(f"{log_prefix} Running '{command}' command")
+        LOGGER.info(f"{log_prefix} Running '{command}' command")
         sub_process = subprocess.run(
             shlex.split(command),
             capture_output=capture_output,
@@ -75,17 +77,17 @@ def run_command(
         )
 
         if sub_process.returncode != 0:
-            FLASK_APP.logger.error(error_msg)
+            LOGGER.error(error_msg)
             return False, out_decoded, err_decoded
 
         # From this point and onwards we are guaranteed that sub_process.returncode == 0
         if err_decoded and verify_stderr:
-            FLASK_APP.logger.error(error_msg)
+            LOGGER.error(error_msg)
             return False, out_decoded, err_decoded
 
         return True, out_decoded, err_decoded
     except Exception as ex:
-        FLASK_APP.logger.error(f"{log_prefix} Failed to run '{command}' command: {ex}")
+        LOGGER.error(f"{log_prefix} Failed to run '{command}' command: {ex}")
         return False, out_decoded, err_decoded
 
 
@@ -105,7 +107,7 @@ def get_apis_and_tokes_from_config(config, repository_name=None):
     return apis_and_tokens
 
 
-@ignore_exceptions(logger=FLASK_APP.logger)
+@ignore_exceptions(logger=LOGGER)
 def get_api_with_highest_rate_limit(config, repository_name=None):
     """
     Get API with the highest rate limit
@@ -126,11 +128,11 @@ def get_api_with_highest_rate_limit(config, repository_name=None):
         rate_limit = _api.get_rate_limit()
         if rate_limit.core.remaining > remaining:
             remaining = rate_limit.core.remaining
-            FLASK_APP.logger.info(f"API user {_api_user} remaining rate limit: {remaining}")
+            LOGGER.info(f"API user {_api_user} remaining rate limit: {remaining}")
             api, token = _api, _token
 
     log_rate_limit(rate_limit=rate_limit, api_user=_api_user)
-    FLASK_APP.logger.info(f"API user {_api_user} selected with highest rate limit: {remaining}")
+    LOGGER.info(f"API user {_api_user} selected with highest rate limit: {remaining}")
     return api, token
 
 
@@ -142,7 +144,7 @@ def log_rate_limit(rate_limit, api_user):
         rate_limit_str = f"{Fore.YELLOW}{rate_limit.core.remaining}{Fore.RESET}"
     else:
         rate_limit_str = f"{Fore.GREEN}{rate_limit.core.remaining}{Fore.RESET}"
-    FLASK_APP.logger.info(
+    LOGGER.info(
         f"{Fore.CYAN}[{api_user}] API rate limit:{Fore.RESET} Current {rate_limit_str} of {rate_limit.core.limit}. "
         f"Reset in {rate_limit.core.reset} [{datetime.timedelta(seconds=time_for_limit_reset)}] "
         f"(UTC time is {datetime.datetime.now(tz=datetime.timezone.utc)})"

@@ -1,8 +1,10 @@
 from typing import Any, Dict
 from jira import JIRA
 from pyhelper_utils.general import ignore_exceptions
+from simple_logger.logger import get_logger
 
-from webhook_server_container.utils.constants import FLASK_APP
+
+LOGGER = get_logger(name="JiraApi")
 
 
 class JiraApi:
@@ -18,7 +20,7 @@ class JiraApi:
         self.conn.my_permissions()
         self.fields: Dict[str, Any] = {"project": {"key": self.project}}
 
-    @ignore_exceptions(logger=FLASK_APP.logger)
+    @ignore_exceptions(logger=LOGGER)
     def create_story(self, title: str, body: str, epic_key: str, assignee: str) -> str:
         self.fields.update({
             "summary": title,
@@ -33,7 +35,7 @@ class JiraApi:
         _issue = self.conn.create_issue(fields=self.fields)
         return _issue.key
 
-    @ignore_exceptions(logger=FLASK_APP.logger)
+    @ignore_exceptions(logger=LOGGER)
     def create_closed_subtask(self, title: str, body: str, parent_key: str, assignee: str) -> None:
         self.fields.update({
             "summary": title,
@@ -45,7 +47,7 @@ class JiraApi:
         _issue = self.conn.create_issue(fields=self.fields)
         self.close_issue(key=_issue.key)
 
-    @ignore_exceptions(logger=FLASK_APP.logger)
+    @ignore_exceptions(logger=LOGGER)
     def close_issue(self, key: str, comment: str = "") -> None:
         self.conn.transition_issue(
             issue=key,
