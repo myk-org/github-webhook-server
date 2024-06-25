@@ -1,6 +1,6 @@
 #!/bin/bash
 
-SERVER_RUN_CMD="poetry run uvicorn webhook_server_container.app:FastAPI_APP "
+SERVER_RUN_CMD="poetry run uvicorn webhook_server_container.app:FastAPI_APP --host 0.0.0.0 --port 5000 "
 UVICORN_WORKERS="${UVICORN_MAX_WORKERS:=10}"
 
 set -ep
