@@ -1,18 +1,23 @@
+from fastapi import Request
 import requests
 import urllib3
 from simple_logger.logger import get_logger
+from pydantic import BaseModel
+
 
 from webhook_server_container.libs.github_api import GitHubApi
-from webhook_server_container.utils.constants import (
-    APP_ROOT_PATH,
-    FastAPI_APP,
-)
+from webhook_server_container.utils.constants import FastAPI_APP
 
+APP_ROOT_PATH = "/webhook_server"
 REPOSITORIES_APP_API = {}
 MISSING_APP_REPOSITORIES = []
 urllib3.disable_warnings()
 
 LOGGER = get_logger(name="app")
+
+
+class Payload(BaseModel):
+    data: str = ""
 
 
 @FastAPI_APP.get(f"{APP_ROOT_PATH}/healthcheck")
@@ -21,10 +26,10 @@ def healthcheck():
 
 
 @FastAPI_APP.post(APP_ROOT_PATH)
-def process_webhook(request):
+async def process_webhook(request: Request):
     process_failed_msg = {"status": requests.status_codes.codes.server_error, "Message": "Process failed"}
     try:
-        hook_data = request.json
+        hook_data = await request.json()
     except Exception as ex:
         LOGGER.error(f"Error get JSON from request: {ex}")
         return process_failed_msg
