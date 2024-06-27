@@ -880,7 +880,7 @@ stderr: `{err}`
 
         if hook_action == "closed":
             self.close_issue_for_merged_or_closed_pr(hook_action=hook_action)
-            self.delete_remote_tag_for_merged_or_closed_pr(hook_action=hook_action)
+            self.delete_remote_tag_for_merged_or_closed_pr()
             is_merged = pull_request_data.get("merged")
 
             if self.jira_track_pr:
