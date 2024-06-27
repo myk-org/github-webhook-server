@@ -1,12 +1,15 @@
 #!/bin/bash
 
+SERVER_RUN_CMD="poetry run uvicorn webhook_server_container.app:FastAPI_APP --host 0.0.0.0 --port 5000 "
+UVICORN_WORKERS="${UVICORN_MAX_WORKERS:=10}"
+
 set -ep
 
 poetry run python webhook_server_container/utils/github_repository_settings.py
 poetry run python webhook_server_container/utils/webhook.py
 
 if [[ -z $DEVELOPMENT ]]; then
-	poetry run uwsgi --disable-logging --post-buffering --master --enable-threads --http 0.0.0.0:5000 --wsgi-file webhook_server_container/app.py --callable FLASK_APP --processes 4 --threads 2
+	eval "${SERVER_RUN_CMD} --workers ${UVICORN_WORKERS}"
 else
-	poetry run python webhook_server_container/app.py
+	eval "${SERVER_RUN_CMD} --reload"
 fi

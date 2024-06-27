@@ -31,7 +31,6 @@ Download = "https://quay.io/repository/myakove/github-webhook-server"
 python = "^3.8"
 poetry-dynamic-versioning = {extras = ["plugin"], version = "^1.0.0"}
 pygithub = "^2.0.0"
-flask = "^3.0.0"
 pyyaml = "^6.0"
 build = "^1.0.0"
 shortuuid = "^1.0.11"
@@ -43,6 +42,9 @@ requests = "^2.31.0"
 jira = "^3.8.0"
 pyhelper-utils = "^0.0.25"
 uwsgi = "^2.0.26"
+fastapi = "^0.111.0"
+python-simple-logger = "^1.0.30"
+uvicorn = "^0.30.1"
 
 [tool.poetry.group.dev.dependencies]
 ipdb = "^0.13.13"

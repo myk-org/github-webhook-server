@@ -6,11 +6,11 @@ services:
       - ./containers:/containers:Z # optional, to cache podman pull containers
     environment:
       - WEBHOOK_SERVER_LOG_FILE=/tmp/webhook_server.log
-      - FLASK_DEBUG=1 # Debug Flask server to get logs to console.
       - PUID=1000
       - PGID=1000
       - TZ=Asia/Jerusalem
       - DEVELOPMENT=false # Set to true when developing.
+      - UVICORN_MAX_WORKERS=50 # defaults to 10 if not set and running in production
     ports:
       - "5000:5000"
     privileged: true
