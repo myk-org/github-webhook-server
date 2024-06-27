@@ -760,37 +760,38 @@ stderr: `{err}`
                 break
 
     @ignore_exceptions(logger=LOGGER)
-    def delete_remote_tag_for_merged_or_closed_pr(self, hook_action):
+    def delete_remote_tag_for_merged_or_closed_pr(self):
         pr_tag = f"pr-{self.pull_request.number}"
         # run regctl as a container:
         base_regctl_command = (
             "podman run --rm --net host  -v regctl-conf:/home/appuser/.regctl/ ghcr.io/regclient/regctl:latest"
         )
-        registry_info = self.container_repository.split("/")
-        registry_url = "" if len(registry_info) < 3 else registry_info[0]
-        # First we need to execute regctl login command before we can delete the tag:
-        rc, _, _ = run_command(
-            command=f"{base_regctl_command} registry login {registry_url} -u {self.container_repository_username} "
-            f"-p {self.container_repository_password}",
-            log_prefix=self.log_prefix,
-        )
-        if rc:
-            # check if the tag exists:
-            rc, output, _ = run_command(
-                command=f"{base_regctl_command} tag ls {self.container_repository}",
+        if self.container_repository:
+            registry_info = self.container_repository.split("/")
+            registry_url = "" if len(registry_info) < 3 else registry_info[0]
+            # First we need to execute regctl login command before we can delete the tag:
+            rc, _, _ = run_command(
+                command=f"{base_regctl_command} registry login {registry_url} -u {self.container_repository_username} "
+                f"-p {self.container_repository_password}",
                 log_prefix=self.log_prefix,
             )
-            if rc and pr_tag in output:
-                # delete the tag:
-                rc, _, _ = run_command(
-                    command=f"{base_regctl_command} tag delete {self.container_repository}:{pr_tag}",
+            if rc:
+                # check if the tag exists:
+                rc, output, _ = run_command(
+                    command=f"{base_regctl_command} tag ls {self.container_repository}",
                     log_prefix=self.log_prefix,
                 )
-                if rc:
-                    self.pull_request.create_issue_comment(f"Successfully removed PR tag: {pr_tag}.")
-        else:
-            # login command failed add a comment to the PR that the tag was not deleted
-            self.pull_request.create_issue_comment(f"Failed to delete tag: {pr_tag}. Please delete it manually.")
+                if rc and pr_tag in output:
+                    # delete the tag:
+                    rc, _, _ = run_command(
+                        command=f"{base_regctl_command} tag delete {self.container_repository}:{pr_tag}",
+                        log_prefix=self.log_prefix,
+                    )
+                    if rc:
+                        self.pull_request.create_issue_comment(f"Successfully removed PR tag: {pr_tag}.")
+            else:
+                # login command failed add a comment to the PR that the tag was not deleted
+                self.pull_request.create_issue_comment(f"Failed to delete tag: {pr_tag}. Please delete it manually.")
 
     def process_comment_webhook_data(self):
         if self.hook_data["action"] in ("action", "deleted"):
