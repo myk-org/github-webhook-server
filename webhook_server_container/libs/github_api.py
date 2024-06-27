@@ -761,7 +761,7 @@ stderr: `{err}`
 
     @ignore_exceptions(logger=LOGGER)
     def delete_remote_tag_for_merged_or_closed_pr(self):
-        pr_tag = f"pr-{self.pull_request.number}"
+        pr_tag = self._container_repository_and_tag()
         # run regctl as a container:
         base_regctl_command = (
             "podman run --rm --net host  -v regctl-conf:/home/appuser/.regctl/ ghcr.io/regclient/regctl:latest"
@@ -770,23 +770,23 @@ stderr: `{err}`
             registry_info = self.container_repository.split("/")
             registry_url = "" if len(registry_info) < 3 else registry_info[0]
             # First we need to execute regctl login command before we can delete the tag:
-            rc, _, _ = run_command(
+            rc = run_command(
                 command=f"{base_regctl_command} registry login {registry_url} -u {self.container_repository_username} "
                 f"-p {self.container_repository_password}",
                 log_prefix=self.log_prefix,
-            )
+            )[0]
             if rc:
                 # check if the tag exists:
-                rc, output, _ = run_command(
-                    command=f"{base_regctl_command} tag ls {self.container_repository}",
+                rc = run_command(
+                    command=f"{base_regctl_command} tag ls {self.container_repository} | grep -c {pr_tag.split(':')[-1]}",
                     log_prefix=self.log_prefix,
-                )
-                if rc and pr_tag in output:
+                )[0]
+                if rc:
                     # delete the tag:
-                    rc, _, _ = run_command(
-                        command=f"{base_regctl_command} tag delete {self.container_repository}:{pr_tag}",
+                    rc = run_command(
+                        command=f"{base_regctl_command} tag delete {pr_tag}",
                         log_prefix=self.log_prefix,
-                    )
+                    )[0]
                     if rc:
                         self.pull_request.create_issue_comment(f"Successfully removed PR tag: {pr_tag}.")
             else:
