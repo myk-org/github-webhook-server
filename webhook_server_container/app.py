@@ -2,7 +2,6 @@ from fastapi import Request
 import requests
 import urllib3
 from simple_logger.logger import get_logger
-from pydantic import BaseModel
 
 
 from webhook_server_container.libs.github_api import GitHubApi
@@ -14,10 +13,6 @@ MISSING_APP_REPOSITORIES = []
 urllib3.disable_warnings()
 
 LOGGER = get_logger(name="app")
-
-
-class Payload(BaseModel):
-    data: str = ""
 
 
 @FastAPI_APP.get(f"{APP_ROOT_PATH}/healthcheck")
