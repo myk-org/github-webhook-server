@@ -1,10 +1,11 @@
+import os
 from typing import Any, Dict
 from jira import JIRA
 from pyhelper_utils.general import ignore_exceptions
 from simple_logger.logger import get_logger
 
 
-LOGGER = get_logger(name="JiraApi")
+LOGGER = get_logger(name="JiraApi", filename=os.environ.get("WEBHOOK_SERVER_LOG_FILE"))
 
 
 class JiraApi:

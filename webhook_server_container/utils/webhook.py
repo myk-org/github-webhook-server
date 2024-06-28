@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import os
 
 from simple_logger.logger import get_logger
 
@@ -7,7 +8,7 @@ from webhook_server_container.utils.helpers import get_api_with_highest_rate_lim
 from pyhelper_utils.general import ignore_exceptions
 
 
-LOGGER = get_logger(name="webhook")
+LOGGER = get_logger(name="webhook", filename=os.environ.get("WEBHOOK_SERVER_LOG_FILE"))
 
 
 @ignore_exceptions(logger=LOGGER)

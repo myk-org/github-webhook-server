@@ -25,7 +25,7 @@ from webhook_server_container.utils.helpers import (
 )
 
 
-LOGGER = get_logger(name="github-repository-settings")
+LOGGER = get_logger(name="github-repository-settings", filename=os.environ.get("WEBHOOK_SERVER_LOG_FILE"))
 
 
 @ignore_exceptions(logger=LOGGER)

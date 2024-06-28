@@ -1,3 +1,4 @@
+import os
 from fastapi import Request
 import requests
 import urllib3
@@ -12,7 +13,7 @@ REPOSITORIES_APP_API = {}
 MISSING_APP_REPOSITORIES = []
 urllib3.disable_warnings()
 
-LOGGER = get_logger(name="app")
+LOGGER = get_logger(name="app", filename=os.environ.get("WEBHOOK_SERVER_LOG_FILE"))
 
 
 @FastAPI_APP.get(f"{APP_ROOT_PATH}/healthcheck")

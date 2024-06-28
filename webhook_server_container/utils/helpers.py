@@ -1,4 +1,5 @@
 import datetime
+import os
 import shlex
 import subprocess
 from typing import Any, Dict, Optional
@@ -8,7 +9,7 @@ from github import Github
 from simple_logger.logger import get_logger
 
 
-LOGGER = get_logger(name="helpers")
+LOGGER = get_logger(name="helpers", filename=os.environ.get("WEBHOOK_SERVER_LOG_FILE"))
 
 
 def extract_key_from_dict(key, _dict):
