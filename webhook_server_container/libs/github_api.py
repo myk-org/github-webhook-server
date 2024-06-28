@@ -1,3 +1,4 @@
+from __future__ import annotations
 import contextlib
 import json
 import os
@@ -6,11 +7,15 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Any, Dict, List
 
+from fastapi import FastAPI
+from jira import JIRA
 import requests
 import shortuuid
 import yaml
 from github import GithubException
+from github.PullRequest import PullRequest
 from github.GithubException import UnknownObjectException
 from simple_logger.logger import get_logger
 from timeout_sampler import TimeoutSampler, TimeoutExpiredError
@@ -31,7 +36,7 @@ from webhook_server_container.utils.constants import (
     DELETE_STR,
     DYNAMIC_LABELS_DICT,
     FAILURE_STR,
-    FastAPI_APP,
+    FASTAPI_APP,
     HAS_CONFLICTS_LABEL_STR,
     HOLD_LABEL_STR,
     IN_PROGRESS_STR,
@@ -73,18 +78,18 @@ class RepositoryNotFoundError(Exception):
 
 class GitHubApi:
     def __init__(self, hook_data):
-        self.app = FastAPI_APP
-        self.hook_data = hook_data
-        self.repository_name = hook_data["repository"]["name"]
-        self.log_prefix_with_color = None
-        self.pull_request = None
-        self.parent_committer = None
-        self.log_uuid = shortuuid.uuid()[:5]
-        self.container_repo_dir = "/tmp/repository"
-        self.jira_conn = None
-        self.jira_track_pr = False
-        self.issue_title = None
-        self.all_required_status_checks = []
+        self.app: FastAPI = FASTAPI_APP
+        self.hook_data: Dict[Any, Any] = hook_data
+        self.repository_name: str = hook_data["repository"]["name"]
+        self.log_prefix_with_color: str | None = None
+        self.pull_request: PullRequest | None = None
+        self.parent_committer: str | None = None
+        self.log_uuid: str = shortuuid.uuid()[:5]
+        self.container_repo_dir: str = "/tmp/repository"
+        self.jira_conn: JIRA | None = None
+        self.jira_track_pr: bool = False
+        self.issue_title: str | None = None
+        self.all_required_status_checks: List[str] = []
 
         # filled by self._repo_data_from_config()
         self.dockerhub_username = None
@@ -761,37 +766,36 @@ stderr: `{err}`
 
     @ignore_exceptions(logger=LOGGER)
     def delete_remote_tag_for_merged_or_closed_pr(self):
-        pr_tag = self._container_repository_and_tag()
-        # run regctl as a container:
+        if not self.container_repository:
+            LOGGER.info(f"{self.log_prefix} repository do not have container configured")
+            return
+
+        repository_full_tag = self._container_repository_and_tag()
+        pr_tag = repository_full_tag.split(":")[-1]
         base_regctl_command = (
             "podman run --rm --net host  -v regctl-conf:/home/appuser/.regctl/ ghcr.io/regclient/regctl:latest"
         )
-        if self.container_repository:
-            registry_info = self.container_repository.split("/")
-            registry_url = "" if len(registry_info) < 3 else registry_info[0]
-            # First we need to execute regctl login command before we can delete the tag:
-            rc = run_command(
-                command=f"{base_regctl_command} registry login {registry_url} -u {self.container_repository_username} "
-                f"-p {self.container_repository_password}",
+        registry_info = self.container_repository.split("/")
+        registry_url = "" if len(registry_info) < 3 else registry_info[0]
+
+        if run_command(
+            command=f"{base_regctl_command} registry login {registry_url} -u {self.container_repository_username} "
+            f"-p {self.container_repository_password}",
+            log_prefix=self.log_prefix,
+        )[0]:
+            if run_command(
+                command=f"{base_regctl_command} tag ls {self.container_repository} --include {pr_tag}",
                 log_prefix=self.log_prefix,
-            )[0]
-            if rc:
-                # check if the tag exists:
-                rc = run_command(
-                    command=f"{base_regctl_command} tag ls {self.container_repository} | grep -c {pr_tag.split(':')[-1]}",
+            )[0]:
+                if run_command(
+                    command=f"{base_regctl_command} tag delete {repository_full_tag}",
                     log_prefix=self.log_prefix,
-                )[0]
-                if rc:
-                    # delete the tag:
-                    rc = run_command(
-                        command=f"{base_regctl_command} tag delete {pr_tag}",
-                        log_prefix=self.log_prefix,
-                    )[0]
-                    if rc:
-                        self.pull_request.create_issue_comment(f"Successfully removed PR tag: {pr_tag}.")
-            else:
-                # login command failed add a comment to the PR that the tag was not deleted
-                self.pull_request.create_issue_comment(f"Failed to delete tag: {pr_tag}. Please delete it manually.")
+                )[0]:
+                    self.pull_request.create_issue_comment(f"Successfully removed PR tag: {repository_full_tag}.")
+        else:
+            self.pull_request.create_issue_comment(
+                f"Failed to delete tag: {repository_full_tag}. Please delete it manually."
+            )
 
     def process_comment_webhook_data(self):
         if self.hook_data["action"] in ("action", "deleted"):

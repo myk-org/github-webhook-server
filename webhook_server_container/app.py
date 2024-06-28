@@ -6,7 +6,7 @@ from simple_logger.logger import get_logger
 
 
 from webhook_server_container.libs.github_api import GitHubApi
-from webhook_server_container.utils.constants import FastAPI_APP
+from webhook_server_container.utils.constants import FASTAPI_APP
 
 APP_ROOT_PATH = "/webhook_server"
 REPOSITORIES_APP_API = {}
@@ -16,12 +16,12 @@ urllib3.disable_warnings()
 LOGGER = get_logger(name="app", filename=os.environ.get("WEBHOOK_SERVER_LOG_FILE"))
 
 
-@FastAPI_APP.get(f"{APP_ROOT_PATH}/healthcheck")
+@FASTAPI_APP.get(f"{APP_ROOT_PATH}/healthcheck")
 def healthcheck():
     return {"status": requests.status_codes.codes.ok, "message": "Alive"}
 
 
-@FastAPI_APP.post(APP_ROOT_PATH)
+@FASTAPI_APP.post(APP_ROOT_PATH)
 async def process_webhook(request: Request):
     process_failed_msg = {"status": requests.status_codes.codes.server_error, "Message": "Process failed"}
     try:

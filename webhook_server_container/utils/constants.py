@@ -1,10 +1,8 @@
 from fastapi import FastAPI
 
 
-FastAPI_APP = FastAPI(title="webhook-server")
-
+FASTAPI_APP = FastAPI(title="webhook-server")
 OTHER_MAIN_BRANCH = "master"
-
 TOX_STR = "tox"
 PRE_COMMIT_STR = "pre-commit"
 BUILD_AND_PUSH_CONTAINER_STR = "build-and-push-container"
