@@ -766,11 +766,18 @@ stderr: `{err}`
 
     @ignore_exceptions(logger=LOGGER)
     def delete_remote_tag_for_merged_or_closed_pr(self):
+        if not self.pull_request:
+            LOGGER.warning(f"{self.log_prefix} [Delete remote container TAG] - No pull request found")
+            return
+
         if not self.container_repository:
             LOGGER.info(f"{self.log_prefix} repository do not have container configured")
             return
 
         repository_full_tag = self._container_repository_and_tag()
+        if not repository_full_tag:
+            return
+
         pr_tag = repository_full_tag.split(":")[-1]
         base_regctl_command = (
             "podman run --rm --net host  -v regctl-conf:/home/appuser/.regctl/ ghcr.io/regclient/regctl:latest"
@@ -778,24 +785,33 @@ stderr: `{err}`
         registry_info = self.container_repository.split("/")
         registry_url = "" if len(registry_info) < 3 else registry_info[0]
 
-        if run_command(
+        rc, out, err = run_command(
             command=f"{base_regctl_command} registry login {registry_url} -u {self.container_repository_username} "
             f"-p {self.container_repository_password}",
             log_prefix=self.log_prefix,
-        )[0]:
-            if run_command(
+        )
+        if rc:
+            rc, out, err = run_command(
                 command=f"{base_regctl_command} tag ls {self.container_repository} --include {pr_tag}",
                 log_prefix=self.log_prefix,
-            )[0]:
+            )
+            if rc and out:
                 if run_command(
                     command=f"{base_regctl_command} tag delete {repository_full_tag}",
                     log_prefix=self.log_prefix,
                 )[0]:
                     self.pull_request.create_issue_comment(f"Successfully removed PR tag: {repository_full_tag}.")
+                else:
+                    LOGGER.error(f"{self.log_prefix} Failed to delete tag: {repository_full_tag}. OUT:{out}. ERR:{err}")
+            else:
+                LOGGER.warning(
+                    f"{self.log_prefix} {pr_tag} tag not found in registry {self.container_repository}. OUT:{out}. ERR:{err}"
+                )
         else:
             self.pull_request.create_issue_comment(
                 f"Failed to delete tag: {repository_full_tag}. Please delete it manually."
             )
+            LOGGER.error(f"{self.log_prefix} Failed to delete tag: {repository_full_tag}. OUT:{out}. ERR:{err}")
 
     def process_comment_webhook_data(self):
         if self.hook_data["action"] in ("action", "deleted"):
