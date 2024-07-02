@@ -304,10 +304,6 @@ def get_repository_github_app_api(config_, repository):
         )
 
 
-def unused():
-    return
-
-
 if __name__ == "__main__":
     config = Config()
     api, _ = get_api_with_highest_rate_limit(config=config)
