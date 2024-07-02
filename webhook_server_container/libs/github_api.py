@@ -7,7 +7,7 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import FastAPI
 from jira import JIRA
@@ -1687,14 +1687,21 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             self.repository_by_github_app.create_check_run(**kwargs)
         return f"Done setting check run status: {kwargs}"
 
-    def _run_in_container(self, command, env=None, is_merged=False, checkout=None, tag_name=None):
-        podman_base_cmd = (
+    def _run_in_container(
+        self,
+        command: str,
+        env: str = "",
+        is_merged: bool = False,
+        checkout: Optional[str] = None,
+        tag_name: Optional[str] = None,
+    ) -> Tuple[int, str, str]:
+        podman_base_cmd: str = (
             "podman run --network=host --privileged -v /tmp/containers:/var/lib/containers/:Z "
             f"--rm {env if env else ''} --entrypoint bash quay.io/myakove/github-webhook-server -c"
         )
 
         # Clone the repository
-        clone_base_cmd = (
+        clone_base_cmd: str = (
             f"git clone {self.repository.clone_url.replace('https://', f'https://{self.token}@')} "
             f"{self.container_repo_dir}"
         )
@@ -1720,7 +1727,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             else:
                 if not self.pull_request:
                     LOGGER.error(f"{self.log_prefix} [func:_run_in_container] No pull request found")
-                    return
+                    return (False, "", "")
                 clone_base_cmd += f" && git checkout origin/pr/{self.pull_request.number}"
 
         # final podman command

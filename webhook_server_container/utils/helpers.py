@@ -2,7 +2,7 @@ import datetime
 import os
 import shlex
 import subprocess
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 from pyhelper_utils.general import ignore_exceptions
 from colorama import Fore
 from github import Github
@@ -32,15 +32,15 @@ def get_github_repo_api(github_api, repository):
 
 
 def run_command(
-    command,
-    log_prefix,
-    verify_stderr=False,
-    shell=False,
-    timeout=None,
-    capture_output=True,
-    check=False,
-    **kwargs,
-):
+    command: str,
+    log_prefix: str,
+    verify_stderr: bool = False,
+    shell: bool = False,
+    timeout: Optional[int] = None,
+    capture_output: bool = True,
+    check: bool = False,
+    **kwargs: Any,
+) -> Tuple[bool, str, str]:
     """
     Run command locally.
 
@@ -57,7 +57,8 @@ def run_command(
     Returns:
         tuple: True, out if command succeeded, False, err otherwise.
     """
-    out_decoded, err_decoded = "", ""
+    out_decoded: str = ""
+    err_decoded: str = ""
     try:
         LOGGER.info(f"{log_prefix} Running '{command}' command")
         sub_process = subprocess.run(
