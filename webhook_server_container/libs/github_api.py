@@ -1339,11 +1339,11 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         for pull_request in self.repository.get_pulls(state="open"):
             self.pull_request = pull_request
             LOGGER.info(f"{self.log_prefix} check label pull request after merge")
-            self.label_pull_request_by_merge_state()
+            self.label_pull_request_by_merge_state(_sleep=time_sleep)
 
-    def label_pull_request_by_merge_state(self, _sleep=30):
+    def label_pull_request_by_merge_state(self, _sleep=0):
         if _sleep:
-            LOGGER.info(f"{self.log_prefix} Sleep for 30 seconds before checking merge state")
+            LOGGER.info(f"{self.log_prefix} Sleep for {_sleep} seconds before checking merge state")
             time.sleep(_sleep)
 
         merge_state = self.pull_request.mergeable_state
