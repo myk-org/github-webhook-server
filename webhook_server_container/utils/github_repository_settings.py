@@ -216,7 +216,7 @@ def set_repository(data, github_api, default_status_checks):
                         set_branch_protection,
                         **{
                             "branch": branch,
-                            "repo": repo,
+                            "repository": repo,
                             "required_status_checks": required_status_checks,
                             "github_api": github_api,
                         },
