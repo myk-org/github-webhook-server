@@ -30,8 +30,7 @@ def process_github_webhook(data, github_api, webhook_ip):
 
     for _hook in hooks:
         if webhook_ip in _hook.config["url"]:
-            LOGGER.info(f"webhook already exists, not creating new one: {repository}: {_hook.config['url']}")
-            return f"{repository}: Hook already exists"
+            return f"{repository}: Hook already exists - {_hook.config['url']}"
 
     LOGGER.info(f"Creating webhook: {config['url']} for {repository} with events: {events}")
     repo.create_hook(name="web", config=config, events=events, active=True)
