@@ -1,7 +1,8 @@
 import contextlib
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from copy import deepcopy
+from typing import List
 
 from github import GithubIntegration, Auth
 from github.GithubException import UnknownObjectException
@@ -25,7 +26,10 @@ from webhook_server_container.utils.helpers import (
 )
 
 
-LOGGER = get_logger(name="github-repository-settings", filename=os.environ.get("WEBHOOK_SERVER_LOG_FILE"))
+LOGGER = get_logger(
+    name="github-repository-settings",
+    filename=os.environ.get("WEBHOOK_SERVER_LOG_FILE"),
+)
 
 
 @ignore_exceptions(logger=LOGGER)
@@ -150,7 +154,16 @@ def set_repositories_settings(config, github_api):
     futures = []
     with ThreadPoolExecutor() as executor:
         for _, data in config_data["repositories"].items():
-            futures.append(executor.submit(set_repository, data, github_api, default_status_checks))
+            futures.append(
+                executor.submit(
+                    set_repository,
+                    **{
+                        "data": data,
+                        "github_api": github_api,
+                        "default_status_checks": default_status_checks,
+                    },
+                )
+            )
 
     for result in as_completed(futures):
         if result.exception():
@@ -175,39 +188,53 @@ def set_repository(data, github_api, default_status_checks):
             LOGGER.warning(f"{repository}: Repository is private, skipping setting branch settings")
             return
 
-        for branch_name, status_checks in protected_branches.items():
-            LOGGER.info(f"{repository}: Getting branch {branch_name}")
-            branch = get_branch_sampler(repo=repo, branch_name=branch_name)
-            if not branch:
-                LOGGER.error(f"{repository}: Failed to get branch {branch_name}")
-                continue
+        futures: List[Future] = []
 
-            _default_status_checks = deepcopy(default_status_checks)
-            (
-                include_status_checks,
-                exclude_status_checks,
-            ) = get_user_configures_status_checks(status_checks=status_checks)
+        with ThreadPoolExecutor() as executor:
+            for branch_name, status_checks in protected_branches.items():
+                LOGGER.info(f"{repository}: Getting branch {branch_name}")
+                branch = get_branch_sampler(repo=repo, branch_name=branch_name)
+                if not branch:
+                    LOGGER.error(f"{repository}: Failed to get branch {branch_name}")
+                    continue
 
-            required_status_checks = include_status_checks or get_required_status_checks(
-                repo=repo,
-                data=data,
-                default_status_checks=_default_status_checks,
-                exclude_status_checks=exclude_status_checks,
-            )
+                _default_status_checks = deepcopy(default_status_checks)
+                (
+                    include_status_checks,
+                    exclude_status_checks,
+                ) = get_user_configures_status_checks(status_checks=status_checks)
 
-            set_branch_protection(
-                branch=branch,
-                repository=repo,
-                required_status_checks=required_status_checks,
-                github_api=github_api,
-            )
+                required_status_checks = include_status_checks or get_required_status_checks(
+                    repo=repo,
+                    data=data,
+                    default_status_checks=_default_status_checks,
+                    exclude_status_checks=exclude_status_checks,
+                )
+
+                futures.append(
+                    executor.submit(
+                        set_branch_protection,
+                        **{
+                            "branch": branch,
+                            "repository": repo,
+                            "required_status_checks": required_status_checks,
+                            "github_api": github_api,
+                        },
+                    )
+                )
+
+        for result in as_completed(futures):
+            if result.exception():
+                LOGGER.error(result.exception())
+            LOGGER.info(result.result())
+
     except UnknownObjectException:
         LOGGER.error(f"{repository}: Failed to get repository settings")
 
     return f"{repository}: Setting repository settings is done"
 
 
-def set_all_in_progress_check_runs_to_queued(config, github_api):
+def set_all_in_progress_check_runs_to_queued(config_, github_api):
     check_runs = (
         PYTHON_MODULE_INSTALL_STR,
         CAN_BE_MERGED_STR,
@@ -217,14 +244,16 @@ def set_all_in_progress_check_runs_to_queued(config, github_api):
     )
     futures = []
     with ThreadPoolExecutor() as executor:
-        for _, data in config.data["repositories"].items():
+        for _, data in config_.data["repositories"].items():
             futures.append(
                 executor.submit(
                     set_repository_check_runs_to_queued,
-                    config,
-                    data,
-                    github_api,
-                    check_runs,
+                    **{
+                        "config_": config_,
+                        "data": data,
+                        "github_api": github_api,
+                        "check_runs": check_runs,
+                    },
                 )
             )
 
@@ -234,9 +263,9 @@ def set_all_in_progress_check_runs_to_queued(config, github_api):
         LOGGER.info(result.result())
 
 
-def set_repository_check_runs_to_queued(config, data, github_api, check_runs):
+def set_repository_check_runs_to_queued(config_, data, github_api, check_runs):
     repository = data["name"]
-    repository_app_api = get_repository_github_app_api(config=config, repository=repository)
+    repository_app_api = get_repository_github_app_api(config_=config_, repository=repository)
     if not repository_app_api:
         return
 
@@ -257,12 +286,12 @@ def set_repository_check_runs_to_queued(config, data, github_api, check_runs):
 
 
 @ignore_exceptions(logger=LOGGER)
-def get_repository_github_app_api(config, repository):
+def get_repository_github_app_api(config_, repository):
     LOGGER.info("Getting repositories GitHub app API")
-    with open(os.path.join(config.data_dir, "webhook-server.private-key.pem")) as fd:
+    with open(os.path.join(config_.data_dir, "webhook-server.private-key.pem")) as fd:
         private_key = fd.read()
 
-    github_app_id = config.data["github-app-id"]
+    github_app_id = config_.data["github-app-id"]
     auth = Auth.AppAuth(app_id=github_app_id, private_key=private_key)
     app_instance = GithubIntegration(auth=auth)
     owner, repo = repository.split("/")
@@ -280,6 +309,6 @@ if __name__ == "__main__":
     api, _ = get_api_with_highest_rate_limit(config=config)
     set_repositories_settings(config=config, github_api=api)
     set_all_in_progress_check_runs_to_queued(
-        config=config,
+        config_=config,
         github_api=api,
     )
