@@ -7,7 +7,7 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from fastapi import FastAPI
 from jira import JIRA
@@ -58,7 +58,9 @@ from webhook_server_container.utils.constants import (
 )
 from pyhelper_utils.general import ignore_exceptions
 from webhook_server_container.utils.dockerhub_rate_limit import DockerHub
-from webhook_server_container.utils.github_repository_settings import get_repository_github_app_api
+from webhook_server_container.utils.github_repository_settings import (
+    get_repository_github_app_api,
+)
 from webhook_server_container.utils.helpers import (
     get_api_with_highest_rate_limit,
     extract_key_from_dict,
@@ -316,11 +318,17 @@ Available user actions:
         self.repository_full_name = repo_data["name"]
         self.pypi = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="pypi")
         self.verified_job = get_value_from_dicts(
-            primary_dict=repo_data, secondary_dict=config_data, key="verified-job", return_on_none=True
+            primary_dict=repo_data,
+            secondary_dict=config_data,
+            key="verified-job",
+            return_on_none=True,
         )
         self.tox_enabled = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="tox")
         self.tox_python_version = get_value_from_dicts(
-            primary_dict=repo_data, secondary_dict=config_data, key="tox-python-version", return_on_none="python"
+            primary_dict=repo_data,
+            secondary_dict=config_data,
+            key="tox-python-version",
+            return_on_none="python",
         )
         self.slack_webhook_url = get_value_from_dicts(
             primary_dict=repo_data, secondary_dict=config_data, key="slack_webhook_url"
@@ -364,10 +372,16 @@ Available user actions:
             self.container_release = self.build_and_push_container.get("release")
 
         self.auto_verified_and_merged_users = get_value_from_dicts(
-            primary_dict=repo_data, secondary_dict=config_data, key="auto-verified-and-merged-users", return_on_none=[]
+            primary_dict=repo_data,
+            secondary_dict=config_data,
+            key="auto-verified-and-merged-users",
+            return_on_none=[],
         )
         self.can_be_merged_required_labels = get_value_from_dicts(
-            primary_dict=repo_data, secondary_dict=config_data, key="can-be-merged-required-labels", return_on_none=[]
+            primary_dict=repo_data,
+            secondary_dict=config_data,
+            key="can-be-merged-required-labels",
+            return_on_none=[],
         )
 
     def _get_pull_request(self, number=None):
@@ -907,7 +921,8 @@ stderr: `{err}`
                 if _story_key := self.get_story_key_with_jira_connection():
                     LOGGER.info(f"{self.log_prefix} Closing Jira story")
                     self.jira_conn.close_issue(
-                        key=_story_key, comment=f"PR: {self.pull_request.title} is closed. Megred: {is_merged}"
+                        key=_story_key,
+                        comment=f"PR: {self.pull_request.title} is closed. Megred: {is_merged}",
                     )
 
             if is_merged:
@@ -1070,7 +1085,7 @@ stderr: `{err}`
         output = {
             "title": "Tox",
             "summary": "",
-            "text": self.get_checkrun_text(err=err, out=out),
+            "text": self.get_check_run_text(err=err, out=out),
         }
         if rc:
             return self.set_run_tox_check_success(output=output)
@@ -1092,7 +1107,7 @@ stderr: `{err}`
         output = {
             "title": "Pre-Commit",
             "summary": "",
-            "text": self.get_checkrun_text(err=err, out=out),
+            "text": self.get_check_run_text(err=err, out=out),
         }
         if rc:
             return self.set_run_pre_commit_check_success(output=output)
@@ -1284,7 +1299,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             output = {
                 "title": "Cherry-pick details",
                 "summary": "",
-                "text": self.get_checkrun_text(err=err, out=out),
+                "text": self.get_check_run_text(err=err, out=out),
             }
             if rc:
                 self.set_cherry_pick_success(output=output)
@@ -1535,7 +1550,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         output = {
             "title": "Build container",
             "summary": "",
-            "text": self.get_checkrun_text(err=err, out=out),
+            "text": self.get_check_run_text(err=err, out=out),
         }
         if rc:
             LOGGER.info(f"{self.log_prefix} Done building {_container_repository_and_tag}")
@@ -1584,7 +1599,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         output = {
             "title": "Python module installation",
             "summary": "",
-            "text": self.get_checkrun_text(err=err, out=out),
+            "text": self.get_check_run_text(err=err, out=out),
         }
         if rc:
             return self.set_python_module_install_success(output=output)
@@ -1662,8 +1677,15 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 return True
         return False
 
-    def set_check_run_status(self, check_run, status=None, conclusion=None, output=None):
-        kwargs = {"name": check_run, "head_sha": self.last_commit.sha}
+    def set_check_run_status(
+        self,
+        check_run: str,
+        status: str = "",
+        conclusion: str = "",
+        output: str = "",
+    ):
+        kwargs: Dict[str, str] = {"name": check_run, "head_sha": self.last_commit.sha}
+
         if status:
             kwargs["status"] = status
 
@@ -1673,7 +1695,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         if output:
             kwargs["output"] = output
 
-        msg = f"{self.log_prefix} Set {check_run} check to {status or conclusion}"
+        msg: str = f"{self.log_prefix} Set {check_run} check to {status or conclusion}"
         LOGGER.info(msg)
 
         try:
@@ -1681,19 +1703,24 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             if conclusion == SUCCESS_STR:
                 LOGGER.success(msg)
 
+            return
+
         except Exception as ex:
             LOGGER.error(f"{self.log_prefix} Failed to set {check_run} check to {status or conclusion}, {ex}")
             kwargs["conclusion"] = FAILURE_STR
+
+            LOGGER.error(
+                f"{self.log_prefix} Check run {check_run}, status: {FAILURE_STR}, output: {kwargs.get('output')}"
+            )
             self.repository_by_github_app.create_check_run(**kwargs)
-        return f"Done setting check run status: {kwargs}"
 
     def _run_in_container(
         self,
         command: str,
         env: str = "",
         is_merged: bool = False,
-        checkout: Optional[str] = None,
-        tag_name: Optional[str] = None,
+        checkout: str = "",
+        tag_name: str = "",
     ) -> Tuple[int, str, str]:
         podman_base_cmd: str = (
             "podman run --network=host --privileged -v /tmp/containers:/var/lib/containers/:Z "
@@ -1727,16 +1754,17 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             else:
                 if not self.pull_request:
                     LOGGER.error(f"{self.log_prefix} [func:_run_in_container] No pull request found")
-                    return (False, "", "")
+                    return False, "", ""
                 clone_base_cmd += f" && git checkout origin/pr/{self.pull_request.number}"
 
         # final podman command
         podman_base_cmd += f" '{clone_base_cmd} && {command}'"
         return run_command(command=podman_base_cmd, log_prefix=self.log_prefix)
 
-    def get_checkrun_text(self, err, out):
+    @staticmethod
+    def get_check_run_text(err, out):
         total_len = len(err) + len(out)
-        if total_len > 65534:  # Github limit is 65535 characters
+        if total_len > 65534:  # GitHub limit is 65535 characters
             return f"```\n{err}\n\n{out}\n```"[:65534]
         else:
             return f"```\n{err}\n\n{out}\n```"
@@ -1791,8 +1819,8 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             return []
 
         pull_request_branch = self.repository.get_branch(self.pull_request_branch)
-        branch_protaction = pull_request_branch.get_protection()
-        return branch_protaction.required_status_checks.contexts
+        branch_protection = pull_request_branch.get_protection()
+        return branch_protection.required_status_checks.contexts
 
     def get_all_required_status_checks(self):
         all_required_status_checks = []
