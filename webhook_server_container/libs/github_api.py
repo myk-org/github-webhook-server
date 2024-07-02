@@ -115,7 +115,7 @@ class GitHubApi:
         self._set_log_prefix_color()
         # self.log_repository_features()
 
-        self.github_app_api = get_repository_github_app_api(config=self.config, repository=self.repository_full_name)
+        self.github_app_api = get_repository_github_app_api(config_=self.config, repository=self.repository_full_name)
         if not self.github_app_api:
             LOGGER.error(
                 f"Repository {self.repository_full_name} not found by manage-repositories-app, "

@@ -1,10 +1,14 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 
+from github import Github
 from simple_logger.logger import get_logger
 
 from webhook_server_container.libs.config import Config
-from webhook_server_container.utils.helpers import get_api_with_highest_rate_limit, get_github_repo_api
+from webhook_server_container.utils.helpers import (
+    get_api_with_highest_rate_limit,
+    get_github_repo_api,
+)
 from pyhelper_utils.general import ignore_exceptions
 
 
@@ -38,14 +42,19 @@ def process_github_webhook(data, github_api, webhook_ip):
     return f"{repository}: Create webhook is done"
 
 
-def create_webhook(config, github_api):
+def create_webhook(config_: Config, github_api: Github) -> None:
     LOGGER.info("Preparing webhook configuration")
-    webhook_ip = config.data["webhook_ip"]
+    webhook_ip = config_.data["webhook_ip"]
 
     futures = []
     with ThreadPoolExecutor() as executor:
-        for repo, data in config.data["repositories"].items():
-            futures.append(executor.submit(process_github_webhook, data, github_api, webhook_ip))
+        for repo, data in config_.data["repositories"].items():
+            futures.append(
+                executor.submit(
+                    process_github_webhook,
+                    **{"data": data, "github_api": github_api, "webhook_ip": webhook_ip},
+                )
+            )
 
     for result in as_completed(futures):
         if result.exception():
@@ -56,4 +65,4 @@ def create_webhook(config, github_api):
 if __name__ == "__main__":
     config = Config()
     api, _ = get_api_with_highest_rate_limit(config=config)
-    create_webhook(config=config, github_api=api)
+    create_webhook(config_=config, github_api=api)
