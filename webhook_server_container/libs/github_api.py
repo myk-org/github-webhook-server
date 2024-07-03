@@ -5,7 +5,7 @@ import os
 import random
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -88,7 +88,6 @@ class GitHubApi:
         self.parent_committer: str = ""
         self.log_uuid: str = shortuuid.uuid()[:5]
         self.container_repo_dir: str = "/tmp/repository"
-        jira_conn: Optional[JiraApi] = None
         self.jira_track_pr: bool = False
         self.issue_title: str = ""
         self.all_required_status_checks: List[str] = []
@@ -141,8 +140,8 @@ class GitHubApi:
                             f"Committer {self.parent_committer} is not in configures in jira-user-mapping"
                         )
                     else:
-                        self.jira_track_pr: bool = True
-                        self.issue_title: str = (
+                        self.jira_track_pr = True
+                        self.issue_title = (
                             f"[AUTO:FROM:GITHUB] [{self.repository_name}] "
                             f"PR [{self.pull_request.number}]: {self.pull_request.title}"
                         )
@@ -217,10 +216,10 @@ Available user actions:
 
         color: int = color_json.get(self.repository_name, 0)
         if not color:
-            color: int = random.choice(range(31, 39))
+            color = random.choice(range(31, 39))
             color_json[self.repository_name] = color
 
-        self.log_prefix_with_color: str = repo_str.format(color=color, name=self.repository_name)
+        self.log_prefix_with_color = repo_str.format(color=color, name=self.repository_name)
 
         with open(color_file, "w") as fd:
             json.dump(color_json, fd)
@@ -843,7 +842,7 @@ stderr: `{err}`
 
         pull_request_data: Dict[str, Any] = self.hook_data["pull_request"]
         self.parent_committer = pull_request_data["user"]["login"]
-        self.pull_request_branch: str = pull_request_data["base"]["ref"]
+        self.pull_request_branch = pull_request_data["base"]["ref"]
 
         if hook_action == "opened":
             LOGGER.info(f"{self.log_prefix} Creating welcome comment")
@@ -1471,7 +1470,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 </details>
         """
 
-    def _container_repository_and_tag(self, is_merged=None, tag=None):
+    def _container_repository_and_tag(self, is_merged: bool = False, tag: str = "") -> str:
         if not tag:
             if is_merged:
                 tag = (
@@ -1488,43 +1487,44 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             return f"{self.container_repository}:{tag}"
 
         LOGGER.error(f"{self.log_prefix} container tag not found")
+        return f"{self.container_repository}:webhook-server-tag-not-found"
 
     @ignore_exceptions(logger=LOGGER)
     def _run_build_container(
         self,
-        set_check=True,
-        push=False,
-        is_merged=False,
-        tag=None,
-    ):
+        set_check: bool = True,
+        push: bool = False,
+        is_merged: bool = False,
+        tag: str = "",
+    ) -> None:
         if not self.build_and_push_container:
-            return False
+            return
 
         if set_check:
             if self.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR) and not is_merged:
                 LOGGER.info(f"{self.log_prefix} Check run is in progress, not running {BUILD_CONTAINER_STR}.")
-                return False
+                return
 
             self.set_container_build_in_progress()
 
         _container_repository_and_tag = self._container_repository_and_tag(is_merged=is_merged, tag=tag)
-        no_cache = " --no-cache" if is_merged else ""
-        build_cmd = f"--network=host {no_cache} -f {self.container_repo_dir}/{self.dockerfile} . -t {_container_repository_and_tag}"
+        no_cache: str = " --no-cache" if is_merged else ""
+        build_cmd: str = f"--network=host {no_cache} -f {self.container_repo_dir}/{self.dockerfile} . -t {_container_repository_and_tag}"
 
         if self.container_build_args:
-            build_args = [f"--build-arg {b_arg}" for b_arg in self.container_build_args][0]
+            build_args: str = [f"--build-arg {b_arg}" for b_arg in self.container_build_args][0]
             build_cmd = f"{build_args} {build_cmd}"
 
         if self.container_command_args:
             build_cmd = f"{' '.join(self.container_command_args)} {build_cmd}"
 
         if push:
-            repository_creds = f"{self.container_repository_username}:{self.container_repository_password}"
+            repository_creds: str = f"{self.container_repository_username}:{self.container_repository_password}"
             build_cmd += f" && podman push --creds {repository_creds} {_container_repository_and_tag}"
-        podman_build_cmd = f"podman build {build_cmd}"
+        podman_build_cmd: str = f"podman build {build_cmd}"
 
         rc, out, err = self._run_in_container(command=podman_build_cmd, is_merged=is_merged, tag_name=tag)
-        output = {
+        output: Dict[str, str] = {
             "title": "Build container",
             "summary": "",
             "text": self.get_check_run_text(err=err, out=out),
@@ -1533,10 +1533,12 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             LOGGER.info(f"{self.log_prefix} Done building {_container_repository_and_tag}")
             if self.pull_request and set_check:
                 return self.set_container_build_success(output=output)
+
             if push:
-                push_msg = f"New container for {_container_repository_and_tag} published"
+                push_msg: str = f"New container for {_container_repository_and_tag} published"
                 if self.pull_request:
                     self.pull_request.create_issue_comment(push_msg)
+
                 if self.slack_webhook_url:
                     message = f"""
 ```
@@ -1548,7 +1550,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 LOGGER.info(f"{self.log_prefix} Done push {_container_repository_and_tag}")
         else:
             if push:
-                err_msg = f"Failed to create and push {_container_repository_and_tag}"
+                err_msg: str = f"Failed to create and push {_container_repository_and_tag}"
                 if self.pull_request:
                     self.pull_request.create_issue_comment(err_msg)
                 if self.slack_webhook_url:
@@ -1558,22 +1560,23 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 ```
                     """
                     self.send_slack_message(message=message, webhook_url=self.slack_webhook_url)
+
             if self.pull_request and set_check:
                 return self.set_container_build_failure(output=output)
 
-    def _run_install_python_module(self):
+    def _run_install_python_module(self) -> None:
         if not self.pypi:
-            return False
+            return
 
         if self.is_check_run_in_progress(check_run=PYTHON_MODULE_INSTALL_STR):
             LOGGER.info(f"{self.log_prefix} Check run is in progress, not running {PYTHON_MODULE_INSTALL_STR}.")
-            return False
+            return
 
         LOGGER.info(f"{self.log_prefix} Installing python module")
         f"{PYTHON_MODULE_INSTALL_STR}-{shortuuid.uuid()}"
         self.set_python_module_install_in_progress()
         rc, out, err = self._run_in_container(command="pip install .")
-        output = {
+        output: Dict[str, str] = {
             "title": "Python module installation",
             "summary": "",
             "text": self.get_check_run_text(err=err, out=out),
@@ -1583,10 +1586,10 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         return self.set_python_module_install_failure(output=output)
 
-    def send_slack_message(self, message, webhook_url):
-        slack_data = {"text": message}
+    def send_slack_message(self, message: str, webhook_url: str) -> None:
+        slack_data: Dict[str, str] = {"text": message}
         LOGGER.info(f"{self.log_prefix} Sending message to slack: {message}")
-        response = requests.post(
+        response: requests.Response = requests.post(
             webhook_url,
             data=json.dumps(slack_data),
             headers={"Content-Type": "application/json"},
@@ -1597,7 +1600,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 f"{response.text}"
             )
 
-    def _process_verified(self):
+    def _process_verified(self) -> None:
         if not self.verified_job:
             return
 
@@ -1612,11 +1615,11 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             self.reset_verify_label()
             self.set_verify_check_queued()
 
-    def create_comment_reaction(self, issue_comment_id, reaction):
+    def create_comment_reaction(self, issue_comment_id: str, reaction: str) -> None:
         _comment = self.pull_request.get_issue_comment(issue_comment_id)
         _comment.create_reaction(reaction)
 
-    def process_opened_or_synchronize_pull_request(self):
+    def process_opened_or_synchronize_pull_request(self) -> None:
         self.set_merge_check_queued()
         self.set_run_tox_check_queued()
         self.set_run_pre_commit_check_queued()
@@ -1636,7 +1639,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         self.assign_reviewers()
         self.label_pull_request_by_merge_state()
 
-        futures = []
+        futures: List[Future] = []
         with ThreadPoolExecutor() as executor:
             futures.append(executor.submit(self._run_tox))
             futures.append(executor.submit(self._run_pre_commit))
@@ -1648,7 +1651,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 LOGGER.error(f"{self.log_prefix} {result.exception()}")
             LOGGER.info(f"{self.log_prefix} {result.result()}")
 
-    def is_check_run_in_progress(self, check_run):
+    def is_check_run_in_progress(self, check_run: str) -> bool:
         for run in self.last_commit.get_check_runs():
             if run.name == check_run and run.status == IN_PROGRESS_STR:
                 return True
@@ -1660,7 +1663,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         status: str = "",
         conclusion: str = "",
         output: str = "",
-    ):
+    ) -> None:
         kwargs: Dict[str, str] = {"name": check_run, "head_sha": self.last_commit.sha}
 
         if status:
@@ -1739,51 +1742,51 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         return run_command(command=podman_base_cmd, log_prefix=self.log_prefix)
 
     @staticmethod
-    def get_check_run_text(err, out):
-        total_len = len(err) + len(out)
+    def get_check_run_text(err: str, out: str) -> str:
+        total_len: int = len(err) + len(out)
         if total_len > 65534:  # GitHub limit is 65535 characters
             return f"```\n{err}\n\n{out}\n```"[:65534]
         else:
             return f"```\n{err}\n\n{out}\n```"
 
     @ignore_exceptions(logger=LOGGER)
-    def get_jira_conn(self):
+    def get_jira_conn(self) -> JiraApi:
         return JiraApi(
             server=self.jira_server,
             project=self.jira_project,
             token=self.jira_token,
         )
 
-    def log_repository_features(self):
-        repository_features = f"""
-                        auto-verified-and-merged-users: {self.auto_verified_and_merged_users}
-                        can-be-merged-required-labels: {self.can_be_merged_required_labels}
-                        pypi: {self.pypi}
-                        verified-job: {self.verified_job}
-                        tox-enabled: {self.tox_enabled}
-                        tox-python-version: {self.tox_python_version}
-                        pre-commit: {self.pre_commit}
-                        slack-webhook-url: {self.slack_webhook_url}
-                        container: {self.build_and_push_container}
-                        jira-tracking: {self.jira_tracking}
-                        jira-server: {self.jira_server}
-                        jira-project: {self.jira_project}
-                        jira-token: {self.jira_token}
-                        jira-enabled-repository: {self.jira_enabled_repository}
-                        jira-user-mapping: {self.jira_user_mapping}
-"""
-        LOGGER.info(f"{self.log_prefix} Repository features: {repository_features}")
+    #     def log_repository_features(self):
+    #         repository_features = f"""
+    #                         auto-verified-and-merged-users: {self.auto_verified_and_merged_users}
+    #                         can-be-merged-required-labels: {self.can_be_merged_required_labels}
+    #                         pypi: {self.pypi}
+    #                         verified-job: {self.verified_job}
+    #                         tox-enabled: {self.tox_enabled}
+    #                         tox-python-version: {self.tox_python_version}
+    #                         pre-commit: {self.pre_commit}
+    #                         slack-webhook-url: {self.slack_webhook_url}
+    #                         container: {self.build_and_push_container}
+    #                         jira-tracking: {self.jira_tracking}
+    #                         jira-server: {self.jira_server}
+    #                         jira-project: {self.jira_project}
+    #                         jira-token: {self.jira_token}
+    #                         jira-enabled-repository: {self.jira_enabled_repository}
+    #                         jira-user-mapping: {self.jira_user_mapping}
+    # """
+    #         LOGGER.info(f"{self.log_prefix} Repository features: {repository_features}")
 
-    def get_story_key_with_jira_connection(self):
+    def get_story_key_with_jira_connection(self) -> str:
         _story_label = [_label for _label in self.pull_request.labels if _label.name.startswith(JIRA_STR)]
         if not _story_label:
-            return None
+            return ""
 
         if _story_key := _story_label[0].name.split(":")[-1]:
             jira_conn = self.get_jira_conn()
             if not jira_conn:
                 LOGGER.error(f"{self.log_prefix} Jira connection not found")
-                return None
+                return ""
         return _story_key
 
     @ignore_exceptions(logger=LOGGER, return_on_error=[])
