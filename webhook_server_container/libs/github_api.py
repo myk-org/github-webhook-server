@@ -14,7 +14,8 @@ from jira import JIRA
 import requests
 import shortuuid
 import yaml
-from github import Commit, GithubException
+from github import GithubException
+from github.Commit import Commit
 from github.PullRequest import PullRequest
 from github.GithubException import UnknownObjectException
 from simple_logger.logger import get_logger
@@ -331,6 +332,7 @@ Available user actions:
         )
 
         self.jira: Dict[str, Any] = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="jira")
+        self.jira_enabled_repository: bool = False
         if self.jira:
             self.jira_server: str = self.jira["server"]
             self.jira_project: str = self.jira["project"]
@@ -343,7 +345,7 @@ Available user actions:
                 primary_dict=repo_data, secondary_dict=config_data, key="jira-tracking"
             )
             if self.jira_tracking:
-                self.jira_enabled_repository: bool = all([self.jira_server, self.jira_project, self.jira_token])
+                self.jira_enabled_repository = all([self.jira_server, self.jira_project, self.jira_token])
                 if not self.jira_enabled_repository:
                     LOGGER.error(
                         f"{self.log_prefix} Jira configuration is not valid. Server: {self.jira_server}, "
