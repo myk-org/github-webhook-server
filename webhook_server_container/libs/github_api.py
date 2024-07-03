@@ -331,26 +331,23 @@ Available user actions:
             primary_dict=repo_data, secondary_dict=config_data, key="pre-commit", return_on_none=False
         )
 
-        self.jira: Dict[str, Any] = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="jira")
         self.jira_enabled_repository: bool = False
-        if self.jira:
+        self.jira_tracking: bool = get_value_from_dicts(
+            primary_dict=repo_data, secondary_dict=config_data, key="jira-tracking"
+        )
+        self.jira: Dict[str, Any] = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="jira")
+        if self.jira_tracking and self.jira:
             self.jira_server: str = self.jira["server"]
             self.jira_project: str = self.jira["project"]
             self.jira_token: str = self.jira["token"]
             self.jira_epic: Optional[str] = self.jira.get("epic", "")
             self.jira_user_mapping: Dict[str, str] = self.jira.get("user-mapping", {})
-
-            # Check if repository is enabled for jira
-            self.jira_tracking: bool = get_value_from_dicts(
-                primary_dict=repo_data, secondary_dict=config_data, key="jira-tracking"
-            )
-            if self.jira_tracking:
-                self.jira_enabled_repository = all([self.jira_server, self.jira_project, self.jira_token])
-                if not self.jira_enabled_repository:
-                    LOGGER.error(
-                        f"{self.log_prefix} Jira configuration is not valid. Server: {self.jira_server}, "
-                        f"Project: {self.jira_project}, Token: {self.jira_token}"
-                    )
+            self.jira_enabled_repository = all([self.jira_server, self.jira_project, self.jira_token])
+            if not self.jira_enabled_repository:
+                LOGGER.error(
+                    f"{self.log_prefix} Jira configuration is not valid. Server: {self.jira_server}, "
+                    f"Project: {self.jira_project}, Token: {self.jira_token}"
+                )
 
         self.auto_verified_and_merged_users = get_value_from_dicts(
             primary_dict=repo_data,
