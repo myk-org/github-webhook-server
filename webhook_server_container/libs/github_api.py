@@ -7,14 +7,14 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import FastAPI
 from jira import JIRA
 import requests
 import shortuuid
 import yaml
-from github import GithubException
+from github import Commit, GithubException
 from github.PullRequest import PullRequest
 from github.GithubException import UnknownObjectException
 from simple_logger.logger import get_logger
@@ -94,22 +94,22 @@ class GitHubApi:
         self.all_required_status_checks: List[str] = []
 
         # filled by self._repo_data_from_config()
-        self.dockerhub_username = None
-        self.dockerhub_password = None
-        self.container_repository_username = None
-        self.container_repository_password = None
-        self.container_repository = None
-        self.dockerfile = None
-        self.container_tag = None
-        self.container_build_args = None
-        self.container_command_args = None
-        self.repository_full_name = None
-        self.github_app_id = None
-        self.container_release = None
-        self.can_be_merged_required_labels = []
-        self.jira = None
-        self.jira_tracking = False
-        self.jira_enabled_repository = False
+        self.dockerhub_username: str
+        self.dockerhub_password: str
+        self.container_repository_username: str
+        self.container_repository_password: str
+        self.container_repository: str
+        self.dockerfile: str
+        self.container_tag: str
+        self.container_build_args: List
+        self.container_command_args: List
+        self.repository_full_name: str
+        self.github_app_id: str
+        self.container_release: bool
+        self.can_be_merged_required_labels: Any
+        self.jira: Dict[str, Any]
+        self.jira_tracking: bool = False
+        self.jira_enabled_repository: bool = False
         # End of filled by self._repo_data_from_config()
 
         self.config = Config()
@@ -161,8 +161,11 @@ class GitHubApi:
                             f"Committer {self.parent_committer} is not in configures in jira-user-mapping"
                         )
                     else:
-                        self.jira_track_pr = True
-                        self.issue_title = f"[AUTO:FROM:GITHUB] [{self.repository_name}] PR [{self.pull_request.number}]: {self.pull_request.title}"
+                        self.jira_track_pr: bool = True
+                        self.issue_title: str = (
+                            f"[AUTO:FROM:GITHUB] [{self.repository_name}] "
+                            f"PR [{self.pull_request.number}]: {self.pull_request.title}"
+                        )
                         LOGGER.info(f"{self.log_prefix} Jira tracking is enabled for the current pull request.")
                 else:
                     LOGGER.info(
@@ -170,8 +173,8 @@ class GitHubApi:
                         f"Committer {self.parent_committer} is not in {reviewers_and_approvers}"
                     )
 
-        self.supported_user_labels_str = "".join([f" * {label}\n" for label in USER_LABELS_DICT.keys()])
-        self.welcome_msg = f"""
+        self.supported_user_labels_str: str = "".join([f" * {label}\n" for label in USER_LABELS_DICT.keys()])
+        self.welcome_msg: str = f"""
 Report bugs in [Issues](https://github.com/myakove/github-webhook-server/issues)
 
 The following are automatically added:
@@ -207,8 +210,8 @@ Available user actions:
     """
 
     @property
-    def prepare_retest_wellcome_msg(self):
-        retest_msg = ""
+    def prepare_retest_wellcome_msg(self) -> str:
+        retest_msg: str = ""
         if self.tox_enabled:
             retest_msg += f" * `/retest {TOX_STR}`: Retest tox\n"
         if self.build_and_push_container:
@@ -218,22 +221,22 @@ Available user actions:
 
         return " * This repository does not support retest actions" if not retest_msg else retest_msg
 
-    def add_api_users_to_auto_verified_and_merged_users(self):
+    def add_api_users_to_auto_verified_and_merged_users(self) -> None:
         apis_and_tokens = get_apis_and_tokes_from_config(config=self.config, repository_name=self.repository_name)
         self.auto_verified_and_merged_users.extend([_api[0].get_user().login for _api in apis_and_tokens])
 
-    def _set_log_prefix_color(self):
-        repo_str = "\033[1;{color}m{name}\033[1;0m"
-        color_file = "/tmp/color.json"
+    def _set_log_prefix_color(self) -> None:
+        repo_str: str = "\033[1;{color}m{name}\033[1;0m"
+        color_file: str = "/tmp/color.json"
         try:
             with open(color_file) as fd:
                 color_json = json.load(fd)
         except Exception:
-            color_json = {}
+            color_json: Dict[str, int] = {}
 
         color = color_json.get(self.repository_name)
         if not color:
-            color = random.choice(range(31, 39))
+            color: int = random.choice(range(31, 39))
             color_json[self.repository_name] = color
 
         self.log_prefix_with_color = repo_str.format(color=color, name=self.repository_name)
@@ -242,26 +245,26 @@ Available user actions:
             json.dump(color_json, fd)
 
     @property
-    def log_prefix(self):
+    def log_prefix(self) -> str:
         return (
             f"{self.log_prefix_with_color}({self.log_uuid})[PR {self.pull_request.number}]:"
             if self.pull_request
             else f"{self.log_prefix_with_color}:({self.log_uuid})"
         )
 
-    def hash_token(self, message):
+    def hash_token(self, message: str) -> str:
         hashed_message = message.replace(self.token, "*****")
         return hashed_message
 
-    def app_logger_info(self, message):
+    def app_logger_info(self, message: str) -> None:
         hashed_message = self.hash_token(message=message)
         LOGGER.info(hashed_message)
 
-    def app_logger_error(self, message):
+    def app_logger_error(self, message: str) -> None:
         hashed_message = self.hash_token(message=message)
         LOGGER.error(hashed_message)
 
-    def process_hook(self, data, event_log):
+    def process_hook(self, data: str, event_log: str) -> None:
         LOGGER.info(f"{self.log_prefix} {event_log}")
         if data == "ping":
             return
@@ -281,9 +284,9 @@ Available user actions:
         elif data == "check_run":
             self.process_pull_request_check_run_webhook_data()
 
-    def process_pull_request_check_run_webhook_data(self):
-        _check_run = self.hook_data["check_run"]
-        check_run_name = _check_run["name"]
+    def process_pull_request_check_run_webhook_data(self) -> None:
+        _check_run: Dict[str, Any] = self.hook_data["check_run"]
+        check_run_name: str = _check_run["name"]
         if check_run_name == CAN_BE_MERGED_STR:
             LOGGER.info(f"{self.log_prefix} check_run '{check_run_name}' skipped")
             return
@@ -303,7 +306,7 @@ Available user actions:
                         self.check_if_can_be_merged()
                         break
 
-    def _repo_data_from_config(self):
+    def _repo_data_from_config(self) -> None:
         config_data = self.config.data  # Global repositories configuration
         repo_data = self.config.get_repository(
             repository_name=self.repository_name
@@ -315,7 +318,7 @@ Available user actions:
         self.github_app_id = get_value_from_dicts(
             primary_dict=repo_data, secondary_dict=config_data, key="github-app-id"
         )
-        self.repository_full_name = repo_data["name"]
+        self.repository_full_name: str = repo_data["name"]
         self.pypi = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="pypi")
         self.verified_job = get_value_from_dicts(
             primary_dict=repo_data,
@@ -333,43 +336,44 @@ Available user actions:
         self.slack_webhook_url = get_value_from_dicts(
             primary_dict=repo_data, secondary_dict=config_data, key="slack_webhook_url"
         )
-        self.build_and_push_container = repo_data.get("container")
+        self.build_and_push_container: Optional[Dict[str, Any]] = repo_data.get("container")
         self.dockerhub = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="docker")
         self.pre_commit = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="pre-commit")
         self.jira = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="jira")
 
         if self.jira:
-            self.jira_server = self.jira.get("server")
-            self.jira_project = self.jira.get("project")
-            self.jira_token = self.jira.get("token")
-            self.jira_epic = self.jira.get("epic")
-            self.jira_user_mapping = self.jira.get("user-mapping", {})
+            self.jira_server: Optional[str] = self.jira.get("server")
+            self.jira_project: Optional[str] = self.jira.get("project")
+            self.jira_token: Optional[str] = self.jira.get("token")
+            self.jira_epic: Optional[str] = self.jira.get("epic")
+            self.jira_user_mapping: Dict[str, str] = self.jira.get("user-mapping", {})
 
             # Check if repository is enabled for jira
             self.jira_tracking = get_value_from_dicts(
                 primary_dict=repo_data, secondary_dict=config_data, key="jira-tracking"
             )
             if self.jira_tracking:
-                self.jira_enabled_repository = all([self.jira_server, self.jira_project, self.jira_token])
+                self.jira_enabled_repository: bool = all([self.jira_server, self.jira_project, self.jira_token])
                 if not self.jira_enabled_repository:
                     # if not (self.jira_enabled_repository := all([self.jira_server, self.jira_project, self.jira_token])):
                     LOGGER.error(
-                        f"{self.log_prefix} Jira configuration is not valid. Server: {self.jira_server}, Project: {self.jira_project}, Token: {self.jira_token}"
+                        f"{self.log_prefix} Jira configuration is not valid. Server: {self.jira_server}, "
+                        f"Project: {self.jira_project}, Token: {self.jira_token}"
                     )
 
         if self.dockerhub:
-            self.dockerhub_username = self.dockerhub["username"]
-            self.dockerhub_password = self.dockerhub["password"]
+            self.dockerhub_username: str = self.dockerhub["username"]
+            self.dockerhub_password: str = self.dockerhub["password"]
 
         if self.build_and_push_container:
-            self.container_repository_username = self.build_and_push_container["username"]
-            self.container_repository_password = self.build_and_push_container["password"]
-            self.container_repository = self.build_and_push_container["repository"]
-            self.dockerfile = self.build_and_push_container.get("dockerfile", "Dockerfile")
-            self.container_tag = self.build_and_push_container.get("tag", "latest")
-            self.container_build_args = self.build_and_push_container.get("build-args")
-            self.container_command_args = self.build_and_push_container.get("args")
-            self.container_release = self.build_and_push_container.get("release")
+            self.container_repository_username: str = self.build_and_push_container["username"]
+            self.container_repository_password: str = self.build_and_push_container["password"]
+            self.container_repository: str = self.build_and_push_container["repository"]
+            self.dockerfile: str = self.build_and_push_container.get("dockerfile", "Dockerfile")
+            self.container_tag: str = self.build_and_push_container.get("tag", "latest")
+            self.container_build_args: Optional[str] = self.build_and_push_container.get("build-args")
+            self.container_command_args: Optional[str] = self.build_and_push_container.get("args")
+            self.container_release: bool = self.build_and_push_container.get("release")
 
         self.auto_verified_and_merged_users = get_value_from_dicts(
             primary_dict=repo_data,
@@ -384,7 +388,7 @@ Available user actions:
             return_on_none=[],
         )
 
-    def _get_pull_request(self, number=None):
+    def _get_pull_request(self, number: Optional[int] = None) -> Optional[PullRequest]:
         if number:
             return self.repository.get_pull(number)
 
@@ -396,28 +400,30 @@ Available user actions:
 
         commit = self.hook_data.get("commit")
         if commit:
-            commit_obj = self.repository.get_commit(commit["sha"])
+            commit_obj: Commit = self.repository.get_commit(commit["sha"])
             with contextlib.suppress(Exception):
                 return commit_obj.get_pulls()[0]
 
         LOGGER.info(f"{self.log_prefix} No issue or pull_request found in hook data")
 
-    def _get_last_commit(self):
+    def _get_last_commit(self) -> Commit:
         return list(self.pull_request.get_commits())[-1]
 
-    def label_exists_in_pull_request(self, label):
+    def label_exists_in_pull_request(self, label: str) -> bool:
         return any(lb for lb in self.pull_request_labels_names() if lb == label)
 
-    def pull_request_labels_names(self):
+    def pull_request_labels_names(self) -> List[str]:
         return [lb.name for lb in self._get_pull_request(number=self.pull_request.number).labels]
 
-    def skip_if_pull_request_already_merged(self):
+    def skip_if_pull_request_already_merged(self) -> bool:
         if self.pull_request.is_merged():
             LOGGER.info(f"{self.log_prefix}: PR is merged, not processing")
             return True
 
+        return False
+
     @ignore_exceptions(logger=LOGGER)
-    def _remove_label(self, label):
+    def _remove_label(self, label: str):
         if self.label_exists_in_pull_request(label=label):
             LOGGER.info(f"{self.log_prefix} Removing label {label}")
             self.pull_request.remove_from_labels(label)

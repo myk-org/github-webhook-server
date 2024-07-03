@@ -1,6 +1,6 @@
 import os
-from typing import Any, Dict
-from jira import JIRA
+from typing import Any, Dict, List
+from jira import Issue, JIRA
 from pyhelper_utils.general import ignore_exceptions
 from simple_logger.logger import get_logger
 
@@ -14,7 +14,7 @@ class JiraApi:
         self.project = project
         self.token = token
 
-        self.conn = JIRA(
+        self.conn: JIRA = JIRA(
             server=self.server,
             token_auth=self.token,
         )
@@ -33,7 +33,7 @@ class JiraApi:
             if epic_custom_field := self.get_epic_custom_field():
                 self.fields.update({epic_custom_field: epic_key})
 
-        _issue = self.conn.create_issue(fields=self.fields)
+        _issue: Issue = self.conn.create_issue(fields=self.fields)
         return _issue.key
 
     @ignore_exceptions(logger=LOGGER)
@@ -45,7 +45,7 @@ class JiraApi:
             "issuetype": {"name": "Sub-task"},
             "assignee": {"name": assignee},
         })
-        _issue = self.conn.create_issue(fields=self.fields)
+        _issue: Issue = self.conn.create_issue(fields=self.fields)
         self.close_issue(key=_issue.key)
 
     @ignore_exceptions(logger=LOGGER)
@@ -57,5 +57,5 @@ class JiraApi:
         )
 
     def get_epic_custom_field(self) -> str:
-        _epic_field_id = [cf["id"] for cf in self.conn.fields() if "Epic Link" in cf["name"]]
+        _epic_field_id: List[str] = [cf["id"] for cf in self.conn.fields() if "Epic Link" in cf["name"]]
         return _epic_field_id[0] if _epic_field_id else ""
