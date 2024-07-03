@@ -406,13 +406,14 @@ Available user actions:
         return False
 
     @ignore_exceptions(logger=LOGGER)
-    def _remove_label(self, label: str):
+    def _remove_label(self, label: str) -> bool:
         if self.label_exists_in_pull_request(label=label):
             LOGGER.info(f"{self.log_prefix} Removing label {label}")
             self.pull_request.remove_from_labels(label)
             return self.wait_for_label(label=label, exists=False)
 
         LOGGER.warning(f"{self.log_prefix} Label {label} not found and cannot be removed")
+        return False
 
     @ignore_exceptions(logger=LOGGER)
     def _add_label(self, label):
