@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import FastAPI
+from github.Branch import Branch
 from github.ContentFile import ContentFile
 import requests
 import shortuuid
@@ -306,7 +307,7 @@ Available user actions:
             key="verified-job",
             return_on_none=True,
         )
-        self.tox_enabled: bool = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="tox")
+        self.tox_enabled: str = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="tox")
         self.tox_python_version: str = get_value_from_dicts(
             primary_dict=repo_data,
             secondary_dict=config_data,
@@ -328,7 +329,10 @@ Available user actions:
             self.container_release: bool = self.build_and_push_container.get("release", False)
 
         self.pre_commit: bool = get_value_from_dicts(
-            primary_dict=repo_data, secondary_dict=config_data, key="pre-commit", return_on_none=False
+            primary_dict=repo_data,
+            secondary_dict=config_data,
+            key="pre-commit",
+            return_on_none=False,
         )
 
         self.jira_enabled_repository: bool = False
@@ -379,6 +383,7 @@ Available user actions:
                 return commit_obj.get_pulls()[0]
 
         LOGGER.info(f"{self.log_prefix} No issue or pull_request found in hook data")
+        return None
 
     def _get_last_commit(self) -> Commit:
         return list(self.pull_request.get_commits())[-1]
@@ -387,10 +392,14 @@ Available user actions:
         return any(lb for lb in self.pull_request_labels_names() if lb == label)
 
     def pull_request_labels_names(self) -> List[str]:
-        return [lb.name for lb in self._get_pull_request(number=self.pull_request.number).labels]
+        return (
+            [lb.name for lb in self._get_pull_request(number=self.pull_request.number).labels]
+            if self.pull_request
+            else []
+        )
 
     def skip_if_pull_request_already_merged(self) -> bool:
-        if self.pull_request.is_merged():
+        if self.pull_request and self.pull_request.is_merged():
             LOGGER.info(f"{self.log_prefix}: PR is merged, not processing")
             return True
 
@@ -437,7 +446,7 @@ Available user actions:
         self.pull_request.add_to_labels(label)
         return self.wait_for_label(label=label, exists=True)
 
-    def wait_for_label(self, label, exists):
+    def wait_for_label(self, label: str, exists: bool) -> bool:
         try:
             for sample in TimeoutSampler(
                 wait_timeout=30,
@@ -449,24 +458,25 @@ Available user actions:
                     return True
         except TimeoutExpiredError:
             LOGGER.warning(f"{self.log_prefix} Label {label} {'not found' if exists else 'found'}")
+            return False
 
-    def _generate_issue_title(self):
+    def _generate_issue_title(self) -> str:
         return f"{self.pull_request.title} - {self.pull_request.number}"
 
-    def _generate_issue_body(self):
+    def _generate_issue_body(self) -> str:
         return f"[Auto generated]\nNumber: [#{self.pull_request.number}]"
 
     @ignore_exceptions(logger=LOGGER)
-    def is_branch_exists(self, branch):
+    def is_branch_exists(self, branch: str) -> Branch:
         return self.repository.get_branch(branch)
 
-    def upload_to_pypi(self, tag_name):
-        out, err = "", ""
-        token = self.pypi["token"]
-        env = f"-e TWINE_USERNAME=__token__ -e TWINE_PASSWORD={token} "
+    def upload_to_pypi(self, tag_name: str) -> None:
+        out: str = ""
+        token: str = self.pypi["token"]
+        env: str = f"-e TWINE_USERNAME=__token__ -e TWINE_PASSWORD={token} "
         LOGGER.info(f"{self.log_prefix} Start uploading to pypi")
-        _dist_dir = "/tmp/dist"
-        cmd = (
+        _dist_dir: str = "/tmp/dist"
+        cmd: str = (
             f" python3 -m build --sdist --outdir {_dist_dir} ."
             f" && twine check {_dist_dir}/$(echo *.tar.gz)"
             f" && twine upload {_dist_dir}/$(echo *.tar.gz) --skip-existing"
@@ -476,7 +486,7 @@ Available user actions:
             if rc:
                 LOGGER.info(f"{self.log_prefix} Publish to pypi finished")
                 if self.slack_webhook_url:
-                    message = f"""
+                    message: str = f"""
 ```
 {self.repository_name} Version {tag_name} published to PYPI.
 ```
@@ -484,7 +494,7 @@ Available user actions:
                     self.send_slack_message(message=message, webhook_url=self.slack_webhook_url)
 
         except Exception as exp:
-            err = f"Publish to pypi failed: {exp}"
+            err: str = f"Publish to pypi failed: {exp}"
             LOGGER.error(f"{self.log_prefix} {err}")
             self.repository.create_issue(
                 title=err,
@@ -795,7 +805,8 @@ stderr: `{err}`
                     LOGGER.error(f"{self.log_prefix} Failed to delete tag: {repository_full_tag}. OUT:{out}. ERR:{err}")
             else:
                 LOGGER.warning(
-                    f"{self.log_prefix} {pr_tag} tag not found in registry {self.container_repository}. OUT:{out}. ERR:{err}"
+                    f"{self.log_prefix} {pr_tag} tag not found in registry {self.container_repository}. "
+                    f"OUT:{out}. ERR:{err}"
                 )
         else:
             self.pull_request.create_issue_comment(
@@ -849,22 +860,22 @@ stderr: `{err}`
             self.pull_request.create_issue_comment(self.welcome_msg)
             self.create_issue_for_new_pull_request()
 
+            self.process_opened_or_synchronize_pull_request()
+
             if self.jira_track_pr:
-                jira_conn = jira_conn = self.get_jira_conn()
+                jira_conn = self.get_jira_conn()
                 if not jira_conn:
                     LOGGER.error(f"{self.log_prefix} Jira connection not found")
-                    return
 
-                LOGGER.info(f"{self.log_prefix} Creating Jira story")
-                jira_story_key = jira_conn.create_story(
-                    title=self.issue_title,
-                    body=self.pull_request.html_url,
-                    epic_key=self.jira_epic,
-                    assignee=self.jira_assignee,
-                )
-                self._add_label(label=f"{JIRA_STR}:{jira_story_key}")
-
-            self.process_opened_or_synchronize_pull_request()
+                else:
+                    LOGGER.info(f"{self.log_prefix} Creating Jira story")
+                    jira_story_key = jira_conn.create_story(
+                        title=self.issue_title,
+                        body=self.pull_request.html_url,
+                        epic_key=self.jira_epic,
+                        assignee=self.jira_assignee,
+                    )
+                    self._add_label(label=f"{JIRA_STR}:{jira_story_key}")
 
         if hook_action == "synchronize":
             for _label in self.pull_request.labels:
@@ -876,30 +887,27 @@ stderr: `{err}`
                 ):
                     self._remove_label(label=_label_name)
 
-            if self.jira_track_pr:
-                if _story_key := self.get_story_key_with_jira_connection():
-                    LOGGER.info(f"{self.log_prefix} Creating sub-task for Jira story {_story_key}")
-                    jira_conn.create_closed_subtask(
-                        title=f"{self.issue_title}: New commit from {self.last_committer}",
-                        parent_key=_story_key,
-                        assignee=self.jira_assignee,
-                        body=f"PR: {self.pull_request.title}, new commit pushed by {self.last_committer}",
-                    )
-
             self.process_opened_or_synchronize_pull_request()
+
+            if self.jira_track_pr:
+                jira_conn = self.get_jira_conn()
+                if not jira_conn:
+                    LOGGER.error(f"{self.log_prefix} Jira connection not found")
+
+                else:
+                    if _story_key := self.get_story_key_with_jira_connection():
+                        LOGGER.info(f"{self.log_prefix} Creating sub-task for Jira story {_story_key}")
+                        jira_conn.create_closed_subtask(
+                            title=f"{self.issue_title}: New commit from {self.last_committer}",
+                            parent_key=_story_key,
+                            assignee=self.jira_assignee,
+                            body=f"PR: {self.pull_request.title}, new commit pushed by {self.last_committer}",
+                        )
 
         if hook_action == "closed":
             self.close_issue_for_merged_or_closed_pr(hook_action=hook_action)
             self.delete_remote_tag_for_merged_or_closed_pr()
             is_merged = pull_request_data.get("merged")
-
-            if self.jira_track_pr:
-                if _story_key := self.get_story_key_with_jira_connection():
-                    LOGGER.info(f"{self.log_prefix} Closing Jira story")
-                    jira_conn.close_issue(
-                        key=_story_key,
-                        comment=f"PR: {self.pull_request.title} is closed. Megred: {is_merged}",
-                    )
 
             if is_merged:
                 LOGGER.info(f"{self.log_prefix} PR is merged")
@@ -919,6 +927,19 @@ stderr: `{err}`
                 original_pull_request = self.pull_request
                 self.label_by_pull_requests_merge_state_after_merged()
                 self.pull_request = original_pull_request
+
+            if self.jira_track_pr:
+                jira_conn = self.get_jira_conn()
+                if not jira_conn:
+                    LOGGER.error(f"{self.log_prefix} Jira connection not found")
+
+                else:
+                    if _story_key := self.get_story_key_with_jira_connection():
+                        LOGGER.info(f"{self.log_prefix} Closing Jira story")
+                        jira_conn.close_issue(
+                            key=_story_key,
+                            comment=f"PR: {self.pull_request.title} is closed. Merged: {is_merged}",
+                        )
 
         if hook_action in ("labeled", "unlabeled"):
             action_labeled = hook_action == "labeled"
@@ -1778,6 +1799,9 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
     #         LOGGER.info(f"{self.log_prefix} Repository features: {repository_features}")
 
     def get_story_key_with_jira_connection(self) -> str:
+        if not self.pull_request:
+            return ""
+
         _story_label = [_label for _label in self.pull_request.labels if _label.name.startswith(JIRA_STR)]
         if not _story_label:
             return ""
