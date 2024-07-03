@@ -82,39 +82,22 @@ class GitHubApi:
         self.app: FastAPI = FASTAPI_APP
         self.hook_data: Dict[Any, Any] = hook_data
         self.repository_name: str = hook_data["repository"]["name"]
-        self.log_prefix_with_color: str | None = None
-        self.pull_request: PullRequest | None = None
-        self.parent_committer: str | None = None
+        self.log_prefix_with_color: str = ""
+        self.pull_request: Optional[PullRequest] = None
+        self.parent_committer: str = ""
         self.log_uuid: str = shortuuid.uuid()[:5]
         self.container_repo_dir: str = "/tmp/repository"
-        self.jira_conn: JIRA | None = None
+        self.jira_conn: Optional[JIRA] = None
         self.jira_track_pr: bool = False
-        self.issue_title: str | None = None
+        self.issue_title: str = ""
         self.all_required_status_checks: List[str] = []
-
-        # filled by self._repo_data_from_config()
-        self.container_repository_username: str
-        self.container_repository_password: str
-        self.container_repository: str
-        self.dockerfile: str
-        self.container_tag: str
-        self.container_build_args: List[str]
-        self.container_command_args: List[str]
-        self.repository_full_name: str
-        self.github_app_id: str
-        self.container_release: bool
-        self.can_be_merged_required_labels: List[str]
-        self.jira: Dict[str, Any]
-        self.jira_tracking: bool = False
-        self.jira_enabled_repository: bool = False
-        # End of filled by self._repo_data_from_config()
-
         self.config = Config()
         self._repo_data_from_config()
         self._set_log_prefix_color()
-        # self.log_repository_features()
 
-        self.github_app_api = get_repository_github_app_api(config_=self.config, repository=self.repository_full_name)
+        self.github_app_api = get_repository_github_app_api(
+            config_=self.config, repository_name=self.repository_full_name
+        )
         if not self.github_app_api:
             LOGGER.error(
                 f"Repository {self.repository_full_name} not found by manage-repositories-app, "
@@ -311,60 +294,61 @@ Available user actions:
         if not repo_data:
             raise RepositoryNotFoundError(f"Repository {self.repository_name} not found in config file")
 
-        self.github_app_id = get_value_from_dicts(
+        self.github_app_id: str = get_value_from_dicts(
             primary_dict=repo_data, secondary_dict=config_data, key="github-app-id"
         )
         self.repository_full_name: str = repo_data["name"]
-        self.pypi = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="pypi")
-        self.verified_job = get_value_from_dicts(
+        self.pypi: Dict[str, str] = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="pypi")
+        self.verified_job: bool = get_value_from_dicts(
             primary_dict=repo_data,
             secondary_dict=config_data,
             key="verified-job",
             return_on_none=True,
         )
-        self.tox_enabled = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="tox")
-        self.tox_python_version = get_value_from_dicts(
+        self.tox_enabled: bool = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="tox")
+        self.tox_python_version: str = get_value_from_dicts(
             primary_dict=repo_data,
             secondary_dict=config_data,
             key="tox-python-version",
             return_on_none="python",
         )
-        self.slack_webhook_url = get_value_from_dicts(
+        self.slack_webhook_url: str = get_value_from_dicts(
             primary_dict=repo_data, secondary_dict=config_data, key="slack_webhook_url"
         )
-        self.build_and_push_container: Optional[Dict[str, Any]] = repo_data.get("container")
-        self.pre_commit = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="pre-commit")
-        self.jira = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="jira")
-
-        if self.jira:
-            self.jira_server: Optional[str] = self.jira.get("server")
-            self.jira_project: Optional[str] = self.jira.get("project")
-            self.jira_token: Optional[str] = self.jira.get("token")
-            self.jira_epic: Optional[str] = self.jira.get("epic")
-            self.jira_user_mapping: Dict[str, str] = self.jira.get("user-mapping", {})
-
-            # Check if repository is enabled for jira
-            self.jira_tracking = get_value_from_dicts(
-                primary_dict=repo_data, secondary_dict=config_data, key="jira-tracking"
-            )
-            if self.jira_tracking:
-                self.jira_enabled_repository: bool = all([self.jira_server, self.jira_project, self.jira_token])
-                if not self.jira_enabled_repository:
-                    # if not (self.jira_enabled_repository := all([self.jira_server, self.jira_project, self.jira_token])):
-                    LOGGER.error(
-                        f"{self.log_prefix} Jira configuration is not valid. Server: {self.jira_server}, "
-                        f"Project: {self.jira_project}, Token: {self.jira_token}"
-                    )
-
+        self.build_and_push_container: Dict[str, Any] = repo_data.get("container", {})
         if self.build_and_push_container:
             self.container_repository_username: str = self.build_and_push_container["username"]
             self.container_repository_password: str = self.build_and_push_container["password"]
             self.container_repository: str = self.build_and_push_container["repository"]
             self.dockerfile: str = self.build_and_push_container.get("dockerfile", "Dockerfile")
             self.container_tag: str = self.build_and_push_container.get("tag", "latest")
-            self.container_build_args: Optional[str] = self.build_and_push_container.get("build-args")
-            self.container_command_args: Optional[str] = self.build_and_push_container.get("args")
-            self.container_release: bool = self.build_and_push_container.get("release")
+            self.container_build_args: str = self.build_and_push_container.get("build-args", "")
+            self.container_command_args: str = self.build_and_push_container.get("args", "")
+            self.container_release: bool = self.build_and_push_container.get("release", False)
+
+        self.pre_commit: bool = get_value_from_dicts(
+            primary_dict=repo_data, secondary_dict=config_data, key="pre-commit", return_on_none=False
+        )
+
+        self.jira: Dict[str, Any] = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="jira")
+        if self.jira:
+            self.jira_server: str = self.jira["server"]
+            self.jira_project: str = self.jira["project"]
+            self.jira_token: str = self.jira["token"]
+            self.jira_epic: Optional[str] = self.jira.get("epic", "")
+            self.jira_user_mapping: Dict[str, str] = self.jira.get("user-mapping", {})
+
+            # Check if repository is enabled for jira
+            self.jira_tracking: bool = get_value_from_dicts(
+                primary_dict=repo_data, secondary_dict=config_data, key="jira-tracking"
+            )
+            if self.jira_tracking:
+                self.jira_enabled_repository: bool = all([self.jira_server, self.jira_project, self.jira_token])
+                if not self.jira_enabled_repository:
+                    LOGGER.error(
+                        f"{self.log_prefix} Jira configuration is not valid. Server: {self.jira_server}, "
+                        f"Project: {self.jira_project}, Token: {self.jira_token}"
+                    )
 
         self.auto_verified_and_merged_users = get_value_from_dicts(
             primary_dict=repo_data,

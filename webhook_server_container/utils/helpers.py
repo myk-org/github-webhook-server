@@ -7,7 +7,9 @@ from concurrent.futures import Future, as_completed
 from typing import Any, Dict, List, Optional, Tuple
 from pyhelper_utils.general import ignore_exceptions
 from colorama import Fore
-from github import Github, RateLimit, Repository
+from github import Github
+from github.RateLimit import RateLimit
+from github.Repository import Repository
 from simple_logger.logger import get_logger
 
 from webhook_server_container.libs.config import Config
@@ -140,7 +142,9 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
             LOGGER.info(f"API user {_api_user} remaining rate limit: {remaining}")
             api, token = _api, _token
 
-    log_rate_limit(rate_limit=rate_limit, api_user=_api_user)
+    if rate_limit:
+        log_rate_limit(rate_limit=rate_limit, api_user=_api_user)
+
     LOGGER.info(f"API user {_api_user} selected with highest rate limit: {remaining}")
     return api, token
 

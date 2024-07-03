@@ -4,7 +4,11 @@ from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from typing import Any, Dict, List, Optional, Tuple
 
-from github import Branch, Commit, Github, GithubIntegration, Auth, Installation, Label, Repository
+from github import Github, GithubIntegration, Auth
+from github.Repository import Repository
+from github.Branch import Branch
+from github.Label import Label
+from github.Commit import Commit
 from github.Auth import AppAuth
 from github.GithubException import UnknownObjectException
 from simple_logger.logger import get_logger
@@ -276,7 +280,7 @@ def set_repository_check_runs_to_queued(
     config_: Config, data: Dict[str, Any], github_api: Github, check_runs: Tuple[str]
 ) -> Tuple[bool, str]:
     repository: str = data["name"]
-    repository_app_api = get_repository_github_app_api(config_=config_, repository=repository)
+    repository_app_api = get_repository_github_app_api(config_=config_, repository_name=repository)
     if not repository_app_api:
         return False, "Failed to get repositories GitHub app API"
 
@@ -297,7 +301,7 @@ def set_repository_check_runs_to_queued(
 
 
 @ignore_exceptions(logger=LOGGER)
-def get_repository_github_app_api(config_: Config, repository: Repository) -> Optional[Installation]:
+def get_repository_github_app_api(config_: Config, repository_name: str) -> Optional[Github]:
     LOGGER.info("Getting repositories GitHub app API")
     with open(os.path.join(config_.data_dir, "webhook-server.private-key.pem")) as fd:
         private_key = fd.read()
@@ -307,12 +311,12 @@ def get_repository_github_app_api(config_: Config, repository: Repository) -> Op
     app_instance: GithubIntegration = GithubIntegration(auth=auth)
     owner: str
     repo: str
-    owner, repo = repository.split("/")
+    owner, repo = repository_name.split("/")
     try:
         return app_instance.get_repo_installation(owner=owner, repo=repo).get_github_for_installation()
     except UnknownObjectException:
         LOGGER.error(
-            f"Repository {repository} not found by manage-repositories-app, "
+            f"Repository {repository_name} not found by manage-repositories-app, "
             f"make sure the app installed (https://github.com/apps/manage-repositories-app)"
         )
         return None
