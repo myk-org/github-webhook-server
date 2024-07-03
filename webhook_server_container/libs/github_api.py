@@ -57,7 +57,6 @@ from webhook_server_container.utils.constants import (
     OTHER_MAIN_BRANCH,
 )
 from pyhelper_utils.general import ignore_exceptions
-from webhook_server_container.utils.dockerhub_rate_limit import DockerHub
 from webhook_server_container.utils.github_repository_settings import (
     get_repository_github_app_api,
 )
@@ -94,8 +93,6 @@ class GitHubApi:
         self.all_required_status_checks: List[str] = []
 
         # filled by self._repo_data_from_config()
-        self.dockerhub_username: str
-        self.dockerhub_password: str
         self.container_repository_username: str
         self.container_repository_password: str
         self.container_repository: str
@@ -139,7 +136,6 @@ class GitHubApi:
 
         self.add_api_users_to_auto_verified_and_merged_users()
         self.clone_repository_path = os.path.join("/", self.repository.name)
-        self.dockerhub = DockerHub(username=self.dockerhub_username, password=self.dockerhub_password)
 
         self.pull_request = self._get_pull_request()
         self.owners_content = self.get_owners_content()
@@ -337,7 +333,6 @@ Available user actions:
             primary_dict=repo_data, secondary_dict=config_data, key="slack_webhook_url"
         )
         self.build_and_push_container: Optional[Dict[str, Any]] = repo_data.get("container")
-        self.dockerhub = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="docker")
         self.pre_commit = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="pre-commit")
         self.jira = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="jira")
 
@@ -360,10 +355,6 @@ Available user actions:
                         f"{self.log_prefix} Jira configuration is not valid. Server: {self.jira_server}, "
                         f"Project: {self.jira_project}, Token: {self.jira_token}"
                     )
-
-        if self.dockerhub:
-            self.dockerhub_username: str = self.dockerhub["username"]
-            self.dockerhub_password: str = self.dockerhub["password"]
 
         if self.build_and_push_container:
             self.container_repository_username: str = self.build_and_push_container["username"]
@@ -1791,7 +1782,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                         verified-job: {self.verified_job}
                         tox-enabled: {self.tox_enabled}
                         tox-python-version: {self.tox_python_version}
-                        docker: {self.dockerhub}
                         pre-commit: {self.pre_commit}
                         slack-webhook-url: {self.slack_webhook_url}
                         container: {self.build_and_push_container}
