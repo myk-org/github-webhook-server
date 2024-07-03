@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import FastAPI
-from jira import JIRA
+from github.ContentFile import ContentFile
 import requests
 import shortuuid
 import yaml
@@ -88,7 +88,7 @@ class GitHubApi:
         self.parent_committer: str = ""
         self.log_uuid: str = shortuuid.uuid()[:5]
         self.container_repo_dir: str = "/tmp/repository"
-        self.jira_conn: Optional[JIRA] = None
+        jira_conn: Optional[JiraApi] = None
         self.jira_track_pr: bool = False
         self.issue_title: str = ""
         self.all_required_status_checks: List[str] = []
@@ -119,7 +119,7 @@ class GitHubApi:
             return
 
         self.add_api_users_to_auto_verified_and_merged_users()
-        self.clone_repository_path = os.path.join("/", self.repository.name)
+        self.clone_repository_path: str = os.path.join("/", self.repository.name)
 
         self.pull_request = self._get_pull_request()
         self.owners_content = self.get_owners_content()
@@ -208,18 +208,19 @@ Available user actions:
     def _set_log_prefix_color(self) -> None:
         repo_str: str = "\033[1;{color}m{name}\033[1;0m"
         color_file: str = "/tmp/color.json"
+        color_json: Dict[str, int]
         try:
             with open(color_file) as fd:
                 color_json = json.load(fd)
         except Exception:
-            color_json: Dict[str, int] = {}
+            color_json = {}
 
-        color = color_json.get(self.repository_name)
+        color: int = color_json.get(self.repository_name, 0)
         if not color:
             color: int = random.choice(range(31, 39))
             color_json[self.repository_name] = color
 
-        self.log_prefix_with_color = repo_str.format(color=color, name=self.repository_name)
+        self.log_prefix_with_color: str = repo_str.format(color=color, name=self.repository_name)
 
         with open(color_file, "w") as fd:
             json.dump(color_json, fd)
@@ -372,9 +373,9 @@ Available user actions:
             except GithubException:
                 continue
 
-        commit = self.hook_data.get("commit")
+        commit: Dict[str, Any] = self.hook_data.get("commit", {})
         if commit:
-            commit_obj: Commit = self.repository.get_commit(commit["sha"])
+            commit_obj = self.repository.get_commit(commit["sha"])
             with contextlib.suppress(Exception):
                 return commit_obj.get_pulls()[0]
 
@@ -495,10 +496,10 @@ stderr: `{err}`
 """,
             )
 
-    def get_owners_content(self):
+    def get_owners_content(self) -> Dict[str, Any]:
         try:
-            owners_content = self.repository.get_contents("OWNERS")
-            _content = yaml.safe_load(owners_content.decoded_content)
+            owners_content: ContentFile = self.repository.get_contents("OWNERS")
+            _content: Dict[str, Any] = yaml.safe_load(owners_content.decoded_content)
             LOGGER.info(f"{self.log_prefix} OWNERS file content: {_content}")
             return _content
         except UnknownObjectException:
@@ -506,10 +507,10 @@ stderr: `{err}`
             return {}
 
     @property
-    def reviewers(self):
-        bc_reviewers = self.owners_content.get("reviewers", [])
+    def reviewers(self) -> List[str]:
+        bc_reviewers: List[str] = self.owners_content.get("reviewers", [])
         if isinstance(bc_reviewers, dict):
-            _reviewers = self.owners_content.get("reviewers", {}).get("any", [])
+            _reviewers: List[str] = self.owners_content.get("reviewers", {}).get("any", [])
         else:
             _reviewers = bc_reviewers
 
@@ -517,27 +518,23 @@ stderr: `{err}`
         return _reviewers
 
     @property
-    def files_reviewers(self):
-        _reviewers = self.owners_content.get("reviewers")
-        if isinstance(_reviewers, dict):
-            return _reviewers.get("files", {})
-        return {}
+    def files_reviewers(self) -> Dict[str, str]:
+        _reviewers: Dict[str, Any] = self.owners_content.get("reviewers", {})
+        return _reviewers.get("files", {})
 
     @property
-    def folders_reviewers(self):
-        _reviewers = self.owners_content.get("reviewers")
-        if isinstance(_reviewers, dict):
-            return _reviewers.get("folders", {})
-        return {}
+    def folders_reviewers(self) -> Dict[str, str]:
+        _reviewers: Dict[str, Any] = self.owners_content.get("reviewers", {})
+        return _reviewers.get("folders", {})
 
     @property
-    def approvers(self):
+    def approvers(self) -> List[str]:
         return self.owners_content.get("approvers", [])
 
-    def list_changed_commit_files(self):
+    def list_changed_commit_files(self) -> list[str]:
         return [fd["filename"] for fd in self.last_commit.raw_data["files"]]
 
-    def assign_reviewers(self):
+    def assign_reviewers(self) -> None:
         LOGGER.info(f"{self.log_prefix} Assign reviewers")
         changed_files = self.list_changed_commit_files()
         reviewers_to_add = self.reviewers
@@ -549,7 +546,7 @@ stderr: `{err}`
             if any(cf for cf in changed_files if _folder in str(Path(cf).parent)):
                 reviewers_to_add.extend(_reviewers)
 
-        _to_add = list(set(reviewers_to_add))
+        _to_add: List[str] = list(set(reviewers_to_add))
         LOGGER.info(f"{self.log_prefix} Reviewers to add: {_to_add}")
         for reviewer in _to_add:
             if reviewer != self.pull_request.user.login:
@@ -732,7 +729,7 @@ stderr: `{err}`
         return self.set_check_run_status(check_run=CHERRY_PICKED_LABEL_PREFIX, conclusion=FAILURE_STR, output=output)
 
     @ignore_exceptions(logger=LOGGER)
-    def create_issue_for_new_pull_request(self):
+    def create_issue_for_new_pull_request(self) -> None:
         if self.parent_committer in self.auto_verified_and_merged_users:
             LOGGER.info(
                 f"{self.log_prefix} Committer {self.parent_committer} is part of "
@@ -839,14 +836,14 @@ stderr: `{err}`
             )
 
     def process_pull_request_webhook_data(self):
-        hook_action = self.hook_data["action"]
+        hook_action: str = self.hook_data["action"]
         LOGGER.info(f"{self.log_prefix} hook_action is: {hook_action}")
         if not self.pull_request:
             return
 
-        pull_request_data = self.hook_data["pull_request"]
+        pull_request_data: Dict[str, Any] = self.hook_data["pull_request"]
         self.parent_committer = pull_request_data["user"]["login"]
-        self.pull_request_branch = pull_request_data["base"]["ref"]
+        self.pull_request_branch: str = pull_request_data["base"]["ref"]
 
         if hook_action == "opened":
             LOGGER.info(f"{self.log_prefix} Creating welcome comment")
@@ -854,13 +851,13 @@ stderr: `{err}`
             self.create_issue_for_new_pull_request()
 
             if self.jira_track_pr:
-                self.get_jira_conn()
-                if not self.jira_conn:
+                jira_conn = jira_conn = self.get_jira_conn()
+                if not jira_conn:
                     LOGGER.error(f"{self.log_prefix} Jira connection not found")
                     return
 
                 LOGGER.info(f"{self.log_prefix} Creating Jira story")
-                jira_story_key = self.jira_conn.create_story(
+                jira_story_key = jira_conn.create_story(
                     title=self.issue_title,
                     body=self.pull_request.html_url,
                     epic_key=self.jira_epic,
@@ -883,7 +880,7 @@ stderr: `{err}`
             if self.jira_track_pr:
                 if _story_key := self.get_story_key_with_jira_connection():
                     LOGGER.info(f"{self.log_prefix} Creating sub-task for Jira story {_story_key}")
-                    self.jira_conn.create_closed_subtask(
+                    jira_conn.create_closed_subtask(
                         title=f"{self.issue_title}: New commit from {self.last_committer}",
                         parent_key=_story_key,
                         assignee=self.jira_assignee,
@@ -900,7 +897,7 @@ stderr: `{err}`
             if self.jira_track_pr:
                 if _story_key := self.get_story_key_with_jira_connection():
                     LOGGER.info(f"{self.log_prefix} Closing Jira story")
-                    self.jira_conn.close_issue(
+                    jira_conn.close_issue(
                         key=_story_key,
                         comment=f"PR: {self.pull_request.title} is closed. Megred: {is_merged}",
                     )
@@ -981,13 +978,13 @@ stderr: `{err}`
                         return
 
                     _story_key = _story_label[0].name.split(":")[-1]
-                    self.get_jira_conn()
-                    if not self.jira_conn:
+                    jira_conn = self.get_jira_conn()
+                    if not jira_conn:
                         LOGGER.error(f"{self.log_prefix} Jira connection not found")
                         return
 
                     LOGGER.info(f"{self.log_prefix} Creating sub-task for Jira story {_story_key}")
-                    self.jira_conn.create_closed_subtask(
+                    jira_conn.create_closed_subtask(
                         title=f"{self.issue_title}: reviewed by: {reviewed_user} - {review_state}",
                         parent_key=_story_key,
                         assignee=self.jira_user_mapping.get(reviewed_user, self.parent_committer),
@@ -1751,7 +1748,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
     @ignore_exceptions(logger=LOGGER)
     def get_jira_conn(self):
-        self.jira_conn = JiraApi(
+        return JiraApi(
             server=self.jira_server,
             project=self.jira_project,
             token=self.jira_token,
@@ -1783,14 +1780,14 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             return None
 
         if _story_key := _story_label[0].name.split(":")[-1]:
-            self.get_jira_conn()
-            if not self.jira_conn:
+            jira_conn = self.get_jira_conn()
+            if not jira_conn:
                 LOGGER.error(f"{self.log_prefix} Jira connection not found")
                 return None
         return _story_key
 
     @ignore_exceptions(logger=LOGGER, return_on_error=[])
-    def get_branch_required_status_checks(self):
+    def get_branch_required_status_checks(self) -> List[str]:
         if self.repository.private:
             LOGGER.info(
                 f"{self.log_prefix} Repository is private, skipping getting branch protection required status checks"
@@ -1801,8 +1798,8 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         branch_protection = pull_request_branch.get_protection()
         return branch_protection.required_status_checks.contexts
 
-    def get_all_required_status_checks(self):
-        all_required_status_checks = []
+    def get_all_required_status_checks(self) -> List[str]:
+        all_required_status_checks: List[str] = []
         branch_required_status_checks = self.get_branch_required_status_checks()
         if self.tox_enabled:
             all_required_status_checks.append(TOX_STR)
