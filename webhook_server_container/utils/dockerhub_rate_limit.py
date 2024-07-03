@@ -16,16 +16,16 @@ class DockerHub:
         self.password = password
 
     @staticmethod
-    def limit_extractor(str_raw: str) -> str:
+    def limit_extractor(str_raw: str) -> int:
         if not str_raw:
-            return ""
+            return 0
 
         if ";" in str_raw:
             split_arr = str_raw.split(";")  # TODO: return other values too?
             if len(split_arr) > 0:
-                return split_arr[0]
+                return int(split_arr[0])
         else:
-            return str_raw
+            return int(str_raw)
 
     def get_token(self) -> str:
         _kwargs: Dict[str, Any] = {"url": self.token_url}
@@ -42,7 +42,7 @@ class DockerHub:
 
         return token
 
-    def get_registry_limits(self) -> Dict[str, str]:
+    def get_registry_limits(self) -> Dict[str, int]:
         r_registry = requests.head(self.registry_url, headers={"Authorization": f"Bearer {self.get_token()}"})
         r_registry.raise_for_status()
         resp_headers = r_registry.headers
