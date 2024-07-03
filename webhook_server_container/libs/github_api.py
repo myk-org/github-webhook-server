@@ -101,12 +101,12 @@ class GitHubApi:
         self.container_repository: str
         self.dockerfile: str
         self.container_tag: str
-        self.container_build_args: List
-        self.container_command_args: List
+        self.container_build_args: List[str]
+        self.container_command_args: List[str]
         self.repository_full_name: str
         self.github_app_id: str
         self.container_release: bool
-        self.can_be_merged_required_labels: Any
+        self.can_be_merged_required_labels: List[str]
         self.jira: Dict[str, Any]
         self.jira_tracking: bool = False
         self.jira_enabled_repository: bool = False
