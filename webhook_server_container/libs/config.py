@@ -1,11 +1,11 @@
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import yaml
 
 
 class Config:
-    def __init__(self):
+    def __init__(self) -> None:
         self.data_dir: str = os.environ.get("WEBHOOK_SERVER_DATA_DIR", "/webhook_server")
         self.config_path: str = os.path.join(self.data_dir, "config.yaml")
         self.exists()
@@ -19,5 +19,5 @@ class Config:
         with open(self.config_path) as fd:
             return yaml.safe_load(fd)
 
-    def get_repository(self, repository_name: str) -> Optional[Dict[str, Any]]:
-        return self.data["repositories"].get(repository_name)
+    def get_repository(self, repository_name: str) -> Dict[str, Any]:
+        return self.data["repositories"].get(repository_name, {})

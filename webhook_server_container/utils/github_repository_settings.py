@@ -23,6 +23,7 @@ from webhook_server_container.utils.constants import (
 from pyhelper_utils.general import ignore_exceptions
 from webhook_server_container.utils.helpers import (
     get_api_with_highest_rate_limit,
+    get_future_results,
     get_github_repo_api,
 )
 
@@ -44,7 +45,7 @@ def set_branch_protection(
     repository: Repository,
     required_status_checks: List[str],
     github_api: Github,
-) -> None:
+) -> bool:
     api_user = github_api.get_user().login
     LOGGER.info(f"Set repository {repository.name} {branch} settings. enabled checks: {required_status_checks}")
     branch.edit_protection(
@@ -59,6 +60,8 @@ def set_branch_protection(
         teams_bypass_pull_request_allowances=[api_user],
         apps_bypass_pull_request_allowances=[api_user],
     )
+
+    return True
 
 
 @ignore_exceptions(logger=LOGGER)
@@ -119,9 +122,9 @@ def get_required_status_checks(
     return default_status_checks
 
 
-def get_user_configures_status_checks(status_checks: Dict[str, Any]) -> Tuple:
-    include_status_checks: List[List[str]] = []
-    exclude_status_checks: List[List[str]] = []
+def get_user_configures_status_checks(status_checks: Dict[str, Any]) -> Tuple[List[str], List[str]]:
+    include_status_checks: List[str] = []
+    exclude_status_checks: List[str] = []
     if status_checks:
         include_status_checks = status_checks.get("include-runs", [])
         exclude_status_checks = status_checks.get("exclude-runs", [])
@@ -133,7 +136,7 @@ def set_repository_labels(repository: Repository) -> str:
     LOGGER.info(f"Set repository {repository.name} labels")
     repository_labels: Dict[str, Dict[str, Any]] = {}
     for label in repository.get_labels():
-        repository_labels[label.name.lower()]: Dict[str, Any] = {
+        repository_labels[label.name.lower()] = {
             "object": label,
             "color": label.color,
         }
@@ -179,30 +182,25 @@ def set_repositories_settings(config_: Config, github_api: Github) -> None:
                 )
             )
 
-    for result in as_completed(futures):
-        if result.exception():
-            LOGGER.error(result.exception())
-        LOGGER.info(result.result())
+    get_future_results(futures=futures)
 
 
-def set_repository(data: Dict[str, Any], github_api: Github, default_status_checks: List[str]) -> Optional[str]:
+def set_repository(data: Dict[str, Any], github_api: Github, default_status_checks: List[str]) -> Tuple[bool, str]:
     repository: str = data["name"]
     LOGGER.info(f"Processing repository {repository}")
     protected_branches: Dict[str, Any] = data.get("protected-branches", {})
     repo = get_github_repo_api(github_api=github_api, repository=repository)
     if not repo:
-        LOGGER.error(f"{repository}: Failed to get repository")
-        return
+        return False, f"{repository}: Failed to get repository"
 
     try:
         set_repository_labels(repository=repo)
         set_repository_settings(repository=repo)
 
         if repo.private:
-            LOGGER.warning(f"{repository}: Repository is private, skipping setting branch settings")
-            return
+            return False, f"{repository}: Repository is private, skipping setting branch settings"
 
-        futures: List[Future] = []
+        futures: List["Future"] = []
 
         with ThreadPoolExecutor() as executor:
             for branch_name, status_checks in protected_branches.items():
@@ -240,12 +238,11 @@ def set_repository(data: Dict[str, Any], github_api: Github, default_status_chec
         for result in as_completed(futures):
             if result.exception():
                 LOGGER.error(result.exception())
-            LOGGER.info(result.result())
 
-    except UnknownObjectException:
-        LOGGER.error(f"{repository}: Failed to get repository settings")
+    except UnknownObjectException as ex:
+        return False, f"{repository}: Failed to get repository settings, ex: {ex}"
 
-    return f"{repository}: Setting repository settings is done"
+    return True, f"{repository}: Setting repository settings is done"
 
 
 def set_all_in_progress_check_runs_to_queued(config_: Config, github_api: Github) -> None:
@@ -256,7 +253,7 @@ def set_all_in_progress_check_runs_to_queued(config_: Config, github_api: Github
         BUILD_CONTAINER_STR,
         PRE_COMMIT_STR,
     )
-    futures: List[Future] = []
+    futures: List["Future"] = []
 
     with ThreadPoolExecutor() as executor:
         for _, data in config_.data["repositories"].items():
@@ -272,19 +269,16 @@ def set_all_in_progress_check_runs_to_queued(config_: Config, github_api: Github
                 )
             )
 
-    for result in as_completed(futures):
-        if result.exception():
-            LOGGER.error(result.exception())
-        LOGGER.info(result.result())
+    get_future_results(futures=futures)
 
 
 def set_repository_check_runs_to_queued(
-    config_: Config, data: Dict[str, Any], github_api: Github, check_runs: Tuple
-) -> Optional[str]:
+    config_: Config, data: Dict[str, Any], github_api: Github, check_runs: Tuple[str]
+) -> Tuple[bool, str]:
     repository: str = data["name"]
     repository_app_api = get_repository_github_app_api(config_=config_, repository=repository)
     if not repository_app_api:
-        return
+        return False, "Failed to get repositories GitHub app API"
 
     app_api = get_github_repo_api(github_api=repository_app_api, repository=repository)
     repo = get_github_repo_api(github_api=github_api, repository=repository)
@@ -299,7 +293,7 @@ def set_repository_check_runs_to_queued(
                 )
                 app_api.create_check_run(name=check_run.name, head_sha=last_commit.sha, status=QUEUED_STR)
 
-    return f"{repository}: Set check run status to {QUEUED_STR} is done"
+    return True, f"{repository}: Set check run status to {QUEUED_STR} is done"
 
 
 @ignore_exceptions(logger=LOGGER)
@@ -321,6 +315,7 @@ def get_repository_github_app_api(config_: Config, repository: Repository) -> Op
             f"Repository {repository} not found by manage-repositories-app, "
             f"make sure the app installed (https://github.com/apps/manage-repositories-app)"
         )
+        return None
 
 
 if __name__ == "__main__":

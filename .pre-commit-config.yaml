@@ -54,5 +54,4 @@ repos:
       rev: v1.10.0
       hooks:
         - id: mypy
-          exclude: ^(openshift_day2_configurator/tests/)
           additional_dependencies: [types-all]
