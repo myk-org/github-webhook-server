@@ -771,7 +771,7 @@ stderr: `{err}`
 
     @ignore_exceptions(logger=LOGGER)
     def delete_remote_tag_for_merged_or_closed_pr(self) -> None:
-        if not self.container_repository:
+        if not self.build_and_push_container:
             LOGGER.info(f"{self.log_prefix} repository do not have container configured")
             return
 
