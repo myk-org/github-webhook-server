@@ -166,7 +166,6 @@ Available user actions:
 {self.supported_user_labels_str}
 </details>
     """
-        LOGGER.info(f"{self.log_prefix} {event_log}")
 
         if github_event == "ping":
             return
@@ -174,6 +173,7 @@ Available user actions:
         try:
             self.pull_request = self._get_pull_request()
             self.log_prefix = self.prepare_log_prefix(pull_request=self.pull_request)
+            LOGGER.info(f"{self.log_prefix} {event_log}")
 
             self.last_commit = self._get_last_commit()
             self.parent_committer = self.pull_request.user.login
@@ -212,14 +212,13 @@ Available user actions:
             elif github_event == "pull_request_review":
                 self.process_pull_request_review_webhook_data()
 
-        except NoPullRequestError:
-            LOGGER.info(f"{self.log_prefix} {event_log}")
-
-            if github_event == "push":
-                self.process_push_webhook_data()
-
             elif github_event == "check_run":
                 self.process_pull_request_check_run_webhook_data()
+
+        except NoPullRequestError:
+            LOGGER.info(f"{self.log_prefix} {event_log}")
+            if github_event == "push":
+                self.process_push_webhook_data()
 
     @property
     def prepare_retest_wellcome_msg(self) -> str:
