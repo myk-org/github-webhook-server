@@ -7,7 +7,7 @@ import urllib3
 from simple_logger.logger import get_logger
 
 
-from webhook_server_container.libs.github_api import GitHubApi
+from webhook_server_container.libs.github_api import ProcessGithubWehook
 from webhook_server_container.utils.constants import FASTAPI_APP
 
 APP_ROOT_PATH: str = "/webhook_server"
@@ -31,7 +31,7 @@ async def process_webhook(request: Request) -> Dict[str, Any]:
         return process_failed_msg
 
     try:
-        GitHubApi(hook_data=hook_data, headers=request.headers)
+        ProcessGithubWehook(hook_data=hook_data, headers=request.headers)
         return {"status": requests.status_codes.codes.ok, "Message": "process success"}
 
     except Exception as ex:

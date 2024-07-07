@@ -84,7 +84,7 @@ class RepositoryNotFoundError(Exception):
     pass
 
 
-class GitHubApi:
+class ProcessGithubWehook:
     def __init__(self, hook_data: Dict[Any, Any], headers: Headers):
         self.app: FastAPI = FASTAPI_APP
         self.hook_data = hook_data
@@ -98,6 +98,7 @@ class GitHubApi:
         self.issue_title: str = ""
         self.all_required_status_checks: List[str] = []
         self.config = Config()
+        self.log_prefix = self.prepare_log_prefix()
         self._repo_data_from_config()
 
         github_event: str = self.headers["X-GitHub-Event"]
@@ -108,7 +109,7 @@ class GitHubApi:
         )
         if not self.github_app_api:
             LOGGER.error(
-                f"Repository {self.repository_full_name} not found by manage-repositories-app, "
+                f"{self.log_prefix} not found by manage-repositories-app, "
                 f"make sure the app installed (https://github.com/apps/manage-repositories-app)"
             )
             return
@@ -165,13 +166,14 @@ Available user actions:
 {self.supported_user_labels_str}
 </details>
     """
+        LOGGER.info(f"{self.log_prefix} {event_log}")
+
         if github_event == "ping":
             return
 
         try:
             self.pull_request = self._get_pull_request()
             self.log_prefix = self.prepare_log_prefix(pull_request=self.pull_request)
-            LOGGER.info(f"{self.log_prefix} {event_log}")
 
             self.last_commit = self._get_last_commit()
             self.parent_committer = self.pull_request.user.login
@@ -211,7 +213,6 @@ Available user actions:
                 self.process_pull_request_review_webhook_data()
 
         except NoPullRequestError:
-            self.log_prefix = self.prepare_log_prefix()
             LOGGER.info(f"{self.log_prefix} {event_log}")
 
             if github_event == "push":
@@ -360,7 +361,7 @@ Available user actions:
             self.jira_enabled_repository = all([self.jira_server, self.jira_project, self.jira_token])
             if not self.jira_enabled_repository:
                 LOGGER.error(
-                    f"{self.repository_full_name} Jira configuration is not valid. Server: {self.jira_server}, "
+                    f"{self.log_prefix} Jira configuration is not valid. Server: {self.jira_server}, "
                     f"Project: {self.jira_project}, Token: {self.jira_token}"
                 )
 
