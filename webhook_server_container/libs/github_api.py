@@ -1395,7 +1395,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             is_hold = HOLD_LABEL_STR in _labels
             is_wip = WIP_STR in _labels
             if is_hold or is_wip:
-                self._remove_label(label=CAN_BE_MERGED_STR)
                 if is_hold:
                     failure_output += "Hold label exists.\n"
 
@@ -1403,7 +1402,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     failure_output += "WIP label exists.\n"
 
             if not self.pull_request.mergeable:
-                self._remove_label(label=CAN_BE_MERGED_STR)
                 failure_output += "PR is not mergeable: {self.pull_request.mergeable_state}\n"
 
             failed_check_runs = []
@@ -1419,7 +1417,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 failed_check_runs.append(check_run.name)
 
             if failed_check_runs:
-                self._remove_label(label=CAN_BE_MERGED_STR)
                 failure_output += f"Some check runs failed: {failed_check_runs}\n"
 
             LOGGER.info(f"{self.log_prefix} check if can be merged. PR labels are: {_labels}")
@@ -1428,8 +1425,15 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 if CHANGED_REQUESTED_BY_LABEL_PREFIX.lower() in _label.lower():
                     change_request_user = _label.split("-")[-1]
                     if change_request_user in self.approvers:
-                        self._remove_label(label=CAN_BE_MERGED_STR)
                         failure_output += "PR has changed requests from approvers\n"
+
+            missing_required_labels = []
+            for _req_label in self.can_be_merged_required_labels:
+                if _req_label not in _labels:
+                    missing_required_labels.append(_req_label)
+
+            if missing_required_labels:
+                failure_output += f"Missing required labels: {missing_required_labels}\n"
 
             pr_approved = False
             for _label in _labels:
@@ -1438,15 +1442,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     if approved_user in self.approvers:
                         pr_approved = True
                         break
-
-            missing_required_labels = []
-            for _req_label in self.can_be_merged_required_labels:
-                if _req_label not in _labels:
-                    missing_required_labels.append(_req_label)
-
-            if missing_required_labels:
-                self._remove_label(label=CAN_BE_MERGED_STR)
-                failure_output += f"Missing required labels: {missing_required_labels}\n"
 
             if pr_approved and not failure_output:
                 self._add_label(label=CAN_BE_MERGED_STR)
@@ -1463,21 +1458,20 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     )
                     self.pull_request.merge(merge_method="squash")
 
-            if not pr_approved:
-                failure_output += f"Missing lgtm/approved from approvers {self.approvers}\n"
+                return
 
-            if failure_output:
-                LOGGER.info(f"{self.log_prefix} cannot be merged: {failure_output}")
-                output["text"] = failure_output
-                self._remove_label(label=CAN_BE_MERGED_STR)
-                self.set_merge_check_failure(output=output)
+            failure_output += f"Missing lgtm/approved from approvers {self.approvers}\n"
+
+            LOGGER.info(f"{self.log_prefix} cannot be merged: {failure_output}")
+            output["text"] = failure_output
+            self._remove_label(label=CAN_BE_MERGED_STR)
+            self.set_merge_check_failure(output=output)
 
         except Exception as ex:
             LOGGER.error(f"{self.log_prefix} Failed to check if can be merged, set check run to {FAILURE_STR} {ex}")
             output["text"] = "Failed to check if can be merged, check logs"
             self._remove_label(label=CAN_BE_MERGED_STR)
             self.set_merge_check_failure(output=output)
-            return
 
     @staticmethod
     def _comment_with_details(title: str, body: str) -> str:
