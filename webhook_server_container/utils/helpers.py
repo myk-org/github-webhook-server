@@ -184,13 +184,17 @@ def get_value_from_dicts(
 
 
 def get_future_results(futures: List["Future"]) -> None:
+    """
+    result must return Tuple[bool, str, Callable] when the Callable is Logger function (LOGGER.info, LOGGER.error, etc)
+    """
     for result in as_completed(futures):
-        if result.exception():
-            LOGGER.error(result.exception())
-
         _res = result.result()
+        _log = _res[2]
+        if result.exception():
+            _log(result.exception())
+
         if _res[0]:
-            LOGGER.info(_res[1])
+            _log(_res[1])
 
         else:
-            LOGGER.error(_res[1])
+            _log(_res[1])

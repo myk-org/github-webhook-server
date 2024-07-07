@@ -2,7 +2,7 @@ import contextlib
 import os
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from copy import deepcopy
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from github import Github, GithubIntegration, Auth
 from github.Repository import Repository
@@ -189,20 +189,22 @@ def set_repositories_settings(config_: Config, github_api: Github) -> None:
     get_future_results(futures=futures)
 
 
-def set_repository(data: Dict[str, Any], github_api: Github, default_status_checks: List[str]) -> Tuple[bool, str]:
+def set_repository(
+    data: Dict[str, Any], github_api: Github, default_status_checks: List[str]
+) -> Tuple[bool, str, Callable]:
     repository: str = data["name"]
     LOGGER.info(f"Processing repository {repository}")
     protected_branches: Dict[str, Any] = data.get("protected-branches", {})
     repo = get_github_repo_api(github_api=github_api, repository=repository)
     if not repo:
-        return False, f"{repository}: Failed to get repository"
+        return False, f"{repository}: Failed to get repository", LOGGER.error
 
     try:
         set_repository_labels(repository=repo)
         set_repository_settings(repository=repo)
 
         if repo.private:
-            return False, f"{repository}: Repository is private, skipping setting branch settings"
+            return False, f"{repository}: Repository is private, skipping setting branch settings", LOGGER.warning
 
         futures: List["Future"] = []
 
@@ -244,9 +246,9 @@ def set_repository(data: Dict[str, Any], github_api: Github, default_status_chec
                 LOGGER.error(result.exception())
 
     except UnknownObjectException as ex:
-        return False, f"{repository}: Failed to get repository settings, ex: {ex}"
+        return False, f"{repository}: Failed to get repository settings, ex: {ex}", LOGGER.error
 
-    return True, f"{repository}: Setting repository settings is done"
+    return True, f"{repository}: Setting repository settings is done", LOGGER.info
 
 
 def set_all_in_progress_check_runs_to_queued(config_: Config, github_api: Github) -> None:
@@ -278,11 +280,11 @@ def set_all_in_progress_check_runs_to_queued(config_: Config, github_api: Github
 
 def set_repository_check_runs_to_queued(
     config_: Config, data: Dict[str, Any], github_api: Github, check_runs: Tuple[str]
-) -> Tuple[bool, str]:
+) -> Tuple[bool, str, Callable]:
     repository: str = data["name"]
     repository_app_api = get_repository_github_app_api(config_=config_, repository_name=repository)
     if not repository_app_api:
-        return False, "Failed to get repositories GitHub app API"
+        return False, "Failed to get repositories GitHub app API", LOGGER.error
 
     app_api = get_github_repo_api(github_api=repository_app_api, repository=repository)
     repo = get_github_repo_api(github_api=github_api, repository=repository)
@@ -297,7 +299,7 @@ def set_repository_check_runs_to_queued(
                 )
                 app_api.create_check_run(name=check_run.name, head_sha=last_commit.sha, status=QUEUED_STR)
 
-    return True, f"{repository}: Set check run status to {QUEUED_STR} is done"
+    return True, f"{repository}: Set check run status to {QUEUED_STR} is done", LOGGER.info
 
 
 @ignore_exceptions(logger=LOGGER)

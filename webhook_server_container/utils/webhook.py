@@ -1,6 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 import os
-from typing import Any, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 from github.Hook import Hook
 from github import Github
@@ -19,11 +19,11 @@ LOGGER = get_logger(name="webhook", filename=os.environ.get("WEBHOOK_SERVER_LOG_
 
 
 @ignore_exceptions(logger=LOGGER)
-def process_github_webhook(data: Dict[str, Any], github_api: Github, webhook_ip: str) -> Tuple[bool, str]:
+def process_github_webhook(data: Dict[str, Any], github_api: Github, webhook_ip: str) -> Tuple[bool, str, Callable]:
     repository: str = data["name"]
     repo = get_github_repo_api(github_api=github_api, repository=repository)
     if not repo:
-        return False, f"Could not find repository {repository}"
+        return False, f"Could not find repository {repository}", LOGGER.error
 
     config_: Dict[str, str] = {"url": f"{webhook_ip}/webhook_server", "content_type": "json"}
     events: List[str] = data.get("events", ["*"])
@@ -31,15 +31,15 @@ def process_github_webhook(data: Dict[str, Any], github_api: Github, webhook_ip:
     try:
         hooks: List[Hook] = list(repo.get_hooks())
     except Exception as ex:
-        return False, f"Could not list webhook for {repository}, check token permissions: {ex}"
+        return False, f"Could not list webhook for {repository}, check token permissions: {ex}", LOGGER.error
 
     for _hook in hooks:
         if webhook_ip in _hook.config["url"]:
-            return True, f"{repository}: Hook already exists - {_hook.config['url']}"
+            return True, f"{repository}: Hook already exists - {_hook.config['url']}", LOGGER.info
 
     LOGGER.info(f"Creating webhook: {config_['url']} for {repository} with events: {events}")
     repo.create_hook(name="web", config=config_, events=events, active=True)
-    return True, f"{repository}: Create webhook is done"
+    return True, f"{repository}: Create webhook is done", LOGGER.info
 
 
 def create_webhook(config_: Config, github_api: Github) -> None:
