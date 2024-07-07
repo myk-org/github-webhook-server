@@ -1470,11 +1470,13 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             if failure_output:
                 LOGGER.info(f"{self.log_prefix} cannot be merged: {failure_output}")
                 output["text"] = failure_output
+                self._remove_label(label=CAN_BE_MERGED_STR)
                 self.set_merge_check_failure(output=output)
 
         except Exception as ex:
             LOGGER.error(f"{self.log_prefix} Failed to check if can be merged, set check run to {FAILURE_STR} {ex}")
             output["text"] = "Failed to check if can be merged, check logs"
+            self._remove_label(label=CAN_BE_MERGED_STR)
             self.set_merge_check_failure(output=output)
             return
 
