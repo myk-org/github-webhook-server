@@ -1634,13 +1634,32 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         _comment.create_reaction(reaction)
 
     def process_opened_or_synchronize_pull_request(self) -> None:
-        self.set_merge_check_queued()
-        self.set_run_tox_check_queued()
-        self.set_run_pre_commit_check_queued()
-        self.set_python_module_install_queued()
-        self.set_container_build_queued()
-        self._process_verified()
-        self.add_size_label()
+        prepare_pull_futures: List[Future] = []
+        with ThreadPoolExecutor() as executor:
+            prepare_pull_futures.append(executor.submit(self.set_merge_check_queued))
+            prepare_pull_futures.append(executor.submit(self.set_run_tox_check_queued))
+            prepare_pull_futures.append(executor.submit(self.set_run_pre_commit_check_queued))
+            prepare_pull_futures.append(executor.submit(self.set_python_module_install_queued))
+            prepare_pull_futures.append(executor.submit(self.set_container_build_queued))
+            prepare_pull_futures.append(executor.submit(self._process_verified))
+            prepare_pull_futures.append(executor.submit(self.add_size_label))
+
+        for result in as_completed(prepare_pull_futures):
+            if result.exception():
+                LOGGER.error(f"{self.log_prefix} {result.exception()}")
+
+        run_check_runs_futures: List[Future] = []
+        with ThreadPoolExecutor() as executor:
+            run_check_runs_futures.append(executor.submit(self._run_tox))
+            run_check_runs_futures.append(executor.submit(self._run_pre_commit))
+            run_check_runs_futures.append(executor.submit(self._run_install_python_module))
+            run_check_runs_futures.append(executor.submit(self._run_build_container))
+
+        for result in as_completed(run_check_runs_futures):
+            if result.exception():
+                LOGGER.error(f"{self.log_prefix} {result.exception()}")
+            LOGGER.info(f"{self.log_prefix} {result.result()}")
+
         self._add_label(label=f"{BRANCH_LABEL_PREFIX}{self.pull_request_branch}")
         LOGGER.info(f"{self.log_prefix} Adding PR owner as assignee")
 
@@ -1652,18 +1671,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         self.assign_reviewers()
         self.label_pull_request_by_merge_state()
-
-        futures: List[Future] = []
-        with ThreadPoolExecutor() as executor:
-            futures.append(executor.submit(self._run_tox))
-            futures.append(executor.submit(self._run_pre_commit))
-            futures.append(executor.submit(self._run_install_python_module))
-            futures.append(executor.submit(self._run_build_container))
-
-        for result in as_completed(futures):
-            if result.exception():
-                LOGGER.error(f"{self.log_prefix} {result.exception()}")
-            LOGGER.info(f"{self.log_prefix} {result.result()}")
 
     def is_check_run_in_progress(self, check_run: str) -> bool:
         for run in self.last_commit.get_check_runs():
