@@ -360,7 +360,7 @@ Available user actions:
             self.jira_enabled_repository = all([self.jira_server, self.jira_project, self.jira_token])
             if not self.jira_enabled_repository:
                 LOGGER.error(
-                    f"{self.log_prefix} Jira configuration is not valid. Server: {self.jira_server}, "
+                    f"{self.repository_full_name} Jira configuration is not valid. Server: {self.jira_server}, "
                     f"Project: {self.jira_project}, Token: {self.jira_token}"
                 )
 
