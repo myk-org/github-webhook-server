@@ -2,7 +2,8 @@ from concurrent.futures import ThreadPoolExecutor
 import os
 from typing import Any, Dict, List, Tuple
 
-from github import Github, HookDescription
+from github.Hook import Hook
+from github import Github
 from simple_logger.logger import get_logger
 
 from webhook_server_container.libs.config import Config
@@ -28,7 +29,7 @@ def process_github_webhook(data: Dict[str, Any], github_api: Github, webhook_ip:
     events: List[str] = data.get("events", ["*"])
 
     try:
-        hooks: List[HookDescription] = list(repo.get_hooks())
+        hooks: List[Hook] = list(repo.get_hooks())
     except Exception as ex:
         return False, f"Could not list webhook for {repository}, check token permissions: {ex}"
 

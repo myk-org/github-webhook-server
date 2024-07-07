@@ -7,13 +7,14 @@ import re
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from fastapi import FastAPI
 from github.Branch import Branch
 from github.ContentFile import ContentFile
 import requests
 import shortuuid
+from starlette.datastructures import Headers
 import yaml
 from github import GithubException
 from github.Commit import Commit
@@ -75,17 +76,21 @@ from webhook_server_container.utils.helpers import (
 LOGGER = get_logger(name="GitHubApi", filename=os.environ.get("WEBHOOK_SERVER_LOG_FILE"))
 
 
+class NoPullRequestError(Exception):
+    pass
+
+
 class RepositoryNotFoundError(Exception):
     pass
 
 
 class GitHubApi:
-    def __init__(self, hook_data):
+    def __init__(self, hook_data: Dict[Any, Any], headers: Headers):
         self.app: FastAPI = FASTAPI_APP
-        self.hook_data: Dict[Any, Any] = hook_data
+        self.hook_data = hook_data
+        self.headers = headers
         self.repository_name: str = hook_data["repository"]["name"]
         self.log_prefix_with_color: str = ""
-        self.pull_request: Optional[PullRequest] = None
         self.parent_committer: str = ""
         self.log_uuid: str = shortuuid.uuid()[:5]
         self.container_repo_dir: str = "/tmp/repository"
@@ -94,7 +99,9 @@ class GitHubApi:
         self.all_required_status_checks: List[str] = []
         self.config = Config()
         self._repo_data_from_config()
-        self._set_log_prefix_color()
+
+        github_event: str = self.headers["X-GitHub-Event"]
+        event_log: str = f"Event type: {github_event}. event ID: {self.headers.get('X-GitHub-Delivery')}"
 
         self.github_app_api = get_repository_github_app_api(
             config_=self.config, repository_name=self.repository_full_name
@@ -114,45 +121,15 @@ class GitHubApi:
         self.repository_by_github_app = get_github_repo_api(
             github_api=self.github_app_api, repository=self.repository_full_name
         )
+
         if not (self.repository or self.repository_by_github_app):
-            LOGGER.error(f"{self.log_prefix} Failed to get repository.")
+            LOGGER.error(f"{self.repository_full_name} Failed to get repository.")
             return
 
         self.add_api_users_to_auto_verified_and_merged_users()
         self.clone_repository_path: str = os.path.join("/", self.repository.name)
 
-        self.pull_request = self._get_pull_request()
         self.owners_content = self.get_owners_content()
-
-        if self.pull_request:
-            self.last_commit = self._get_last_commit()
-            self.parent_committer = self.pull_request.user.login
-            self.last_committer = self.last_commit.committer.login
-            self.pull_request_branch = self.pull_request.base.ref
-            self.all_required_status_checks = self.get_all_required_status_checks()
-
-            if self.jira_enabled_repository:
-                reviewers_and_approvers = self.reviewers + self.approvers
-                if self.parent_committer in reviewers_and_approvers:
-                    self.jira_assignee = self.jira_user_mapping.get(self.parent_committer)
-                    if not self.jira_assignee:
-                        LOGGER.info(
-                            f"{self.log_prefix} Jira tracking is disabled for the current pull request. "
-                            f"Committer {self.parent_committer} is not in configures in jira-user-mapping"
-                        )
-                    else:
-                        self.jira_track_pr = True
-                        self.issue_title = (
-                            f"[AUTO:FROM:GITHUB] [{self.repository_name}] "
-                            f"PR [{self.pull_request.number}]: {self.pull_request.title}"
-                        )
-                        LOGGER.info(f"{self.log_prefix} Jira tracking is enabled for the current pull request.")
-                else:
-                    LOGGER.info(
-                        f"{self.log_prefix} Jira tracking is disabled for the current pull request. "
-                        f"Committer {self.parent_committer} is not in {reviewers_and_approvers}"
-                    )
-
         self.supported_user_labels_str: str = "".join([f" * {label}\n" for label in USER_LABELS_DICT.keys()])
         self.welcome_msg: str = f"""
 Report bugs in [Issues](https://github.com/myakove/github-webhook-server/issues)
@@ -188,6 +165,60 @@ Available user actions:
 {self.supported_user_labels_str}
 </details>
     """
+        if github_event == "ping":
+            return
+
+        try:
+            self.pull_request = self._get_pull_request()
+            self.log_prefix = self.prepare_log_prefix(pull_request=self.pull_request)
+            LOGGER.info(f"{self.log_prefix} {event_log}")
+
+            self.last_commit = self._get_last_commit()
+            self.parent_committer = self.pull_request.user.login
+            self.last_committer = self.last_commit.committer.login
+            self.pull_request_branch = self.pull_request.base.ref
+            self.all_required_status_checks = self.get_all_required_status_checks()
+
+            if self.jira_enabled_repository:
+                reviewers_and_approvers = self.reviewers + self.approvers
+                if self.parent_committer in reviewers_and_approvers:
+                    self.jira_assignee = self.jira_user_mapping.get(self.parent_committer)
+                    if not self.jira_assignee:
+                        LOGGER.info(
+                            f"{self.log_prefix} Jira tracking is disabled for the current pull request. "
+                            f"Committer {self.parent_committer} is not in configures in jira-user-mapping"
+                        )
+                    else:
+                        self.jira_track_pr = True
+                        self.issue_title = (
+                            f"[AUTO:FROM:GITHUB] [{self.repository_name}] "
+                            f"PR [{self.pull_request.number}]: {self.pull_request.title}"
+                        )
+                        LOGGER.info(f"{self.log_prefix} Jira tracking is enabled for the current pull request.")
+                else:
+                    LOGGER.info(
+                        f"{self.log_prefix} Jira tracking is disabled for the current pull request. "
+                        f"Committer {self.parent_committer} is not in {reviewers_and_approvers}"
+                    )
+
+            if github_event == "issue_comment":
+                self.process_comment_webhook_data()
+
+            elif github_event == "pull_request":
+                self.process_pull_request_webhook_data()
+
+            elif github_event == "pull_request_review":
+                self.process_pull_request_review_webhook_data()
+
+        except NoPullRequestError:
+            self.log_prefix = self.prepare_log_prefix()
+            LOGGER.info(f"{self.log_prefix} {event_log}")
+
+            if github_event == "push":
+                self.process_push_webhook_data()
+
+            elif github_event == "check_run":
+                self.process_pull_request_check_run_webhook_data()
 
     @property
     def prepare_retest_wellcome_msg(self) -> str:
@@ -225,11 +256,11 @@ Available user actions:
         with open(color_file, "w") as fd:
             json.dump(color_json, fd)
 
-    @property
-    def log_prefix(self) -> str:
+    def prepare_log_prefix(self, pull_request: Optional[PullRequest] = None) -> str:
+        self._set_log_prefix_color()
         return (
-            f"{self.log_prefix_with_color}({self.log_uuid})[PR {self.pull_request.number}]:"
-            if self.pull_request
+            f"{self.log_prefix_with_color}({self.log_uuid})[PR {pull_request.number}]:"
+            if pull_request
             else f"{self.log_prefix_with_color}:({self.log_uuid})"
         )
 
@@ -244,26 +275,6 @@ Available user actions:
     def app_logger_error(self, message: str) -> None:
         hashed_message = self.hash_token(message=message)
         LOGGER.error(hashed_message)
-
-    def process_hook(self, data: str, event_log: str) -> None:
-        LOGGER.info(f"{self.log_prefix} {event_log}")
-        if data == "ping":
-            return
-
-        if data == "issue_comment":
-            self.process_comment_webhook_data()
-
-        elif data == "pull_request":
-            self.process_pull_request_webhook_data()
-
-        elif data == "push":
-            self.process_push_webhook_data()
-
-        elif data == "pull_request_review":
-            self.process_pull_request_review_webhook_data()
-
-        elif data == "check_run":
-            self.process_pull_request_check_run_webhook_data()
 
     def process_pull_request_check_run_webhook_data(self) -> None:
         _check_run: Dict[str, Any] = self.hook_data["check_run"]
@@ -366,7 +377,7 @@ Available user actions:
             return_on_none=[],
         )
 
-    def _get_pull_request(self, number: Optional[int] = None) -> Optional[PullRequest]:
+    def _get_pull_request(self, number: Optional[int] = None) -> PullRequest:
         if number:
             return self.repository.get_pull(number)
 
@@ -382,8 +393,7 @@ Available user actions:
             with contextlib.suppress(Exception):
                 return commit_obj.get_pulls()[0]
 
-        LOGGER.info(f"{self.log_prefix} No issue or pull_request found in hook data")
-        return None
+        raise NoPullRequestError(f"{self.log_prefix} No issue or pull_request found in hook data")
 
     def _get_last_commit(self) -> Commit:
         return list(self.pull_request.get_commits())[-1]
@@ -392,11 +402,7 @@ Available user actions:
         return any(lb for lb in self.pull_request_labels_names() if lb == label)
 
     def pull_request_labels_names(self) -> List[str]:
-        return (
-            [lb.name for lb in self._get_pull_request(number=self.pull_request.number).labels]
-            if self.pull_request
-            else []
-        )
+        return [lb.name for lb in self.pull_request.labels] if self.pull_request else []
 
     def skip_if_pull_request_already_merged(self) -> bool:
         if self.pull_request and self.pull_request.is_merged():
@@ -416,7 +422,7 @@ Available user actions:
         return False
 
     @ignore_exceptions(logger=LOGGER)
-    def _add_label(self, label):
+    def _add_label(self, label: str) -> None:
         label = label.strip()
         if len(label) > 49:
             LOGGER.warning(f"{label} is to long, not adding.")
@@ -428,7 +434,8 @@ Available user actions:
 
         if label in STATIC_LABELS_DICT:
             LOGGER.info(f"{self.log_prefix} Adding pull request label {label} to {self.pull_request.number}")
-            return self.pull_request.add_to_labels(label)
+            self.pull_request.add_to_labels(label)
+            return
 
         _color = [DYNAMIC_LABELS_DICT[_label] for _label in DYNAMIC_LABELS_DICT if _label in label]
         LOGGER.info(f"{self.log_prefix} Label {label} was {'found' if _color else 'not found'} in labels dict")
@@ -445,7 +452,7 @@ Available user actions:
 
         LOGGER.info(f"{self.log_prefix} Adding pull request label {label} to {self.pull_request.number}")
         self.pull_request.add_to_labels(label)
-        return self.wait_for_label(label=label, exists=True)
+        self.wait_for_label(label=label, exists=True)
 
     def wait_for_label(self, label: str, exists: bool) -> bool:
         try:
@@ -457,9 +464,11 @@ Available user actions:
             ):
                 if sample == exists:
                     return True
+
         except TimeoutExpiredError:
             LOGGER.warning(f"{self.log_prefix} Label {label} {'not found' if exists else 'found'}")
-            return False
+
+        return False
 
     def _generate_issue_title(self) -> str:
         return f"{self.pull_request.title} - {self.pull_request.number}"
@@ -495,7 +504,7 @@ Available user actions:
                     self.send_slack_message(message=message, webhook_url=self.slack_webhook_url)
 
         except Exception as exp:
-            err: str = f"Publish to pypi failed: {exp}"
+            err = f"Publish to pypi failed: {exp}"
             LOGGER.error(f"{self.log_prefix} {err}")
             self.repository.create_issue(
                 title=err,
@@ -566,8 +575,8 @@ stderr: `{err}`
                 except GithubException as ex:
                     LOGGER.error(f"{self.log_prefix} Failed to add reviewer {reviewer}. {ex}")
 
-    def add_size_label(self):
-        size = self.pull_request.additions + self.pull_request.deletions
+    def add_size_label(self) -> None:
+        size: int = self.pull_request.additions + self.pull_request.deletions
         if size < 20:
             _label = "XS"
 
@@ -598,7 +607,7 @@ stderr: `{err}`
 
         self._add_label(label=size_label)
 
-    def label_by_user_comment(self, user_request, remove, reviewed_user, issue_comment_id):
+    def label_by_user_comment(self, user_request: str, remove: bool, reviewed_user: str, issue_comment_id: int) -> None:
         if not any(user_request.startswith(label_name) for label_name in USER_LABELS_DICT):
             LOGGER.info(f"{self.log_prefix} Label {user_request} is not a predefined one, will not be added / removed.")
 
@@ -621,121 +630,116 @@ stderr: `{err}`
             label_func = self._remove_label if remove else self._add_label
             label_func(label=user_request)
 
-    def reset_verify_label(self):
-        LOGGER.info(f"{self.log_prefix} Processing reset {VERIFIED_LABEL_STR} label on new commit push")
-        # Remove verified label
-        self._remove_label(label=VERIFIED_LABEL_STR)
-
     @ignore_exceptions(logger=LOGGER)
-    def set_verify_check_queued(self):
+    def set_verify_check_queued(self) -> None:
         return self.set_check_run_status(check_run=VERIFIED_LABEL_STR, status=QUEUED_STR)
 
     @ignore_exceptions(logger=LOGGER)
-    def set_verify_check_success(self):
+    def set_verify_check_success(self) -> None:
         return self.set_check_run_status(check_run=VERIFIED_LABEL_STR, conclusion=SUCCESS_STR)
 
     @ignore_exceptions(logger=LOGGER)
-    def set_run_tox_check_queued(self):
+    def set_run_tox_check_queued(self) -> None:
         if not self.tox_enabled:
-            return False
+            return
 
         return self.set_check_run_status(check_run=TOX_STR, status=QUEUED_STR)
 
     @ignore_exceptions(logger=LOGGER)
-    def set_run_tox_check_in_progress(self):
+    def set_run_tox_check_in_progress(self) -> None:
         return self.set_check_run_status(check_run=TOX_STR, status=IN_PROGRESS_STR)
 
     @ignore_exceptions(logger=LOGGER)
-    def set_run_tox_check_failure(self, output):
+    def set_run_tox_check_failure(self, output: str) -> None:
         return self.set_check_run_status(check_run=TOX_STR, conclusion=FAILURE_STR, output=output)
 
     @ignore_exceptions(logger=LOGGER)
-    def set_run_tox_check_success(self, output):
+    def set_run_tox_check_success(self, output: str) -> None:
         return self.set_check_run_status(check_run=TOX_STR, conclusion=SUCCESS_STR, output=output)
 
     @ignore_exceptions(logger=LOGGER)
-    def set_run_pre_commit_check_queued(self):
+    def set_run_pre_commit_check_queued(self) -> None:
         if not self.pre_commit:
-            return False
+            return
 
         return self.set_check_run_status(check_run=PRE_COMMIT_STR, status=QUEUED_STR)
 
     @ignore_exceptions(logger=LOGGER)
-    def set_run_pre_commit_check_in_progress(self):
+    def set_run_pre_commit_check_in_progress(self) -> None:
         return self.set_check_run_status(check_run=PRE_COMMIT_STR, status=IN_PROGRESS_STR)
 
     @ignore_exceptions(logger=LOGGER)
-    def set_run_pre_commit_check_failure(self, output):
+    def set_run_pre_commit_check_failure(self, output: str = "") -> None:
         return self.set_check_run_status(check_run=PRE_COMMIT_STR, conclusion=FAILURE_STR, output=output)
 
     @ignore_exceptions(logger=LOGGER)
-    def set_run_pre_commit_check_success(self, output):
+    def set_run_pre_commit_check_success(self, output: str = "") -> None:
         return self.set_check_run_status(check_run=PRE_COMMIT_STR, conclusion=SUCCESS_STR, output=output)
 
     @ignore_exceptions(logger=LOGGER)
-    def set_merge_check_queued(self, output=None):
+    def set_merge_check_queued(self, output: str = "") -> None:
         return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, status=QUEUED_STR, output=output)
 
     @ignore_exceptions(logger=LOGGER)
-    def set_merge_check_in_progress(self):
+    def set_merge_check_in_progress(self) -> None:
         return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, status=IN_PROGRESS_STR)
 
     @ignore_exceptions(logger=LOGGER)
-    def set_merge_check_success(self):
+    def set_merge_check_success(self) -> None:
         return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, conclusion=SUCCESS_STR)
 
     @ignore_exceptions(logger=LOGGER)
-    def set_merge_check_failure(self, output):
+    def set_merge_check_failure(self, output: str) -> None:
         return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, conclusion=FAILURE_STR, output=output)
 
     @ignore_exceptions(logger=LOGGER)
-    def set_container_build_queued(self):
+    def set_container_build_queued(self) -> None:
         if not self.build_and_push_container:
             return
 
         return self.set_check_run_status(check_run=BUILD_CONTAINER_STR, status=QUEUED_STR)
 
     @ignore_exceptions(logger=LOGGER)
-    def set_container_build_in_progress(self):
+    def set_container_build_in_progress(self) -> None:
         return self.set_check_run_status(check_run=BUILD_CONTAINER_STR, status=IN_PROGRESS_STR)
 
     @ignore_exceptions(logger=LOGGER)
-    def set_container_build_success(self, output):
+    def set_container_build_success(self, output: str) -> None:
         return self.set_check_run_status(check_run=BUILD_CONTAINER_STR, conclusion=SUCCESS_STR, output=output)
 
     @ignore_exceptions(logger=LOGGER)
-    def set_container_build_failure(self, output):
+    def set_container_build_failure(self, output: str) -> None:
         return self.set_check_run_status(check_run=BUILD_CONTAINER_STR, conclusion=FAILURE_STR, output=output)
 
     @ignore_exceptions(logger=LOGGER)
-    def set_python_module_install_queued(self):
+    def set_python_module_install_queued(self) -> None:
         if not self.pypi:
-            return False
+            return
 
         return self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, status=QUEUED_STR)
 
     @ignore_exceptions(logger=LOGGER)
-    def set_python_module_install_in_progress(self):
+    def set_python_module_install_in_progress(self) -> None:
         return self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, status=IN_PROGRESS_STR)
 
     @ignore_exceptions(logger=LOGGER)
-    def set_python_module_install_success(self, output):
+    def set_python_module_install_success(self, output: str) -> None:
         return self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, conclusion=SUCCESS_STR, output=output)
 
     @ignore_exceptions(logger=LOGGER)
-    def set_python_module_install_failure(self, output):
+    def set_python_module_install_failure(self, output: str) -> None:
         return self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, conclusion=FAILURE_STR, output=output)
 
     @ignore_exceptions(logger=LOGGER)
-    def set_cherry_pick_in_progress(self):
+    def set_cherry_pick_in_progress(self) -> None:
         return self.set_check_run_status(check_run=CHERRY_PICKED_LABEL_PREFIX, status=IN_PROGRESS_STR)
 
     @ignore_exceptions(logger=LOGGER)
-    def set_cherry_pick_success(self, output):
+    def set_cherry_pick_success(self, output: str) -> None:
         return self.set_check_run_status(check_run=CHERRY_PICKED_LABEL_PREFIX, conclusion=SUCCESS_STR, output=output)
 
     @ignore_exceptions(logger=LOGGER)
-    def set_cherry_pick_failure(self, output):
+    def set_cherry_pick_failure(self, output: str) -> None:
         return self.set_check_run_status(check_run=CHERRY_PICKED_LABEL_PREFIX, conclusion=FAILURE_STR, output=output)
 
     @ignore_exceptions(logger=LOGGER)
@@ -755,7 +759,7 @@ stderr: `{err}`
         )
 
     @ignore_exceptions(logger=LOGGER)
-    def close_issue_for_merged_or_closed_pr(self, hook_action):
+    def close_issue_for_merged_or_closed_pr(self, hook_action: str) -> None:
         for issue in self.repository.get_issues():
             if issue.body == self._generate_issue_body():
                 LOGGER.info(f"{self.log_prefix} Closing issue {issue.title} for PR: {self.pull_request.title}")
@@ -766,11 +770,7 @@ stderr: `{err}`
                 break
 
     @ignore_exceptions(logger=LOGGER)
-    def delete_remote_tag_for_merged_or_closed_pr(self):
-        if not self.pull_request:
-            LOGGER.warning(f"{self.log_prefix} [Delete remote container TAG] - No pull request found")
-            return
-
+    def delete_remote_tag_for_merged_or_closed_pr(self) -> None:
         if not self.container_repository:
             LOGGER.info(f"{self.log_prefix} repository do not have container configured")
             return
@@ -815,30 +815,27 @@ stderr: `{err}`
             )
             LOGGER.error(f"{self.log_prefix} Failed to delete tag: {repository_full_tag}. OUT:{out}. ERR:{err}")
 
-    def process_comment_webhook_data(self):
+    def process_comment_webhook_data(self) -> None:
         if self.hook_data["action"] in ("action", "deleted"):
             return
 
-        issue_number = self.hook_data["issue"]["number"]
+        issue_number: str = self.hook_data["issue"]["number"]
         LOGGER.info(f"{self.log_prefix} Processing issue {issue_number}")
 
-        if not self.pull_request:
-            return
-
-        body = self.hook_data["comment"]["body"]
+        body: str = self.hook_data["comment"]["body"]
 
         if body == self.welcome_msg:
             LOGGER.info(f"{self.log_prefix} Welcome message found in issue {self.pull_request.title}. Not processing")
             return
 
-        striped_body = body.strip()
-        _user_commands = list(
+        striped_body: str = body.strip()
+        _user_commands: List[str] = list(
             filter(
                 lambda x: x,
                 striped_body.split("/") if striped_body.startswith("/") else [],
             )
         )
-        user_login = self.hook_data["sender"]["login"]
+        user_login: str = self.hook_data["sender"]["login"]
         for user_command in _user_commands:
             self.user_commands(
                 command=user_command,
@@ -846,11 +843,9 @@ stderr: `{err}`
                 issue_comment_id=self.hook_data["comment"]["id"],
             )
 
-    def process_pull_request_webhook_data(self):
+    def process_pull_request_webhook_data(self) -> None:
         hook_action: str = self.hook_data["action"]
         LOGGER.info(f"{self.log_prefix} hook_action is: {hook_action}")
-        if not self.pull_request:
-            return
 
         pull_request_data: Dict[str, Any] = self.hook_data["pull_request"]
         self.parent_committer = pull_request_data["user"]["login"]
@@ -957,7 +952,7 @@ stderr: `{err}`
 
             return self.check_if_can_be_merged()
 
-    def process_push_webhook_data(self):
+    def process_push_webhook_data(self) -> None:
         tag = re.search(r"refs/tags/?(.*)", self.hook_data["ref"])
         if tag:
             tag_name = tag.group(1)
@@ -970,10 +965,7 @@ stderr: `{err}`
                 LOGGER.info(f"{self.log_prefix} Processing build and push container for tag: {tag_name}")
                 self._run_build_container(push=True, set_check=False, tag=tag_name)
 
-    def process_pull_request_review_webhook_data(self):
-        if not self.pull_request:
-            return
-
+    def process_pull_request_review_webhook_data(self) -> None:
         if self.hook_data["action"] == "submitted":
             """
             commented
@@ -1012,7 +1004,7 @@ stderr: `{err}`
                         body=f"PR: {self.pull_request.title}, reviewed by: {reviewed_user}",
                     )
 
-    def manage_reviewed_by_label(self, review_state, action, reviewed_user):
+    def manage_reviewed_by_label(self, review_state: str, action: str, reviewed_user: str) -> None:
         LOGGER.info(
             f"{self.log_prefix} "
             f"Processing label for review from {reviewed_user}. "
@@ -1064,13 +1056,13 @@ stderr: `{err}`
                 f"{self.log_prefix} PR {self.pull_request.number} got unsupported review state: {review_state}"
             )
 
-    def _run_tox(self):
+    def _run_tox(self) -> None:
         if not self.tox_enabled:
-            return False
+            return
 
         if self.is_check_run_in_progress(check_run=TOX_STR):
             LOGGER.info(f"{self.log_prefix} Check run is in progress, not running {TOX_STR}.")
-            return False
+            return
 
         cmd = f"{self.tox_python_version} -m {TOX_STR}"
         if self.tox_enabled != "all":
@@ -1090,13 +1082,13 @@ stderr: `{err}`
         else:
             return self.set_run_tox_check_failure(output=output)
 
-    def _run_pre_commit(self):
+    def _run_pre_commit(self) -> None:
         if not self.pre_commit:
-            return False
+            return
 
         if self.is_check_run_in_progress(check_run=PRE_COMMIT_STR):
             LOGGER.info(f"{self.log_prefix} Check run is in progress, not running {PRE_COMMIT_STR}.")
-            return False
+            return
 
         cmd = f"{PRE_COMMIT_STR} run --all-files"
         self.set_run_pre_commit_check_in_progress()
@@ -1112,9 +1104,9 @@ stderr: `{err}`
         else:
             return self.set_run_pre_commit_check_failure(output=output)
 
-    def user_commands(self, command, reviewed_user, issue_comment_id):
-        remove = False
-        available_commands = [
+    def user_commands(self, command: str, reviewed_user: str, issue_comment_id: int) -> None:
+        remove: bool = False
+        available_commands: List[str] = [
             "retest",
             "cherry-pick",
             "assign-reviewers",
@@ -1125,18 +1117,18 @@ stderr: `{err}`
             return
 
         LOGGER.info(f"{self.log_prefix} Processing label/user command {command} by user {reviewed_user}")
-        command_and_args = command.split(" ", 1)
+        command_and_args: List[str] = command.split(" ", 1)
         _command = command_and_args[0]
-        not_running_msg = f"Pull request already merged, not running {_command}"
-        _args = command_and_args[1] if len(command_and_args) > 1 else ""
+        not_running_msg: str = f"Pull request already merged, not running {_command}"
+        _args: str = command_and_args[1] if len(command_and_args) > 1 else ""
         if len(command_and_args) > 1 and _args == "cancel":
             LOGGER.info(f"{self.log_prefix} User requested 'cancel' for command {_command}")
             remove = True
 
         if _command in available_commands:
             if not _args and _command not in ("assign-reviewers", "check-can-merge"):
-                issue_msg = f"{_command} requires an argument"
-                error_msg = f"{self.log_prefix} {issue_msg}"
+                issue_msg: str = f"{_command} requires an argument"
+                error_msg: str = f"{self.log_prefix} {issue_msg}"
                 LOGGER.info(error_msg)
                 self.pull_request.create_issue_comment(issue_msg)
                 return
@@ -1151,9 +1143,9 @@ stderr: `{err}`
 
             if _command == "cherry-pick":
                 self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
-                _target_branches = _args.split()
-                _exits_target_branches = set()
-                _non_exits_target_branches_msg = ""
+                _target_branches: List[str] = _args.split()
+                _exits_target_branches: Set[str] = set()
+                _non_exits_target_branches_msg: str = ""
 
                 for _target_branch in _target_branches:
                     try:
@@ -1169,10 +1161,10 @@ stderr: `{err}`
 
                 if _exits_target_branches:
                     if not self.pull_request.is_merged():
-                        cp_labels = [
+                        cp_labels: List[str] = [
                             f"{CHERRY_PICK_LABEL_PREFIX}{_target_branch}" for _target_branch in _exits_target_branches
                         ]
-                        info_msg = f"""
+                        info_msg: str = f"""
 Cherry-pick requested for PR: `{self.pull_request.title}` by user `{reviewed_user}`
 Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automatic cheery-pick once the PR is merged
 """
@@ -1191,11 +1183,11 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 if self.skip_if_pull_request_already_merged():
                     return self.pull_request.create_issue_comment(not_running_msg)
 
-                _target_tests = _args.split()
+                _target_tests: List[str] = _args.split()
                 for _test in _target_tests:
                     if _test == TOX_STR:
                         if not self.tox_enabled:
-                            msg = f"No {TOX_STR} configured for this repository"
+                            msg: str = f"No {TOX_STR} configured for this repository"
                             error_msg = f"{self.log_prefix} {msg}."
                             LOGGER.info(error_msg)
                             self.pull_request.create_issue_comment(msg)
@@ -1243,7 +1235,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 return self.pull_request.create_issue_comment(not_running_msg)
 
             self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
-            wip_for_title = f"{WIP_STR.upper()}:"
+            wip_for_title: str = f"{WIP_STR.upper()}:"
             if remove:
                 self._remove_label(label=WIP_STR)
                 self.pull_request.edit(title=self.pull_request.title.replace(wip_for_title, ""))
@@ -1253,7 +1245,8 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         else:
             if self.skip_if_pull_request_already_merged():
-                return self.pull_request.create_issue_comment(not_running_msg)
+                self.pull_request.create_issue_comment(not_running_msg)
+                return
 
             self.label_by_user_comment(
                 user_request=_command,
@@ -1263,7 +1256,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             )
 
     @ignore_exceptions(logger=LOGGER)
-    def cherry_pick(self, target_branch, reviewed_user=None):
+    def cherry_pick(self, target_branch: str, reviewed_user: str = "") -> None:
         requested_by = reviewed_user or "by target-branch label"
         LOGGER.info(f"{self.log_prefix} Cherry-pick requested by user: {requested_by}")
 
@@ -1323,7 +1316,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 )
 
     @ignore_exceptions(logger=LOGGER)
-    def label_by_pull_requests_merge_state_after_merged(self):
+    def label_by_pull_requests_merge_state_after_merged(self) -> None:
         """
         Labels pull requests based on their mergeable state.
 
@@ -1339,7 +1332,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             LOGGER.info(f"{self.log_prefix} check label pull request after merge")
             self.label_pull_request_by_merge_state(_sleep=time_sleep)
 
-    def label_pull_request_by_merge_state(self, _sleep=0):
+    def label_pull_request_by_merge_state(self, _sleep: int = 0) -> None:
         if _sleep:
             LOGGER.info(f"{self.log_prefix} Sleep for {_sleep} seconds before checking merge state")
             time.sleep(_sleep)
@@ -1359,7 +1352,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         else:
             self._remove_label(label=HAS_CONFLICTS_LABEL_STR)
 
-    def check_if_can_be_merged(self):
+    def check_if_can_be_merged(self) -> None:
         """
         Check if PR can be merged and set the job for it
 
@@ -1371,7 +1364,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             PR has no changed requests from approvers.
         """
         if self.skip_if_pull_request_already_merged():
-            return False
+            return
 
         output = {
             "title": "Check if can be merged",
@@ -1468,7 +1461,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                         f"is part of:\n`{self.auto_verified_and_merged_users}`\n"
                         "Pull request is merged automatically."
                     )
-                    return self.pull_request.merge(merge_method="squash")
+                    self.pull_request.merge(merge_method="squash")
 
             if not pr_approved:
                 failure_output += f"Missing lgtm/approved from approvers {self.approvers}\n"
@@ -1481,10 +1474,11 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         except Exception as ex:
             LOGGER.error(f"{self.log_prefix} Failed to check if can be merged, set check run to {FAILURE_STR} {ex}")
             output["text"] = "Failed to check if can be merged, check logs"
-            return self.set_merge_check_failure(output=output)
+            self.set_merge_check_failure(output=output)
+            return
 
     @staticmethod
-    def _comment_with_details(title, body):
+    def _comment_with_details(title: str, body: str) -> str:
         return f"""
 <details>
 <summary>{title}</summary>
@@ -1634,10 +1628,12 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             self._add_label(label=VERIFIED_LABEL_STR)
             self.set_verify_check_success()
         else:
-            self.reset_verify_label()
+            LOGGER.info(f"{self.log_prefix} Processing reset {VERIFIED_LABEL_STR} label on new commit push")
+            # Remove verified label
+            self._remove_label(label=VERIFIED_LABEL_STR)
             self.set_verify_check_queued()
 
-    def create_comment_reaction(self, issue_comment_id: str, reaction: str) -> None:
+    def create_comment_reaction(self, issue_comment_id: int, reaction: str) -> None:
         _comment = self.pull_request.get_issue_comment(issue_comment_id)
         _comment.create_reaction(reaction)
 
@@ -1754,10 +1750,13 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
             # Checkout the pull request
             else:
-                if not self.pull_request:
+                try:
+                    pull_request = self._get_pull_request()
+                except NoPullRequestError:
                     LOGGER.error(f"{self.log_prefix} [func:_run_in_container] No pull request found")
                     return False, "", ""
-                clone_base_cmd += f" && git checkout origin/pr/{self.pull_request.number}"
+
+                clone_base_cmd += f" && git checkout origin/pr/{pull_request.number}"
 
         # final podman command
         podman_base_cmd += f" '{clone_base_cmd} && {command}'"
@@ -1800,9 +1799,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
     #         LOGGER.info(f"{self.log_prefix} Repository features: {repository_features}")
 
     def get_story_key_with_jira_connection(self) -> str:
-        if not self.pull_request:
-            return ""
-
         _story_label = [_label for _label in self.pull_request.labels if _label.name.startswith(JIRA_STR)]
         if not _story_label:
             return ""

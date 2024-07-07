@@ -31,15 +31,7 @@ async def process_webhook(request: Request) -> Dict[str, Any]:
         return process_failed_msg
 
     try:
-        api = GitHubApi(hook_data=hook_data)
-    except Exception as ex:
-        LOGGER.error(f"Failed to initialized GitHubApi instance: {ex}")
-        return process_failed_msg
-
-    github_event: str = request.headers["X-GitHub-Event"]
-    event_log = f"Event type: {github_event}. event ID: {request.headers.get('X-GitHub-Delivery')}"
-    try:
-        api.process_hook(data=github_event, event_log=event_log)
+        GitHubApi(hook_data=hook_data, headers=request.headers)
         return {"status": requests.status_codes.codes.ok, "Message": "process success"}
 
     except Exception as ex:
