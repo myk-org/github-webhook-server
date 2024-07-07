@@ -292,7 +292,7 @@ def set_repository_check_runs_to_queued(
         for check_run in last_commit.get_check_runs():
             if check_run.name in check_runs and check_run.status == IN_PROGRESS_STR:
                 LOGGER.info(
-                    f"{repository}: {check_run.name} status is {IN_PROGRESS_STR}, "
+                    f"{repository}: [PR:{pull_request.number}] {check_run.name} status is {IN_PROGRESS_STR}, "
                     f"Setting check run {check_run.name} to {QUEUED_STR}"
                 )
                 app_api.create_check_run(name=check_run.name, head_sha=last_commit.sha, status=QUEUED_STR)
