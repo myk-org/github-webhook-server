@@ -109,8 +109,7 @@ class ProcessGithubWehook:
         self.log_prefix = self.prepare_log_prefix()
         self._repo_data_from_config()
 
-        github_event: str = self.headers["X-GitHub-Event"]
-        event_log: str = f"Event type: {github_event}. event ID: {self.x_github_delivery}"
+        self.github_event: str = self.headers["X-GitHub-Event"]
 
         self.github_app_api = get_repository_github_app_api(
             config_=self.config, repository_name=self.repository_full_name
@@ -178,8 +177,11 @@ Available user actions:
 </details>
     """
 
-        if github_event == "ping":
+    def process(self) -> None:
+        if self.github_event == "ping":
             return
+
+        event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
 
         try:
             self.pull_request = self._get_pull_request()
@@ -214,21 +216,21 @@ Available user actions:
                         f"Committer {self.parent_committer} is not in {reviewers_and_approvers}"
                     )
 
-            if github_event == "issue_comment":
+            if self.github_event == "issue_comment":
                 self.process_comment_webhook_data()
 
-            elif github_event == "pull_request":
+            elif self.github_event == "pull_request":
                 self.process_pull_request_webhook_data()
 
-            elif github_event == "pull_request_review":
+            elif self.github_event == "pull_request_review":
                 self.process_pull_request_review_webhook_data()
 
-            elif github_event == "check_run":
+            elif self.github_event == "check_run":
                 self.process_pull_request_check_run_webhook_data()
 
         except NoPullRequestError:
             LOGGER.info(f"{self.log_prefix} {event_log}")
-            if github_event == "push":
+            if self.github_event == "push":
                 self.process_push_webhook_data()
 
     @property
@@ -1198,7 +1200,8 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
             elif _command == "retest":
                 if self.skip_if_pull_request_already_merged():
-                    return self.pull_request.create_issue_comment(not_running_msg)
+                    self.pull_request.create_issue_comment(not_running_msg)
+                    return
 
                 _target_tests: List[str] = _args.split()
                 for _test in _target_tests:
@@ -1249,7 +1252,8 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         elif _command == WIP_STR:
             if self.skip_if_pull_request_already_merged():
-                return self.pull_request.create_issue_comment(not_running_msg)
+                self.pull_request.create_issue_comment(not_running_msg)
+                return
 
             self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
             wip_for_title: str = f"{WIP_STR.upper()}:"

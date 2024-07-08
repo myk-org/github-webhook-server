@@ -36,7 +36,8 @@ async def process_webhook(request: Request) -> Dict[str, Any]:
         return process_failed_msg
 
     try:
-        ProcessGithubWehook(hook_data=hook_data, headers=request.headers)
+        api = ProcessGithubWehook(hook_data=hook_data, headers=request.headers)
+        api.process()
         return {"status": requests.codes.ok, "message": "process success", "log_prefix": log_prefix}
 
     except Exception as ex:
