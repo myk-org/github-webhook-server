@@ -109,8 +109,7 @@ class ProcessGithubWehook:
         self.log_prefix = self.prepare_log_prefix()
         self._repo_data_from_config()
 
-        github_event: str = self.headers["X-GitHub-Event"]
-        event_log: str = f"Event type: {github_event}. event ID: {self.x_github_delivery}"
+        self.github_event: str = self.headers["X-GitHub-Event"]
 
         self.github_app_api = get_repository_github_app_api(
             config_=self.config, repository_name=self.repository_full_name
@@ -178,8 +177,11 @@ Available user actions:
 </details>
     """
 
-        if github_event == "ping":
+    def process(self) -> None:
+        if self.github_event == "ping":
             return
+
+        event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
 
         try:
             self.pull_request = self._get_pull_request()
@@ -214,21 +216,21 @@ Available user actions:
                         f"Committer {self.parent_committer} is not in {reviewers_and_approvers}"
                     )
 
-            if github_event == "issue_comment":
+            if self.github_event == "issue_comment":
                 self.process_comment_webhook_data()
 
-            elif github_event == "pull_request":
+            elif self.github_event == "pull_request":
                 self.process_pull_request_webhook_data()
 
-            elif github_event == "pull_request_review":
+            elif self.github_event == "pull_request_review":
                 self.process_pull_request_review_webhook_data()
 
-            elif github_event == "check_run":
+            elif self.github_event == "check_run":
                 self.process_pull_request_check_run_webhook_data()
 
         except NoPullRequestError:
             LOGGER.info(f"{self.log_prefix} {event_log}")
-            if github_event == "push":
+            if self.github_event == "push":
                 self.process_push_webhook_data()
 
     @property
@@ -955,19 +957,32 @@ stderr: `{err}`
                         )
 
         if hook_action in ("labeled", "unlabeled"):
+            _check_for_merge: bool = False
+            _reviewer: Optional[str] = None
             action_labeled = hook_action == "labeled"
             labeled = self.hook_data["label"]["name"].lower()
             if labeled == CAN_BE_MERGED_STR:
                 return
 
             LOGGER.info(f"{self.log_prefix} PR {self.pull_request.number} {hook_action} with {labeled}")
+            if labeled.startswith(APPROVED_BY_LABEL_PREFIX):
+                _reviewer = labeled.split(APPROVED_BY_LABEL_PREFIX)[-1]
+
+            if labeled.startswith(CHANGED_REQUESTED_BY_LABEL_PREFIX):
+                _reviewer = labeled.split(CHANGED_REQUESTED_BY_LABEL_PREFIX)[-1]
+
+            if _reviewer in self.approvers:
+                _check_for_merge = True
+
             if self.verified_job and labeled == VERIFIED_LABEL_STR:
+                _check_for_merge = True
                 if action_labeled:
                     self.set_verify_check_success()
                 else:
                     self.set_verify_check_queued()
 
-            return self.check_if_can_be_merged()
+            if _check_for_merge:
+                self.check_if_can_be_merged()
 
     def process_push_webhook_data(self) -> None:
         tag = re.search(r"refs/tags/?(.*)", self.hook_data["ref"])
@@ -1029,8 +1044,6 @@ stderr: `{err}`
         )
         label_prefix = None
         label_to_remove = None
-        check_if_can_be_merged = False
-
         pull_request_labels = self.pull_request_labels_names()
 
         if review_state in ("approved", LGTM_STR):
@@ -1044,11 +1057,11 @@ stderr: `{err}`
             _remove_label = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{reviewed_user}"
             if _remove_label in pull_request_labels:
                 label_to_remove = _remove_label
-            check_if_can_be_merged = True
 
         elif review_state == "changes_requested":
             label_prefix = CHANGED_REQUESTED_BY_LABEL_PREFIX
             _remove_label = f"{APPROVED_BY_LABEL_PREFIX}{reviewed_user}"
+
             if _remove_label in pull_request_labels:
                 label_to_remove = _remove_label
 
@@ -1062,9 +1075,6 @@ stderr: `{err}`
                 self._add_label(label=reviewer_label)
                 if label_to_remove:
                     self._remove_label(label=label_to_remove)
-
-                if check_if_can_be_merged:
-                    self.check_if_can_be_merged()
 
             if action == DELETE_STR:
                 self._remove_label(label=reviewer_label)
@@ -1198,7 +1208,8 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
             elif _command == "retest":
                 if self.skip_if_pull_request_already_merged():
-                    return self.pull_request.create_issue_comment(not_running_msg)
+                    self.pull_request.create_issue_comment(not_running_msg)
+                    return
 
                 _target_tests: List[str] = _args.split()
                 for _test in _target_tests:
@@ -1249,7 +1260,8 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         elif _command == WIP_STR:
             if self.skip_if_pull_request_already_merged():
-                return self.pull_request.create_issue_comment(not_running_msg)
+                self.pull_request.create_issue_comment(not_running_msg)
+                return
 
             self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
             wip_for_title: str = f"{WIP_STR.upper()}:"
