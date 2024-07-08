@@ -978,7 +978,7 @@ stderr: `{err}`
                 LOGGER.info(f"{self.log_prefix} Processing upload to pypi for tag: {tag_name}")
                 self.upload_to_pypi(tag_name=tag_name)
 
-            if self.container_release:
+            if self.build_and_push_container and self.container_release:
                 LOGGER.info(f"{self.log_prefix} Processing build and push container for tag: {tag_name}")
                 self._run_build_container(push=True, set_check=False, tag=tag_name)
 
