@@ -1,18 +1,23 @@
+from __future__ import annotations
 import datetime
 import os
 import shlex
 import subprocess
-from typing import Any, Dict, Optional, Tuple
+from concurrent.futures import Future, as_completed
+from typing import Any, Dict, List, Optional, Tuple
 from pyhelper_utils.general import ignore_exceptions
 from colorama import Fore
 from github import Github
+from github.RateLimit import RateLimit
+from github.Repository import Repository
 from simple_logger.logger import get_logger
 
+from webhook_server_container.libs.config import Config
 
 LOGGER = get_logger(name="helpers", filename=os.environ.get("WEBHOOK_SERVER_LOG_FILE"))
 
 
-def extract_key_from_dict(key, _dict):
+def extract_key_from_dict(key: Any, _dict: Dict[Any, Any]) -> Any:
     if isinstance(_dict, dict):
         for _key, _val in _dict.items():
             if _key == key:
@@ -27,7 +32,7 @@ def extract_key_from_dict(key, _dict):
 
 
 @ignore_exceptions(logger=LOGGER)
-def get_github_repo_api(github_api, repository):
+def get_github_repo_api(github_api: Github, repository: int | str) -> Repository:
     return github_api.get_repo(repository)
 
 
@@ -93,15 +98,15 @@ def run_command(
         return False, out_decoded, err_decoded
 
 
-def get_apis_and_tokes_from_config(config, repository_name=None):
-    apis_and_tokens = []
-    tokens = None
-    if repository_name:
-        repo_data = config.get_repository(repository_name=repository_name)
-        tokens = repo_data.get("github-tokens")
+def get_apis_and_tokes_from_config(config: Config, repository_name: str = "") -> List[Tuple[Github, str]]:
+    apis_and_tokens: List[Tuple[Github, str]] = []
 
-    if not tokens:
-        tokens = config.data["github-tokens"]
+    tokens = get_value_from_dicts(
+        primary_dict=config.get_repository(repository_name=repository_name),
+        secondary_dict=config.data,
+        key="github-tokens",
+        return_on_none=[],
+    )
 
     for _token in tokens:
         apis_and_tokens.append((Github(login_or_token=_token), _token))
@@ -110,7 +115,7 @@ def get_apis_and_tokes_from_config(config, repository_name=None):
 
 
 @ignore_exceptions(logger=LOGGER)
-def get_api_with_highest_rate_limit(config, repository_name=None):
+def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -> Tuple[Github | None, str | None]:
     """
     Get API with the highest rate limit
 
@@ -121,7 +126,11 @@ def get_api_with_highest_rate_limit(config, repository_name=None):
     Returns:
         tuple: API, token
     """
-    api, token, _api_user, rate_limit = None, None, None, None
+    api: Optional[Github] = None
+    token: Optional[str] = None
+    _api_user: str = ""
+    rate_limit: Optional[RateLimit] = None
+
     remaining = 0
 
     apis_and_tokens = get_apis_and_tokes_from_config(config=config, repository_name=repository_name)
@@ -133,19 +142,26 @@ def get_api_with_highest_rate_limit(config, repository_name=None):
             LOGGER.info(f"API user {_api_user} remaining rate limit: {remaining}")
             api, token = _api, _token
 
-    log_rate_limit(rate_limit=rate_limit, api_user=_api_user)
+    if rate_limit:
+        log_rate_limit(rate_limit=rate_limit, api_user=_api_user)
+
     LOGGER.info(f"API user {_api_user} selected with highest rate limit: {remaining}")
     return api, token
 
 
-def log_rate_limit(rate_limit, api_user):
-    time_for_limit_reset = (rate_limit.core.reset - datetime.datetime.now(tz=datetime.timezone.utc)).seconds
+def log_rate_limit(rate_limit: RateLimit, api_user: str) -> None:
+    rate_limit_str: str
+    time_for_limit_reset: int = (rate_limit.core.reset - datetime.datetime.now(tz=datetime.timezone.utc)).seconds
+
     if rate_limit.core.remaining < 700:
         rate_limit_str = f"{Fore.RED}{rate_limit.core.remaining}{Fore.RESET}"
+
     elif rate_limit.core.remaining < 2000:
         rate_limit_str = f"{Fore.YELLOW}{rate_limit.core.remaining}{Fore.RESET}"
+
     else:
         rate_limit_str = f"{Fore.GREEN}{rate_limit.core.remaining}{Fore.RESET}"
+
     LOGGER.info(
         f"{Fore.CYAN}[{api_user}] API rate limit:{Fore.RESET} Current {rate_limit_str} of {rate_limit.core.limit}. "
         f"Reset in {rate_limit.core.reset} [{datetime.timedelta(seconds=time_for_limit_reset)}] "
@@ -154,7 +170,10 @@ def log_rate_limit(rate_limit, api_user):
 
 
 def get_value_from_dicts(
-    primary_dict: Dict[Any, Any], secondary_dict: Dict[Any, Any], key: str, return_on_none: Optional[Any] = None
+    primary_dict: Dict[Any, Any],
+    secondary_dict: Dict[Any, Any],
+    key: str,
+    return_on_none: Optional[Any] = None,
 ) -> Any:
     """
     Get value from two dictionaries.
@@ -162,3 +181,20 @@ def get_value_from_dicts(
     If value is not found in primary_dict, try to get it from secondary_dict, otherwise return return_on_none.
     """
     return primary_dict.get(key, secondary_dict.get(key, return_on_none))
+
+
+def get_future_results(futures: List["Future"]) -> None:
+    """
+    result must return Tuple[bool, str, Callable] when the Callable is Logger function (LOGGER.info, LOGGER.error, etc)
+    """
+    for result in as_completed(futures):
+        _res = result.result()
+        _log = _res[2]
+        if result.exception():
+            _log(result.exception())
+
+        if _res[0]:
+            _log(_res[1])
+
+        else:
+            _log(_res[1])

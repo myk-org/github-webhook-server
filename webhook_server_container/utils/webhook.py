@@ -1,12 +1,15 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 import os
+from typing import Any, Callable, Dict, List, Tuple
 
+from github.Hook import Hook
 from github import Github
 from simple_logger.logger import get_logger
 
 from webhook_server_container.libs.config import Config
 from webhook_server_container.utils.helpers import (
     get_api_with_highest_rate_limit,
+    get_future_results,
     get_github_repo_api,
 )
 from pyhelper_utils.general import ignore_exceptions
@@ -16,29 +19,27 @@ LOGGER = get_logger(name="webhook", filename=os.environ.get("WEBHOOK_SERVER_LOG_
 
 
 @ignore_exceptions(logger=LOGGER)
-def process_github_webhook(data, github_api, webhook_ip):
-    repository = data["name"]
+def process_github_webhook(data: Dict[str, Any], github_api: Github, webhook_ip: str) -> Tuple[bool, str, Callable]:
+    repository: str = data["name"]
     repo = get_github_repo_api(github_api=github_api, repository=repository)
     if not repo:
-        LOGGER.error(f"Could not find repository {repository}")
-        return
+        return False, f"Could not find repository {repository}", LOGGER.error
 
-    config = {"url": f"{webhook_ip}/webhook_server", "content_type": "json"}
-    events = data.get("events", ["*"])
+    config_: Dict[str, str] = {"url": f"{webhook_ip}/webhook_server", "content_type": "json"}
+    events: List[str] = data.get("events", ["*"])
 
     try:
-        hooks = list(repo.get_hooks())
+        hooks: List[Hook] = list(repo.get_hooks())
     except Exception as ex:
-        LOGGER.error(f"Could not list webhook for {repository}, check token permissions: {ex}")
-        return
+        return False, f"Could not list webhook for {repository}, check token permissions: {ex}", LOGGER.error
 
     for _hook in hooks:
         if webhook_ip in _hook.config["url"]:
-            return f"{repository}: Hook already exists - {_hook.config['url']}"
+            return True, f"{repository}: Hook already exists - {_hook.config['url']}", LOGGER.info
 
-    LOGGER.info(f"Creating webhook: {config['url']} for {repository} with events: {events}")
-    repo.create_hook(name="web", config=config, events=events, active=True)
-    return f"{repository}: Create webhook is done"
+    LOGGER.info(f"Creating webhook: {config_['url']} for {repository} with events: {events}")
+    repo.create_hook(name="web", config=config_, events=events, active=True)
+    return True, f"{repository}: Create webhook is done", LOGGER.info
 
 
 def create_webhook(config_: Config, github_api: Github) -> None:
@@ -55,10 +56,7 @@ def create_webhook(config_: Config, github_api: Github) -> None:
                 )
             )
 
-    for result in as_completed(futures):
-        if result.exception():
-            LOGGER.error(result.exception())
-        LOGGER.info(result.result())
+    get_future_results(futures=futures)
 
 
 if __name__ == "__main__":
