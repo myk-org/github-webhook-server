@@ -307,7 +307,7 @@ Available user actions:
                         self.last_commit = self._get_last_commit()
                         self.check_if_can_be_merged()
 
-            LOGGER.error(f"{self.log_prefix} No pull request found")
+            LOGGER.warning(f"{self.log_prefix} No pull request found")
 
     def _repo_data_from_config(self) -> None:
         config_data = self.config.data  # Global repositories configuration
