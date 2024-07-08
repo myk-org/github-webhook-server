@@ -84,6 +84,14 @@ class RepositoryNotFoundError(Exception):
     pass
 
 
+class ProcessGithubWehookError(Exception):
+    def __init__(self, err: Dict[str, str]):
+        self.err = err
+
+    def __str__(self) -> str:
+        return f"{self.err}"
+
+
 class ProcessGithubWehook:
     def __init__(self, hook_data: Dict[Any, Any], headers: Headers):
         self.app: FastAPI = FASTAPI_APP
@@ -92,25 +100,28 @@ class ProcessGithubWehook:
         self.repository_name: str = hook_data["repository"]["name"]
         self.log_prefix_with_color: str = ""
         self.parent_committer: str = ""
-        self.log_uuid: str = shortuuid.uuid()[:5]
         self.container_repo_dir: str = "/tmp/repository"
         self.jira_track_pr: bool = False
         self.issue_title: str = ""
         self.all_required_status_checks: List[str] = []
         self.config = Config()
+        self.x_github_delivery: str = self.headers.get("X-GitHub-Delivery", "")
         self.log_prefix = self.prepare_log_prefix()
         self._repo_data_from_config()
 
         github_event: str = self.headers["X-GitHub-Event"]
-        event_log: str = f"Event type: {github_event}. event ID: {self.headers.get('X-GitHub-Delivery')}"
+        event_log: str = f"Event type: {github_event}. event ID: {self.x_github_delivery}"
 
         self.github_app_api = get_repository_github_app_api(
             config_=self.config, repository_name=self.repository_full_name
         )
+
         if not self.github_app_api:
             LOGGER.error(
-                f"{self.log_prefix} not found by manage-repositories-app, "
-                f"make sure the app installed (https://github.com/apps/manage-repositories-app)"
+                (
+                    f"{self.log_prefix} not found by manage-repositories-app, "
+                    "make sure the app installed (https://github.com/apps/manage-repositories-app)"
+                ),
             )
             return
 
@@ -124,7 +135,7 @@ class ProcessGithubWehook:
         )
 
         if not (self.repository or self.repository_by_github_app):
-            LOGGER.error(f"{self.repository_full_name} Failed to get repository.")
+            LOGGER.error(f"{self.log_prefix} Failed to get repository.")
             return
 
         self.add_api_users_to_auto_verified_and_merged_users()
@@ -259,9 +270,9 @@ Available user actions:
     def prepare_log_prefix(self, pull_request: Optional[PullRequest] = None) -> str:
         self._set_log_prefix_color()
         return (
-            f"{self.log_prefix_with_color}({self.log_uuid})[PR {pull_request.number}]:"
+            f"{self.log_prefix_with_color}({self.x_github_delivery})[PR {pull_request.number}]:"
             if pull_request
-            else f"{self.log_prefix_with_color}:({self.log_uuid})"
+            else f"{self.log_prefix_with_color}:({self.x_github_delivery})"
         )
 
     def hash_token(self, message: str) -> str:
@@ -280,7 +291,6 @@ Available user actions:
         _check_run: Dict[str, Any] = self.hook_data["check_run"]
         check_run_name: str = _check_run["name"]
         if check_run_name == CAN_BE_MERGED_STR:
-            LOGGER.info(f"{self.log_prefix} check_run '{check_run_name}' skipped")
             return
 
         if (
@@ -296,7 +306,8 @@ Available user actions:
                         self.pull_request = _pull_request
                         self.last_commit = self._get_last_commit()
                         self.check_if_can_be_merged()
-                        break
+
+            LOGGER.error(f"{self.log_prefix} No pull request found")
 
     def _repo_data_from_config(self) -> None:
         config_data = self.config.data  # Global repositories configuration
@@ -538,13 +549,19 @@ stderr: `{err}`
 
     @property
     def files_reviewers(self) -> Dict[str, str]:
-        _reviewers: Dict[str, Any] = self.owners_content.get("reviewers", {})
-        return _reviewers.get("files", {})
+        _reviewers = self.owners_content.get("reviewers", {})
+        if isinstance(_reviewers, dict):
+            return _reviewers.get("files", {})
+
+        return {}
 
     @property
     def folders_reviewers(self) -> Dict[str, str]:
-        _reviewers: Dict[str, Any] = self.owners_content.get("reviewers", {})
-        return _reviewers.get("folders", {})
+        _reviewers = self.owners_content.get("reviewers", {})
+        if isinstance(_reviewers, dict):
+            return _reviewers.get("folders", {})
+
+        return {}
 
     @property
     def approvers(self) -> List[str]:
@@ -557,13 +574,13 @@ stderr: `{err}`
         LOGGER.info(f"{self.log_prefix} Assign reviewers")
         changed_files = self.list_changed_commit_files()
         reviewers_to_add = self.reviewers
-        for _file, _reviewers in self.files_reviewers.items():
+        for _file, _file_reviewers in self.files_reviewers.items():
             if _file in changed_files:
-                reviewers_to_add.extend(_reviewers)
+                reviewers_to_add.extend(_file_reviewers)
 
-        for _folder, _reviewers in self.folders_reviewers.items():
+        for _folder, _folder_reviewers in self.folders_reviewers.items():
             if any(cf for cf in changed_files if _folder in str(Path(cf).parent)):
-                reviewers_to_add.extend(_reviewers)
+                reviewers_to_add.extend(_folder_reviewers)
 
         _to_add: List[str] = list(set(reviewers_to_add))
         LOGGER.info(f"{self.log_prefix} Reviewers to add: {_to_add}")
@@ -1364,6 +1381,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             PR has no changed requests from approvers.
         """
         if self.skip_if_pull_request_already_merged():
+            LOGGER.info(f"{self.log_prefix} Pull request already merged")
             return
 
         output = {
@@ -1458,6 +1476,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     )
                     self.pull_request.merge(merge_method="squash")
 
+                LOGGER.info(f"{self.log_prefix} Pull request can be merged")
                 return
 
             failure_output += f"Missing lgtm/approved from approvers {self.approvers}\n"
@@ -1469,7 +1488,8 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         except Exception as ex:
             LOGGER.error(f"{self.log_prefix} Failed to check if can be merged, set check run to {FAILURE_STR} {ex}")
-            output["text"] = "Failed to check if can be merged, check logs"
+            _err = "Failed to check if can be merged, check logs"
+            output["text"] = _err
             self._remove_label(label=CAN_BE_MERGED_STR)
             self.set_merge_check_failure(output=output)
 
@@ -1636,6 +1656,11 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
     def process_opened_or_synchronize_pull_request(self) -> None:
         prepare_pull_futures: List[Future] = []
         with ThreadPoolExecutor() as executor:
+            prepare_pull_futures.append(executor.submit(self.assign_reviewers))
+            prepare_pull_futures.append(
+                executor.submit(self._add_label, **{"label": f"{BRANCH_LABEL_PREFIX}{self.pull_request_branch}"})
+            )
+            prepare_pull_futures.append(executor.submit(self.label_pull_request_by_merge_state))
             prepare_pull_futures.append(executor.submit(self.set_merge_check_queued))
             prepare_pull_futures.append(executor.submit(self.set_run_tox_check_queued))
             prepare_pull_futures.append(executor.submit(self.set_run_pre_commit_check_queued))
@@ -1644,10 +1669,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             prepare_pull_futures.append(executor.submit(self._process_verified))
             prepare_pull_futures.append(executor.submit(self.add_size_label))
 
-        for result in as_completed(prepare_pull_futures):
-            if result.exception():
-                LOGGER.error(f"{self.log_prefix} {result.exception()}")
-
         run_check_runs_futures: List[Future] = []
         with ThreadPoolExecutor() as executor:
             run_check_runs_futures.append(executor.submit(self._run_tox))
@@ -1655,22 +1676,22 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             run_check_runs_futures.append(executor.submit(self._run_install_python_module))
             run_check_runs_futures.append(executor.submit(self._run_build_container))
 
+        for result in as_completed(prepare_pull_futures):
+            if _exp := result.exception():
+                LOGGER.error(f"{self.log_prefix} {_exp}")
+
         for result in as_completed(run_check_runs_futures):
-            if result.exception():
-                LOGGER.error(f"{self.log_prefix} {result.exception()}")
+            if _exp := result.exception():
+                LOGGER.error(f"{self.log_prefix} {_exp}")
+
             LOGGER.info(f"{self.log_prefix} {result.result()}")
 
-        self._add_label(label=f"{BRANCH_LABEL_PREFIX}{self.pull_request_branch}")
-        LOGGER.info(f"{self.log_prefix} Adding PR owner as assignee")
-
         try:
+            LOGGER.info(f"{self.log_prefix} Adding PR owner as assignee")
             self.pull_request.add_to_assignees()
         except Exception:
             if self.approvers:
                 self.pull_request.add_to_assignees(self.approvers[0])
-
-        self.assign_reviewers()
-        self.label_pull_request_by_merge_state()
 
     def is_check_run_in_progress(self, check_run: str) -> bool:
         for run in self.last_commit.get_check_runs():

@@ -18,12 +18,17 @@ LOGGER = get_logger(name="app", filename=os.environ.get("WEBHOOK_SERVER_LOG_FILE
 
 @FASTAPI_APP.get(f"{APP_ROOT_PATH}/healthcheck")
 def healthcheck() -> Dict[str, Any]:
-    return {"status": requests.status_codes.codes.ok, "message": "Alive"}
+    return {"status": requests.codes.ok, "message": "Alive"}
 
 
 @FASTAPI_APP.post(APP_ROOT_PATH)
 async def process_webhook(request: Request) -> Dict[str, Any]:
-    process_failed_msg = {"status": requests.status_codes.codes.server_error, "Message": "Process failed"}
+    log_prefix = request.headers.get("X-GitHub-Delivery", "")
+    process_failed_msg = {
+        "status": requests.codes.server_error,
+        "message": "Process failed",
+        "log_prefix": log_prefix,
+    }
     try:
         hook_data = await request.json()
     except Exception as ex:
@@ -32,7 +37,7 @@ async def process_webhook(request: Request) -> Dict[str, Any]:
 
     try:
         ProcessGithubWehook(hook_data=hook_data, headers=request.headers)
-        return {"status": requests.status_codes.codes.ok, "Message": "process success"}
+        return {"status": requests.codes.ok, "message": "process success", "log_prefix": log_prefix}
 
     except Exception as ex:
         LOGGER.error(f"Failed to process hook: {ex}")
