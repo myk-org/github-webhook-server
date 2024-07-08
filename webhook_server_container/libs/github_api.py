@@ -1562,13 +1562,14 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             "text": self.get_check_run_text(err=err, out=out),
         }
         if rc:
+            pull_request = hasattr(self, "pull_request")
             LOGGER.info(f"{self.log_prefix} Done building {_container_repository_and_tag}")
-            if self.pull_request and set_check:
+            if pull_request and set_check:
                 return self.set_container_build_success(output=output)
 
             if push:
                 push_msg: str = f"New container for {_container_repository_and_tag} published"
-                if self.pull_request:
+                if pull_request:
                     self.pull_request.create_issue_comment(push_msg)
 
                 if self.slack_webhook_url:
