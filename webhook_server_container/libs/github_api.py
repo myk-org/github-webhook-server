@@ -592,7 +592,8 @@ stderr: `{err}`
                 try:
                     self.pull_request.create_review_request([reviewer])
                 except GithubException as ex:
-                    LOGGER.error(f"{self.log_prefix} Failed to add reviewer {reviewer}. {ex}")
+                    LOGGER.warning(f"{self.log_prefix} Failed to add reviewer {reviewer}. {ex}")
+                    self.pull_request.create_issue_comment(f"{reviewer} can not be added as reviewer. {ex}")
 
     def add_size_label(self) -> None:
         size: int = self.pull_request.additions + self.pull_request.deletions
