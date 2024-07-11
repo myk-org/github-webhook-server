@@ -160,6 +160,8 @@ Available user actions:
     * Multiple target branches can be cherry-picked, separated by spaces. (`/cherry-pick branch1 branch2`)
     * Cherry-pick will be started when PR is merged
  * To build and push container image command `/build-and-push-container` in the PR (tag will be the PR number).
+    * You can add extra args to the Docker build command
+        * Example: `/build-and-push-container --build-arg OPENSHIFT_PYTHON_WRAPPER_COMMIT=<commit_hash>`
  * To add a label by comment use `/<label name>`, to remove, use `/<label name> cancel`
  * To assign reviewers based on OWNERS file use `/assign-reviewers`
  * To check if PR can be merged use `/check-can-merge`
@@ -1252,7 +1254,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         elif _command == BUILD_AND_PUSH_CONTAINER_STR:
             if self.build_and_push_container:
                 self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
-                self._run_build_container(push=True, set_check=False)
+                self._run_build_container(push=True, set_check=False, command_args=_args)
             else:
                 msg = f"No {BUILD_AND_PUSH_CONTAINER_STR} configured for this repository"
                 error_msg = f"{self.log_prefix} {msg}"
@@ -1541,6 +1543,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         push: bool = False,
         is_merged: bool = False,
         tag: str = "",
+        command_args: str = "",
     ) -> None:
         if not self.build_and_push_container:
             return
@@ -1564,6 +1567,9 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         if self.container_command_args:
             build_cmd = f"{' '.join(self.container_command_args)} {build_cmd}"
+
+        if command_args:
+            build_cmd = f"{command_args} {build_cmd}"
 
         if push:
             repository_creds: str = f"{self.container_repository_username}:{self.container_repository_password}"

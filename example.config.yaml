@@ -57,8 +57,8 @@ repositories:
       tag: <image_tag>
       release: true # Push image to registry on new release with release as the tag
       build-args: # build args to send to podman build command
-        - build-arg1=1
-        - build-arg2=2
+        - my-build-arg1=1
+        - my-build-arg2=2
       args: # args to send to podman build command
         - --format docker
 
