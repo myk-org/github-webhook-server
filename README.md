@@ -225,7 +225,7 @@ reviewers:
 - `/retest build-container`: run build-container
 - `/retest python-module-install`: run python-module-install command
 - `/build-and-push-container`: build and push container image (tag will be the PR number)
-  - You can add extra args to the Docker build command
+  - You can add extra args to the Podman build command
     - Example: `/build-and-push-container --build-arg OPENSHIFT_PYTHON_WRAPPER_COMMIT=<commit_hash>`
 - `/assign-reviewers`: assign reviewers based on OWNERS file
 

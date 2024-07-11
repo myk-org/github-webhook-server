@@ -160,7 +160,7 @@ Available user actions:
     * Multiple target branches can be cherry-picked, separated by spaces. (`/cherry-pick branch1 branch2`)
     * Cherry-pick will be started when PR is merged
  * To build and push container image command `/build-and-push-container` in the PR (tag will be the PR number).
-    * You can add extra args to the Docker build command
+    * You can add extra args to the Podman build command
         * Example: `/build-and-push-container --build-arg OPENSHIFT_PYTHON_WRAPPER_COMMIT=<commit_hash>`
  * To add a label by comment use `/<label name>`, to remove, use `/<label name> cancel`
  * To assign reviewers based on OWNERS file use `/assign-reviewers`
