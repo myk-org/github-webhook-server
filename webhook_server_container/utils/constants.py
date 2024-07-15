@@ -18,14 +18,15 @@ CAN_BE_MERGED_STR: str = "can-be-merged"
 BUILD_CONTAINER_STR: str = "build-container"
 PYTHON_MODULE_INSTALL_STR: str = "python-module-install"
 WIP_STR: str = "wip"
+LGTM_STR: str = "lgtm"
 CHERRY_PICK_LABEL_PREFIX: str = "cherry-pick-"
 CHERRY_PICKED_LABEL_PREFIX: str = "CherryPicked"
 APPROVED_BY_LABEL_PREFIX: str = "approved-"
+LGTM_BY_LABEL_PREFIX: str = f"{LGTM_STR}-"
 CHANGED_REQUESTED_BY_LABEL_PREFIX: str = "changes-requested-"
 COMMENTED_BY_LABEL_PREFIX: str = "commented-"
 BRANCH_LABEL_PREFIX: str = "branch-"
 VERIFIED_LABEL_STR: str = "verified"
-LGTM_STR: str = "lgtm"
 NEEDS_REBASE_LABEL_STR: str = "needs-rebase"
 HAS_CONFLICTS_LABEL_STR: str = "has-conflicts"
 HOLD_LABEL_STR: str = "hold"
@@ -56,6 +57,7 @@ STATIC_LABELS_DICT: Dict[str, str] = {
 
 DYNAMIC_LABELS_DICT: Dict[str, str] = {
     APPROVED_BY_LABEL_PREFIX: "0E8A16",
+    LGTM_BY_LABEL_PREFIX: "DCED6F",
     COMMENTED_BY_LABEL_PREFIX: "D93F0B",
     CHANGED_REQUESTED_BY_LABEL_PREFIX: "F5621C",
     CHERRY_PICK_LABEL_PREFIX: "F09C74",

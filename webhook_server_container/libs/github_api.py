@@ -1047,7 +1047,11 @@ stderr: `{err}`
         )
         label_prefix = None
         label_to_remove = None
-        pull_request_labels = self.pull_request_labels_names()
+
+        if reviewed_user in self.approvers:
+            approved_lgtm_label = f"APPROVED_BY_LABEL_PREFIX{reviewed_user}"
+        else:
+            approved_lgtm_label = f"LGTM_BY_LABEL_PREFIX{reviewed_user}"
 
         if review_state in ("approved", LGTM_STR):
             base_dict = self.hook_data.get("issue", self.hook_data.get("pull_request"))
@@ -1056,17 +1060,14 @@ stderr: `{err}`
                 LOGGER.info(f"{self.log_prefix} PR owner {pr_owner} set /lgtm, not adding label.")
                 return
 
-            label_prefix = APPROVED_BY_LABEL_PREFIX
             _remove_label = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{reviewed_user}"
-            if _remove_label in pull_request_labels:
-                label_to_remove = _remove_label
+            label_prefix = approved_lgtm_label
+            label_to_remove = _remove_label
 
         elif review_state == "changes_requested":
             label_prefix = CHANGED_REQUESTED_BY_LABEL_PREFIX
-            _remove_label = f"{APPROVED_BY_LABEL_PREFIX}{reviewed_user}"
-
-            if _remove_label in pull_request_labels:
-                label_to_remove = _remove_label
+            _remove_label = approved_lgtm_label
+            label_to_remove = _remove_label
 
         elif review_state == "commented":
             label_prefix = COMMENTED_BY_LABEL_PREFIX
@@ -1076,8 +1077,7 @@ stderr: `{err}`
 
             if action == ADD_STR:
                 self._add_label(label=reviewer_label)
-                if label_to_remove:
-                    self._remove_label(label=label_to_remove)
+                self._remove_label(label=label_to_remove)
 
             if action == DELETE_STR:
                 self._remove_label(label=reviewer_label)
