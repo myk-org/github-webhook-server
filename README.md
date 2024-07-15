@@ -1,6 +1,44 @@
 # github-webhook-server
 
-A [FastAPI-based](https://fastapi.tiangolo.com) webhook server for managing GitHub repositories. It handles tasks such as repository setup, branch protection, and webhook configuration.
+A [FastAPI-based](https://fastapi.tiangolo.com) webhook server for managing GitHub pull requests workflow. and manage repositories.
+
+## Overview
+
+The tool will manage the following:
+
+###### Repositories
+
+- Configure repositories setting
+- Configure branch protection
+- Set itself as webhook for the repository
+- Add missing lables to the repository
+
+###### Pull requests
+
+- Add reviewers from OWNER file
+- Manage pull requests labels
+- Check when the pull request is ready to be merged
+- Build container from Dockerfile when pull request is merged
+- Build container from Dockerfile when new release is pushed
+- Push new release to PyPI when new release is pushed
+- Open an issue for each pull request
+- Add pull request size label
+
+###### Available user actions
+
+- Mark pull request as WIP by comment /wip to the pull request, To remove it from the pull request comment /wip cancel to the pull request.
+- Block merging of pull request by comment /hold, To un-block merging of pull request comment /hold cancel.
+- Mark pull request as verified by comment /verified to the pull request, to un-verify comment /verified cancel to the pull request.
+  - verified label removed on each new commit push.
+- Cherry pick a merged pull request comment /cherry-pick <target branch to cherry-pick to> in the pull request.
+  - Multiple target branches can be cherry-picked, separated by spaces. (/cherry-pick branch1 branch2)
+  - Cherry-pick will be started when pull request is merged
+- Build and push container image command /build-and-push-container in the pull request (tag will be the pull request number).
+  - You can add extra args to the Podman build command
+    - Example: /build-and-push-container --build-arg OPENSHIFT_PYTHON_WRAPPER_COMMIT=<commit_hash>
+- Add a label by comment use /<label name>, to remove, use /<label name> cancel
+- Assign reviewers based on OWNERS file use /assign-reviewers
+- Check if pull request can be merged use /check-can-merge
 
 Pre-build container images available in:
 
@@ -110,7 +148,7 @@ protected-branches:
   main: []
 ```
 
-This tool configure branch protection and set required to be run for each branch to pass before the PR can be merged
+This tool configure branch protection and set required to be run for each branch to pass before the pull request can be merged
 
 if the repository have the file `.pre-commit-config.yaml` then `pre-commit.ci - pr` will be added, can be excluded by
 set it in `exclude-runs`
@@ -120,7 +158,7 @@ set it in `exclude-runs`
 - `include-runs`: Only include those runs as required
 - `exclude-runs`: Exclude those runs from the `default-status-checks`
 
-By default, we create a `verified_job` run, for each PR the owner needs to comment `/verified` to mark the PR as verified
+By default, we create a `verified_job` run, for each pull request the owner needs to comment `/verified` to mark the pull request as verified
 In order to not add this job set `verified_job` to `false`
 
 ```yaml
@@ -128,10 +166,10 @@ verified_job: false
 ```
 
 if `container` is configured for the repository we create `build-container` run that will build the container on each
-PR push/commit
-Once the PR is merged, the container will be build and push to the repository
+pull request push/commit
+Once the pull request is merged, the container will be build and push to the repository
 if `release` is set to `true` a new container will be pushed with the release version as the tag
-if the merged PR is in any other branch than `main` or `master` the tag will be set to `branch name`, otherwise `tag` will be used
+if the merged pull request is in any other branch than `main` or `master` the tag will be set to `branch name`, otherwise `tag` will be used
 
 - `username`: User with push permissions to the repository
 - `password`: The password for the username
@@ -156,9 +194,9 @@ docker:
   password: password
 ```
 
-if Jira is configured for the repository we create a new issue (story) for the PR and assign it to the owner.
-On new commit create closed sub-task under the PR story with the commiter as assignee
-On reviewed PR create closed sub-task under the PR story with the reviewer as assignee
+if Jira is configured for the repository we create a new issue (story) for the pull request and assign it to the owner.
+On new commit create closed sub-task under the pull request story with the commiter as assignee
+On reviewed pull request create closed sub-task under the pull request story with the reviewer as assignee
 
 - `server`: FQDN Jira server url
 - `project`: project key to open the issue
@@ -192,9 +230,9 @@ repositories:
 Following actions are done automatically:
 
 - Add reviewers from [OWNERS](OWNERS) file, support add different reviewers based on files/folders.
-- Set PR size label.
-- New issue is created for the PR.
-- Issues get closed when PR is merged/closed.
+- Set pull request size label.
+- New issue is created for the pull request.
+- Issues get closed when pull request is merged/closed.
 
 ## OWNERS file example
 
@@ -203,28 +241,28 @@ approvers:
   - myakove
   - rnetser
 reviewers:
-  any: # will be added to all PRs
+  any: # will be added to all pull requests
     - myakove
     - rnetser
-  files: # will be added to PRs if files in the list are changed
+  files: # will be added to pull requests if files in the list are changed
     Dockerfile:
       - myakove
-  folders: # will be added to PRs if folders in the list are changed
+  folders: # will be added to pull requests if folders in the list are changed
     webhook_server_container/libs: # path is relative to the repository root
       - myakove
 ```
 
 ### Supported user actions via adding comment
 
-- `/verified`: to verify a PR
+- `/verified`: to verify a pull request
 - `/verified cancel`: to undo verify
-- `/cherry-pick <target_branch_name>`: cherry-pick a merged PR against a target branch
+- `/cherry-pick <target_branch_name>`: cherry-pick a merged pull request against a target branch
   - Multiple target branches are allowed, separated by spaces
-  - If the current PR is nor merged label will be added and once the PR is merged it will be cherry-picked
+  - If the current pull request is nor merged label will be added and once the pull request is merged it will be cherry-picked
 - `/retest tox`: run tox
 - `/retest build-container`: run build-container
 - `/retest python-module-install`: run python-module-install command
-- `/build-and-push-container`: build and push container image (tag will be the PR number)
+- `/build-and-push-container`: build and push container image (tag will be the pull request number)
   - You can add extra args to the Podman build command
     - Example: `/build-and-push-container --build-arg OPENSHIFT_PYTHON_WRAPPER_COMMIT=<commit_hash>`
 - `/assign-reviewers`: assign reviewers based on OWNERS file
@@ -233,7 +271,7 @@ reviewers:
 
 Usage:
 
-- `/<label name>`: add a label to a PR
+- `/<label name>`: add a label to a pull request
 - `/<label name> cancel`: remove label
 
 Supported labels:
@@ -247,7 +285,7 @@ Supported labels:
 ### Note
 
 - verified label removed on each new commit push.
-- Cherry-picking is supported only on merged PRs
+- Cherry-picking is supported only on merged pull requests
 
 ### Issues
 
