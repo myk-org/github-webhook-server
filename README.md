@@ -80,6 +80,7 @@ Before running the application, ensure to set the following environment variable
 
 - `WEBHOOK_SERVER_LOG_FILE`: Path to the log file where the server logs are to be stored.
 - `WEBHOOK_SERVER_DATA_DIR`: Path to the data directory where the `config.yaml` file is located.
+- `WEBHOOK_SERVER_LOG_LEVEL`: App log level.
 - `config.yaml`: Configuration file that contains settings for the server and repositories, which should be placed in the `WEBHOOK_SERVER_DATA_DIR` directory.
 
 Follow the instructions to build the container using either podman or docker as described in the Build container section. Once that is done, proceed with the configurations outlined below.

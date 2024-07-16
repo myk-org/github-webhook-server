@@ -74,7 +74,11 @@ from webhook_server_container.utils.helpers import (
 )
 
 
-LOGGER = get_logger(name="ProcessGithubWehook", filename=os.environ.get("WEBHOOK_SERVER_LOG_FILE"))
+LOGGER = get_logger(
+    name="ProcessGithubWehook",
+    filename=os.environ.get("WEBHOOK_SERVER_LOG_FILE"),
+    level=os.environ.get("WEBHOOK_SERVER_LOG_LEVEL", "INFO"),
+)
 
 
 class NoPullRequestError(Exception):
