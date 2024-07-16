@@ -1050,9 +1050,9 @@ stderr: `{err}`
         label_to_remove = None
 
         if reviewed_user in self.approvers:
-            approved_lgtm_label = f"{APPROVED_BY_LABEL_PREFIX}{reviewed_user}"
+            approved_lgtm_label = APPROVED_BY_LABEL_PREFIX
         else:
-            approved_lgtm_label = f"{LGTM_BY_LABEL_PREFIX}{reviewed_user}"
+            approved_lgtm_label = LGTM_BY_LABEL_PREFIX
 
         if review_state in ("approved", LGTM_STR):
             base_dict = self.hook_data.get("issue", self.hook_data.get("pull_request"))
