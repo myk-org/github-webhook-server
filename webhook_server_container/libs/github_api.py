@@ -44,6 +44,7 @@ from webhook_server_container.utils.constants import (
     HOLD_LABEL_STR,
     IN_PROGRESS_STR,
     JIRA_STR,
+    LGTM_BY_LABEL_PREFIX,
     LGTM_STR,
     NEEDS_REBASE_LABEL_STR,
     PYTHON_MODULE_INSTALL_STR,
@@ -1049,9 +1050,9 @@ stderr: `{err}`
         label_to_remove = None
 
         if reviewed_user in self.approvers:
-            approved_lgtm_label = f"APPROVED_BY_LABEL_PREFIX{reviewed_user}"
+            approved_lgtm_label = f"{APPROVED_BY_LABEL_PREFIX}{reviewed_user}"
         else:
-            approved_lgtm_label = f"LGTM_BY_LABEL_PREFIX{reviewed_user}"
+            approved_lgtm_label = f"{LGTM_BY_LABEL_PREFIX}{reviewed_user}"
 
         if review_state in ("approved", LGTM_STR):
             base_dict = self.hook_data.get("issue", self.hook_data.get("pull_request"))
