@@ -24,19 +24,19 @@ def healthcheck() -> Dict[str, Any]:
 @FASTAPI_APP.post(APP_ROOT_PATH)
 async def process_webhook(request: Request) -> Dict[str, Any]:
     log_prefix = request.headers.get("X-GitHub-Delivery", "")
-    process_failed_msg = {
+    process_failed_msg: Dict[str, Any] = {
         "status": requests.codes.server_error,
         "message": "Process failed",
         "log_prefix": log_prefix,
     }
     try:
-        hook_data = await request.json()
+        hook_data: Dict[Any, Any] = await request.json()
     except Exception as ex:
         LOGGER.error(f"Error get JSON from request: {ex}")
         return process_failed_msg
 
     try:
-        api = ProcessGithubWehook(hook_data=hook_data, headers=request.headers)
+        api: ProcessGithubWehook = ProcessGithubWehook(hook_data=hook_data, headers=request.headers)
         api.process()
         return {"status": requests.codes.ok, "message": "process success", "log_prefix": log_prefix}
 
