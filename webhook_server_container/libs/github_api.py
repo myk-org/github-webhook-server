@@ -107,10 +107,9 @@ class ProcessGithubWehook:
         self.all_required_status_checks: List[str] = []
         self.config = Config()
         self.x_github_delivery: str = self.headers.get("X-GitHub-Delivery", "")
+        self.github_event: str = self.headers["X-GitHub-Event"]
         self.log_prefix = self.prepare_log_prefix()
         self._repo_data_from_config()
-
-        self.github_event: str = self.headers["X-GitHub-Event"]
 
         self.github_app_api = get_repository_github_app_api(
             config_=self.config, repository_name=self.repository_full_name
@@ -195,7 +194,6 @@ Available user actions:
             self.parent_committer = self.pull_request.user.login
             self.last_committer = self.last_commit.committer.login
             self.pull_request_branch = self.pull_request.base.ref
-            self.all_required_status_checks = self.get_all_required_status_checks()
 
             if self.jira_enabled_repository:
                 reviewers_and_approvers = self.reviewers + self.approvers
@@ -236,6 +234,9 @@ Available user actions:
             if self.github_event == "push":
                 self.process_push_webhook_data()
 
+            elif self.github_event == "check_run":
+                self.process_pull_request_check_run_webhook_data()
+
     @property
     def prepare_retest_wellcome_msg(self) -> str:
         retest_msg: str = ""
@@ -275,9 +276,9 @@ Available user actions:
     def prepare_log_prefix(self, pull_request: Optional[PullRequest] = None) -> str:
         self._set_log_prefix_color()
         return (
-            f"{self.log_prefix_with_color}({self.x_github_delivery})[PR {pull_request.number}]:"
+            f"{self.log_prefix_with_color}[{self.github_event}][{self.x_github_delivery}][PR {pull_request.number}]:"
             if pull_request
-            else f"{self.log_prefix_with_color}:({self.x_github_delivery})"
+            else f"{self.log_prefix_with_color}:[{self.github_event}][{self.x_github_delivery}]"
         )
 
     def hash_token(self, message: str) -> str:
@@ -295,24 +296,28 @@ Available user actions:
     def process_pull_request_check_run_webhook_data(self) -> None:
         _check_run: Dict[str, Any] = self.hook_data["check_run"]
         check_run_name: str = _check_run["name"]
+        check_run_status: str = _check_run["status"]
+        check_run_conclusion: str = _check_run["conclusion"]
+        check_run_head_sha: str = _check_run["head_sha"]
+        LOGGER.info(
+            f"{self.log_prefix} processing check_run - Name: {check_run_name} Status: {check_run_status} Conclusion: {check_run_conclusion}"
+        )
+
         if check_run_name == CAN_BE_MERGED_STR:
+            LOGGER.warning(f"{self.log_prefix} check run is {CAN_BE_MERGED_STR}, skipping")
             return
 
-        if (
-            self.hook_data["action"] == "completed"
-            and _check_run["conclusion"] == SUCCESS_STR
-            and check_run_name in self.all_required_status_checks
-        ):
-            LOGGER.info(f"{self.log_prefix} check_run '{check_run_name}' completed and {SUCCESS_STR}")
-            for _pull_request in self.repository.get_pulls(state="open"):
-                _last_commit = list(_pull_request.get_commits())[-1]
-                for _commit_check_run in _last_commit.get_check_runs():
-                    if _commit_check_run.id == int(_check_run["id"]):
-                        self.pull_request = _pull_request
-                        self.last_commit = self._get_last_commit()
-                        self.check_if_can_be_merged()
+        if getattr(self, "pull_request", None):
+            return self.check_if_can_be_merged()
 
-            LOGGER.warning(f"{self.log_prefix} No pull request found")
+        LOGGER.info(f"{self.log_prefix} No pull request found in hook data, searching for pull request by head sha")
+        for _pull_request in self.repository.get_pulls(state="open"):
+            if _pull_request.head.sha == check_run_head_sha:
+                self.pull_request = _pull_request
+                self.last_commit = self._get_last_commit()
+                return self.check_if_can_be_merged()
+
+        LOGGER.error(f"{self.log_prefix} No pull request found")
 
     def _repo_data_from_config(self) -> None:
         config_data = self.config.data  # Global repositories configuration
@@ -1390,6 +1395,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         Check if PR can be merged and set the job for it
 
         Check the following:
+            None of the required status checks in progress.
             Has verified label.
             Has approved from one of the approvers.
             All required run check passed.
@@ -1408,9 +1414,11 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         failure_output = ""
 
         try:
+            self.all_required_status_checks = self.get_all_required_status_checks()
             LOGGER.info(f"{self.log_prefix} Check if {CAN_BE_MERGED_STR}.")
             self.set_merge_check_queued()
             last_commit_check_runs = list(self.last_commit.get_check_runs())
+            LOGGER.info(f"{self.log_prefix} Check if any required check runs in progress.")
             check_runs_in_progress = [
                 check_run.name
                 for check_run in last_commit_check_runs
@@ -1870,6 +1878,9 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         return branch_protection.required_status_checks.contexts
 
     def get_all_required_status_checks(self) -> List[str]:
+        if not hasattr(self, "pull_request_branch"):
+            self.pull_request_branch = self.pull_request.base.ref
+
         all_required_status_checks: List[str] = []
         branch_required_status_checks = self.get_branch_required_status_checks()
         if self.tox_enabled:
@@ -1884,4 +1895,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         if self.pypi:
             all_required_status_checks.append(PYTHON_MODULE_INSTALL_STR)
 
-        return branch_required_status_checks + all_required_status_checks
+        _all_required_status_checks = branch_required_status_checks + all_required_status_checks
+        LOGGER.info(f"{self.log_prefix} All required status checks: {_all_required_status_checks}")
+        return _all_required_status_checks
