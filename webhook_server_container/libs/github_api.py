@@ -60,7 +60,6 @@ from webhook_server_container.utils.constants import (
     PRE_COMMIT_STR,
     OTHER_MAIN_BRANCH,
 )
-from pyhelper_utils.general import ignore_exceptions
 from webhook_server_container.utils.github_repository_settings import (
     get_repository_github_app_api,
 )
@@ -439,7 +438,6 @@ Available user actions:
 
         return False
 
-    @ignore_exceptions(logger=LOGGER)
     def _remove_label(self, label: str) -> bool:
         if self.label_exists_in_pull_request(label=label):
             LOGGER.info(f"{self.log_prefix} Removing label {label}")
@@ -449,7 +447,6 @@ Available user actions:
         LOGGER.warning(f"{self.log_prefix} Label {label} not found and cannot be removed")
         return False
 
-    @ignore_exceptions(logger=LOGGER)
     def _add_label(self, label: str) -> None:
         label = label.strip()
         if len(label) > 49:
@@ -504,7 +501,6 @@ Available user actions:
     def _generate_issue_body(self) -> str:
         return f"[Auto generated]\nNumber: [#{self.pull_request.number}]"
 
-    @ignore_exceptions(logger=LOGGER)
     def is_branch_exists(self, branch: str) -> Branch:
         return self.repository.get_branch(branch)
 
@@ -665,119 +661,93 @@ stderr: `{err}`
             label_func = self._remove_label if remove else self._add_label
             label_func(label=user_request)
 
-    @ignore_exceptions(logger=LOGGER)
     def set_verify_check_queued(self) -> None:
         return self.set_check_run_status(check_run=VERIFIED_LABEL_STR, status=QUEUED_STR)
 
-    @ignore_exceptions(logger=LOGGER)
     def set_verify_check_success(self) -> None:
         return self.set_check_run_status(check_run=VERIFIED_LABEL_STR, conclusion=SUCCESS_STR)
 
-    @ignore_exceptions(logger=LOGGER)
     def set_run_tox_check_queued(self) -> None:
         if not self.tox_enabled:
             return
 
         return self.set_check_run_status(check_run=TOX_STR, status=QUEUED_STR)
 
-    @ignore_exceptions(logger=LOGGER)
     def set_run_tox_check_in_progress(self) -> None:
         return self.set_check_run_status(check_run=TOX_STR, status=IN_PROGRESS_STR)
 
-    @ignore_exceptions(logger=LOGGER)
-    def set_run_tox_check_failure(self, output: str) -> None:
+    def set_run_tox_check_failure(self, output: Dict[str, Any]) -> None:
         return self.set_check_run_status(check_run=TOX_STR, conclusion=FAILURE_STR, output=output)
 
-    @ignore_exceptions(logger=LOGGER)
-    def set_run_tox_check_success(self, output: str) -> None:
+    def set_run_tox_check_success(self, output: Dict[str, Any]) -> None:
         return self.set_check_run_status(check_run=TOX_STR, conclusion=SUCCESS_STR, output=output)
 
-    @ignore_exceptions(logger=LOGGER)
     def set_run_pre_commit_check_queued(self) -> None:
         if not self.pre_commit:
             return
 
         return self.set_check_run_status(check_run=PRE_COMMIT_STR, status=QUEUED_STR)
 
-    @ignore_exceptions(logger=LOGGER)
     def set_run_pre_commit_check_in_progress(self) -> None:
         return self.set_check_run_status(check_run=PRE_COMMIT_STR, status=IN_PROGRESS_STR)
 
-    @ignore_exceptions(logger=LOGGER)
-    def set_run_pre_commit_check_failure(self, output: str = "") -> None:
+    def set_run_pre_commit_check_failure(self, output: Optional[Dict[str, Any]] = None) -> None:
         return self.set_check_run_status(check_run=PRE_COMMIT_STR, conclusion=FAILURE_STR, output=output)
 
-    @ignore_exceptions(logger=LOGGER)
-    def set_run_pre_commit_check_success(self, output: str = "") -> None:
+    def set_run_pre_commit_check_success(self, output: Optional[Dict[str, Any]] = None) -> None:
         return self.set_check_run_status(check_run=PRE_COMMIT_STR, conclusion=SUCCESS_STR, output=output)
 
-    @ignore_exceptions(logger=LOGGER)
-    def set_merge_check_queued(self, output: str = "") -> None:
+    def set_merge_check_queued(self, output: Optional[Dict[str, Any]] = None) -> None:
         return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, status=QUEUED_STR, output=output)
 
-    @ignore_exceptions(logger=LOGGER)
     def set_merge_check_in_progress(self) -> None:
         return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, status=IN_PROGRESS_STR)
 
-    @ignore_exceptions(logger=LOGGER)
     def set_merge_check_success(self) -> None:
         return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, conclusion=SUCCESS_STR)
 
-    @ignore_exceptions(logger=LOGGER)
-    def set_merge_check_failure(self, output: str) -> None:
+    def set_merge_check_failure(self, output: Dict[str, Any]) -> None:
         return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, conclusion=FAILURE_STR, output=output)
 
-    @ignore_exceptions(logger=LOGGER)
     def set_container_build_queued(self) -> None:
         if not self.build_and_push_container:
             return
 
         return self.set_check_run_status(check_run=BUILD_CONTAINER_STR, status=QUEUED_STR)
 
-    @ignore_exceptions(logger=LOGGER)
     def set_container_build_in_progress(self) -> None:
         return self.set_check_run_status(check_run=BUILD_CONTAINER_STR, status=IN_PROGRESS_STR)
 
-    @ignore_exceptions(logger=LOGGER)
-    def set_container_build_success(self, output: str) -> None:
+    def set_container_build_success(self, output: Dict[str, Any]) -> None:
         return self.set_check_run_status(check_run=BUILD_CONTAINER_STR, conclusion=SUCCESS_STR, output=output)
 
-    @ignore_exceptions(logger=LOGGER)
-    def set_container_build_failure(self, output: str) -> None:
+    def set_container_build_failure(self, output: Dict[str, Any]) -> None:
         return self.set_check_run_status(check_run=BUILD_CONTAINER_STR, conclusion=FAILURE_STR, output=output)
 
-    @ignore_exceptions(logger=LOGGER)
     def set_python_module_install_queued(self) -> None:
         if not self.pypi:
             return
 
         return self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, status=QUEUED_STR)
 
-    @ignore_exceptions(logger=LOGGER)
     def set_python_module_install_in_progress(self) -> None:
         return self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, status=IN_PROGRESS_STR)
 
-    @ignore_exceptions(logger=LOGGER)
-    def set_python_module_install_success(self, output: str) -> None:
+    def set_python_module_install_success(self, output: Dict[str, Any]) -> None:
         return self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, conclusion=SUCCESS_STR, output=output)
 
-    @ignore_exceptions(logger=LOGGER)
-    def set_python_module_install_failure(self, output: str) -> None:
+    def set_python_module_install_failure(self, output: Dict[str, Any]) -> None:
         return self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, conclusion=FAILURE_STR, output=output)
 
-    @ignore_exceptions(logger=LOGGER)
     def set_cherry_pick_in_progress(self) -> None:
         return self.set_check_run_status(check_run=CHERRY_PICKED_LABEL_PREFIX, status=IN_PROGRESS_STR)
 
-    @ignore_exceptions(logger=LOGGER)
-    def set_cherry_pick_success(self, output: str) -> None:
+    def set_cherry_pick_success(self, output: Dict[str, Any]) -> None:
         return self.set_check_run_status(check_run=CHERRY_PICKED_LABEL_PREFIX, conclusion=SUCCESS_STR, output=output)
 
-    @ignore_exceptions(logger=LOGGER)
-    def set_cherry_pick_failure(self, output: str) -> None:
+    def set_cherry_pick_failure(self, output: Dict[str, Any]) -> None:
         return self.set_check_run_status(check_run=CHERRY_PICKED_LABEL_PREFIX, conclusion=FAILURE_STR, output=output)
 
-    @ignore_exceptions(logger=LOGGER)
     def create_issue_for_new_pull_request(self) -> None:
         if self.parent_committer in self.auto_verified_and_merged_users:
             LOGGER.info(
@@ -793,7 +763,6 @@ stderr: `{err}`
             assignee=self.pull_request.user.login,
         )
 
-    @ignore_exceptions(logger=LOGGER)
     def close_issue_for_merged_or_closed_pr(self, hook_action: str) -> None:
         for issue in self.repository.get_issues():
             if issue.body == self._generate_issue_body():
@@ -804,7 +773,6 @@ stderr: `{err}`
                 issue.edit(state="closed")
                 break
 
-    @ignore_exceptions(logger=LOGGER)
     def delete_remote_tag_for_merged_or_closed_pr(self) -> None:
         if not self.build_and_push_container:
             LOGGER.info(f"{self.log_prefix} repository do not have container configured")
@@ -1058,8 +1026,8 @@ stderr: `{err}`
             f"Processing label for review from {reviewed_user}. "
             f"review_state: {review_state}, action: {action}"
         )
-        label_prefix = None
-        label_to_remove = None
+        label_prefix: str = ""
+        label_to_remove: str = ""
 
         if reviewed_user in self.approvers:
             approved_lgtm_label = APPROVED_BY_LABEL_PREFIX
@@ -1115,7 +1083,7 @@ stderr: `{err}`
         self.set_run_tox_check_in_progress()
         rc, out, err = self._run_in_container(command=cmd)
 
-        output = {
+        output: Dict[str, Any] = {
             "title": "Tox",
             "summary": "",
             "text": self.get_check_run_text(err=err, out=out),
@@ -1137,7 +1105,7 @@ stderr: `{err}`
         self.set_run_pre_commit_check_in_progress()
         rc, out, err = self._run_in_container(command=cmd)
 
-        output = {
+        output: Dict[str, Any] = {
             "title": "Pre-Commit",
             "summary": "",
             "text": self.get_check_run_text(err=err, out=out),
@@ -1300,7 +1268,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 issue_comment_id=issue_comment_id,
             )
 
-    @ignore_exceptions(logger=LOGGER)
     def cherry_pick(self, target_branch: str, reviewed_user: str = "") -> None:
         requested_by = reviewed_user or "by target-branch label"
         LOGGER.info(f"{self.log_prefix} Cherry-pick requested by user: {requested_by}")
@@ -1360,7 +1327,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     "```"
                 )
 
-    @ignore_exceptions(logger=LOGGER)
     def label_by_pull_requests_merge_state_after_merged(self) -> None:
         """
         Labels pull requests based on their mergeable state.
@@ -1552,7 +1518,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         LOGGER.error(f"{self.log_prefix} container tag not found")
         return f"{self.container_repository}:webhook-server-tag-not-found"
 
-    @ignore_exceptions(logger=LOGGER)
     def _run_build_container(
         self,
         set_check: bool = True,
@@ -1742,9 +1707,9 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         check_run: str,
         status: str = "",
         conclusion: str = "",
-        output: str = "",
+        output: Optional[Dict[str, str]] = None,
     ) -> None:
-        kwargs: Dict[str, str] = {"name": check_run, "head_sha": self.last_commit.sha}
+        kwargs: Dict[str, Any] = {"name": check_run, "head_sha": self.last_commit.sha}
 
         if status:
             kwargs["status"] = status
@@ -1832,7 +1797,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         else:
             return f"```\n{err}\n\n{out}\n```"
 
-    @ignore_exceptions(logger=LOGGER)
     def get_jira_conn(self) -> JiraApi:
         return JiraApi(
             server=self.jira_server,
@@ -1872,7 +1836,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 return ""
         return _story_key
 
-    @ignore_exceptions(logger=LOGGER, return_on_error=[])
     def get_branch_required_status_checks(self) -> List[str]:
         if self.repository.private:
             LOGGER.info(
