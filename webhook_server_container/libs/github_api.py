@@ -113,6 +113,8 @@ class ProcessGithubWehook:
         self.x_github_delivery: str = self.headers.get("X-GitHub-Delivery", "")
         self.github_event: str = self.headers["X-GitHub-Event"]
         self.log_prefix = self.prepare_log_prefix()
+        self.owners_content: Dict[str, Any] = {}
+
         self._repo_data_from_config()
 
         self.github_app_api = get_repository_github_app_api(
@@ -144,7 +146,6 @@ class ProcessGithubWehook:
         self.add_api_users_to_auto_verified_and_merged_users()
         self.clone_repository_path: str = os.path.join("/", self.repository.name)
 
-        self.owners_content = self.get_owners_content()
         self.supported_user_labels_str: str = "".join([f" * {label}\n" for label in USER_LABELS_DICT.keys()])
         self.welcome_msg: str = f"""
 Report bugs in [Issues](https://github.com/myakove/github-webhook-server/issues)
@@ -193,10 +194,10 @@ Available user actions:
             self.pull_request = self._get_pull_request()
             self.log_prefix = self.prepare_log_prefix(pull_request=self.pull_request)
             LOGGER.info(f"{self.log_prefix} {event_log}")
-
+            self.owners_content = self.get_owners_content()
             self.last_commit = self._get_last_commit()
             self.parent_committer = self.pull_request.user.login
-            self.last_committer = self.last_commit.committer.login
+            self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
             self.pull_request_branch = self.pull_request.base.ref
 
             if self.jira_enabled_repository:
@@ -234,7 +235,9 @@ Available user actions:
                 self.process_pull_request_check_run_webhook_data()
 
         except NoPullRequestError:
-            LOGGER.info(f"{self.log_prefix} {event_log}")
+            LOGGER.info(f"{self.log_prefix} {event_log}. [No pull request found in hook data]")
+            self.owners_content = self.get_owners_content()
+
             if self.github_event == "push":
                 self.process_push_webhook_data()
 
