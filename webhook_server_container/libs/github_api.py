@@ -288,8 +288,11 @@ Available user actions:
         )
 
     def hash_token(self, message: str) -> str:
-        hashed_message = message.replace(self.token, "*****")
-        return hashed_message
+        if self.token:
+            hashed_message = message.replace(self.token, "*****")
+            return hashed_message
+
+        return message
 
     def app_logger_info(self, message: str) -> None:
         hashed_message = self.hash_token(message=message)
@@ -867,14 +870,19 @@ stderr: `{err}`
                     LOGGER.error(f"{self.log_prefix} Jira connection not found")
 
                 else:
-                    LOGGER.info(f"{self.log_prefix} Creating Jira story")
-                    jira_story_key = jira_conn.create_story(
-                        title=self.issue_title,
-                        body=self.pull_request.html_url,
-                        epic_key=self.jira_epic,
-                        assignee=self.jira_assignee,
-                    )
-                    self._add_label(label=f"{JIRA_STR}:{jira_story_key}")
+                    if self.jira_epic and self.jira_assignee:
+                        LOGGER.info(f"{self.log_prefix} Creating Jira story")
+                        jira_story_key = jira_conn.create_story(
+                            title=self.issue_title,
+                            body=self.pull_request.html_url,
+                            epic_key=self.jira_epic,
+                            assignee=self.jira_assignee,
+                        )
+                        self._add_label(label=f"{JIRA_STR}:{jira_story_key}")
+                    else:
+                        LOGGER.warning(
+                            f"{self.log_prefix} Jira epic or assignee is not set. Skipping Jira story creation"
+                        )
 
         if hook_action == "synchronize":
             for _label in self.pull_request.labels:
@@ -895,13 +903,17 @@ stderr: `{err}`
 
                 else:
                     if _story_key := self.get_story_key_with_jira_connection():
-                        LOGGER.info(f"{self.log_prefix} Creating sub-task for Jira story {_story_key}")
-                        jira_conn.create_closed_subtask(
-                            title=f"{self.issue_title}: New commit from {self.last_committer}",
-                            parent_key=_story_key,
-                            assignee=self.jira_assignee,
-                            body=f"PR: {self.pull_request.title}, new commit pushed by {self.last_committer}",
-                        )
+                        if not self.jira_assignee:
+                            LOGGER.warning(f"{self.log_prefix} Jira assignee is not set. Skipping sub-task creation")
+
+                        else:
+                            LOGGER.info(f"{self.log_prefix} Creating sub-task for Jira story {_story_key}")
+                            jira_conn.create_closed_subtask(
+                                title=f"{self.issue_title}: New commit from {self.last_committer}",
+                                parent_key=_story_key,
+                                assignee=self.jira_assignee,
+                                body=f"PR: {self.pull_request.title}, new commit pushed by {self.last_committer}",
+                            )
 
         if hook_action == "closed":
             self.close_issue_for_merged_or_closed_pr(hook_action=hook_action)
