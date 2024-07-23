@@ -260,7 +260,7 @@ Available user actions:
 
     def _get_reposiroty_color_for_log_prefix(self) -> str:
         _all_colors: List[str] = []
-        _colors_to_exclude = ("white", "black", "grey")
+        _colors_to_exclude = ("blue", "white", "black", "grey")
         for _color_name in cs.colors.values():
             _cname = _color_name["name"]
             if _cname.lower() in _colors_to_exclude:
