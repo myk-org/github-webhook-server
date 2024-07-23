@@ -277,7 +277,11 @@ Available user actions:
         with open(color_file, "w") as fd:
             json.dump(color_json, fd)
 
-        return cs(f"{self.repository_name}", color)
+        _str_color = cs(f"{self.repository_name}", color).render()
+        if _str_color:
+            return _str_color
+
+        return self.repository_name
 
     def prepare_log_prefix(self, pull_request: Optional[PullRequest] = None) -> str:
         _color = self._set_log_prefix_color()
