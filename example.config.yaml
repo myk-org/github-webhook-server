@@ -1,3 +1,6 @@
+log-level: INFO # Set global log level, change take effect immediately without server restart
+log-file: webhook-server.log # Set global log file, change take effect immediately without server restart
+
 github-app-id: 123456 # GitHub app id
 github-toekns:
   - <GITHIB TOKEN1>
@@ -28,6 +31,8 @@ jira:
 repositories:
   my-repository:
     name: my-org/my-repository
+    log-level: DEBUG # Override global log-level for repository
+    log-file: my-repository.log # Override global log-file for repository
     slack_webhook_url: <Slack webhook url> # Send notification to slack on several operations
     verified_job: true
     pypi:

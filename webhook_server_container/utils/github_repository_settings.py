@@ -11,7 +11,6 @@ from github.Label import Label
 from github.Commit import Commit
 from github.Auth import AppAuth
 from github.GithubException import UnknownObjectException
-from simple_logger.logger import get_logger
 
 from webhook_server_container.libs.config import Config
 from webhook_server_container.utils.constants import (
@@ -28,13 +27,10 @@ from webhook_server_container.utils.helpers import (
     get_api_with_highest_rate_limit,
     get_future_results,
     get_github_repo_api,
+    get_logger_with_params,
 )
 
-
-LOGGER = get_logger(
-    name="github-repository-settings",
-    filename=os.environ.get("WEBHOOK_SERVER_LOG_FILE"),
-)
+LOGGER = get_logger_with_params(name="github-repository-settings")
 
 
 def get_branch_sampler(repo: Repository, branch_name: str) -> Branch:
@@ -48,7 +44,7 @@ def set_branch_protection(
     github_api: Github,
 ) -> bool:
     api_user = github_api.get_user().login
-    LOGGER.info(f"Set repository {repository.name} {branch} settings. enabled checks: {required_status_checks}")
+    LOGGER.info(f"Set branch {branch} setting for {repository.name}. enabled checks: {required_status_checks}")
     branch.edit_protection(
         strict=True,
         required_conversation_resolution=True,
@@ -69,12 +65,11 @@ def set_repository_settings(repository: Repository) -> None:
     LOGGER.info(f"Set repository {repository.name} settings")
     repository.edit(delete_branch_on_merge=True, allow_auto_merge=True, allow_update_branch=True)
 
-    LOGGER.info(f"Set repository {repository.name} security settings")
-
     if repository.private:
         LOGGER.warning(f"{repository.name}: Repository is private, skipping setting security settings")
         return
 
+    LOGGER.info(f"Set repository {repository.name} security settings")
     repository._requester.requestJsonAndCheck(
         "PATCH",
         f"{repository.url}/code-scanning/default-setup",
@@ -148,10 +143,10 @@ def set_repository_labels(repository: Repository) -> str:
             if repository_labels[label_lower]["color"] == color:
                 continue
             else:
-                LOGGER.info(f"{repository.name}: Edit repository label {label} with color {color}")
+                LOGGER.debug(f"{repository.name}: Edit repository label {label} with color {color}")
                 repo_label.edit(name=repo_label.name, color=color)
         else:
-            LOGGER.info(f"{repository.name}: Add repository label {label} with color {color}")
+            LOGGER.debug(f"{repository.name}: Add repository label {label} with color {color}")
             repository.create_label(name=label, color=color)
 
     return f"{repository}: Setting repository labels is done"
@@ -206,7 +201,7 @@ def set_repository(
 
         with ThreadPoolExecutor() as executor:
             for branch_name, status_checks in protected_branches.items():
-                LOGGER.info(f"{repository}: Getting branch {branch_name}")
+                LOGGER.debug(f"{repository}: Getting branch {branch_name}")
                 branch = get_branch_sampler(repo=repo, branch_name=branch_name)
                 if not branch:
                     LOGGER.error(f"{repository}: Failed to get branch {branch_name}")
@@ -295,11 +290,11 @@ def set_repository_check_runs_to_queued(
                 )
                 app_api.create_check_run(name=check_run.name, head_sha=last_commit.sha, status=QUEUED_STR)
 
-    return True, f"{repository}: Set check run status to {QUEUED_STR} is done", LOGGER.info
+    return True, f"{repository}: Set check run status to {QUEUED_STR} is done", LOGGER.debug
 
 
 def get_repository_github_app_api(config_: Config, repository_name: str) -> Optional[Github]:
-    LOGGER.info("Getting repositories GitHub app API")
+    LOGGER.debug("Getting repositories GitHub app API")
     with open(os.path.join(config_.data_dir, "webhook-server.private-key.pem")) as fd:
         private_key = fd.read()
 
@@ -322,8 +317,12 @@ def get_repository_github_app_api(config_: Config, repository_name: str) -> Opti
 if __name__ == "__main__":
     config = Config()
     api, _ = get_api_with_highest_rate_limit(config=config)
-    set_repositories_settings(config_=config, github_api=api)
-    set_all_in_progress_check_runs_to_queued(
-        config_=config,
-        github_api=api,
-    )
+    if api:
+        set_repositories_settings(config_=config, github_api=api)
+        set_all_in_progress_check_runs_to_queued(
+            config_=config,
+            github_api=api,
+        )
+
+    else:
+        LOGGER.error("Failed to get GitHub API")

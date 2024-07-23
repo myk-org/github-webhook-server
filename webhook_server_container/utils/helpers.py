@@ -1,6 +1,6 @@
 from __future__ import annotations
 import datetime
-import os
+from logging import Logger
 import shlex
 import subprocess
 from concurrent.futures import Future, as_completed
@@ -13,7 +13,37 @@ from simple_logger.logger import get_logger
 
 from webhook_server_container.libs.config import Config
 
-LOGGER = get_logger(name="helpers", filename=os.environ.get("WEBHOOK_SERVER_LOG_FILE"))
+
+def get_value_from_dicts(
+    primary_dict: Dict[Any, Any],
+    secondary_dict: Dict[Any, Any],
+    key: str,
+    return_on_none: Optional[Any] = None,
+) -> Any:
+    """
+    Get value from two dictionaries.
+
+    If value is not found in primary_dict, try to get it from secondary_dict, otherwise return return_on_none.
+    """
+    return primary_dict.get(key, secondary_dict.get(key, return_on_none))
+
+
+def get_logger_with_params(name: str, repository_name: Optional[str] = "") -> Logger:
+    _config = Config()
+    config_data = _config.data  # Global repositories configuration
+    repo_data: Dict[str, Any] = {}
+
+    if repository_name:
+        repo_data = _config.repository_data(repository_name=repository_name)  # Specific repository configuration
+
+    log_level: str = get_value_from_dicts(
+        primary_dict=repo_data, secondary_dict=config_data, key="log-level", return_on_none="INFO"
+    )
+    log_file: str = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="log-file")
+    return get_logger(name=name, filename=log_file, level=log_level)
+
+
+LOGGER = get_logger_with_params(name="helpers")
 
 
 def extract_key_from_dict(key: Any, _dict: Dict[Any, Any]) -> Any:
@@ -63,7 +93,7 @@ def run_command(
     out_decoded: str = ""
     err_decoded: str = ""
     try:
-        LOGGER.info(f"{log_prefix} Running '{command}' command")
+        LOGGER.debug(f"{log_prefix} Running '{command}' command")
         sub_process = subprocess.run(
             shlex.split(command),
             capture_output=capture_output,
@@ -100,7 +130,7 @@ def get_apis_and_tokes_from_config(config: Config, repository_name: str = "") ->
     apis_and_tokens: List[Tuple[Github, str]] = []
 
     tokens = get_value_from_dicts(
-        primary_dict=config.get_repository(repository_name=repository_name),
+        primary_dict=config.repository_data(repository_name=repository_name),
         secondary_dict=config.data,
         key="github-tokens",
         return_on_none=[],
@@ -136,7 +166,7 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
         rate_limit = _api.get_rate_limit()
         if rate_limit.core.remaining > remaining:
             remaining = rate_limit.core.remaining
-            LOGGER.info(f"API user {_api_user} remaining rate limit: {remaining}")
+            LOGGER.debug(f"API user {_api_user} remaining rate limit: {remaining}")
             api, token = _api, _token
 
     if rate_limit:
@@ -149,8 +179,9 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
 def log_rate_limit(rate_limit: RateLimit, api_user: str) -> None:
     rate_limit_str: str
     time_for_limit_reset: int = (rate_limit.core.reset - datetime.datetime.now(tz=datetime.timezone.utc)).seconds
+    below_minimum: bool = rate_limit.core.remaining < 700
 
-    if rate_limit.core.remaining < 700:
+    if below_minimum:
         rate_limit_str = f"{Fore.RED}{rate_limit.core.remaining}{Fore.RESET}"
 
     elif rate_limit.core.remaining < 2000:
@@ -159,25 +190,14 @@ def log_rate_limit(rate_limit: RateLimit, api_user: str) -> None:
     else:
         rate_limit_str = f"{Fore.GREEN}{rate_limit.core.remaining}{Fore.RESET}"
 
-    LOGGER.info(
+    msg = (
         f"{Fore.CYAN}[{api_user}] API rate limit:{Fore.RESET} Current {rate_limit_str} of {rate_limit.core.limit}. "
         f"Reset in {rate_limit.core.reset} [{datetime.timedelta(seconds=time_for_limit_reset)}] "
         f"(UTC time is {datetime.datetime.now(tz=datetime.timezone.utc)})"
     )
-
-
-def get_value_from_dicts(
-    primary_dict: Dict[Any, Any],
-    secondary_dict: Dict[Any, Any],
-    key: str,
-    return_on_none: Optional[Any] = None,
-) -> Any:
-    """
-    Get value from two dictionaries.
-
-    If value is not found in primary_dict, try to get it from secondary_dict, otherwise return return_on_none.
-    """
-    return primary_dict.get(key, secondary_dict.get(key, return_on_none))
+    LOGGER.debug(msg)
+    if below_minimum:
+        LOGGER.warning(msg)
 
 
 def get_future_results(futures: List["Future"]) -> None:

@@ -1,9 +1,6 @@
 from typing import Dict
 
-from fastapi import FastAPI
 
-
-FASTAPI_APP: FastAPI = FastAPI(title="webhook-server")
 OTHER_MAIN_BRANCH: str = "master"
 TOX_STR: str = "tox"
 PRE_COMMIT_STR: str = "pre-commit"
