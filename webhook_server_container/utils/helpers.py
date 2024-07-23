@@ -14,9 +14,6 @@ from simple_logger.logger import get_logger
 from webhook_server_container.libs.config import Config
 
 
-CONFIG = Config()
-
-
 def get_value_from_dicts(
     primary_dict: Dict[Any, Any],
     secondary_dict: Dict[Any, Any],
@@ -32,11 +29,12 @@ def get_value_from_dicts(
 
 
 def get_logger_with_params(name: str, repository_name: Optional[str] = "") -> Logger:
-    config_data = CONFIG.data  # Global repositories configuration
+    _config = Config()
+    config_data = _config.data  # Global repositories configuration
     repo_data: Dict[str, Any] = {}
 
     if repository_name:
-        repo_data = CONFIG.repository_data(repository_name=repository_name)  # Specific repository configuration
+        repo_data = _config.repository_data(repository_name=repository_name)  # Specific repository configuration
 
     log_level: str = get_value_from_dicts(
         primary_dict=repo_data, secondary_dict=config_data, key="log-level", return_on_none="INFO"
