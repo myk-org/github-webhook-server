@@ -298,7 +298,11 @@ Available user actions:
         with open(color_file, "w") as fd:
             json.dump(color_json, fd)
 
-        return _str_color or self.repository_name
+        if _str_color:
+            _str_color = _str_color.replace("\x1b", "\033")
+            return _str_color
+
+        return self.repository_name
 
     def prepare_log_prefix(self, pull_request: Optional[PullRequest] = None) -> str:
         _repository_color = self._get_reposiroty_color_for_log_prefix()
