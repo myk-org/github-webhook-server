@@ -8,6 +8,7 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
+from stringcolors import cs
 
 from fastapi import FastAPI
 from github.Branch import Branch
@@ -258,26 +259,25 @@ Available user actions:
         self.auto_verified_and_merged_users.extend([_api[0].get_user().login for _api in apis_and_tokens])
 
     def _set_log_prefix_color(self) -> str:
-        repo_str: str = "\033[1;{color}m{name}\033[1;0m"
+        _all_colors = [_color["name"] for _color in cs.colors.values()]
         color_file: str = "/tmp/color.json"
-        color_json: Dict[str, int]
+        color_json: Dict[str, str]
         try:
             with open(color_file) as fd:
                 color_json = json.load(fd)
+
         except Exception:
             color_json = {}
 
-        color: int = color_json.get(self.repository_name, 0)
+        color: str = color_json.get(self.repository_name, "")
         if not color:
-            color = random.choice(range(31, 39))
+            color = random.choice(_all_colors)
             color_json[self.repository_name] = color
-
-        log_prefix_with_color = repo_str.format(color=color, name=self.repository_name)
 
         with open(color_file, "w") as fd:
             json.dump(color_json, fd)
 
-        return log_prefix_with_color
+        return cs(f"{self.repository_name}", color)
 
     def prepare_log_prefix(self, pull_request: Optional[PullRequest] = None) -> str:
         _color = self._set_log_prefix_color()
@@ -1362,7 +1362,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             time.sleep(_sleep)
 
         merge_state = self.pull_request.mergeable_state
-        self.logger.info(f"{self.log_prefix} Mergeable state is {merge_state}")
+        self.logger.debug(f"{self.log_prefix} Mergeable state is {merge_state}")
         if merge_state == "unknown":
             return
 
@@ -1527,7 +1527,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     tag = f"pr-{self.pull_request.number}"
 
         if tag:
-            self.logger.info(f"{self.log_prefix} container tag is: {tag}")
+            self.logger.debug(f"{self.log_prefix} container tag is: {tag}")
             return f"{self.container_repository}:{tag}"
 
         self.logger.error(f"{self.log_prefix} container tag not found")
