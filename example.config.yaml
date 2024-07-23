@@ -1,5 +1,5 @@
-log-level: INFO # Set global log level
-log-file: webhook-server.log # Set global log file
+log-level: INFO # Set global log level, change take effect immediately without server restart
+log-file: webhook-server.log # Set global log file, change take effect immediately without server restart
 
 github-app-id: 123456 # GitHub app id
 github-toekns:
