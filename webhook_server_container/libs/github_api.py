@@ -258,9 +258,9 @@ Available user actions:
         apis_and_tokens = get_apis_and_tokes_from_config(config=self.config, repository_name=self.repository_name)
         self.auto_verified_and_merged_users.extend([_api[0].get_user().login for _api in apis_and_tokens])
 
-    def _set_log_prefix_color(self) -> str:
+    def _get_reposiroty_color_for_log_prefix(self) -> str:
         _all_colors = [_color["name"] for _color in cs.colors.values()]
-        color_file: str = "/tmp/color.json"
+        color_file: str = os.path.join(self.config.data_dir, "log-colors.json")
         color_json: Dict[str, str]
         try:
             with open(color_file) as fd:
@@ -277,19 +277,16 @@ Available user actions:
         with open(color_file, "w") as fd:
             json.dump(color_json, fd)
 
-        _str_color = cs(f"{self.repository_name}", color).render()
-        if _str_color:
-            return _str_color
-
-        return self.repository_name
+        _str_color = cs(self.repository_name, color).render()
+        return _str_color if _str_color else self.repository_name
 
     def prepare_log_prefix(self, pull_request: Optional[PullRequest] = None) -> str:
-        _color = self._set_log_prefix_color()
+        _repository_color = self._get_reposiroty_color_for_log_prefix()
         _id = self.x_github_delivery.split("-", 1)[-1]
         return (
-            f"{_color}[{self.github_event}][{_id}][PR {pull_request.number}]:"
+            f"{_repository_color}[{self.github_event}][{_id}][PR {pull_request.number}]:"
             if pull_request
-            else f"{_color}:[{self.github_event}][{_id}]:"
+            else f"{_repository_color}[{self.github_event}][{_id}]:"
         )
 
     def process_pull_request_check_run_webhook_data(self) -> None:
