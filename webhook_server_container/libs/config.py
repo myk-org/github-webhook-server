@@ -19,5 +19,5 @@ class Config:
         with open(self.config_path) as fd:
             return yaml.safe_load(fd)
 
-    def get_repository(self, repository_name: str) -> Dict[str, Any]:
+    def repository_data(self, repository_name: str) -> Dict[str, Any]:
         return self.data["repositories"].get(repository_name, {})

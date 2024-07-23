@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 from stringcolor import cs
 
-from fastapi import FastAPI
 from github.Branch import Branch
 from github.ContentFile import ContentFile
 import requests
@@ -39,7 +38,6 @@ from webhook_server_container.utils.constants import (
     DELETE_STR,
     DYNAMIC_LABELS_DICT,
     FAILURE_STR,
-    FASTAPI_APP,
     HAS_CONFLICTS_LABEL_STR,
     HOLD_LABEL_STR,
     IN_PROGRESS_STR,
@@ -92,7 +90,6 @@ class ProcessGithubWehookError(Exception):
 
 class ProcessGithubWehook:
     def __init__(self, hook_data: Dict[Any, Any], headers: Headers) -> None:
-        self.app: FastAPI = FASTAPI_APP
         self.hook_data = hook_data
         self.headers = headers
         self.repository_name: str = hook_data["repository"]["name"]
@@ -259,8 +256,20 @@ Available user actions:
         self.auto_verified_and_merged_users.extend([_api[0].get_user().login for _api in apis_and_tokens])
 
     def _get_reposiroty_color_for_log_prefix(self) -> str:
+        def _get_random_color(_colors: List[str], _json: Dict[str, str]) -> str:
+            color = random.choice(_colors)
+            _json[self.repository_name] = color
+
+            if _selected := cs(self.repository_name, color).render():
+                return _selected
+
+            return self.repository_name
+
         _all_colors: List[str] = []
+        color_json: Dict[str, str]
         _colors_to_exclude = ("blue", "white", "black", "grey")
+        color_file: str = os.path.join(self.config.data_dir, "log-colors.json")
+
         for _color_name in cs.colors.values():
             _cname = _color_name["name"]
             if _cname.lower() in _colors_to_exclude:
@@ -268,8 +277,6 @@ Available user actions:
 
             _all_colors.append(_cname)
 
-        color_file: str = os.path.join(self.config.data_dir, "log-colors.json")
-        color_json: Dict[str, str]
         try:
             with open(color_file) as fd:
                 color_json = json.load(fd)
@@ -277,16 +284,21 @@ Available user actions:
         except Exception:
             color_json = {}
 
-        color: str = color_json.get(self.repository_name, "")
-        if not color:
-            color = random.choice(_all_colors)
-            color_json[self.repository_name] = color
+        if color := color_json.get(self.repository_name, ""):
+            _cs_object = cs(self.repository_name, color)
+            if cs.find_color(_cs_object):
+                _str_color = _cs_object.render()
+
+            else:
+                _str_color = _get_random_color(_colors=_all_colors, _json=color_json)
+
+        else:
+            _str_color = _get_random_color(_colors=_all_colors, _json=color_json)
 
         with open(color_file, "w") as fd:
             json.dump(color_json, fd)
 
-        _str_color = cs(self.repository_name, color).render()
-        return _str_color if _str_color else self.repository_name
+        return _str_color or self.repository_name
 
     def prepare_log_prefix(self, pull_request: Optional[PullRequest] = None) -> str:
         _repository_color = self._get_reposiroty_color_for_log_prefix()
@@ -327,7 +339,7 @@ Available user actions:
 
     def _repo_data_from_config(self) -> None:
         config_data = self.config.data  # Global repositories configuration
-        repo_data = self.config.get_repository(
+        repo_data = self.config.repository_data(
             repository_name=self.repository_name
         )  # Specific repository configuration
 

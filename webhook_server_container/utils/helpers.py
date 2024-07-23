@@ -33,15 +33,15 @@ def get_value_from_dicts(
 
 def get_logger_with_params(name: str, repository_name: Optional[str] = "") -> Logger:
     config_data = CONFIG.data  # Global repositories configuration
-    if repository_name:
-        repo_data = CONFIG.get_repository(repository_name=repository_name)  # Specific repository configuration
-    else:
-        repo_data = {}
+    repo_data: Dict[str, Any] = {}
 
-    log_level = get_value_from_dicts(
+    if repository_name:
+        repo_data = CONFIG.repository_data(repository_name=repository_name)  # Specific repository configuration
+
+    log_level: str = get_value_from_dicts(
         primary_dict=repo_data, secondary_dict=config_data, key="log-level", return_on_none="INFO"
     )
-    log_file = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="log-file")
+    log_file: str = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="log-file")
     return get_logger(name=name, filename=log_file, level=log_level)
 
 
@@ -132,7 +132,7 @@ def get_apis_and_tokes_from_config(config: Config, repository_name: str = "") ->
     apis_and_tokens: List[Tuple[Github, str]] = []
 
     tokens = get_value_from_dicts(
-        primary_dict=config.get_repository(repository_name=repository_name),
+        primary_dict=config.repository_data(repository_name=repository_name),
         secondary_dict=config.data,
         key="github-tokens",
         return_on_none=[],
