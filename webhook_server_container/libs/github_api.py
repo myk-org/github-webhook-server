@@ -577,7 +577,7 @@ stderr: `{err}`
         else:
             _reviewers = bc_reviewers
 
-        self.logger.info(f"{self.log_prefix} Reviewers: {_reviewers}")
+        self.logger.debug(f"{self.log_prefix} Reviewers: {_reviewers}")
         return _reviewers
 
     @property
@@ -616,7 +616,7 @@ stderr: `{err}`
                 reviewers_to_add.extend(_folder_reviewers)
 
         _to_add: List[str] = list(set(reviewers_to_add))
-        self.logger.info(f"{self.log_prefix} Reviewers to add: {', '.join(_to_add)}")
+        self.logger.debug(f"{self.log_prefix} Reviewers to add: {', '.join(_to_add)}")
         for reviewer in _to_add:
             if reviewer != self.pull_request.user.login:
                 self.logger.debug(f"{self.log_prefix} Adding reviewer {reviewer}")
