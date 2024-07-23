@@ -884,12 +884,17 @@ stderr: `{err}`
         self.parent_committer = pull_request_data["user"]["login"]
         self.pull_request_branch = pull_request_data["base"]["ref"]
 
+        if hook_action == "edited":
+            self.set_wip_label_based_on_title()
+
         if hook_action == "opened":
             self.logger.info(f"{self.log_prefix} Creating welcome comment")
             self.pull_request.create_issue_comment(self.welcome_msg)
             self.create_issue_for_new_pull_request()
 
             self.process_opened_or_synchronize_pull_request()
+
+            self.set_wip_label_based_on_title()
 
             if self.jira_track_pr:
                 jira_conn = self.get_jira_conn()
@@ -1902,3 +1907,10 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         _all_required_status_checks = branch_required_status_checks + all_required_status_checks
         self.logger.debug(f"{self.log_prefix} All required status checks: {_all_required_status_checks}")
         return _all_required_status_checks
+
+    def set_wip_label_based_on_title(self) -> None:
+        if self.pull_request.title.lower().startswith("{WIP_STR}:"):
+            self._add_label(label=WIP_STR)
+
+        else:
+            self._remove_label(label=WIP_STR)
