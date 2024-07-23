@@ -35,11 +35,6 @@ async def process_webhook(request: Request) -> Dict[str, Any]:
         LOGGER.error(f"Error get JSON from request: {ex}")
         return process_failed_msg
 
-    try:
-        api: ProcessGithubWehook = ProcessGithubWehook(hook_data=hook_data, headers=request.headers)
-        api.process()
-        return {"status": requests.codes.ok, "message": "process success", "log_prefix": log_prefix}
-
-    except Exception as ex:
-        LOGGER.error(f"Failed to process hook: {ex}")
-        return process_failed_msg
+    api: ProcessGithubWehook = ProcessGithubWehook(hook_data=hook_data, headers=request.headers)
+    api.process()
+    return {"status": requests.codes.ok, "message": "process success", "log_prefix": log_prefix}

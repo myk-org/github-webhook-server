@@ -12,13 +12,11 @@ from webhook_server_container.utils.helpers import (
     get_future_results,
     get_github_repo_api,
 )
-from pyhelper_utils.general import ignore_exceptions
 
 
 LOGGER = get_logger(name="webhook", filename=os.environ.get("WEBHOOK_SERVER_LOG_FILE"))
 
 
-@ignore_exceptions(logger=LOGGER)
 def process_github_webhook(data: Dict[str, Any], github_api: Github, webhook_ip: str) -> Tuple[bool, str, Callable]:
     repository: str = data["name"]
     repo = get_github_repo_api(github_api=github_api, repository=repository)

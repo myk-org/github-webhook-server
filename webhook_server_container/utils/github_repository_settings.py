@@ -24,7 +24,6 @@ from webhook_server_container.utils.constants import (
     STATIC_LABELS_DICT,
     TOX_STR,
 )
-from pyhelper_utils.general import ignore_exceptions
 from webhook_server_container.utils.helpers import (
     get_api_with_highest_rate_limit,
     get_future_results,
@@ -38,12 +37,10 @@ LOGGER = get_logger(
 )
 
 
-@ignore_exceptions(logger=LOGGER)
 def get_branch_sampler(repo: Repository, branch_name: str) -> Branch:
     return repo.get_branch(branch=branch_name)
 
 
-@ignore_exceptions(logger=LOGGER)
 def set_branch_protection(
     branch: Branch,
     repository: Repository,
@@ -68,7 +65,6 @@ def set_branch_protection(
     return True
 
 
-@ignore_exceptions(logger=LOGGER)
 def set_repository_settings(repository: Repository) -> None:
     LOGGER.info(f"Set repository {repository.name} settings")
     repository.edit(delete_branch_on_merge=True, allow_auto_merge=True, allow_update_branch=True)
@@ -302,7 +298,6 @@ def set_repository_check_runs_to_queued(
     return True, f"{repository}: Set check run status to {QUEUED_STR} is done", LOGGER.info
 
 
-@ignore_exceptions(logger=LOGGER)
 def get_repository_github_app_api(config_: Config, repository_name: str) -> Optional[Github]:
     LOGGER.info("Getting repositories GitHub app API")
     with open(os.path.join(config_.data_dir, "webhook-server.private-key.pem")) as fd:

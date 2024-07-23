@@ -5,7 +5,6 @@ import shlex
 import subprocess
 from concurrent.futures import Future, as_completed
 from typing import Any, Dict, List, Optional, Tuple
-from pyhelper_utils.general import ignore_exceptions
 from colorama import Fore
 from github import Github
 from github.RateLimit import RateLimit
@@ -31,7 +30,6 @@ def extract_key_from_dict(key: Any, _dict: Dict[Any, Any]) -> Any:
                         yield result
 
 
-@ignore_exceptions(logger=LOGGER)
 def get_github_repo_api(github_api: Github, repository: int | str) -> Repository:
     return github_api.get_repo(repository)
 
@@ -114,7 +112,6 @@ def get_apis_and_tokes_from_config(config: Config, repository_name: str = "") ->
     return apis_and_tokens
 
 
-@ignore_exceptions(logger=LOGGER)
 def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -> Tuple[Github | None, str | None]:
     """
     Get API with the highest rate limit
