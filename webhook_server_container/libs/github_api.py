@@ -293,18 +293,18 @@ Available user actions:
         check_run_status: str = _check_run["status"]
         check_run_conclusion: str = _check_run["conclusion"]
         check_run_head_sha: str = _check_run["head_sha"]
-        self.logger.info(
+        self.logger.debug(
             f"{self.log_prefix} processing check_run - Name: {check_run_name} Status: {check_run_status} Conclusion: {check_run_conclusion}"
         )
 
         if check_run_name == CAN_BE_MERGED_STR:
-            self.logger.warning(f"{self.log_prefix} check run is {CAN_BE_MERGED_STR}, skipping")
+            self.logger.debug(f"{self.log_prefix} check run is {CAN_BE_MERGED_STR}, skipping")
             return
 
         if getattr(self, "pull_request", None):
             return self.check_if_can_be_merged()
 
-        self.logger.info(
+        self.logger.debug(
             f"{self.log_prefix} No pull request found in hook data, searching for pull request by head sha"
         )
         for _pull_request in self.repository.get_pulls(state="open"):
@@ -1091,7 +1091,7 @@ stderr: `{err}`
             return
 
         if self.is_check_run_in_progress(check_run=TOX_STR):
-            self.logger.info(f"{self.log_prefix} Check run is in progress, not running {TOX_STR}.")
+            self.logger.debug(f"{self.log_prefix} Check run is in progress, not running {TOX_STR}.")
             return
 
         cmd = f"{self.tox_python_version} -m {TOX_STR}"
@@ -1117,7 +1117,7 @@ stderr: `{err}`
             return
 
         if self.is_check_run_in_progress(check_run=PRE_COMMIT_STR):
-            self.logger.info(f"{self.log_prefix} Check run is in progress, not running {PRE_COMMIT_STR}.")
+            self.logger.debug(f"{self.log_prefix} Check run is in progress, not running {PRE_COMMIT_STR}.")
             return
 
         cmd = f"{PRE_COMMIT_STR} run --all-files"
@@ -1748,10 +1748,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         except Exception as ex:
             self.logger.debug(f"{self.log_prefix} Failed to set {check_run} check to {status or conclusion}, {ex}")
             kwargs["conclusion"] = FAILURE_STR
-
-            self.logger.info(
-                f"{self.log_prefix} Check run {check_run}, status: {FAILURE_STR}, output: {kwargs.get('output')}"
-            )
             self.repository_by_github_app.create_check_run(**kwargs)
 
     def _run_in_container(
