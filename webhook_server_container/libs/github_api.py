@@ -281,10 +281,11 @@ Available user actions:
 
     def prepare_log_prefix(self, pull_request: Optional[PullRequest] = None) -> str:
         _color = self._set_log_prefix_color()
+        _id = self.x_github_delivery.split("-", 1)[-1]
         return (
-            f"{_color}[{self.github_event}][{self.x_github_delivery}][PR {pull_request.number}]:"
+            f"{_color}[{self.github_event}][{_id}][PR {pull_request.number}]:"
             if pull_request
-            else f"{_color}:[{self.github_event}][{self.x_github_delivery}]"
+            else f"{_color}:[{self.github_event}][{_id}]:"
         )
 
     def process_pull_request_check_run_webhook_data(self) -> None:
@@ -1734,11 +1735,12 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         if output:
             kwargs["output"] = output
 
-        msg: str = f"{self.log_prefix} Set {check_run} check to {status or conclusion}"
+        msg: str = f"{self.log_prefix} check run {check_run} status: {status or conclusion}"
 
         try:
             self.repository_by_github_app.create_check_run(**kwargs)
-            self.logger.success(msg)  # type: ignore
+            if conclusion in (SUCCESS_STR, IN_PROGRESS_STR):
+                self.logger.success(msg)  # type: ignore
             return
 
         except Exception as ex:
