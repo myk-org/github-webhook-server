@@ -20,7 +20,6 @@ from github import GithubException
 from github.Commit import Commit
 from github.PullRequest import PullRequest
 from github.GithubException import UnknownObjectException
-from simple_logger.logger import get_logger
 from timeout_sampler import TimeoutSampler, TimeoutExpiredError
 
 from webhook_server_container.libs.config import Config
@@ -67,6 +66,7 @@ from webhook_server_container.utils.helpers import (
     get_api_with_highest_rate_limit,
     extract_key_from_dict,
     get_github_repo_api,
+    get_logger_with_params,
     get_value_from_dicts,
     run_command,
     get_apis_and_tokes_from_config,
@@ -325,11 +325,7 @@ Available user actions:
             raise RepositoryNotFoundError(f"Repository {self.repository_name} not found in config file")
 
         self.repository_full_name: str = repo_data["name"]
-        log_level = get_value_from_dicts(
-            primary_dict=repo_data, secondary_dict=config_data, key="log-level", return_on_none="INFO"
-        )
-        log_file = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="log-file")
-        self.logger = get_logger(name="ProcessGithubWehook", filename=log_file, level=log_level)
+        self.logger = get_logger_with_params(name="ProcessGithubWehook", repository_name=self.repository_name)
 
         self.github_app_id: str = get_value_from_dicts(
             primary_dict=repo_data, secondary_dict=config_data, key="github-app-id"
@@ -642,14 +638,14 @@ stderr: `{err}`
 
     def label_by_user_comment(self, user_request: str, remove: bool, reviewed_user: str, issue_comment_id: int) -> None:
         if not any(user_request.startswith(label_name) for label_name in USER_LABELS_DICT):
-            self.logger.info(
+            self.logger.debug(
                 f"{self.log_prefix} Label {user_request} is not a predefined one, will not be added / removed."
             )
 
             return
 
         self.logger.info(
-            f"{self.log_prefix} {'Remove' if remove else 'Add'} "
+            f"{self.log_prefix} {DELETE_STR if remove else ADD_STR} "
             f"label requested by user {reviewed_user}: {user_request}"
         )
         self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
@@ -1742,7 +1738,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         try:
             self.repository_by_github_app.create_check_run(**kwargs)
-            self.logger.success(msg)
+            self.logger.success(msg)  # type: ignore # [attr-defined]
             return
 
         except Exception as ex:

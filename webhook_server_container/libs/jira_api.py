@@ -1,14 +1,12 @@
-import os
 from typing import Any, Dict, List
 from jira import Issue, JIRA
-from simple_logger.logger import get_logger
 
-
-LOGGER = get_logger(name="JiraApi", filename=os.environ.get("WEBHOOK_SERVER_LOG_FILE"))
+from webhook_server_container.utils.helpers import get_logger_with_params
 
 
 class JiraApi:
     def __init__(self, server: str, project: str, token: str):
+        self.logger = get_logger_with_params(name="JiraApi")
         self.server = server
         self.project = project
         self.token = token

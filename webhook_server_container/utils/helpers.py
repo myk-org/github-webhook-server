@@ -1,6 +1,6 @@
 from __future__ import annotations
 import datetime
-import os
+from logging import Logger
 import shlex
 import subprocess
 from concurrent.futures import Future, as_completed
@@ -13,7 +13,39 @@ from simple_logger.logger import get_logger
 
 from webhook_server_container.libs.config import Config
 
-LOGGER = get_logger(name="helpers", filename=os.environ.get("WEBHOOK_SERVER_LOG_FILE"))
+
+CONFIG = Config()
+
+
+def get_value_from_dicts(
+    primary_dict: Dict[Any, Any],
+    secondary_dict: Dict[Any, Any],
+    key: str,
+    return_on_none: Optional[Any] = None,
+) -> Any:
+    """
+    Get value from two dictionaries.
+
+    If value is not found in primary_dict, try to get it from secondary_dict, otherwise return return_on_none.
+    """
+    return primary_dict.get(key, secondary_dict.get(key, return_on_none))
+
+
+def get_logger_with_params(name: str, repository_name: Optional[str] = "") -> Logger:
+    config_data = CONFIG.data  # Global repositories configuration
+    if repository_name:
+        repo_data = CONFIG.get_repository(repository_name=repository_name)  # Specific repository configuration
+    else:
+        repo_data = {}
+
+    log_level = get_value_from_dicts(
+        primary_dict=repo_data, secondary_dict=config_data, key="log-level", return_on_none="INFO"
+    )
+    log_file = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="log-file")
+    return get_logger(name=name, filename=log_file, level=log_level)
+
+
+LOGGER = get_logger_with_params(name="helpers")
 
 
 def extract_key_from_dict(key: Any, _dict: Dict[Any, Any]) -> Any:
@@ -63,7 +95,7 @@ def run_command(
     out_decoded: str = ""
     err_decoded: str = ""
     try:
-        LOGGER.info(f"{log_prefix} Running '{command}' command")
+        LOGGER.debug(f"{log_prefix} Running '{command}' command")
         sub_process = subprocess.run(
             shlex.split(command),
             capture_output=capture_output,
@@ -136,7 +168,7 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
         rate_limit = _api.get_rate_limit()
         if rate_limit.core.remaining > remaining:
             remaining = rate_limit.core.remaining
-            LOGGER.info(f"API user {_api_user} remaining rate limit: {remaining}")
+            LOGGER.debug(f"API user {_api_user} remaining rate limit: {remaining}")
             api, token = _api, _token
 
     if rate_limit:
@@ -164,20 +196,6 @@ def log_rate_limit(rate_limit: RateLimit, api_user: str) -> None:
         f"Reset in {rate_limit.core.reset} [{datetime.timedelta(seconds=time_for_limit_reset)}] "
         f"(UTC time is {datetime.datetime.now(tz=datetime.timezone.utc)})"
     )
-
-
-def get_value_from_dicts(
-    primary_dict: Dict[Any, Any],
-    secondary_dict: Dict[Any, Any],
-    key: str,
-    return_on_none: Optional[Any] = None,
-) -> Any:
-    """
-    Get value from two dictionaries.
-
-    If value is not found in primary_dict, try to get it from secondary_dict, otherwise return return_on_none.
-    """
-    return primary_dict.get(key, secondary_dict.get(key, return_on_none))
 
 
 def get_future_results(futures: List["Future"]) -> None:

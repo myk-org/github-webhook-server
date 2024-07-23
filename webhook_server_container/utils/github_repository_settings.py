@@ -11,7 +11,6 @@ from github.Label import Label
 from github.Commit import Commit
 from github.Auth import AppAuth
 from github.GithubException import UnknownObjectException
-from simple_logger.logger import get_logger
 
 from webhook_server_container.libs.config import Config
 from webhook_server_container.utils.constants import (
@@ -28,13 +27,10 @@ from webhook_server_container.utils.helpers import (
     get_api_with_highest_rate_limit,
     get_future_results,
     get_github_repo_api,
+    get_logger_with_params,
 )
 
-
-LOGGER = get_logger(
-    name="github-repository-settings",
-    filename=os.environ.get("WEBHOOK_SERVER_LOG_FILE"),
-)
+LOGGER = get_logger_with_params(name="github-repository-settings")
 
 
 def get_branch_sampler(repo: Repository, branch_name: str) -> Branch:

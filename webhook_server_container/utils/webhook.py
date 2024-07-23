@@ -1,20 +1,19 @@
 from concurrent.futures import ThreadPoolExecutor
-import os
 from typing import Any, Callable, Dict, List, Tuple
 
 from github.Hook import Hook
 from github import Github
-from simple_logger.logger import get_logger
 
 from webhook_server_container.libs.config import Config
 from webhook_server_container.utils.helpers import (
     get_api_with_highest_rate_limit,
     get_future_results,
     get_github_repo_api,
+    get_logger_with_params,
 )
 
 
-LOGGER = get_logger(name="webhook", filename=os.environ.get("WEBHOOK_SERVER_LOG_FILE"))
+LOGGER = get_logger_with_params(name="webhook")
 
 
 def process_github_webhook(data: Dict[str, Any], github_api: Github, webhook_ip: str) -> Tuple[bool, str, Callable]:
