@@ -181,8 +181,9 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
 def log_rate_limit(rate_limit: RateLimit, api_user: str) -> None:
     rate_limit_str: str
     time_for_limit_reset: int = (rate_limit.core.reset - datetime.datetime.now(tz=datetime.timezone.utc)).seconds
+    below_minimum: bool = rate_limit.core.remaining < 700
 
-    if rate_limit.core.remaining < 700:
+    if below_minimum:
         rate_limit_str = f"{Fore.RED}{rate_limit.core.remaining}{Fore.RESET}"
 
     elif rate_limit.core.remaining < 2000:
@@ -191,11 +192,14 @@ def log_rate_limit(rate_limit: RateLimit, api_user: str) -> None:
     else:
         rate_limit_str = f"{Fore.GREEN}{rate_limit.core.remaining}{Fore.RESET}"
 
-    LOGGER.info(
+    msg = (
         f"{Fore.CYAN}[{api_user}] API rate limit:{Fore.RESET} Current {rate_limit_str} of {rate_limit.core.limit}. "
         f"Reset in {rate_limit.core.reset} [{datetime.timedelta(seconds=time_for_limit_reset)}] "
         f"(UTC time is {datetime.datetime.now(tz=datetime.timezone.utc)})"
     )
+    LOGGER.debug(msg)
+    if below_minimum:
+        LOGGER.warning(msg)
 
 
 def get_future_results(futures: List["Future"]) -> None:
