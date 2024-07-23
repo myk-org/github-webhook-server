@@ -125,7 +125,12 @@ class ProcessGithubWehook:
             config=self.config, repository_name=self.repository_name
         )
 
-        self.repository = get_github_repo_api(github_api=self.github_api, repository=self.repository_full_name)
+        if self.github_api and not self.token:
+            self.repository = get_github_repo_api(github_api=self.github_api, repository=self.repository_full_name)
+        else:
+            self.logger.error(f"{self.log_prefix} Failed to get GitHub API and token.")
+            return
+
         self.repository_by_github_app = get_github_repo_api(
             github_api=self.github_app_api, repository=self.repository_full_name
         )
@@ -252,7 +257,7 @@ Available user actions:
         self.auto_verified_and_merged_users.extend([_api[0].get_user().login for _api in apis_and_tokens])
 
     def _set_log_prefix_color(self) -> None:
-        repo_str: str = "\033[1;{color}m\033[1;0m"
+        repo_str: str = "\033[1;{color}m{name}\033[1;0m"
         color_file: str = "/tmp/color.json"
         color_json: Dict[str, int]
         try:
@@ -266,7 +271,7 @@ Available user actions:
             color = random.choice(range(31, 39))
             color_json[self.repository_name] = color
 
-        self.log_prefix_with_color = repo_str.format(color=color)
+        self.log_prefix_with_color = repo_str.format(color=color, name=self.repository_name)
 
         with open(color_file, "w") as fd:
             json.dump(color_json, fd)
@@ -336,7 +341,7 @@ Available user actions:
             primary_dict=repo_data, secondary_dict=config_data, key="log-level", return_on_none="INFO"
         )
         log_file = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="log-file")
-        self.logger = get_logger(name=self.repository_full_name, filename=log_file, level=log_level)
+        self.logger = get_logger(name=self.log_prefix_with_color, filename=log_file, level=log_level)
 
         self.github_app_id: str = get_value_from_dicts(
             primary_dict=repo_data, secondary_dict=config_data, key="github-app-id"
