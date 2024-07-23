@@ -1706,7 +1706,10 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         with ThreadPoolExecutor() as executor:
             prepare_pull_futures.append(executor.submit(self.assign_reviewers))
             prepare_pull_futures.append(
-                executor.submit(self._add_label, **{"label": f"{BRANCH_LABEL_PREFIX}{self.pull_request_branch}"})
+                executor.submit(
+                    self._add_label,
+                    **{"label": f"{BRANCH_LABEL_PREFIX}{self.pull_request_branch}"},
+                )
             )
             prepare_pull_futures.append(executor.submit(self.label_pull_request_by_merge_state))
             prepare_pull_futures.append(executor.submit(self.set_merge_check_queued))
@@ -1909,8 +1912,14 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         return _all_required_status_checks
 
     def set_wip_label_based_on_title(self) -> None:
-        if self.pull_request.title.lower().startswith("{WIP_STR}:"):
+        if self.pull_request.title.lower().startswith(f"{WIP_STR}:"):
+            self.logger.debug(
+                f"{self.log_prefix} Found {WIP_STR} in {self.pull_request.title}; adding {WIP_STR} label."
+            )
             self._add_label(label=WIP_STR)
 
         else:
+            self.logger.debug(
+                f"{self.log_prefix} {WIP_STR} not found in {self.pull_request.title}; removing {WIP_STR} label."
+            )
             self._remove_label(label=WIP_STR)
