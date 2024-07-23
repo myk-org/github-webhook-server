@@ -1738,7 +1738,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         try:
             self.repository_by_github_app.create_check_run(**kwargs)
-            self.logger.success(msg)  # type: ignore # [attr-defined]
+            self.logger.success(msg)  # type: ignore
             return
 
         except Exception as ex:
