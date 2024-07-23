@@ -125,7 +125,7 @@ class ProcessGithubWehook:
             config=self.config, repository_name=self.repository_name
         )
 
-        if self.github_api and not self.token:
+        if self.github_api and self.token:
             self.repository = get_github_repo_api(github_api=self.github_api, repository=self.repository_full_name)
         else:
             self.logger.error(f"{self.log_prefix} Failed to get GitHub API and token.")
