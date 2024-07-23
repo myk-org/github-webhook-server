@@ -6,8 +6,6 @@ services:
       - "./webhook_server_data_dir:/webhook_server:Z" # Should include config.yaml and webhook-server.private-key.pem
       - "./webhook_server_containers:/containers:Z" # Optional, to cache podman pull containers
     environment:
-      - WEBHOOK_SERVER_LOG_FILE=/tmp/webhook_server.log
-      - WEBHOOK_SERVER_LOG_LEVEL=INFO # Options are: DEBUG, INFO, WARNING, ERROR, CRITICAL
       - PUID=1000
       - PGID=1000
       - TZ=Asia/Jerusalem

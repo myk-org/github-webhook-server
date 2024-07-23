@@ -296,7 +296,8 @@ Supported labels:
 
 ### Logging Setup
 
-The webhook server configures custom logging with color-coded log level names to enhance readability. It also supports optional logging to a file when 'WEBHOOK_SERVER_LOG_FILE' is set in the environment. This feature uses a rotating file handler to manage log rotation and is defined in the `constants.py` file.
+The webhook server configures custom logging with color-coded log level names to enhance readability. It also supports optional logging to a file.
+See [example-config](example.config.yaml) for more details.
 
 ### Webhook Creation
 
@@ -304,4 +305,4 @@ Webhooks are automatically created for GitHub repositories based on settings def
 
 ### Usage Guide
 
-To use the webhook server, first prepare the `config.yaml` file with the necessary repository and server configurations. Set the required environment variables, including `WEBHOOK_SERVER_LOG_FILE` and `WEBHOOK_SERVER_DATA_DIR`. Build and start the server using the instructions in the 'Build container' section.
+To use the webhook server, first prepare the [config.yaml](example.config.yaml) file with the necessary repository and server configurations. Set the required environment variables, including `WEBHOOK_SERVER_DATA_DIR`. Build and start the server using the instructions in the 'Build container' section.
