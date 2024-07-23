@@ -59,4 +59,7 @@ def create_webhook(config_: Config, github_api: Github) -> None:
 if __name__ == "__main__":
     config = Config()
     api, _ = get_api_with_highest_rate_limit(config=config)
-    create_webhook(config_=config, github_api=api)
+    if api:
+        create_webhook(config_=config, github_api=api)
+    else:
+        LOGGER.error("Failed to get GitHub API")
