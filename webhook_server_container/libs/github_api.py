@@ -259,7 +259,15 @@ Available user actions:
         self.auto_verified_and_merged_users.extend([_api[0].get_user().login for _api in apis_and_tokens])
 
     def _get_reposiroty_color_for_log_prefix(self) -> str:
-        _all_colors = [_color["name"] for _color in cs.colors.values()]
+        _all_colors: List[str] = []
+        _colors_to_exclude = ("white", "black", "grey")
+        for _color_name in cs.colors.values():
+            _cname = _color_name["name"]
+            if _cname in _colors_to_exclude:
+                continue
+
+            _all_colors.append(_cname)
+
         color_file: str = os.path.join(self.config.data_dir, "log-colors.json")
         color_json: Dict[str, str]
         try:
