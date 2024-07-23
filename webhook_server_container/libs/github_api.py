@@ -8,7 +8,7 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
-from stringcolors import cs
+from stringcolor import cs
 
 from fastapi import FastAPI
 from github.Branch import Branch
