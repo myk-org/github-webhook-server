@@ -263,7 +263,7 @@ Available user actions:
         _colors_to_exclude = ("white", "black", "grey")
         for _color_name in cs.colors.values():
             _cname = _color_name["name"]
-            if _cname in _colors_to_exclude:
+            if _cname.lower() in _colors_to_exclude:
                 continue
 
             _all_colors.append(_cname)
