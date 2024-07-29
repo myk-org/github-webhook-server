@@ -1541,7 +1541,7 @@ stderr: `{err}`
                 self.logger.info(f"{self.log_prefix} Done push {_container_repository_and_tag}")
         else:
             if push:
-                err_msg: str = f"Failed to create and push {_container_repository_and_tag}"
+                err_msg: str = f"Failed to build and push {_container_repository_and_tag}"
                 if self.pull_request:
                     self.pull_request.create_issue_comment(err_msg)
 
