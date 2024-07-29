@@ -242,10 +242,12 @@ Available user actions:
     @property
     def prepare_retest_wellcome_msg(self) -> str:
         retest_msg: str = ""
-        if self.tox_enabled:
+        if self.tox:
             retest_msg += f" * `/retest {TOX_STR}`: Retest tox\n"
+
         if self.build_and_push_container:
             retest_msg += f" * `/retest {BUILD_CONTAINER_STR}`: Retest build-container\n"
+
         if self.pypi:
             retest_msg += f" * `/retest {PYTHON_MODULE_INSTALL_STR}`: Retest python-module-install\n"
 
@@ -363,7 +365,7 @@ Available user actions:
             key="verified-job",
             return_on_none=True,
         )
-        self.tox_enabled: str = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="tox")
+        self.tox: Dict[str, str] = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="tox")
         self.tox_python_version: str = get_value_from_dicts(
             primary_dict=repo_data,
             secondary_dict=config_data,
@@ -694,7 +696,7 @@ stderr: `{err}`
         return self.set_check_run_status(check_run=VERIFIED_LABEL_STR, conclusion=SUCCESS_STR)
 
     def set_run_tox_check_queued(self) -> None:
-        if not self.tox_enabled:
+        if not self.tox:
             return
 
         return self.set_check_run_status(check_run=TOX_STR, status=QUEUED_STR)
@@ -1114,7 +1116,7 @@ stderr: `{err}`
             )
 
     def _run_tox(self) -> None:
-        if not self.tox_enabled:
+        if not self.tox:
             return
 
         if self.is_check_run_in_progress(check_run=TOX_STR):
@@ -1122,8 +1124,9 @@ stderr: `{err}`
             return
 
         cmd = f"{self.tox_python_version} -m {TOX_STR}"
-        if self.tox_enabled != "all":
-            tests = self.tox_enabled.replace(" ", "")
+        _tox_tests = self.tox.get(self.pull_request_branch, "")
+        if _tox_tests != "all":
+            tests = _tox_tests.replace(" ", "")
             cmd += f" -e {tests}"
 
         self.set_run_tox_check_in_progress()
@@ -1241,7 +1244,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 _target_tests: List[str] = _args.split()
                 for _test in _target_tests:
                     if _test == TOX_STR:
-                        if not self.tox_enabled:
+                        if not self.tox:
                             msg: str = f"No {TOX_STR} configured for this repository"
                             error_msg = f"{self.log_prefix} {msg}."
                             self.logger.info(error_msg)
@@ -1895,7 +1898,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         all_required_status_checks: List[str] = []
         branch_required_status_checks = self.get_branch_required_status_checks()
-        if self.tox_enabled:
+        if self.tox:
             all_required_status_checks.append(TOX_STR)
 
         if self.verified_job:

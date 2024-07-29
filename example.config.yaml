@@ -44,7 +44,10 @@ repositories:
       - issue_comment
       - check_run
       - pull_request_review
-    tox: all # Run all tests in tox.ini
+    tox:
+      main: all # Run all tests in tox.ini when pull request parent branch is main
+      dev: testenv1,testenv2 # Run testenv1 and testenv2 tests in tox.ini when pull request parent branch is dev
+
     pre-commit: true # Run pre-commit check
 
     protected-branches:
