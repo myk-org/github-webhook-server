@@ -29,6 +29,10 @@ HAS_CONFLICTS_LABEL_STR: str = "has-conflicts"
 HOLD_LABEL_STR: str = "hold"
 SIZE_LABEL_PREFIX: str = "size/"
 JIRA_STR: str = "JIRA"
+COMMAND_RETEST_STR = "retest"
+COMMAND_CHERRY_PICK_STR = "cherry-pick"
+COMMAND_ASSIGN_REVIEWERS_STR = "assign-reviewers"
+COMMAND_CHECK_CAN_MERGE_STR = "check-can-merge"
 
 # Gitlab colors require a '#' prefix; e.g: #
 USER_LABELS_DICT: Dict[str, str] = {

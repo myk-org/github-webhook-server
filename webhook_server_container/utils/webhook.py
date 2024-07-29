@@ -45,7 +45,7 @@ def create_webhook(config_: Config, github_api: Github) -> None:
 
     futures = []
     with ThreadPoolExecutor() as executor:
-        for repo, data in config_.data["repositories"].items():
+        for _, data in config_.data["repositories"].items():
             futures.append(
                 executor.submit(
                     process_github_webhook,
