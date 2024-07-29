@@ -925,6 +925,7 @@ stderr: `{err}`
                     _label_name.startswith(APPROVED_BY_LABEL_PREFIX)
                     or _label_name.startswith(COMMENTED_BY_LABEL_PREFIX)
                     or _label_name.startswith(CHANGED_REQUESTED_BY_LABEL_PREFIX)
+                    or _label_name.startswith(LGTM_BY_LABEL_PREFIX)
                 ):
                     self._remove_label(label=_label_name)
 
