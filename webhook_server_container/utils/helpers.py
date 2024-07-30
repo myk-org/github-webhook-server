@@ -40,7 +40,7 @@ def get_logger_with_params(name: str, repository_name: Optional[str] = "") -> Lo
         primary_dict=repo_data, secondary_dict=config_data, key="log-level", return_on_none="INFO"
     )
     log_file: str = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="log-file")
-    return get_logger(name=name, filename=log_file, level=log_level, file_max_bytes=1000000 * 10)
+    return get_logger(name=name, filename=log_file, level=log_level, file_max_bytes=0)
 
 
 LOGGER = get_logger_with_params(name="helpers")
