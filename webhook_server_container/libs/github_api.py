@@ -1155,20 +1155,21 @@ stderr: `{err}`
         command_without_args: List[str] = [COMMAND_ASSIGN_REVIEWERS_STR, COMMAND_CHECK_CAN_MERGE_STR]
         skip_msg: str = f"Pull request already merged, not running {command}"
 
-        if command not in available_commands:
+        command_and_args: List[str] = command.split(" ", 1)
+        _command = command_and_args[0]
+        _args: str = command_and_args[1] if len(command_and_args) > 1 else ""
+
+        self.logger.debug(f"{self.log_prefix} User: {reviewed_user}, Command: {_command}, Command args: {_args}")
+        if _command not in available_commands:
             self.logger.debug(f"{self.log_prefix} Command {command} is not supported.")
             return
 
-        if command not in (COMMAND_CHERRY_PICK_STR, BUILD_AND_PUSH_CONTAINER_STR):
+        if _command not in (COMMAND_CHERRY_PICK_STR, BUILD_AND_PUSH_CONTAINER_STR):
             if self.skip_if_pull_request_already_merged():
                 self.pull_request.create_issue_comment(skip_msg)
                 return
 
         self.logger.info(f"{self.log_prefix} Processing label/user command {command} by user {reviewed_user}")
-
-        command_and_args: List[str] = command.split(" ", 1)
-        _command = command_and_args[0]
-        _args: str = command_and_args[1] if len(command_and_args) > 1 else ""
 
         if remove := len(command_and_args) > 1 and _args == "cancel":
             self.logger.debug(f"{self.log_prefix} User requested 'cancel' for command {_command}")
