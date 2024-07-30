@@ -651,13 +651,6 @@ stderr: `{err}`
     def label_by_user_comment(
         self, user_requested_label: str, remove: bool, reviewed_user: str, issue_comment_id: int
     ) -> None:
-        if user_requested_label not in USER_LABELS_DICT.keys():
-            self.logger.debug(
-                f"{self.log_prefix} Label {user_requested_label} is not a predefined one, will not be added / removed."
-            )
-
-            return
-
         self.logger.info(
             f"{self.log_prefix} {DELETE_STR if remove else ADD_STR} "
             f"label requested by user {reviewed_user}: {user_requested_label}"
@@ -849,7 +842,7 @@ stderr: `{err}`
             )
             return
 
-        _user_commands: List[str] = [_cmd for _cmd in body.strip().splitlines() if _cmd.startswith("/")]
+        _user_commands: List[str] = [_cmd.strip("/") for _cmd in body.strip().splitlines() if _cmd.startswith("/")]
 
         user_login: str = self.hook_data["sender"]["login"]
         for user_command in _user_commands:
@@ -1152,6 +1145,7 @@ stderr: `{err}`
             COMMAND_ASSIGN_REVIEWERS_STR,
             COMMAND_CHECK_CAN_MERGE_STR,
         ]
+
         command_without_args: List[str] = [COMMAND_ASSIGN_REVIEWERS_STR, COMMAND_CHECK_CAN_MERGE_STR]
         skip_msg: str = f"Pull request already merged, not running {command}"
 
@@ -1159,8 +1153,10 @@ stderr: `{err}`
         _command = command_and_args[0]
         _args: str = command_and_args[1] if len(command_and_args) > 1 else ""
 
-        self.logger.debug(f"{self.log_prefix} User: {reviewed_user}, Command: {_command}, Command args: {_args}")
-        if _command not in available_commands:
+        self.logger.debug(
+            f"{self.log_prefix} User: {reviewed_user}, Command: {_command}, Command args: {_args if _args else 'None'}"
+        )
+        if _command not in available_commands + list(USER_LABELS_DICT.keys()):
             self.logger.debug(f"{self.log_prefix} Command {command} is not supported.")
             return
 
