@@ -1589,7 +1589,7 @@ stderr: `{err}`
                 f"{response.text}"
             )
 
-    def _process_verified(self) -> None:
+    def _process_verified_for_update_or_new_pull_request(self) -> None:
         if not self.verified_job:
             return
 
@@ -1626,7 +1626,7 @@ stderr: `{err}`
             prepare_pull_futures.append(executor.submit(self.set_run_pre_commit_check_queued))
             prepare_pull_futures.append(executor.submit(self.set_python_module_install_queued))
             prepare_pull_futures.append(executor.submit(self.set_container_build_queued))
-            prepare_pull_futures.append(executor.submit(self._process_verified))
+            prepare_pull_futures.append(executor.submit(self._process_verified_for_update_or_new_pull_request))
             prepare_pull_futures.append(executor.submit(self.add_size_label))
 
         run_check_runs_futures: List[Future] = []
