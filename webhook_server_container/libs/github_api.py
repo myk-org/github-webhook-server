@@ -34,6 +34,10 @@ from webhook_server_container.utils.constants import (
     CHANGED_REQUESTED_BY_LABEL_PREFIX,
     CHERRY_PICK_LABEL_PREFIX,
     CHERRY_PICKED_LABEL_PREFIX,
+    COMMAND_ASSIGN_REVIEWERS_STR,
+    COMMAND_CHECK_CAN_MERGE_STR,
+    COMMAND_CHERRY_PICK_STR,
+    COMMAND_RETEST_STR,
     COMMENTED_BY_LABEL_PREFIX,
     DELETE_STR,
     DYNAMIC_LABELS_DICT,
@@ -184,38 +188,19 @@ Available user actions:
             return
 
         event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
+        self.owners_content = self.get_owners_content()
 
         try:
             self.pull_request = self._get_pull_request()
             self.log_prefix = self.prepare_log_prefix(pull_request=self.pull_request)
             self.logger.debug(f"{self.log_prefix} {event_log}")
-            self.owners_content = self.get_owners_content()
             self.last_commit = self._get_last_commit()
             self.parent_committer = self.pull_request.user.login
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
             self.pull_request_branch = self.pull_request.base.ref
 
             if self.jira_enabled_repository:
-                reviewers_and_approvers = self.reviewers + self.approvers
-                if self.parent_committer in reviewers_and_approvers:
-                    self.jira_assignee = self.jira_user_mapping.get(self.parent_committer)
-                    if not self.jira_assignee:
-                        self.logger.debug(
-                            f"{self.log_prefix} Jira tracking is disabled for the current pull request. "
-                            f"Committer {self.parent_committer} is not in configures in jira-user-mapping"
-                        )
-                    else:
-                        self.jira_track_pr = True
-                        self.issue_title = (
-                            f"[AUTO:FROM:GITHUB] [{self.repository_name}] "
-                            f"PR [{self.pull_request.number}]: {self.pull_request.title}"
-                        )
-                        self.logger.debug(f"{self.log_prefix} Jira tracking is enabled for the current pull request.")
-                else:
-                    self.logger.debug(
-                        f"{self.log_prefix} Jira tracking is disabled for the current pull request. "
-                        f"Committer {self.parent_committer} is not in {reviewers_and_approvers}"
-                    )
+                self.set_jira_in_pull_request()
 
             if self.github_event == "issue_comment":
                 self.process_comment_webhook_data()
@@ -231,7 +216,6 @@ Available user actions:
 
         except NoPullRequestError:
             self.logger.debug(f"{self.log_prefix} {event_log}. [No pull request found in hook data]")
-            self.owners_content = self.get_owners_content()
 
             if self.github_event == "push":
                 self.process_push_webhook_data()
@@ -664,21 +648,16 @@ stderr: `{err}`
 
         self._add_label(label=size_label)
 
-    def label_by_user_comment(self, user_request: str, remove: bool, reviewed_user: str, issue_comment_id: int) -> None:
-        if not any(user_request.startswith(label_name) for label_name in USER_LABELS_DICT):
-            self.logger.debug(
-                f"{self.log_prefix} Label {user_request} is not a predefined one, will not be added / removed."
-            )
-
-            return
-
+    def label_by_user_comment(
+        self, user_requested_label: str, remove: bool, reviewed_user: str, issue_comment_id: int
+    ) -> None:
         self.logger.info(
             f"{self.log_prefix} {DELETE_STR if remove else ADD_STR} "
-            f"label requested by user {reviewed_user}: {user_request}"
+            f"label requested by user {reviewed_user}: {user_requested_label}"
         )
         self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
 
-        if user_request == LGTM_STR:
+        if user_requested_label == LGTM_STR:
             self.manage_reviewed_by_label(
                 review_state=LGTM_STR,
                 action=DELETE_STR if remove else ADD_STR,
@@ -687,7 +666,7 @@ stderr: `{err}`
 
         else:
             label_func = self._remove_label if remove else self._add_label
-            label_func(label=user_request)
+            label_func(label=user_requested_label)
 
     def set_verify_check_queued(self) -> None:
         return self.set_check_run_status(check_run=VERIFIED_LABEL_STR, status=QUEUED_STR)
@@ -849,11 +828,11 @@ stderr: `{err}`
             self.logger.error(f"{self.log_prefix} Failed to delete tag: {repository_full_tag}. OUT:{out}. ERR:{err}")
 
     def process_comment_webhook_data(self) -> None:
-        if self.hook_data["action"] in ("action", "deleted"):
+        if comment_action := self.hook_data["action"] in ("action", "deleted"):
+            self.logger.debug(f"{self.log_prefix} Not processing comment. action is {comment_action}")
             return
 
-        issue_number: str = self.hook_data["issue"]["number"]
-        self.logger.info(f"{self.log_prefix} Processing issue {issue_number}")
+        self.logger.info(f"{self.log_prefix} Processing issue {self.hook_data['issue']['number']}")
 
         body: str = self.hook_data["comment"]["body"]
 
@@ -863,13 +842,8 @@ stderr: `{err}`
             )
             return
 
-        striped_body: str = body.strip()
-        _user_commands: List[str] = list(
-            filter(
-                lambda x: x,
-                striped_body.split("/") if striped_body.startswith("/") else [],
-            )
-        )
+        _user_commands: List[str] = [_cmd.strip("/") for _cmd in body.strip().splitlines() if _cmd.startswith("/")]
+
         user_login: str = self.hook_data["sender"]["login"]
         for user_command in _user_commands:
             self.user_commands(
@@ -893,9 +867,7 @@ stderr: `{err}`
             self.logger.info(f"{self.log_prefix} Creating welcome comment")
             self.pull_request.create_issue_comment(self.welcome_msg)
             self.create_issue_for_new_pull_request()
-
             self.process_opened_or_synchronize_pull_request()
-
             self.set_wip_label_based_on_title()
 
             if self.jira_track_pr:
@@ -1033,9 +1005,10 @@ stderr: `{err}`
     def process_pull_request_review_webhook_data(self) -> None:
         if self.hook_data["action"] == "submitted":
             """
-            commented
-            approved
-            changes_requested
+            Available actions:
+                commented
+                approved
+                changes_requested
             """
             reviewed_user = self.hook_data["review"]["user"]["login"]
 
@@ -1166,118 +1139,58 @@ stderr: `{err}`
             return self.set_run_pre_commit_check_failure(output=output)
 
     def user_commands(self, command: str, reviewed_user: str, issue_comment_id: int) -> None:
-        remove: bool = False
         available_commands: List[str] = [
-            "retest",
-            "cherry-pick",
-            "assign-reviewers",
-            "check-can-merge",
+            COMMAND_RETEST_STR,
+            COMMAND_CHERRY_PICK_STR,
+            COMMAND_ASSIGN_REVIEWERS_STR,
+            COMMAND_CHECK_CAN_MERGE_STR,
         ]
-        if "sonarsource.github.io" in command:
-            self.logger.debug(f"{self.log_prefix} command is in ignore list")
-            return
 
-        self.logger.info(f"{self.log_prefix} Processing label/user command {command} by user {reviewed_user}")
+        command_without_args: List[str] = [COMMAND_ASSIGN_REVIEWERS_STR, COMMAND_CHECK_CAN_MERGE_STR]
+        skip_msg: str = f"Pull request already merged, not running {command}"
+
         command_and_args: List[str] = command.split(" ", 1)
         _command = command_and_args[0]
-        not_running_msg: str = f"Pull request already merged, not running {_command}"
         _args: str = command_and_args[1] if len(command_and_args) > 1 else ""
-        if remove := len(command_and_args) > 1 and _args == "cancel":
-            self.logger.info(f"{self.log_prefix} User requested 'cancel' for command {_command}")
 
-        if _command in available_commands:
-            if not _args and _command not in ("assign-reviewers", "check-can-merge"):
-                issue_msg: str = f"{_command} requires an argument"
-                error_msg: str = f"{self.log_prefix} {issue_msg}"
-                self.logger.debug(error_msg)
-                self.pull_request.create_issue_comment(issue_msg)
+        self.logger.debug(
+            f"{self.log_prefix} User: {reviewed_user}, Command: {_command}, Command args: {_args if _args else 'None'}"
+        )
+        if _command not in available_commands + list(USER_LABELS_DICT.keys()):
+            self.logger.debug(f"{self.log_prefix} Command {command} is not supported.")
+            return
+
+        if _command not in (COMMAND_CHERRY_PICK_STR, BUILD_AND_PUSH_CONTAINER_STR):
+            if self.skip_if_pull_request_already_merged():
+                self.pull_request.create_issue_comment(skip_msg)
                 return
 
-            if _command == "assign-reviewers":
-                return self.assign_reviewers()
+        self.logger.info(f"{self.log_prefix} Processing label/user command {command} by user {reviewed_user}")
 
-            if _command == "check-can-merge":
-                return self.check_if_can_be_merged()
+        if remove := len(command_and_args) > 1 and _args == "cancel":
+            self.logger.debug(f"{self.log_prefix} User requested 'cancel' for command {_command}")
 
-            if _command == "cherry-pick":
-                self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
-                _target_branches: List[str] = _args.split()
-                _exits_target_branches: Set[str] = set()
-                _non_exits_target_branches_msg: str = ""
+        if _command in available_commands:
+            if _command in command_without_args and not _args:
+                comment_msg: str = f"{_command} requires an argument"
+                error_msg: str = f"{self.log_prefix} {comment_msg}"
+                self.logger.debug(error_msg)
+                self.pull_request.create_issue_comment(comment_msg)
+                return
 
-                for _target_branch in _target_branches:
-                    try:
-                        self.repository.get_branch(_target_branch)
-                    except Exception:
-                        _non_exits_target_branches_msg += f"Target branch `{_target_branch}` does not exist\n"
+            if _command == COMMAND_ASSIGN_REVIEWERS_STR:
+                self.assign_reviewers()
 
-                    _exits_target_branches.add(_target_branch)
+            if _command == COMMAND_CHECK_CAN_MERGE_STR:
+                self.check_if_can_be_merged()
 
-                if _non_exits_target_branches_msg:
-                    self.logger.info(f"{self.log_prefix} {_non_exits_target_branches_msg}")
-                    self.pull_request.create_issue_comment(_non_exits_target_branches_msg)
+            if _command == COMMAND_CHERRY_PICK_STR:
+                self.process_cherry_pick_command(
+                    issue_comment_id=issue_comment_id, command_args=_args, reviewed_user=reviewed_user
+                )
 
-                if _exits_target_branches:
-                    if not self.pull_request.is_merged():
-                        cp_labels: List[str] = [
-                            f"{CHERRY_PICK_LABEL_PREFIX}{_target_branch}" for _target_branch in _exits_target_branches
-                        ]
-                        info_msg: str = f"""
-Cherry-pick requested for PR: `{self.pull_request.title}` by user `{reviewed_user}`
-Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automatic cheery-pick once the PR is merged
-"""
-                        self.logger.info(f"{self.log_prefix} {info_msg}")
-                        self.pull_request.create_issue_comment(info_msg)
-                        for _cp_label in cp_labels:
-                            self._add_label(label=_cp_label)
-                    else:
-                        for _exits_target_branch in _exits_target_branches:
-                            self.cherry_pick(
-                                target_branch=_exits_target_branch,
-                                reviewed_user=reviewed_user,
-                            )
-
-            elif _command == "retest":
-                if self.skip_if_pull_request_already_merged():
-                    self.pull_request.create_issue_comment(not_running_msg)
-                    return
-
-                _target_tests: List[str] = _args.split()
-                for _test in _target_tests:
-                    if _test == TOX_STR:
-                        if not self.tox:
-                            msg: str = f"No {TOX_STR} configured for this repository"
-                            error_msg = f"{self.log_prefix} {msg}."
-                            self.logger.info(error_msg)
-                            self.pull_request.create_issue_comment(msg)
-                            return
-
-                        self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
-                        self._run_tox()
-
-                    elif _test == PRE_COMMIT_STR:
-                        self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
-                        self._run_pre_commit()
-
-                    elif _test == BUILD_CONTAINER_STR:
-                        if self.build_and_push_container:
-                            self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
-                            self._run_build_container()
-                        else:
-                            msg = f"No {BUILD_CONTAINER_STR} configured for this repository"
-                            error_msg = f"{self.log_prefix} {msg}"
-                            self.logger.info(error_msg)
-                            self.pull_request.create_issue_comment(msg)
-
-                    elif _test == PYTHON_MODULE_INSTALL_STR:
-                        if not self.pypi:
-                            error_msg = f"{self.log_prefix} No pypi configured"
-                            self.logger.info(error_msg)
-                            self.pull_request.create_issue_comment(error_msg)
-                            return
-
-                        self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
-                        self._run_install_python_module()
+            elif _command == COMMAND_RETEST_STR:
+                self.process_retest_command(issue_comment_id=issue_comment_id, command_args=_args)
 
         elif _command == BUILD_AND_PUSH_CONTAINER_STR:
             if self.build_and_push_container:
@@ -1290,10 +1203,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 self.pull_request.create_issue_comment(msg)
 
         elif _command == WIP_STR:
-            if self.skip_if_pull_request_already_merged():
-                self.pull_request.create_issue_comment(not_running_msg)
-                return
-
             self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
             wip_for_title: str = f"{WIP_STR.upper()}:"
             if remove:
@@ -1304,12 +1213,8 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 self.pull_request.edit(title=f"{wip_for_title} {self.pull_request.title}")
 
         else:
-            if self.skip_if_pull_request_already_merged():
-                self.pull_request.create_issue_comment(not_running_msg)
-                return
-
             self.label_by_user_comment(
-                user_request=_command,
+                user_requested_label=_command,
                 remove=remove,
                 reviewed_user=reviewed_user,
                 issue_comment_id=issue_comment_id,
@@ -1633,7 +1538,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 self.logger.info(f"{self.log_prefix} Done push {_container_repository_and_tag}")
         else:
             if push:
-                err_msg: str = f"Failed to create and push {_container_repository_and_tag}"
+                err_msg: str = f"Failed to build and push {_container_repository_and_tag}"
                 if self.pull_request:
                     self.pull_request.create_issue_comment(err_msg)
 
@@ -1927,3 +1832,102 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 f"{self.log_prefix} {WIP_STR} not found in {self.pull_request.title}; removing {WIP_STR} label."
             )
             self._remove_label(label=WIP_STR)
+
+    def set_jira_in_pull_request(self) -> None:
+        if self.jira_enabled_repository:
+            reviewers_and_approvers = self.reviewers + self.approvers
+            if self.parent_committer in reviewers_and_approvers:
+                self.jira_assignee = self.jira_user_mapping.get(self.parent_committer)
+                if not self.jira_assignee:
+                    self.logger.debug(
+                        f"{self.log_prefix} Jira tracking is disabled for the current pull request. "
+                        f"Committer {self.parent_committer} is not in configures in jira-user-mapping"
+                    )
+                else:
+                    self.jira_track_pr = True
+                    self.issue_title = (
+                        f"[AUTO:FROM:GITHUB] [{self.repository_name}] "
+                        f"PR [{self.pull_request.number}]: {self.pull_request.title}"
+                    )
+                    self.logger.debug(f"{self.log_prefix} Jira tracking is enabled for the current pull request.")
+            else:
+                self.logger.debug(
+                    f"{self.log_prefix} Jira tracking is disabled for the current pull request. "
+                    f"Committer {self.parent_committer} is not in {reviewers_and_approvers}"
+                )
+
+    def process_cherry_pick_command(self, issue_comment_id: int, command_args: str, reviewed_user: str) -> None:
+        self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
+        _target_branches: List[str] = command_args.split()
+        _exits_target_branches: Set[str] = set()
+        _non_exits_target_branches_msg: str = ""
+
+        for _target_branch in _target_branches:
+            try:
+                self.repository.get_branch(_target_branch)
+            except Exception:
+                _non_exits_target_branches_msg += f"Target branch `{_target_branch}` does not exist\n"
+
+            _exits_target_branches.add(_target_branch)
+
+        if _non_exits_target_branches_msg:
+            self.logger.info(f"{self.log_prefix} {_non_exits_target_branches_msg}")
+            self.pull_request.create_issue_comment(_non_exits_target_branches_msg)
+
+        if _exits_target_branches:
+            if not self.pull_request.is_merged():
+                cp_labels: List[str] = [
+                    f"{CHERRY_PICK_LABEL_PREFIX}{_target_branch}" for _target_branch in _exits_target_branches
+                ]
+                info_msg: str = f"""
+Cherry-pick requested for PR: `{self.pull_request.title}` by user `{reviewed_user}`
+Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automatic cheery-pick once the PR is merged
+"""
+                self.logger.info(f"{self.log_prefix} {info_msg}")
+                self.pull_request.create_issue_comment(info_msg)
+                for _cp_label in cp_labels:
+                    self._add_label(label=_cp_label)
+            else:
+                for _exits_target_branch in _exits_target_branches:
+                    self.cherry_pick(
+                        target_branch=_exits_target_branch,
+                        reviewed_user=reviewed_user,
+                    )
+
+    def process_retest_command(self, issue_comment_id: int, command_args: str) -> None:
+        _target_tests: List[str] = command_args.split()
+        for _test in _target_tests:
+            if _test == TOX_STR:
+                if not self.tox:
+                    msg: str = f"No {TOX_STR} configured for this repository"
+                    error_msg = f"{self.log_prefix} {msg}."
+                    self.logger.info(error_msg)
+                    self.pull_request.create_issue_comment(msg)
+                    return
+
+                self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
+                self._run_tox()
+
+            elif _test == PRE_COMMIT_STR:
+                self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
+                self._run_pre_commit()
+
+            elif _test == BUILD_CONTAINER_STR:
+                if self.build_and_push_container:
+                    self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
+                    self._run_build_container()
+                else:
+                    msg = f"No {BUILD_CONTAINER_STR} configured for this repository"
+                    error_msg = f"{self.log_prefix} {msg}"
+                    self.logger.info(error_msg)
+                    self.pull_request.create_issue_comment(msg)
+
+            elif _test == PYTHON_MODULE_INSTALL_STR:
+                if not self.pypi:
+                    error_msg = f"{self.log_prefix} No pypi configured"
+                    self.logger.info(error_msg)
+                    self.pull_request.create_issue_comment(error_msg)
+                    return
+
+                self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
+                self._run_install_python_module()
