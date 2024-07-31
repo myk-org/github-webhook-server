@@ -1158,9 +1158,6 @@ stderr: `{err}`
             BUILD_AND_PUSH_CONTAINER_STR,
         ]
 
-        # command_required_args: List[str] = [COMMAND_RETEST_STR]
-        # skip_msg: str = f"Pull request already merged, not running {command}"
-
         command_and_args: List[str] = command.split(" ", 1)
         _command = command_and_args[0]
         _args: str = command_and_args[1] if len(command_and_args) > 1 else ""
@@ -1171,12 +1168,6 @@ stderr: `{err}`
         if _command not in available_commands + list(USER_LABELS_DICT.keys()):
             self.logger.debug(f"{self.log_prefix} Command {command} is not supported.")
             return
-
-        # if _command == COMMAND_CHERRY_PICK_STR:
-        #     if self.skip_if_pull_request_already_merged():
-        #         self.logger.debug(f"{self.log_prefix} {skip_msg")
-        #         self.pull_request.create_issue_comment(skip_msg)
-        #         return
 
         self.logger.info(f"{self.log_prefix} Processing label/user command {command} by user {reviewed_user}")
 
