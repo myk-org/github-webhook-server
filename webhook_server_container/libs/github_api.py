@@ -651,7 +651,7 @@ stderr: `{err}`
     def label_by_user_comment(
         self, user_requested_label: str, remove: bool, reviewed_user: str, issue_comment_id: int
     ) -> None:
-        self.logger.info(
+        self.logger.debug(
             f"{self.log_prefix} {DELETE_STR if remove else ADD_STR} "
             f"label requested by user {reviewed_user}: {user_requested_label}"
         )
