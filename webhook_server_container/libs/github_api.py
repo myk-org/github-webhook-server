@@ -1,6 +1,8 @@
 from __future__ import annotations
 import contextlib
+from datetime import datetime
 import json
+import logging
 import os
 import random
 import re
@@ -69,7 +71,6 @@ from webhook_server_container.utils.helpers import (
     get_api_with_highest_rate_limit,
     extract_key_from_dict,
     get_github_repo_api,
-    get_logger_with_params,
     get_value_from_dicts,
     run_command,
     get_apis_and_tokes_from_config,
@@ -93,7 +94,10 @@ class ProcessGithubWehookError(Exception):
 
 
 class ProcessGithubWehook:
-    def __init__(self, hook_data: Dict[Any, Any], headers: Headers) -> None:
+    def __init__(self, hook_data: Dict[Any, Any], headers: Headers, logger: logging.Logger) -> None:
+        self.start_time = datetime.now()
+        self.logger = logger
+        self.logger.name = "ProcessGithubWehook"
         self.hook_data = hook_data
         self.headers = headers
         self.repository_name: str = hook_data["repository"]["name"]
@@ -109,6 +113,7 @@ class ProcessGithubWehook:
         self.config = Config()
         self.log_prefix = self.prepare_log_prefix()
         self._repo_data_from_config()
+        self.logger.debug(f"\n\n{self.log_prefix} *** INIT started ***\n")
 
         self.github_app_api = get_repository_github_app_api(
             config_=self.config, repository_name=self.repository_full_name
@@ -183,6 +188,10 @@ Available user actions:
 </details>
     """
 
+        self.logger.debug(
+            f"\n\n{self.log_prefix} *** INIT ended, took: {(datetime.now() - self.start_time).seconds} seconds ***\n"
+        )
+
     def process(self) -> None:
         if self.github_event == "ping":
             return
@@ -222,6 +231,10 @@ Available user actions:
 
             elif self.github_event == "check_run":
                 self.process_pull_request_check_run_webhook_data()
+
+        self.logger.debug(
+            f"\n\n{self.log_prefix} *** END process function, took: {(datetime.now() - self.start_time).seconds} seconds ***\n"
+        )
 
     @property
     def prepare_retest_wellcome_msg(self) -> str:
@@ -337,8 +350,6 @@ Available user actions:
             raise RepositoryNotFoundError(f"Repository {self.repository_name} not found in config file")
 
         self.repository_full_name: str = repo_data["name"]
-        self.logger = get_logger_with_params(name="ProcessGithubWehook", repository_name=self.repository_name)
-
         self.github_app_id: str = get_value_from_dicts(
             primary_dict=repo_data, secondary_dict=config_data, key="github-app-id"
         )
