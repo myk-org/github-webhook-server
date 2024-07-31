@@ -1155,6 +1155,7 @@ stderr: `{err}`
             COMMAND_CHERRY_PICK_STR,
             COMMAND_ASSIGN_REVIEWERS_STR,
             COMMAND_CHECK_CAN_MERGE_STR,
+            BUILD_AND_PUSH_CONTAINER_STR,
         ]
 
         command_without_args: List[str] = [COMMAND_ASSIGN_REVIEWERS_STR, COMMAND_CHECK_CAN_MERGE_STR]
