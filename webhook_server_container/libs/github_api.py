@@ -1158,8 +1158,8 @@ stderr: `{err}`
             BUILD_AND_PUSH_CONTAINER_STR,
         ]
 
-        command_without_args: List[str] = [COMMAND_ASSIGN_REVIEWERS_STR, COMMAND_CHECK_CAN_MERGE_STR]
-        skip_msg: str = f"Pull request already merged, not running {command}"
+        # command_required_args: List[str] = [COMMAND_RETEST_STR]
+        # skip_msg: str = f"Pull request already merged, not running {command}"
 
         command_and_args: List[str] = command.split(" ", 1)
         _command = command_and_args[0]
@@ -1172,37 +1172,36 @@ stderr: `{err}`
             self.logger.debug(f"{self.log_prefix} Command {command} is not supported.")
             return
 
-        if _command not in (COMMAND_CHERRY_PICK_STR, BUILD_AND_PUSH_CONTAINER_STR):
-            if self.skip_if_pull_request_already_merged():
-                self.pull_request.create_issue_comment(skip_msg)
-                return
+        # if _command == COMMAND_CHERRY_PICK_STR:
+        #     if self.skip_if_pull_request_already_merged():
+        #         self.logger.debug(f"{self.log_prefix} {skip_msg")
+        #         self.pull_request.create_issue_comment(skip_msg)
+        #         return
 
         self.logger.info(f"{self.log_prefix} Processing label/user command {command} by user {reviewed_user}")
 
         if remove := len(command_and_args) > 1 and _args == "cancel":
             self.logger.debug(f"{self.log_prefix} User requested 'cancel' for command {_command}")
 
-        if _command in available_commands:
-            if _command in command_without_args and not _args:
-                comment_msg: str = f"{_command} requires an argument"
-                error_msg: str = f"{self.log_prefix} {comment_msg}"
-                self.logger.debug(error_msg)
-                self.pull_request.create_issue_comment(comment_msg)
-                return
+        if _command == COMMAND_RETEST_STR and not _args:
+            comment_msg: str = f"{_command} requires an argument"
+            error_msg: str = f"{self.log_prefix} {comment_msg}"
+            self.logger.debug(error_msg)
+            self.pull_request.create_issue_comment(comment_msg)
 
-            if _command == COMMAND_ASSIGN_REVIEWERS_STR:
-                self.assign_reviewers()
+        elif _command == COMMAND_ASSIGN_REVIEWERS_STR:
+            self.assign_reviewers()
 
-            if _command == COMMAND_CHECK_CAN_MERGE_STR:
-                self.check_if_can_be_merged()
+        if _command == COMMAND_CHECK_CAN_MERGE_STR:
+            self.check_if_can_be_merged()
 
-            if _command == COMMAND_CHERRY_PICK_STR:
-                self.process_cherry_pick_command(
-                    issue_comment_id=issue_comment_id, command_args=_args, reviewed_user=reviewed_user
-                )
+        if _command == COMMAND_CHERRY_PICK_STR:
+            self.process_cherry_pick_command(
+                issue_comment_id=issue_comment_id, command_args=_args, reviewed_user=reviewed_user
+            )
 
-            elif _command == COMMAND_RETEST_STR:
-                self.process_retest_command(issue_comment_id=issue_comment_id, command_args=_args)
+        elif _command == COMMAND_RETEST_STR:
+            self.process_retest_command(issue_comment_id=issue_comment_id, command_args=_args)
 
         elif _command == BUILD_AND_PUSH_CONTAINER_STR:
             if self.build_and_push_container:
@@ -1211,7 +1210,7 @@ stderr: `{err}`
             else:
                 msg = f"No {BUILD_AND_PUSH_CONTAINER_STR} configured for this repository"
                 error_msg = f"{self.log_prefix} {msg}"
-                self.logger.info(error_msg)
+                self.logger.debug(error_msg)
                 self.pull_request.create_issue_comment(msg)
 
         elif _command == WIP_STR:
