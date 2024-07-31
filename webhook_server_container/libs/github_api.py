@@ -1356,7 +1356,7 @@ stderr: `{err}`
                     f"{self.log_prefix} Some required check runs in progress {check_runs_in_progress}, "
                     f"skipping check if {CAN_BE_MERGED_STR}."
                 )
-                failure_output += f"Some required check runs in progress {check_runs_in_progress}\n"
+                failure_output += f"Some required check runs in progress {', '.join(check_runs_in_progress)}\n"
 
             _labels = self.pull_request_labels_names()
             is_hold = HOLD_LABEL_STR in _labels
@@ -1384,7 +1384,12 @@ stderr: `{err}`
                 failed_check_runs.append(check_run.name)
 
             if failed_check_runs:
-                failure_output += f"Some check runs failed: {failed_check_runs}\n"
+                exclude_in_progress = [
+                    failed_check_run
+                    for failed_check_run in failed_check_runs
+                    if failed_check_run not in check_runs_in_progress
+                ]
+                failure_output += f"Some check runs failed: {', '.join(exclude_in_progress)}\n"
 
             self.logger.debug(f"{self.log_prefix} check if can be merged. PR labels are: {_labels}")
 
@@ -1400,15 +1405,19 @@ stderr: `{err}`
                     missing_required_labels.append(_req_label)
 
             if missing_required_labels:
-                failure_output += f"Missing required labels: {missing_required_labels}\n"
+                failure_output += f"Missing required labels: {', '.join(missing_required_labels)}\n"
 
             pr_approved = False
             for _label in _labels:
                 if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
                     approved_user = _label.split("-")[-1]
-                    if approved_user in self.approvers:
+                    if approved_user in self.approvers and self.parent_committer != approved_user:
                         pr_approved = True
                         break
+
+            if not pr_approved:
+                missing_approvers = [approver for approver in self.approvers if approver != self.parent_committer]
+                failure_output += f"Missing lgtm/approved from approvers: {', '.join(missing_approvers)}\n"
 
             if pr_approved and not failure_output:
                 self._add_label(label=CAN_BE_MERGED_STR)
@@ -1427,8 +1436,6 @@ stderr: `{err}`
 
                 self.logger.info(f"{self.log_prefix} Pull request can be merged")
                 return
-
-            failure_output += f"Missing lgtm/approved from approvers {self.approvers}\n"
 
             self.logger.debug(f"{self.log_prefix} cannot be merged: {failure_output}")
             output["text"] = failure_output
