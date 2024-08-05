@@ -891,11 +891,15 @@ stderr: `{err}`
                 pass
 
         if hook_action == "synchronize":
-            self.remove_labels_when_pull_request_sync()
-            self.process_opened_or_synchronize_pull_request()
+            pull_request_synchronize_futures: List[Future] = []
+            with ThreadPoolExecutor() as executor:
+                pull_request_synchronize_futures.append(executor.submit(self.remove_labels_when_pull_request_sync))
+                pull_request_synchronize_futures.append(
+                    executor.submit(self.process_opened_or_synchronize_pull_request)
+                )
 
-            if self.jira_track_pr:
-                self.update_jira_when_pull_request_sync()
+                if self.jira_track_pr:
+                    pull_request_synchronize_futures.append(executor.submit(self.update_jira_when_pull_request_sync))
 
         if hook_action == "closed":
             self.close_issue_for_merged_or_closed_pr(hook_action=hook_action)
@@ -916,7 +920,7 @@ stderr: `{err}`
 
                 # label_by_pull_requests_merge_state_after_merged will override self.pull_request
                 original_pull_request = self.pull_request
-                self.label_by_pull_requests_merge_state_after_merged()
+                self.label_all_opened_pull_requests_merge_state_after_merged()
                 self.pull_request = original_pull_request
 
             if self.jira_track_pr:
@@ -1211,7 +1215,7 @@ stderr: `{err}`
                     "```"
                 )
 
-    def label_by_pull_requests_merge_state_after_merged(self) -> None:
+    def label_all_opened_pull_requests_merge_state_after_merged(self) -> None:
         """
         Labels pull requests based on their mergeable state.
 
@@ -1567,6 +1571,7 @@ stderr: `{err}`
             prepare_pull_futures.append(executor.submit(self.set_container_build_queued))
             prepare_pull_futures.append(executor.submit(self._process_verified_for_update_or_new_pull_request))
             prepare_pull_futures.append(executor.submit(self.add_size_label))
+            prepare_pull_futures.append(executor.submit(self.add_pull_request_owner_as_assingee))
 
             prepare_pull_futures.append(executor.submit(self._run_tox))
             prepare_pull_futures.append(executor.submit(self._run_pre_commit))
@@ -1576,13 +1581,6 @@ stderr: `{err}`
         for result in as_completed(prepare_pull_futures):
             if _exp := result.exception():
                 self.logger.error(f"{self.log_prefix} {_exp}")
-
-        try:
-            self.logger.info(f"{self.log_prefix} Adding PR owner as assignee")
-            self.pull_request.add_to_assignees()
-        except Exception:
-            if self.approvers:
-                self.pull_request.add_to_assignees(self.approvers[0])
 
     def is_check_run_in_progress(self, check_run: str) -> bool:
         for run in self.last_commit.get_check_runs():
@@ -1958,3 +1956,11 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 assignee=self.jira_user_mapping.get(reviewed_user, self.parent_committer),
                 body=f"PR: {self.pull_request.title}, reviewed by: {reviewed_user}",
             )
+
+    def add_pull_request_owner_as_assingee(self) -> None:
+        try:
+            self.logger.info(f"{self.log_prefix} Adding PR owner as assignee")
+            self.pull_request.add_to_assignees()
+        except Exception:
+            if self.approvers:
+                self.pull_request.add_to_assignees(self.approvers[0])
