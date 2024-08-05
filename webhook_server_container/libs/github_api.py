@@ -1,6 +1,5 @@
 from __future__ import annotations
 import contextlib
-from datetime import datetime
 import json
 import logging
 import os
@@ -95,7 +94,6 @@ class ProcessGithubWehookError(Exception):
 
 class ProcessGithubWehook:
     def __init__(self, hook_data: Dict[Any, Any], headers: Headers, logger: logging.Logger) -> None:
-        self.start_time = datetime.now()
         self.logger = logger
         self.logger.name = "ProcessGithubWehook"
         self.hook_data = hook_data
@@ -113,7 +111,6 @@ class ProcessGithubWehook:
         self.config = Config()
         self.log_prefix = self.prepare_log_prefix()
         self._repo_data_from_config()
-        self.logger.debug(f"\n\n{self.log_prefix} *** INIT started ***\n")
 
         self.github_app_api = get_repository_github_app_api(
             config_=self.config, repository_name=self.repository_full_name
@@ -188,10 +185,6 @@ Available user actions:
 </details>
     """
 
-        self.logger.debug(
-            f"\n\n{self.log_prefix} *** INIT ended, took: {(datetime.now() - self.start_time).seconds} seconds ***\n"
-        )
-
     def process(self) -> None:
         if self.github_event == "ping":
             return
@@ -231,10 +224,6 @@ Available user actions:
 
             elif self.github_event == "check_run":
                 self.process_pull_request_check_run_webhook_data()
-
-        self.logger.debug(
-            f"\n\n{self.log_prefix} *** END process function, took: {(datetime.now() - self.start_time).seconds} seconds ***\n"
-        )
 
     @property
     def prepare_retest_wellcome_msg(self) -> str:
@@ -876,71 +865,35 @@ stderr: `{err}`
 
         if hook_action == "opened":
             self.logger.info(f"{self.log_prefix} Creating welcome comment")
-            self.pull_request.create_issue_comment(self.welcome_msg)
-            self.create_issue_for_new_pull_request()
-            self.process_opened_or_synchronize_pull_request()
-            self.set_wip_label_based_on_title()
+            pull_request_opened_futures: List[Future] = []
+            with ThreadPoolExecutor() as executor:
+                pull_request_opened_futures.append(
+                    executor.submit(self.pull_request.create_issue_comment, **{"body": self.welcome_msg})
+                )
+                pull_request_opened_futures.append(executor.submit(self.create_issue_for_new_pull_request))
+                pull_request_opened_futures.append(executor.submit(self.set_wip_label_based_on_title))
+                pull_request_opened_futures.append(executor.submit(self.process_opened_or_synchronize_pull_request))
+                if self.jira_track_pr:
+                    pull_request_opened_futures.append(executor.submit(self.create_jira_when_open_pull_reques))
 
-            if self.jira_track_pr:
-                jira_conn = self.get_jira_conn()
-                if not jira_conn:
-                    self.logger.error(f"{self.log_prefix} Jira connection not found")
-
-                else:
-                    if self.jira_epic and self.jira_assignee:
-                        self.logger.info(f"{self.log_prefix} Creating Jira story")
-                        jira_story_key = jira_conn.create_story(
-                            title=self.issue_title,
-                            body=self.pull_request.html_url,
-                            epic_key=self.jira_epic,
-                            assignee=self.jira_assignee,
-                        )
-                        self._add_label(label=f"{JIRA_STR}:{jira_story_key}")
-                    else:
-                        self.logger.warning(
-                            f"{self.log_prefix} Jira epic or assignee is not set. Skipping Jira story creation"
-                        )
+            for _ in as_completed(pull_request_opened_futures):
+                pass
 
         if hook_action == "synchronize":
-            for _label in self.pull_request.labels:
-                _label_name = _label.name
-                if (
-                    _label_name.startswith(APPROVED_BY_LABEL_PREFIX)
-                    or _label_name.startswith(COMMENTED_BY_LABEL_PREFIX)
-                    or _label_name.startswith(CHANGED_REQUESTED_BY_LABEL_PREFIX)
-                    or _label_name.startswith(LGTM_BY_LABEL_PREFIX)
-                ):
-                    self._remove_label(label=_label_name)
+            pull_request_synchronize_futures: List[Future] = []
+            with ThreadPoolExecutor() as executor:
+                pull_request_synchronize_futures.append(executor.submit(self.remove_labels_when_pull_request_sync))
+                pull_request_synchronize_futures.append(
+                    executor.submit(self.process_opened_or_synchronize_pull_request)
+                )
 
-            self.process_opened_or_synchronize_pull_request()
-
-            if self.jira_track_pr:
-                jira_conn = self.get_jira_conn()
-                if not jira_conn:
-                    self.logger.error(f"{self.log_prefix} Jira connection not found")
-
-                else:
-                    if _story_key := self.get_story_key_with_jira_connection():
-                        if not self.jira_assignee:
-                            self.logger.warning(
-                                f"{self.log_prefix} Jira assignee is not set. Skipping sub-task creation"
-                            )
-
-                        else:
-                            self.logger.info(f"{self.log_prefix} Creating sub-task for Jira story {_story_key}")
-                            jira_conn.create_closed_subtask(
-                                title=f"{self.issue_title}: New commit from {self.last_committer}",
-                                parent_key=_story_key,
-                                assignee=self.jira_assignee,
-                                body=f"PR: {self.pull_request.title}, new commit pushed by {self.last_committer}",
-                            )
+                if self.jira_track_pr:
+                    pull_request_synchronize_futures.append(executor.submit(self.update_jira_when_pull_request_sync))
 
         if hook_action == "closed":
             self.close_issue_for_merged_or_closed_pr(hook_action=hook_action)
             self.delete_remote_tag_for_merged_or_closed_pr()
-            is_merged = pull_request_data.get("merged")
-
-            if is_merged:
+            if is_merged := pull_request_data.get("merged", False):
                 self.logger.info(f"{self.log_prefix} PR is merged")
 
                 for _label in self.pull_request.labels:
@@ -956,21 +909,11 @@ stderr: `{err}`
 
                 # label_by_pull_requests_merge_state_after_merged will override self.pull_request
                 original_pull_request = self.pull_request
-                self.label_by_pull_requests_merge_state_after_merged()
+                self.label_all_opened_pull_requests_merge_state_after_merged()
                 self.pull_request = original_pull_request
 
             if self.jira_track_pr:
-                jira_conn = self.get_jira_conn()
-                if not jira_conn:
-                    self.logger.error(f"{self.log_prefix} Jira connection not found")
-
-                else:
-                    if _story_key := self.get_story_key_with_jira_connection():
-                        self.logger.info(f"{self.log_prefix} Closing Jira story")
-                        jira_conn.close_issue(
-                            key=_story_key,
-                            comment=f"PR: {self.pull_request.title} is closed. Merged: {is_merged}",
-                        )
+                self.close_jira_when_pull_request_closed(is_merged=is_merged)
 
         if hook_action in ("labeled", "unlabeled"):
             _check_for_merge: bool = False
@@ -1031,27 +974,7 @@ stderr: `{err}`
             )
 
             if self.jira_track_pr:
-                _story_label = [_label for _label in self.pull_request.labels if _label.name.startswith(JIRA_STR)]
-                if _story_label:
-                    if reviewed_user == self.parent_committer or reviewed_user == self.last_committer:
-                        self.logger.info(
-                            f"{self.log_prefix} Skipping Jira review sub-task creation for review by {reviewed_user} which is parent or last committer"
-                        )
-                        return
-
-                    _story_key = _story_label[0].name.split(":")[-1]
-                    jira_conn = self.get_jira_conn()
-                    if not jira_conn:
-                        self.logger.error(f"{self.log_prefix} Jira connection not found")
-                        return
-
-                    self.logger.info(f"{self.log_prefix} Creating sub-task for Jira story {_story_key}")
-                    jira_conn.create_closed_subtask(
-                        title=f"{self.issue_title}: reviewed by: {reviewed_user} - {review_state}",
-                        parent_key=_story_key,
-                        assignee=self.jira_user_mapping.get(reviewed_user, self.parent_committer),
-                        body=f"PR: {self.pull_request.title}, reviewed by: {reviewed_user}",
-                    )
+                self.update_jira_when_pull_request_updated(reviewed_user=reviewed_user, review_state=review_state)
 
     def manage_reviewed_by_label(self, review_state: str, action: str, reviewed_user: str) -> None:
         self.logger.info(
@@ -1183,10 +1106,10 @@ stderr: `{err}`
         elif _command == COMMAND_ASSIGN_REVIEWERS_STR:
             self.assign_reviewers()
 
-        if _command == COMMAND_CHECK_CAN_MERGE_STR:
+        elif _command == COMMAND_CHECK_CAN_MERGE_STR:
             self.check_if_can_be_merged()
 
-        if _command == COMMAND_CHERRY_PICK_STR:
+        elif _command == COMMAND_CHERRY_PICK_STR:
             self.process_cherry_pick_command(
                 issue_comment_id=issue_comment_id, command_args=_args, reviewed_user=reviewed_user
             )
@@ -1281,7 +1204,7 @@ stderr: `{err}`
                     "```"
                 )
 
-    def label_by_pull_requests_merge_state_after_merged(self) -> None:
+    def label_all_opened_pull_requests_merge_state_after_merged(self) -> None:
         """
         Labels pull requests based on their mergeable state.
 
@@ -1637,30 +1560,16 @@ stderr: `{err}`
             prepare_pull_futures.append(executor.submit(self.set_container_build_queued))
             prepare_pull_futures.append(executor.submit(self._process_verified_for_update_or_new_pull_request))
             prepare_pull_futures.append(executor.submit(self.add_size_label))
+            prepare_pull_futures.append(executor.submit(self.add_pull_request_owner_as_assingee))
 
-        run_check_runs_futures: List[Future] = []
-        with ThreadPoolExecutor() as executor:
-            run_check_runs_futures.append(executor.submit(self._run_tox))
-            run_check_runs_futures.append(executor.submit(self._run_pre_commit))
-            run_check_runs_futures.append(executor.submit(self._run_install_python_module))
-            run_check_runs_futures.append(executor.submit(self._run_build_container))
+            prepare_pull_futures.append(executor.submit(self._run_tox))
+            prepare_pull_futures.append(executor.submit(self._run_pre_commit))
+            prepare_pull_futures.append(executor.submit(self._run_install_python_module))
+            prepare_pull_futures.append(executor.submit(self._run_build_container))
 
         for result in as_completed(prepare_pull_futures):
             if _exp := result.exception():
                 self.logger.error(f"{self.log_prefix} {_exp}")
-
-        for result in as_completed(run_check_runs_futures):
-            if _exp := result.exception():
-                self.logger.error(f"{self.log_prefix} {_exp}")
-
-            self.logger.info(f"{self.log_prefix} {result.result()}")
-
-        try:
-            self.logger.info(f"{self.log_prefix} Adding PR owner as assignee")
-            self.pull_request.add_to_assignees()
-        except Exception:
-            if self.approvers:
-                self.pull_request.add_to_assignees(self.approvers[0])
 
     def is_check_run_in_progress(self, check_run: str) -> bool:
         for run in self.last_commit.get_check_runs():
@@ -1940,3 +1849,107 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
                 self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
                 self._run_install_python_module()
+
+    def remove_labels_when_pull_request_sync(self) -> None:
+        futures = []
+        with ThreadPoolExecutor() as executor:
+            for _label in self.pull_request.labels:
+                _label_name = _label.name
+                if (
+                    _label_name.startswith(APPROVED_BY_LABEL_PREFIX)
+                    or _label_name.startswith(COMMENTED_BY_LABEL_PREFIX)
+                    or _label_name.startswith(CHANGED_REQUESTED_BY_LABEL_PREFIX)
+                    or _label_name.startswith(LGTM_BY_LABEL_PREFIX)
+                ):
+                    futures.append(
+                        executor.submit(
+                            self._remove_label,
+                            **{
+                                "label": _label_name,
+                            },
+                        )
+                    )
+        for _ in as_completed(futures):
+            # wait for all tasks to complete
+            pass
+
+    def create_jira_when_open_pull_reques(self) -> None:
+        jira_conn = self.get_jira_conn()
+        if not jira_conn:
+            self.logger.error(f"{self.log_prefix} Jira connection not found")
+
+        else:
+            if self.jira_epic and self.jira_assignee:
+                self.logger.info(f"{self.log_prefix} Creating Jira story")
+                jira_story_key = jira_conn.create_story(
+                    title=self.issue_title,
+                    body=self.pull_request.html_url,
+                    epic_key=self.jira_epic,
+                    assignee=self.jira_assignee,
+                )
+                self._add_label(label=f"{JIRA_STR}:{jira_story_key}")
+            else:
+                self.logger.warning(f"{self.log_prefix} Jira epic or assignee is not set. Skipping Jira story creation")
+
+    def update_jira_when_pull_request_sync(self) -> None:
+        jira_conn = self.get_jira_conn()
+        if not jira_conn:
+            self.logger.error(f"{self.log_prefix} Jira connection not found")
+
+        else:
+            if _story_key := self.get_story_key_with_jira_connection():
+                if not self.jira_assignee:
+                    self.logger.warning(f"{self.log_prefix} Jira assignee is not set. Skipping sub-task creation")
+
+                else:
+                    self.logger.info(f"{self.log_prefix} Creating sub-task for Jira story {_story_key}")
+                    jira_conn.create_closed_subtask(
+                        title=f"{self.issue_title}: New commit from {self.last_committer}",
+                        parent_key=_story_key,
+                        assignee=self.jira_assignee,
+                        body=f"PR: {self.pull_request.title}, new commit pushed by {self.last_committer}",
+                    )
+
+    def close_jira_when_pull_request_closed(self, is_merged: bool) -> None:
+        jira_conn = self.get_jira_conn()
+        if not jira_conn:
+            self.logger.error(f"{self.log_prefix} Jira connection not found")
+
+        else:
+            if _story_key := self.get_story_key_with_jira_connection():
+                self.logger.info(f"{self.log_prefix} Closing Jira story")
+                jira_conn.close_issue(
+                    key=_story_key,
+                    comment=f"PR: {self.pull_request.title} is closed. Merged: {is_merged}",
+                )
+
+    def update_jira_when_pull_request_updated(self, reviewed_user: str, review_state: str) -> None:
+        _story_label = [_label for _label in self.pull_request.labels if _label.name.startswith(JIRA_STR)]
+        if _story_label:
+            if reviewed_user == self.parent_committer or reviewed_user == self.last_committer:
+                self.logger.info(
+                    f"{self.log_prefix} Skipping Jira review sub-task creation for review by {reviewed_user} which is parent or last committer"
+                )
+                return
+
+            _story_key = _story_label[0].name.split(":")[-1]
+            jira_conn = self.get_jira_conn()
+            if not jira_conn:
+                self.logger.error(f"{self.log_prefix} Jira connection not found")
+                return
+
+            self.logger.info(f"{self.log_prefix} Creating sub-task for Jira story {_story_key}")
+            jira_conn.create_closed_subtask(
+                title=f"{self.issue_title}: reviewed by: {reviewed_user} - {review_state}",
+                parent_key=_story_key,
+                assignee=self.jira_user_mapping.get(reviewed_user, self.parent_committer),
+                body=f"PR: {self.pull_request.title}, reviewed by: {reviewed_user}",
+            )
+
+    def add_pull_request_owner_as_assingee(self) -> None:
+        try:
+            self.logger.info(f"{self.log_prefix} Adding PR owner as assignee")
+            self.pull_request.add_to_assignees()
+        except Exception:
+            if self.approvers:
+                self.pull_request.add_to_assignees(self.approvers[0])
