@@ -1,6 +1,5 @@
 from __future__ import annotations
 import contextlib
-from datetime import datetime
 import json
 import logging
 import os
@@ -95,7 +94,6 @@ class ProcessGithubWehookError(Exception):
 
 class ProcessGithubWehook:
     def __init__(self, hook_data: Dict[Any, Any], headers: Headers, logger: logging.Logger) -> None:
-        self.start_time = datetime.now()
         self.logger = logger
         self.logger.name = "ProcessGithubWehook"
         self.hook_data = hook_data
@@ -113,7 +111,6 @@ class ProcessGithubWehook:
         self.config = Config()
         self.log_prefix = self.prepare_log_prefix()
         self._repo_data_from_config()
-        self.logger.debug(f"\n\n{self.log_prefix} *** INIT started ***\n")
 
         self.github_app_api = get_repository_github_app_api(
             config_=self.config, repository_name=self.repository_full_name
@@ -188,10 +185,6 @@ Available user actions:
 </details>
     """
 
-        self.logger.debug(
-            f"\n\n{self.log_prefix} *** INIT ended, took: {(datetime.now() - self.start_time).seconds} seconds ***\n"
-        )
-
     def process(self) -> None:
         if self.github_event == "ping":
             return
@@ -231,10 +224,6 @@ Available user actions:
 
             elif self.github_event == "check_run":
                 self.process_pull_request_check_run_webhook_data()
-
-        self.logger.debug(
-            f"\n\n{self.log_prefix} *** END process function, took: {(datetime.now() - self.start_time).seconds} seconds ***\n"
-        )
 
     @property
     def prepare_retest_wellcome_msg(self) -> str:
