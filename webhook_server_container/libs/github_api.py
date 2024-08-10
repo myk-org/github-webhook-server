@@ -1673,26 +1673,6 @@ stderr: `{err}`
             token=self.jira_token,
         )
 
-    #     def log_repository_features(self):
-    #         repository_features = f"""
-    #                         auto-verified-and-merged-users: {self.auto_verified_and_merged_users}
-    #                         can-be-merged-required-labels: {self.can_be_merged_required_labels}
-    #                         pypi: {self.pypi}
-    #                         verified-job: {self.verified_job}
-    #                         tox-enabled: {self.tox_enabled}
-    #                         tox-python-version: {self.tox_python_version}
-    #                         pre-commit: {self.pre_commit}
-    #                         slack-webhook-url: {self.slack_webhook_url}
-    #                         container: {self.build_and_push_container}
-    #                         jira-tracking: {self.jira_tracking}
-    #                         jira-server: {self.jira_server}
-    #                         jira-project: {self.jira_project}
-    #                         jira-token: {self.jira_token}
-    #                         jira-enabled-repository: {self.jira_enabled_repository}
-    #                         jira-user-mapping: {self.jira_user_mapping}
-    # """
-    #         self.logger.info(f"{self.log_prefix} Repository features: {repository_features}")
-
     def get_story_key_with_jira_connection(self) -> str:
         _story_label = [_label for _label in self.pull_request.labels if _label.name.startswith(JIRA_STR)]
         if not _story_label:
