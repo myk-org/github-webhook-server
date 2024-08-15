@@ -654,18 +654,18 @@ tests = ["asttokens (>=2.1.0)", "coverage", "coverage-enable-subprocess", "ipyth
 
 [[package]]
 name = "fastapi"
-version = "0.112.0"
+version = "0.112.1"
 description = "FastAPI framework, high performance, easy to learn, fast to code, ready for production"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "fastapi-0.112.0-py3-none-any.whl", hash = "sha256:3487ded9778006a45834b8c816ec4a48d522e2631ca9e75ec5a774f1b052f821"},
-    {file = "fastapi-0.112.0.tar.gz", hash = "sha256:d262bc56b7d101d1f4e8fc0ad2ac75bb9935fec504d2b7117686cec50710cf05"},
+    {file = "fastapi-0.112.1-py3-none-any.whl", hash = "sha256:bcbd45817fc2a1cd5da09af66815b84ec0d3d634eb173d1ab468ae3103e183e4"},
+    {file = "fastapi-0.112.1.tar.gz", hash = "sha256:b2537146f8c23389a7faa8b03d0bd38d4986e6983874557d95eed2acc46448ef"},
 ]
 
 [package.dependencies]
 pydantic = ">=1.7.4,<1.8 || >1.8,<1.8.1 || >1.8.1,<2.0.0 || >2.0.0,<2.0.1 || >2.0.1,<2.1.0 || >2.1.0,<3.0.0"
-starlette = ">=0.37.2,<0.38.0"
+starlette = ">=0.37.2,<0.39.0"
 typing-extensions = ">=4.8.0"
 
 [package.extras]
@@ -1672,12 +1672,12 @@ windows-terminal = ["colorama (>=0.4.6)"]
 
 [[package]]
 name = "pyhelper-utils"
-version = "0.0.34"
+version = "0.0.35"
 description = "Collective utility functions for python projects"
 optional = false
 python-versions = "<4.0,>=3.8"
 files = [
-    {file = "pyhelper_utils-0.0.34.tar.gz", hash = "sha256:53f00dec369b22fdd885d207fc10cc758757033a816c3b407407b97b7a14f1e9"},
+    {file = "pyhelper_utils-0.0.35.tar.gz", hash = "sha256:6cf16a627df07f92250148c1e590e72d98b85ddb81324974f6f0326b0fd74a40"},
 ]
 
 [package.dependencies]
@@ -1762,12 +1762,12 @@ six = "*"
 
 [[package]]
 name = "python-simple-logger"
-version = "1.0.35"
+version = "1.0.36"
 description = "A simple logger for python"
 optional = false
 python-versions = "<4.0,>=3.8"
 files = [
-    {file = "python_simple_logger-1.0.35.tar.gz", hash = "sha256:98628a1ad0ff7320e19a68b2c35d3a3ee5af469ffaf7eb72336cb3f8c7e7f91c"},
+    {file = "python_simple_logger-1.0.36.tar.gz", hash = "sha256:7187af94507e48e8460ce625dbb80fc30e07357ec774fc5378a90fa241a35971"},
 ]
 
 [package.dependencies]
@@ -2180,12 +2180,12 @@ setuptools = "*"
 
 [[package]]
 name = "timeout-sampler"
-version = "0.0.40"
+version = "0.0.41"
 description = "Timeout utility class to wait for any function output and interact with it in given time"
 optional = false
 python-versions = "<4.0,>=3.8"
 files = [
-    {file = "timeout_sampler-0.0.40.tar.gz", hash = "sha256:c6922b8cd5b6120b437e7a04087f3bef1c1646e706b25ec55a39ed7d6f6d5b32"},
+    {file = "timeout_sampler-0.0.41.tar.gz", hash = "sha256:0fa63e42fe6c83ebfd2f44babd830bb37c97f771e826f2fd28b397f2506444f6"},
 ]
 
 [package.dependencies]
@@ -2508,4 +2508,4 @@ test = ["big-O", "importlib-resources", "jaraco.functools", "jaraco.itertools", 
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.8"
-content-hash = "52a668220756a691390bb5f1f03802e2ee22a0d237eb355052568a2fe78be417"
+content-hash = "88f1375d5035022f0ff518e8d3b31bd90b62ad3f7dfe848829a00cef34f2ec25"
