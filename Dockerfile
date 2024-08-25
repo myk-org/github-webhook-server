@@ -1,8 +1,28 @@
 FROM quay.io/podman/stable:latest
 EXPOSE 5000
 
+RUN dnf -y install dnf-plugins-core
+RUN dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
+
 RUN dnf -y update \
-  && dnf -y install python3.8 python3.9 python3.10 python3.11 python3.12 python3-pip git hub unzip libcurl-devel gcc python3-devel libffi-devel \
+  && dnf -y install python3.8 \
+  python3.9 \
+  python3.10 \
+  python3.11 \
+  python3.12 \
+  python3-pip \
+  git \
+  hub \
+  unzip \
+  libcurl-devel \
+  gcc \
+  python3-devel \
+  libffi-devel \
+  docker-ce \
+  docker-ce-cli \
+  containerd.io \
+  docker-buildx-plugin \
+  docker-compose-plugin \
   && dnf clean all \
   && rm -rf /var/cache /var/log/dnf* /var/log/yum.*
 
