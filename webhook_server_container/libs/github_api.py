@@ -1137,6 +1137,18 @@ stderr: `{err}`
                 self._add_label(label=WIP_STR)
                 self.pull_request.edit(title=f"{wip_for_title} {self.pull_request.title}")
 
+        elif _command == HOLD_LABEL_STR:
+            self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
+            if reviewed_user not in self.approvers:
+                self.pull_request.create_issue_comment(
+                    f"{reviewed_user} is not part of the approver, only approvers can mark pull request as hold"
+                )
+            else:
+                if remove:
+                    self._remove_label(label=HOLD_LABEL_STR)
+                else:
+                    self._add_label(label=HOLD_LABEL_STR)
+
         else:
             self.label_by_user_comment(
                 user_requested_label=_command,
