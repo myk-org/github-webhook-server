@@ -43,9 +43,6 @@ def get_logger_with_params(name: str, repository_name: Optional[str] = "") -> Lo
     return get_logger(name=name, filename=log_file, level=log_level, file_max_bytes=1048576 * 50)  # 50MB
 
 
-LOGGER = get_logger_with_params(name="helpers")
-
-
 def extract_key_from_dict(key: Any, _dict: Dict[Any, Any]) -> Any:
     if isinstance(_dict, dict):
         for _key, _val in _dict.items():
@@ -90,10 +87,12 @@ def run_command(
     Returns:
         tuple: True, out if command succeeded, False, err otherwise.
     """
+    logger = get_logger_with_params(name="helpers")
+
     out_decoded: str = ""
     err_decoded: str = ""
     try:
-        LOGGER.debug(f"{log_prefix} Running '{command}' command")
+        logger.debug(f"{log_prefix} Running '{command}' command")
         sub_process = subprocess.run(
             shlex.split(command),
             capture_output=capture_output,
@@ -112,17 +111,17 @@ def run_command(
         )
 
         if sub_process.returncode != 0:
-            LOGGER.error(error_msg)
+            logger.error(error_msg)
             return False, out_decoded, err_decoded
 
         # From this point and onwards we are guaranteed that sub_process.returncode == 0
         if err_decoded and verify_stderr:
-            LOGGER.error(error_msg)
+            logger.error(error_msg)
             return False, out_decoded, err_decoded
 
         return True, out_decoded, err_decoded
     except Exception as ex:
-        LOGGER.error(f"{log_prefix} Failed to run '{command}' command: {ex}")
+        logger.error(f"{log_prefix} Failed to run '{command}' command: {ex}")
         return False, out_decoded, err_decoded
 
 
@@ -153,6 +152,8 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
     Returns:
         tuple: API, token
     """
+    logger = get_logger_with_params(name="helpers")
+
     api: Optional[Github] = None
     token: Optional[str] = None
     _api_user: str = ""
@@ -166,17 +167,19 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
         rate_limit = _api.get_rate_limit()
         if rate_limit.core.remaining > remaining:
             remaining = rate_limit.core.remaining
-            LOGGER.debug(f"API user {_api_user} remaining rate limit: {remaining}")
+            logger.debug(f"API user {_api_user} remaining rate limit: {remaining}")
             api, token = _api, _token
 
     if rate_limit:
         log_rate_limit(rate_limit=rate_limit, api_user=_api_user)
 
-    LOGGER.info(f"API user {_api_user} selected with highest rate limit: {remaining}")
+    logger.info(f"API user {_api_user} selected with highest rate limit: {remaining}")
     return api, token
 
 
 def log_rate_limit(rate_limit: RateLimit, api_user: str) -> None:
+    logger = get_logger_with_params(name="helpers")
+
     rate_limit_str: str
     time_for_limit_reset: int = (rate_limit.core.reset - datetime.datetime.now(tz=datetime.timezone.utc)).seconds
     below_minimum: bool = rate_limit.core.remaining < 700
@@ -195,9 +198,9 @@ def log_rate_limit(rate_limit: RateLimit, api_user: str) -> None:
         f"Reset in {rate_limit.core.reset} [{datetime.timedelta(seconds=time_for_limit_reset)}] "
         f"(UTC time is {datetime.datetime.now(tz=datetime.timezone.utc)})"
     )
-    LOGGER.debug(msg)
+    logger.debug(msg)
     if below_minimum:
-        LOGGER.warning(msg)
+        logger.warning(msg)
 
 
 def get_future_results(futures: List["Future"]) -> None:
