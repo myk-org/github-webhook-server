@@ -139,11 +139,11 @@ dmypy.json
 cython_debug/
 
 # App
-config.yaml
+/config.yaml
 docker-compose.yaml
 github-webhook-server.json
-config-dev.yaml
+/config-dev.yaml
 local-run.sh
 .scannerwork/
 webhook-server.private-key.pem
-tests/manifests/log-colors.json
+log-colors.json

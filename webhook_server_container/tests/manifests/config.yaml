@@ -1,0 +1,92 @@
+log-level: INFO # Set global log level, change take effect immediately without server restart
+log-file: webhook-server.log # Set global log file, change take effect immediately without server restart
+
+github-app-id: 123456 # GitHub app id
+github-toekns:
+  - <GITHIB TOKEN1>
+  - <GITHIB TOKEN2>
+
+webhook_ip: <HTTP://IP OR URL:PORT>
+
+docker: # Used to pull images from docker.io
+  username: <username>
+  password: <password>
+
+default-status-checks:
+  - "WIP"
+  - "dpulls"
+  - "can-be-merged"
+
+auto-verified-and-merged-users:
+  - "renovate[bot]"
+  - "pre-commit-ci[bot]"
+
+jira:
+  server: <JIRA URL>
+  project: <PROJECT KEY>
+  tokan: <JIRA TOKEN>
+  user-mapping:
+    <GITHUB USER>: <JIRA USER> # if github user is not the same as jira
+
+repositories:
+  test-repo:
+    name: my-org/test-repo
+    log-level: DEBUG # Override global log-level for repository
+    log-file: test-repo.log # Override global log-file for repository
+    slack_webhook_url: <Slack webhook url> # Send notification to slack on several operations
+    verified_job: true
+    pypi:
+      token: <PYPI TOKEN>
+
+    events: # To listen to all events do not send events
+      - push
+      - pull_request
+      - issue_comment
+      - check_run
+      - pull_request_review
+    tox:
+      main: all # Run all tests in tox.ini when pull request parent branch is main
+      dev: testenv1,testenv2 # Run testenv1 and testenv2 tests in tox.ini when pull request parent branch is dev
+
+    pre-commit: true # Run pre-commit check
+
+    protected-branches:
+      dev: []
+      main: # set [] in order to set all defaults run included
+        include-runs:
+          - "pre-commit.ci - pr"
+          - "WIP"
+        exclude-runs:
+          - "SonarCloud Code Analysis"
+    container:
+      username: <registry username>
+      password: <registry_password>
+      repository: <registry_repository_full_path>
+      tag: <image_tag>
+      release: true # Push image to registry on new release with release as the tag
+      build-args: # build args to send to podman build command
+        - my-build-arg1=1
+        - my-build-arg2=2
+      args: # args to send to podman build command
+        - --format docker
+
+    auto-verified-and-merged-users: # override auto verified users per repository
+      - "my[bot]"
+
+    github-tokens: # override GitHub tokens per repository
+      - <GITHUB TOKEN1>
+      - <GITHUB TOKEN2>
+
+    can-be-merged-required-labels: # check for extra labels to set PR as can be merged
+      - my-label1
+      - my-label2
+
+    jira-tracking: true
+
+    jira: # override Jira global settings
+      server: <JIRA URL>
+      project: <PROJECT KEY>
+      token: <JIRA TOKEN>
+      epic: <EPIC KEY> # Optional
+      user-mapping:
+        <GITHUB USER>: <JIRA USER> # if github user is not the same as jira
