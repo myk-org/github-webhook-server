@@ -146,3 +146,4 @@ config-dev.yaml
 local-run.sh
 .scannerwork/
 webhook-server.private-key.pem
+tests/manifests/log-colors.json
