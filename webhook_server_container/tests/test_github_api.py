@@ -23,7 +23,7 @@ def process_github_webhook(mocker):
     base_import_path = "webhook_server_container.libs.github_api"
     os.environ["WEBHOOK_SERVER_DATA_DIR"] = "webhook_server_container/tests/manifests"
 
-    mocker.patch(f"{base_import_path}.get_repository_github_app_api", retun_value=True)
+    mocker.patch(f"{base_import_path}.get_repository_github_app_api", return_value=True)
     mocker.patch("github.AuthenticatedUser", return_value=True)
     mocker.patch(f"{base_import_path}.get_api_with_highest_rate_limit", return_value=("API", "TOKEN"))
     mocker.patch(f"{base_import_path}.get_github_repo_api", return_value=Repository())
