@@ -24,7 +24,7 @@ auto-verified-and-merged-users:
 jira:
   server: <JIRA URL>
   project: <PROJECT KEY>
-  tokan: <JIRA TOKEN>
+  token: <JIRA TOKEN>
   user-mapping:
     <GITHUB USER>: <JIRA USER> # if github user is not the same as jira
 
