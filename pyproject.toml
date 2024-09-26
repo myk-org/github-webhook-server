@@ -63,6 +63,11 @@ string-color = "^1.2.3"
 ipdb = "^0.13.13"
 ipython = "*"
 
+
+[tool.poetry.group.tests.dependencies]
+pytest-mock = "^3.14.0"
+pytest = "^8.3.3"
+
 [tool.poetry-dynamic-versioning]
 enable = true
 pattern = "((?P<epoch>\\d+)!)?(?P<base>\\d+(\\.\\d+)*)"

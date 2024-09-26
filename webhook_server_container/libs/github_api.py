@@ -617,18 +617,58 @@ stderr: `{err}`
                     self.pull_request.create_issue_comment(f"{reviewer} can not be added as reviewer. {ex}")
 
     def get_size(self) -> str:
-        """Calculate size label based on additions and deletions."""
-        size = self.pull_request.additions + self.pull_request.deletions
-        prefixes = ["XS", "S", "M", "L", "XL", "XXL"]
-        for prefix in prefixes:
-            if size < 20 * (prefix[:-1].upper() == "S") + 10:
-                return f"{SIZE_LABEL_PREFIX}{prefix}"
+        """Calculates size label based on additions and deletions."""
 
-        return ""
+        size = self.pull_request.additions + self.pull_request.deletions
+
+        # Define label thresholds in a more readable way
+        threshold_sizes = [20, 50, 100, 300, 500]
+        prefixes = ["XS", "S", "M", "L", "XL"]
+
+        for i, size_threshold in enumerate(threshold_sizes):
+            if size < size_threshold:
+                _label = prefixes[i]
+                return f"{SIZE_LABEL_PREFIX}{_label}"
+
+        return f"{SIZE_LABEL_PREFIX}XXL"
+
+    # def get_size(self) -> str:
+    #     """Calculate size label based on additions and deletions."""
+    #     size: int = self.pull_request.additions + self.pull_request.deletions
+    #     if size < 20:
+    #         _label = "XS"
+    #
+    #     elif size < 50:
+    #         _label = "S"
+    #
+    #     elif size < 100:
+    #         _label = "M"
+    #
+    #     elif size < 300:
+    #         _label = "L"
+    #
+    #     elif size < 500:
+    #         _label = "XL"
+    #
+    #     else:
+    #         _label = "XXL"
+    #
+    #     return f"{SIZE_LABEL_PREFIX}{_label}"
+    #     # size = self.pull_request.additions + self.pull_request.deletions
+    #     # prefixes = ["XS", "S", "M", "L", "XL", "XXL"]
+    #     # for prefix in prefixes:
+    #     #     if size < 20 * (prefix[:-1].upper() == "S") + 10:
+    #     #         return f"{SIZE_LABEL_PREFIX}{prefix}"
+    #     #
+    #     # return ""
 
     def add_size_label(self) -> None:
         """Add a size label to the pull request based on its additions and deletions."""
         size_label = self.get_size()
+        if not size_label:
+            self.logger.debug(f"{self.log_prefix} Size label not found")
+            return
+
         if size_label in self.pull_request_labels_names():
             return
 
