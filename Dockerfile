@@ -37,7 +37,6 @@ RUN mkdir -p $USER_BIN_DIR \
   && mkdir -p /tmp/containers
 
 RUN set -x \
-  && curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash \
   && curl https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz --output /tmp/rosa-linux.tar.gz \
   && tar xvf /tmp/rosa-linux.tar.gz --no-same-owner \
   && mv rosa $USER_BIN_DIR/rosa \
