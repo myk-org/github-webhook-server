@@ -938,6 +938,7 @@ stderr: `{err}`
                 pull_request_opened_futures.append(executor.submit(self.process_opened_or_synchronize_pull_request))
                 if self.jira_track_pr:
                     pull_request_opened_futures.append(executor.submit(self.create_jira_when_open_pull_reques))
+                pull_request_opened_futures.append(executor.submit(self.set_pull_request_automerge))
 
             for _ in as_completed(pull_request_opened_futures):
                 pass
@@ -1422,17 +1423,17 @@ stderr: `{err}`
             if pr_approved and not failure_output:
                 self._add_label(label=CAN_BE_MERGED_STR)
                 self.set_merge_check_success()
-                if self.parent_committer in self.auto_verified_and_merged_users:
-                    self.logger.info(
-                        f"{self.log_prefix} will be merged automatically. owner: {self.parent_committer} "
-                        f"is part of {self.auto_verified_and_merged_users}"
-                    )
-                    self.pull_request.create_issue_comment(
-                        f"Owner of the pull request {self.parent_committer} "
-                        f"is part of:\n`{self.auto_verified_and_merged_users}`\n"
-                        "Pull request is merged automatically."
-                    )
-                    self.pull_request.merge(merge_method="squash")
+                # if self.parent_committer in self.auto_verified_and_merged_users:
+                #     self.logger.info(
+                #         f"{self.log_prefix} will be merged automatically. owner: {self.parent_committer} "
+                #         f"is part of {self.auto_verified_and_merged_users}"
+                #     )
+                #     self.pull_request.create_issue_comment(
+                #         f"Owner of the pull request {self.parent_committer} "
+                #         f"is part of:\n`{self.auto_verified_and_merged_users}`\n"
+                #         "Pull request is merged automatically."
+                #     )
+                #     self.pull_request.merge(merge_method="squash")
 
                 self.logger.info(f"{self.log_prefix} Pull request can be merged")
                 return
@@ -2008,3 +2009,12 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         except Exception:
             if self.approvers:
                 self.pull_request.add_to_assignees(self.approvers[0])
+
+    def set_pull_request_automerge(self) -> None:
+        if self.parent_committer in self.auto_verified_and_merged_users:
+            self.logger.info(
+                f"{self.log_prefix} will be merged automatically. owner: {self.parent_committer} "
+                f"is part of {self.auto_verified_and_merged_users}"
+            )
+
+            self.pull_request.enable_automerge(merge_method="SQUASH")
