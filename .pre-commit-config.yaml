@@ -55,5 +55,5 @@ repos:
     rev: v1.11.2
     hooks:
       - id: mypy
-        exclude: (tests/*)
+        exclude: (tests/)
         additional_dependencies: [types-requests, types-PyYAML]
