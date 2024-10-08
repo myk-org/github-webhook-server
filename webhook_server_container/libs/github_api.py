@@ -632,36 +632,6 @@ stderr: `{err}`
 
         return f"{SIZE_LABEL_PREFIX}XXL"
 
-    # def get_size(self) -> str:
-    #     """Calculate size label based on additions and deletions."""
-    #     size: int = self.pull_request.additions + self.pull_request.deletions
-    #     if size < 20:
-    #         _label = "XS"
-    #
-    #     elif size < 50:
-    #         _label = "S"
-    #
-    #     elif size < 100:
-    #         _label = "M"
-    #
-    #     elif size < 300:
-    #         _label = "L"
-    #
-    #     elif size < 500:
-    #         _label = "XL"
-    #
-    #     else:
-    #         _label = "XXL"
-    #
-    #     return f"{SIZE_LABEL_PREFIX}{_label}"
-    #     # size = self.pull_request.additions + self.pull_request.deletions
-    #     # prefixes = ["XS", "S", "M", "L", "XL", "XXL"]
-    #     # for prefix in prefixes:
-    #     #     if size < 20 * (prefix[:-1].upper() == "S") + 10:
-    #     #         return f"{SIZE_LABEL_PREFIX}{prefix}"
-    #     #
-    #     # return ""
-
     def add_size_label(self) -> None:
         """Add a size label to the pull request based on its additions and deletions."""
         size_label = self.get_size()
@@ -678,38 +648,6 @@ stderr: `{err}`
             self._remove_label(label=exists_size_label[0])
 
         self._add_label(label=size_label)
-
-    # def add_size_label(self) -> None:
-    #     size: int = self.pull_request.additions + self.pull_request.deletions
-    #     if size < 20:
-    #         _label = "XS"
-    #
-    #     elif size < 50:
-    #         _label = "S"
-    #
-    #     elif size < 100:
-    #         _label = "M"
-    #
-    #     elif size < 300:
-    #         _label = "L"
-    #
-    #     elif size < 500:
-    #         _label = "XL"
-    #
-    #     else:
-    #         _label = "XXL"
-    #
-    #     size_label = f"{SIZE_LABEL_PREFIX}{_label}"
-    #
-    #     if size_label in self.pull_request_labels_names():
-    #         return
-    #
-    #     exists_size_label = [label for label in self.pull_request_labels_names() if label.startswith(SIZE_LABEL_PREFIX)]
-    #
-    #     if exists_size_label:
-    #         self._remove_label(label=exists_size_label[0])
-    #
-    #     self._add_label(label=size_label)
 
     def label_by_user_comment(
         self, user_requested_label: str, remove: bool, reviewed_user: str, issue_comment_id: int
@@ -1212,6 +1150,8 @@ stderr: `{err}`
                     self._remove_label(label=HOLD_LABEL_STR)
                 else:
                     self._add_label(label=HOLD_LABEL_STR)
+
+                self.check_if_can_be_merged()
 
         else:
             self.label_by_user_comment(
