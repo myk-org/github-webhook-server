@@ -443,10 +443,14 @@ Available user actions:
         return False
 
     def _remove_label(self, label: str) -> bool:
-        if self.label_exists_in_pull_request(label=label):
-            self.logger.info(f"{self.log_prefix} Removing label {label}")
-            self.pull_request.remove_from_labels(label)
-            return self.wait_for_label(label=label, exists=False)
+        try:
+            if self.label_exists_in_pull_request(label=label):
+                self.logger.info(f"{self.log_prefix} Removing label {label}")
+                self.pull_request.remove_from_labels(label)
+                return self.wait_for_label(label=label, exists=False)
+        except Exception as exp:
+            self.logger.debug(f"{self.log_prefix} Failed to remove {label} label. Exception: {exp}")
+            return False
 
         self.logger.debug(f"{self.log_prefix} Label {label} not found and cannot be removed")
         return False
@@ -1363,17 +1367,6 @@ stderr: `{err}`
             if pr_approved and not failure_output:
                 self._add_label(label=CAN_BE_MERGED_STR)
                 self.set_merge_check_success()
-                # if self.parent_committer in self.auto_verified_and_merged_users:
-                #     self.logger.info(
-                #         f"{self.log_prefix} will be merged automatically. owner: {self.parent_committer} "
-                #         f"is part of {self.auto_verified_and_merged_users}"
-                #     )
-                #     self.pull_request.create_issue_comment(
-                #         f"Owner of the pull request {self.parent_committer} "
-                #         f"is part of:\n`{self.auto_verified_and_merged_users}`\n"
-                #         "Pull request is merged automatically."
-                #     )
-                #     self.pull_request.merge(merge_method="squash")
 
                 self.logger.info(f"{self.log_prefix} Pull request can be merged")
                 return
@@ -1952,9 +1945,16 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
     def set_pull_request_automerge(self) -> None:
         if self.parent_committer in self.auto_verified_and_merged_users:
-            self.logger.info(
-                f"{self.log_prefix} will be merged automatically. owner: {self.parent_committer} "
-                f"is part of {self.auto_verified_and_merged_users}"
-            )
+            try:
+                if not self.pull_request.raw_data.get("auto_merge"):
+                    self.logger.info(
+                        f"{self.log_prefix} will be merged automatically. owner: {self.parent_committer} "
+                        f"is part of auto merge enabled users"
+                    )
 
-            self.pull_request.enable_automerge(merge_method="SQUASH")
+                    self.pull_request.enable_automerge(merge_method="SQUASH")
+                else:
+                    self.logger.debug(f"{self.log_prefix} is already set to auto merge")
+
+            except Exception as exp:
+                self.logger.error(f"{self.log_prefix} Exception while setting auto merge: {exp}")
