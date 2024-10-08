@@ -1945,12 +1945,16 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
     def set_pull_request_automerge(self) -> None:
         if self.parent_committer in self.auto_verified_and_merged_users:
-            if not self.pull_request.raw_data.get("auto_merge"):
-                self.logger.info(
-                    f"{self.log_prefix} will be merged automatically. owner: {self.parent_committer} "
-                    f"is part of auto merge enabled users"
-                )
+            try:
+                if not self.pull_request.raw_data.get("auto_merge"):
+                    self.logger.info(
+                        f"{self.log_prefix} will be merged automatically. owner: {self.parent_committer} "
+                        f"is part of auto merge enabled users"
+                    )
 
-                self.pull_request.enable_automerge(merge_method="SQUASH")
-            else:
-                self.logger.debug(f"{self.log_prefix} is already set to auto merge")
+                    self.pull_request.enable_automerge(merge_method="SQUASH")
+                else:
+                    self.logger.debug(f"{self.log_prefix} is already set to auto merge")
+
+            except Exception as exp:
+                self.logger.error(f"{self.log_prefix} Exception while setting auto merge: {exp}")
