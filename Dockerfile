@@ -1,10 +1,9 @@
 FROM quay.io/podman/stable:latest
 EXPOSE 5000
 
-RUN dnf -y install dnf-plugins-core
-RUN dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
-
-RUN dnf -y update \
+RUN dnf -y install dnf-plugins-core \
+  && dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo \
+  && dnf -y update \
   && dnf -y install python3.8 \
   python3.9 \
   python3.10 \
@@ -27,8 +26,8 @@ RUN dnf -y update \
   && rm -rf /var/cache /var/log/dnf* /var/log/yum.*
 
 ENV USER_BIN_DIR="/root/.local/bin"
-ENV UV_INSTALL_DIR="$USER_BIN_DIR"
-ENV PATH="$USER_BIN_DIR:$PATH"
+ENV UV_INSTALL_DIR="/root/.local"
+ENV PATH="$PATH:$USER_BIN_DIR"
 
 ENV DATA_DIR=/webhook_server
 ENV APP_DIR=/github-webhook-server
