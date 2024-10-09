@@ -27,20 +27,21 @@ RUN dnf -y update \
   && rm -rf /var/cache /var/log/dnf* /var/log/yum.*
 
 ENV USER_BIN_DIR="/root/.local/bin"
-ENV USER_CARGO_DIR="/root/.cargo/bin"
+ENV UV_INSTALL_DIR="$USER_BIN_DIR"
+ENV PATH="$USER_BIN_DIR:$PATH"
+
 ENV DATA_DIR=/webhook_server
 ENV APP_DIR=/github-webhook-server
-ENV PATH="$USER_BIN_DIR:$USER_CARGO_DIR:$PATH"
-
-# Download the latest uv installer
-RUN curl -sSL https://astral.sh/uv/install.sh -o /tmp/uv-installer.sh \
-  && sh /tmp/uv-installer.sh \
-  && rm /tmp/uv-installer.sh
 
 RUN mkdir -p $USER_BIN_DIR \
   && mkdir -p $DATA_DIR \
   && mkdir -p $DATA_DIR/logs \
   && mkdir -p /tmp/containers
+
+# Download the latest uv installer
+RUN curl -sSL https://astral.sh/uv/install.sh -o /tmp/uv-installer.sh \
+  && sh /tmp/uv-installer.sh \
+  && rm /tmp/uv-installer.sh
 
 RUN set -x \
   && curl https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz --output /tmp/rosa-linux.tar.gz \
