@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=webhook_server_container/config/schema.yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/myk-org/github-webhook-server/refs/heads/main/webhook_server_container/config/schema.yaml
 
 log-level: INFO # Set global log level, change take effect immediately without server restart
 log-file: webhook-server.log # Set global log file, change take effect immediately without server restart
