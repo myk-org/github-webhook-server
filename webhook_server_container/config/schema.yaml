@@ -1,0 +1,150 @@
+$schema: https://json-schema.org/draft-07/schema#
+title: Webhook Server Configuration
+type: object
+properties:
+  log-level:
+    type: string
+    enum:
+      - INFO
+      - DEBUG
+  log-file:
+    type: string
+    description: File path for the log file
+  github-app-id:
+    type: integer
+    description: The `webhook server` GitHub app ID
+  github-tokens:
+    type: array
+    items:
+      type: string
+      description: Global GitHub token for all repositories
+  webhook_ip:
+    type: string
+    description: IP or FQDN address of the webhook server for adding to the repositories
+  docker:
+    type: object
+    properties:
+      username:
+        type: string
+        description: Docker username
+      password:
+        type: string
+        format: password
+        description: Docker password
+  default-status-checks:
+    type: array
+    items:
+      type: string
+  auto-verified-and-merged-users:
+    type: array
+    items:
+      type: string
+  jira:
+    type: object
+    properties:
+      server:
+        type: string
+        description: JIRA server URL
+      project:
+        type: string
+        description: JIRA project key
+      token:
+        type: string
+        format: password
+  repositories:
+    type: object
+    properties:
+      my-repository:
+        name:
+          type: string
+          description: Repository name
+        log-level:
+          type: string
+          enum:
+            - INFO
+            - DEBUG
+        log-file:
+          type: string
+          description: File path for the log file
+        slack_webhook_url:
+          type: string
+          description: Slack webhook URL
+        verified_job:
+          type: boolean
+          default: true
+        pypi:
+          type: object
+          properties:
+            token:
+              type: string
+              format: password
+        events:
+          type: array
+          items:
+            type: string
+        tox:
+          type: object
+          properties:
+            main:
+              type: array
+              items:
+                type: string
+            dev:
+              type: array
+              items:
+                type: string
+        pre-commit:
+          type: boolean
+          default: true
+        protected-branches:
+          type: object
+          properties:
+            dev:
+              type: array
+              items:
+                type: string
+            main:
+              type: object
+              properties:
+                include-runs:
+                  type: array
+                  items:
+                    type: string
+                exclude-runs:
+                  type: array
+                  items:
+                    type: string
+        container:
+          type: object
+          properties:
+            username:
+              type: string
+              description: Docker registry username
+            password:
+              type: string
+              format: password
+            repository:
+              type: string
+              description: Docker registry repository URL
+            tag:
+              type: string
+              description: Image tag
+            build-args:
+              type: array
+              items:
+                type: string
+            args:
+              type: array
+              items:
+                type: string
+        auto-verified-and-merged-users:
+          type: array
+          items:
+            type: string
+  can-be-merged-required-labels:
+    type: array
+    items:
+      type: string
+  jira-tracking:
+    type: boolean
+    default: true
