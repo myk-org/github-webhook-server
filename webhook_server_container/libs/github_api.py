@@ -1625,10 +1625,7 @@ stderr: `{err}`
         checkout: str = "",
         tag_name: str = "",
     ) -> Tuple[int, str, str]:
-        podman_base_cmd: str = (
-            "podman run --network=host --privileged -v /tmp/containers:/var/lib/containers/:Z "
-            f"--rm {env if env else ''} --entrypoint bash quay.io/myakove/github-webhook-server -c"
-        )
+        podman_base_cmd: str = f"podman run --network=host --rm {env if env else ''} --entrypoint bash quay.io/myakove/github-webhook-server -c"
 
         # Clone the repository
         clone_base_cmd: str = (

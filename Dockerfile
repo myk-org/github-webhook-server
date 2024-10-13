@@ -31,6 +31,7 @@ RUN dnf -y install dnf-plugins-core \
   containerd.io \
   docker-buildx-plugin \
   docker-compose-plugin \
+  slirp4netns \
   && dnf clean all \
   && rm -rf /var/cache /var/log/dnf* /var/log/yum.*
 
@@ -45,6 +46,7 @@ RUN mkdir -p $BIN_DIR \
 COPY entrypoint.sh pyproject.toml uv.lock README.md $APP_DIR/
 COPY webhook_server_container $APP_DIR/webhook_server_container/
 
+RUN usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $USERNAME
 RUN chown -R $USERNAME:$USERNAME $HOME_DIR
 USER $USERNAME
 WORKDIR $HOME_DIR
