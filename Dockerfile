@@ -1,5 +1,15 @@
 FROM quay.io/podman/stable:latest
+
 EXPOSE 5000
+
+ENV HOME_DIR=/home/webhook_server
+ENV BIN_DIR="$HOME_DIR/.local/bin"
+ENV UV_INSTALL_DIR="$HOME_DIR/.local"
+ENV PATH="$PATH:$BIN_DIR"
+ENV DATA_DIR=$HOME_DIR/data
+ENV APP_DIR=$HOME_DIR/app
+
+RUN useradd -m -d $HOME_DIR webhook_server -s /bin/bash
 
 RUN dnf -y install dnf-plugins-core \
   && dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo \
@@ -25,15 +35,19 @@ RUN dnf -y install dnf-plugins-core \
   && dnf clean all \
   && rm -rf /var/cache /var/log/dnf* /var/log/yum.*
 
-ENV USER_BIN_DIR="/root/.local/bin"
-ENV UV_INSTALL_DIR="/root/.local"
-ENV PATH="$PATH:$USER_BIN_DIR"
+RUN ln -s /usr/bin/python3 /usr/bin/python
 
-ENV DATA_DIR=/webhook_server
-ENV APP_DIR=/github-webhook-server
+COPY entrypoint.sh pyproject.toml uv.lock README.md $APP_DIR/
+COPY webhook_server_container $APP_DIR/webhook_server_container/
 
-RUN mkdir -p $USER_BIN_DIR \
+RUN chown -R webhook_server:webhook_server $APP_DIR
+
+USER webhook_server
+WORKDIR $HOME_DIR
+
+RUN mkdir -p $BIN_DIR \
   && mkdir -p $DATA_DIR \
+  && mkdir -p $APP_DIR \
   && mkdir -p $DATA_DIR/logs \
   && mkdir -p /tmp/containers
 
@@ -43,13 +57,11 @@ RUN curl -sSL https://astral.sh/uv/install.sh -o /tmp/uv-installer.sh \
   && rm /tmp/uv-installer.sh
 
 RUN set -x \
-  && curl https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz --output /tmp/rosa-linux.tar.gz \
-  && tar xvf /tmp/rosa-linux.tar.gz --no-same-owner \
-  && mv rosa $USER_BIN_DIR/rosa \
-  && chmod +x $USER_BIN_DIR/rosa \
-  && rm -rf /tmp/rosa-linux.tar.gz
-
-RUN ln -s /usr/bin/python3 /usr/bin/python
+  && curl https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz --output $BIN_DIR/rosa-linux.tar.gz \
+  && tar xvf $BIN_DIR/rosa-linux.tar.gz \
+  && mv rosa $BIN_DIR/rosa \
+  && chmod +x $BIN_DIR/rosa \
+  && rm -rf $BIN_DIR/rosa-linux.tar.gz
 
 RUN python -m pip install --no-cache-dir pip --upgrade \
   && python -m pip install --no-cache-dir poetry tox twine pre-commit
@@ -65,10 +77,6 @@ RUN python3.8 -m ensurepip \
   && python3.11 -m pip install tox \
   && python3.12 -m pip install tox
 
-COPY entrypoint.sh pyproject.toml uv.lock README.md $APP_DIR/
-COPY webhook_server_container $APP_DIR/webhook_server_container/
-
-WORKDIR $APP_DIR
 
 HEALTHCHECK CMD curl --fail http://127.0.0.1:5000/webhook_server/healthcheck || exit 1
 ENTRYPOINT ["./entrypoint.sh"]
