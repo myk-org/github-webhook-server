@@ -38,7 +38,7 @@ RUN dnf -y install dnf-plugins-core \
 RUN ln -s /usr/bin/python3 /usr/bin/python
 
 RUN mkdir -p $BIN_DIR \
-  RUN mkdir -p $APP_DIR \
+  && mkdir -p $APP_DIR \
   && mkdir -p $DATA_DIR \
   && mkdir -p $DATA_DIR/logs \
   && mkdir -p /tmp/containers
@@ -46,8 +46,9 @@ RUN mkdir -p $BIN_DIR \
 COPY entrypoint.sh pyproject.toml uv.lock README.md $APP_DIR/
 COPY webhook_server_container $APP_DIR/webhook_server_container/
 
-RUN usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $USERNAME
-RUN chown -R $USERNAME:$USERNAME $HOME_DIR
+RUN usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $USERNAME \
+  && chown -R $USERNAME:$USERNAME $HOME_DIR
+
 USER $USERNAME
 WORKDIR $HOME_DIR
 
