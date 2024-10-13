@@ -2,14 +2,13 @@ FROM quay.io/podman/stable:latest
 
 EXPOSE 5000
 
-ENV HOME_DIR=/home/webhook_server
+ENV USERNAME="podman"
+ENV HOME_DIR="/home/$USERNAME"
 ENV BIN_DIR="$HOME_DIR/.local/bin"
 ENV UV_INSTALL_DIR="$HOME_DIR/.local"
 ENV PATH="$PATH:$BIN_DIR"
-ENV DATA_DIR=$HOME_DIR/data
-ENV APP_DIR=$HOME_DIR/app
-
-RUN useradd -m -d $HOME_DIR webhook_server -s /bin/bash
+ENV DATA_DIR="$HOME_DIR/data"
+ENV APP_DIR="$HOME_DIR/github-webhook-server"
 
 RUN dnf -y install dnf-plugins-core \
   && dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo \
@@ -37,19 +36,18 @@ RUN dnf -y install dnf-plugins-core \
 
 RUN ln -s /usr/bin/python3 /usr/bin/python
 
+RUN mkdir -p $BIN_DIR \
+  RUN mkdir -p $APP_DIR \
+  && mkdir -p $DATA_DIR \
+  && mkdir -p $DATA_DIR/logs \
+  && mkdir -p /tmp/containers
+
 COPY entrypoint.sh pyproject.toml uv.lock README.md $APP_DIR/
 COPY webhook_server_container $APP_DIR/webhook_server_container/
 
-RUN chown -R webhook_server:webhook_server $APP_DIR
-
-USER webhook_server
+RUN chown -R $USERNAME:$USERNAME $HOME_DIR
+USER $USERNAME
 WORKDIR $HOME_DIR
-
-RUN mkdir -p $BIN_DIR \
-  && mkdir -p $DATA_DIR \
-  && mkdir -p $APP_DIR \
-  && mkdir -p $DATA_DIR/logs \
-  && mkdir -p /tmp/containers
 
 # Download the latest uv installer
 RUN curl -sSL https://astral.sh/uv/install.sh -o /tmp/uv-installer.sh \
@@ -77,6 +75,10 @@ RUN python3.8 -m ensurepip \
   && python3.11 -m pip install tox \
   && python3.12 -m pip install tox
 
+WORKDIR $APP_DIR
+
+RUN uv sync
 
 HEALTHCHECK CMD curl --fail http://127.0.0.1:5000/webhook_server/healthcheck || exit 1
+
 ENTRYPOINT ["./entrypoint.sh"]
