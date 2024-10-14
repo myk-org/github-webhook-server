@@ -515,6 +515,18 @@ Available user actions:
         return self.repository.get_branch(branch)
 
     def upload_to_pypi(self, tag_name: str) -> None:
+        def _error(_out: str, _err: str) -> None:
+            err: str = "Publish to pypi failed"
+            self.logger.error(f"{self.log_prefix} {err} - {_err}, {_out}")
+            self.repository.create_issue(
+                title=_err,
+                assignee=self.approvers[0] if self.approvers else "",
+                body=f"""
+stdout: `{_out}`
+stderr: `{_err}`
+""",
+            )
+
         clone_repo_dir = f"{self.clone_repo_dir}-{uuid4()}"
         uv_cmd_dir = f"--directory {clone_repo_dir}"
         out: str = ""
@@ -522,28 +534,26 @@ Available user actions:
         _dist_dir: str = f"{clone_repo_dir}/pypi-dist"
 
         with self._prepare_cloned_repo_dir(checkout=tag_name, clone_repo_dir=clone_repo_dir):
+            rc, out, err = run_command(
+                command=f"uv {uv_cmd_dir} build --sdist --out-dir {_dist_dir}", log_prefix=self.log_prefix
+            )
+            if not rc:
+                return _error(_out=out, _err=err)
+
             rc, tar_gz_file, err = run_command(command=f"ls {_dist_dir}", log_prefix=self.log_prefix)
+            if not rc:
+                return _error(_out=out, _err=err)
+
             tar_gz_file = tar_gz_file.strip()
 
             commands: List[str] = [
-                f"uv {uv_cmd_dir} build --sdist --out-dir {_dist_dir}",
                 f"uvx {uv_cmd_dir} twine check {_dist_dir}/{tar_gz_file}",
                 f"uvx {uv_cmd_dir} twine upload --username __token__ --password {self.pypi["token"]} {_dist_dir}/{tar_gz_file} --skip-existing",
             ]
             for cmd in commands:
                 rc, out, err = run_command(command=cmd, log_prefix=self.log_prefix)
                 if not rc:
-                    err = "Publish to pypi failed"
-                    self.logger.error(f"{self.log_prefix} {err}")
-                    self.repository.create_issue(
-                        title=err,
-                        assignee=self.approvers[0] if self.approvers else "",
-                        body=f"""
-stdout: `{out}`
-stderr: `{err}`
-""",
-                    )
-                    return
+                    return _error(_out=out, _err=err)
 
             self.logger.info(f"{self.log_prefix} Publish to pypi finished")
             if self.slack_webhook_url:
