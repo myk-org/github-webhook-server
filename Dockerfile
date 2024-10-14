@@ -11,31 +11,16 @@ ENV DATA_DIR="$HOME_DIR/data"
 ENV APP_DIR="$HOME_DIR/github-webhook-server"
 
 RUN dnf -y install dnf-plugins-core \
-  && dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo \
   && dnf -y update \
-  && dnf -y install python3.8 \
-  python3.9 \
-  python3.10 \
-  python3.11 \
-  python3.12 \
-  python3-pip \
+  && dnf -y install \
   git \
   hub \
   unzip \
-  libcurl-devel \
   gcc \
   python3-devel \
-  libffi-devel \
-  docker-ce \
-  docker-ce-cli \
-  containerd.io \
-  docker-buildx-plugin \
-  docker-compose-plugin \
-  slirp4netns \
   && dnf clean all \
   && rm -rf /var/cache /var/log/dnf* /var/log/yum.*
 
-# RUN ln -s /usr/bin/python3 /usr/bin/python
 
 RUN mkdir -p $BIN_DIR \
   && mkdir -p $APP_DIR \
@@ -63,20 +48,6 @@ RUN set -x \
   && mv rosa $BIN_DIR/rosa \
   && chmod +x $BIN_DIR/rosa \
   && rm -rf $BIN_DIR/rosa-linux.tar.gz
-
-# RUN python -m pip install --no-cache-dir pip --upgrade \
-#   && python -m pip install --no-cache-dir poetry tox twine pre-commit
-#
-# RUN python3.8 -m ensurepip \
-#   && python3.9 -m ensurepip \
-#   && python3.10 -m ensurepip \
-#   && python3.11 -m ensurepip \
-#   && python3.12 -m ensurepip \
-#   && python3.8 -m pip install tox \
-#   && python3.9 -m pip install tox \
-#   && python3.10 -m pip install tox \
-#   && python3.11 -m pip install tox \
-#   && python3.12 -m pip install tox
 
 WORKDIR $APP_DIR
 
