@@ -1209,13 +1209,7 @@ stderr: `{_err}`
                 f"{git_cmd} checkout -b {new_branch_name} origin/{target_branch}",
                 f"{git_cmd} cherry-pick {commit_hash}",
                 f"{git_cmd} push origin {new_branch_name}",
-                f"{hub_cmd} pull-request"
-                f" -b {target_branch}"
-                f" -h {new_branch_name}"
-                f" -l {CHERRY_PICKED_LABEL_PREFIX}"
-                f' -m "{CHERRY_PICKED_LABEL_PREFIX}: [{target_branch}] {commit_msg_striped}"'
-                f' -m "cherry-pick {pull_request_url} into {target_branch}"'
-                f' -m "requested-by {requested_by}"',
+                f"bash -c \"{hub_cmd} pull-request -b {target_branch} -h {new_branch_name} -l {CHERRY_PICKED_LABEL_PREFIX} -m '{CHERRY_PICKED_LABEL_PREFIX}: [{target_branch}] {commit_msg_striped}' -m 'cherry-pick {pull_request_url} into {target_branch}' -m 'requested-by {requested_by}'\"",
             ]
 
             rc, out, err = None, "", ""
