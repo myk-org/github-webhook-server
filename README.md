@@ -1,8 +1,47 @@
 # github-webhook-server
 
-A Flask-based webhook server for managing GitHub repositories. It handles tasks such as repository setup, branch protection, and webhook configuration.
+A [FastAPI-based](https://fastapi.tiangolo.com) webhook server for managing GitHub pull requests workflow. and manage repositories.
+
+## Overview
+
+The tool will manage the following:
+
+###### Repositories
+
+- Configure repositories setting
+- Configure branch protection
+- Set itself as webhook for the repository
+- Add missing lables to the repository
+
+###### Pull requests
+
+- Add reviewers from OWNER file
+- Manage pull requests labels
+- Check when the pull request is ready to be merged
+- Build container from Dockerfile when pull request is merged
+- Build container from Dockerfile when new release is pushed
+- Push new release to PyPI when new release is pushed
+- Open an issue for each pull request
+- Add pull request size label
+
+###### Available user actions
+
+- Mark pull request as WIP by comment /wip to the pull request, To remove it from the pull request comment /wip cancel to the pull request.
+- Block merging of pull request by comment /hold, To un-block merging of pull request comment /hold cancel.
+- Mark pull request as verified by comment /verified to the pull request, to un-verify comment /verified cancel to the pull request.
+  - verified label removed on each new commit push.
+- Cherry pick a merged pull request comment /cherry-pick <target branch to cherry-pick to> in the pull request.
+  - Multiple target branches can be cherry-picked, separated by spaces. (/cherry-pick branch1 branch2)
+  - Cherry-pick will be started when pull request is merged
+- Build and push container image command /build-and-push-container in the pull request (tag will be the pull request number).
+  - You can add extra args to the Podman build command
+    - Example: /build-and-push-container --build-arg OPENSHIFT_PYTHON_WRAPPER_COMMIT=<commit_hash>
+- Add a label by comment use /<label name>, to remove, use /<label name> cancel
+- Assign reviewers based on OWNERS file use /assign-reviewers
+- Check if pull request can be merged use /check-can-merge
 
 Pre-build container images available in:
+
 - quay.io/myakove/github-webhook-server
 
 ## Build container
@@ -10,7 +49,7 @@ Pre-build container images available in:
 Webhook server to manage GitHub repositories.
 On start, it will configure the following for each repository:
 
-* Set branch protection based on config.yaml
+- Set branch protection based on config.yaml
 
 **Private repositories are not supported.**
 
@@ -39,9 +78,10 @@ docker build -t github-webhook-server .
 
 Before running the application, ensure to set the following environment variables and configuration file:
 
-* `WEBHOOK_SERVER_LOG_FILE`: Path to the log file where the server logs are to be stored.
-* `WEBHOOK_SERVER_DATA_DIR`: Path to the data directory where the `config.yaml` file is located.
-* `config.yaml`: Configuration file that contains settings for the server and repositories, which should be placed in the `WEBHOOK_SERVER_DATA_DIR` directory.
+- `WEBHOOK_SERVER_LOG_FILE`: Path to the log file where the server logs are to be stored.
+- `WEBHOOK_SERVER_DATA_DIR`: Path to the data directory where the `config.yaml` file is located.
+- `WEBHOOK_SERVER_LOG_LEVEL`: App log level.
+- `config.yaml`: Configuration file that contains settings for the server and repositories, which should be placed in the `WEBHOOK_SERVER_DATA_DIR` directory.
 
 Follow the instructions to build the container using either podman or docker as described in the Build container section. Once that is done, proceed with the configurations outlined below.
 
@@ -62,25 +102,22 @@ repositories:
       main: []
 ```
 
-* `github-app-id`: The ID of the GitHub app. Need to add the APP to the repository.
-* `name`: repository full name (org or user/repository name)
-* `webhook_ip`: Ip or FQDN where this app will run, this will be added as webhook in the repository setting
-* `github-toekns`: List of admin users token for the repositories
+- `github-app-id`: The ID of the GitHub app. Need to add the APP to the repository.
+- `name`: repository full name (org or user/repository name)
+- `webhook_ip`: Ip or FQDN where this app will run, this will be added as webhook in the repository setting
+- `github-toekns`: List of admin users token for the repositories
 
-
-* If `slack_webhook_url` configured for the repository a slack massages will be sent to the configured channel
-about new releases to pypi, new containers that was pushed
+- If `slack_webhook_url` configured for the repository a slack massages will be sent to the configured channel
+  about new releases to pypi, new containers that was pushed
 
 ```yaml
 slack_webhook_url: https://hooks.slack.com/services/<channel>
 ```
 
-
 if `pypi` configured for the repository a new version will be pushed to pypi on new GitHub release
 
-* `token`: pypi token with push permissions
-* `tool`: The tool to use to build the package, can be `twine` or `poetry`
-
+- `token`: pypi token with push permissions
+- `tool`: The tool to use to build the package, can be `twine` or `poetry`
 
 ```yaml
 pypi:
@@ -89,10 +126,12 @@ pypi:
 ```
 
 if `tox` configured for the repository a tox job will run on each push and new commits
-* `tox`: The tox tests to run, can be set of tests separated by `,` or `all` to run all tests defined in tox.ini
+
+- `tox`: The tox tests to run, can be set of tests separated by `,` or `all` to run all tests defined in tox.ini
 
 ```yaml
 tox: all
+tox_python_version: python3.11 # if passed run on specified python version else run on default
 ```
 
 Top level array which define the defaults required check runs for all the repositories
@@ -101,45 +140,43 @@ Top level array which define the defaults required check runs for all the reposi
 default-status-checks:
   - "WIP"
   - "dpulls"
-  - "Inclusive Language",
   - "SonarCloud Code Analysis"
   - "can-be-merged"
 ```
-
 
 ```yaml
 protected-branches:
   main: []
 ```
 
-This tool configure branch protection and set required to be run for each branch to pass before the PR can be merged
+This tool configure branch protection and set required to be run for each branch to pass before the pull request can be merged
 
 if the repository have the file `.pre-commit-config.yaml` then `pre-commit.ci - pr` will be added, can be excluded by
 set it in `exclude-runs`
 
-* `protected-branches`: array of branches to set protection
-* `branch name`: List of required to be run to set for the branch, when empty set `default-status-checks` as required
-* `include-runs`: Only include those runs as required
-* `exclude-runs`: Exclude those runs from the `default-status-checks`
+- `protected-branches`: array of branches to set protection
+- `branch name`: List of required to be run to set for the branch, when empty set `default-status-checks` as required
+- `include-runs`: Only include those runs as required
+- `exclude-runs`: Exclude those runs from the `default-status-checks`
 
-
-By default, we create a `verified_job` run, for each PR the owner needs to comment `/verified` to mark the PR as verified
+By default, we create a `verified_job` run, for each pull request the owner needs to comment `/verified` to mark the pull request as verified
 In order to not add this job set `verified_job` to `false`
 
 ```yaml
 verified_job: false
 ```
 
-if `container` is configures for the repository we create `build-container` run that will build the container on each
-PR push/commit
-Once the PR is merged, the container will be build and push to the repository
+if `container` is configured for the repository we create `build-container` run that will build the container on each
+pull request push/commit
+Once the pull request is merged, the container will be build and push to the repository
+if `release` is set to `true` a new container will be pushed with the release version as the tag
+if the merged pull request is in any other branch than `main` or `master` the tag will be set to `branch name`, otherwise `tag` will be used
 
-* `username`: User with push permissions to the repository
-* `password`: The password for the username
-* `repository`: the repository to push the container, for example `quay.io/myakove/github-webhook-server`
-* `tag`: The container tag to use when pushing the container
-* `release`: if `true` a new container will be pushed with the release version as the tag
-
+- `username`: User with push permissions to the repository
+- `password`: The password for the username
+- `repository`: the repository to push the container, for example `quay.io/myakove/github-webhook-server`
+- `tag`: The container tag to use when pushing the container
+- `release`: if `true` a new container will be pushed with the release version as the tag
 
 ```yaml
 container:
@@ -147,10 +184,10 @@ container:
   password: password
   repository: repository path
   tag: latest
+  release: true
 ```
 
 If `docker` is configured for the repository we log in to docker.io to increase pull rate limit
-
 
 ```yaml
 docker:
@@ -158,74 +195,109 @@ docker:
   password: password
 ```
 
+if Jira is configured for the repository we create a new issue (story) for the pull request and assign it to the owner.
+On new commit create closed sub-task under the pull request story with the commiter as assignee
+On reviewed pull request create closed sub-task under the pull request story with the reviewer as assignee
+
+- `server`: FQDN Jira server url
+- `project`: project key to open the issue
+- `token`: Jira token
+- `epic`: epic name, if provided a new issue will be created under the epic
+- `user-mapping`: mapping from github username to jira username if different
+
+`jira` setting can be placed as global (for all repositories) or per repository.
+`jira` in repository setting will override `jira` in global setting for the repository
+
+```yaml
+jira:
+  server: jira server url
+  project: project key to open the issue
+  token: jira token
+  epic: epic name # Optional
+  user-mapping:
+    github username: jira username
+```
+
+To enable jira for a repository, set `jira-tracking: true` in repository settings
+
+```yaml
+repositories:
+  my-repository:
+    jira-tracking: true
+```
+
 ## Supported actions
 
 Following actions are done automatically:
 
-* Add reviewers from [OWNERS](OWNERS) file, support add different reviewers based on files/folders.
-* Set PR size label.
-* New issue is created for the PR.
-* Issues get closed when PR is merged/closed.
+- Add reviewers from [OWNERS](OWNERS) file, support add different reviewers based on files/folders.
+- Set pull request size label.
+- New issue is created for the pull request.
+- Issues get closed when pull request is merged/closed.
 
 ## OWNERS file example
+
 ```yaml
 approvers:
   - myakove
   - rnetser
 reviewers:
-  any: # will be added to all PRs
-      - myakove
-      - rnetser
-  files: # will be added to PRs if files in the list are changed
+  any: # will be added to all pull requests
+    - myakove
+    - rnetser
+  files: # will be added to pull requests if files in the list are changed
     Dockerfile:
-        - myakove
-  folders: # will be added to PRs if folders in the list are changed
+      - myakove
+  folders: # will be added to pull requests if folders in the list are changed
     webhook_server_container/libs: # path is relative to the repository root
-        - myakove
+      - myakove
 ```
 
 ### Supported user actions via adding comment
 
-* `/verified`: to verify a PR
-* `/verified cancel`: to undo verify
-* `/cherry-pick <target_branch_name>`: cherry-pick a merged PR against a target branch
-  * Multiple target branches are allowed, separated by spaces
-  * If the current PR is nor merged label will be added and once the PR is merged it will be cherry-picked
-* `/retest tox`: run tox
-* `/retest build-container`: run build-container
-* `/retest python-module-install`: run python-module-install command
-* `/build-and-push-container`: build and push container image (tag will be the PR number).
-* `/assign-reviewers`: assign reviewers based on OWNERS file
+- `/verified`: to verify a pull request
+- `/verified cancel`: to undo verify
+- `/cherry-pick <target_branch_name>`: cherry-pick a merged pull request against a target branch
+  - Multiple target branches are allowed, separated by spaces
+  - If the current pull request is nor merged label will be added and once the pull request is merged it will be cherry-picked
+- `/retest tox`: run tox
+- `/retest build-container`: run build-container
+- `/retest python-module-install`: run python-module-install command
+- `/build-and-push-container`: build and push container image (tag will be the pull request number)
+  - You can add extra args to the Podman build command
+    - Example: `/build-and-push-container --build-arg OPENSHIFT_PYTHON_WRAPPER_COMMIT=<commit_hash>`
+- `/assign-reviewers`: assign reviewers based on OWNERS file
 
 ### Supported user labels
 
 Usage:
 
-* `/<label name>`: add a label to a PR
-* `/<label name> cancel`: remove label
+- `/<label name>`: add a label to a pull request
+- `/<label name> cancel`: remove label
 
 Supported labels:
 
-* hold
-* verified
-* wip
-* lgtm
-* approve
+- hold
+- verified
+- wip
+- lgtm
+- approve
 
 ### Note
 
-* verified label removed on each new commit push.
-* Cherry-picking is supported only on merged PRs
+- verified label removed on each new commit push.
+- Cherry-picking is supported only on merged pull requests
 
 ### Issues
 
-* New issues can be created for this project [here](https://github.com/myakove/github-webhook-server/issues)
+- New issues can be created for this project [here](https://github.com/myakove/github-webhook-server/issues)
 
 ## Main Functionalities
 
 ### Logging Setup
 
-The webhook server configures custom logging with color-coded log level names to enhance readability. It also supports optional logging to a file when 'WEBHOOK_SERVER_LOG_FILE' is set in the environment. This feature uses a rotating file handler to manage log rotation and is defined in the `constants.py` file.
+The webhook server configures custom logging with color-coded log level names to enhance readability. It also supports optional logging to a file.
+See [example-config](example.config.yaml) for more details.
 
 ### Webhook Creation
 
@@ -233,23 +305,4 @@ Webhooks are automatically created for GitHub repositories based on settings def
 
 ### Usage Guide
 
-To use the webhook server, first prepare the `config.yaml` file with the necessary repository and server configurations. Set the required environment variables, including `WEBHOOK_SERVER_LOG_FILE` and `WEBHOOK_SERVER_DATA_DIR`. Build and start the server using the instructions in the 'Build container' section.
-
-### Development
-
-To run locally you need to export some os environment variables
-
-```bash
-poetry install
-
-WEBHOOK_SERVER_DATA_DIR=/tmp/webhook_server_data
-
-mkdir -p $WEBHOOK_SERVER_DATA_DIR
-cp -f webhook-server.private-key.pem $WEBHOOK_SERVER_DATA_DIR/webhook-server.private-key.pem
-cp -f config.yaml $WEBHOOK_SERVER_DATA_DIR/config.yaml
-export WEBHOOK_SERVER_PORT=5003
-
-export FLASK_DEBUG=1
-export WEBHOOK_SERVER_DATA_DIR=$WEBHOOK_SERVER_DATA_DIR
-poetry run python webhook_server_container/app.py
-```
+To use the webhook server, first prepare the [config.yaml](example.config.yaml) file with the necessary repository and server configurations. Set the required environment variables, including `WEBHOOK_SERVER_DATA_DIR`. Build and start the server using the instructions in the 'Build container' section.

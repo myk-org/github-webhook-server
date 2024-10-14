@@ -1,17 +1,16 @@
-# All ${} taken from .env file, create .env file in root of project.
-version: "3.8"
 services:
   github-webhook-server:
     container_name: github-webhook-server
-    build: webhook-server-container
-      - ./webhook_server_data_dir:/webhook_server:Z # Should include config.yaml and webhook-server.private-key.pem
-      - ./containers:/containers:Z # optional, to cache podman pull containers
+    build: quay.io/myakove/github-webhook-server
+    volumes:
+      - "./webhook_server_data_dir:/webhook_server:Z" # Should include config.yaml and webhook-server.private-key.pem
+      - "./webhook_server_containers:/containers:Z" # Optional, to cache podman pull containers
     environment:
-      - WEBHOOK_SERVER_LOG_FILE=/tmp/webhook_server.log
-      - FLASK_DEBUG=1 # Debug Flask server to get logs to console.
       - PUID=1000
       - PGID=1000
       - TZ=Asia/Jerusalem
+      - DEVELOPMENT=false # Set to true when developing.
+      - UVICORN_MAX_WORKERS=50 # Defaults to 10 if not set and running in production
     ports:
       - "5000:5000"
     privileged: true

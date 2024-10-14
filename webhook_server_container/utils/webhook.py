@@ -1,48 +1,65 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Callable, Dict, List, Tuple
+
+from github.Hook import Hook
+from github import Github
+
+from webhook_server_container.libs.config import Config
+from webhook_server_container.utils.helpers import (
+    get_api_with_highest_rate_limit,
+    get_future_results,
+    get_github_repo_api,
+    get_logger_with_params,
+)
 
 
-from webhook_server_container.utils.constants import FLASK_APP
-from webhook_server_container.utils.helpers import get_github_repo_api, ignore_exceptions
+LOGGER = get_logger_with_params(name="webhook")
 
 
-@ignore_exceptions(logger=FLASK_APP.logger)
-def process_github_webhook(data, github_api, webhook_ip):
-    repository = data["name"]
+def process_github_webhook(data: Dict[str, Any], github_api: Github, webhook_ip: str) -> Tuple[bool, str, Callable]:
+    repository: str = data["name"]
     repo = get_github_repo_api(github_api=github_api, repository=repository)
     if not repo:
-        FLASK_APP.logger.error(f"Could not find repository {repository}")
-        return
+        return False, f"Could not find repository {repository}", LOGGER.error
 
-    config = {"url": f"{webhook_ip}/webhook_server", "content_type": "json"}
-    events = data.get("events", ["*"])
+    config_: Dict[str, str] = {"url": f"{webhook_ip}/webhook_server", "content_type": "json"}
+    events: List[str] = data.get("events", ["*"])
 
     try:
-        hooks = list(repo.get_hooks())
+        hooks: List[Hook] = list(repo.get_hooks())
     except Exception as ex:
-        FLASK_APP.logger.error(f"Could not list webhook for {repository}, check token permissions: {ex}")
-        return
+        return False, f"Could not list webhook for {repository}, check token permissions: {ex}", LOGGER.error
 
     for _hook in hooks:
-        hook_exists = webhook_ip in _hook.config["url"]
-        if hook_exists:
-            FLASK_APP.logger.info(f"Deleting existing webhook for {repository}: {_hook.config['url']}")
-            _hook.delete()
+        if webhook_ip in _hook.config["url"]:
+            return True, f"{repository}: Hook already exists - {_hook.config['url']}", LOGGER.info
 
-    FLASK_APP.logger.info(f"Creating webhook: {config['url']} for {repository} with events: {events}")
-    repo.create_hook(name="web", config=config, events=events, active=True)
-    return f"{repository}: Create webhook is done"
+    LOGGER.info(f"Creating webhook: {config_['url']} for {repository} with events: {events}")
+    repo.create_hook(name="web", config=config_, events=events, active=True)
+    return True, f"{repository}: Create webhook is done", LOGGER.info
 
 
-def create_webhook(config, github_api):
-    FLASK_APP.logger.info("Preparing webhook configuration")
-    webhook_ip = config.data["webhook_ip"]
+def create_webhook(config_: Config, github_api: Github) -> None:
+    LOGGER.info("Preparing webhook configuration")
+    webhook_ip = config_.data["webhook_ip"]
 
     futures = []
     with ThreadPoolExecutor() as executor:
-        for repo, data in config.data["repositories"].items():
-            futures.append(executor.submit(process_github_webhook, data, github_api, webhook_ip))
+        for _, data in config_.data["repositories"].items():
+            futures.append(
+                executor.submit(
+                    process_github_webhook,
+                    **{"data": data, "github_api": github_api, "webhook_ip": webhook_ip},
+                )
+            )
 
-    for result in as_completed(futures):
-        if result.exception():
-            FLASK_APP.logger.error(result.exception())
-        FLASK_APP.logger.info(result.result())
+    get_future_results(futures=futures)
+
+
+if __name__ == "__main__":
+    config = Config()
+    api, _ = get_api_with_highest_rate_limit(config=config)
+    if api:
+        create_webhook(config_=config, github_api=api)
+    else:
+        LOGGER.error("Failed to get GitHub API")

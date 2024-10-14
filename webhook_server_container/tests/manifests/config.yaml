@@ -1,5 +1,3 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/myk-org/github-webhook-server/refs/heads/main/webhook_server_container/config/schema.yaml
-
 log-level: INFO # Set global log level, change take effect immediately without server restart
 log-file: webhook-server.log # Set global log file, change take effect immediately without server restart
 
@@ -31,10 +29,10 @@ jira:
     <GITHUB USER>: <JIRA USER> # if github user is not the same as jira
 
 repositories:
-  my-repository:
-    name: my-org/my-repository
+  test-repo:
+    name: my-org/test-repo
     log-level: DEBUG # Override global log-level for repository
-    log-file: my-repository.log # Override global log-file for repository
+    log-file: test-repo.log # Override global log-file for repository
     slack_webhook_url: <Slack webhook url> # Send notification to slack on several operations
     verified_job: true
     pypi:

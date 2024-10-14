@@ -7,50 +7,63 @@ output-format = "grouped"
 [tool.ruff.format]
 exclude = [".git", ".venv", ".mypy_cache", ".tox", "__pycache__"]
 
-[tool.poetry]
+[tool.mypy]
+check_untyped_defs = true
+disallow_any_generics = false
+disallow_incomplete_defs = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+show_error_codes = true
+warn_unused_ignores = true
+
+[project]
 name = "github-webhook-server"
-version = "0.0.0"
+version = "1.0.68"
+requires-python = ">=3.8"
 description = "A webhook server to manage Github reposotories and pull requests."
-authors = ["Meni Yakove <myakove@gmail.com>", "Ruth Netser <ruth.netser@gmail.com>"]
+authors = [
+  { "name" = "Meni Yakove", "email" = " myakove@gmail.com" },
+  { "name" = "Ruth Netser", "email" = "ruth.netser@gmail.com" },
+]
 readme = "README.md"
 license = "Apache-2.0"
-homepage = "https://github.com/myakove/github-webhook-server"
-repository = "https://github.com/myakove/github-webhook-server"
-packages = [{include = "webhook_server_container"}]
 classifiers = [
-    "Programming Language :: Python :: 3",
-    "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Operating System :: OS Independent",
+]
+dependencies = [
+  "build>=1.2.2.post1",
+  "colorama>=0.4.6",
+  "colorlog>=6.8.2",
+  "fastapi>=0.115.0",
+  "jira>=3.8.0",
+  "pygithub>=2.4.0",
+  "pyhelper-utils>=0.0.42",
+  "pytest-mock>=3.14.0",
+  "pytest>=8.3.3",
+  "python-simple-logger>=1.0.40",
+  "pyyaml>=6.0.2",
+  "requests>=2.32.3",
+  "ruff>=0.6.9",
+  "shortuuid>=1.0.13",
+  "string-color>=1.2.3",
+  "timeout-sampler>=0.0.46",
+  "uvicorn>=0.31.0",
+  "uwsgi>=2.0.27",
 ]
 
+[tool.hatch.build.targets.wheel]
+packages = ["webhook_server_container"]
 
-[tool.poetry.urls]
+[project.urls]
+homepage = "https://github.com/myakove/github-webhook-server"
+repository = "https://github.com/myakove/github-webhook-server"
 Download = "https://quay.io/repository/myakove/github-webhook-server"
 "Bug Tracker" = "https://github.com/myakove/github-webhook-server/issues"
 
-[tool.poetry.dependencies]
-python = "^3.8"
-poetry-dynamic-versioning = {extras = ["plugin"], version = "^1.0.0"}
-pygithub = "^2.0.0"
-flask = "^3.0.0"
-pyyaml = "^6.0"
-build = "^1.0.0"
-shortuuid = "^1.0.11"
-colorlog = "^6.7.0"
-colorama = "^0.4.6"
-ruff = "^0.3.0"
-timeout-sampler = "^0.0.19"
-
-[tool.poetry.group.dev.dependencies]
-ipdb = "^0.13.13"
-ipython = "*"
-
-[tool.poetry-dynamic-versioning]
-enable = true
-pattern = "((?P<epoch>\\d+)!)?(?P<base>\\d+(\\.\\d+)*)"
-
-[tool.poetry-dynamic-versioning.substitution]
-files = ["VERSION"]
+[tool.uv]
+dev-dependencies = ["ipdb>=0.13.13", "ipython>=8.12.3"]
 
 [build-system]
-requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning"]
-build-backend = "poetry_dynamic_versioning.backend"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
