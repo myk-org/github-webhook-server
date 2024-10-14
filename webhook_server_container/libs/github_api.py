@@ -1,5 +1,6 @@
 from __future__ import annotations
 from uuid import uuid4
+from github.Repository import Repository
 import contextlib
 import json
 import logging
@@ -101,7 +102,7 @@ class ProcessGithubWehook:
         self.headers = headers
         self.repository_name: str = hook_data["repository"]["name"]
         self.parent_committer: str = ""
-        self.container_repo_dir: str = "/tmp/repository"
+        self.clone_repo_dir: str = os.path.join("/", f"{self.repository.name}-{uuid4()}")
         self.jira_track_pr: bool = False
         self.issue_title: str = ""
         self.all_required_status_checks: List[str] = []
@@ -131,7 +132,9 @@ class ProcessGithubWehook:
         )
 
         if self.github_api and self.token:
-            self.repository = get_github_repo_api(github_api=self.github_api, repository=self.repository_full_name)
+            self.repository: Repository = get_github_repo_api(
+                github_api=self.github_api, repository=self.repository_full_name
+            )
 
         else:
             self.logger.error(f"{self.log_prefix} Failed to get GitHub API and token.")
@@ -146,7 +149,6 @@ class ProcessGithubWehook:
             return
 
         self.add_api_users_to_auto_verified_and_merged_users()
-        self.clone_repository_path: str = os.path.join("/", f"{self.repository.name}-{uuid4()}")
 
         self.supported_user_labels_str: str = "".join([f" * {label}\n" for label in USER_LABELS_DICT.keys()])
         self.welcome_msg: str = f"""
@@ -396,7 +398,7 @@ Available user actions:
                     f"Project: {self.jira_project}, Token: {self.jira_token}"
                 )
 
-        self.auto_verified_and_merged_users = get_value_from_dicts(
+        self.auto_verified_and_merged_users: List[str] = get_value_from_dicts(
             primary_dict=repo_data,
             secondary_dict=config_data,
             key="auto-verified-and-merged-users",
@@ -1038,7 +1040,7 @@ stderr: `{err}`
             self.logger.debug(f"{self.log_prefix} Check run is in progress, not running {TOX_STR}.")
             return
 
-        cmd = f"{self.tox_python_version} -m {TOX_STR} --workdir {self.clone_repository_path} --root {self.clone_repository_path} -c {self.clone_repository_path}"
+        cmd = f"{self.tox_python_version} -m {TOX_STR} --workdir {self.clone_repo_dir} --root {self.clone_repo_dir} -c {self.clone_repo_dir}"
         _tox_tests = self.tox.get(self.pull_request_branch, "")
         if _tox_tests != "all":
             tests = _tox_tests.replace(" ", "")
@@ -1436,7 +1438,9 @@ stderr: `{err}`
 
         _container_repository_and_tag = self._container_repository_and_tag(is_merged=is_merged, tag=tag)
         no_cache: str = " --no-cache" if is_merged else ""
-        build_cmd: str = f"--network=host {no_cache} -f {self.container_repo_dir}/{self.dockerfile} . -t {_container_repository_and_tag}"
+        build_cmd: str = (
+            f"--network=host {no_cache} -f {self.clone_repo_dir}/{self.dockerfile} . -t {_container_repository_and_tag}"
+        )
 
         if self.container_build_args:
             build_args: str = [f"--build-arg {b_arg}" for b_arg in self.container_build_args][0]
@@ -1628,28 +1632,30 @@ stderr: `{err}`
     ) -> Tuple[int, str, str]:
         # podman_base_cmd: str = f"podman run --network=host --rm {env if env else ''} --entrypoint bash quay.io/myakove/github-webhook-server:noroot -c"
 
+        git_cmd = f"git --work-tree={self.clone_repo_dir} --git-dir={self.clone_repo_dir}/.git"
         # Clone the repository
         clone_base_cmd: str = (
             f"git clone {self.repository.clone_url.replace('https://', f'https://{self.token}@')} "
-            f"{self.container_repo_dir}"
+            f"{self.clone_repo_dir}"
         )
-        clone_base_cmd += f" && cd {self.container_repo_dir}"
-        clone_base_cmd += f" && git config user.name '{self.repository.owner.login}'"
-        clone_base_cmd += f" && git config user.email '{self.repository.owner.email}'"
-        clone_base_cmd += " && git config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
-        clone_base_cmd += " && git remote update >/dev/null 2>&1"
+        clone_base_cmd += f" && {git_cmd} config user.name '{self.repository.owner.login}'"
+        clone_base_cmd += f" && {git_cmd} config user.email '{self.repository.owner.email}'"
+        clone_base_cmd += (
+            f" && {git_cmd} config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
+        )
+        clone_base_cmd += f" && {git_cmd} remote update >/dev/null 2>&1"
 
         # Checkout to requested branch/tag
         if checkout:
-            clone_base_cmd += f" && git checkout {checkout}"
+            clone_base_cmd += f" && {git_cmd} checkout {checkout}"
 
         # Checkout the branch if pull request is merged or for release
         else:
             if is_merged:
-                clone_base_cmd += f" && git checkout {self.pull_request_branch}"
+                clone_base_cmd += f" && {git_cmd} checkout {self.pull_request_branch}"
 
             elif tag_name:
-                clone_base_cmd += f" && git checkout {tag_name}"
+                clone_base_cmd += f" && {git_cmd} checkout {tag_name}"
 
             # Checkout the pull request
             else:
@@ -1659,11 +1665,11 @@ stderr: `{err}`
                     self.logger.error(f"{self.log_prefix} [func:_run_in_container] No pull request found")
                     return False, "", ""
 
-                clone_base_cmd += f" && git checkout origin/pr/{pull_request.number}"
+                clone_base_cmd += f" && {git_cmd} checkout origin/pr/{pull_request.number}"
 
         # final podman command
         # podman_base_cmd += f" '{clone_base_cmd} && {command}'"
-        return run_command(command=command, log_prefix=self.log_prefix)
+        return run_command(command=f"{clone_base_cmd} && {command}", log_prefix=self.log_prefix)
 
     @staticmethod
     def get_check_run_text(err: str, out: str) -> str:
