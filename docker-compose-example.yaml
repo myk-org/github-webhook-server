@@ -3,8 +3,7 @@ services:
     container_name: github-webhook-server
     build: quay.io/myakove/github-webhook-server
     volumes:
-      - "./webhook_server_data_dir:/webhook_server:Z" # Should include config.yaml and webhook-server.private-key.pem
-      - "./webhook_server_containers:/containers:Z" # Optional, to cache podman pull containers
+      - "./webhook_server_data_dir:/home/podman/data:Z" # Should include config.yaml and webhook-server.private-key.pem
     environment:
       - PUID=1000
       - PGID=1000

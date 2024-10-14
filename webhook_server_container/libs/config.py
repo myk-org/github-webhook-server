@@ -6,7 +6,7 @@ import yaml
 
 class Config:
     def __init__(self) -> None:
-        self.data_dir: str = os.environ.get("WEBHOOK_SERVER_DATA_DIR", "/webhook_server")
+        self.data_dir: str = os.environ.get("WEBHOOK_SERVER_DATA_DIR", "/home/podman/data")
         self.config_path: str = os.path.join(self.data_dir, "config.yaml")
         self.exists()
 

@@ -10,16 +10,16 @@ from webhook_server_container.libs.github_api import ProcessGithubWehook
 from webhook_server_container.utils.helpers import get_logger_with_params
 
 FASTAPI_APP: FastAPI = FastAPI(title="webhook-server")
-APP_ROOT_PATH: str = "/webhook_server"
+APP_URL_ROOT_PATH: str = "/webhook_server"
 urllib3.disable_warnings()
 
 
-@FASTAPI_APP.get(f"{APP_ROOT_PATH}/healthcheck")
+@FASTAPI_APP.get(f"{APP_URL_ROOT_PATH}/healthcheck")
 def healthcheck() -> Dict[str, Any]:
     return {"status": requests.codes.ok, "message": "Alive"}
 
 
-@FASTAPI_APP.post(APP_ROOT_PATH)
+@FASTAPI_APP.post(APP_URL_ROOT_PATH)
 async def process_webhook(request: Request) -> Dict[str, Any]:
     logger_name: str = "main"
     logger = get_logger_with_params(name=logger_name)
