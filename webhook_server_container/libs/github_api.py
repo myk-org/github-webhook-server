@@ -1462,7 +1462,7 @@ stderr: `{_err}`
         _container_repository_and_tag = self._container_repository_and_tag(is_merged=is_merged, tag=tag)
         no_cache: str = " --no-cache" if is_merged else ""
         build_cmd: str = (
-            f"--network=host {no_cache} -f {clone_repo_dir}/{self.dockerfile} . -t {_container_repository_and_tag}"
+            f"--network=host {no_cache} -f {clone_repo_dir}/{self.dockerfile} -t {_container_repository_and_tag}"
         )
 
         if self.container_build_args:
