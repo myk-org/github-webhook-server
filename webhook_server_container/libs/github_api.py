@@ -146,7 +146,7 @@ class ProcessGithubWehook:
             return
 
         self.add_api_users_to_auto_verified_and_merged_users()
-        self.clone_repository_path: str = os.path.join("/", f"{self.clone_repository_path}-{uuid4()}")
+        self.clone_repository_path: str = os.path.join("/", f"{self.repository.name}-{uuid4()}")
 
         self.supported_user_labels_str: str = "".join([f" * {label}\n" for label in USER_LABELS_DICT.keys()])
         self.welcome_msg: str = f"""
