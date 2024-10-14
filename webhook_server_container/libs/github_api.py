@@ -355,7 +355,7 @@ Available user actions:
             primary_dict=repo_data,
             secondary_dict=config_data,
             key="tox-python-version",
-            return_on_none="python",
+            return_on_none=None,
         )
         self.slack_webhook_url: str = get_value_from_dicts(
             primary_dict=repo_data, secondary_dict=config_data, key="slack_webhook_url"
@@ -1054,7 +1054,8 @@ stderr: `{_err}`
             return
 
         clone_repo_dir = f"{self.clone_repo_dir}-{uuid4()}"
-        cmd = f"uvx --python={self.tox_python_version} {TOX_STR} --workdir {clone_repo_dir} --root {clone_repo_dir} -c {clone_repo_dir}"
+        python_ver = f"--python={self.tox_python_version}" if self.tox_python_version else ""
+        cmd = f"uvx {python_ver} {TOX_STR} --workdir {clone_repo_dir} --root {clone_repo_dir} -c {clone_repo_dir}"
         _tox_tests = self.tox.get(self.pull_request_branch, "")
         if _tox_tests != "all":
             tests = _tox_tests.replace(" ", "")
