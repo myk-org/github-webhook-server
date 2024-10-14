@@ -1,6 +1,5 @@
 from __future__ import annotations
 from uuid import uuid4
-from github.Repository import Repository
 import contextlib
 import json
 import logging
@@ -102,7 +101,6 @@ class ProcessGithubWehook:
         self.headers = headers
         self.repository_name: str = hook_data["repository"]["name"]
         self.parent_committer: str = ""
-        self.clone_repo_dir: str = os.path.join("/", f"{self.repository.name}-{uuid4()}")
         self.jira_track_pr: bool = False
         self.issue_title: str = ""
         self.all_required_status_checks: List[str] = []
@@ -132,9 +130,7 @@ class ProcessGithubWehook:
         )
 
         if self.github_api and self.token:
-            self.repository: Repository = get_github_repo_api(
-                github_api=self.github_api, repository=self.repository_full_name
-            )
+            self.repository = get_github_repo_api(github_api=self.github_api, repository=self.repository_full_name)
 
         else:
             self.logger.error(f"{self.log_prefix} Failed to get GitHub API and token.")
@@ -148,6 +144,7 @@ class ProcessGithubWehook:
             self.logger.error(f"{self.log_prefix} Failed to get repository.")
             return
 
+        self.clone_repo_dir: str = os.path.join("/", f"{self.repository.name}-{uuid4()}")
         self.add_api_users_to_auto_verified_and_merged_users()
 
         self.supported_user_labels_str: str = "".join([f" * {label}\n" for label in USER_LABELS_DICT.keys()])
