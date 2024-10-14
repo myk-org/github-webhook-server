@@ -1499,7 +1499,7 @@ stderr: `{_err}`
                 if self.pull_request and set_check:
                     return self.set_container_build_failure(output=output)
 
-            if push:
+            if push and build_rc:
                 cmd = f"podman push --creds {self.container_repository_username}:{self.container_repository_password} {_container_repository_and_tag}"
                 push_rc, _, _ = run_command(command=cmd, log_prefix=self.log_prefix)
                 if push_rc:
