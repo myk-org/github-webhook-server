@@ -144,7 +144,7 @@ class ProcessGithubWehook:
             self.logger.error(f"{self.log_prefix} Failed to get repository.")
             return
 
-        self.clone_repo_dir: str = os.path.join("/", f"{self.repository.name}-{uuid4()}")
+        self.clone_repo_dir: str = os.path.join("/tmp", f"{self.repository.name}-{uuid4()}")
         self.add_api_users_to_auto_verified_and_merged_users()
 
         self.supported_user_labels_str: str = "".join([f" * {label}\n" for label in USER_LABELS_DICT.keys()])
