@@ -1,4 +1,5 @@
 from __future__ import annotations
+from uuid import uuid4
 import contextlib
 import json
 import logging
@@ -145,7 +146,7 @@ class ProcessGithubWehook:
             return
 
         self.add_api_users_to_auto_verified_and_merged_users()
-        self.clone_repository_path: str = os.path.join("/", self.repository.name)
+        self.clone_repository_path: str = os.path.join("/", f"{self.clone_repository_path}-{uuid4()}")
 
         self.supported_user_labels_str: str = "".join([f" * {label}\n" for label in USER_LABELS_DICT.keys()])
         self.welcome_msg: str = f"""
@@ -1037,7 +1038,7 @@ stderr: `{err}`
             self.logger.debug(f"{self.log_prefix} Check run is in progress, not running {TOX_STR}.")
             return
 
-        cmd = f"{self.tox_python_version} -m {TOX_STR}"
+        cmd = f"{self.tox_python_version} -m {TOX_STR} --workdir {self.clone_repository_path} --root {self.clone_repository_path} -c {self.clone_repository_path}"
         _tox_tests = self.tox.get(self.pull_request_branch, "")
         if _tox_tests != "all":
             tests = _tox_tests.replace(" ", "")
@@ -1625,7 +1626,7 @@ stderr: `{err}`
         checkout: str = "",
         tag_name: str = "",
     ) -> Tuple[int, str, str]:
-        podman_base_cmd: str = f"podman run --network=host --rm {env if env else ''} --entrypoint bash quay.io/myakove/github-webhook-server:noroot -c"
+        # podman_base_cmd: str = f"podman run --network=host --rm {env if env else ''} --entrypoint bash quay.io/myakove/github-webhook-server:noroot -c"
 
         # Clone the repository
         clone_base_cmd: str = (
@@ -1661,8 +1662,8 @@ stderr: `{err}`
                 clone_base_cmd += f" && git checkout origin/pr/{pull_request.number}"
 
         # final podman command
-        podman_base_cmd += f" '{clone_base_cmd} && {command}'"
-        return run_command(command=podman_base_cmd, log_prefix=self.log_prefix)
+        # podman_base_cmd += f" '{clone_base_cmd} && {command}'"
+        return run_command(command=command, log_prefix=self.log_prefix)
 
     @staticmethod
     def get_check_run_text(err: str, out: str) -> str:
