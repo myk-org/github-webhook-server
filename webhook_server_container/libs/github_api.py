@@ -1057,7 +1057,7 @@ stderr: `{_err}`
         python_ver = f"--python={self.tox_python_version}" if self.tox_python_version else ""
         cmd = f"uvx {python_ver} {TOX_STR} --workdir {clone_repo_dir} --root {clone_repo_dir} -c {clone_repo_dir}"
         _tox_tests = self.tox.get(self.pull_request_branch, "")
-        if _tox_tests != "all":
+        if _tox_tests and _tox_tests != "all":
             tests = _tox_tests.replace(" ", "")
             cmd += f" -e {tests}"
 
