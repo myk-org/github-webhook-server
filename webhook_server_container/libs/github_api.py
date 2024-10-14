@@ -521,12 +521,15 @@ Available user actions:
         self.logger.info(f"{self.log_prefix} Start uploading to pypi")
         _dist_dir: str = f"{clone_repo_dir}/pypi-dist"
 
-        commands: List[str] = [
-            f"uv {uv_cmd_dir} build --sdist --out-dir {_dist_dir}",
-            f"uvx {uv_cmd_dir} twine check {_dist_dir}/$(echo *.tar.gz)",
-            f"uvx {uv_cmd_dir} twine upload --username __token__ --password {self.pypi["token"]} {_dist_dir}/$(echo *.tar.gz) --skip-existing",
-        ]
         with self._prepare_cloned_repo_dir(checkout=tag_name, clone_repo_dir=clone_repo_dir):
+            rc, tar_gz_file, err = run_command(command=f"ls {_dist_dir}", log_prefix=self.log_prefix)
+            tar_gz_file = tar_gz_file.strip()
+
+            commands: List[str] = [
+                f"uv {uv_cmd_dir} build --sdist --out-dir {_dist_dir}",
+                f"uvx {uv_cmd_dir} twine check {_dist_dir}/{tar_gz_file}",
+                f"uvx {uv_cmd_dir} twine upload --username __token__ --password {self.pypi["token"]} {_dist_dir}/{tar_gz_file} --skip-existing",
+            ]
             for cmd in commands:
                 rc, out, err = run_command(command=cmd, log_prefix=self.log_prefix)
                 if not rc:
