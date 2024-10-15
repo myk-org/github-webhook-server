@@ -818,9 +818,7 @@ stderr: `{_err}`
             return
 
         pr_tag = repository_full_tag.split(":")[-1]
-        base_regctl_command = (
-            "podman run --rm --net host  -v regctl-conf:/home/appuser/.regctl/ ghcr.io/regclient/regctl:latest"
-        )
+        base_regctl_command = "regctl"
         registry_info = self.container_repository.split("/")
         registry_url = "" if len(registry_info) < 3 else registry_info[0]
 

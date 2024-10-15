@@ -1,7 +1,5 @@
 #!/bin/bash
 
-rm -rf /run/containers/storage /run/libpod
-
 SERVER_RUN_CMD="uv run uvicorn webhook_server_container.app:FASTAPI_APP --host 0.0.0.0 --port 5000 "
 UVICORN_WORKERS="${UVICORN_MAX_WORKERS:=10}"
 
