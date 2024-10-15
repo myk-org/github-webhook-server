@@ -818,11 +818,11 @@ stderr: `{_err}`
             return
 
         pr_tag = repository_full_tag.split(":")[-1]
+        registry_info = self.container_repository.split("/")
+        registry_url = "" if len(registry_info) < 3 else registry_info[0]
         base_regctl_command = (
             "podman run --rm --net host  -v regctl-conf:/home/appuser/.regctl/ ghcr.io/regclient/regctl:latest"
         )
-        registry_info = self.container_repository.split("/")
-        registry_url = "" if len(registry_info) < 3 else registry_info[0]
 
         rc, out, err = run_command(
             command=f"{base_regctl_command} registry login {registry_url} -u {self.container_repository_username} "
@@ -1874,7 +1874,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             return
 
         if "all" in command_args:
-            if len(command_args) > 1:
+            if len(_target_tests) > 1:
                 msg = "Invalid command. `all` cannot be used with other tests"
                 error_msg = f"{self.log_prefix} {msg}."
                 self.logger.debug(error_msg)
