@@ -149,7 +149,7 @@ class ProcessGithubWehook:
         self.add_api_users_to_auto_verified_and_merged_users()
 
         self.supported_user_labels_str: str = "".join([f" * {label}\n" for label in USER_LABELS_DICT.keys()])
-        self.current_pull_request_supported_retest = self._current_pull_request_supported_retest()
+        self.current_pull_request_supported_retest = self._current_pull_request_supported_retest
         self.welcome_msg: str = f"""
 Report bugs in [Issues](https://github.com/myakove/github-webhook-server/issues)
 
@@ -2030,6 +2030,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             except Exception as exp:
                 self.logger.error(f"{self.log_prefix} Exception while setting auto merge: {exp}")
 
+    @property
     def _current_pull_request_supported_retest(self) -> List[str]:
         current_pull_request_supported_retest: List[str] = []
 
