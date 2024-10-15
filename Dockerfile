@@ -25,8 +25,7 @@ RUN dnf -y install dnf-plugins-core \
 RUN mkdir -p $BIN_DIR \
   && mkdir -p $APP_DIR \
   && mkdir -p $DATA_DIR \
-  && mkdir -p $DATA_DIR/logs \
-  && mkdir -p /tmp/containers
+  && mkdir -p $DATA_DIR/logs
 
 COPY entrypoint.sh pyproject.toml uv.lock README.md $APP_DIR/
 COPY webhook_server_container $APP_DIR/webhook_server_container/
