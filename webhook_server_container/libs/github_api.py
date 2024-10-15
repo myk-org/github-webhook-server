@@ -2048,7 +2048,8 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
     def fix_podman_bug(self) -> None:
         self.logger.debug(f"{self.log_prefix} Fixing podman bug")
-        os.system("rm -rf /tmp/storage-run-1000/containers /tmp/storage-run-1000/libpod/tmp")
+        shutil.rmtree("/tmp/storage-run-1000/containers", ignore_errors=True)
+        shutil.rmtree("/tmp/storage-run-1000/libpod/tmp", ignore_errors=True)
 
     def run_podman_command(self, command: str) -> Tuple[bool, str, str]:
         rc, out, err = run_command(command=command, log_prefix=self.log_prefix)
