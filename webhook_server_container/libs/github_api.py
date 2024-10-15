@@ -1181,6 +1181,15 @@ stderr: `{_err}`
 
                 self.check_if_can_be_merged()
 
+        elif _command == VERIFIED_LABEL_STR:
+            self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
+            if remove:
+                self._remove_label(label=VERIFIED_LABEL_STR)
+                self.set_verify_check_queued()
+            else:
+                self._add_label(label=VERIFIED_LABEL_STR)
+                self.set_verify_check_success()
+
         else:
             self.label_by_user_comment(
                 user_requested_label=_command,
