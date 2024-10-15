@@ -263,6 +263,7 @@ reviewers:
 - `/retest tox`: run tox
 - `/retest build-container`: run build-container
 - `/retest python-module-install`: run python-module-install command
+- `/retest all`: run all tests
 - `/build-and-push-container`: build and push container image (tag will be the pull request number)
   - You can add extra args to the Podman build command
     - Example: `/build-and-push-container --build-arg OPENSHIFT_PYTHON_WRAPPER_COMMIT=<commit_hash>`
