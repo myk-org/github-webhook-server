@@ -239,6 +239,12 @@ Available user actions:
         if self.pypi:
             retest_msg += f" * `/retest {PYTHON_MODULE_INSTALL_STR}`: Retest python-module-install\n"
 
+        if self.pre_commit:
+            retest_msg += f" * `/retest {PRE_COMMIT_STR}`: Retest pre-commit\n"
+
+        if retest_msg:
+            retest_msg += " * `/retest all`: Retest all\n"
+
         return " * This repository does not support retest actions" if not retest_msg else retest_msg
 
     def add_api_users_to_auto_verified_and_merged_users(self) -> None:
