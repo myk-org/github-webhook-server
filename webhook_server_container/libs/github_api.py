@@ -1872,7 +1872,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             return
 
         if "all" in command_args:
-            if len(command_args) > 1:
+            if len(_target_tests) > 1:
                 msg = "Invalid command. `all` cannot be used with other tests"
                 error_msg = f"{self.log_prefix} {msg}."
                 self.logger.debug(error_msg)
