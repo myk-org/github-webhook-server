@@ -10,7 +10,7 @@ import re
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Callable, Dict, Generator, List, Optional, Set
+from typing import Any, Callable, Dict, Generator, List, Optional, Set, Tuple
 from stringcolor import cs
 
 from github.Branch import Branch
@@ -821,24 +821,20 @@ stderr: `{_err}`
         registry_info = self.container_repository.split("/")
         registry_url = "" if len(registry_info) < 3 else registry_info[0]
         base_regctl_command = (
-            "podman run --rm --net host  -v regctl-conf:/home/appuser/.regctl/ ghcr.io/regclient/regctl:latest"
+            "podman run --rm --net host -v regctl-conf:/home/appuser/.regctl/ ghcr.io/regclient/regctl:latest"
         )
 
-        rc, out, err = run_command(
-            command=f"{base_regctl_command} registry login {registry_url} -u {self.container_repository_username} "
-            f"-p {self.container_repository_password}",
-            log_prefix=self.log_prefix,
-        )
+        reg_login_cmd = f"{base_regctl_command} registry login {registry_url} -u {self.container_repository_username} -p {self.container_repository_password}"
+        rc, out, err = self.run_podman_command(command=reg_login_cmd)
+
         if rc:
-            rc, out, err = run_command(
-                command=f"{base_regctl_command} tag ls {self.container_repository} --include {pr_tag}",
-                log_prefix=self.log_prefix,
-            )
+            tag_ls_cmd = f"{base_regctl_command} tag ls {self.container_repository} --include {pr_tag}"
+            rc, out, err = self.run_podman_command(command=tag_ls_cmd)
+
             if rc and out:
-                if run_command(
-                    command=f"{base_regctl_command} tag delete {repository_full_tag}",
-                    log_prefix=self.log_prefix,
-                )[0]:
+                tag_del_cmd = f"{base_regctl_command} tag delete {repository_full_tag}"
+
+                if self.run_podman_command(command=tag_del_cmd)[0]:
                     self.pull_request.create_issue_comment(f"Successfully removed PR tag: {repository_full_tag}.")
                 else:
                     self.logger.error(
@@ -1486,15 +1482,13 @@ stderr: `{_err}`
             tag_name=tag,
             clone_repo_dir=clone_repo_dir,
         ):
-            build_rc, build_out, build_err = run_command(
-                command=podman_build_cmd,
-                log_prefix=self.log_prefix,
-            )
+            build_rc, build_out, build_err = self.run_podman_command(command=podman_build_cmd)
             output: Dict[str, str] = {
                 "title": "Build container",
                 "summary": "",
                 "text": self.get_check_run_text(err=build_err, out=build_out),
             }
+
             if build_rc:
                 self.logger.info(f"{self.log_prefix} Done building {_container_repository_and_tag}")
                 if pull_request and set_check:
@@ -1506,7 +1500,7 @@ stderr: `{_err}`
 
             if push and build_rc:
                 cmd = f"podman push --creds {self.container_repository_username}:{self.container_repository_password} {_container_repository_and_tag}"
-                push_rc, _, _ = run_command(command=cmd, log_prefix=self.log_prefix)
+                push_rc, _, _ = self.run_podman_command(command=cmd)
                 if push_rc:
                     push_msg: str = f"New container for {_container_repository_and_tag} published"
                     if pull_request:
@@ -2047,3 +2041,22 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             current_pull_request_supported_retest.append(PRE_COMMIT_STR)
 
         return current_pull_request_supported_retest
+
+    def is_podman_bug(self, err: str) -> bool:
+        _err = "Error: current system boot ID differs from cached boot ID; an unhandled reboot has occurred"
+        return _err in err.strip()
+
+    def fix_podman_bug(self) -> None:
+        self.logger.debug(f"{self.log_prefix} Fixing podman bug")
+        os.system("rm -rf /tmp/storage-run-1000/containers /tmp/storage-run-1000/libpod/tmp")
+
+    def run_podman_command(self, command: str) -> Tuple[bool, str, str]:
+        rc, out, err = run_command(command=command, log_prefix=self.log_prefix)
+        if rc:
+            return rc, out, err
+
+        if self.is_podman_bug(err=err):
+            self.fix_podman_bug()
+            return run_command(command=command, log_prefix=self.log_prefix)
+
+        return rc, out, err
