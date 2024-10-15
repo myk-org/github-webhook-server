@@ -10,7 +10,7 @@ import re
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional, Set
+from typing import Any, Callable, Dict, Generator, List, Optional, Set
 from stringcolor import cs
 
 from github.Branch import Branch
@@ -149,6 +149,7 @@ class ProcessGithubWehook:
         self.add_api_users_to_auto_verified_and_merged_users()
 
         self.supported_user_labels_str: str = "".join([f" * {label}\n" for label in USER_LABELS_DICT.keys()])
+        self.current_pull_request_supported_retest = self._current_pull_request_supported_retest()
         self.welcome_msg: str = f"""
 Report bugs in [Issues](https://github.com/myakove/github-webhook-server/issues)
 
@@ -1850,41 +1851,58 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
     def process_retest_command(self, issue_comment_id: int, command_args: str) -> None:
         _target_tests: List[str] = command_args.split()
-        for _test in _target_tests:
-            if _test == TOX_STR:
-                if not self.tox:
-                    msg: str = f"No {TOX_STR} configured for this repository"
-                    error_msg = f"{self.log_prefix} {msg}."
-                    self.logger.info(error_msg)
-                    self.pull_request.create_issue_comment(msg)
-                    return
+        _not_supported_retests: List[str] = []
+        _supported_retests: List[str] = []
+        _retests_to_func_map: Dict[str, Callable] = {
+            TOX_STR: self._run_tox,
+            PRE_COMMIT_STR: self._run_pre_commit,
+            BUILD_CONTAINER_STR: self._run_build_container,
+            PYTHON_MODULE_INSTALL_STR: self._run_install_python_module,
+        }
 
-                self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
-                self._run_tox()
+        if not _target_tests:
+            msg = "No test defined to retest"
+            error_msg = f"{self.log_prefix} {msg}."
+            self.logger.debug(error_msg)
+            self.pull_request.create_issue_comment(msg)
+            return
 
-            elif _test == PRE_COMMIT_STR:
-                self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
-                self._run_pre_commit()
+        if "all" in command_args:
+            if len(command_args) > 1:
+                msg = "Invalid command. `all` cannot be used with other tests"
+                error_msg = f"{self.log_prefix} {msg}."
+                self.logger.debug(error_msg)
+                self.pull_request.create_issue_comment(msg)
+                return
 
-            elif _test == BUILD_CONTAINER_STR:
-                if self.build_and_push_container:
-                    self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
-                    self._run_build_container()
+            else:
+                _supported_retests = self.current_pull_request_supported_retest
+
+        else:
+            for _test in _target_tests:
+                if _test in self.current_pull_request_supported_retest:
+                    _supported_retests.append(_test)
+
                 else:
-                    msg = f"No {BUILD_CONTAINER_STR} configured for this repository"
-                    error_msg = f"{self.log_prefix} {msg}"
-                    self.logger.info(error_msg)
-                    self.pull_request.create_issue_comment(msg)
+                    _not_supported_retests.append(_test)
 
-            elif _test == PYTHON_MODULE_INSTALL_STR:
-                if not self.pypi:
-                    error_msg = f"{self.log_prefix} No pypi configured"
-                    self.logger.info(error_msg)
-                    self.pull_request.create_issue_comment(error_msg)
-                    return
+        if _not_supported_retests:
+            msg = f"No {' '.join(_not_supported_retests)} configured for this repository"
+            error_msg = f"{self.log_prefix} {msg}."
+            self.logger.debug(error_msg)
+            self.pull_request.create_issue_comment(msg)
 
-                self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
-                self._run_install_python_module()
+        if _supported_retests:
+            self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
+
+            _retest_to_exec: List[Future] = []
+            with ThreadPoolExecutor() as executor:
+                for _test in _supported_retests:
+                    _retest_to_exec.append(executor.submit(_retests_to_func_map[_test]))
+
+            for result in as_completed(_retest_to_exec):
+                if _exp := result.exception():
+                    self.logger.error(f"{self.log_prefix} {_exp}")
 
     def remove_labels_when_pull_request_sync(self) -> None:
         futures = []
@@ -2005,3 +2023,20 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
             except Exception as exp:
                 self.logger.error(f"{self.log_prefix} Exception while setting auto merge: {exp}")
+
+    def _current_pull_request_supported_retest(self) -> List[str]:
+        current_pull_request_supported_retest: List[str] = []
+
+        if self.tox:
+            current_pull_request_supported_retest.append(TOX_STR)
+
+        if self.build_and_push_container:
+            current_pull_request_supported_retest.append(BUILD_CONTAINER_STR)
+
+        if self.pypi:
+            current_pull_request_supported_retest.append(PYTHON_MODULE_INSTALL_STR)
+
+        if self.pre_commit:
+            current_pull_request_supported_retest.append(PRE_COMMIT_STR)
+
+        return current_pull_request_supported_retest
