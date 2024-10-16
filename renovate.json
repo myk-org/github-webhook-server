@@ -1,1 +1,12 @@
-{"$schema": "https://docs.renovatebot.com/renovate-schema.json", "packageRules": [{"matchPackagePatterns": ["poetry-dynamic-versioning", "pygithub", "pyyaml", "build", "shortuuid", "colorlog", "colorama", "ruff", "timeout-sampler", "requests", "jira", "pyhelper-utils", "uwsgi", "fastapi", "python-simple-logger", "uvicorn", "string-color", "ipdb", "ipython"], "groupName": "poetry-deps"}]}
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "lockFileMaintenance": {
+    "enabled": true
+  },
+  "packageRules": [
+    {
+      "matchPackagePatterns": ["*"],
+      "groupName": "python-deps"
+    }
+  ]
+}

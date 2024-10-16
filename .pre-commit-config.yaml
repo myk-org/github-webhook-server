@@ -57,3 +57,8 @@ repos:
       - id: mypy
         exclude: (tests/)
         additional_dependencies: [types-requests, types-PyYAML]
+
+  - repo: https://github.com/renovatebot/pre-commit-hooks
+    rev: 38.120.1
+    hooks:
+      - id: renovate-config-validator
