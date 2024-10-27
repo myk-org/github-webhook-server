@@ -1403,17 +1403,17 @@ stderr: `{_err}`
             if missing_required_labels:
                 failure_output += f"Missing required labels: {', '.join(missing_required_labels)}\n"
 
-            # pr_approved = False
-            # for _label in _labels:
-            #     if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
-            #         approved_user = _label.split("-")[-1]
-            #         if approved_user in self.approvers and self.parent_committer != approved_user:
-            #             pr_approved = True
-            #             break
-            #
-            # if not pr_approved:
-            #     missing_approvers = [approver for approver in self.approvers if approver != self.parent_committer]
-            #     failure_output += f"Missing lgtm/approved from approvers: {', '.join(missing_approvers)}\n"
+            pr_approved = False
+            for _label in _labels:
+                if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
+                    approved_user = _label.split("-")[-1]
+                    if approved_user in self.approvers and self.parent_committer != approved_user:
+                        pr_approved = True
+                        break
+
+            if not pr_approved:
+                missing_approvers = [approver for approver in self.approvers if approver != self.parent_committer]
+                failure_output += f"Missing lgtm/approved from approvers: {', '.join(missing_approvers)}\n"
 
             if not failure_output:
                 self._add_label(label=CAN_BE_MERGED_STR)
