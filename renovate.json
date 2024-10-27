@@ -5,6 +5,7 @@
     ":maintainLockFilesWeekly",
     ":prHourlyLimitNone"
   ],
+  "prConcurrentLimit": 0,
   "lockFileMaintenance": {
     "enabled": true
   },
