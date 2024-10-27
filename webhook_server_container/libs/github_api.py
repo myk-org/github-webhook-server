@@ -30,6 +30,7 @@ from webhook_server_container.libs.jira_api import JiraApi
 from webhook_server_container.utils.constants import (
     ADD_STR,
     APPROVED_BY_LABEL_PREFIX,
+    APPROVED_LABEL_STR,
     BRANCH_LABEL_PREFIX,
     BUILD_AND_PUSH_CONTAINER_STR,
     BUILD_CONTAINER_STR,
@@ -555,7 +556,7 @@ stderr: `{_err}`
 
             commands: List[str] = [
                 f"uvx {uv_cmd_dir} twine check {_dist_dir}/{tar_gz_file}",
-                f"uvx {uv_cmd_dir} twine upload --username __token__ --password {self.pypi["token"]} {_dist_dir}/{tar_gz_file} --skip-existing",
+                f"uvx {uv_cmd_dir} twine upload --username __token__ --password {self.pypi['token']} {_dist_dir}/{tar_gz_file} --skip-existing",
             ]
             for cmd in commands:
                 rc, out, err = run_command(command=cmd, log_prefix=self.log_prefix)
@@ -695,6 +696,12 @@ stderr: `{_err}`
         else:
             label_func = self._remove_label if remove else self._add_label
             label_func(label=user_requested_label)
+
+    def set_approved_check_queued(self) -> None:
+        return self.set_check_run_status(check_run=APPROVED_LABEL_STR, status=QUEUED_STR)
+
+    def set_approved_check_success(self, output: Dict[str, Any]) -> None:
+        return self.set_check_run_status(check_run=APPROVED_LABEL_STR, conclusion=SUCCESS_STR, output=output)
 
     def set_verify_check_queued(self) -> None:
         return self.set_check_run_status(check_run=VERIFIED_LABEL_STR, status=QUEUED_STR)
@@ -955,8 +962,15 @@ stderr: `{_err}`
             if labeled.startswith(CHANGED_REQUESTED_BY_LABEL_PREFIX):
                 _reviewer = labeled.split(CHANGED_REQUESTED_BY_LABEL_PREFIX)[-1]
 
+            _approved_output: Dict[str, Any] = {"title": "Approved", "summary": "", "text": ""}
+            _approved = False
             if _reviewer in self.approvers:
                 _check_for_merge = True
+                _approved = True
+                _approved_output["text"] += f"Approved by {_reviewer}.\n"
+
+            if _approved:
+                self.set_approved_check_success(output=_approved_output)
 
             if self.verified_job and labeled == VERIFIED_LABEL_STR:
                 _check_for_merge = True
@@ -1389,19 +1403,19 @@ stderr: `{_err}`
             if missing_required_labels:
                 failure_output += f"Missing required labels: {', '.join(missing_required_labels)}\n"
 
-            pr_approved = False
-            for _label in _labels:
-                if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
-                    approved_user = _label.split("-")[-1]
-                    if approved_user in self.approvers and self.parent_committer != approved_user:
-                        pr_approved = True
-                        break
+            # pr_approved = False
+            # for _label in _labels:
+            #     if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
+            #         approved_user = _label.split("-")[-1]
+            #         if approved_user in self.approvers and self.parent_committer != approved_user:
+            #             pr_approved = True
+            #             break
+            #
+            # if not pr_approved:
+            #     missing_approvers = [approver for approver in self.approvers if approver != self.parent_committer]
+            #     failure_output += f"Missing lgtm/approved from approvers: {', '.join(missing_approvers)}\n"
 
-            if not pr_approved:
-                missing_approvers = [approver for approver in self.approvers if approver != self.parent_committer]
-                failure_output += f"Missing lgtm/approved from approvers: {', '.join(missing_approvers)}\n"
-
-            if pr_approved and not failure_output:
+            if not failure_output:
                 self._add_label(label=CAN_BE_MERGED_STR)
                 self.set_merge_check_success()
 
@@ -1576,8 +1590,7 @@ stderr: `{_err}`
         )
         if response.status_code != 200:
             raise ValueError(
-                f"Request to slack returned an error {response.status_code} with the following message: "
-                f"{response.text}"
+                f"Request to slack returned an error {response.status_code} with the following message: {response.text}"
             )
 
     def _process_verified_for_update_or_new_pull_request(self) -> None:
@@ -1620,6 +1633,7 @@ stderr: `{_err}`
             prepare_pull_futures.append(executor.submit(self._process_verified_for_update_or_new_pull_request))
             prepare_pull_futures.append(executor.submit(self.add_size_label))
             prepare_pull_futures.append(executor.submit(self.add_pull_request_owner_as_assingee))
+            prepare_pull_futures.append(executor.submit(self.set_approved_check_queued))
 
             prepare_pull_futures.append(executor.submit(self._run_tox))
             prepare_pull_futures.append(executor.submit(self._run_pre_commit))
