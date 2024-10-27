@@ -109,6 +109,9 @@ def get_required_status_checks(
     if data.get("pypi"):
         default_status_checks.append(PYTHON_MODULE_INSTALL_STR)
 
+    if data.get("pre-commit"):
+        default_status_checks.append(PRE_COMMIT_STR)
+
     with contextlib.suppress(UnknownObjectException):
         repo.get_contents(".pre-commit-config.yaml")
         default_status_checks.append("pre-commit.ci - pr")
