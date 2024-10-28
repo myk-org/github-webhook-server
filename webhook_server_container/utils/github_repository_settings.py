@@ -14,6 +14,7 @@ from github.GithubException import UnknownObjectException
 
 from webhook_server_container.libs.config import Config
 from webhook_server_container.utils.constants import (
+    APPROVED_LABEL_STR,
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
     IN_PROGRESS_STR,
@@ -108,6 +109,9 @@ def get_required_status_checks(
     if data.get("pypi"):
         default_status_checks.append(PYTHON_MODULE_INSTALL_STR)
 
+    if data.get("pre-commit"):
+        default_status_checks.append(PRE_COMMIT_STR)
+
     with contextlib.suppress(UnknownObjectException):
         repo.get_contents(".pre-commit-config.yaml")
         default_status_checks.append("pre-commit.ci - pr")
@@ -161,7 +165,10 @@ def set_repositories_settings(config_: Config, github_api: Github) -> None:
 
     logger.info("Processing repositories")
     config_data = config_.data
-    default_status_checks: List[str] = config_data.get("default-status-checks", [])
+    default_status_checks: List[str] = config_data.get("default-status-checks", []) + [
+        CAN_BE_MERGED_STR,
+        APPROVED_LABEL_STR,
+    ]
     docker: Optional[Dict[str, str]] = config_data.get("docker")
     if docker:
         logger.info("Login in to docker.io")
