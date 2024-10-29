@@ -1671,6 +1671,7 @@ stderr: `{_err}`
             kwargs["output"] = output
 
         msg: str = f"{self.log_prefix} check run {check_run} status: {status or conclusion}"
+        self.logger.info(f"{self.log_prefix} Setting check run status: {check_run}")
 
         try:
             self.repository_by_github_app.create_check_run(**kwargs)
