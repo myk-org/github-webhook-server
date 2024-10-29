@@ -1632,10 +1632,10 @@ stderr: `{_err}`
             prepare_pull_futures.append(executor.submit(self.set_run_pre_commit_check_queued))
             prepare_pull_futures.append(executor.submit(self.set_python_module_install_queued))
             prepare_pull_futures.append(executor.submit(self.set_container_build_queued))
+            prepare_pull_futures.append(executor.submit(self.set_approved_check_queued))
             prepare_pull_futures.append(executor.submit(self._process_verified_for_update_or_new_pull_request))
             prepare_pull_futures.append(executor.submit(self.add_size_label))
             prepare_pull_futures.append(executor.submit(self.add_pull_request_owner_as_assingee))
-            prepare_pull_futures.append(executor.submit(self.set_approved_check_queued))
 
             prepare_pull_futures.append(executor.submit(self._run_tox))
             prepare_pull_futures.append(executor.submit(self._run_pre_commit))
