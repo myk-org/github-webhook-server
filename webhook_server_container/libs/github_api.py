@@ -312,6 +312,10 @@ Available user actions:
 
     def process_pull_request_check_run_webhook_data(self) -> None:
         _check_run: Dict[str, Any] = self.hook_data["check_run"]
+        if _check_run["action"] != "completed":
+            self.logger.debug(f"{self.log_prefix} check run action is not completed, skipping")
+            return
+
         check_run_name: str = _check_run["name"]
         check_run_status: str = _check_run["status"]
         check_run_conclusion: str = _check_run["conclusion"]
