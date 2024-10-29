@@ -2091,10 +2091,17 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         """
         Keep approved state by approvers after code rebase
         """
-        for review in self.pull_request.get_reviews():
-            if (
-                review.state == "APPROVED"
-                and review.user.login in self.approvers
-                and self.last_commit.sha == review.commit_id
-            ):
-                self._add_label(label=f"{APPROVED_BY_LABEL_PREFIX}{review.user.login}")
+        self.logger.info(
+            f"{self.log_prefix} Checking approvals for new commits, if rebased then keep approvers from last commit"
+        )
+        try:
+            for review in self.pull_request.get_reviews():
+                if (
+                    review.state == "APPROVED"
+                    and review.user.login in self.approvers
+                    and self.last_commit.sha == review.commit_id
+                ):
+                    self.logger.debug(f"{self.log_prefix} Restoring approval for {review.user.login}")
+                    self._add_label(label=f"{APPROVED_BY_LABEL_PREFIX}{review.user.login}")
+        except Exception as ex:
+            self.logger.error(f"{self.log_prefix} Error maintaining approvals after rebase: {ex}")
