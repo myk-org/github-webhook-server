@@ -922,6 +922,8 @@ stderr: `{_err}`
                 if self.jira_track_pr:
                     pull_request_synchronize_futures.append(executor.submit(self.update_jira_when_pull_request_sync))
 
+            self._keep_approved_by_approvers_after_rebase()
+
         if hook_action == "closed":
             self.close_issue_for_merged_or_closed_pr(hook_action=hook_action)
             self.delete_remote_tag_for_merged_or_closed_pr()
@@ -2084,3 +2086,15 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             return run_command(command=command, log_prefix=self.log_prefix)
 
         return rc, out, err
+
+    def _keep_approved_by_approvers_after_rebase(self) -> None:
+        """
+        Keep approved state by approvers after code rebase
+        """
+        for review in self.pull_request.get_reviews():
+            if (
+                review.state == "APPROVED"
+                and review.user.login in self.approvers
+                and self.last_commit.sha == review.commit_id
+            ):
+                self._add_label(label=f"{APPROVED_BY_LABEL_PREFIX}{review.user.login}")
