@@ -30,7 +30,6 @@ from webhook_server_container.libs.jira_api import JiraApi
 from webhook_server_container.utils.constants import (
     ADD_STR,
     APPROVED_BY_LABEL_PREFIX,
-    APPROVED_LABEL_STR,
     BRANCH_LABEL_PREFIX,
     BUILD_AND_PUSH_CONTAINER_STR,
     BUILD_CONTAINER_STR,
@@ -701,12 +700,6 @@ stderr: `{_err}`
             label_func = self._remove_label if remove else self._add_label
             label_func(label=user_requested_label)
 
-    def set_approved_check_queued(self) -> None:
-        return self.set_check_run_status(check_run=APPROVED_LABEL_STR, status=QUEUED_STR)
-
-    def set_approved_check_success(self, output: Dict[str, Any]) -> None:
-        return self.set_check_run_status(check_run=APPROVED_LABEL_STR, conclusion=SUCCESS_STR, output=output)
-
     def set_verify_check_queued(self) -> None:
         return self.set_check_run_status(check_run=VERIFIED_LABEL_STR, status=QUEUED_STR)
 
@@ -967,14 +960,9 @@ stderr: `{_err}`
                 _reviewer = labeled.split(CHANGED_REQUESTED_BY_LABEL_PREFIX)[-1]
 
             _approved_output: Dict[str, Any] = {"title": "Approved", "summary": "", "text": ""}
-            _approved = False
             if _reviewer in self.approvers:
                 _check_for_merge = True
-                _approved = True
                 _approved_output["text"] += f"Approved by {_reviewer}.\n"
-
-            if _approved:
-                self.set_approved_check_success(output=_approved_output)
 
             if self.verified_job and labeled == VERIFIED_LABEL_STR:
                 _check_for_merge = True
@@ -1637,7 +1625,6 @@ stderr: `{_err}`
             prepare_pull_futures.append(executor.submit(self._process_verified_for_update_or_new_pull_request))
             prepare_pull_futures.append(executor.submit(self.add_size_label))
             prepare_pull_futures.append(executor.submit(self.add_pull_request_owner_as_assingee))
-            prepare_pull_futures.append(executor.submit(self.set_approved_check_queued))
 
             prepare_pull_futures.append(executor.submit(self._run_tox))
             prepare_pull_futures.append(executor.submit(self._run_pre_commit))

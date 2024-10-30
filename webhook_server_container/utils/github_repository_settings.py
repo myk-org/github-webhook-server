@@ -14,7 +14,6 @@ from github.GithubException import UnknownObjectException
 
 from webhook_server_container.libs.config import Config
 from webhook_server_container.utils.constants import (
-    APPROVED_LABEL_STR,
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
     IN_PROGRESS_STR,
@@ -167,7 +166,6 @@ def set_repositories_settings(config_: Config, github_api: Github) -> None:
     config_data = config_.data
     default_status_checks: List[str] = config_data.get("default-status-checks", []) + [
         CAN_BE_MERGED_STR,
-        APPROVED_LABEL_STR,
     ]
     docker: Optional[Dict[str, str]] = config_data.get("docker")
     if docker:
