@@ -4,7 +4,7 @@ from logging import Logger
 import shlex
 import subprocess
 from concurrent.futures import Future, as_completed
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 from colorama import Fore
 from github import Github
 from github.RateLimit import RateLimit
@@ -15,10 +15,10 @@ from webhook_server_container.libs.config import Config
 
 
 def get_value_from_dicts(
-    primary_dict: Dict[Any, Any],
-    secondary_dict: Dict[Any, Any],
+    primary_dict: dict[Any, Any],
+    secondary_dict: dict[Any, Any],
     key: str,
-    return_on_none: Optional[Any] = None,
+    return_on_none: Any | None = None,
 ) -> Any:
     """
     Get value from two dictionaries.
@@ -28,10 +28,10 @@ def get_value_from_dicts(
     return primary_dict.get(key, secondary_dict.get(key, return_on_none))
 
 
-def get_logger_with_params(name: str, repository_name: Optional[str] = "") -> Logger:
+def get_logger_with_params(name: str, repository_name: str | None = "") -> Logger:
     _config = Config()
     config_data = _config.data  # Global repositories configuration
-    repo_data: Dict[str, Any] = {}
+    repo_data: dict[str, Any] = {}
 
     if repository_name:
         repo_data = _config.repository_data(repository_name=repository_name)  # Specific repository configuration
@@ -43,18 +43,16 @@ def get_logger_with_params(name: str, repository_name: Optional[str] = "") -> Lo
     return get_logger(name=name, filename=log_file, level=log_level, file_max_bytes=1048576 * 50)  # 50MB
 
 
-def extract_key_from_dict(key: Any, _dict: Dict[Any, Any]) -> Any:
+def extract_key_from_dict(key: Any, _dict: dict[Any, Any]) -> Any:
     if isinstance(_dict, dict):
         for _key, _val in _dict.items():
             if _key == key:
                 yield _val
             if isinstance(_val, dict):
-                for result in extract_key_from_dict(key, _val):
-                    yield result
+                yield from extract_key_from_dict(key, _val)
             elif isinstance(_val, list):
                 for _item in _val:
-                    for result in extract_key_from_dict(key, _item):
-                        yield result
+                    yield from extract_key_from_dict(key, _item)
 
 
 def get_github_repo_api(github_api: Github, repository: int | str) -> Repository:
@@ -66,11 +64,11 @@ def run_command(
     log_prefix: str,
     verify_stderr: bool = False,
     shell: bool = False,
-    timeout: Optional[int] = None,
+    timeout: int | None = None,
     capture_output: bool = True,
     check: bool = False,
     **kwargs: Any,
-) -> Tuple[bool, str, str]:
+) -> tuple[bool, str, str]:
     """
     Run command locally.
 
@@ -125,8 +123,8 @@ def run_command(
         return False, out_decoded, err_decoded
 
 
-def get_apis_and_tokes_from_config(config: Config, repository_name: str = "") -> List[Tuple[Github, str]]:
-    apis_and_tokens: List[Tuple[Github, str]] = []
+def get_apis_and_tokes_from_config(config: Config, repository_name: str = "") -> list[tuple[Github, str]]:
+    apis_and_tokens: list[tuple[Github, str]] = []
 
     tokens = get_value_from_dicts(
         primary_dict=config.repository_data(repository_name=repository_name),
@@ -141,7 +139,7 @@ def get_apis_and_tokes_from_config(config: Config, repository_name: str = "") ->
     return apis_and_tokens
 
 
-def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -> Tuple[Github | None, str | None]:
+def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -> tuple[Github | None, str | None]:
     """
     Get API with the highest rate limit
 
@@ -154,10 +152,10 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
     """
     logger = get_logger_with_params(name="helpers")
 
-    api: Optional[Github] = None
-    token: Optional[str] = None
+    api: Github | None = None
+    token: str | None = None
     _api_user: str = ""
-    rate_limit: Optional[RateLimit] = None
+    rate_limit: RateLimit | None = None
 
     remaining = 0
 
@@ -203,7 +201,7 @@ def log_rate_limit(rate_limit: RateLimit, api_user: str) -> None:
         logger.warning(msg)
 
 
-def get_future_results(futures: List["Future"]) -> None:
+def get_future_results(futures: list[Future]) -> None:
     """
     result must return Tuple[bool, str, Callable] when the Callable is Logger function (LOGGER.info, LOGGER.error, etc)
     """
