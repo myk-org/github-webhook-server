@@ -5,7 +5,6 @@ EXPOSE 5000
 ENV USERNAME="podman"
 ENV HOME_DIR="/home/$USERNAME"
 ENV BIN_DIR="$HOME_DIR/.local/bin"
-ENV UV_INSTALL_DIR="$HOME_DIR/.local"
 ENV PATH="$PATH:$BIN_DIR"
 ENV DATA_DIR="$HOME_DIR/data"
 ENV APP_DIR="$HOME_DIR/github-webhook-server"
@@ -36,10 +35,7 @@ RUN usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $USERNAME \
 USER $USERNAME
 WORKDIR $HOME_DIR
 
-# Download the latest uv installer
-RUN curl -sSL https://astral.sh/uv/install.sh -o /tmp/uv-installer.sh \
-  && sh /tmp/uv-installer.sh \
-  && rm /tmp/uv-installer.sh
+RUN python3 -m pip install --no-cache-dir uv
 
 RUN set -x \
   && curl https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz --output $BIN_DIR/rosa-linux.tar.gz \
