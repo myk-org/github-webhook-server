@@ -8,6 +8,10 @@ ENV BIN_DIR="$HOME_DIR/.local/bin"
 ENV PATH="$PATH:$BIN_DIR"
 ENV DATA_DIR="$HOME_DIR/data"
 ENV APP_DIR="$HOME_DIR/github-webhook-server"
+ENV UV_PYTHON=python3.13
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_NO_SYNC=1
+ENV UV_CACHE_DIR=${APP_DIR}/.cache
 
 RUN dnf -y install dnf-plugins-core \
   && dnf -y update \
@@ -35,7 +39,7 @@ RUN usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $USERNAME \
 USER $USERNAME
 WORKDIR $HOME_DIR
 
-RUN python3 -m pip install --no-cache-dir uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx ${BIN_DIR}/
 
 RUN set -x \
   && curl https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz --output $BIN_DIR/rosa-linux.tar.gz \
