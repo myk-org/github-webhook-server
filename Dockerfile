@@ -21,6 +21,8 @@ RUN dnf -y install dnf-plugins-core \
   unzip \
   gcc \
   python3-devel \
+  clang \
+  cargo \
   && dnf clean all \
   && rm -rf /var/cache /var/log/dnf* /var/log/yum.*
 
