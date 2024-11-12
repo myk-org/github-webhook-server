@@ -1,4 +1,4 @@
-FROM quay.io/podman/stable:latest
+FROM quay.io/podman/stable:v5
 
 EXPOSE 5000
 
