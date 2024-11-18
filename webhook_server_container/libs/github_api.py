@@ -9,7 +9,6 @@ import random
 import re
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
-from pathlib import Path
 from typing import Any, Callable, Dict, Generator, List, Optional, Set, Tuple
 from stringcolor import cs
 
@@ -311,7 +310,7 @@ Available user actions:
 
     def process_pull_request_check_run_webhook_data(self) -> None:
         _check_run: Dict[str, Any] = self.hook_data["check_run"]
-        if _check_run["action"] != "completed":
+        if _check_run.get("action", "") != "completed":
             self.logger.debug(f"{self.log_prefix} check run action is not completed, skipping")
             return
 
@@ -579,7 +578,7 @@ stderr: `{_err}`
         try:
             owners_content: list[ContentFile] | ContentFile = self.repository.get_contents("OWNERS")
             if isinstance(owners_content, list):
-                self.logger.debug(f"{self.log_prefix} Found more then one OWNERS file, using the first one")
+                self.logger.debug(f"{self.log_prefix} Found more than one OWNERS file, using the first one")
                 owners_content = owners_content[0]
 
             _content: Dict[str, Any] = yaml.safe_load(owners_content.decoded_content)
@@ -589,6 +588,38 @@ stderr: `{_err}`
         except UnknownObjectException:
             self.logger.error(f"{self.log_prefix} OWNERS file not found")
             return {}
+
+    def load_additional_owners(self, directory: str) -> Dict[str, Any]:
+        try:
+            additional_owners_path = os.path.join(directory, "OWNERS")
+            additional_owners_content: list[ContentFile] | ContentFile = self.repository.get_contents(
+                additional_owners_path
+            )
+            if isinstance(additional_owners_content, list):
+                self.logger.debug(
+                    f"{self.log_prefix} Found more than one OWNERS file in {directory}, using the first one"
+                )
+                additional_owners_content = additional_owners_content[0]
+
+            return yaml.safe_load(additional_owners_content.decoded_content)
+
+        except UnknownObjectException:
+            self.logger.debug(f"{self.log_prefix} Additional OWNERS file not found in {directory}")
+            return {}
+
+    def get_approvers_and_reviewers(self, changed_files: List[str]) -> Tuple[List[str], List[str]]:
+        approvers = self.owners_content.get("approvers", [])
+        reviewers = self.owners_content.get("reviewers", [])
+
+        for changed_file in changed_files:
+            directory = os.path.dirname(changed_file)
+            additional_owners = self.load_additional_owners(directory)
+
+            if additional_owners:
+                approvers.extend(additional_owners.get("approvers", []))
+                reviewers.extend(additional_owners.get("reviewers", []))
+
+        return list(set(approvers)), list(set(reviewers))
 
     @property
     def reviewers(self) -> List[str]:
@@ -627,18 +658,20 @@ stderr: `{_err}`
     def assign_reviewers(self) -> None:
         self.logger.info(f"{self.log_prefix} Assign reviewers")
         changed_files = self.list_changed_commit_files()
-        reviewers_to_add = self.reviewers
-        for _file, _file_reviewers in self.files_reviewers.items():
-            if _file in changed_files:
-                reviewers_to_add.extend(_file_reviewers)
+        approvers, reviewers = self.get_approvers_and_reviewers(changed_files)
 
-        for _folder, _folder_reviewers in self.folders_reviewers.items():
-            if any(cf for cf in changed_files if _folder in str(Path(cf).parent)):
-                reviewers_to_add.extend(_folder_reviewers)
+        self.logger.info(f"{self.log_prefix} Approvers: {approvers}, Reviewers: {reviewers}")
 
-        _to_add: List[str] = list(set(reviewers_to_add))
-        self.logger.debug(f"{self.log_prefix} Reviewers to add: {', '.join(_to_add)}")
-        for reviewer in _to_add:
+        for approver in approvers:
+            if approver != self.pull_request.user.login:
+                self.logger.debug(f"{self.log_prefix} Adding approver {approver}")
+                try:
+                    self.pull_request.create_review_request([approver])
+                except GithubException as ex:
+                    self.logger.debug(f"{self.log_prefix} Failed to add approver {approver}. {ex}")
+                    self.pull_request.create_issue_comment(f"{approver} cannot be added as approver. {ex}")
+
+        for reviewer in reviewers:
             if reviewer != self.pull_request.user.login:
                 self.logger.debug(f"{self.log_prefix} Adding reviewer {reviewer}")
                 try:
