@@ -43,16 +43,17 @@ async def process_webhook(request: Request) -> Dict[str, Any]:
         api: ProcessGithubWehook = ProcessGithubWehook(hook_data=hook_data, headers=request.headers, logger=logger)
         api.process()
         return {"status": requests.codes.ok, "message": "process success", "log_prefix": delivery_headers}
+
     except Exception as _:
         exc_type, exc_obj, exc_tb = sys.exc_info()  # noqa: F841
-        msg = f"Error: {exc_type} log_prefix : {delivery_headers}"
+        msg = f"Error: {exc_type}"
 
         if exc_tb is not None:
             file_name = os.path.split(exc_tb.tb_frame.f_code.co_filename)
             msg = f"Error: {exc_type}, File: {file_name}, Line: {exc_tb.tb_lineno}"
 
         return {
-            "status": requests.codes.internal_server_error,
+            "status": requests.codes.server_error,
             "message": msg,
             "log_prefix": delivery_headers,
         }
