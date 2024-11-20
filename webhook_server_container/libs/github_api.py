@@ -1493,7 +1493,7 @@ stderr: `{_err}`
             tag_name=tag,
             clone_repo_dir=clone_repo_dir,
         ):
-            build_rc, build_out, build_err = self.run_podman_command(command=podman_build_cmd)
+            build_rc, build_out, build_err = self.run_podman_command(command=podman_build_cmd, pipe=True)
             output: Dict[str, str] = {
                 "title": "Build container",
                 "summary": "",
@@ -2061,13 +2061,13 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         shutil.rmtree("/tmp/storage-run-1000/containers", ignore_errors=True)
         shutil.rmtree("/tmp/storage-run-1000/libpod/tmp", ignore_errors=True)
 
-    def run_podman_command(self, command: str) -> Tuple[bool, str, str]:
-        rc, out, err = run_command(command=command, log_prefix=self.log_prefix)
+    def run_podman_command(self, command: str, pipe: bool = False) -> Tuple[bool, str, str]:
+        rc, out, err = run_command(command=command, log_prefix=self.log_prefix, pipe=pipe)
         if rc:
             return rc, out, err
 
         if self.is_podman_bug(err=err):
             self.fix_podman_bug()
-            return run_command(command=command, log_prefix=self.log_prefix)
+            return run_command(command=command, log_prefix=self.log_prefix, pipe=pipe)
 
         return rc, out, err
