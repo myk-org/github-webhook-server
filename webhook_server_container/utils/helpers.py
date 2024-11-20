@@ -69,6 +69,7 @@ def run_command(
     timeout: Optional[int] = None,
     capture_output: bool = True,
     check: bool = False,
+    pipe: bool = False,
     **kwargs: Any,
 ) -> Tuple[bool, str, str]:
     """
@@ -81,16 +82,24 @@ def run_command(
         shell (bool, default False): run subprocess with shell toggle
         timeout (int, optional): Command wait timeout
         capture_output (bool, default True): Capture command output
-        check (boot, default False):  If check is True and the exit code was non-zero, it raises a
+        check (bool, default False):  If check is True and the exit code was non-zero, it raises a
             CalledProcessError
+        pipe (bool, default False): If pipe is True, text and capture_output would be set to False. stdout and
+            stderr, would be set to subprocess.PIPE and passed to subprocess.run call
+
 
     Returns:
         tuple: True, out if command succeeded, False, err otherwise.
     """
     logger = get_logger_with_params(name="helpers")
-
+    text = True
     out_decoded: str = ""
     err_decoded: str = ""
+    if pipe:
+        capture_output = False
+        text = False
+        kwargs["stdout"] = subprocess.PIPE
+        kwargs["stderr"] = subprocess.PIPE
     try:
         logger.debug(f"{log_prefix} Running '{command}' command")
         sub_process = subprocess.run(
@@ -98,7 +107,7 @@ def run_command(
             capture_output=capture_output,
             check=check,
             shell=shell,
-            text=True,
+            text=text,
             timeout=timeout,
             **kwargs,
         )
