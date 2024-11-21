@@ -192,7 +192,6 @@ Available user actions:
             return
 
         event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
-        self.approvers_and_reviewers = self.get_approvers_and_reviewers()
 
         try:
             self.pull_request = self._get_pull_request()
@@ -202,6 +201,7 @@ Available user actions:
             self.parent_committer = self.pull_request.user.login
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
             self.pull_request_branch = self.pull_request.base.ref
+            self.approvers_and_reviewers = self.get_approvers_and_reviewers()
 
             if self.jira_enabled_repository:
                 self.set_jira_in_pull_request()
