@@ -576,6 +576,10 @@ stderr: `{_err}`
                 self.send_slack_message(message=message, webhook_url=self.slack_webhook_url)
 
     def get_owners_content(self, folder_path: str = "") -> Dict[str, Any]:
+        if folder_path and ((".." in folder_path) or folder_path.startswith("/")):
+            self.logger.error(f"{self.log_prefix} Invalid folder path: {folder_path}")
+            return {}
+
         try:
             owners_path = f"{folder_path}/OWNERS" if folder_path else "OWNERS"
             owners_content: list[ContentFile] | ContentFile = self.repository.get_contents(owners_path)
@@ -2058,13 +2062,37 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
     def get_approvers_and_reviewers(self) -> dict[str, dict[str, list[str]]]:
         # Dictionary mapping OWNERS file paths to their approvers and reviewers
         _owners: dict[str, dict[str, list[str]]] = {}
+
+        max_owners_files = 1000  # Configurable limit
+        owners_count = 0
+
         tree = self.repository.get_git_tree(self.pull_request_branch, recursive=True)
         for element in tree.tree:
             if element.type == "blob" and element.path.endswith("OWNERS"):
+                owners_count += 1
+                if owners_count > max_owners_files:
+                    self.logger.error(f"{self.log_prefix} Too many OWNERS files (>{max_owners_files})")
+                    break
+
                 content_path = element.path
                 _path = self.repository.get_contents(content_path)
                 if isinstance(_path, list):
                     _path = _path[0]
-                _owners[content_path] = yaml.safe_load(_path.decoded_content)
+
+                try:
+                    content = yaml.safe_load(_path.decoded_content)
+                    # Validate structure
+                    if not isinstance(content, dict):
+                        raise ValueError("OWNERS file must contain a dictionary")
+
+                    for key in ["approvers", "reviewers"]:
+                        if key in content and not isinstance(content[key], list):
+                            raise ValueError(f"{key} must be a list")
+
+                    _owners[content_path] = content
+                except (yaml.YAMLError, ValueError) as e:
+                    self.logger.error(f"{self.log_prefix} Invalid OWNERS file {content_path}: {e}")
+                    continue
+
         self.logger.debug(f"{self.log_prefix} Owners file mapping: {_owners}")
         return _owners
