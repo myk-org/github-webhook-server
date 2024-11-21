@@ -605,13 +605,13 @@ stderr: `{_err}`
 
     @property
     def root_reviewers(self) -> List[str]:
-        _reviewers = self.approvers_and_reviewers.get("OWNERS", {}).get("reviewers", [])
+        _reviewers = self.approvers_and_reviewers.get(".", {}).get("reviewers", [])
         self.logger.debug(f"{self.log_prefix} Reviewers: {_reviewers}")
         return _reviewers
 
     @property
     def root_approvers(self) -> List[str]:
-        _approvers = self.approvers_and_reviewers.get("OWNERS", {}).get("approvers", [])
+        _approvers = self.approvers_and_reviewers.get(".", {}).get("approvers", [])
         self.logger.debug(f"{self.log_prefix} Approvers: {_approvers}")
         return _approvers
 
