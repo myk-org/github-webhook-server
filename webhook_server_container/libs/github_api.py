@@ -315,9 +315,9 @@ Available user actions:
         _check_run: Dict[str, Any] = self.hook_data["check_run"]
         check_run_name: str = _check_run["name"]
 
-        if _check_run.get("action", "") != "completed":
+        if self.hook_data.get("action", "") != "completed":
             self.logger.debug(
-                f"{self.log_prefix} check run {check_run_name} action is {_check_run.get('action', 'N/A')} and not completed, skipping"
+                f"{self.log_prefix} check run {check_run_name} action is {self.hook_data.get('action', 'N/A')} and not completed, skipping"
             )
             return
 
