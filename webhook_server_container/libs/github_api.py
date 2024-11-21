@@ -314,11 +314,12 @@ Available user actions:
 
     def process_pull_request_check_run_webhook_data(self) -> None:
         _check_run: Dict[str, Any] = self.hook_data["check_run"]
+        check_run_name: str = _check_run["name"]
+
         if _check_run.get("action", "") != "completed":
-            self.logger.debug(f"{self.log_prefix} check run action is not completed, skipping")
+            self.logger.debug(f"{self.log_prefix} check run {check_run_name} action is not completed, skipping")
             return
 
-        check_run_name: str = _check_run["name"]
         check_run_status: str = _check_run["status"]
         check_run_conclusion: str = _check_run["conclusion"]
         check_run_head_sha: str = _check_run["head_sha"]
@@ -895,8 +896,9 @@ stderr: `{_err}`
 
                 pull_request_opened_futures.append(executor.submit(self.set_pull_request_automerge))
 
-            for _ in as_completed(pull_request_opened_futures):
-                pass
+            for result in as_completed(pull_request_opened_futures):
+                if _exp := result.exception():
+                    self.logger.error(f"{self.log_prefix} {_exp}")
 
         if hook_action == "synchronize":
             pull_request_synchronize_futures: List[Future] = []
@@ -909,8 +911,9 @@ stderr: `{_err}`
                 if self.jira_track_pr:
                     pull_request_synchronize_futures.append(executor.submit(self.update_jira_when_pull_request_sync))
 
-            for _ in as_completed(pull_request_synchronize_futures):
-                pass
+            for result in as_completed(pull_request_synchronize_futures):
+                if _exp := result.exception():
+                    self.logger.error(f"{self.log_prefix} {_exp}")
 
         if hook_action == "closed":
             self.close_issue_for_merged_or_closed_pr(hook_action=hook_action)
