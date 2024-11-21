@@ -531,7 +531,7 @@ Available user actions:
             self.logger.error(f"{self.log_prefix} {err} - {_err}, {_out}")
             self.repository.create_issue(
                 title=_err,
-                assignee=self.approvers[0] if self.approvers else "",
+                assignee=self.root_approvers[0] if self.root_approvers else "",
                 body=f"""
 stdout: `{_out}`
 stderr: `{_err}`
@@ -576,9 +576,17 @@ stderr: `{_err}`
                 self.send_slack_message(message=message, webhook_url=self.slack_webhook_url)
 
     def get_owners_content(self, folder_path: str = "") -> Dict[str, Any]:
-        if folder_path and ((".." in folder_path) or folder_path.startswith("/")):
-            self.logger.error(f"{self.log_prefix} Invalid folder path: {folder_path}")
-            return {}
+        if folder_path:
+            # Normalize path and check for directory traversal
+            norm_path = os.path.normpath(folder_path)
+            if (
+                norm_path.startswith("/")
+                or norm_path.startswith("\\")
+                or ".." in norm_path
+                or not all(part.isalnum() or part in "-_" for part in norm_path.split(os.path.sep))
+            ):
+                self.logger.error(f"{self.log_prefix} Invalid folder path: {folder_path}")
+                return {}
 
         try:
             owners_path = f"{folder_path}/OWNERS" if folder_path else "OWNERS"
@@ -596,13 +604,13 @@ stderr: `{_err}`
             return {}
 
     @property
-    def reviewers(self) -> List[str]:
+    def root_reviewers(self) -> List[str]:
         _reviewers = self.approvers_and_reviewers.get("OWNERS", {}).get("reviewers", [])
         self.logger.debug(f"{self.log_prefix} Reviewers: {_reviewers}")
         return _reviewers
 
     @property
-    def approvers(self) -> List[str]:
+    def root_approvers(self) -> List[str]:
         _approvers = self.approvers_and_reviewers.get("OWNERS", {}).get("approvers", [])
         self.logger.debug(f"{self.log_prefix} Approvers: {_approvers}")
         return _approvers
@@ -613,13 +621,13 @@ stderr: `{_err}`
     def assign_reviewers(self) -> None:
         self.logger.info(f"{self.log_prefix} Assign reviewers")
         changed_files = self.list_changed_commit_files()
-        reviewers_to_add = self.reviewers
+        reviewers_to_add = self.root_reviewers
         changed_folders = [Path(cf).parent for cf in changed_files]
 
         for changed_folder_path in changed_folders:
-            for owners_path, owners_data in self.approvers_and_reviewers.items():
-                owners_dir = Path(owners_path).parent
-                if owners_dir == changed_folder_path or owners_dir in changed_folder_path.parents:
+            for owners_dir, owners_data in self.approvers_and_reviewers.items():
+                _owners_dir = Path(owners_dir)
+                if _owners_dir == changed_folder_path or _owners_dir in changed_folder_path.parents:
                     reviewers_to_add.extend(owners_data.get("reviewers", []))
 
         _to_add: List[str] = list(set(reviewers_to_add))
@@ -947,7 +955,7 @@ stderr: `{_err}`
                 _reviewer = labeled.split(CHANGED_REQUESTED_BY_LABEL_PREFIX)[-1]
 
             _approved_output: Dict[str, Any] = {"title": "Approved", "summary": "", "text": ""}
-            if _reviewer in self.approvers:
+            if _reviewer in self.root_approvers:
                 _check_for_merge = True
                 _approved_output["text"] += f"Approved by {_reviewer}.\n"
 
@@ -1003,7 +1011,7 @@ stderr: `{_err}`
         label_prefix: str = ""
         label_to_remove: str = ""
 
-        if reviewed_user in self.approvers:
+        if reviewed_user in self.root_approvers:
             approved_lgtm_label = APPROVED_BY_LABEL_PREFIX
         else:
             approved_lgtm_label = LGTM_BY_LABEL_PREFIX
@@ -1162,7 +1170,7 @@ stderr: `{_err}`
 
         elif _command == HOLD_LABEL_STR:
             self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
-            if reviewed_user not in self.approvers:
+            if reviewed_user not in self.root_approvers:
                 self.pull_request.create_issue_comment(
                     f"{reviewed_user} is not part of the approver, only approvers can mark pull request as hold"
                 )
@@ -1367,7 +1375,7 @@ stderr: `{_err}`
             for _label in _labels:
                 if CHANGED_REQUESTED_BY_LABEL_PREFIX.lower() in _label.lower():
                     change_request_user = _label.split("-")[-1]
-                    if change_request_user in self.approvers:
+                    if change_request_user in self.root_approvers:
                         failure_output += "PR has changed requests from approvers\n"
 
             missing_required_labels = []
@@ -1382,12 +1390,12 @@ stderr: `{_err}`
             for _label in _labels:
                 if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
                     approved_user = _label.split("-")[-1]
-                    if approved_user in self.approvers and self.parent_committer != approved_user:
+                    if approved_user in self.root_approvers and self.parent_committer != approved_user:
                         pr_approved = True
                         break
 
             if not pr_approved:
-                missing_approvers = [approver for approver in self.approvers if approver != self.parent_committer]
+                missing_approvers = [approver for approver in self.root_approvers if approver != self.parent_committer]
                 failure_output += f"Missing lgtm/approved from approvers: {', '.join(missing_approvers)}\n"
 
             if not failure_output:
@@ -1787,7 +1795,7 @@ stderr: `{_err}`
 
     def set_jira_in_pull_request(self) -> None:
         if self.jira_enabled_repository:
-            reviewers_and_approvers = self.reviewers + self.approvers
+            reviewers_and_approvers = self.root_reviewers + self.root_approvers
             if self.parent_committer in reviewers_and_approvers:
                 self.jira_assignee = self.jira_user_mapping.get(self.parent_committer)
                 if not self.jira_assignee:
@@ -2002,8 +2010,8 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             self.logger.info(f"{self.log_prefix} Adding PR owner as assignee")
             self.pull_request.add_to_assignees()
         except Exception:
-            if self.approvers:
-                self.pull_request.add_to_assignees(self.approvers[0])
+            if self.root_approvers:
+                self.pull_request.add_to_assignees(self.root_approvers[0])
 
     def set_pull_request_automerge(self) -> None:
         if self.parent_committer in self.auto_verified_and_merged_users:
@@ -2089,9 +2097,10 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                         if key in content and not isinstance(content[key], list):
                             raise ValueError(f"{key} must be a list")
 
-                    _owners[content_path] = content
-                except (yaml.YAMLError, ValueError) as e:
-                    self.logger.error(f"{self.log_prefix} Invalid OWNERS file {content_path}: {e}")
+                    _owners[str(Path(content_path).parent)] = content
+
+                except (yaml.YAMLError, ValueError) as exp:
+                    self.logger.error(f"{self.log_prefix} Invalid OWNERS file {content_path}: {exp}")
                     continue
 
         self.logger.debug(f"{self.log_prefix} Owners file mapping: {_owners}")
