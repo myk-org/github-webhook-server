@@ -305,19 +305,20 @@ Available user actions:
 
     def prepare_log_prefix(self, pull_request: Optional[PullRequest] = None) -> str:
         _repository_color = self._get_reposiroty_color_for_log_prefix()
-        _id = self.x_github_delivery.split("-", 1)[-1]
         return (
-            f"{_repository_color}[{self.github_event}][{_id}][PR {pull_request.number}]:"
+            f"{_repository_color}[{self.github_event}][{self.x_github_delivery}][PR {pull_request.number}]:"
             if pull_request
-            else f"{_repository_color}[{self.github_event}][{_id}]:"
+            else f"{_repository_color}[{self.github_event}][{self.x_github_delivery}]:"
         )
 
     def process_pull_request_check_run_webhook_data(self) -> None:
         _check_run: Dict[str, Any] = self.hook_data["check_run"]
         check_run_name: str = _check_run["name"]
 
-        if _check_run.get("action", "") != "completed":
-            self.logger.debug(f"{self.log_prefix} check run {check_run_name} action is not completed, skipping")
+        if _check_run_action := _check_run.get("action", "") != "completed":
+            self.logger.debug(
+                f"{self.log_prefix} check run {check_run_name} action is {_check_run_action} and not completed, skipping"
+            )
             return
 
         check_run_status: str = _check_run["status"]
