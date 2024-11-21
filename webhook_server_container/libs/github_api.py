@@ -847,7 +847,7 @@ stderr: `{_err}`
             self.logger.error(f"{self.log_prefix} Failed to delete tag: {repository_full_tag}. OUT:{out}. ERR:{err}")
 
     def process_comment_webhook_data(self) -> None:
-        if comment_action := self.hook_data["action"] in ("action", "deleted"):
+        if comment_action := self.hook_data["action"] in ("edited", "deleted"):
             self.logger.debug(f"{self.log_prefix} Not processing comment. action is {comment_action}")
             return
 
