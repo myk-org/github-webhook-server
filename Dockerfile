@@ -8,10 +8,6 @@ ENV BIN_DIR="$HOME_DIR/.local/bin"
 ENV PATH="$PATH:$BIN_DIR"
 ENV DATA_DIR="$HOME_DIR/data"
 ENV APP_DIR="$HOME_DIR/github-webhook-server"
-ENV UV_PYTHON=python3.13
-ENV UV_COMPILE_BYTECODE=1
-ENV UV_NO_SYNC=1
-ENV UV_CACHE_DIR=${APP_DIR}/.cache
 
 RUN dnf -y install dnf-plugins-core \
   && dnf -y update \
@@ -21,6 +17,10 @@ RUN dnf -y install dnf-plugins-core \
   unzip \
   gcc \
   python3-devel \
+  python3.10-devel \
+  python3.11-devel \
+  python3.12-devel \
+  python3.13-devel \
   clang \
   cargo \
   && dnf clean all \
@@ -40,6 +40,11 @@ RUN usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $USERNAME \
 
 USER $USERNAME
 WORKDIR $HOME_DIR
+
+ENV UV_PYTHON=python3.12
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_NO_SYNC=1
+ENV UV_CACHE_DIR=${APP_DIR}/.cache
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx ${BIN_DIR}/
 
