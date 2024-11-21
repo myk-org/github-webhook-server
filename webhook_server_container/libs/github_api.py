@@ -606,13 +606,11 @@ stderr: `{_err}`
     @property
     def root_reviewers(self) -> List[str]:
         _reviewers = self.approvers_and_reviewers.get(".", {}).get("reviewers", [])
-        self.logger.debug(f"{self.log_prefix} Reviewers: {_reviewers}")
         return _reviewers
 
     @property
     def root_approvers(self) -> List[str]:
         _approvers = self.approvers_and_reviewers.get(".", {}).get("approvers", [])
-        self.logger.debug(f"{self.log_prefix} Approvers: {_approvers}")
         return _approvers
 
     def list_changed_commit_files(self) -> list[str]:
@@ -627,6 +625,7 @@ stderr: `{_err}`
         for changed_folder_path in changed_folders:
             for owners_dir, owners_data in self.approvers_and_reviewers.items():
                 _owners_dir = Path(owners_dir)
+
                 if _owners_dir == changed_folder_path or _owners_dir in changed_folder_path.parents:
                     _reviewers = owners_data.get("reviewers", [])
                     reviewers_to_add.extend(_reviewers)
