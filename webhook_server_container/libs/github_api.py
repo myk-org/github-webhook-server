@@ -610,11 +610,12 @@ stderr: `{_err}`
         self.logger.info(f"{self.log_prefix} Assign reviewers")
         changed_files = self.list_changed_commit_files()
         reviewers_to_add = self.reviewers
-        changed_folders = [str(Path(cf).parent) for cf in changed_files]
+        changed_folders = [Path(cf).parent for cf in changed_files]
 
         for changed_folder_path in changed_folders:
             for owners_path, owners_data in self.approvers_and_reviewers.items():
-                if owners_path in changed_folder_path:
+                owners_dir = Path(owners_path).parent
+                if owners_dir == changed_folder_path or owners_dir in changed_folder_path.parents:
                     reviewers_to_add.extend(owners_data.get("reviewers", []))
 
         _to_add: List[str] = list(set(reviewers_to_add))
@@ -2055,20 +2056,15 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         return rc, out, err
 
     def get_approvers_and_reviewers(self) -> dict[str, dict[str, list[str]]]:
-        # owners hole mapping of OWNERS file full path: dict with `approvers` and `reviewers` each hold a list of names
+        # Dictionary mapping OWNERS file paths to their approvers and reviewers
         _owners: dict[str, dict[str, list[str]]] = {}
-
-        for obj in self.repository._requester.requestJsonAndCheck(
-            "GET", f"{self.repository.url}/git/trees/{self.pull_request_branch}?recursive=1"
-        ):
-            for content in obj.get("tree", []):
-                if content_path := content.get("path", ""):
-                    if content.get("type") == "blob" and content_path.endswith("OWNERS"):
-                        _path = self.repository.get_contents(content_path)
-                        if isinstance(_path, list):
-                            _path = _path[0]
-
-                        _owners[content_path] = yaml.safe_load(_path.decoded_content)
-
+        tree = self.repository.get_git_tree(self.pull_request_branch, recursive=True)
+        for element in tree.tree:
+            if element.type == "blob" and element.path.endswith("OWNERS"):
+                content_path = element.path
+                _path = self.repository.get_contents(content_path)
+                if isinstance(_path, list):
+                    _path = _path[0]
+                _owners[content_path] = yaml.safe_load(_path.decoded_content)
         self.logger.debug(f"{self.log_prefix} Owners file mapping: {_owners}")
         return _owners

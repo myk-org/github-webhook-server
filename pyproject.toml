@@ -38,7 +38,6 @@ dependencies = [
   "colorama>=0.4.6",
   "colorlog>=6.8.2",
   "fastapi>=0.115.0",
-  "ipdb>=0.13.13",
   "jira>=3.8.0",
   "pygithub>=2.4.0",
   "pyhelper-utils>=0.0.42",

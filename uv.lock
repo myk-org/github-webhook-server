@@ -374,7 +374,6 @@ dependencies = [
     { name = "colorama" },
     { name = "colorlog" },
     { name = "fastapi" },
-    { name = "ipdb" },
     { name = "jira" },
     { name = "pygithub" },
     { name = "pyhelper-utils" },
@@ -403,7 +402,6 @@ requires-dist = [
     { name = "colorama", specifier = ">=0.4.6" },
     { name = "colorlog", specifier = ">=6.8.2" },
     { name = "fastapi", specifier = ">=0.115.0" },
-    { name = "ipdb", specifier = ">=0.13.13" },
     { name = "jira", specifier = ">=3.8.0" },
     { name = "pygithub", specifier = ">=2.4.0" },
     { name = "pyhelper-utils", specifier = ">=0.0.42" },
@@ -449,7 +447,7 @@ name = "importlib-metadata"
 version = "8.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "zipp" },
+    { name = "zipp", marker = "python_full_version < '3.11'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/cd/12/33e59336dca5be0c398a7482335911a33aa0e20776128f038019f1a95f1b/importlib_metadata-8.5.0.tar.gz", hash = "sha256:71522656f0abace1d072b9e5481a48f07c138e00f079c38c8f883823f9c26bd7", size = 55304 }
 wheels = [
