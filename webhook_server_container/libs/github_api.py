@@ -2002,8 +2002,11 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         try:
             self.logger.info(f"{self.log_prefix} Adding PR owner as assignee")
             self.pull_request.add_to_assignees()
-        except Exception:
+        except Exception as exp:
+            self.logger.debug(f"{self.log_prefix} Exception while adding PR owner as assignee: {exp}")
+
             if self.root_approvers:
+                self.logger.debug(f"{self.log_prefix} Falling back to first approver as assignee")
                 self.pull_request.add_to_assignees(self.root_approvers[0])
 
     def set_pull_request_automerge(self) -> None:
@@ -2082,17 +2085,14 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
                 try:
                     content = yaml.safe_load(_path.decoded_content)
-                    # Validate structure
-                    if not isinstance(content, dict):
-                        raise ValueError("OWNERS file must contain a dictionary")
+                    if self._validate_owners_content(content, content_path):
+                        # Use Path for consistent path handling
+                        parent_path = str(Path(content_path).parent)
+                        if not parent_path:
+                            parent_path = "."
+                        _owners[parent_path] = content
 
-                    for key in ["approvers", "reviewers"]:
-                        if key in content and not isinstance(content[key], list):
-                            raise ValueError(f"{key} must be a list")
-
-                    _owners[str(Path(content_path).parent)] = content
-
-                except (yaml.YAMLError, ValueError) as exp:
+                except yaml.YAMLError as exp:
                     self.logger.error(f"{self.log_prefix} Invalid OWNERS file {content_path}: {exp}")
                     continue
 
@@ -2100,10 +2100,10 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         return _owners
 
     def get_all_approvers(self) -> list[str]:
-        return self.root_approvers + self.owners_data_for_changed_files()["approvers"]
+        return list(set(self.root_approvers + self.owners_data_for_changed_files()["approvers"]))
 
     def get_all_reviewers(self) -> list[str]:
-        return self.root_reviewers + self.owners_data_for_changed_files()["reviewers"]
+        return list(set(self.root_reviewers + self.owners_data_for_changed_files()["reviewers"]))
 
     def owners_data_for_changed_files(self) -> dict[str, list[str]]:
         data: dict[str, list[str]] = {"approvers": [], "reviewers": []}
@@ -2123,3 +2123,23 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     data["approvers"].extend(_approvers)
 
         return data
+
+    def _validate_owners_content(self, content: Any, path: str) -> bool:
+        """Validate OWNERS file content structure."""
+        try:
+            if not isinstance(content, dict):
+                raise ValueError("OWNERS file must contain a dictionary")
+
+            for key in ["approvers", "reviewers"]:
+                if key in content:
+                    if not isinstance(content[key], list):
+                        raise ValueError(f"{key} must be a list")
+
+                    if not all(isinstance(_elm, str) for _elm in content[key]):
+                        raise ValueError(f"All {key} must be strings")
+
+            return True
+
+        except ValueError as e:
+            self.logger.error(f"{self.log_prefix} Invalid OWNERS file {path}: {e}")
+            return False
