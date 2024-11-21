@@ -202,6 +202,8 @@ Available user actions:
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
             self.pull_request_branch = self.pull_request.base.ref
             self.approvers_and_reviewers = self.get_approvers_and_reviewers()
+            self.all_approvers = self.get_all_approvers()
+            self.all_reviewers = self.get_all_reviewers()
 
             if self.jira_enabled_repository:
                 self.set_jira_in_pull_request()
@@ -620,20 +622,8 @@ stderr: `{_err}`
 
     def assign_reviewers(self) -> None:
         self.logger.info(f"{self.log_prefix} Assign reviewers")
-        changed_files = self.list_changed_commit_files()
-        reviewers_to_add = self.root_reviewers
-        changed_folders = [Path(cf).parent for cf in changed_files]
 
-        for changed_folder_path in changed_folders:
-            for owners_dir, owners_data in self.approvers_and_reviewers.items():
-                _owners_dir = Path(owners_dir)
-
-                if _owners_dir == changed_folder_path or _owners_dir in changed_folder_path.parents:
-                    _reviewers = owners_data.get("reviewers", [])
-                    self.logger.debug(f"{self.log_prefix} Found reviewers for {owners_dir}: {_reviewers}")
-                    reviewers_to_add.extend(_reviewers)
-
-        _to_add: List[str] = list(set(reviewers_to_add))
+        _to_add: List[str] = list(set(self.all_reviewers))
         self.logger.debug(f"{self.log_prefix} Reviewers to add: {', '.join(_to_add)}")
 
         for reviewer in _to_add:
@@ -958,7 +948,7 @@ stderr: `{_err}`
                 _reviewer = labeled.split(CHANGED_REQUESTED_BY_LABEL_PREFIX)[-1]
 
             _approved_output: Dict[str, Any] = {"title": "Approved", "summary": "", "text": ""}
-            if _reviewer in self.root_approvers:
+            if _reviewer in self.all_approvers:
                 _check_for_merge = True
                 _approved_output["text"] += f"Approved by {_reviewer}.\n"
 
@@ -1014,7 +1004,7 @@ stderr: `{_err}`
         label_prefix: str = ""
         label_to_remove: str = ""
 
-        if reviewed_user in self.root_approvers:
+        if reviewed_user in self.all_approvers:
             approved_lgtm_label = APPROVED_BY_LABEL_PREFIX
         else:
             approved_lgtm_label = LGTM_BY_LABEL_PREFIX
@@ -1173,7 +1163,7 @@ stderr: `{_err}`
 
         elif _command == HOLD_LABEL_STR:
             self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
-            if reviewed_user not in self.root_approvers:
+            if reviewed_user not in self.all_approvers:
                 self.pull_request.create_issue_comment(
                     f"{reviewed_user} is not part of the approver, only approvers can mark pull request as hold"
                 )
@@ -1378,7 +1368,7 @@ stderr: `{_err}`
             for _label in _labels:
                 if CHANGED_REQUESTED_BY_LABEL_PREFIX.lower() in _label.lower():
                     change_request_user = _label.split("-")[-1]
-                    if change_request_user in self.root_approvers:
+                    if change_request_user in self.all_approvers:
                         failure_output += "PR has changed requests from approvers\n"
 
             missing_required_labels = []
@@ -1398,7 +1388,7 @@ stderr: `{_err}`
                         break
 
             if not pr_approved:
-                missing_approvers = [approver for approver in self.root_approvers if approver != self.parent_committer]
+                missing_approvers = [approver for approver in self.all_approvers if approver != self.parent_committer]
                 failure_output += f"Missing lgtm/approved from approvers: {', '.join(missing_approvers)}\n"
 
             if not failure_output:
@@ -2108,3 +2098,28 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         self.logger.debug(f"{self.log_prefix} Owners file mapping: {_owners}")
         return _owners
+
+    def get_all_approvers(self) -> list[str]:
+        return self.root_approvers + self.owners_data_for_changed_files()["approvers"]
+
+    def get_all_reviewers(self) -> list[str]:
+        return self.root_reviewers + self.owners_data_for_changed_files()["reviewers"]
+
+    def owners_data_for_changed_files(self) -> dict[str, list[str]]:
+        data: dict[str, list[str]] = {"approvers": [], "reviewers": []}
+        changed_files = self.list_changed_commit_files()
+        changed_folders = [Path(cf).parent for cf in changed_files]
+
+        for changed_folder_path in changed_folders:
+            for owners_dir, owners_data in self.approvers_and_reviewers.items():
+                _owners_dir = Path(owners_dir)
+
+                if _owners_dir == changed_folder_path or _owners_dir in changed_folder_path.parents:
+                    _reviewers = owners_data.get("reviewers", [])
+                    self.logger.debug(f"{self.log_prefix} Found reviewers for {owners_dir}: {_reviewers}")
+                    data["reviewers"].extend(_reviewers)
+                    _approvers = owners_data.get("approvers", [])
+                    self.logger.debug(f"{self.log_prefix} Found approvers for {owners_dir}: {_approvers}")
+                    data["approvers"].extend(_approvers)
+
+        return data
