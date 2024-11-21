@@ -192,7 +192,7 @@ Available user actions:
             return
 
         event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
-        self.owners_content = self.get_owners_content()
+        self.approvers_and_reviewers = self.get_approvers_and_reviewers()
 
         try:
             self.pull_request = self._get_pull_request()
@@ -575,9 +575,10 @@ stderr: `{_err}`
 """
                 self.send_slack_message(message=message, webhook_url=self.slack_webhook_url)
 
-    def get_owners_content(self) -> Dict[str, Any]:
+    def get_owners_content(self, folder_path: str = "") -> Dict[str, Any]:
         try:
-            owners_content: list[ContentFile] | ContentFile = self.repository.get_contents("OWNERS")
+            owners_path = f"{folder_path}/OWNERS" if folder_path else "OWNERS"
+            owners_content: list[ContentFile] | ContentFile = self.repository.get_contents(owners_path)
             if isinstance(owners_content, list):
                 self.logger.debug(f"{self.log_prefix} Found more than one OWNERS file, using the first one")
                 owners_content = owners_content[0]
@@ -592,34 +593,15 @@ stderr: `{_err}`
 
     @property
     def reviewers(self) -> List[str]:
-        bc_reviewers: List[str] = self.owners_content.get("reviewers", [])
-        if isinstance(bc_reviewers, dict):
-            _reviewers: List[str] = self.owners_content.get("reviewers", {}).get("any", [])
-        else:
-            _reviewers = bc_reviewers
-
+        _reviewers = self.approvers_and_reviewers.get("OWNERS", {}).get("reviewers", [])
         self.logger.debug(f"{self.log_prefix} Reviewers: {_reviewers}")
         return _reviewers
 
     @property
-    def files_reviewers(self) -> Dict[str, str]:
-        _reviewers = self.owners_content.get("reviewers", {})
-        if isinstance(_reviewers, dict):
-            return _reviewers.get("files", {})
-
-        return {}
-
-    @property
-    def folders_reviewers(self) -> Dict[str, str]:
-        _reviewers = self.owners_content.get("reviewers", {})
-        if isinstance(_reviewers, dict):
-            return _reviewers.get("folders", {})
-
-        return {}
-
-    @property
     def approvers(self) -> List[str]:
-        return self.owners_content.get("approvers", [])
+        _approvers = self.approvers_and_reviewers.get("OWNERS", {}).get("approvers", [])
+        self.logger.debug(f"{self.log_prefix} Approvers: {_approvers}")
+        return _approvers
 
     def list_changed_commit_files(self) -> list[str]:
         return [fd["filename"] for fd in self.last_commit.raw_data["files"]]
@@ -628,12 +610,12 @@ stderr: `{_err}`
         self.logger.info(f"{self.log_prefix} Assign reviewers")
         changed_files = self.list_changed_commit_files()
         reviewers_to_add = self.reviewers
-        for _file, _file_reviewers in self.files_reviewers.items():
-            if _file in changed_files:
-                reviewers_to_add.extend(_file_reviewers)
-        for _folder, _folder_reviewers in self.folders_reviewers.items():
-            if any(cf for cf in changed_files if _folder in str(Path(cf).parent)):
-                reviewers_to_add.extend(_folder_reviewers)
+        changed_folders = [str(Path(cf).parent) for cf in changed_files]
+
+        for changed_folder_path in changed_folders:
+            for owners_path, owners_data in self.approvers_and_reviewers.items():
+                if owners_path in changed_folder_path:
+                    reviewers_to_add.extend(owners_data.get("reviewers", []))
 
         _to_add: List[str] = list(set(reviewers_to_add))
         self.logger.debug(f"{self.log_prefix} Reviewers to add: {', '.join(_to_add)}")
@@ -2071,3 +2053,22 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             return run_command(command=command, log_prefix=self.log_prefix, pipe=pipe)
 
         return rc, out, err
+
+    def get_approvers_and_reviewers(self) -> dict[str, dict[str, list[str]]]:
+        # owners hole mapping of OWNERS file full path: dict with `approvers` and `reviewers` each hold a list of names
+        _owners: dict[str, dict[str, list[str]]] = {}
+
+        for obj in self.repository._requester.requestJsonAndCheck(
+            "GET", f"{self.repository.url}/git/trees/{self.pull_request_branch}?recursive=1"
+        ):
+            for content in obj.get("tree", []):
+                if content_path := content.get("path", ""):
+                    if content.get("type") == "blob" and content_path.endswith("OWNERS"):
+                        _path = self.repository.get_contents(content_path)
+                        if isinstance(_path, list):
+                            _path = _path[0]
+
+                        _owners[content_path] = yaml.safe_load(_path.decoded_content)
+
+        self.logger.debug(f"{self.log_prefix} Owners file mapping: {_owners}")
+        return _owners
