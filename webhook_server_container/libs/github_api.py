@@ -200,6 +200,7 @@ Available user actions:
             self.last_commit = self._get_last_commit()
             self.parent_committer = self.pull_request.user.login
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
+            self.changed_files = self.list_changed_commit_files()
             self.pull_request_branch = self.pull_request.base.ref
             self.approvers_and_reviewers = self.get_approvers_and_reviewers()
             self.all_approvers = self.get_all_approvers()
@@ -2107,8 +2108,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
     def owners_data_for_changed_files(self) -> dict[str, list[str]]:
         data: dict[str, list[str]] = {"approvers": [], "reviewers": []}
-        changed_files = self.list_changed_commit_files()
-        changed_folders = [Path(cf).parent for cf in changed_files]
+        changed_folders = [Path(cf).parent for cf in self.changed_files]
 
         for changed_folder_path in changed_folders:
             for owners_dir, owners_data in self.approvers_and_reviewers.items():
