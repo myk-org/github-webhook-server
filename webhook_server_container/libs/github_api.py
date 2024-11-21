@@ -892,6 +892,7 @@ stderr: `{_err}`
                 pull_request_opened_futures.append(executor.submit(self.process_opened_or_synchronize_pull_request))
                 if self.jira_track_pr:
                     pull_request_opened_futures.append(executor.submit(self.create_jira_when_open_pull_reques))
+
                 pull_request_opened_futures.append(executor.submit(self.set_pull_request_automerge))
 
             for _ in as_completed(pull_request_opened_futures):
@@ -907,6 +908,9 @@ stderr: `{_err}`
 
                 if self.jira_track_pr:
                     pull_request_synchronize_futures.append(executor.submit(self.update_jira_when_pull_request_sync))
+
+            for _ in as_completed(pull_request_synchronize_futures):
+                pass
 
         if hook_action == "closed":
             self.close_issue_for_merged_or_closed_pr(hook_action=hook_action)
@@ -1312,8 +1316,8 @@ stderr: `{_err}`
         failure_output = ""
 
         try:
-            self.all_required_status_checks = self.get_all_required_status_checks()
             self.logger.info(f"{self.log_prefix} Check if {CAN_BE_MERGED_STR}.")
+            self.all_required_status_checks = self.get_all_required_status_checks()
             self.set_merge_check_queued()
             last_commit_check_runs = list(self.last_commit.get_check_runs())
             self.logger.debug(f"{self.log_prefix} Check if any required check runs in progress.")
@@ -1334,6 +1338,7 @@ stderr: `{_err}`
             _labels = self.pull_request_labels_names()
             is_hold = HOLD_LABEL_STR in _labels
             is_wip = WIP_STR in _labels
+
             if is_hold or is_wip:
                 if is_hold:
                     failure_output += "Hold label exists.\n"
@@ -2108,20 +2113,28 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
     def owners_data_for_changed_files(self) -> dict[str, list[str]]:
         data: dict[str, list[str]] = {"approvers": [], "reviewers": []}
-        changed_folders = [Path(cf).parent for cf in self.changed_files]
 
-        for changed_folder_path in changed_folders:
-            for owners_dir, owners_data in self.approvers_and_reviewers.items():
+        # Convert to set for O(1) lookups and deduplication
+        changed_folders = {Path(cf).parent for cf in self.changed_files}
+
+        # Sort owners directories by depth for proper precedence
+        sorted_owners = sorted(self.approvers_and_reviewers.items(), key=lambda x: len(Path(x[0]).parts))
+
+        for changed_folder_path in sorted(changed_folders):
+            for owners_dir, owners_data in sorted_owners:
                 _owners_dir = Path(owners_dir)
-
                 if _owners_dir == changed_folder_path or _owners_dir in changed_folder_path.parents:
                     _reviewers = owners_data.get("reviewers", [])
                     self.logger.debug(f"{self.log_prefix} Found reviewers for {owners_dir}: {_reviewers}")
                     data["reviewers"].extend(_reviewers)
+
                     _approvers = owners_data.get("approvers", [])
                     self.logger.debug(f"{self.log_prefix} Found approvers for {owners_dir}: {_approvers}")
                     data["approvers"].extend(_approvers)
 
+        # Deduplicate the lists while preserving order
+        data["reviewers"] = list(dict.fromkeys(data["reviewers"]))
+        data["approvers"] = list(dict.fromkeys(data["approvers"]))
         return data
 
     def _validate_owners_content(self, content: Any, path: str) -> bool:
