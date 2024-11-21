@@ -628,7 +628,9 @@ stderr: `{_err}`
             for owners_dir, owners_data in self.approvers_and_reviewers.items():
                 _owners_dir = Path(owners_dir)
                 if _owners_dir == changed_folder_path or _owners_dir in changed_folder_path.parents:
-                    reviewers_to_add.extend(owners_data.get("reviewers", []))
+                    _reviewers = owners_data.get("reviewers", [])
+                    reviewers_to_add.extend(_reviewers)
+                    self.logger.debug(f"{self.log_prefix} Found reviewers for {owners_dir}: {_reviewers}")
 
         _to_add: List[str] = list(set(reviewers_to_add))
         self.logger.debug(f"{self.log_prefix} Reviewers to add: {', '.join(_to_add)}")
