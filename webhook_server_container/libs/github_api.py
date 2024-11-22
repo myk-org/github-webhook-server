@@ -2123,16 +2123,15 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         _approvers: list[str] = []
         for list_of_approvers in self.owners_data_for_changed_files()["approvers"]:
             for _approver in list_of_approvers:
-                _approvers.extend(_approver)
+                _approvers.append(_approver)
 
         return list(set(self.root_approvers + _approvers))
 
     def get_all_reviewers(self) -> list[str]:
         _reviewers: list[str] = []
         for list_of_reviewers in self.owners_data_for_changed_files()["reviewers"]:
-            self.logger.error(f"{self.log_prefix} list_of_reviewers: {list_of_reviewers}")
             for _approver in list_of_reviewers:
-                _reviewers.extend(_approver)
+                _reviewers.append(_approver)
 
         return list(set(self.root_approvers + _reviewers))
 
