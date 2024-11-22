@@ -1390,12 +1390,22 @@ stderr: `{_err}`
                 failure_output += f"Missing required labels: {', '.join(missing_required_labels)}\n"
 
             pr_approved = False
+            _pr_approvers: list[str] = []
+            all_needed_approvers = self.get_approvers_and_reviewers()["approvers"]
+
             for _label in _labels:
                 if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
                     approved_user = _label.split("-")[-1]
-                    if approved_user in self.all_approvers and self.parent_committer != approved_user:
-                        pr_approved = True
-                        break
+                    if self.parent_committer == approved_user:
+                        continue
+
+                    for _need_approve in all_needed_approvers:
+                        if approved_user in _need_approve:
+                            _pr_approvers.append(approved_user)
+                            break
+
+            if len(_pr_approvers) == len(all_needed_approvers):
+                pr_approved = True
 
             if not pr_approved:
                 missing_approvers = [approver for approver in self.all_approvers if approver != self.parent_committer]
