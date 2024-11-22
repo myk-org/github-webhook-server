@@ -1393,7 +1393,7 @@ stderr: `{_err}`
             for _label in _labels:
                 if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
                     approved_user = _label.split("-")[-1]
-                    if approved_user in self.root_approvers and self.parent_committer != approved_user:
+                    if approved_user in self.all_approvers and self.parent_committer != approved_user:
                         pr_approved = True
                         break
 
@@ -2110,35 +2110,39 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         return _owners
 
     def get_all_approvers(self) -> list[str]:
-        return list(set(self.root_approvers + self.owners_data_for_changed_files()["approvers"]))
+        _approvers: list[str] = []
+        for val in self.owners_data_for_changed_files()["approvers"]:
+            for _approver in val:
+                _approvers.extend(_approver)
+
+        return list(set(self.root_approvers + _approvers))
 
     def get_all_reviewers(self) -> list[str]:
-        return list(set(self.root_reviewers + self.owners_data_for_changed_files()["reviewers"]))
+        _reviewers: list[str] = []
+        for val in self.owners_data_for_changed_files()["reviewers"]:
+            for _approver in val:
+                _reviewers.extend(_approver)
 
-    def owners_data_for_changed_files(self) -> dict[str, list[str]]:
-        data: dict[str, list[str]] = {"approvers": [], "reviewers": []}
+        return list(set(self.root_approvers + _reviewers))
 
-        # Convert to set for O(1) lookups and deduplication
+    def owners_data_for_changed_files(self) -> dict[str, list[list[str]]]:
+        data: dict[str, list[list[str]]] = {"approvers": [], "reviewers": []}
+
         changed_folders = {Path(cf).parent for cf in self.changed_files}
 
-        # Sort owners directories by depth for proper precedence
-        sorted_owners = sorted(self.approvers_and_reviewers.items(), key=lambda x: len(Path(x[0]).parts))
-
-        for changed_folder_path in sorted(changed_folders):
-            for owners_dir, owners_data in sorted_owners:
+        for changed_folder_path in changed_folders:
+            for owners_dir, owners_data in self.approvers_and_reviewers.items():
                 _owners_dir = Path(owners_dir)
+
                 if _owners_dir == changed_folder_path or _owners_dir in changed_folder_path.parents:
                     _reviewers = owners_data.get("reviewers", [])
                     self.logger.debug(f"{self.log_prefix} Found reviewers for {owners_dir}: {_reviewers}")
-                    data["reviewers"].extend(_reviewers)
+                    data["reviewers"].append(_reviewers)
 
                     _approvers = owners_data.get("approvers", [])
                     self.logger.debug(f"{self.log_prefix} Found approvers for {owners_dir}: {_approvers}")
-                    data["approvers"].extend(_approvers)
+                    data["approvers"].append(_approvers)
 
-        # Deduplicate the lists while preserving order
-        data["reviewers"] = list(dict.fromkeys(data["reviewers"]))
-        data["approvers"] = list(dict.fromkeys(data["approvers"]))
         return data
 
     def _validate_owners_content(self, content: Any, path: str) -> bool:
