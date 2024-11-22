@@ -1391,7 +1391,7 @@ stderr: `{_err}`
 
             pr_approved = False
             _pr_approvers: list[str] = []
-            all_needed_approvers = self.get_approvers_and_reviewers()["approvers"]
+            all_needed_approvers = self.owners_data_for_changed_files()["approvers"]
 
             for _label in _labels:
                 if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
