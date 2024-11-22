@@ -1408,7 +1408,11 @@ stderr: `{_err}`
                 pr_approved = True
 
             if not pr_approved:
-                missing_approvers = [approver for approver in self.all_approvers if approver != self.parent_committer]
+                missing_approvers = [
+                    approver
+                    for approver in self.all_approvers
+                    if approver != self.parent_committer and approver not in _pr_approvers
+                ]
                 failure_output += f"Missing lgtm/approved from approvers: {', '.join(missing_approvers)}\n"
 
             if not failure_output:

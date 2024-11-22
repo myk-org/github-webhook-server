@@ -1,3 +1,13 @@
+[tool.coverage.run]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+fail_under = 0
+skip_empty = true
+
+[tool.coverage.html]
+directory = ".tests_coverage"
+
 [tool.ruff]
 preview = true
 line-length = 120
@@ -41,6 +51,7 @@ dependencies = [
   "jira>=3.8.0",
   "pygithub>=2.4.0",
   "pyhelper-utils>=0.0.42",
+  "pytest-cov>=6.0.0",
   "pytest-mock>=3.14.0",
   "pytest>=8.3.3",
   "python-simple-logger>=1.0.40",
