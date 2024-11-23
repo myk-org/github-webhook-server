@@ -89,6 +89,20 @@ def process_github_webhook(mocker):
     return process_github_webhook
 
 
+@pytest.fixture(scope="function")
+def approvers_and_reviewers(process_github_webhook):
+    process_github_webhook.approvers_and_reviewers = {
+        ".": {"approvers": ["approver1", "approver2"], "reviewers": ["reviewer1", "reviewer2"]},
+        "test1": {"approvers": ["approver3", "approver4"], "reviewers": ["reviewer3", "reviewer4"]},
+    }
+
+
+@pytest.fixture(scope="function")
+def all_approvers_reviewers(process_github_webhook):
+    process_github_webhook.all_approvers = ["approver1", "approver2", "approver3", "approver4"]
+    process_github_webhook.all_reviewers = ["reviewer1", "reviewer2", "reviewer3", "reviewer4"]
+
+
 @pytest.mark.parametrize(
     "additions, deletions, expected_label",
     [
@@ -108,15 +122,13 @@ def test_get_size_thresholds(process_github_webhook, additions, deletions, expec
     assert result == f"{SIZE_LABEL_PREFIX}{expected_label}"
 
 
-def test_get_approvers_and_reviewers(mocker, process_github_webhook):
+def test_get_approvers_and_reviewers(process_github_webhook, approvers_and_reviewers):
     process_github_webhook.repository = Repository()
     read_owners_result = process_github_webhook.get_approvers_and_reviewers()
-    process_github_webhook.approvers_and_reviewers = {
-        ".": {"approvers": ["approver1", "approver2"], "reviewers": ["reviewer1", "reviewer2"]},
-        "test1": {"approvers": ["approver3", "approver4"], "reviewers": ["reviewer3", "reviewer4"]},
-    }
     assert read_owners_result == process_github_webhook.approvers_and_reviewers
 
+
+def test_owners_data_for_changed_files(process_github_webhook, approvers_and_reviewers):
     owners_data_chaged_files_result = process_github_webhook.owners_data_for_changed_files()
     owners_data_chaged_files_expected = {
         "approvers": [
@@ -132,22 +144,20 @@ def test_get_approvers_and_reviewers(mocker, process_github_webhook):
             ["reviewer1", "reviewer2"],
         ],
     }
-    # owners_data_chaged_files_result["approvers"].sort()
-    # owners_data_chaged_files_result["reviewers"].sort()
     owners_data_chaged_files_expected["approvers"].sort()
     owners_data_chaged_files_expected["reviewers"].sort()
     assert owners_data_chaged_files_result == owners_data_chaged_files_expected
 
+
+def test_all_approvers_reviewers(process_github_webhook, approvers_and_reviewers, all_approvers_reviewers):
     all_approvers = process_github_webhook.get_all_approvers()
-    # all_approvers.sort()
-    assert all_approvers == ["approver1", "approver2", "approver3", "approver4"]
-    process_github_webhook.all_approvers = all_approvers
+    assert all_approvers == process_github_webhook.all_approvers
 
     all_reviewers = process_github_webhook.get_all_reviewers()
-    # all_reviewers.sort()
-    assert all_reviewers == ["reviewer1", "reviewer2", "reviewer3", "reviewer4"]
-    process_github_webhook.all_reviewers = all_reviewers
+    assert all_reviewers == process_github_webhook.all_reviewers
 
+
+def test_check_if_pr_approved(process_github_webhook, approvers_and_reviewers, all_approvers_reviewers):
     pr_approved_all_result = process_github_webhook._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}approver1",
