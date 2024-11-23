@@ -11,6 +11,7 @@ import re
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Dict, Generator, List, Optional, Set, Tuple
+from github.CheckRun import CheckRun
 from stringcolor import cs
 
 from github.Branch import Branch
@@ -1321,99 +1322,37 @@ stderr: `{_err}`
 
         try:
             self.logger.info(f"{self.log_prefix} Check if {CAN_BE_MERGED_STR}.")
-            self.all_required_status_checks = self.get_all_required_status_checks()
             self.set_merge_check_queued()
             last_commit_check_runs = list(self.last_commit.get_check_runs())
-            self.logger.debug(f"{self.log_prefix} Check if any required check runs in progress.")
-            check_runs_in_progress = [
-                check_run.name
-                for check_run in last_commit_check_runs
-                if check_run.status == IN_PROGRESS_STR
-                and check_run.name != CAN_BE_MERGED_STR
-                and check_run.name in self.all_required_status_checks
-            ]
-            if check_runs_in_progress:
-                self.logger.debug(
-                    f"{self.log_prefix} Some required check runs in progress {check_runs_in_progress}, "
-                    f"skipping check if {CAN_BE_MERGED_STR}."
-                )
-                failure_output += f"Some required check runs in progress {', '.join(check_runs_in_progress)}\n"
-
             _labels = self.pull_request_labels_names()
-            is_hold = HOLD_LABEL_STR in _labels
-            is_wip = WIP_STR in _labels
-
-            if is_hold or is_wip:
-                if is_hold:
-                    failure_output += "Hold label exists.\n"
-
-                if is_wip:
-                    failure_output += "WIP label exists.\n"
+            self.logger.debug(f"{self.log_prefix} check if can be merged. PR labels are: {_labels}")
 
             if not self.pull_request.mergeable:
                 failure_output += "PR is not mergeable: {self.pull_request.mergeable_state}\n"
 
-            failed_check_runs = []
-            for check_run in last_commit_check_runs:
-                if (
-                    check_run.name == CAN_BE_MERGED_STR
-                    or check_run.conclusion == SUCCESS_STR
-                    or check_run.conclusion == QUEUED_STR
-                    or check_run.name not in self.all_required_status_checks
-                ):
-                    continue
+            required_check_in_progress_failure_output, check_runs_in_progress = self._required_check_in_progress(
+                last_commit_check_runs=last_commit_check_runs
+            )
+            if required_check_in_progress_failure_output:
+                failure_output += required_check_in_progress_failure_output
 
-                failed_check_runs.append(check_run.name)
+            labels_failure_output = self._wip_or_hold_lables_exists(labels=_labels)
+            if labels_failure_output:
+                failure_output += labels_failure_output
 
-            if failed_check_runs:
-                exclude_in_progress = [
-                    failed_check_run
-                    for failed_check_run in failed_check_runs
-                    if failed_check_run not in check_runs_in_progress
-                ]
-                failure_output += f"Some check runs failed: {', '.join(exclude_in_progress)}\n"
+            required_check_failed_failure_output = self._required_check_failed(
+                last_commit_check_runs=last_commit_check_runs, check_runs_in_progress=check_runs_in_progress
+            )
+            if required_check_failed_failure_output:
+                failure_output += required_check_failed_failure_output
 
-            self.logger.debug(f"{self.log_prefix} check if can be merged. PR labels are: {_labels}")
+            lables_failue_output = self._check_lables_for_can_be_merged(labels=_labels)
+            if lables_failue_output:
+                failure_output += lables_failue_output
 
-            for _label in _labels:
-                if CHANGED_REQUESTED_BY_LABEL_PREFIX.lower() in _label.lower():
-                    change_request_user = _label.split("-")[-1]
-                    if change_request_user in self.all_approvers:
-                        failure_output += "PR has changed requests from approvers\n"
-
-            missing_required_labels = []
-            for _req_label in self.can_be_merged_required_labels:
-                if _req_label not in _labels:
-                    missing_required_labels.append(_req_label)
-
-            if missing_required_labels:
-                failure_output += f"Missing required labels: {', '.join(missing_required_labels)}\n"
-
-            pr_approved = False
-            _pr_approvers: list[str] = []
-            all_needed_approvers = self.owners_data_for_changed_files()["approvers"]
-
-            for _label in _labels:
-                if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
-                    approved_user = _label.split("-")[-1]
-                    if self.parent_committer == approved_user:
-                        continue
-
-                    for _need_approve in all_needed_approvers:
-                        if approved_user in _need_approve:
-                            _pr_approvers.append(approved_user)
-                            break
-
-            if len(_pr_approvers) == len(all_needed_approvers):
-                pr_approved = True
-
-            if not pr_approved:
-                missing_approvers = [
-                    approver
-                    for approver in self.all_approvers
-                    if approver != self.parent_committer and approver not in _pr_approvers
-                ]
-                failure_output += f"Missing lgtm/approved from approvers: {', '.join(missing_approvers)}\n"
+            pr_approvered_failure_output = self._check_if_pr_approved(labels=_labels)
+            if pr_approvered_failure_output:
+                failure_output += pr_approvered_failure_output
 
             if not failure_output:
                 self._add_label(label=CAN_BE_MERGED_STR)
@@ -2129,7 +2068,9 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             for _approver in list_of_approvers:
                 _approvers.append(_approver)
 
-        return list(set(self.root_approvers + _approvers))
+        reviewers = list(set(self.root_approvers + _approvers))
+        reviewers.sort()
+        return reviewers
 
     def get_all_reviewers(self) -> list[str]:
         _reviewers: list[str] = []
@@ -2137,7 +2078,9 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             for _approver in list_of_reviewers:
                 _reviewers.append(_approver)
 
-        return list(set(self.root_reviewers + _reviewers))
+        approvers = list(set(self.root_reviewers + _reviewers))
+        approvers.sort()
+        return approvers
 
     def owners_data_for_changed_files(self) -> dict[str, list[list[str]]]:
         data: dict[str, list[list[str]]] = {"approvers": [], "reviewers": []}
@@ -2157,6 +2100,8 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     self.logger.debug(f"{self.log_prefix} Found approvers for {owners_dir}: {_approvers}")
                     data["approvers"].append(_approvers)
 
+        data["reviewers"].sort()
+        data["approvers"].sort()
         return data
 
     def _validate_owners_content(self, content: Any, path: str) -> bool:
@@ -2178,3 +2123,114 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         except ValueError as e:
             self.logger.error(f"{self.log_prefix} Invalid OWNERS file {path}: {e}")
             return False
+
+    def _required_check_in_progress(self, last_commit_check_runs: list[CheckRun]) -> tuple[str, list[str]]:
+        self.all_required_status_checks = self.get_all_required_status_checks()
+        last_commit_check_runs = list(self.last_commit.get_check_runs())
+        self.logger.debug(f"{self.log_prefix} Check if any required check runs in progress.")
+        check_runs_in_progress = [
+            check_run.name
+            for check_run in last_commit_check_runs
+            if check_run.status == IN_PROGRESS_STR
+            and check_run.name != CAN_BE_MERGED_STR
+            and check_run.name in self.all_required_status_checks
+        ]
+        if check_runs_in_progress:
+            self.logger.debug(
+                f"{self.log_prefix} Some required check runs in progress {check_runs_in_progress}, "
+                f"skipping check if {CAN_BE_MERGED_STR}."
+            )
+            return f"Some required check runs in progress {', '.join(check_runs_in_progress)}\n", check_runs_in_progress
+        return "", []
+
+    def _required_check_failed(self, last_commit_check_runs: list[CheckRun], check_runs_in_progress: list[str]) -> str:
+        failed_check_runs = []
+        for check_run in last_commit_check_runs:
+            if (
+                check_run.name == CAN_BE_MERGED_STR
+                or check_run.conclusion == SUCCESS_STR
+                or check_run.conclusion == QUEUED_STR
+                or check_run.name not in self.all_required_status_checks
+            ):
+                continue
+
+            failed_check_runs.append(check_run.name)
+
+        if failed_check_runs:
+            exclude_in_progress = [
+                failed_check_run
+                for failed_check_run in failed_check_runs
+                if failed_check_run not in check_runs_in_progress
+            ]
+            return f"Some check runs failed: {', '.join(exclude_in_progress)}\n"
+
+        return ""
+
+    def _wip_or_hold_lables_exists(self, labels: list[str]) -> str:
+        failure_output = ""
+        is_hold = HOLD_LABEL_STR in labels
+        is_wip = WIP_STR in labels
+
+        if is_hold or is_wip:
+            if is_hold:
+                failure_output += "Hold label exists.\n"
+
+            if is_wip:
+                failure_output += "WIP label exists.\n"
+
+        return failure_output
+
+    def _check_lables_for_can_be_merged(self, labels: list[str]) -> str:
+        failure_output = ""
+
+        for _label in labels:
+            if CHANGED_REQUESTED_BY_LABEL_PREFIX.lower() in _label.lower():
+                change_request_user = _label.split("-")[-1]
+                if change_request_user in self.all_approvers:
+                    failure_output += "PR has changed requests from approvers\n"
+
+        missing_required_labels = []
+        for _req_label in self.can_be_merged_required_labels:
+            if _req_label not in labels:
+                missing_required_labels.append(_req_label)
+
+        if missing_required_labels:
+            failure_output += f"Missing required labels: {', '.join(missing_required_labels)}\n"
+
+        return failure_output
+
+    def _check_if_pr_approved(self, labels: list[str]) -> str:
+        failure_output = ""
+        pr_approved = False
+        _pr_approvers: list[str] = []
+        _all_needed_approvers = self.owners_data_for_changed_files()["approvers"]
+        all_needed_approvers = []
+        for approvers_list in _all_needed_approvers:
+            if approvers_list not in all_needed_approvers:
+                all_needed_approvers.append(approvers_list)
+
+        # all_needed_approvers is [['approver1', 'approver2'], ['approver3', 'approver4']]
+        # To mark PR as approved we need at least one lgtm/approved from each nested list inside all_needed_approvers
+        for _label in labels:
+            if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
+                approved_user = _label.split("-")[-1]
+                if self.parent_committer == approved_user:
+                    continue
+
+                for _need_approve in all_needed_approvers:
+                    if approved_user in _need_approve:
+                        _pr_approvers.append(approved_user)
+                        break
+
+        if len(_pr_approvers) >= len(all_needed_approvers):
+            pr_approved = True
+
+        if not pr_approved:
+            missing_approvers = [
+                approver
+                for approver in self.all_approvers
+                if approver != self.parent_committer and approver not in _pr_approvers
+            ]
+            failure_output += f"Missing lgtm/approved from approvers: {', '.join(missing_approvers)}\n"
+
+        return failure_output
