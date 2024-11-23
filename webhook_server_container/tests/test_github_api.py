@@ -181,4 +181,12 @@ def test_check_if_pr_approved(process_github_webhook, approvers_and_reviewers, a
             f"{APPROVED_BY_LABEL_PREFIX}approver1",
         ]
     )
-    assert pr_not_approved_result == "Missing lgtm/approved from approvers: approver2, approver3, approver4\n"
+    assert pr_not_approved_result == "Missing lgtm/approved from approvers: approver3, approver4\n"
+
+    pr_partial_approved_result = process_github_webhook._check_if_pr_approved(
+        labels=[
+            f"{APPROVED_BY_LABEL_PREFIX}approver1",
+            f"{APPROVED_BY_LABEL_PREFIX}approver2",
+        ]
+    )
+    assert pr_partial_approved_result == "Missing lgtm/approved from approvers: approver3, approver4\n"

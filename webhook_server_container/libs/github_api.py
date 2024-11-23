@@ -2200,37 +2200,35 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         return failure_output
 
     def _check_if_pr_approved(self, labels: list[str]) -> str:
-        failure_output = ""
-        pr_approved = False
         _pr_approvers: list[str] = []
-        _all_needed_approvers = self.owners_data_for_changed_files()["approvers"]
         all_needed_approvers = []
-        for approvers_list in _all_needed_approvers:
+        for approvers_list in self.owners_data_for_changed_files()["approvers"]:
             if approvers_list not in all_needed_approvers:
                 all_needed_approvers.append(approvers_list)
 
         # all_needed_approvers is [['approver1', 'approver2'], ['approver3', 'approver4']]
         # To mark PR as approved we need at least one lgtm/approved from each nested list inside all_needed_approvers
+        approved_by = []
         for _label in labels:
             if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
                 approved_user = _label.split("-")[-1]
                 if self.parent_committer == approved_user:
                     continue
 
-                for _need_approve in all_needed_approvers:
-                    if approved_user in _need_approve:
-                        _pr_approvers.append(approved_user)
-                        break
+                approved_by.append(approved_user)
 
-        if len(_pr_approvers) >= len(all_needed_approvers):
-            pr_approved = True
+        missing_approvers = self.all_approvers.copy()
 
-        if not pr_approved:
-            missing_approvers = [
-                approver
-                for approver in self.all_approvers
-                if approver != self.parent_committer and approver not in _pr_approvers
-            ]
-            failure_output += f"Missing lgtm/approved from approvers: {', '.join(missing_approvers)}\n"
+        for owners_data in self.approvers_and_reviewers.values():
+            _approvers = owners_data.get("approvers", [])
+            for approver in _approvers:
+                if approver in approved_by:
+                    _pr_approvers.append(approver)
+                    # Once we found approver in approved_by list, we remove all approvers from missing_approvers list for this owners file
+                    {missing_approvers.remove(_approver) for _approver in _approvers if _approver in missing_approvers}  # type: ignore
+                    break
 
-        return failure_output
+        if missing_approvers:
+            return f"Missing lgtm/approved from approvers: {', '.join(missing_approvers)}\n"
+
+        return ""
