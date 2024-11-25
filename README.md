@@ -242,15 +242,8 @@ approvers:
   - myakove
   - rnetser
 reviewers:
-  any: # will be added to all pull requests
-    - myakove
-    - rnetser
-  files: # will be added to pull requests if files in the list are changed
-    Dockerfile:
-      - myakove
-  folders: # will be added to pull requests if folders in the list are changed
-    webhook_server_container/libs: # path is relative to the repository root
-      - myakove
+  - myakove
+  - rnetser
 ```
 
 ### Supported user actions via adding comment

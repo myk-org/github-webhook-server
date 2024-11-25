@@ -44,7 +44,8 @@ async def process_webhook(request: Request) -> Dict[str, Any]:
         api.process()
         return {"status": requests.codes.ok, "message": "process success", "log_prefix": delivery_headers}
 
-    except Exception as _:
+    except Exception as exp:
+        logger.error(f"Error: {exp}")
         exc_type, exc_obj, exc_tb = sys.exc_info()  # noqa: F841
         msg = f"Error: {exc_type}"
 

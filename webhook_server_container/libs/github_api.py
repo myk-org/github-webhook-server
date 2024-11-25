@@ -11,6 +11,7 @@ import re
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Dict, Generator, List, Optional, Set, Tuple
+from github.CheckRun import CheckRun
 from stringcolor import cs
 
 from github.Branch import Branch
@@ -192,7 +193,6 @@ Available user actions:
             return
 
         event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
-        self.owners_content = self.get_owners_content()
 
         try:
             self.pull_request = self._get_pull_request()
@@ -201,7 +201,11 @@ Available user actions:
             self.last_commit = self._get_last_commit()
             self.parent_committer = self.pull_request.user.login
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
+            self.changed_files = self.list_changed_commit_files()
             self.pull_request_branch = self.pull_request.base.ref
+            self.approvers_and_reviewers = self.get_approvers_and_reviewers()
+            self.all_approvers = self.get_all_approvers()
+            self.all_reviewers = self.get_all_reviewers()
 
             if self.jira_enabled_repository:
                 self.set_jira_in_pull_request()
@@ -302,20 +306,22 @@ Available user actions:
 
     def prepare_log_prefix(self, pull_request: Optional[PullRequest] = None) -> str:
         _repository_color = self._get_reposiroty_color_for_log_prefix()
-        _id = self.x_github_delivery.split("-", 1)[-1]
         return (
-            f"{_repository_color}[{self.github_event}][{_id}][PR {pull_request.number}]:"
+            f"{_repository_color}[{self.github_event}][{self.x_github_delivery}][PR {pull_request.number}]:"
             if pull_request
-            else f"{_repository_color}[{self.github_event}][{_id}]:"
+            else f"{_repository_color}[{self.github_event}][{self.x_github_delivery}]:"
         )
 
     def process_pull_request_check_run_webhook_data(self) -> None:
         _check_run: Dict[str, Any] = self.hook_data["check_run"]
-        if _check_run.get("action", "") != "completed":
-            self.logger.debug(f"{self.log_prefix} check run action is not completed, skipping")
+        check_run_name: str = _check_run["name"]
+
+        if self.hook_data.get("action", "") != "completed":
+            self.logger.debug(
+                f"{self.log_prefix} check run {check_run_name} action is {self.hook_data.get('action', 'N/A')} and not completed, skipping"
+            )
             return
 
-        check_run_name: str = _check_run["name"]
         check_run_status: str = _check_run["status"]
         check_run_conclusion: str = _check_run["conclusion"]
         check_run_head_sha: str = _check_run["head_sha"]
@@ -531,7 +537,7 @@ Available user actions:
             self.logger.error(f"{self.log_prefix} {err} - {_err}, {_out}")
             self.repository.create_issue(
                 title=_err,
-                assignee=self.approvers[0] if self.approvers else "",
+                assignee=self.root_approvers[0] if self.root_approvers else "",
                 body=f"""
 stdout: `{_out}`
 stderr: `{_err}`
@@ -575,9 +581,22 @@ stderr: `{_err}`
 """
                 self.send_slack_message(message=message, webhook_url=self.slack_webhook_url)
 
-    def get_owners_content(self) -> Dict[str, Any]:
+    def get_owners_content(self, folder_path: str = "") -> Dict[str, Any]:
+        if folder_path:
+            # Normalize path and check for directory traversal
+            norm_path = os.path.normpath(folder_path)
+            if (
+                norm_path.startswith("/")
+                or norm_path.startswith("\\")
+                or ".." in norm_path
+                or not all(part.isalnum() or part in "-_" for part in norm_path.split(os.path.sep))
+            ):
+                self.logger.error(f"{self.log_prefix} Invalid folder path: {folder_path}")
+                return {}
+
         try:
-            owners_content: list[ContentFile] | ContentFile = self.repository.get_contents("OWNERS")
+            owners_path = f"{folder_path}/OWNERS" if folder_path else "OWNERS"
+            owners_content: list[ContentFile] | ContentFile = self.repository.get_contents(owners_path)
             if isinstance(owners_content, list):
                 self.logger.debug(f"{self.log_prefix} Found more than one OWNERS file, using the first one")
                 owners_content = owners_content[0]
@@ -591,51 +610,24 @@ stderr: `{_err}`
             return {}
 
     @property
-    def reviewers(self) -> List[str]:
-        bc_reviewers: List[str] = self.owners_content.get("reviewers", [])
-        if isinstance(bc_reviewers, dict):
-            _reviewers: List[str] = self.owners_content.get("reviewers", {}).get("any", [])
-        else:
-            _reviewers = bc_reviewers
-
-        self.logger.debug(f"{self.log_prefix} Reviewers: {_reviewers}")
+    def root_reviewers(self) -> List[str]:
+        _reviewers = self.approvers_and_reviewers.get(".", {}).get("reviewers", [])
+        self.logger.debug(f"{self.log_prefix} ROOT Reviewers: {_reviewers}")
         return _reviewers
 
     @property
-    def files_reviewers(self) -> Dict[str, str]:
-        _reviewers = self.owners_content.get("reviewers", {})
-        if isinstance(_reviewers, dict):
-            return _reviewers.get("files", {})
-
-        return {}
-
-    @property
-    def folders_reviewers(self) -> Dict[str, str]:
-        _reviewers = self.owners_content.get("reviewers", {})
-        if isinstance(_reviewers, dict):
-            return _reviewers.get("folders", {})
-
-        return {}
-
-    @property
-    def approvers(self) -> List[str]:
-        return self.owners_content.get("approvers", [])
+    def root_approvers(self) -> List[str]:
+        _approvers = self.approvers_and_reviewers.get(".", {}).get("approvers", [])
+        self.logger.debug(f"{self.log_prefix} ROOT Approvers: {_approvers}")
+        return _approvers
 
     def list_changed_commit_files(self) -> list[str]:
         return [fd["filename"] for fd in self.last_commit.raw_data["files"]]
 
     def assign_reviewers(self) -> None:
         self.logger.info(f"{self.log_prefix} Assign reviewers")
-        changed_files = self.list_changed_commit_files()
-        reviewers_to_add = self.reviewers
-        for _file, _file_reviewers in self.files_reviewers.items():
-            if _file in changed_files:
-                reviewers_to_add.extend(_file_reviewers)
-        for _folder, _folder_reviewers in self.folders_reviewers.items():
-            if any(cf for cf in changed_files if _folder in str(Path(cf).parent)):
-                reviewers_to_add.extend(_folder_reviewers)
 
-        _to_add: List[str] = list(set(reviewers_to_add))
+        _to_add: List[str] = list(set(self.all_reviewers))
         self.logger.debug(f"{self.log_prefix} Reviewers to add: {', '.join(_to_add)}")
 
         for reviewer in _to_add:
@@ -856,7 +848,7 @@ stderr: `{_err}`
             self.logger.error(f"{self.log_prefix} Failed to delete tag: {repository_full_tag}. OUT:{out}. ERR:{err}")
 
     def process_comment_webhook_data(self) -> None:
-        if comment_action := self.hook_data["action"] in ("action", "deleted"):
+        if comment_action := self.hook_data["action"] in ("edited", "deleted"):
             self.logger.debug(f"{self.log_prefix} Not processing comment. action is {comment_action}")
             return
 
@@ -903,10 +895,12 @@ stderr: `{_err}`
                 pull_request_opened_futures.append(executor.submit(self.process_opened_or_synchronize_pull_request))
                 if self.jira_track_pr:
                     pull_request_opened_futures.append(executor.submit(self.create_jira_when_open_pull_reques))
+
                 pull_request_opened_futures.append(executor.submit(self.set_pull_request_automerge))
 
-            for _ in as_completed(pull_request_opened_futures):
-                pass
+            for result in as_completed(pull_request_opened_futures):
+                if _exp := result.exception():
+                    self.logger.error(f"{self.log_prefix} {_exp}")
 
         if hook_action == "synchronize":
             pull_request_synchronize_futures: List[Future] = []
@@ -918,6 +912,10 @@ stderr: `{_err}`
 
                 if self.jira_track_pr:
                     pull_request_synchronize_futures.append(executor.submit(self.update_jira_when_pull_request_sync))
+
+            for result in as_completed(pull_request_synchronize_futures):
+                if _exp := result.exception():
+                    self.logger.error(f"{self.log_prefix} {_exp}")
 
         if hook_action == "closed":
             self.close_issue_for_merged_or_closed_pr(hook_action=hook_action)
@@ -960,7 +958,7 @@ stderr: `{_err}`
                 _reviewer = labeled.split(CHANGED_REQUESTED_BY_LABEL_PREFIX)[-1]
 
             _approved_output: Dict[str, Any] = {"title": "Approved", "summary": "", "text": ""}
-            if _reviewer in self.approvers:
+            if _reviewer in self.all_approvers:
                 _check_for_merge = True
                 _approved_output["text"] += f"Approved by {_reviewer}.\n"
 
@@ -1016,7 +1014,7 @@ stderr: `{_err}`
         label_prefix: str = ""
         label_to_remove: str = ""
 
-        if reviewed_user in self.approvers:
+        if reviewed_user in self.all_approvers:
             approved_lgtm_label = APPROVED_BY_LABEL_PREFIX
         else:
             approved_lgtm_label = LGTM_BY_LABEL_PREFIX
@@ -1175,7 +1173,7 @@ stderr: `{_err}`
 
         elif _command == HOLD_LABEL_STR:
             self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
-            if reviewed_user not in self.approvers:
+            if reviewed_user not in self.all_approvers:
                 self.pull_request.create_issue_comment(
                     f"{reviewed_user} is not part of the approver, only approvers can mark pull request as hold"
                 )
@@ -1323,85 +1321,38 @@ stderr: `{_err}`
         failure_output = ""
 
         try:
-            self.all_required_status_checks = self.get_all_required_status_checks()
             self.logger.info(f"{self.log_prefix} Check if {CAN_BE_MERGED_STR}.")
             self.set_merge_check_queued()
             last_commit_check_runs = list(self.last_commit.get_check_runs())
-            self.logger.debug(f"{self.log_prefix} Check if any required check runs in progress.")
-            check_runs_in_progress = [
-                check_run.name
-                for check_run in last_commit_check_runs
-                if check_run.status == IN_PROGRESS_STR
-                and check_run.name != CAN_BE_MERGED_STR
-                and check_run.name in self.all_required_status_checks
-            ]
-            if check_runs_in_progress:
-                self.logger.debug(
-                    f"{self.log_prefix} Some required check runs in progress {check_runs_in_progress}, "
-                    f"skipping check if {CAN_BE_MERGED_STR}."
-                )
-                failure_output += f"Some required check runs in progress {', '.join(check_runs_in_progress)}\n"
-
             _labels = self.pull_request_labels_names()
-            is_hold = HOLD_LABEL_STR in _labels
-            is_wip = WIP_STR in _labels
-            if is_hold or is_wip:
-                if is_hold:
-                    failure_output += "Hold label exists.\n"
-
-                if is_wip:
-                    failure_output += "WIP label exists.\n"
+            self.logger.debug(f"{self.log_prefix} check if can be merged. PR labels are: {_labels}")
 
             if not self.pull_request.mergeable:
                 failure_output += "PR is not mergeable: {self.pull_request.mergeable_state}\n"
 
-            failed_check_runs = []
-            for check_run in last_commit_check_runs:
-                if (
-                    check_run.name == CAN_BE_MERGED_STR
-                    or check_run.conclusion == SUCCESS_STR
-                    or check_run.conclusion == QUEUED_STR
-                    or check_run.name not in self.all_required_status_checks
-                ):
-                    continue
+            required_check_in_progress_failure_output, check_runs_in_progress = self._required_check_in_progress(
+                last_commit_check_runs=last_commit_check_runs
+            )
+            if required_check_in_progress_failure_output:
+                failure_output += required_check_in_progress_failure_output
 
-                failed_check_runs.append(check_run.name)
+            labels_failure_output = self._wip_or_hold_lables_exists(labels=_labels)
+            if labels_failure_output:
+                failure_output += labels_failure_output
 
-            if failed_check_runs:
-                exclude_in_progress = [
-                    failed_check_run
-                    for failed_check_run in failed_check_runs
-                    if failed_check_run not in check_runs_in_progress
-                ]
-                failure_output += f"Some check runs failed: {', '.join(exclude_in_progress)}\n"
+            required_check_failed_failure_output = self._required_check_failed(
+                last_commit_check_runs=last_commit_check_runs, check_runs_in_progress=check_runs_in_progress
+            )
+            if required_check_failed_failure_output:
+                failure_output += required_check_failed_failure_output
 
-            self.logger.debug(f"{self.log_prefix} check if can be merged. PR labels are: {_labels}")
+            lables_failue_output = self._check_lables_for_can_be_merged(labels=_labels)
+            if lables_failue_output:
+                failure_output += lables_failue_output
 
-            for _label in _labels:
-                if CHANGED_REQUESTED_BY_LABEL_PREFIX.lower() in _label.lower():
-                    change_request_user = _label.split("-")[-1]
-                    if change_request_user in self.approvers:
-                        failure_output += "PR has changed requests from approvers\n"
-
-            missing_required_labels = []
-            for _req_label in self.can_be_merged_required_labels:
-                if _req_label not in _labels:
-                    missing_required_labels.append(_req_label)
-
-            if missing_required_labels:
-                failure_output += f"Missing required labels: {', '.join(missing_required_labels)}\n"
-
-            pr_approved = False
-            for _label in _labels:
-                if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
-                    approved_user = _label.split("-")[-1]
-                    if approved_user in self.approvers and self.parent_committer != approved_user:
-                        pr_approved = True
-                        break
-
-            if not pr_approved:
-                missing_approvers = [approver for approver in self.approvers if approver != self.parent_committer]
-                failure_output += f"Missing lgtm/approved from approvers: {', '.join(missing_approvers)}\n"
+            pr_approvered_failure_output = self._check_if_pr_approved(labels=_labels)
+            if pr_approvered_failure_output:
+                failure_output += pr_approvered_failure_output
 
             if not failure_output:
                 self._add_label(label=CAN_BE_MERGED_STR)
@@ -1800,7 +1751,7 @@ stderr: `{_err}`
 
     def set_jira_in_pull_request(self) -> None:
         if self.jira_enabled_repository:
-            reviewers_and_approvers = self.reviewers + self.approvers
+            reviewers_and_approvers = self.root_reviewers + self.root_approvers
             if self.parent_committer in reviewers_and_approvers:
                 self.jira_assignee = self.jira_user_mapping.get(self.parent_committer)
                 if not self.jira_assignee:
@@ -2014,9 +1965,12 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         try:
             self.logger.info(f"{self.log_prefix} Adding PR owner as assignee")
             self.pull_request.add_to_assignees()
-        except Exception:
-            if self.approvers:
-                self.pull_request.add_to_assignees(self.approvers[0])
+        except Exception as exp:
+            self.logger.debug(f"{self.log_prefix} Exception while adding PR owner as assignee: {exp}")
+
+            if self.root_approvers:
+                self.logger.debug(f"{self.log_prefix} Falling back to first approver as assignee")
+                self.pull_request.add_to_assignees(self.root_approvers[0])
 
     def set_pull_request_automerge(self) -> None:
         if self.parent_committer in self.auto_verified_and_merged_users:
@@ -2071,3 +2025,210 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             return run_command(command=command, log_prefix=self.log_prefix, pipe=pipe)
 
         return rc, out, err
+
+    def get_approvers_and_reviewers(self) -> dict[str, dict[str, list[str]]]:
+        # Dictionary mapping OWNERS file paths to their approvers and reviewers
+        _owners: dict[str, dict[str, list[str]]] = {}
+
+        max_owners_files = 1000  # Configurable limit
+        owners_count = 0
+
+        tree = self.repository.get_git_tree(self.pull_request_branch, recursive=True)
+        for element in tree.tree:
+            if element.type == "blob" and element.path.endswith("OWNERS"):
+                owners_count += 1
+                if owners_count > max_owners_files:
+                    self.logger.error(f"{self.log_prefix} Too many OWNERS files (>{max_owners_files})")
+                    break
+
+                content_path = element.path
+                _path = self.repository.get_contents(content_path)
+                if isinstance(_path, list):
+                    _path = _path[0]
+
+                try:
+                    content = yaml.safe_load(_path.decoded_content)
+                    if self._validate_owners_content(content, content_path):
+                        # Use Path for consistent path handling
+                        parent_path = str(Path(content_path).parent)
+                        if not parent_path:
+                            parent_path = "."
+                        _owners[parent_path] = content
+
+                except yaml.YAMLError as exp:
+                    self.logger.error(f"{self.log_prefix} Invalid OWNERS file {content_path}: {exp}")
+                    continue
+
+        self.logger.debug(f"{self.log_prefix} Owners file mapping: {_owners}")
+        return _owners
+
+    def get_all_approvers(self) -> list[str]:
+        _approvers: list[str] = []
+        for list_of_approvers in self.owners_data_for_changed_files()["approvers"]:
+            for _approver in list_of_approvers:
+                _approvers.append(_approver)
+
+        reviewers = list(set(self.root_approvers + _approvers))
+        reviewers.sort()
+        return reviewers
+
+    def get_all_reviewers(self) -> list[str]:
+        _reviewers: list[str] = []
+        for list_of_reviewers in self.owners_data_for_changed_files()["reviewers"]:
+            for _approver in list_of_reviewers:
+                _reviewers.append(_approver)
+
+        approvers = list(set(self.root_reviewers + _reviewers))
+        approvers.sort()
+        return approvers
+
+    def owners_data_for_changed_files(self) -> dict[str, list[list[str]]]:
+        data: dict[str, list[list[str]]] = {"approvers": [], "reviewers": []}
+
+        changed_folders = {Path(cf).parent for cf in self.changed_files}
+
+        for changed_folder_path in changed_folders:
+            for owners_dir, owners_data in self.approvers_and_reviewers.items():
+                _owners_dir = Path(owners_dir)
+
+                if _owners_dir == changed_folder_path or _owners_dir in changed_folder_path.parents:
+                    _reviewers = owners_data.get("reviewers", [])
+                    self.logger.debug(f"{self.log_prefix} Found reviewers for {owners_dir}: {_reviewers}")
+                    data["reviewers"].append(_reviewers)
+
+                    _approvers = owners_data.get("approvers", [])
+                    self.logger.debug(f"{self.log_prefix} Found approvers for {owners_dir}: {_approvers}")
+                    data["approvers"].append(_approvers)
+
+        data["reviewers"].sort()
+        data["approvers"].sort()
+        return data
+
+    def _validate_owners_content(self, content: Any, path: str) -> bool:
+        """Validate OWNERS file content structure."""
+        try:
+            if not isinstance(content, dict):
+                raise ValueError("OWNERS file must contain a dictionary")
+
+            for key in ["approvers", "reviewers"]:
+                if key in content:
+                    if not isinstance(content[key], list):
+                        raise ValueError(f"{key} must be a list")
+
+                    if not all(isinstance(_elm, str) for _elm in content[key]):
+                        raise ValueError(f"All {key} must be strings")
+
+            return True
+
+        except ValueError as e:
+            self.logger.error(f"{self.log_prefix} Invalid OWNERS file {path}: {e}")
+            return False
+
+    def _required_check_in_progress(self, last_commit_check_runs: list[CheckRun]) -> tuple[str, list[str]]:
+        self.all_required_status_checks = self.get_all_required_status_checks()
+        last_commit_check_runs = list(self.last_commit.get_check_runs())
+        self.logger.debug(f"{self.log_prefix} Check if any required check runs in progress.")
+        check_runs_in_progress = [
+            check_run.name
+            for check_run in last_commit_check_runs
+            if check_run.status == IN_PROGRESS_STR
+            and check_run.name != CAN_BE_MERGED_STR
+            and check_run.name in self.all_required_status_checks
+        ]
+        if check_runs_in_progress:
+            self.logger.debug(
+                f"{self.log_prefix} Some required check runs in progress {check_runs_in_progress}, "
+                f"skipping check if {CAN_BE_MERGED_STR}."
+            )
+            return f"Some required check runs in progress {', '.join(check_runs_in_progress)}\n", check_runs_in_progress
+        return "", []
+
+    def _required_check_failed(self, last_commit_check_runs: list[CheckRun], check_runs_in_progress: list[str]) -> str:
+        failed_check_runs = []
+        for check_run in last_commit_check_runs:
+            if (
+                check_run.name == CAN_BE_MERGED_STR
+                or check_run.conclusion == SUCCESS_STR
+                or check_run.conclusion == QUEUED_STR
+                or check_run.name not in self.all_required_status_checks
+            ):
+                continue
+
+            failed_check_runs.append(check_run.name)
+
+        if failed_check_runs:
+            exclude_in_progress = [
+                failed_check_run
+                for failed_check_run in failed_check_runs
+                if failed_check_run not in check_runs_in_progress
+            ]
+            return f"Some check runs failed: {', '.join(exclude_in_progress)}\n"
+
+        return ""
+
+    def _wip_or_hold_lables_exists(self, labels: list[str]) -> str:
+        failure_output = ""
+        is_hold = HOLD_LABEL_STR in labels
+        is_wip = WIP_STR in labels
+
+        if is_hold or is_wip:
+            if is_hold:
+                failure_output += "Hold label exists.\n"
+
+            if is_wip:
+                failure_output += "WIP label exists.\n"
+
+        return failure_output
+
+    def _check_lables_for_can_be_merged(self, labels: list[str]) -> str:
+        failure_output = ""
+
+        for _label in labels:
+            if CHANGED_REQUESTED_BY_LABEL_PREFIX.lower() in _label.lower():
+                change_request_user = _label.split("-")[-1]
+                if change_request_user in self.all_approvers:
+                    failure_output += "PR has changed requests from approvers\n"
+
+        missing_required_labels = []
+        for _req_label in self.can_be_merged_required_labels:
+            if _req_label not in labels:
+                missing_required_labels.append(_req_label)
+
+        if missing_required_labels:
+            failure_output += f"Missing required labels: {', '.join(missing_required_labels)}\n"
+
+        return failure_output
+
+    def _check_if_pr_approved(self, labels: list[str]) -> str:
+        _pr_approvers: list[str] = []
+        all_needed_approvers = []
+        for approvers_list in self.owners_data_for_changed_files()["approvers"]:
+            if approvers_list not in all_needed_approvers:
+                all_needed_approvers.append(approvers_list)
+
+        # all_needed_approvers is [['approver1', 'approver2'], ['approver3', 'approver4']]
+        # To mark PR as approved we need at least one lgtm/approved from each nested list inside all_needed_approvers
+        approved_by = []
+        for _label in labels:
+            if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
+                approved_user = _label.split("-")[-1]
+                if self.parent_committer == approved_user:
+                    continue
+
+                approved_by.append(approved_user)
+
+        missing_approvers = self.all_approvers.copy()
+
+        for owners_data in self.approvers_and_reviewers.values():
+            _approvers = owners_data.get("approvers", [])
+            for approver in _approvers:
+                if approver in approved_by:
+                    _pr_approvers.append(approver)
+                    # Once we found approver in approved_by list, we remove all approvers from missing_approvers list for this owners file
+                    {missing_approvers.remove(_approver) for _approver in _approvers if _approver in missing_approvers}  # type: ignore
+                    break
+
+        if missing_approvers:
+            return f"Missing lgtm/approved from approvers: {', '.join(missing_approvers)}\n"
+
+        return ""
