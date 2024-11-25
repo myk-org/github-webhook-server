@@ -15,7 +15,6 @@ from github.CheckRun import CheckRun
 from stringcolor import cs
 
 from github.Branch import Branch
-from github.ContentFile import ContentFile
 import requests
 import shortuuid
 from starlette.datastructures import Headers
@@ -203,7 +202,7 @@ Available user actions:
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
             self.changed_files = self.list_changed_commit_files()
             self.pull_request_branch = self.pull_request.base.ref
-            self.approvers_and_reviewers = self.get_approvers_and_reviewers()
+            self.all_approvers_and_reviewers = self.get_all_approvers_and_reviewers()
             self.all_approvers = self.get_all_approvers()
             self.all_reviewers = self.get_all_reviewers()
 
@@ -581,43 +580,15 @@ stderr: `{_err}`
 """
                 self.send_slack_message(message=message, webhook_url=self.slack_webhook_url)
 
-    def get_owners_content(self, folder_path: str = "") -> Dict[str, Any]:
-        if folder_path:
-            # Normalize path and check for directory traversal
-            norm_path = os.path.normpath(folder_path)
-            if (
-                norm_path.startswith("/")
-                or norm_path.startswith("\\")
-                or ".." in norm_path
-                or not all(part.isalnum() or part in "-_" for part in norm_path.split(os.path.sep))
-            ):
-                self.logger.error(f"{self.log_prefix} Invalid folder path: {folder_path}")
-                return {}
-
-        try:
-            owners_path = f"{folder_path}/OWNERS" if folder_path else "OWNERS"
-            owners_content: list[ContentFile] | ContentFile = self.repository.get_contents(owners_path)
-            if isinstance(owners_content, list):
-                self.logger.debug(f"{self.log_prefix} Found more than one OWNERS file, using the first one")
-                owners_content = owners_content[0]
-
-            _content: Dict[str, Any] = yaml.safe_load(owners_content.decoded_content)
-            self.logger.debug(f"{self.log_prefix} OWNERS file content: {_content}")
-            return _content
-
-        except UnknownObjectException:
-            self.logger.error(f"{self.log_prefix} OWNERS file not found")
-            return {}
-
     @property
     def root_reviewers(self) -> List[str]:
-        _reviewers = self.approvers_and_reviewers.get(".", {}).get("reviewers", [])
+        _reviewers = self.all_approvers_and_reviewers.get(".", {}).get("reviewers", [])
         self.logger.debug(f"{self.log_prefix} ROOT Reviewers: {_reviewers}")
         return _reviewers
 
     @property
     def root_approvers(self) -> List[str]:
-        _approvers = self.approvers_and_reviewers.get(".", {}).get("approvers", [])
+        _approvers = self.all_approvers_and_reviewers.get(".", {}).get("approvers", [])
         self.logger.debug(f"{self.log_prefix} ROOT Approvers: {_approvers}")
         return _approvers
 
@@ -2027,7 +1998,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         return rc, out, err
 
-    def get_approvers_and_reviewers(self) -> dict[str, dict[str, list[str]]]:
+    def get_all_approvers_and_reviewers(self) -> dict[str, dict[str, list[str]]]:
         # Dictionary mapping OWNERS file paths to their approvers and reviewers
         _owners: dict[str, dict[str, list[str]]] = {}
 
@@ -2050,7 +2021,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 try:
                     content = yaml.safe_load(_path.decoded_content)
                     if self._validate_owners_content(content, content_path):
-                        # Use Path for consistent path handling
                         parent_path = str(Path(content_path).parent)
                         if not parent_path:
                             parent_path = "."
@@ -2069,9 +2039,9 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             for _approver in list_of_approvers:
                 _approvers.append(_approver)
 
-        reviewers = list(set(self.root_approvers + _approvers))
-        reviewers.sort()
-        return reviewers
+        approvers = list(set(self.root_approvers + _approvers))
+        approvers.sort()
+        return approvers
 
     def get_all_reviewers(self) -> list[str]:
         _reviewers: list[str] = []
@@ -2079,9 +2049,9 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             for _approver in list_of_reviewers:
                 _reviewers.append(_approver)
 
-        approvers = list(set(self.root_reviewers + _reviewers))
-        approvers.sort()
-        return approvers
+        reviewers = list(set(self.root_reviewers + _reviewers))
+        reviewers.sort()
+        return reviewers
 
     def owners_data_for_changed_files(self) -> dict[str, list[list[str]]]:
         data: dict[str, list[list[str]]] = {"approvers": [], "reviewers": []}
@@ -2089,10 +2059,10 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         changed_folders = {Path(cf).parent for cf in self.changed_files}
 
         for changed_folder_path in changed_folders:
-            for owners_dir, owners_data in self.approvers_and_reviewers.items():
+            for owners_dir, owners_data in self.all_approvers_and_reviewers.items():
                 _owners_dir = Path(owners_dir)
 
-                if _owners_dir == changed_folder_path or _owners_dir in changed_folder_path.parents:
+                if _owners_dir == changed_folder_path or _owners_dir == changed_folder_path.parents:
                     _reviewers = owners_data.get("reviewers", [])
                     self.logger.debug(f"{self.log_prefix} Found reviewers for {owners_dir}: {_reviewers}")
                     data["reviewers"].append(_reviewers)
@@ -2202,12 +2172,14 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
     def _check_if_pr_approved(self, labels: list[str]) -> str:
         _pr_approvers: list[str] = []
-        all_needed_approvers = []
-        for approvers_list in self.owners_data_for_changed_files()["approvers"]:
-            if approvers_list not in all_needed_approvers:
-                all_needed_approvers.append(approvers_list)
+        # all_needed_approvers = []
+        required_pr_approvers = self.owners_data_for_changed_files()["approvers"]
 
-        # all_needed_approvers is [['approver1', 'approver2'], ['approver3', 'approver4']]
+        root_approvers = self.all_approvers_and_reviewers.get(".", {}).get("approvers")
+        if root_approvers:
+            required_pr_approvers.append(root_approvers)
+
+        # required_pr_approvers is [['approver1', 'approver2'], ['approver3', 'approver4']]
         # To mark PR as approved we need at least one lgtm/approved from each nested list inside all_needed_approvers
         approved_by = []
         for _label in labels:
@@ -2218,15 +2190,19 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
                 approved_by.append(approved_user)
 
-        missing_approvers = self.all_approvers.copy()
+        missing_approvers: list[str] = []
+        for list_of_reviewers in required_pr_approvers:
+            for _approver in list_of_reviewers:
+                missing_approvers.append(_approver)
 
-        for owners_data in self.approvers_and_reviewers.values():
-            _approvers = owners_data.get("approvers", [])
-            for approver in _approvers:
+        missing_approvers = list(set(missing_approvers))
+
+        for approvers in required_pr_approvers:
+            for approver in approvers:
                 if approver in approved_by:
                     _pr_approvers.append(approver)
                     # Once we found approver in approved_by list, we remove all approvers from missing_approvers list for this owners file
-                    {missing_approvers.remove(_approver) for _approver in _approvers if _approver in missing_approvers}  # type: ignore
+                    {missing_approvers.remove(_approver) for _approver in approvers if _approver in missing_approvers}  # type: ignore
                     break
 
         if missing_approvers:
