@@ -2016,9 +2016,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         shutil.rmtree("/tmp/storage-run-1000/libpod/tmp", ignore_errors=True)
 
     def run_podman_command(self, command: str, pipe: bool = False) -> Tuple[bool, str, str]:
-        rc, _out, _err = run_command(command=command, log_prefix=self.log_prefix, pipe=pipe)
-        out = _out.decode() if isinstance(_out, bytes) else _out
-        err = _err.decode() if isinstance(_err, bytes) else _err
+        rc, out, err = run_command(command=command, log_prefix=self.log_prefix, pipe=pipe)
 
         if rc:
             return rc, out, err

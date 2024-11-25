@@ -111,8 +111,12 @@ def run_command(
             timeout=timeout,
             **kwargs,
         )
-        out_decoded = sub_process.stdout
-        err_decoded = sub_process.stderr
+        out_decoded = (
+            sub_process.stdout.decode(errors="ignore") if isinstance(sub_process.stdout, bytes) else sub_process.stdout
+        )
+        err_decoded = (
+            sub_process.stderr.decode(errors="ignore") if isinstance(sub_process.stderr, bytes) else sub_process.stderr
+        )
 
         error_msg = (
             f"{log_prefix} Failed to run '{command}'. "
