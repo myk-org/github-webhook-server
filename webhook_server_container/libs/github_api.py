@@ -2017,6 +2017,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
     def run_podman_command(self, command: str, pipe: bool = False) -> Tuple[bool, str, str]:
         rc, out, err = run_command(command=command, log_prefix=self.log_prefix, pipe=pipe)
+
         if rc:
             return rc, out, err
 
