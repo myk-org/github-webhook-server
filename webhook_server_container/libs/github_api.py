@@ -1998,9 +1998,9 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         return rc, out, err
 
-    def get_all_approvers_and_reviewers(self) -> dict[str, dict[str, list[str]]]:
+    def get_all_approvers_and_reviewers(self) -> dict[str, dict[str, Any]]:
         # Dictionary mapping OWNERS file paths to their approvers and reviewers
-        _owners: dict[str, dict[str, list[str]]] = {}
+        _owners: dict[str, dict[str, Any]] = {}
 
         max_owners_files = 1000  # Configurable limit
         owners_count = 0
@@ -2035,44 +2035,47 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
     def get_all_approvers(self) -> list[str]:
         _approvers: list[str] = []
-        for list_of_approvers in self.owners_data_for_changed_files()["approvers"]:
-            for _approver in list_of_approvers:
+        for list_of_approvers in self.owners_data_for_changed_files().values():
+            for _approver in list_of_approvers.get("approvers", []):
                 _approvers.append(_approver)
 
-        approvers = list(set(self.root_approvers + _approvers))
-        approvers.sort()
-        return approvers
+        _approvers.sort()
+        return _approvers
 
     def get_all_reviewers(self) -> list[str]:
         _reviewers: list[str] = []
-        for list_of_reviewers in self.owners_data_for_changed_files()["reviewers"]:
-            for _approver in list_of_reviewers:
+        for list_of_reviewers in self.owners_data_for_changed_files().values():
+            for _approver in list_of_reviewers.get("reviewers", []):
                 _reviewers.append(_approver)
 
-        reviewers = list(set(self.root_reviewers + _reviewers))
-        reviewers.sort()
-        return reviewers
+        _reviewers.sort()
+        return _reviewers
 
-    def owners_data_for_changed_files(self) -> dict[str, list[list[str]]]:
-        data: dict[str, list[list[str]]] = {"approvers": [], "reviewers": []}
+    def owners_data_for_changed_files(self) -> dict[str, dict[str, Any]]:
+        data: dict[str, dict[str, Any]] = {}
 
         changed_folders = {Path(cf).parent for cf in self.changed_files}
 
-        for changed_folder_path in changed_folders:
-            for owners_dir, owners_data in self.all_approvers_and_reviewers.items():
-                _owners_dir = Path(owners_dir)
+        changed_folder_match: list[str] = []
 
-                if _owners_dir == changed_folder_path or _owners_dir == changed_folder_path.parents:
-                    _reviewers = owners_data.get("reviewers", [])
-                    self.logger.debug(f"{self.log_prefix} Found reviewers for {owners_dir}: {_reviewers}")
-                    data["reviewers"].append(_reviewers)
+        require_root_approvers: bool = False
 
-                    _approvers = owners_data.get("approvers", [])
-                    self.logger.debug(f"{self.log_prefix} Found approvers for {owners_dir}: {_approvers}")
-                    data["approvers"].append(_approvers)
+        for owners_dir, owners_data in self.all_approvers_and_reviewers.items():
+            _owners_dir = Path(owners_dir)
 
-        data["reviewers"].sort()
-        data["approvers"].sort()
+            for changed_folder in changed_folders:
+                if _owners_dir == changed_folder or _owners_dir.parents == changed_folders:
+                    data[owners_dir] = owners_data
+                    changed_folder_match.append(owners_dir)
+                    if not require_root_approvers:
+                        require_root_approvers = owners_data.get("root-approvers", True)
+
+        if [_folder for _folder in changed_folders if str(_folder) not in changed_folder_match]:
+            data["."] = self.all_approvers_and_reviewers.get(".", {})
+
+        if require_root_approvers:
+            data["."] = self.all_approvers_and_reviewers.get(".", {})
+
         return data
 
     def _validate_owners_content(self, content: Any, path: str) -> bool:
@@ -2171,16 +2174,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         return failure_output
 
     def _check_if_pr_approved(self, labels: list[str]) -> str:
-        _pr_approvers: list[str] = []
-        # all_needed_approvers = []
-        required_pr_approvers = self.owners_data_for_changed_files()["approvers"]
-
-        root_approvers = self.all_approvers_and_reviewers.get(".", {}).get("approvers")
-        if root_approvers:
-            required_pr_approvers.append(root_approvers)
-
-        # required_pr_approvers is [['approver1', 'approver2'], ['approver3', 'approver4']]
-        # To mark PR as approved we need at least one lgtm/approved from each nested list inside all_needed_approvers
         approved_by = []
         for _label in labels:
             if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
@@ -2190,20 +2183,21 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
                 approved_by.append(approved_user)
 
-        missing_approvers: list[str] = []
-        for list_of_reviewers in required_pr_approvers:
-            for _approver in list_of_reviewers:
-                missing_approvers.append(_approver)
+        missing_approvers = self.all_approvers.copy()
+
+        for data in self.owners_data_for_changed_files().values():
+            required_pr_approvers = data.get("approvers", [])
+            for required_pr_approver in required_pr_approvers:
+                if required_pr_approver in approved_by:
+                    # Once we found approver in approved_by list, we remove all approvers from missing_approvers list for this owners file
+                    {
+                        missing_approvers.remove(_approver)  # type: ignore
+                        for _approver in required_pr_approvers
+                        if _approver in missing_approvers
+                    }
+                    break
 
         missing_approvers = list(set(missing_approvers))
-
-        for approvers in required_pr_approvers:
-            for approver in approvers:
-                if approver in approved_by:
-                    _pr_approvers.append(approver)
-                    # Once we found approver in approved_by list, we remove all approvers from missing_approvers list for this owners file
-                    {missing_approvers.remove(_approver) for _approver in approvers if _approver in missing_approvers}  # type: ignore
-                    break
 
         if missing_approvers:
             return f"Missing lgtm/approved from approvers: {', '.join(missing_approvers)}\n"
