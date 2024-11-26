@@ -279,11 +279,18 @@ def test_check_pr_not_approved(process_github_webhook, all_approvers_and_reviewe
             f"{APPROVED_BY_LABEL_PREFIX}root_approver1",
         ]
     )
-    assert not [
-        True
-        for appr in ["folder1_approver1", "folder1_approver2", "folder4_approver1", "folder4_approver2"]
-        if appr not in check_if_pr_approved
+    missing_approvers = [appr.strip() for appr in check_if_pr_approved.split(":")[-1].strip().split(",")]
+    missing_approvers.sort()
+    expected_approvers = [
+        "folder1_approver1",
+        "folder1_approver2",
+        "folder4_approver1",
+        "folder4_approver2",
+        "folder5_approver1",
+        "folder5_approver2",
     ]
+    expected_approvers.sort()
+    assert missing_approvers == expected_approvers
 
 
 def test_check_pr_partial_approved(process_github_webhook, all_approvers_and_reviewers):
@@ -294,11 +301,18 @@ def test_check_pr_partial_approved(process_github_webhook, all_approvers_and_rev
             f"{APPROVED_BY_LABEL_PREFIX}root_approver2",
         ]
     )
-    assert not [
-        True
-        for appr in ["folder1_approver1", "folder1_approver2", "folder4_approver1", "folder4_approver2"]
-        if appr not in check_if_pr_approved
+    missing_approvers = [appr.strip() for appr in check_if_pr_approved.split(":")[-1].strip().split(",")]
+    missing_approvers.sort()
+    expected_approvers = [
+        "folder1_approver1",
+        "folder1_approver2",
+        "folder4_approver1",
+        "folder4_approver2",
+        "folder5_approver1",
+        "folder5_approver2",
     ]
+    expected_approvers.sort()
+    assert missing_approvers == expected_approvers
 
 
 @pytest.mark.parametrize(
@@ -366,7 +380,14 @@ def test_check_pr_approved_specific_folder_with_root_approvers(process_github_we
             f"{APPROVED_BY_LABEL_PREFIX}folder1_approver1",
         ]
     )
-    assert not [True for appr in ["root_approver1", "root_approver2"] if appr not in check_if_pr_approved]
+    missing_approvers = [appr.strip() for appr in check_if_pr_approved.split(":")[-1].strip().split(",")]
+    missing_approvers.sort()
+    expected_approvers = [
+        "root_approver1",
+        "root_approver2",
+    ]
+    expected_approvers.sort()
+    assert missing_approvers == expected_approvers
 
 
 @pytest.mark.parametrize(
@@ -408,7 +429,14 @@ def test_check_pr_not_approved_specific_folder_without_owners(process_github_web
             f"{APPROVED_BY_LABEL_PREFIX}folder5_approver1",
         ]
     )
-    assert not [True for appr in ["root_approver1", "root_approver2"] if appr not in check_if_pr_approved]
+    missing_approvers = [appr.strip() for appr in check_if_pr_approved.split(":")[-1].strip().split(",")]
+    missing_approvers.sort()
+    expected_approvers = [
+        "root_approver1",
+        "root_approver2",
+    ]
+    expected_approvers.sort()
+    assert missing_approvers == expected_approvers
 
 
 @pytest.mark.parametrize(
@@ -478,4 +506,11 @@ def test_check_pr_not_approved_folder_with_no_owners_and_folder_without_root_app
             f"{APPROVED_BY_LABEL_PREFIX}folder5_approver1",
         ]
     )
-    assert not [True for appr in ["root_approver1", "root_approver2"] if appr not in check_if_pr_approved]
+    missing_approvers = [appr.strip() for appr in check_if_pr_approved.split(":")[-1].strip().split(",")]
+    missing_approvers.sort()
+    expected_approvers = [
+        "root_approver1",
+        "root_approver2",
+    ]
+    expected_approvers.sort()
+    assert missing_approvers == expected_approvers
