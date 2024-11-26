@@ -1299,7 +1299,7 @@ stderr: `{_err}`
             self.logger.debug(f"{self.log_prefix} check if can be merged. PR labels are: {_labels}")
 
             if not self.pull_request.mergeable:
-                failure_output += "PR is not mergeable: {self.pull_request.mergeable_state}\n"
+                failure_output += f"PR is not mergeable: {self.pull_request.mergeable_state}\n"
 
             required_check_in_progress_failure_output, check_runs_in_progress = self._required_check_in_progress(
                 last_commit_check_runs=last_commit_check_runs
