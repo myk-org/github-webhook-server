@@ -23,6 +23,7 @@ RUN dnf -y install dnf-plugins-core \
   python3.13-devel \
   clang \
   cargo \
+  libcurl-devel \
   && dnf clean all \
   && rm -rf /var/cache /var/log/dnf* /var/log/yum.*
 
