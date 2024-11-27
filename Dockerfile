@@ -24,6 +24,7 @@ RUN dnf -y install dnf-plugins-core \
   clang \
   cargo \
   libcurl-devel \
+  libxml2-devel \
   && dnf clean all \
   && rm -rf /var/cache /var/log/dnf* /var/log/yum.*
 
