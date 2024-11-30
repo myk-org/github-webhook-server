@@ -49,6 +49,7 @@ ENV UV_NO_SYNC=1
 ENV UV_CACHE_DIR=${APP_DIR}/.cache
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx ${BIN_DIR}/
+RUN uv tool install pre-commit && uv tool install poetry
 
 RUN set -x \
   && curl https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz --output $BIN_DIR/rosa-linux.tar.gz \
