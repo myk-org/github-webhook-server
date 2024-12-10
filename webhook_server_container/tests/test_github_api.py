@@ -222,6 +222,7 @@ def test_owners_data_for_changed_files(process_github_webhook, all_approvers_and
             "approvers": ["folder1_approver1", "folder1_approver2"],
             "reviewers": ["folder1_reviewer1", "folder1_reviewer2"],
         },
+        "code": {"approvers": ["root_approver1", "root_approver2"], "reviewers": ["root_reviewer1", "root_reviewer2"]},
         ".": {"approvers": ["root_approver1", "root_approver2"], "reviewers": ["root_reviewer1", "root_reviewer2"]},
         "folder2": {},
         "folder/folder4": {

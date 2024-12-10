@@ -2038,7 +2038,8 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         _approvers: list[str] = []
         for list_of_approvers in self.owners_data_for_changed_files().values():
             for _approver in list_of_approvers.get("approvers", []):
-                _approvers.append(_approver)
+                if _approver not in _approvers:
+                    _approvers.append(_approver)
 
         _approvers.sort()
         return _approvers
@@ -2046,8 +2047,9 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
     def get_all_reviewers(self) -> list[str]:
         _reviewers: list[str] = []
         for list_of_reviewers in self.owners_data_for_changed_files().values():
-            for _approver in list_of_reviewers.get("reviewers", []):
-                _reviewers.append(_approver)
+            for _reviewer in list_of_reviewers.get("reviewers", []):
+                if _reviewer not in _reviewers:
+                    _reviewers.append(_reviewer)
 
         _reviewers.sort()
         return _reviewers
@@ -2056,20 +2058,18 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         data: dict[str, dict[str, Any]] = {}
 
         changed_folders = {Path(cf).parent for cf in self.changed_files}
-
+        all_owner_data = self.all_approvers_and_reviewers
         changed_folder_match: list[str] = []
 
         require_root_approvers: bool = False
-
-        for owners_dir, owners_data in self.all_approvers_and_reviewers.items():
-            _owners_dir = Path(owners_dir)
-
-            for changed_folder in changed_folders:
-                if _owners_dir == changed_folder or _owners_dir.parents == changed_folders:
-                    data[owners_dir] = owners_data
-                    changed_folder_match.append(owners_dir)
-                    if not require_root_approvers:
-                        require_root_approvers = owners_data.get("root-approvers", True)
+        for changed_folder in changed_folders:
+            changed_folder_str = str(changed_folder)
+            _owner_dir = self._get_owner_dir_name_for_changed_folder(changed_folder=changed_folder_str)
+            _owners_data = all_owner_data[_owner_dir]
+            data[changed_folder_str] = _owners_data
+            changed_folder_match.append(_owner_dir)
+            if not require_root_approvers:
+                require_root_approvers = _owners_data.get("root-approvers", True)
 
         if [_folder for _folder in changed_folders if str(_folder) not in changed_folder_match]:
             data["."] = self.all_approvers_and_reviewers.get(".", {})
@@ -2078,6 +2078,14 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             data["."] = self.all_approvers_and_reviewers.get(".", {})
 
         return data
+
+    def _get_owner_dir_name_for_changed_folder(self, changed_folder: str) -> str:
+        owner_dirs = self.all_approvers_and_reviewers.keys()
+        if changed_folder in owner_dirs:
+            return changed_folder
+        else:
+            changed_folder = str(Path(changed_folder).parent)
+            return self._get_owner_dir_name_for_changed_folder(changed_folder=changed_folder)
 
     def _validate_owners_content(self, content: Any, path: str) -> bool:
         """Validate OWNERS file content structure."""
