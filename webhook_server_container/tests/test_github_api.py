@@ -478,7 +478,6 @@ def test_check_pr_approved_specific_folder_negative(
 ):
     process_github_webhook.all_approvers = process_github_webhook.get_all_approvers()
     check_if_pr_approved = process_github_webhook._check_if_pr_approved(labels=approval_label)
-    print(check_if_pr_approved)
     missing_approvers = [appr.strip() for appr in check_if_pr_approved.split(":")[-1].strip().split(",")]
     missing_approvers.sort()
     expected_approvers.sort()
