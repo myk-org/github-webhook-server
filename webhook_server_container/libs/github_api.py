@@ -10,7 +10,7 @@ import random
 import re
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
-from typing import Any, Callable, Dict, Generator, List, Optional, Set, Tuple, Union
+from typing import Any, Callable, Dict, Generator, List, Optional, Set, Tuple
 from github.CheckRun import CheckRun
 from stringcolor import cs
 
@@ -2071,11 +2071,8 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             data["."] = self.all_approvers_and_reviewers.get(".", {})
         return data
 
-    def _get_owner_data_for_changed_folder(self, _changed_folder: str) -> dict[str, Union[List[str], bool]]:
-        _aggregated_owners: dict[str, Union[List[str], bool]] = {}
-        _aggregated_owners["approvers"] = []
-        _aggregated_owners["reviewers"] = []
-        _aggregated_owners["root-approvers"] = True
+    def _get_owner_data_for_changed_folder(self, _changed_folder: str) -> dict[str, Any]:
+        _aggregated_owners: dict[str, Any] = {"approvers": [], "reviewers": []}
         owners_data = self.all_approvers_and_reviewers
         if owners_data.get(_changed_folder):
             return owners_data[_changed_folder]
