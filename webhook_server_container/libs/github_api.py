@@ -2057,25 +2057,34 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         changed_folders = {Path(cf).parent for cf in self.changed_files}
 
-        changed_folder_match: list[str] = []
+        changed_folder_match: list[Path] = []
 
-        require_root_approvers: bool = False
+        require_root_approvers: bool | None = None
 
         for owners_dir, owners_data in self.all_approvers_and_reviewers.items():
+            if owners_dir == ".":
+                continue
+
             _owners_dir = Path(owners_dir)
 
             for changed_folder in changed_folders:
-                if _owners_dir == changed_folder or _owners_dir.parents == changed_folders:
+                if changed_folder == _owners_dir or _owners_dir in changed_folder.parents:
                     data[owners_dir] = owners_data
-                    changed_folder_match.append(owners_dir)
-                    if not require_root_approvers:
+                    changed_folder_match.append(_owners_dir)
+                    if require_root_approvers is None:
                         require_root_approvers = owners_data.get("root-approvers", True)
 
-        if [_folder for _folder in changed_folders if str(_folder) not in changed_folder_match]:
+        if require_root_approvers or require_root_approvers is None:
             data["."] = self.all_approvers_and_reviewers.get(".", {})
 
-        if require_root_approvers:
-            data["."] = self.all_approvers_and_reviewers.get(".", {})
+        else:
+            for _folder in changed_folders:
+                for _changed_path in changed_folder_match:
+                    if _folder == _changed_path or _changed_path in _folder.parents:
+                        continue
+                    else:
+                        data["."] = self.all_approvers_and_reviewers.get(".", {})
+                        break
 
         return data
 
