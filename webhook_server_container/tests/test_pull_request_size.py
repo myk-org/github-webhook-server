@@ -16,11 +16,7 @@ class PullRequest:
 
     @property
     def lables(self) -> list[Label]:
-        _lables = []
-        for label in self.labels:
-            _lables.append(Label(label))
-
-        return _lables
+        return [Label(label) for label in self.labels]
 
 
 @pytest.mark.parametrize(
