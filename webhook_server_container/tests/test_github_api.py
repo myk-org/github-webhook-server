@@ -296,7 +296,7 @@ def test_check_pr_approved(process_github_webhook, all_approvers_and_reviewers, 
                 "folder5_approver1",
                 "folder5_approver2",
             ],
-            id="test_pr_approved_root_approvals",
+            id="test_pr_not_approved_root_approvals",
         ),
         pytest.param(
             [
@@ -311,7 +311,7 @@ def test_check_pr_approved(process_github_webhook, all_approvers_and_reviewers, 
                 "folder5_approver1",
                 "folder5_approver2",
             ],
-            id="test_check_pr_partial_approved",
+            id="test_pr_not_approved_partial_approved",
         ),
     ],
 )
@@ -340,7 +340,7 @@ def test_check_pr_not_approved(
                 f"{APPROVED_BY_LABEL_PREFIX}root_approver1",
                 f"{APPROVED_BY_LABEL_PREFIX}folder4_approver1",
             ],
-            id="test_check_pr_approved_specific_folder",
+            id="test_check_pr_approved_multiple_owners",
         ),
         pytest.param(
             [
@@ -351,7 +351,7 @@ def test_check_pr_not_approved(
             [
                 f"{APPROVED_BY_LABEL_PREFIX}root_approver1",
             ],
-            id="test_check_pr_approved_nested_folder_no_owners",
+            id="test_check_pr_root_approval_multiple_folders_no_owners",
         ),
         pytest.param(
             [
@@ -360,7 +360,7 @@ def test_check_pr_not_approved(
             [
                 f"{APPROVED_BY_LABEL_PREFIX}folder5_approver1",
             ],
-            id="test_check_pr_approved_specific_folder_no_root_approvers",
+            id="test_check_pr_approved_folder_with_owner_no_root_approvers",
         ),
         pytest.param(
             [
@@ -369,7 +369,7 @@ def test_check_pr_not_approved(
             [
                 f"{APPROVED_BY_LABEL_PREFIX}root_approver1",
             ],
-            id="test_check_pr_approved_specific_folder_without_owners",
+            id="test_check_pr_specific_folder_without_owners",
         ),
         pytest.param(
             [
@@ -407,14 +407,14 @@ def test_check_pr_not_approved(
             [
                 f"{APPROVED_BY_LABEL_PREFIX}root_approver1",
             ],
-            id="test_check_pr_deep_nested_folder_specific_approvers",
+            id="test_check_pr_deep_nested_folder_withowners_requires_root_approvers",
         ),
         pytest.param(
             ["folder/folder4/test_folder1/test_folder2/file1.txt", "folder3/test.py"],
             [
                 f"{APPROVED_BY_LABEL_PREFIX}root_approver2",
             ],
-            id="test_check_pr_with_deep_nested_folder_root_approvers",
+            id="test_check_pr_with_multiple_folder_root_approvers",
         ),
     ],
     indirect=["process_github_webhook"],
@@ -439,7 +439,7 @@ def test_check_pr_approved_with_folders(process_github_webhook, all_approvers_an
                 "root_approver1",
                 "root_approver2",
             ],
-            id="test_check_pr_approved_specific_folder_with_root_approvers",
+            id="test_check_pr_approved_specific_folder_requires_root_approvers",
         ),
         pytest.param(
             [
@@ -466,12 +466,26 @@ def test_check_pr_approved_with_folders(process_github_webhook, all_approvers_an
                 "root_approver1",
                 "root_approver2",
             ],
-            id="test_check_pr_not_approved_folder_with_no_owners_and_folder_without_root_approvers",
+            id="test_check_pr_not_approved_folder_with_no_owners_and_folder_with_root_approvers",
+        ),
+        pytest.param(
+            [
+                "folder_with_no_owners/file",
+                "folder5/file",
+            ],
+            [
+                f"{APPROVED_BY_LABEL_PREFIX}root_approver1",
+            ],
+            [
+                "folder5_approver1",
+                "folder5_approver2",
+            ],
+            id="test_check_pr_not_approved_folder_with_no_owners_and_folder_approvers",
         ),
     ],
     indirect=["process_github_webhook"],
 )
-def test_check_pr_approved_specific_folder_negative(
+def test_check_pr_not_approved_specific_folder_negative(
     process_github_webhook, all_approvers_and_reviewers, approval_label, expected_approvers
 ):
     process_github_webhook.all_approvers = process_github_webhook.get_all_approvers()

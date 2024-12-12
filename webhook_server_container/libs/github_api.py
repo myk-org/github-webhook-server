@@ -2072,6 +2072,14 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         return data
 
     def _get_owner_data_for_changed_folder(self, _changed_folder: str) -> dict[str, Any]:
+        # if we find entry for the changed folder in self.all_approvers_and_reviewers, then we return it
+        # else we start from the parent and go all the way to root and combine all approvers and owners found
+        # return the same. "root-approvers" would be copied from the owner file found below root
+        # Example: if a file file1.txt is changed, that is found under
+        # test_folder0/test_folder_1/test_folder2/test_folder3/, reviewers and
+        # approvers from test_folder3, test_folder2, test_folder1, test_folder0 and root all would be combined
+        # to get approvers and reviewers of file1.txt
+
         _aggregated_owners: dict[str, Any] = {"approvers": [], "reviewers": []}
         owners_data = self.all_approvers_and_reviewers
         if owners_data.get(_changed_folder):
