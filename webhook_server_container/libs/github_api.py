@@ -200,7 +200,7 @@ Available user actions:
             self.last_commit = self._get_last_commit()
             self.parent_committer = self.pull_request.user.login
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
-            self.changed_files = self.list_changed_commit_files()
+            self.changed_files = self.list_changed_files()
             self.pull_request_branch = self.pull_request.base.ref
             self.all_approvers_and_reviewers = self.get_all_approvers_and_reviewers()
             self.all_approvers = self.get_all_approvers()
@@ -592,8 +592,8 @@ stderr: `{_err}`
         self.logger.debug(f"{self.log_prefix} ROOT Approvers: {_approvers}")
         return _approvers
 
-    def list_changed_commit_files(self) -> list[str]:
-        return [fd["filename"] for fd in self.last_commit.raw_data["files"]]
+    def list_changed_files(self) -> list[str]:
+        return [_file.filename for _file in self.pull_request.get_files()]
 
     def assign_reviewers(self) -> None:
         self.logger.info(f"{self.log_prefix} Assign reviewers")
@@ -2031,7 +2031,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     self.logger.error(f"{self.log_prefix} Invalid OWNERS file {content_path}: {exp}")
                     continue
 
-        self.logger.debug(f"{self.log_prefix} Owners file mapping: {_owners}")
         return _owners
 
     def get_all_approvers(self) -> list[str]:
@@ -2086,6 +2085,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                         data["."] = self.all_approvers_and_reviewers.get(".", {})
                         break
 
+        self.logger.debug(f"{self.log_prefix} Owners data for current pull request: {yaml.dump(data)}")
         return data
 
     def _validate_owners_content(self, content: Any, path: str) -> bool:
