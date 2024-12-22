@@ -2208,6 +2208,8 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     break
 
         missing_approvers = list(set(missing_approvers))
+        if self.parent_committer in missing_approvers:
+            missing_approvers.remove(self.parent_committer)
 
         if missing_approvers:
             return f"Missing lgtm/approved from approvers: {', '.join(missing_approvers)}\n"
