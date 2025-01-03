@@ -1111,6 +1111,7 @@ stderr: `{_err}`
             error_msg: str = f"{self.log_prefix} {missing_command_arg_comment_msg}"
             self.logger.debug(error_msg)
             self.pull_request.create_issue_comment(missing_command_arg_comment_msg)
+            return
 
         if _command == COMMAND_ASSIGN_REVIEWER_STR:
             self._add_reviewer_by_user_comment(reviewer=_args)
@@ -2217,7 +2218,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         return ""
 
     def _add_reviewer_by_user_comment(self, reviewer: str) -> None:
-        self.logger.debug(f"{self.log_prefix} Adding reviewer {reviewer} by user comment")
+        self.logger.info(f"{self.log_prefix} Adding reviewer {reviewer} by user comment")
 
         for contributer in self.repository.get_contributors():
             if contributer.login == reviewer:
