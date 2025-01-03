@@ -37,6 +37,7 @@ from webhook_server_container.utils.constants import (
     CHANGED_REQUESTED_BY_LABEL_PREFIX,
     CHERRY_PICK_LABEL_PREFIX,
     CHERRY_PICKED_LABEL_PREFIX,
+    COMMAND_ASSIGN_REVIEWER_STR,
     COMMAND_ASSIGN_REVIEWERS_STR,
     COMMAND_CHECK_CAN_MERGE_STR,
     COMMAND_CHERRY_PICK_STR,
@@ -173,6 +174,7 @@ Available user actions:
  * To add a label by comment use `/<label name>`, to remove, use `/<label name> cancel`
  * To assign reviewers based on OWNERS file use `/assign-reviewers`
  * To check if PR can be merged use `/check-can-merge`
+ * to assign reviewer to PR use `/assign-reviewer <reviewer>`
 
 <details>
 <summary>Supported /retest check runs</summary>
@@ -1084,6 +1086,7 @@ stderr: `{_err}`
             COMMAND_ASSIGN_REVIEWERS_STR,
             COMMAND_CHECK_CAN_MERGE_STR,
             BUILD_AND_PUSH_CONTAINER_STR,
+            COMMAND_ASSIGN_REVIEWER_STR,
         ]
 
         command_and_args: List[str] = command.split(" ", 1)
@@ -1102,11 +1105,14 @@ stderr: `{_err}`
         if remove := len(command_and_args) > 1 and _args == "cancel":
             self.logger.debug(f"{self.log_prefix} User requested 'cancel' for command {_command}")
 
-        if _command == COMMAND_RETEST_STR and not _args:
-            comment_msg: str = f"{_command} requires an argument"
-            error_msg: str = f"{self.log_prefix} {comment_msg}"
+        if _command in (COMMAND_RETEST_STR, COMMAND_ASSIGN_REVIEWER_STR) and not _args:
+            missing_command_arg_comment_msg: str = f"{_command} requires an argument"
+            error_msg: str = f"{self.log_prefix} {missing_command_arg_comment_msg}"
             self.logger.debug(error_msg)
-            self.pull_request.create_issue_comment(comment_msg)
+            self.pull_request.create_issue_comment(missing_command_arg_comment_msg)
+
+        if _command == COMMAND_ASSIGN_REVIEWER_STR:
+            self._add_reviewer_by_user_comment(reviewer=_args)
 
         elif _command == COMMAND_ASSIGN_REVIEWERS_STR:
             self.assign_reviewers()
@@ -2215,3 +2221,14 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             return f"Missing lgtm/approved from approvers: {', '.join(missing_approvers)}\n"
 
         return ""
+
+    def _add_reviewer_by_user_comment(self, reviewer: str) -> None:
+        self.logger.debug(f"{self.log_prefix} Adding reviewer {reviewer} by user comment")
+
+        for contrubuter in self.repository.get_contributors():
+            if contrubuter.login == reviewer:
+                self.pull_request.create_review_request([reviewer])
+
+        _err = f"not adding reviewer {reviewer} by user comment, {reviewer} is not part of contrubuters"
+        self.logger.debug(f"{self.log_prefix} {_err}")
+        self.pull_request.create_issue_comment(_err)
