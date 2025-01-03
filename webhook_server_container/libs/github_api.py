@@ -37,6 +37,7 @@ from webhook_server_container.utils.constants import (
     CHANGED_REQUESTED_BY_LABEL_PREFIX,
     CHERRY_PICK_LABEL_PREFIX,
     CHERRY_PICKED_LABEL_PREFIX,
+    COMMAND_ASSIGN_REVIEWER_STR,
     COMMAND_ASSIGN_REVIEWERS_STR,
     COMMAND_CHECK_CAN_MERGE_STR,
     COMMAND_CHERRY_PICK_STR,
@@ -173,6 +174,7 @@ Available user actions:
  * To add a label by comment use `/<label name>`, to remove, use `/<label name> cancel`
  * To assign reviewers based on OWNERS file use `/assign-reviewers`
  * To check if PR can be merged use `/check-can-merge`
+ * to assign reviewer to PR use `/assign-reviewer <reviewer>`
 
 <details>
 <summary>Supported /retest check runs</summary>
@@ -650,7 +652,6 @@ stderr: `{_err}`
             f"{self.log_prefix} {DELETE_STR if remove else ADD_STR} "
             f"label requested by user {reviewed_user}: {user_requested_label}"
         )
-        self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
 
         if user_requested_label == LGTM_STR:
             self.manage_reviewed_by_label(
@@ -1078,12 +1079,15 @@ stderr: `{_err}`
                 return self.set_run_pre_commit_check_failure(output=output)
 
     def user_commands(self, command: str, reviewed_user: str, issue_comment_id: int) -> None:
+        self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
+
         available_commands: List[str] = [
             COMMAND_RETEST_STR,
             COMMAND_CHERRY_PICK_STR,
             COMMAND_ASSIGN_REVIEWERS_STR,
             COMMAND_CHECK_CAN_MERGE_STR,
             BUILD_AND_PUSH_CONTAINER_STR,
+            COMMAND_ASSIGN_REVIEWER_STR,
         ]
 
         command_and_args: List[str] = command.split(" ", 1)
@@ -1102,11 +1106,15 @@ stderr: `{_err}`
         if remove := len(command_and_args) > 1 and _args == "cancel":
             self.logger.debug(f"{self.log_prefix} User requested 'cancel' for command {_command}")
 
-        if _command == COMMAND_RETEST_STR and not _args:
-            comment_msg: str = f"{_command} requires an argument"
-            error_msg: str = f"{self.log_prefix} {comment_msg}"
+        if _command in (COMMAND_RETEST_STR, COMMAND_ASSIGN_REVIEWER_STR) and not _args:
+            missing_command_arg_comment_msg: str = f"{_command} requires an argument"
+            error_msg: str = f"{self.log_prefix} {missing_command_arg_comment_msg}"
             self.logger.debug(error_msg)
-            self.pull_request.create_issue_comment(comment_msg)
+            self.pull_request.create_issue_comment(missing_command_arg_comment_msg)
+            return
+
+        if _command == COMMAND_ASSIGN_REVIEWER_STR:
+            self._add_reviewer_by_user_comment(reviewer=_args)
 
         elif _command == COMMAND_ASSIGN_REVIEWERS_STR:
             self.assign_reviewers()
@@ -1124,7 +1132,6 @@ stderr: `{_err}`
 
         elif _command == BUILD_AND_PUSH_CONTAINER_STR:
             if self.build_and_push_container:
-                self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
                 self._run_build_container(push=True, set_check=False, command_args=_args)
             else:
                 msg = f"No {BUILD_AND_PUSH_CONTAINER_STR} configured for this repository"
@@ -1133,7 +1140,6 @@ stderr: `{_err}`
                 self.pull_request.create_issue_comment(msg)
 
         elif _command == WIP_STR:
-            self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
             wip_for_title: str = f"{WIP_STR.upper()}:"
             if remove:
                 self._remove_label(label=WIP_STR)
@@ -1143,7 +1149,6 @@ stderr: `{_err}`
                 self.pull_request.edit(title=f"{wip_for_title} {self.pull_request.title}")
 
         elif _command == HOLD_LABEL_STR:
-            self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
             if reviewed_user not in self.all_approvers:
                 self.pull_request.create_issue_comment(
                     f"{reviewed_user} is not part of the approver, only approvers can mark pull request as hold"
@@ -1157,7 +1162,6 @@ stderr: `{_err}`
                 self.check_if_can_be_merged()
 
         elif _command == VERIFIED_LABEL_STR:
-            self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
             if remove:
                 self._remove_label(label=VERIFIED_LABEL_STR)
                 self.set_verify_check_queued()
@@ -1745,7 +1749,6 @@ stderr: `{_err}`
                 )
 
     def process_cherry_pick_command(self, issue_comment_id: int, command_args: str, reviewed_user: str) -> None:
-        self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
         _target_branches: List[str] = command_args.split()
         _exits_target_branches: Set[str] = set()
         _non_exits_target_branches_msg: str = ""
@@ -1826,8 +1829,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             self.pull_request.create_issue_comment(msg)
 
         if _supported_retests:
-            self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
-
             _retest_to_exec: List[Future] = []
             with ThreadPoolExecutor() as executor:
                 for _test in _supported_retests:
@@ -2215,3 +2216,15 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             return f"Missing lgtm/approved from approvers: {', '.join(missing_approvers)}\n"
 
         return ""
+
+    def _add_reviewer_by_user_comment(self, reviewer: str) -> None:
+        self.logger.info(f"{self.log_prefix} Adding reviewer {reviewer} by user comment")
+
+        for contributer in self.repository.get_contributors():
+            if contributer.login == reviewer:
+                self.pull_request.create_review_request([reviewer])
+                return
+
+        _err = f"not adding reviewer {reviewer} by user comment, {reviewer} is not part of contributers"
+        self.logger.debug(f"{self.log_prefix} {_err}")
+        self.pull_request.create_issue_comment(_err)

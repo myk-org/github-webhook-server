@@ -6,7 +6,7 @@ import subprocess
 from concurrent.futures import Future, as_completed
 from typing import Any, Dict, List, Optional, Tuple
 from colorama import Fore
-from github import Github
+import github
 from github.RateLimit import RateLimit
 from github.Repository import Repository
 from simple_logger.logger import get_logger
@@ -57,7 +57,7 @@ def extract_key_from_dict(key: Any, _dict: Dict[Any, Any]) -> Any:
                         yield result
 
 
-def get_github_repo_api(github_api: Github, repository: int | str) -> Repository:
+def get_github_repo_api(github_api: github.Github, repository: int | str) -> Repository:
     return github_api.get_repo(repository)
 
 
@@ -138,8 +138,8 @@ def run_command(
         return False, out_decoded, err_decoded
 
 
-def get_apis_and_tokes_from_config(config: Config, repository_name: str = "") -> List[Tuple[Github, str]]:
-    apis_and_tokens: List[Tuple[Github, str]] = []
+def get_apis_and_tokes_from_config(config: Config, repository_name: str = "") -> List[Tuple[github.Github, str]]:
+    apis_and_tokens: List[Tuple[github.Github, str]] = []
 
     tokens = get_value_from_dicts(
         primary_dict=config.repository_data(repository_name=repository_name),
@@ -149,12 +149,14 @@ def get_apis_and_tokes_from_config(config: Config, repository_name: str = "") ->
     )
 
     for _token in tokens:
-        apis_and_tokens.append((Github(login_or_token=_token), _token))
+        apis_and_tokens.append((github.Github(auth=github.Auth.Token(_token)), _token))
 
     return apis_and_tokens
 
 
-def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -> Tuple[Github | None, str | None]:
+def get_api_with_highest_rate_limit(
+    config: Config, repository_name: str = ""
+) -> Tuple[github.Github | None, str | None]:
     """
     Get API with the highest rate limit
 
@@ -167,7 +169,7 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
     """
     logger = get_logger_with_params(name="helpers")
 
-    api: Optional[Github] = None
+    api: Optional[github.Github] = None
     token: Optional[str] = None
     _api_user: str = ""
     rate_limit: Optional[RateLimit] = None
