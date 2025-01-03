@@ -652,7 +652,6 @@ stderr: `{_err}`
             f"{self.log_prefix} {DELETE_STR if remove else ADD_STR} "
             f"label requested by user {reviewed_user}: {user_requested_label}"
         )
-        self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
 
         if user_requested_label == LGTM_STR:
             self.manage_reviewed_by_label(
@@ -1080,6 +1079,8 @@ stderr: `{_err}`
                 return self.set_run_pre_commit_check_failure(output=output)
 
     def user_commands(self, command: str, reviewed_user: str, issue_comment_id: int) -> None:
+        self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
+
         available_commands: List[str] = [
             COMMAND_RETEST_STR,
             COMMAND_CHERRY_PICK_STR,
@@ -1130,7 +1131,6 @@ stderr: `{_err}`
 
         elif _command == BUILD_AND_PUSH_CONTAINER_STR:
             if self.build_and_push_container:
-                self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
                 self._run_build_container(push=True, set_check=False, command_args=_args)
             else:
                 msg = f"No {BUILD_AND_PUSH_CONTAINER_STR} configured for this repository"
@@ -1139,7 +1139,6 @@ stderr: `{_err}`
                 self.pull_request.create_issue_comment(msg)
 
         elif _command == WIP_STR:
-            self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
             wip_for_title: str = f"{WIP_STR.upper()}:"
             if remove:
                 self._remove_label(label=WIP_STR)
@@ -1149,7 +1148,6 @@ stderr: `{_err}`
                 self.pull_request.edit(title=f"{wip_for_title} {self.pull_request.title}")
 
         elif _command == HOLD_LABEL_STR:
-            self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
             if reviewed_user not in self.all_approvers:
                 self.pull_request.create_issue_comment(
                     f"{reviewed_user} is not part of the approver, only approvers can mark pull request as hold"
@@ -1163,7 +1161,6 @@ stderr: `{_err}`
                 self.check_if_can_be_merged()
 
         elif _command == VERIFIED_LABEL_STR:
-            self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
             if remove:
                 self._remove_label(label=VERIFIED_LABEL_STR)
                 self.set_verify_check_queued()
@@ -1751,7 +1748,6 @@ stderr: `{_err}`
                 )
 
     def process_cherry_pick_command(self, issue_comment_id: int, command_args: str, reviewed_user: str) -> None:
-        self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
         _target_branches: List[str] = command_args.split()
         _exits_target_branches: Set[str] = set()
         _non_exits_target_branches_msg: str = ""
@@ -1832,8 +1828,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             self.pull_request.create_issue_comment(msg)
 
         if _supported_retests:
-            self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
-
             _retest_to_exec: List[Future] = []
             with ThreadPoolExecutor() as executor:
                 for _test in _supported_retests:
