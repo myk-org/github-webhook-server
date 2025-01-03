@@ -2225,10 +2225,11 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
     def _add_reviewer_by_user_comment(self, reviewer: str) -> None:
         self.logger.debug(f"{self.log_prefix} Adding reviewer {reviewer} by user comment")
 
-        for contrubuter in self.repository.get_contributors():
-            if contrubuter.login == reviewer:
+        for contributer in self.repository.get_contributors():
+            if contributer.login == reviewer:
                 self.pull_request.create_review_request([reviewer])
+                return
 
-        _err = f"not adding reviewer {reviewer} by user comment, {reviewer} is not part of contrubuters"
+        _err = f"not adding reviewer {reviewer} by user comment, {reviewer} is not part of contributers"
         self.logger.debug(f"{self.log_prefix} {_err}")
         self.pull_request.create_issue_comment(_err)
