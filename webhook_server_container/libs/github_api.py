@@ -174,7 +174,7 @@ Available user actions:
  * To add a label by comment use `/<label name>`, to remove, use `/<label name> cancel`
  * To assign reviewers based on OWNERS file use `/assign-reviewers`
  * To check if PR can be merged use `/check-can-merge`
- * to assign reviewer to PR use `/assign-reviewer <reviewer>`
+ * to assign reviewer to PR use `/assign-reviewer @<reviewer>`
 
 <details>
 <summary>Supported /retest check runs</summary>
