@@ -2218,6 +2218,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         return ""
 
     def _add_reviewer_by_user_comment(self, reviewer: str) -> None:
+        reviewer = reviewer.strip("@")
         self.logger.info(f"{self.log_prefix} Adding reviewer {reviewer} by user comment")
 
         for contributer in self.repository.get_contributors():
