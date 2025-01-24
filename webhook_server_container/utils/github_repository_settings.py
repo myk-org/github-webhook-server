@@ -4,13 +4,13 @@ from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from github import Github, GithubIntegration, Auth
-from github.Repository import Repository
-from github.Branch import Branch
-from github.Label import Label
-from github.Commit import Commit
+from github import Auth, Github, GithubIntegration
 from github.Auth import AppAuth
+from github.Branch import Branch
+from github.Commit import Commit
 from github.GithubException import UnknownObjectException
+from github.Label import Label
+from github.Repository import Repository
 
 from webhook_server_container.libs.config import Config
 from webhook_server_container.utils.constants import (
@@ -111,7 +111,7 @@ def get_required_status_checks(
     if data.get("pre-commit"):
         default_status_checks.append(PRE_COMMIT_STR)
 
-    with contextlib.suppress(UnknownObjectException):
+    with contextlib.suppress(Exception):
         repo.get_contents(".pre-commit-config.yaml")
         default_status_checks.append("pre-commit.ci - pr")
 
