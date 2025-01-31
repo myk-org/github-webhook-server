@@ -1,29 +1,30 @@
 from __future__ import annotations
-from uuid import uuid4
+
 import contextlib
-import shutil
-from pathlib import Path
 import json
 import logging
 import os
 import random
 import re
+import shutil
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from pathlib import Path
 from typing import Any, Callable, Dict, Generator, List, Optional, Set, Tuple
-from github.CheckRun import CheckRun
-from stringcolor import cs
+from uuid import uuid4
 
-from github.Branch import Branch
 import requests
 import shortuuid
-from starlette.datastructures import Headers
 import yaml
 from github import GithubException
+from github.Branch import Branch
+from github.CheckRun import CheckRun
 from github.Commit import Commit
-from github.PullRequest import PullRequest
 from github.GithubException import UnknownObjectException
-from timeout_sampler import TimeoutSampler, TimeoutExpiredError
+from github.PullRequest import PullRequest
+from starlette.datastructures import Headers
+from stringcolor import cs
+from timeout_sampler import TimeoutExpiredError, TimeoutSampler
 
 from webhook_server_container.libs.config import Config
 from webhook_server_container.libs.jira_api import JiraApi
@@ -53,6 +54,8 @@ from webhook_server_container.utils.constants import (
     LGTM_BY_LABEL_PREFIX,
     LGTM_STR,
     NEEDS_REBASE_LABEL_STR,
+    OTHER_MAIN_BRANCH,
+    PRE_COMMIT_STR,
     PYTHON_MODULE_INSTALL_STR,
     QUEUED_STR,
     REACTIONS,
@@ -63,19 +66,17 @@ from webhook_server_container.utils.constants import (
     USER_LABELS_DICT,
     VERIFIED_LABEL_STR,
     WIP_STR,
-    PRE_COMMIT_STR,
-    OTHER_MAIN_BRANCH,
 )
 from webhook_server_container.utils.github_repository_settings import (
     get_repository_github_app_api,
 )
 from webhook_server_container.utils.helpers import (
-    get_api_with_highest_rate_limit,
     extract_key_from_dict,
+    get_api_with_highest_rate_limit,
+    get_apis_and_tokes_from_config,
     get_github_repo_api,
     get_value_from_dicts,
     run_command,
-    get_apis_and_tokes_from_config,
 )
 
 
@@ -1730,6 +1731,7 @@ stderr: `{_err}`
             reviewers_and_approvers = self.root_reviewers + self.root_approvers
             if self.parent_committer in reviewers_and_approvers:
                 self.jira_assignee = self.jira_user_mapping.get(self.parent_committer)
+                self.add_api_users_to_auto_verified_and_merged_users
                 if not self.jira_assignee:
                     self.logger.debug(
                         f"{self.log_prefix} Jira tracking is disabled for the current pull request. "
