@@ -306,7 +306,7 @@ Available user actions:
 
         return self.repository_name
 
-    def prepare_log_prefix(self, pull_request: Optional[PullRequest] = None) -> str:
+    def prepare_log_prefix(self, pull_request: PullRequest | None = None) -> str:
         _repository_color = self._get_reposiroty_color_for_log_prefix()
         return (
             f"{_repository_color}[{self.github_event}][{self.x_github_delivery}][PR {pull_request.number}]:"
