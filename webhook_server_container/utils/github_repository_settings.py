@@ -4,6 +4,7 @@ from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import github
 from github import Auth, Github, GithubIntegration
 from github.Auth import AppAuth
 from github.Branch import Branch
@@ -26,9 +27,17 @@ from webhook_server_container.utils.constants import (
 from webhook_server_container.utils.helpers import (
     get_api_with_highest_rate_limit,
     get_future_results,
-    get_github_repo_api,
     get_logger_with_params,
 )
+
+
+def _get_github_repo_api(github_api: github.Github, repository: int | str) -> Repository | None:
+    logger = get_logger_with_params(name="github-repository-settings")
+    try:
+        return github_api.get_repo(repository)
+    except UnknownObjectException:
+        logger.error(f"Failed to get GitHub API for repository {repository}")
+        return None
 
 
 def get_branch_sampler(repo: Repository, branch_name: str) -> Branch:
@@ -199,7 +208,7 @@ def set_repository(
     repository: str = data["name"]
     logger.info(f"Processing repository {repository}")
     protected_branches: Dict[str, Any] = data.get("protected-branches", {})
-    repo = get_github_repo_api(github_api=github_api, repository=repository)
+    repo = _get_github_repo_api(github_api=github_api, repository=repository)
     if not repo:
         return False, f"{repository}: Failed to get repository", logger.error
 
@@ -292,8 +301,16 @@ def set_repository_check_runs_to_queued(
     if not repository_app_api:
         return False, "Failed to get repositories GitHub app API", logger.error
 
-    app_api = get_github_repo_api(github_api=repository_app_api, repository=repository)
-    repo = get_github_repo_api(github_api=github_api, repository=repository)
+    app_api = _get_github_repo_api(github_api=repository_app_api, repository=repository)
+    if not app_api:
+        logger.error(f"Failed to get GitHub app API for repository {repository}")
+        return False, f"Failed to get GitHub app API for repository {repository}", logger.error
+
+    repo = _get_github_repo_api(github_api=github_api, repository=repository)
+    if not repo:
+        logger.error(f"Failed to get GitHub API for repository {repository}")
+        return False, f"Failed to get GitHub API for repository {repository}", logger.error
+
     logger.info(f"{repository}: Set all {IN_PROGRESS_STR} check runs to {QUEUED_STR}")
     for pull_request in repo.get_pulls(state="open"):
         last_commit: Commit = list(pull_request.get_commits())[-1]

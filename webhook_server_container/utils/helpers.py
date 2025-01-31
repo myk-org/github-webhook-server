@@ -1,12 +1,14 @@
 from __future__ import annotations
+
 import datetime
-from logging import Logger
 import shlex
 import subprocess
 from concurrent.futures import Future, as_completed
+from logging import Logger
 from typing import Any, Dict, List, Optional, Tuple
-from colorama import Fore
+
 import github
+from colorama import Fore
 from github.RateLimit import RateLimit
 from github.Repository import Repository
 from simple_logger.logger import get_logger
