@@ -790,7 +790,7 @@ stderr: `{_err}`
         registry_info = self.container_repository.split("/")
         registry_url = "" if len(registry_info) < 3 else registry_info[0]
         base_regctl_command = (
-            "podman run --rm --net host -v regctl-conf:/home/appuser/.regctl/ ghcr.io/regclient/regctl:latest"
+            "podman run --rm --net host -v regctl-conf:/home/podman/.regctl/ ghcr.io/regclient/regctl:latest"
         )
 
         reg_login_cmd = f"{base_regctl_command} registry login {registry_url} -u {self.container_repository_username} -p {self.container_repository_password}"
