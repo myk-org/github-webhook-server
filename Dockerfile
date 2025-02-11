@@ -56,7 +56,9 @@ RUN set -x \
   && tar xvf $BIN_DIR/rosa-linux.tar.gz \
   && mv rosa $BIN_DIR/rosa \
   && chmod +x $BIN_DIR/rosa \
-  && rm -rf $BIN_DIR/rosa-linux.tar.gz
+  && rm -rf $BIN_DIR/rosa-linux.tar.gz \
+  && curl -L https://github.com/regclient/regclient/releases/latest/download/regctl-linux-amd64 >$BIN_DIR/regctl \
+  && chmod +x $BIN_DIR/regctl
 
 WORKDIR $APP_DIR
 

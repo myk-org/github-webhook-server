@@ -789,19 +789,16 @@ stderr: `{_err}`
         pr_tag = repository_full_tag.split(":")[-1]
         registry_info = self.container_repository.split("/")
         registry_url = "" if len(registry_info) < 3 else registry_info[0]
-        base_regctl_command = (
-            "podman run --rm --net host -v regctl-conf:/home/appuser/.regctl/ ghcr.io/regclient/regctl:latest"
-        )
 
-        reg_login_cmd = f"{base_regctl_command} registry login {registry_url} -u {self.container_repository_username} -p {self.container_repository_password}"
+        reg_login_cmd = f"regctl registry login {registry_url} -u {self.container_repository_username} -p {self.container_repository_password}"
         rc, out, err = self.run_podman_command(command=reg_login_cmd)
 
         if rc:
-            tag_ls_cmd = f"{base_regctl_command} tag ls {self.container_repository} --include {pr_tag}"
+            tag_ls_cmd = f"regctl tag ls {self.container_repository} --include {pr_tag}"
             rc, out, err = self.run_podman_command(command=tag_ls_cmd)
 
             if rc and out:
-                tag_del_cmd = f"{base_regctl_command} tag delete {repository_full_tag}"
+                tag_del_cmd = f"regctl tag delete {repository_full_tag}"
 
                 if self.run_podman_command(command=tag_del_cmd)[0]:
                     self.pull_request.create_issue_comment(f"Successfully removed PR tag: {repository_full_tag}.")
