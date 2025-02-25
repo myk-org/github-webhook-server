@@ -44,6 +44,7 @@ from webhook_server_container.utils.constants import (
     COMMAND_CHERRY_PICK_STR,
     COMMAND_RETEST_STR,
     COMMENTED_BY_LABEL_PREFIX,
+    CONVENTIONAL_TITLE_STR,
     DELETE_STR,
     DYNAMIC_LABELS_DICT,
     FAILURE_STR,
@@ -427,6 +428,9 @@ Available user actions:
             key="can-be-merged-required-labels",
             return_on_none=[],
         )
+        self.conventional_title: str = get_value_from_dicts(
+            primary_dict=repo_data, secondary_dict=config_data, key="conventional-title"
+        )
 
     def _get_pull_request(self, number: Optional[int] = None) -> PullRequest:
         if number:
@@ -743,6 +747,18 @@ stderr: `{_err}`
     def set_python_module_install_failure(self, output: Dict[str, Any]) -> None:
         return self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, conclusion=FAILURE_STR, output=output)
 
+    def set_conventional_title_queued(self) -> None:
+        return self.set_check_run_status(check_run=CONVENTIONAL_TITLE_STR, status=QUEUED_STR)
+
+    def set_conventional_title_in_progress(self) -> None:
+        return self.set_check_run_status(check_run=CONVENTIONAL_TITLE_STR, status=IN_PROGRESS_STR)
+
+    def set_conventional_title_success(self, output: Dict[str, Any]) -> None:
+        return self.set_check_run_status(check_run=CONVENTIONAL_TITLE_STR, conclusion=SUCCESS_STR, output=output)
+
+    def set_conventional_title_failure(self, output: Dict[str, Any]) -> None:
+        return self.set_check_run_status(check_run=CONVENTIONAL_TITLE_STR, conclusion=FAILURE_STR, output=output)
+
     def set_cherry_pick_in_progress(self) -> None:
         return self.set_check_run_status(check_run=CHERRY_PICKED_LABEL_PREFIX, status=IN_PROGRESS_STR)
 
@@ -849,6 +865,8 @@ stderr: `{_err}`
         pull_request_data: Dict[str, Any] = self.hook_data["pull_request"]
         self.parent_committer = pull_request_data["user"]["login"]
         self.pull_request_branch = pull_request_data["base"]["ref"]
+        self.set_conventional_title_queued()
+        self.conventional_title_check()
 
         if hook_action == "edited":
             self.set_wip_label_based_on_title()
@@ -1706,6 +1724,9 @@ stderr: `{_err}`
         if self.pypi:
             all_required_status_checks.append(PYTHON_MODULE_INSTALL_STR)
 
+        if self.conventional_title:
+            all_required_status_checks.append(CONVENTIONAL_TITLE_STR)
+
         _all_required_status_checks = branch_required_status_checks + all_required_status_checks
         self.logger.debug(f"{self.log_prefix} All required status checks: {_all_required_status_checks}")
         return _all_required_status_checks
@@ -2228,3 +2249,21 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         _err = f"not adding reviewer {reviewer} by user comment, {reviewer} is not part of contributers"
         self.logger.debug(f"{self.log_prefix} {_err}")
         self.pull_request.create_issue_comment(_err)
+
+    def conventional_title_check(self) -> None:
+        if self.conventional_title:
+            output: Dict[str, str] = {
+                "title": "Conventional Title",
+                "summary": "",
+                "text": "",
+            }
+            self.set_conventional_title_in_progress()
+            allowed_names = self.conventional_title.split(",")
+            title = self.pull_request.title
+            if any([title.startswith(_name) for _name in allowed_names]):
+                self.set_conventional_title_success(output=output)
+            else:
+                output["summary"] = "Failed"
+                output["text"] = f"pull_request title must starts with allowed title: {', '.join(allowed_names)}"
+
+                self.set_conventional_title_failure(output=output)

@@ -1,6 +1,5 @@
 from typing import Dict
 
-
 OTHER_MAIN_BRANCH: str = "master"
 TOX_STR: str = "tox"
 PRE_COMMIT_STR: str = "pre-commit"
@@ -14,6 +13,7 @@ DELETE_STR: str = "delete"
 CAN_BE_MERGED_STR: str = "can-be-merged"
 BUILD_CONTAINER_STR: str = "build-container"
 PYTHON_MODULE_INSTALL_STR: str = "python-module-install"
+CONVENTIONAL_TITLE_STR: str = "conventional-title"
 WIP_STR: str = "wip"
 LGTM_STR: str = "lgtm"
 CHERRY_PICK_LABEL_PREFIX: str = "cherry-pick-"
