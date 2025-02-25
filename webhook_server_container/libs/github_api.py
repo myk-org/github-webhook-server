@@ -865,8 +865,9 @@ stderr: `{_err}`
         pull_request_data: Dict[str, Any] = self.hook_data["pull_request"]
         self.parent_committer = pull_request_data["user"]["login"]
         self.pull_request_branch = pull_request_data["base"]["ref"]
-        self.set_conventional_title_queued()
-        self.conventional_title_check()
+        if self.conventional_title:
+            self.set_conventional_title_queued()
+            self.conventional_title_check()
 
         if hook_action == "edited":
             self.set_wip_label_based_on_title()
@@ -2251,19 +2252,18 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         self.pull_request.create_issue_comment(_err)
 
     def conventional_title_check(self) -> None:
-        if self.conventional_title:
-            output: Dict[str, str] = {
-                "title": "Conventional Title",
-                "summary": "",
-                "text": "",
-            }
-            self.set_conventional_title_in_progress()
-            allowed_names = self.conventional_title.split(",")
-            title = self.pull_request.title
-            if any([title.startswith(f"{_name}:") for _name in allowed_names]):
-                self.set_conventional_title_success(output=output)
-            else:
-                output["summary"] = "Failed"
-                output["text"] = f"Pull request title must starts with allowed title: {': ,'.join(allowed_names)}"
+        output: Dict[str, str] = {
+            "title": "Conventional Title",
+            "summary": "",
+            "text": "",
+        }
+        self.set_conventional_title_in_progress()
+        allowed_names = self.conventional_title.split(",")
+        title = self.pull_request.title
+        if any([title.startswith(f"{_name}:") for _name in allowed_names]):
+            self.set_conventional_title_success(output=output)
+        else:
+            output["summary"] = "Failed"
+            output["text"] = f"Pull request title must starts with allowed title: {': ,'.join(allowed_names)}"
 
-                self.set_conventional_title_failure(output=output)
+            self.set_conventional_title_failure(output=output)
