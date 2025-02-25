@@ -369,6 +369,7 @@ Available user actions:
         if self.github_app_api and self.pull_request:
             repository = self.github_app_api.get_repo(self.repository_full_name)
             try:
+                self.logger.debug(f"{self.log_prefix} getting repository config from {self.pull_request_branch} branch")
                 content = repository.get_contents(".gethub-webhok_server.config", ref=self.pull_request_branch)
                 if isinstance(content, list):
                     content = content[0]
