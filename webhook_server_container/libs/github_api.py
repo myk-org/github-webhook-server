@@ -10,7 +10,7 @@ import shutil
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Callable, Dict, Generator, List, Optional, Set, Tuple
+from typing import Any, Callable, Generator, List, Optional, Set, Tuple
 from uuid import uuid4
 
 import requests
@@ -90,7 +90,7 @@ class RepositoryNotFoundError(Exception):
 
 
 class ProcessGithubWehookError(Exception):
-    def __init__(self, err: Dict[str, str]):
+    def __init__(self, err: dict[str, str]):
         self.err = err
 
     def __str__(self) -> str:
@@ -98,24 +98,23 @@ class ProcessGithubWehookError(Exception):
 
 
 class ProcessGithubWehook:
-    def __init__(self, hook_data: Dict[Any, Any], headers: Headers, logger: logging.Logger) -> None:
+    def __init__(self, hook_data: dict[Any, Any], headers: Headers, logger: logging.Logger) -> None:
         self.logger = logger
         self.logger.name = "ProcessGithubWehook"
         self.hook_data = hook_data
         self.headers = headers
         self.repository_name: str = hook_data["repository"]["name"]
+        self.repository_full_name: str = self.hook_data["repository"]["full_name"]
         self.parent_committer: str = ""
         self.jira_track_pr: bool = False
         self.issue_title: str = ""
         self.all_required_status_checks: List[str] = []
         self.x_github_delivery: str = self.headers.get("X-GitHub-Delivery", "")
         self.github_event: str = self.headers["X-GitHub-Event"]
-        self.owners_content: Dict[str, Any] = {}
+        self.owners_content: dict[str, Any] = {}
 
         self.config = Config()
         self.log_prefix = self.prepare_log_prefix()
-        self._repo_data_from_config()
-
         self.github_app_api = get_repository_github_app_api(
             config_=self.config, repository_name=self.repository_full_name
         )
@@ -128,6 +127,14 @@ class ProcessGithubWehook:
                 ),
             )
             return
+
+        try:
+            self.pull_request = self._get_pull_request()
+            self.pull_request_branch = self.pull_request.base.ref
+        except NoPullRequestError:
+            pass
+
+        self._repo_data_from_config()
 
         self.github_api, self.token = get_api_with_highest_rate_limit(
             config=self.config, repository_name=self.repository_name
@@ -198,7 +205,9 @@ Available user actions:
         event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
 
         try:
-            self.pull_request = self._get_pull_request()
+            if not self.pull_request:
+                self.pull_request = self._get_pull_request()
+
             self.log_prefix = self.prepare_log_prefix(pull_request=self.pull_request)
             self.logger.debug(f"{self.log_prefix} {event_log}")
             self.last_commit = self._get_last_commit()
@@ -259,7 +268,7 @@ Available user actions:
         self.auto_verified_and_merged_users.extend([_api[0].get_user().login for _api in apis_and_tokens])
 
     def _get_reposiroty_color_for_log_prefix(self) -> str:
-        def _get_random_color(_colors: List[str], _json: Dict[str, str]) -> str:
+        def _get_random_color(_colors: List[str], _json: dict[str, str]) -> str:
             color = random.choice(_colors)
             _json[self.repository_name] = color
 
@@ -269,7 +278,7 @@ Available user actions:
             return self.repository_name
 
         _all_colors: List[str] = []
-        color_json: Dict[str, str]
+        color_json: dict[str, str]
         _colors_to_exclude = ("blue", "white", "black", "grey")
         color_file: str = os.path.join(self.config.data_dir, "log-colors.json")
 
@@ -316,7 +325,7 @@ Available user actions:
         )
 
     def process_pull_request_check_run_webhook_data(self) -> None:
-        _check_run: Dict[str, Any] = self.hook_data["check_run"]
+        _check_run: dict[str, Any] = self.hook_data["check_run"]
         check_run_name: str = _check_run["name"]
 
         if self.hook_data.get("action", "") != "completed":
@@ -351,36 +360,51 @@ Available user actions:
         self.logger.error(f"{self.log_prefix} No pull request found")
 
     def _repo_data_from_config(self) -> None:
+        local_repo_dict: dict[str, Any] = {}
         config_data = self.config.data  # Global repositories configuration
         repo_data = self.config.repository_data(
             repository_name=self.repository_name
         )  # Specific repository configuration
 
-        if not repo_data:
+        if self.github_app_api and self.pull_request:
+            repository = self.github_app_api.get_repo(self.repository_full_name)
+            try:
+                content = repository.get_contents(".gethub-webhok_server.config", ref=self.pull_request_branch)
+                if isinstance(content, list):
+                    content = content[0]
+
+                local_repo_data: str = content.decoded_content.decode()
+                local_repo_dict = yaml.safe_load(local_repo_data)
+            except Exception:
+                pass
+
+        if not repo_data or local_repo_dict:
             raise RepositoryNotFoundError(f"Repository {self.repository_name} not found in config file")
 
-        self.repository_full_name: str = repo_data["name"]
-        self.github_app_id: str = get_value_from_dicts(
-            primary_dict=repo_data, secondary_dict=config_data, key="github-app-id"
-        )
-        self.pypi: Dict[str, str] = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="pypi")
+        # self.github_app_id: str = get_value_from_dicts(
+        #     primary_dict=repo_data, secondary_dict=config_data, key="github-app-id"
+        # )
+        dicts = {
+            "primary_dict": local_repo_dict,
+            "secondary_dict": repo_data,
+            "third_dict": config_data,
+        }
+        self.pypi: dict[str, str] = get_value_from_dicts(**dicts, key="pypi")
         self.verified_job: bool = get_value_from_dicts(
-            primary_dict=repo_data,
-            secondary_dict=config_data,
+            **dicts,
             key="verified-job",
             return_on_none=True,
         )
-        self.tox: Dict[str, str] = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="tox")
+        self.tox: dict[str, str] = get_value_from_dicts(**dicts, key="tox")
         self.tox_python_version: str = get_value_from_dicts(
-            primary_dict=repo_data,
-            secondary_dict=config_data,
+            **dicts,
             key="tox-python-version",
             return_on_none=None,
         )
-        self.slack_webhook_url: str = get_value_from_dicts(
-            primary_dict=repo_data, secondary_dict=config_data, key="slack_webhook_url"
+        self.slack_webhook_url: str = get_value_from_dicts(**dicts, key="slack_webhook_url")
+        self.build_and_push_container: dict[str, Any] = get_value_from_dicts(
+            **dicts, key="container", return_on_none={}
         )
-        self.build_and_push_container: Dict[str, Any] = repo_data.get("container", {})
         if self.build_and_push_container:
             self.container_repository_username: str = self.build_and_push_container["username"]
             self.container_repository_password: str = self.build_and_push_container["password"]
@@ -392,23 +416,20 @@ Available user actions:
             self.container_release: bool = self.build_and_push_container.get("release", False)
 
         self.pre_commit: bool = get_value_from_dicts(
-            primary_dict=repo_data,
-            secondary_dict=config_data,
+            **dicts,
             key="pre-commit",
             return_on_none=False,
         )
 
         self.jira_enabled_repository: bool = False
-        self.jira_tracking: bool = get_value_from_dicts(
-            primary_dict=repo_data, secondary_dict=config_data, key="jira-tracking"
-        )
-        self.jira: Dict[str, Any] = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="jira")
+        self.jira_tracking: bool = get_value_from_dicts(**dicts, key="jira-tracking")
+        self.jira: dict[str, Any] = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="jira")
         if self.jira_tracking and self.jira:
             self.jira_server: str = self.jira["server"]
             self.jira_project: str = self.jira["project"]
             self.jira_token: str = self.jira["token"]
-            self.jira_epic: Optional[str] = self.jira.get("epic", "")
-            self.jira_user_mapping: Dict[str, str] = self.jira.get("user-mapping", {})
+            self.jira_epic: str = self.jira.get("epic", "")
+            self.jira_user_mapping: dict[str, str] = self.jira.get("user-mapping", {})
             self.jira_enabled_repository = all([self.jira_server, self.jira_project, self.jira_token])
             if not self.jira_enabled_repository:
                 self.logger.error(
@@ -417,20 +438,16 @@ Available user actions:
                 )
 
         self.auto_verified_and_merged_users: List[str] = get_value_from_dicts(
-            primary_dict=repo_data,
-            secondary_dict=config_data,
+            **dicts,
             key="auto-verified-and-merged-users",
             return_on_none=[],
         )
         self.can_be_merged_required_labels = get_value_from_dicts(
-            primary_dict=repo_data,
-            secondary_dict=config_data,
+            **dicts,
             key="can-be-merged-required-labels",
             return_on_none=[],
         )
-        self.conventional_title: str = get_value_from_dicts(
-            primary_dict=repo_data, secondary_dict=config_data, key="conventional-title"
-        )
+        self.conventional_title: str = get_value_from_dicts(**dicts, key="conventional-title")
 
     def _get_pull_request(self, number: Optional[int] = None) -> PullRequest:
         if number:
@@ -442,7 +459,7 @@ Available user actions:
             except GithubException:
                 continue
 
-        commit: Dict[str, Any] = self.hook_data.get("commit", {})
+        commit: dict[str, Any] = self.hook_data.get("commit", {})
         if commit:
             commit_obj = self.repository.get_commit(commit["sha"])
             with contextlib.suppress(Exception):
@@ -684,10 +701,10 @@ stderr: `{_err}`
     def set_run_tox_check_in_progress(self) -> None:
         return self.set_check_run_status(check_run=TOX_STR, status=IN_PROGRESS_STR)
 
-    def set_run_tox_check_failure(self, output: Dict[str, Any]) -> None:
+    def set_run_tox_check_failure(self, output: dict[str, Any]) -> None:
         return self.set_check_run_status(check_run=TOX_STR, conclusion=FAILURE_STR, output=output)
 
-    def set_run_tox_check_success(self, output: Dict[str, Any]) -> None:
+    def set_run_tox_check_success(self, output: dict[str, Any]) -> None:
         return self.set_check_run_status(check_run=TOX_STR, conclusion=SUCCESS_STR, output=output)
 
     def set_run_pre_commit_check_queued(self) -> None:
@@ -699,13 +716,13 @@ stderr: `{_err}`
     def set_run_pre_commit_check_in_progress(self) -> None:
         return self.set_check_run_status(check_run=PRE_COMMIT_STR, status=IN_PROGRESS_STR)
 
-    def set_run_pre_commit_check_failure(self, output: Optional[Dict[str, Any]] = None) -> None:
+    def set_run_pre_commit_check_failure(self, output: Optional[dict[str, Any]] = None) -> None:
         return self.set_check_run_status(check_run=PRE_COMMIT_STR, conclusion=FAILURE_STR, output=output)
 
-    def set_run_pre_commit_check_success(self, output: Optional[Dict[str, Any]] = None) -> None:
+    def set_run_pre_commit_check_success(self, output: Optional[dict[str, Any]] = None) -> None:
         return self.set_check_run_status(check_run=PRE_COMMIT_STR, conclusion=SUCCESS_STR, output=output)
 
-    def set_merge_check_queued(self, output: Optional[Dict[str, Any]] = None) -> None:
+    def set_merge_check_queued(self, output: Optional[dict[str, Any]] = None) -> None:
         return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, status=QUEUED_STR, output=output)
 
     def set_merge_check_in_progress(self) -> None:
@@ -714,7 +731,7 @@ stderr: `{_err}`
     def set_merge_check_success(self) -> None:
         return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, conclusion=SUCCESS_STR)
 
-    def set_merge_check_failure(self, output: Dict[str, Any]) -> None:
+    def set_merge_check_failure(self, output: dict[str, Any]) -> None:
         return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, conclusion=FAILURE_STR, output=output)
 
     def set_container_build_queued(self) -> None:
@@ -726,10 +743,10 @@ stderr: `{_err}`
     def set_container_build_in_progress(self) -> None:
         return self.set_check_run_status(check_run=BUILD_CONTAINER_STR, status=IN_PROGRESS_STR)
 
-    def set_container_build_success(self, output: Dict[str, Any]) -> None:
+    def set_container_build_success(self, output: dict[str, Any]) -> None:
         return self.set_check_run_status(check_run=BUILD_CONTAINER_STR, conclusion=SUCCESS_STR, output=output)
 
-    def set_container_build_failure(self, output: Dict[str, Any]) -> None:
+    def set_container_build_failure(self, output: dict[str, Any]) -> None:
         return self.set_check_run_status(check_run=BUILD_CONTAINER_STR, conclusion=FAILURE_STR, output=output)
 
     def set_python_module_install_queued(self) -> None:
@@ -741,10 +758,10 @@ stderr: `{_err}`
     def set_python_module_install_in_progress(self) -> None:
         return self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, status=IN_PROGRESS_STR)
 
-    def set_python_module_install_success(self, output: Dict[str, Any]) -> None:
+    def set_python_module_install_success(self, output: dict[str, Any]) -> None:
         return self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, conclusion=SUCCESS_STR, output=output)
 
-    def set_python_module_install_failure(self, output: Dict[str, Any]) -> None:
+    def set_python_module_install_failure(self, output: dict[str, Any]) -> None:
         return self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, conclusion=FAILURE_STR, output=output)
 
     def set_conventional_title_queued(self) -> None:
@@ -753,19 +770,19 @@ stderr: `{_err}`
     def set_conventional_title_in_progress(self) -> None:
         return self.set_check_run_status(check_run=CONVENTIONAL_TITLE_STR, status=IN_PROGRESS_STR)
 
-    def set_conventional_title_success(self, output: Dict[str, Any]) -> None:
+    def set_conventional_title_success(self, output: dict[str, Any]) -> None:
         return self.set_check_run_status(check_run=CONVENTIONAL_TITLE_STR, conclusion=SUCCESS_STR, output=output)
 
-    def set_conventional_title_failure(self, output: Dict[str, Any]) -> None:
+    def set_conventional_title_failure(self, output: dict[str, Any]) -> None:
         return self.set_check_run_status(check_run=CONVENTIONAL_TITLE_STR, conclusion=FAILURE_STR, output=output)
 
     def set_cherry_pick_in_progress(self) -> None:
         return self.set_check_run_status(check_run=CHERRY_PICKED_LABEL_PREFIX, status=IN_PROGRESS_STR)
 
-    def set_cherry_pick_success(self, output: Dict[str, Any]) -> None:
+    def set_cherry_pick_success(self, output: dict[str, Any]) -> None:
         return self.set_check_run_status(check_run=CHERRY_PICKED_LABEL_PREFIX, conclusion=SUCCESS_STR, output=output)
 
-    def set_cherry_pick_failure(self, output: Dict[str, Any]) -> None:
+    def set_cherry_pick_failure(self, output: dict[str, Any]) -> None:
         return self.set_check_run_status(check_run=CHERRY_PICKED_LABEL_PREFIX, conclusion=FAILURE_STR, output=output)
 
     def create_issue_for_new_pull_request(self) -> None:
@@ -862,7 +879,7 @@ stderr: `{_err}`
         hook_action: str = self.hook_data["action"]
         self.logger.info(f"{self.log_prefix} hook_action is: {hook_action}")
 
-        pull_request_data: Dict[str, Any] = self.hook_data["pull_request"]
+        pull_request_data: dict[str, Any] = self.hook_data["pull_request"]
         self.parent_committer = pull_request_data["user"]["login"]
         self.pull_request_branch = pull_request_data["base"]["ref"]
         if self.conventional_title:
@@ -946,7 +963,7 @@ stderr: `{_err}`
             if labeled.startswith(CHANGED_REQUESTED_BY_LABEL_PREFIX):
                 _reviewer = labeled.split(CHANGED_REQUESTED_BY_LABEL_PREFIX)[-1]
 
-            _approved_output: Dict[str, Any] = {"title": "Approved", "summary": "", "text": ""}
+            _approved_output: dict[str, Any] = {"title": "Approved", "summary": "", "text": ""}
             if _reviewer in self.all_approvers:
                 _check_for_merge = True
                 _approved_output["text"] += f"Approved by {_reviewer}.\n"
@@ -1061,7 +1078,7 @@ stderr: `{_err}`
         with self._prepare_cloned_repo_dir(clone_repo_dir=clone_repo_dir):
             rc, out, err = run_command(command=cmd, log_prefix=self.log_prefix)
 
-            output: Dict[str, Any] = {
+            output: dict[str, Any] = {
                 "title": "Tox",
                 "summary": "",
                 "text": self.get_check_run_text(err=err, out=out),
@@ -1085,7 +1102,7 @@ stderr: `{_err}`
         with self._prepare_cloned_repo_dir(clone_repo_dir=clone_repo_dir):
             rc, out, err = run_command(command=cmd, log_prefix=self.log_prefix)
 
-            output: Dict[str, Any] = {
+            output: dict[str, Any] = {
                 "title": "Pre-Commit",
                 "summary": "",
                 "text": self.get_check_run_text(err=err, out=out),
@@ -1438,7 +1455,7 @@ stderr: `{_err}`
             clone_repo_dir=clone_repo_dir,
         ):
             build_rc, build_out, build_err = self.run_podman_command(command=podman_build_cmd, pipe=True)
-            output: Dict[str, str] = {
+            output: dict[str, str] = {
                 "title": "Build container",
                 "summary": "",
                 "text": self.get_check_run_text(err=build_err, out=build_out),
@@ -1502,7 +1519,7 @@ stderr: `{_err}`
                 log_prefix=self.log_prefix,
             )
 
-            output: Dict[str, str] = {
+            output: dict[str, str] = {
                 "title": "Python module installation",
                 "summary": "",
                 "text": self.get_check_run_text(err=err, out=out),
@@ -1513,7 +1530,7 @@ stderr: `{_err}`
             return self.set_python_module_install_failure(output=output)
 
     def send_slack_message(self, message: str, webhook_url: str) -> None:
-        slack_data: Dict[str, str] = {"text": message}
+        slack_data: dict[str, str] = {"text": message}
         self.logger.info(f"{self.log_prefix} Sending message to slack: {message}")
         response: requests.Response = requests.post(
             webhook_url,
@@ -1586,9 +1603,9 @@ stderr: `{_err}`
         check_run: str,
         status: str = "",
         conclusion: str = "",
-        output: Optional[Dict[str, str]] = None,
+        output: Optional[dict[str, str]] = None,
     ) -> None:
-        kwargs: Dict[str, Any] = {"name": check_run, "head_sha": self.last_commit.sha}
+        kwargs: dict[str, Any] = {"name": check_run, "head_sha": self.last_commit.sha}
 
         if status:
             kwargs["status"] = status
@@ -1810,7 +1827,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         _target_tests: List[str] = command_args.split()
         _not_supported_retests: List[str] = []
         _supported_retests: List[str] = []
-        _retests_to_func_map: Dict[str, Callable] = {
+        _retests_to_func_map: dict[str, Callable] = {
             TOX_STR: self._run_tox,
             PRE_COMMIT_STR: self._run_pre_commit,
             BUILD_CONTAINER_STR: self._run_build_container,
@@ -2252,7 +2269,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         self.pull_request.create_issue_comment(_err)
 
     def conventional_title_check(self) -> None:
-        output: Dict[str, str] = {
+        output: dict[str, str] = {
             "title": "Conventional Title",
             "summary": "",
             "text": "",

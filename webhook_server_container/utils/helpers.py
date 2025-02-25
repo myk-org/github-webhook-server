@@ -20,14 +20,16 @@ def get_value_from_dicts(
     primary_dict: Dict[Any, Any],
     secondary_dict: Dict[Any, Any],
     key: str,
+    third_dict: dict[Any, Any] | None = None,
     return_on_none: Optional[Any] = None,
 ) -> Any:
     """
     Get value from two dictionaries.
 
-    If value is not found in primary_dict, try to get it from secondary_dict, otherwise return return_on_none.
+    If value is not found in primary_dict, try to get it from secondary_dict or the third_dict, otherwise return return_on_none.
     """
-    return primary_dict.get(key, secondary_dict.get(key, return_on_none))
+    third_dict = third_dict if third_dict else {}
+    return primary_dict.get(key, secondary_dict.get(key, third_dict.get(key, return_on_none)))
 
 
 def get_logger_with_params(name: str, repository_name: Optional[str] = "") -> Logger:
