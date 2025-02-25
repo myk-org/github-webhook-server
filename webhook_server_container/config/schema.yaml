@@ -148,3 +148,5 @@ properties:
   jira-tracking:
     type: boolean
     default: true
+
+  conventional-title: string

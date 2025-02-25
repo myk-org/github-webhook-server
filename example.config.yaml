@@ -92,3 +92,5 @@ repositories:
       epic: <EPIC KEY> # Optional
       user-mapping:
         <GITHUB USER>: <JIRA USER> # if github user is not the same as jira
+
+    conventional-title: "ci,docs,feat,fix,refactor,test,release" # Check PR title start with any of these words + :
