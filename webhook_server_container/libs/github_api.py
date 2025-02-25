@@ -2264,6 +2264,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 self.set_conventional_title_success(output=output)
             else:
                 output["summary"] = "Failed"
-                output["text"] = f"pull_request title must starts with allowed title: {', '.join(allowed_names)}"
+                output["text"] = f"Pull request title must starts with allowed title: {', '.join(allowed_names)}"
 
                 self.set_conventional_title_failure(output=output)
