@@ -30,6 +30,15 @@ from webhook_server_container.utils.helpers import (
     get_logger_with_params,
 )
 
+DEFAULT_BRANCH_PROTECTION = {
+    "strict": True,
+    "require_code_owner_reviews": False,
+    "dismiss_stale_reviews": True,
+    "required_approving_review_count": 0,
+    "required_linear_history": True,
+    "required_conversation_resolution": True,
+}
+
 
 def _get_github_repo_api(github_api: github.Github, repository: int | str) -> Repository | None:
     logger = get_logger_with_params(name="github-repository-settings")
@@ -49,19 +58,25 @@ def set_branch_protection(
     repository: Repository,
     required_status_checks: List[str],
     github_api: Github,
+    strict: bool,
+    require_code_owner_reviews: bool,
+    dismiss_stale_reviews: bool,
+    required_approving_review_count: int,
+    required_linear_history: bool,
+    required_conversation_resolution: bool,
 ) -> bool:
     logger = get_logger_with_params(name="github-repository-settings")
 
     api_user = github_api.get_user().login
     logger.info(f"Set branch {branch} setting for {repository.name}. enabled checks: {required_status_checks}")
     branch.edit_protection(
-        strict=True,
-        required_conversation_resolution=True,
+        strict=strict,
+        required_conversation_resolution=required_conversation_resolution,
         contexts=required_status_checks,
-        require_code_owner_reviews=False,
-        dismiss_stale_reviews=True,
-        required_approving_review_count=0,
-        required_linear_history=True,
+        require_code_owner_reviews=require_code_owner_reviews,
+        dismiss_stale_reviews=dismiss_stale_reviews,
+        required_approving_review_count=required_approving_review_count,
+        required_linear_history=required_linear_history,
         users_bypass_pull_request_allowances=[api_user],
         teams_bypass_pull_request_allowances=[api_user],
         apps_bypass_pull_request_allowances=[api_user],
@@ -168,6 +183,19 @@ def set_repository_labels(repository: Repository) -> str:
     return f"{repository}: Setting repository labels is done"
 
 
+def get_repo_branch_protection_rules(config_data: dict[str, Any], repo_data: dict[str, Any]) -> dict[str, Any]:
+    for key in DEFAULT_BRANCH_PROTECTION:
+        branch_protection_rule = None
+        if key in repo_data:
+            branch_protection_rule = repo_data[key]
+        elif key in config_data:
+            branch_protection_rule = config_data[key]
+        else:
+            branch_protection_rule = DEFAULT_BRANCH_PROTECTION[key]
+        repo_data[key] = branch_protection_rule
+    return repo_data
+
+
 def set_repositories_settings(config_: Config, github_api: Github) -> None:
     logger = get_logger_with_params(name="github-repository-settings")
 
@@ -186,6 +214,7 @@ def set_repositories_settings(config_: Config, github_api: Github) -> None:
     futures = []
     with ThreadPoolExecutor() as executor:
         for _, data in config_data["repositories"].items():
+            data = get_repo_branch_protection_rules(config_data=config_data, repo_data=data)
             futures.append(
                 executor.submit(
                     set_repository,
@@ -247,6 +276,12 @@ def set_repository(
                         set_branch_protection,
                         **{
                             "branch": branch,
+                            "strict": data["strict"],
+                            "require_code_owner_reviews": data["require_code_owner_reviews"],
+                            "dismiss_stale_reviews": data["dismiss_stale_reviews"],
+                            "required_approving_review_count": data["required_approving_review_count"],
+                            "required_linear_history": data["required_linear_history"],
+                            "required_conversation_resolution": data["required_conversation_resolution"],
                             "repository": repo,
                             "required_status_checks": required_status_checks,
                             "github_api": github_api,
