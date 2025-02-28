@@ -28,6 +28,7 @@ from webhook_server_container.utils.helpers import (
     get_api_with_highest_rate_limit,
     get_future_results,
     get_logger_with_params,
+    get_value_from_dicts,
 )
 
 DEFAULT_BRANCH_PROTECTION = {
@@ -184,15 +185,13 @@ def set_repository_labels(repository: Repository) -> str:
 
 
 def get_repo_branch_protection_rules(config_data: dict[str, Any], repo_data: dict[str, Any]) -> dict[str, Any]:
-    for key in DEFAULT_BRANCH_PROTECTION:
-        branch_protection_rule = None
-        if key in repo_data:
-            branch_protection_rule = repo_data[key]
-        elif key in config_data:
-            branch_protection_rule = config_data[key]
-        else:
-            branch_protection_rule = DEFAULT_BRANCH_PROTECTION[key]
-        repo_data[key] = branch_protection_rule
+    for rule_name in DEFAULT_BRANCH_PROTECTION:
+        repo_data[rule_name] = get_value_from_dicts(
+            primary_dict=repo_data,
+            secondary_dict=config_data,
+            key=rule_name,
+            return_on_none=DEFAULT_BRANCH_PROTECTION[rule_name],
+        )
     return repo_data
 
 

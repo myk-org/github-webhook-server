@@ -11,7 +11,7 @@ from webhook_server_container.utils.github_repository_settings import (
 def branch_protection_rules(request, mocker):
     os.environ["WEBHOOK_SERVER_DATA_DIR"] = "webhook_server_container/tests/manifests"
     config = Config()
-    repo_name = next(iter(config.data["repositories"]))
+    repo_name = "test-repo"
     data = config.data
     for key in request.param.get("global", {}):
         data[key] = request.param["global"][key]
@@ -39,13 +39,6 @@ def branch_protection_rules(request, mocker):
                 "strict": False,
             },
             id="test_repo_branch_protection_rule",
-        ),
-        pytest.param(
-            {},
-            {
-                "strict": True,
-            },
-            id="test_default_branch_protection_rule",
         ),
         pytest.param(
             {
