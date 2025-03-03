@@ -237,13 +237,27 @@ Following actions are done automatically:
 
 ## OWNERS file example
 
+Root approvers YAML:
+
 ```yaml
 approvers:
-  - myakove
-  - rnetser
+  - root-approver1
+  - root-approver2
 reviewers:
-  - myakove
-  - rnetser
+  - root-reviewer1
+  - root_reviewer2
+```
+
+Under folder inside the repositpory (for example `libs`):
+
+```yaml
+root-approvers: False # Not required repository root approvers for this folder
+approvers:
+  - lib-approver1
+  - lib-approver2
+reviewers:
+  - lib-reviewer1
+  - lib-reviewer2
 ```
 
 ### Supported user actions via adding comment

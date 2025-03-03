@@ -2096,6 +2096,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                         require_root_approvers = owners_data.get("root-approvers", True)
 
         if require_root_approvers or require_root_approvers is None:
+            self.logger.debug(f"{self.log_prefix} require root_approvers")
             data["."] = self.all_approvers_and_reviewers.get(".", {})
 
         else:
