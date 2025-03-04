@@ -186,9 +186,10 @@ def set_repository_labels(repository: Repository) -> str:
 
 def get_repo_branch_protection_rules(config_data: dict[str, Any], repo_data: dict[str, Any]) -> dict[str, Any]:
     for rule_name in DEFAULT_BRANCH_PROTECTION:
-        repo_data[rule_name] = get_value_from_dicts(
-            primary_dict=repo_data,
-            secondary_dict=config_data,
+        repo_data.setdefault("branch_protection", {})
+        repo_data["branch_protection"][rule_name] = get_value_from_dicts(
+            primary_dict=repo_data["branch_protection"],
+            secondary_dict=config_data.get("branch_protection", {}),
             key=rule_name,
             return_on_none=DEFAULT_BRANCH_PROTECTION[rule_name],
         )
@@ -275,12 +276,16 @@ def set_repository(
                         set_branch_protection,
                         **{
                             "branch": branch,
-                            "strict": data["strict"],
-                            "require_code_owner_reviews": data["require_code_owner_reviews"],
-                            "dismiss_stale_reviews": data["dismiss_stale_reviews"],
-                            "required_approving_review_count": data["required_approving_review_count"],
-                            "required_linear_history": data["required_linear_history"],
-                            "required_conversation_resolution": data["required_conversation_resolution"],
+                            "strict": data["branch_protection"]["strict"],
+                            "require_code_owner_reviews": data["branch_protection"]["require_code_owner_reviews"],
+                            "dismiss_stale_reviews": data["branch_protection"]["dismiss_stale_reviews"],
+                            "required_approving_review_count": data["branch_protection"][
+                                "required_approving_review_count"
+                            ],
+                            "required_linear_history": data["branch_protection"]["required_linear_history"],
+                            "required_conversation_resolution": data["branch_protection"][
+                                "required_conversation_resolution"
+                            ],
                             "repository": repo,
                             "required_status_checks": required_status_checks,
                             "github_api": github_api,

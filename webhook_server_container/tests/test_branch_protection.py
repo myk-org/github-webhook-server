@@ -13,14 +13,14 @@ def branch_protection_rules(request, mocker):
     config = Config()
     repo_name = "test-repo"
     data = config.data
-    for key in request.param.get("global", {}):
-        data[key] = request.param["global"][key]
-    for key in request.param.get("repo", {}):
-        data["repositories"][repo_name][key] = request.param["repo"][key]
+    data.setdefault("branch_protection", request.param.get("global", {}))
+    data["repositories"][repo_name].setdefault("branch_protection", request.param.get("repo", {}))
     mocker.patch(
         "webhook_server_container.libs.config.Config.data", new_callable=mocker.PropertyMock, return_value=data
     )
-    return get_repo_branch_protection_rules(config_data=config.data, repo_data=config.data["repositories"][repo_name])
+    return get_repo_branch_protection_rules(config_data=config.data, repo_data=config.data["repositories"][repo_name])[
+        "branch_protection"
+    ]
 
 
 @pytest.mark.parametrize(
