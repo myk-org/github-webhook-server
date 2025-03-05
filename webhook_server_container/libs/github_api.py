@@ -197,6 +197,10 @@ Available user actions:
 
         event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
 
+        self.all_approvers_and_reviewers = self.get_all_approvers_and_reviewers()
+        self.all_approvers = self.get_all_approvers()
+        self.all_reviewers = self.get_all_reviewers()
+
         try:
             self.pull_request = self._get_pull_request()
             self.log_prefix = self.prepare_log_prefix(pull_request=self.pull_request)
@@ -206,9 +210,6 @@ Available user actions:
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
             self.changed_files = self.list_changed_files()
             self.pull_request_branch = self.pull_request.base.ref
-            self.all_approvers_and_reviewers = self.get_all_approvers_and_reviewers()
-            self.all_approvers = self.get_all_approvers()
-            self.all_reviewers = self.get_all_reviewers()
 
             if self.jira_enabled_repository:
                 self.set_jira_in_pull_request()
@@ -344,6 +345,9 @@ Available user actions:
         )
         for _pull_request in self.repository.get_pulls(state="open"):
             if _pull_request.head.sha == check_run_head_sha:
+                self.logger.debug(
+                    f"{self.log_prefix} Found pull request {_pull_request.title} [{_pull_request.number}] for check run {check_run_name}"
+                )
                 self.pull_request = _pull_request
                 self.last_commit = self._get_last_commit()
                 return self.check_if_can_be_merged()
