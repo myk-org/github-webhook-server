@@ -344,6 +344,9 @@ Available user actions:
         )
         for _pull_request in self.repository.get_pulls(state="open"):
             if _pull_request.head.sha == check_run_head_sha:
+                self.logger.debug(
+                    f"{self.log_prefix} Found pull request {_pull_request.title} [{_pull_request.number}] for check run {check_run_name}"
+                )
                 self.pull_request = _pull_request
                 self.last_commit = self._get_last_commit()
                 return self.check_if_can_be_merged()
