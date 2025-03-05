@@ -1642,6 +1642,7 @@ stderr: `{_err}`
             # Checkout to requested branch/tag
             if checkout:
                 run_command(f"{git_cmd} checkout {checkout}", log_prefix=self.log_prefix)
+                run_command(f"{git_cmd} rebase {self.pull_request_branch}", log_prefix=self.log_prefix)
 
             # Checkout the branch if pull request is merged or for release
             else:
