@@ -237,6 +237,7 @@ def set_repository(
     repository: str = data["name"]
     logger.info(f"Processing repository {repository}")
     protected_branches: Dict[str, Any] = data.get("protected-branches", {})
+    repo_branch_protection_rules: Dict[str, Any] = data["branch_protection"]
     repo = _get_github_repo_api(github_api=github_api, repository=repository)
     if not repo:
         return False, f"{repository}: Failed to get repository", logger.error
@@ -270,26 +271,16 @@ def set_repository(
                     default_status_checks=_default_status_checks,
                     exclude_status_checks=exclude_status_checks,
                 )
-
                 futures.append(
                     executor.submit(
                         set_branch_protection,
                         **{
                             "branch": branch,
-                            "strict": data["branch_protection"]["strict"],
-                            "require_code_owner_reviews": data["branch_protection"]["require_code_owner_reviews"],
-                            "dismiss_stale_reviews": data["branch_protection"]["dismiss_stale_reviews"],
-                            "required_approving_review_count": data["branch_protection"][
-                                "required_approving_review_count"
-                            ],
-                            "required_linear_history": data["branch_protection"]["required_linear_history"],
-                            "required_conversation_resolution": data["branch_protection"][
-                                "required_conversation_resolution"
-                            ],
                             "repository": repo,
                             "required_status_checks": required_status_checks,
                             "github_api": github_api,
                         },
+                        **repo_branch_protection_rules,
                     )
                 )
 
