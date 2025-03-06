@@ -1759,7 +1759,7 @@ Publish to PYPI failed: `{_error}`
         if self.token:
             _output = _output.replace(self.token, _hased_str)
 
-        if self.jira_token:
+        if getattr(self, "jira_token", None):
             _output = _output.replace(self.jira_token, _hased_str)
 
         return _output
