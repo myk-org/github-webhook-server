@@ -1692,7 +1692,8 @@ Publish to PYPI failed: `{_error}`
 
                 if getattr(self, "pull_request", None):
                     rc, out, err = run_command(
-                        f"{git_cmd} rebase {self.pull_request_branch}", log_prefix=self.log_prefix
+                        f"{git_cmd} merge {self.pull_request_branch} -m 'Merge {self.pull_request_branch}'",
+                        log_prefix=self.log_prefix,
                     )
                     if not rc:
                         yield rc, out, err
@@ -1723,7 +1724,8 @@ Publish to PYPI failed: `{_error}`
 
                         if getattr(self, "pull_request", None):
                             rc, out, err = run_command(
-                                f"{git_cmd} rebase {self.pull_request_branch}", log_prefix=self.log_prefix
+                                f"{git_cmd} merge {self.pull_request_branch} -m 'Merge {self.pull_request_branch}'",
+                                log_prefix=self.log_prefix,
                             )
                             if not rc:
                                 yield rc, out, err
