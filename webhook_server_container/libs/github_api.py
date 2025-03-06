@@ -344,6 +344,9 @@ Available user actions:
         )
         for _pull_request in self.repository.get_pulls(state="open"):
             if _pull_request.head.sha == check_run_head_sha:
+                self.logger.debug(
+                    f"{self.log_prefix} Found pull request {_pull_request.title} [{_pull_request.number}] for check run {check_run_name}"
+                )
                 self.pull_request = _pull_request
                 self.last_commit = self._get_last_commit()
                 return self.check_if_can_be_merged()
@@ -538,34 +541,36 @@ Available user actions:
         return self.repository.get_branch(branch)
 
     def upload_to_pypi(self, tag_name: str) -> None:
-        def _error(_out: str, _err: str) -> None:
-            err: str = "Publish to pypi failed"
-            self.logger.error(f"{self.log_prefix} {err} - {_err}, {_out}")
+        def _issue_on_error(_error: str) -> None:
             self.repository.create_issue(
-                title=_err,
+                title=_error,
                 assignee=self.root_approvers[0] if self.root_approvers else "",
                 body=f"""
-stdout: `{_out}`
-stderr: `{_err}`
+Publish to PYPI failed: `{_error}`
 """,
             )
 
         clone_repo_dir = f"{self.clone_repo_dir}-{uuid4()}"
         uv_cmd_dir = f"--directory {clone_repo_dir}"
-        out: str = ""
         self.logger.info(f"{self.log_prefix} Start uploading to pypi")
         _dist_dir: str = f"{clone_repo_dir}/pypi-dist"
 
-        with self._prepare_cloned_repo_dir(checkout=tag_name, clone_repo_dir=clone_repo_dir):
+        with self._prepare_cloned_repo_dir(checkout=tag_name, clone_repo_dir=clone_repo_dir) as _res:
+            if not _res[0]:
+                _error = self.get_check_run_text(out=_res[1], err=_res[2])
+                return _issue_on_error(_error=_error)
+
             rc, out, err = run_command(
                 command=f"uv {uv_cmd_dir} build --sdist --out-dir {_dist_dir}", log_prefix=self.log_prefix
             )
             if not rc:
-                return _error(_out=out, _err=err)
+                _error = self.get_check_run_text(out=out, err=err)
+                return _issue_on_error(_error=_error)
 
             rc, tar_gz_file, err = run_command(command=f"ls {_dist_dir}", log_prefix=self.log_prefix)
             if not rc:
-                return _error(_out=out, _err=err)
+                _error = self.get_check_run_text(out=out, err=err)
+                return _issue_on_error(_error=_error)
 
             tar_gz_file = tar_gz_file.strip()
 
@@ -576,7 +581,8 @@ stderr: `{_err}`
             for cmd in commands:
                 rc, out, err = run_command(command=cmd, log_prefix=self.log_prefix)
                 if not rc:
-                    return _error(_out=out, _err=err)
+                    _error = self.get_check_run_text(out=out, err=err)
+                    return _issue_on_error(_error=_error)
 
             self.logger.info(f"{self.log_prefix} Publish to pypi finished")
             if self.slack_webhook_url:
@@ -1058,14 +1064,20 @@ stderr: `{_err}`
             cmd += f" -e {tests}"
 
         self.set_run_tox_check_in_progress()
-        with self._prepare_cloned_repo_dir(clone_repo_dir=clone_repo_dir):
-            rc, out, err = run_command(command=cmd, log_prefix=self.log_prefix)
-
+        with self._prepare_cloned_repo_dir(clone_repo_dir=clone_repo_dir) as _res:
             output: Dict[str, Any] = {
                 "title": "Tox",
                 "summary": "",
-                "text": self.get_check_run_text(err=err, out=out),
+                "text": None,
             }
+            if not _res[0]:
+                output["text"] = self.get_check_run_text(out=_res[1], err=_res[2])
+                return self.set_run_tox_check_failure(output=output)
+
+            rc, out, err = run_command(command=cmd, log_prefix=self.log_prefix)
+
+            output["text"] = self.get_check_run_text(err=err, out=out)
+
             if rc:
                 return self.set_run_tox_check_success(output=output)
             else:
@@ -1082,14 +1094,20 @@ stderr: `{_err}`
         clone_repo_dir = f"{self.clone_repo_dir}-{uuid4()}"
         cmd = f" uvx --directory {clone_repo_dir} {PRE_COMMIT_STR} run --all-files"
         self.set_run_pre_commit_check_in_progress()
-        with self._prepare_cloned_repo_dir(clone_repo_dir=clone_repo_dir):
-            rc, out, err = run_command(command=cmd, log_prefix=self.log_prefix)
-
+        with self._prepare_cloned_repo_dir(clone_repo_dir=clone_repo_dir) as _res:
             output: Dict[str, Any] = {
                 "title": "Pre-Commit",
                 "summary": "",
-                "text": self.get_check_run_text(err=err, out=out),
+                "text": None,
             }
+            if not _res[0]:
+                output["text"] = self.get_check_run_text(out=_res[1], err=_res[2])
+                return self.set_run_pre_commit_check_failure(output=output)
+
+            rc, out, err = run_command(command=cmd, log_prefix=self.log_prefix)
+
+            output["text"] = self.get_check_run_text(err=err, out=out)
+
             if rc:
                 return self.set_run_pre_commit_check_success(output=output)
             else:
@@ -1222,15 +1240,20 @@ stderr: `{_err}`
             ]
 
             rc, out, err = None, "", ""
-            with self._prepare_cloned_repo_dir(clone_repo_dir=clone_repo_dir):
+            with self._prepare_cloned_repo_dir(clone_repo_dir=clone_repo_dir) as _res:
+                output = {
+                    "title": "Cherry-pick details",
+                    "summary": "",
+                    "text": None,
+                }
+                if not _res[0]:
+                    output["text"] = self.get_check_run_text(out=_res[1], err=_res[2])
+                    self.set_cherry_pick_failure(output=output)
+
                 for cmd in commands:
                     rc, out, err = run_command(command=cmd, log_prefix=self.log_prefix)
                     if not rc:
-                        output = {
-                            "title": "Cherry-pick details",
-                            "summary": "",
-                            "text": self.get_check_run_text(err=err, out=out),
-                        }
+                        output["text"] = self.get_check_run_text(err=err, out=out)
                         self.set_cherry_pick_failure(output=output)
                         self.logger.error(f"{self.log_prefix} Cherry pick failed: {out} --- {err}")
                         local_branch_name = f"{self.pull_request.head.ref}-{target_branch}"
@@ -1249,11 +1272,8 @@ stderr: `{_err}`
                         )
                         return
 
-            output = {
-                "title": "Cherry-pick details",
-                "summary": "",
-                "text": self.get_check_run_text(err=err, out=out),
-            }
+            output["text"] = self.get_check_run_text(err=err, out=out)
+
             self.set_cherry_pick_success(output=output)
             self.pull_request.create_issue_comment(f"Cherry-picked PR {self.pull_request.title} into {target_branch}")
 
@@ -1436,13 +1456,19 @@ stderr: `{_err}`
             is_merged=is_merged,
             tag_name=tag,
             clone_repo_dir=clone_repo_dir,
-        ):
-            build_rc, build_out, build_err = self.run_podman_command(command=podman_build_cmd, pipe=True)
-            output: Dict[str, str] = {
+        ) as _res:
+            output: Dict[str, Any] = {
                 "title": "Build container",
                 "summary": "",
-                "text": self.get_check_run_text(err=build_err, out=build_out),
+                "text": None,
             }
+            if not _res[0]:
+                output["text"] = self.get_check_run_text(out=_res[1], err=_res[2])
+                if self.pull_request and set_check:
+                    return self.set_container_build_failure(output=output)
+
+            build_rc, build_out, build_err = self.run_podman_command(command=podman_build_cmd, pipe=True)
+            output["text"] = self.get_check_run_text(err=build_err, out=build_out)
 
             if build_rc:
                 self.logger.info(f"{self.log_prefix} Done building {_container_repository_and_tag}")
@@ -1496,17 +1522,23 @@ stderr: `{_err}`
         self.set_python_module_install_in_progress()
         with self._prepare_cloned_repo_dir(
             clone_repo_dir=clone_repo_dir,
-        ):
+        ) as _res:
+            output: Dict[str, Any] = {
+                "title": "Python module installation",
+                "summary": "",
+                "text": None,
+            }
+            if not _res[0]:
+                output["text"] = self.get_check_run_text(out=_res[1], err=_res[2])
+                return self.set_python_module_install_failure(output=output)
+
             rc, out, err = run_command(
                 command=f"uvx pip wheel --no-cache-dir -w {clone_repo_dir}/dist {clone_repo_dir}",
                 log_prefix=self.log_prefix,
             )
 
-            output: Dict[str, str] = {
-                "title": "Python module installation",
-                "summary": "",
-                "text": self.get_check_run_text(err=err, out=out),
-            }
+            output["text"] = self.get_check_run_text(err=err, out=out)
+
             if rc:
                 return self.set_python_module_install_success(output=output)
 
@@ -1619,63 +1651,118 @@ stderr: `{_err}`
         is_merged: bool = False,
         checkout: str = "",
         tag_name: str = "",
-    ) -> Generator[None, None, None]:
+    ) -> Generator[tuple[bool, Any, Any], None, None]:
         git_cmd = f"git --work-tree={clone_repo_dir} --git-dir={clone_repo_dir}/.git"
 
         # Clone the repository
-        run_command(
+        rc, out, err = run_command(
             command=f"git clone {self.repository.clone_url.replace('https://', f'https://{self.token}@')} "
             f"{clone_repo_dir}",
             log_prefix=self.log_prefix,
         )
         try:
-            run_command(
+            rc, out, err = run_command(
                 command=f"{git_cmd} config user.name '{self.repository.owner.login}'", log_prefix=self.log_prefix
             )
-            run_command(f"{git_cmd} config user.email '{self.repository.owner.email}'", log_prefix=self.log_prefix)
-            run_command(
+            if not rc:
+                yield rc, out, err
+
+            rc, out, err = run_command(
+                f"{git_cmd} config user.email '{self.repository.owner.email}'", log_prefix=self.log_prefix
+            )
+            if not rc:
+                yield rc, out, err
+
+            rc, out, err = run_command(
                 command=f"{git_cmd} config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*",
                 log_prefix=self.log_prefix,
             )
-            run_command(command=f"{git_cmd} remote update", log_prefix=self.log_prefix)
+            if not rc:
+                yield rc, out, err
+
+            rc, out, err = run_command(command=f"{git_cmd} remote update", log_prefix=self.log_prefix)
+            if not rc:
+                yield rc, out, err
 
             # Checkout to requested branch/tag
             if checkout:
-                run_command(f"{git_cmd} checkout {checkout}", log_prefix=self.log_prefix)
+                rc, out, err = run_command(f"{git_cmd} checkout {checkout}", log_prefix=self.log_prefix)
+                if not rc:
+                    yield rc, out, err
+
+                if getattr(self, "pull_request", None):
+                    rc, out, err = run_command(
+                        f"{git_cmd} rebase {self.pull_request_branch}", log_prefix=self.log_prefix
+                    )
+                    if not rc:
+                        yield rc, out, err
 
             # Checkout the branch if pull request is merged or for release
             else:
                 if is_merged:
-                    run_command(command=f"{git_cmd} checkout {self.pull_request_branch}", log_prefix=self.log_prefix)
+                    rc, out, err = run_command(
+                        command=f"{git_cmd} checkout {self.pull_request_branch}", log_prefix=self.log_prefix
+                    )
+                    if not rc:
+                        yield rc, out, err
 
                 elif tag_name:
-                    run_command(command=f"{git_cmd} checkout {tag_name}", log_prefix=self.log_prefix)
+                    rc, out, err = run_command(command=f"{git_cmd} checkout {tag_name}", log_prefix=self.log_prefix)
+                    if not rc:
+                        yield rc, out, err
 
                 # Checkout the pull request
                 else:
                     try:
                         pull_request = self._get_pull_request()
+                        rc, out, err = run_command(
+                            command=f"{git_cmd} checkout origin/pr/{pull_request.number}", log_prefix=self.log_prefix
+                        )
+                        if not rc:
+                            yield rc, out, err
+
+                        if getattr(self, "pull_request", None):
+                            rc, out, err = run_command(
+                                f"{git_cmd} rebase {self.pull_request_branch}", log_prefix=self.log_prefix
+                            )
+                            if not rc:
+                                yield rc, out, err
                     except NoPullRequestError:
                         self.logger.error(f"{self.log_prefix} [func:_run_in_container] No pull request found")
-                        return
+                        yield False, "", "[func:_run_in_container] No pull request found"
 
-                    run_command(
-                        command=f"{git_cmd} checkout origin/pr/{pull_request.number}", log_prefix=self.log_prefix
-                    )
-
-            yield
+            yield rc, out, err
 
         finally:
             self.logger.debug(f"{self.log_prefix} Deleting {clone_repo_dir}")
             shutil.rmtree(clone_repo_dir)
 
-    @staticmethod
-    def get_check_run_text(err: str, out: str) -> str:
+    def get_check_run_text(self, err: str, out: str) -> str:
         total_len: int = len(err) + len(out)
+
         if total_len > 65534:  # GitHub limit is 65535 characters
-            return f"```\n{err}\n\n{out}\n```"[:65534]
+            _output = f"```\n{err}\n\n{out}\n```"[:65534]
         else:
-            return f"```\n{err}\n\n{out}\n```"
+            _output = f"```\n{err}\n\n{out}\n```"
+
+        _hased_str = "*****"
+
+        if self.pypi and self.pypi.get("token"):
+            _output = _output.replace(self.pypi["token"], _hased_str)
+
+        if self.container_repository_username:
+            _output = _output.replace(self.container_repository_username, _hased_str)
+
+        if self.container_repository_password:
+            _output = _output.replace(self.container_repository_password, _hased_str)
+
+        if self.token:
+            _output = _output.replace(self.token, _hased_str)
+
+        if getattr(self, "jira_token", None):
+            _output = _output.replace(self.jira_token, _hased_str)
+
+        return _output
 
     def get_jira_conn(self) -> JiraApi:
         return JiraApi(
