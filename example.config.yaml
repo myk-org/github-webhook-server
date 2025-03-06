@@ -30,6 +30,14 @@ jira:
   user-mapping:
     <GITHUB USER>: <JIRA USER> # if github user is not the same as jira
 
+branch_protection:
+  strict: True
+  require_code_owner_reviews: True
+  dismiss_stale_reviews: False
+  required_approving_review_count: 1
+  required_linear_history: True
+  required_conversation_resolution: True
+
 repositories:
   my-repository:
     name: my-org/my-repository
@@ -94,3 +102,10 @@ repositories:
         <GITHUB USER>: <JIRA USER> # if github user is not the same as jira
 
     conventional-title: "ci,docs,feat,fix,refactor,test,release" # Check PR title start with any of these words + :
+    branch_protection:
+      strict: True
+      require_code_owner_reviews: True
+      dismiss_stale_reviews: False
+      required_approving_review_count: 1
+      required_linear_history: True
+      required_conversation_resolution: True
