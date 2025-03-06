@@ -541,37 +541,36 @@ Available user actions:
         return self.repository.get_branch(branch)
 
     def upload_to_pypi(self, tag_name: str) -> None:
-        def _error(_out: str, _err: str) -> None:
-            err: str = "Publish to pypi failed"
-            self.logger.error(f"{self.log_prefix} {err} - {_err}, {_out}")
+        def _issue_on_error(_error: str) -> None:
             self.repository.create_issue(
-                title=_err,
+                title=_error,
                 assignee=self.root_approvers[0] if self.root_approvers else "",
                 body=f"""
-stdout: `{_out}`
-stderr: `{_err}`
+Publish to PYPI failed: `{_error}`
 """,
             )
 
         clone_repo_dir = f"{self.clone_repo_dir}-{uuid4()}"
         uv_cmd_dir = f"--directory {clone_repo_dir}"
-        out: str = ""
         self.logger.info(f"{self.log_prefix} Start uploading to pypi")
         _dist_dir: str = f"{clone_repo_dir}/pypi-dist"
 
         with self._prepare_cloned_repo_dir(checkout=tag_name, clone_repo_dir=clone_repo_dir) as _res:
             if not _res[0]:
-                return _error(_out=_res[1], _err=_res[2])
+                _error = self.get_check_run_text(out=_res[1], err=_res[2])
+                return _issue_on_error(_error=_error)
 
             rc, out, err = run_command(
                 command=f"uv {uv_cmd_dir} build --sdist --out-dir {_dist_dir}", log_prefix=self.log_prefix
             )
             if not rc:
-                return _error(_out=out, _err=err)
+                _error = self.get_check_run_text(out=out, err=err)
+                return _issue_on_error(_error=_error)
 
             rc, tar_gz_file, err = run_command(command=f"ls {_dist_dir}", log_prefix=self.log_prefix)
             if not rc:
-                return _error(_out=out, _err=err)
+                _error = self.get_check_run_text(out=out, err=err)
+                return _issue_on_error(_error=_error)
 
             tar_gz_file = tar_gz_file.strip()
 
@@ -582,7 +581,8 @@ stderr: `{_err}`
             for cmd in commands:
                 rc, out, err = run_command(command=cmd, log_prefix=self.log_prefix)
                 if not rc:
-                    return _error(_out=out, _err=err)
+                    _error = self.get_check_run_text(out=out, err=err)
+                    return _issue_on_error(_error=_error)
 
             self.logger.info(f"{self.log_prefix} Publish to pypi finished")
             if self.slack_webhook_url:
@@ -1737,13 +1737,32 @@ stderr: `{_err}`
             self.logger.debug(f"{self.log_prefix} Deleting {clone_repo_dir}")
             shutil.rmtree(clone_repo_dir)
 
-    @staticmethod
-    def get_check_run_text(err: str, out: str) -> str:
+    def get_check_run_text(self, err: str, out: str) -> str:
         total_len: int = len(err) + len(out)
+
         if total_len > 65534:  # GitHub limit is 65535 characters
-            return f"```\n{err}\n\n{out}\n```"[:65534]
+            _output = f"```\n{err}\n\n{out}\n```"[:65534]
         else:
-            return f"```\n{err}\n\n{out}\n```"
+            _output = f"```\n{err}\n\n{out}\n```"
+
+        _hased_str = "*****"
+
+        if self.pypi and self.pypi.get("token"):
+            _output = _output.replace(self.pypi["token"], _hased_str)
+
+        if self.container_repository_username:
+            _output = _output.replace(self.container_repository_username, _hased_str)
+
+        if self.container_repository_password:
+            _output = _output.replace(self.container_repository_password, _hased_str)
+
+        if self.token:
+            _output = _output.replace(self.token, _hased_str)
+
+        if self.jira_token:
+            _output = _output.replace(self.jira_token, _hased_str)
+
+        return _output
 
     def get_jira_conn(self) -> JiraApi:
         return JiraApi(
