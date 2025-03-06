@@ -1752,10 +1752,10 @@ Publish to PYPI failed: `{_error}`
         if self.pypi and self.pypi.get("token"):
             _output = _output.replace(self.pypi["token"], _hased_str)
 
-        if self.container_repository_username:
+        if getattr(self, "container_repository_username", None):
             _output = _output.replace(self.container_repository_username, _hased_str)
 
-        if self.container_repository_password:
+        if getattr(self, "container_repository_password", None):
             _output = _output.replace(self.container_repository_password, _hased_str)
 
         if self.token:
