@@ -5,7 +5,7 @@ import shlex
 import subprocess
 from concurrent.futures import Future, as_completed
 from logging import Logger
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import github
 from colorama import Fore
@@ -17,23 +17,30 @@ from webhook_server_container.libs.config import Config
 
 
 def get_value_from_dicts(
-    primary_dict: Dict[Any, Any],
-    secondary_dict: Dict[Any, Any],
+    primary_dict: dict[Any, Any],
+    secondary_dict: dict[Any, Any],
     key: str,
-    return_on_none: Optional[Any] = None,
+    return_on_none: Any = None,
 ) -> Any:
     """
     Get value from two dictionaries.
 
     If value is not found in primary_dict, try to get it from secondary_dict, otherwise return return_on_none.
     """
-    return primary_dict.get(key, secondary_dict.get(key, return_on_none))
+    if primary_dict.get(key) is not None:
+        return primary_dict[key]
+
+    elif secondary_dict.get(key) is not None:
+        return secondary_dict[key]
+
+    else:
+        return return_on_none
 
 
-def get_logger_with_params(name: str, repository_name: Optional[str] = "") -> Logger:
+def get_logger_with_params(name: str, repository_name: str = "") -> Logger:
     _config = Config()
     config_data = _config.data  # Global repositories configuration
-    repo_data: Dict[str, Any] = {}
+    repo_data: dict[str, Any] = {}
 
     if repository_name:
         repo_data = _config.repository_data(repository_name=repository_name)  # Specific repository configuration
@@ -45,7 +52,7 @@ def get_logger_with_params(name: str, repository_name: Optional[str] = "") -> Lo
     return get_logger(name=name, filename=log_file, level=log_level, file_max_bytes=1048576 * 50)  # 50MB
 
 
-def extract_key_from_dict(key: Any, _dict: Dict[Any, Any]) -> Any:
+def extract_key_from_dict(key: Any, _dict: dict[Any, Any]) -> Any:
     if isinstance(_dict, dict):
         for _key, _val in _dict.items():
             if _key == key:
@@ -68,12 +75,12 @@ def run_command(
     log_prefix: str,
     verify_stderr: bool = False,
     shell: bool = False,
-    timeout: Optional[int] = None,
+    timeout: int | None = None,
     capture_output: bool = True,
     check: bool = False,
     pipe: bool = False,
     **kwargs: Any,
-) -> Tuple[bool, Any, Any]:
+) -> tuple[bool, Any, Any]:
     """
     Run command locally.
 
@@ -140,8 +147,8 @@ def run_command(
         return False, out_decoded, err_decoded
 
 
-def get_apis_and_tokes_from_config(config: Config, repository_name: str = "") -> List[Tuple[github.Github, str]]:
-    apis_and_tokens: List[Tuple[github.Github, str]] = []
+def get_apis_and_tokes_from_config(config: Config, repository_name: str = "") -> list[tuple[github.Github, str]]:
+    apis_and_tokens: list[tuple[github.Github, str]] = []
 
     tokens = get_value_from_dicts(
         primary_dict=config.repository_data(repository_name=repository_name),
@@ -158,7 +165,7 @@ def get_apis_and_tokes_from_config(config: Config, repository_name: str = "") ->
 
 def get_api_with_highest_rate_limit(
     config: Config, repository_name: str = ""
-) -> Tuple[github.Github | None, str | None]:
+) -> tuple[github.Github | None, str | None, str]:
     """
     Get API with the highest rate limit
 
@@ -171,12 +178,19 @@ def get_api_with_highest_rate_limit(
     """
     logger = get_logger_with_params(name="helpers")
 
-    api: Optional[github.Github] = None
-    token: Optional[str] = None
+    api: github.Github | None = None
+    token: str | None = None
     _api_user: str = ""
-    rate_limit: Optional[RateLimit] = None
+    rate_limit: RateLimit | None = None
 
     remaining = 0
+
+    msg = "Get API and token"
+
+    if repository_name:
+        msg += f" for repository {repository_name}"
+
+    logger.debug(msg)
 
     apis_and_tokens = get_apis_and_tokes_from_config(config=config, repository_name=repository_name)
     for _api, _token in apis_and_tokens:
@@ -184,14 +198,13 @@ def get_api_with_highest_rate_limit(
         rate_limit = _api.get_rate_limit()
         if rate_limit.core.remaining > remaining:
             remaining = rate_limit.core.remaining
-            logger.debug(f"API user {_api_user} remaining rate limit: {remaining}")
             api, token = _api, _token
 
     if rate_limit:
         log_rate_limit(rate_limit=rate_limit, api_user=_api_user)
 
     logger.info(f"API user {_api_user} selected with highest rate limit: {remaining}")
-    return api, token
+    return api, token, _api_user
 
 
 def log_rate_limit(rate_limit: RateLimit, api_user: str) -> None:
@@ -220,9 +233,9 @@ def log_rate_limit(rate_limit: RateLimit, api_user: str) -> None:
         logger.warning(msg)
 
 
-def get_future_results(futures: List["Future"]) -> None:
+def get_future_results(futures: list["Future"]) -> None:
     """
-    result must return Tuple[bool, str, Callable] when the Callable is Logger function (LOGGER.info, LOGGER.error, etc)
+    result must return tuple[bool, str, Callable] when the Callable is Logger function (LOGGER.info, LOGGER.error, etc)
     """
     for result in as_completed(futures):
         _res = result.result()
