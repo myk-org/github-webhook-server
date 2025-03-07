@@ -214,15 +214,12 @@ def set_repositories_settings(config_: Config) -> None:
     futures = []
     with ThreadPoolExecutor() as executor:
         for _, data in config_data["repositories"].items():
-            github_api, _ = get_api_with_highest_rate_limit(config=config, repository_name=data["name"])
-
             data = get_repo_branch_protection_rules(config_data=config_data, repo_data=data)
             futures.append(
                 executor.submit(
                     set_repository,
                     **{
                         "data": data,
-                        "github_api": github_api,
                         "default_status_checks": default_status_checks,
                     },
                 )
