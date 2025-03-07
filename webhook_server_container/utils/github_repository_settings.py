@@ -65,11 +65,13 @@ def set_branch_protection(
     required_approving_review_count: int,
     required_linear_history: bool,
     required_conversation_resolution: bool,
+    api_user: str,
 ) -> bool:
     logger = get_logger_with_params(name="github-repository-settings")
 
-    api_user = github_api.get_user().login
-    logger.info(f"Set branch {branch} setting for {repository.name}. enabled checks: {required_status_checks}")
+    logger.info(
+        f"[API user {api_user}] - Set branch {branch} setting for {repository.name}. enabled checks: {required_status_checks}"
+    )
     branch.edit_protection(
         strict=strict,
         required_conversation_resolution=required_conversation_resolution,
@@ -86,17 +88,17 @@ def set_branch_protection(
     return True
 
 
-def set_repository_settings(repository: Repository) -> None:
+def set_repository_settings(repository: Repository, api_user: str) -> None:
     logger = get_logger_with_params(name="github-repository-settings")
 
-    logger.info(f"Set repository {repository.name} settings")
+    logger.info(f"[API user {api_user}] - Set repository {repository.name} settings")
     repository.edit(delete_branch_on_merge=True, allow_auto_merge=True, allow_update_branch=True)
 
     if repository.private:
         logger.warning(f"{repository.name}: Repository is private, skipping setting security settings")
         return
 
-    logger.info(f"Set repository {repository.name} security settings")
+    logger.info(f"[API user {api_user}] - Set repository {repository.name} security settings")
     repository._requester.requestJsonAndCheck(
         "PATCH",
         f"{repository.url}/code-scanning/default-setup",
@@ -157,10 +159,10 @@ def get_user_configures_status_checks(status_checks: Dict[str, Any]) -> Tuple[Li
     return include_status_checks, exclude_status_checks
 
 
-def set_repository_labels(repository: Repository) -> str:
+def set_repository_labels(repository: Repository, api_user: str) -> str:
     logger = get_logger_with_params(name="github-repository-settings")
 
-    logger.info(f"Set repository {repository.name} labels")
+    logger.info(f"[API user {api_user}] - Set repository {repository.name} labels")
     repository_labels: Dict[str, Dict[str, Any]] = {}
     for label in repository.get_labels():
         repository_labels[label.name.lower()] = {
@@ -181,7 +183,7 @@ def set_repository_labels(repository: Repository) -> str:
             logger.debug(f"{repository.name}: Add repository label {label} with color {color}")
             repository.create_label(name=label, color=color)
 
-    return f"{repository}: Setting repository labels is done"
+    return f"[API user {api_user}] - {repository}: Setting repository labels is done"
 
 
 def get_repo_branch_protection_rules(config_data: dict[str, Any], repo_data: dict[str, Any]) -> dict[str, Any]:
@@ -196,7 +198,7 @@ def get_repo_branch_protection_rules(config_data: dict[str, Any], repo_data: dic
     return repo_data
 
 
-def set_repositories_settings(config_: Config) -> None:
+def set_repositories_settings(config_: Config, apis_dict: dict[str, dict[str, Any]]) -> None:
     logger = get_logger_with_params(name="github-repository-settings")
 
     logger.info("Processing repositories")
@@ -213,7 +215,7 @@ def set_repositories_settings(config_: Config) -> None:
 
     futures = []
     with ThreadPoolExecutor() as executor:
-        for _, data in config_data["repositories"].items():
+        for repo, data in config_data["repositories"].items():
             data = get_repo_branch_protection_rules(config_data=config_data, repo_data=data)
             futures.append(
                 executor.submit(
@@ -221,6 +223,8 @@ def set_repositories_settings(config_: Config) -> None:
                     **{
                         "data": data,
                         "default_status_checks": default_status_checks,
+                        "apis_dict": apis_dict,
+                        "repository_name": repo,
                     },
                 )
             )
@@ -228,36 +232,44 @@ def set_repositories_settings(config_: Config) -> None:
     get_future_results(futures=futures)
 
 
-def set_repository(data: Dict[str, Any], default_status_checks: List[str]) -> Tuple[bool, str, Callable]:
+def set_repository(
+    repository_name: str, data: Dict[str, Any], default_status_checks: List[str], apis_dict: dict[str, dict[str, Any]]
+) -> Tuple[bool, str, Callable]:
     logger = get_logger_with_params(name="github-repository-settings")
 
-    repository: str = data["name"]
-    logger.info(f"Processing repository {repository}")
+    full_repository_name: str = data["name"]
+    logger.info(f"Processing repository {full_repository_name}")
     protected_branches: Dict[str, Any] = data.get("protected-branches", {})
     repo_branch_protection_rules: Dict[str, Any] = data["branch_protection"]
-    github_api, _ = get_api_with_highest_rate_limit(config=config, repository_name=repository)
-    if not github_api:
-        return False, f"{repository}: Failed to get github api", logger.error
+    github_api = apis_dict[repository_name].get("api")
+    api_user = apis_dict[repository_name].get("user", "")
 
-    repo = _get_github_repo_api(github_api=github_api, repository=repository)
+    if not github_api:
+        return False, f"{full_repository_name}: Failed to get github api", logger.error
+
+    repo = _get_github_repo_api(github_api=github_api, repository=full_repository_name)
     if not repo:
-        return False, f"{repository}: Failed to get repository", logger.error
+        return False, f"[API user {api_user}] - {full_repository_name}: Failed to get repository", logger.error
 
     try:
-        set_repository_labels(repository=repo)
-        set_repository_settings(repository=repo)
+        set_repository_labels(repository=repo, api_user=api_user)
+        set_repository_settings(repository=repo, api_user=api_user)
 
         if repo.private:
-            return False, f"{repository}: Repository is private, skipping setting branch settings", logger.warning
+            return (
+                False,
+                f"{full_repository_name}: Repository is private, skipping setting branch settings",
+                logger.warning,
+            )
 
         futures: List["Future"] = []
 
         with ThreadPoolExecutor() as executor:
             for branch_name, status_checks in protected_branches.items():
-                logger.debug(f"{repository}: Getting branch {branch_name}")
+                logger.debug(f"[API user {api_user}] - {full_repository_name}: Getting branch {branch_name}")
                 branch = get_branch_sampler(repo=repo, branch_name=branch_name)
                 if not branch:
-                    logger.error(f"{repository}: Failed to get branch {branch_name}")
+                    logger.error(f"[API user {api_user}] - {full_repository_name}: Failed to get branch {branch_name}")
                     continue
 
                 _default_status_checks = deepcopy(default_status_checks)
@@ -280,6 +292,7 @@ def set_repository(data: Dict[str, Any], default_status_checks: List[str]) -> Tu
                             "repository": repo,
                             "required_status_checks": required_status_checks,
                             "github_api": github_api,
+                            "api_user": api_user,
                         },
                         **repo_branch_protection_rules,
                     )
@@ -290,12 +303,16 @@ def set_repository(data: Dict[str, Any], default_status_checks: List[str]) -> Tu
                 logger.error(result.exception())
 
     except UnknownObjectException as ex:
-        return False, f"{repository}: Failed to get repository settings, ex: {ex}", logger.error
+        return (
+            False,
+            f"[API user {api_user}] - {full_repository_name}: Failed to get repository settings, ex: {ex}",
+            logger.error,
+        )
 
-    return True, f"{repository}: Setting repository settings is done", logger.info
+    return True, f"[API user {api_user}] - {full_repository_name}: Setting repository settings is done", logger.info
 
 
-def set_all_in_progress_check_runs_to_queued(config_: Config) -> None:
+def set_all_in_progress_check_runs_to_queued(config_: Config, apis_dict: dict[str, dict[str, Any]]) -> None:
     check_runs = (
         PYTHON_MODULE_INSTALL_STR,
         CAN_BE_MERGED_STR,
@@ -306,16 +323,16 @@ def set_all_in_progress_check_runs_to_queued(config_: Config) -> None:
     futures: List["Future"] = []
 
     with ThreadPoolExecutor() as executor:
-        for _, data in config_.data["repositories"].items():
-            github_api, _ = get_api_with_highest_rate_limit(config=config, repository_name=data["name"])
+        for repo, data in config_.data["repositories"].items():
             futures.append(
                 executor.submit(
                     set_repository_check_runs_to_queued,
                     **{
                         "config_": config_,
                         "data": data,
-                        "github_api": github_api,
+                        "github_api": apis_dict[repo]["api"],
                         "check_runs": check_runs,
+                        "api_user": apis_dict[repo]["user"],
                     },
                 )
             )
@@ -324,24 +341,28 @@ def set_all_in_progress_check_runs_to_queued(config_: Config) -> None:
 
 
 def set_repository_check_runs_to_queued(
-    config_: Config, data: Dict[str, Any], github_api: Github, check_runs: Tuple[str]
+    config_: Config,
+    data: Dict[str, Any],
+    github_api: Github,
+    check_runs: Tuple[str],
+    api_user: str,
 ) -> Tuple[bool, str, Callable]:
     logger = get_logger_with_params(name="github-repository-settings")
 
     repository: str = data["name"]
     repository_app_api = get_repository_github_app_api(config_=config_, repository_name=repository)
     if not repository_app_api:
-        return False, "Failed to get repositories GitHub app API", logger.error
+        return False, f"[API user {api_user}] - {repository}: Failed to get repositories GitHub app API", logger.error
 
     app_api = _get_github_repo_api(github_api=repository_app_api, repository=repository)
     if not app_api:
-        logger.error(f"Failed to get GitHub app API for repository {repository}")
-        return False, f"Failed to get GitHub app API for repository {repository}", logger.error
+        logger.error(f"[API user {api_user}] - Failed to get GitHub app API for repository {repository}")
+        return False, f"[API user {api_user}] - Failed to get GitHub app API for repository {repository}", logger.error
 
     repo = _get_github_repo_api(github_api=github_api, repository=repository)
     if not repo:
-        logger.error(f"Failed to get GitHub API for repository {repository}")
-        return False, f"Failed to get GitHub API for repository {repository}", logger.error
+        logger.error(f"[API user {api_user}] - Failed to get GitHub API for repository {repository}")
+        return False, f"[API user {api_user}] - Failed to get GitHub API for repository {repository}", logger.error
 
     logger.info(f"{repository}: Set all {IN_PROGRESS_STR} check runs to {QUEUED_STR}")
     for pull_request in repo.get_pulls(state="open"):
@@ -349,12 +370,12 @@ def set_repository_check_runs_to_queued(
         for check_run in last_commit.get_check_runs():
             if check_run.name in check_runs and check_run.status == IN_PROGRESS_STR:
                 logger.warning(
-                    f"{repository}: [PR:{pull_request.number}] {check_run.name} status is {IN_PROGRESS_STR}, "
+                    f"[API user {api_user}] - {repository}: [PR:{pull_request.number}] {check_run.name} status is {IN_PROGRESS_STR}, "
                     f"Setting check run {check_run.name} to {QUEUED_STR}"
                 )
                 app_api.create_check_run(name=check_run.name, head_sha=last_commit.sha, status=QUEUED_STR)
 
-    return True, f"{repository}: Set check run status to {QUEUED_STR} is done", logger.debug
+    return True, f"[API user {api_user}] - {repository}: Set check run status to {QUEUED_STR} is done", logger.debug
 
 
 def get_repository_github_app_api(config_: Config, repository_name: str) -> Optional[Github]:
@@ -380,11 +401,32 @@ def get_repository_github_app_api(config_: Config, repository_name: str) -> Opti
         return None
 
 
+def get_repository_api(repository: str) -> tuple[str, github.Github | None, str]:
+    github_api, _, api_user = get_api_with_highest_rate_limit(config=config, repository_name=repository)
+    return repository, github_api, api_user
+
+
 if __name__ == "__main__":
     logger = get_logger_with_params(name="github-repository-settings")
 
     config = Config()
-    set_repositories_settings(config_=config)
-    set_all_in_progress_check_runs_to_queued(
-        config_=config,
-    )
+    apis_dict: dict[str, dict[str, Any]] = {}
+
+    apis: list = []
+    with ThreadPoolExecutor() as executor:
+        for repo, data in config.data["repositories"].items():
+            apis.append(
+                executor.submit(
+                    get_repository_api,
+                    **{"repository": repo},
+                )
+            )
+
+    for result in as_completed(apis):
+        repository, github_api, api_user = result.result()
+        apis_dict[repository] = {"api": github_api, "user": api_user}
+
+    logger.debug(f"Repositories APIs: {apis_dict}")
+
+    set_repositories_settings(config_=config, apis_dict=apis_dict)
+    set_all_in_progress_check_runs_to_queued(config_=config, apis_dict=apis_dict)

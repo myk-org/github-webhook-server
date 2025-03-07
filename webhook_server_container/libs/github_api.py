@@ -113,6 +113,17 @@ class ProcessGithubWehook:
         self.owners_content: Dict[str, Any] = {}
 
         self.config = Config()
+        self.github_api, self.token, self.api_user = get_api_with_highest_rate_limit(
+            config=self.config, repository_name=self.repository_name
+        )
+
+        if self.github_api and self.token:
+            self.repository = get_github_repo_api(github_api=self.github_api, repository=self.repository_full_name)
+
+        else:
+            self.logger.error(f"Failed to get GitHub API and token for repository {self.repository_name}.")
+            return
+
         self.log_prefix = self.prepare_log_prefix()
         self._repo_data_from_config()
 
@@ -127,17 +138,6 @@ class ProcessGithubWehook:
                     "make sure the app installed (https://github.com/apps/manage-repositories-app)"
                 ),
             )
-            return
-
-        self.github_api, self.token = get_api_with_highest_rate_limit(
-            config=self.config, repository_name=self.repository_name
-        )
-
-        if self.github_api and self.token:
-            self.repository = get_github_repo_api(github_api=self.github_api, repository=self.repository_full_name)
-
-        else:
-            self.logger.error(f"{self.log_prefix} Failed to get GitHub API and token.")
             return
 
         self.repository_by_github_app = get_github_repo_api(
@@ -310,9 +310,9 @@ Available user actions:
     def prepare_log_prefix(self, pull_request: PullRequest | None = None) -> str:
         _repository_color = self._get_reposiroty_color_for_log_prefix()
         return (
-            f"{_repository_color}[{self.github_event}][{self.x_github_delivery}][PR {pull_request.number}]:"
+            f"{_repository_color}[{self.github_event}][{self.x_github_delivery}][{self.api_user}][PR {pull_request.number}]:"
             if pull_request
-            else f"{_repository_color}[{self.github_event}][{self.x_github_delivery}]:"
+            else f"{_repository_color}[{self.github_event}][{self.x_github_delivery}][{self.api_user}]:"
         )
 
     def process_pull_request_check_run_webhook_data(self) -> None:
