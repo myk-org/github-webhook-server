@@ -113,6 +113,7 @@ class ProcessGithubWehook:
         self.owners_content: Dict[str, Any] = {}
 
         self.config = Config()
+        self._repo_data_from_config()
         self.github_api, self.token, self.api_user = get_api_with_highest_rate_limit(
             config=self.config, repository_name=self.repository_name
         )
@@ -125,7 +126,6 @@ class ProcessGithubWehook:
             return
 
         self.log_prefix = self.prepare_log_prefix()
-        self._repo_data_from_config()
 
         self.github_app_api = get_repository_github_app_api(
             config_=self.config, repository_name=self.repository_full_name

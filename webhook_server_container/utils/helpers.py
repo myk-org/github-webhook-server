@@ -27,10 +27,10 @@ def get_value_from_dicts(
 
     If value is not found in primary_dict, try to get it from secondary_dict, otherwise return return_on_none.
     """
-    if primary_dict.get(key):
+    if primary_dict.get(key) is not None:
         return primary_dict[key]
 
-    elif secondary_dict.get(key):
+    elif secondary_dict.get(key) is not None:
         return secondary_dict[key]
 
     else:
