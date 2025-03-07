@@ -2117,6 +2117,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         max_owners_files = 1000  # Configurable limit
         owners_count = 0
 
+        self.logger.debug(f"{self.log_prefix} Get git tree")
         tree = self.repository.get_git_tree(self.pull_request_branch, recursive=True)
         for element in tree.tree:
             if element.type == "blob" and element.path.endswith("OWNERS"):
@@ -2126,7 +2127,8 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     break
 
                 content_path = element.path
-                _path = self.repository.get_contents(content_path)
+                self.logger.debug(f"{self.log_prefix} Get OWNERS file from {content_path}")
+                _path = self.repository.get_contents(content_path, self.pull_request_branch)
                 if isinstance(_path, list):
                     _path = _path[0]
 
