@@ -1,6 +1,6 @@
-import pytest
-
 import yaml
+
+import pytest
 from webhook_server_container.tests.conftest import ContentFile, Tree
 from webhook_server_container.utils.constants import APPROVED_BY_LABEL_PREFIX
 
@@ -12,7 +12,7 @@ class Repository:
     def get_git_tree(self, sha: str, recursive: bool):
         return Tree("")
 
-    def get_contents(self, path: str):
+    def get_contents(self, path: str, ref):
         owners_data = yaml.dump({
             "approvers": ["root_approver1", "root_approver2"],
             "reviewers": ["root_reviewer1", "root_reviewer2"],

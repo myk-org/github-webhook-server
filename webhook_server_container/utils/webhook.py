@@ -1,8 +1,8 @@
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Tuple
 
-from github.Hook import Hook
 from github import Github
+from github.Hook import Hook
 
 from webhook_server_container.libs.config import Config
 from webhook_server_container.utils.helpers import (
@@ -11,7 +11,6 @@ from webhook_server_container.utils.helpers import (
     get_github_repo_api,
     get_logger_with_params,
 )
-
 
 LOGGER = get_logger_with_params(name="webhook")
 
@@ -39,13 +38,14 @@ def process_github_webhook(data: Dict[str, Any], github_api: Github, webhook_ip:
     return True, f"{repository}: Create webhook is done", LOGGER.info
 
 
-def create_webhook(config_: Config, github_api: Github) -> None:
+def create_webhook(config_: Config) -> None:
     LOGGER.info("Preparing webhook configuration")
     webhook_ip = config_.data["webhook_ip"]
 
     futures = []
     with ThreadPoolExecutor() as executor:
         for _, data in config_.data["repositories"].items():
+            github_api, _ = get_api_with_highest_rate_limit(config=config, repository_name=data["name"])
             futures.append(
                 executor.submit(
                     process_github_webhook,
@@ -58,8 +58,4 @@ def create_webhook(config_: Config, github_api: Github) -> None:
 
 if __name__ == "__main__":
     config = Config()
-    api, _ = get_api_with_highest_rate_limit(config=config)
-    if api:
-        create_webhook(config_=config, github_api=api)
-    else:
-        LOGGER.error("Failed to get GitHub API")
+    create_webhook(config_=config)
