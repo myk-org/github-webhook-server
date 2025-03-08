@@ -16,27 +16,6 @@ from simple_logger.logger import get_logger
 from webhook_server_container.libs.config import Config
 
 
-def get_value_from_dicts(
-    primary_dict: dict[Any, Any],
-    secondary_dict: dict[Any, Any],
-    key: str,
-    return_on_none: Any = None,
-) -> Any:
-    """
-    Get value from two dictionaries.
-
-    If value is not found in primary_dict, try to get it from secondary_dict, otherwise return return_on_none.
-    """
-    if primary_dict.get(key) is not None:
-        return primary_dict[key]
-
-    elif secondary_dict.get(key) is not None:
-        return secondary_dict[key]
-
-    else:
-        return return_on_none
-
-
 def get_logger_with_params(name: str, repository_name: str = "") -> Logger:
     _config = Config(repository=repository_name)
 
