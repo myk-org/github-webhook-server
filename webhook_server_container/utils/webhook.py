@@ -57,18 +57,20 @@ def process_github_webhook(
 
 
 def get_repository_api(repository: str) -> tuple[str, github.Github | None, str]:
+    config = Config(repository=repository)
     github_api, _, api_user = get_api_with_highest_rate_limit(config=config, repository_name=repository)
     return repository, github_api, api_user
 
 
-def create_webhook(config_: Config) -> None:
+def create_webhook() -> None:
+    config = Config()
     LOGGER.info("Preparing webhook configuration")
-    webhook_ip = config_.data["webhook_ip"]
+    webhook_ip = config.data["webhook_ip"]
     apis_dict: dict[str, dict[str, Any]] = {}
 
     apis: list = []
     with ThreadPoolExecutor() as executor:
-        for repo, data in config_.data["repositories"].items():
+        for repo, data in config.data["repositories"].items():
             apis.append(
                 executor.submit(
                     get_repository_api,
@@ -84,7 +86,7 @@ def create_webhook(config_: Config) -> None:
 
     futures = []
     with ThreadPoolExecutor() as executor:
-        for repo, data in config_.data["repositories"].items():
+        for repo, data in config.data["repositories"].items():
             futures.append(
                 executor.submit(
                     process_github_webhook,
@@ -96,5 +98,4 @@ def create_webhook(config_: Config) -> None:
 
 
 if __name__ == "__main__":
-    config = Config()
-    create_webhook(config_=config)
+    create_webhook()

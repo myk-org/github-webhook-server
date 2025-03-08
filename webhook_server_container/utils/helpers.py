@@ -38,17 +38,10 @@ def get_value_from_dicts(
 
 
 def get_logger_with_params(name: str, repository_name: str = "") -> Logger:
-    _config = Config()
-    config_data = _config.data  # Global repositories configuration
-    repo_data: dict[str, Any] = {}
+    _config = Config(repository=repository_name)
 
-    if repository_name:
-        repo_data = _config.repository_data(repository_name=repository_name)  # Specific repository configuration
-
-    log_level: str = get_value_from_dicts(
-        primary_dict=repo_data, secondary_dict=config_data, key="log-level", return_on_none="INFO"
-    )
-    log_file: str = get_value_from_dicts(primary_dict=repo_data, secondary_dict=config_data, key="log-file")
+    log_level: str = _config.get_value(value="log-level", return_on_none="INFO")
+    log_file: str = _config.get_value(value="log-file")
     return get_logger(name=name, filename=log_file, level=log_level, file_max_bytes=1048576 * 50)  # 50MB
 
 
@@ -147,15 +140,9 @@ def run_command(
         return False, out_decoded, err_decoded
 
 
-def get_apis_and_tokes_from_config(config: Config, repository_name: str = "") -> list[tuple[github.Github, str]]:
+def get_apis_and_tokes_from_config(config: Config) -> list[tuple[github.Github, str]]:
     apis_and_tokens: list[tuple[github.Github, str]] = []
-
-    tokens = get_value_from_dicts(
-        primary_dict=config.repository_data(repository_name=repository_name),
-        secondary_dict=config.data,
-        key="github-tokens",
-        return_on_none=[],
-    )
+    tokens = config.get_value(value="github-tokens")
 
     for _token in tokens:
         apis_and_tokens.append((github.Github(auth=github.Auth.Token(_token)), _token))
@@ -192,7 +179,7 @@ def get_api_with_highest_rate_limit(
 
     logger.debug(msg)
 
-    apis_and_tokens = get_apis_and_tokes_from_config(config=config, repository_name=repository_name)
+    apis_and_tokens = get_apis_and_tokes_from_config(config=config)
     for _api, _token in apis_and_tokens:
         _api_user = _api.get_user().login
         rate_limit = _api.get_rate_limit()
