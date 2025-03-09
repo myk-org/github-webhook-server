@@ -2058,6 +2058,9 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         if self.pre_commit:
             current_pull_request_supported_retest.append(PRE_COMMIT_STR)
 
+        if self.conventional_title:
+            current_pull_request_supported_retest.append(CONVENTIONAL_TITLE_STR)
+
         return current_pull_request_supported_retest
 
     def is_podman_bug(self, err: str) -> bool:
