@@ -38,7 +38,7 @@ dev-dependencies = [ "ipdb>=0.13.13", "ipython>=8.12.3" ]
 
 [project]
 name = "github-webhook-server"
-version = "2.0.8"
+version = "2.0.9"
 requires-python = ">=3.10"
 description = "A webhook server to manage Github reposotories and pull requests."
 readme = "README.md"
