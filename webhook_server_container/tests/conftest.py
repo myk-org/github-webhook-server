@@ -49,6 +49,7 @@ class ContentFile:
 class Repository:
     def __init__(self):
         self.name = "test-repo"
+        self.full_name = "my-org/test-repo"
 
     def get_git_tree(self, sha: str, recursive: bool):
         return Tree("")
@@ -104,7 +105,9 @@ def process_github_webhook(mocker, request):
     mocker.patch(f"{base_import_path}.get_github_repo_api", return_value=Repository())
 
     process_github_webhook = ProcessGithubWehook(
-        {"repository": {"name": Repository().name}}, Headers({"X-GitHub-Event": "test-event"}), logging.getLogger()
+        hook_data={"repository": {"name": Repository().name, "full_name": Repository().full_name}},
+        headers=Headers({"X-GitHub-Event": "test-event"}),
+        logger=logging.getLogger(),
     )
     process_github_webhook.pull_request_branch = "main"
     if hasattr(request, "param") and request.param:

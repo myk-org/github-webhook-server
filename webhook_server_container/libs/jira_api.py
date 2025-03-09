@@ -1,5 +1,6 @@
-from typing import Any, Dict, List
-from jira import Issue, JIRA
+from typing import Any
+
+from jira import JIRA, Issue
 
 from webhook_server_container.utils.helpers import get_logger_with_params
 
@@ -16,7 +17,7 @@ class JiraApi:
             token_auth=self.token,
         )
         self.conn.my_permissions()
-        self.fields: Dict[str, Any] = {"project": {"key": self.project}}
+        self.fields: dict[str, Any] = {"project": {"key": self.project}}
 
     def create_story(self, title: str, body: str, epic_key: str, assignee: str) -> str:
         self.fields.update({
@@ -51,5 +52,5 @@ class JiraApi:
         )
 
     def get_epic_custom_field(self) -> str:
-        _epic_field_id: List[str] = [cf["id"] for cf in self.conn.fields() if "Epic Link" in cf["name"]]
+        _epic_field_id: list[str] = [cf["id"] for cf in self.conn.fields() if "Epic Link" in cf["name"]]
         return _epic_field_id[0] if _epic_field_id else ""
