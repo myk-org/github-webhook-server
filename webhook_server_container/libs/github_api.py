@@ -10,7 +10,7 @@ import shutil
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Callable, Generator, Optional, Set, Tuple
+from typing import Any, Callable, Generator
 from uuid import uuid4
 
 import requests
@@ -385,7 +385,7 @@ Available user actions:
             self.jira_server: str = self.jira["server"]
             self.jira_project: str = self.jira["project"]
             self.jira_token: str = self.jira["token"]
-            self.jira_epic: Optional[str] = self.jira.get("epic", "")
+            self.jira_epic: str | None = self.jira.get("epic", "")
             self.jira_user_mapping: dict[str, str] = self.jira.get("user-mapping", {})
             self.jira_enabled_repository = all([self.jira_server, self.jira_project, self.jira_token])
             if not self.jira_enabled_repository:
@@ -402,7 +402,7 @@ Available user actions:
         )
         self.conventional_title: str = self.config.get_value(value="conventional-title")
 
-    def _get_pull_request(self, number: Optional[int] = None) -> PullRequest:
+    def _get_pull_request(self, number: int | None = None) -> PullRequest:
         if number:
             return self.repository.get_pull(number)
 
@@ -672,13 +672,13 @@ Publish to PYPI failed: `{_error}`
     def set_run_pre_commit_check_in_progress(self) -> None:
         return self.set_check_run_status(check_run=PRE_COMMIT_STR, status=IN_PROGRESS_STR)
 
-    def set_run_pre_commit_check_failure(self, output: Optional[dict[str, Any]] = None) -> None:
+    def set_run_pre_commit_check_failure(self, output: dict[str, Any] | None = None) -> None:
         return self.set_check_run_status(check_run=PRE_COMMIT_STR, conclusion=FAILURE_STR, output=output)
 
-    def set_run_pre_commit_check_success(self, output: Optional[dict[str, Any]] = None) -> None:
+    def set_run_pre_commit_check_success(self, output: dict[str, Any] | None = None) -> None:
         return self.set_check_run_status(check_run=PRE_COMMIT_STR, conclusion=SUCCESS_STR, output=output)
 
-    def set_merge_check_queued(self, output: Optional[dict[str, Any]] = None) -> None:
+    def set_merge_check_queued(self, output: dict[str, Any] | None = None) -> None:
         return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, status=QUEUED_STR, output=output)
 
     def set_merge_check_in_progress(self) -> None:
@@ -906,7 +906,7 @@ Publish to PYPI failed: `{_error}`
 
         if hook_action in ("labeled", "unlabeled"):
             _check_for_merge: bool = False
-            _reviewer: Optional[str] = None
+            _reviewer: str | None = None
             action_labeled = hook_action == "labeled"
             labeled = self.hook_data["label"]["name"].lower()
             if labeled == CAN_BE_MERGED_STR:
@@ -1585,7 +1585,7 @@ Publish to PYPI failed: `{_error}`
         check_run: str,
         status: str = "",
         conclusion: str = "",
-        output: Optional[dict[str, str]] = None,
+        output: dict[str, str] | None = None,
     ) -> None:
         kwargs: dict[str, Any] = {"name": check_run, "head_sha": self.last_commit.sha}
 
@@ -1827,7 +1827,7 @@ Publish to PYPI failed: `{_error}`
 
     def process_cherry_pick_command(self, issue_comment_id: int, command_args: str, reviewed_user: str) -> None:
         _target_branches: list[str] = command_args.split()
-        _exits_target_branches: Set[str] = set()
+        _exits_target_branches: set[str] = set()
         _non_exits_target_branches_msg: str = ""
 
         for _target_branch in _target_branches:
@@ -2065,7 +2065,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         shutil.rmtree("/tmp/storage-run-1000/containers", ignore_errors=True)
         shutil.rmtree("/tmp/storage-run-1000/libpod/tmp", ignore_errors=True)
 
-    def run_podman_command(self, command: str, pipe: bool = False) -> Tuple[bool, str, str]:
+    def run_podman_command(self, command: str, pipe: bool = False) -> tuple[bool, str, str]:
         rc, out, err = run_command(command=command, log_prefix=self.log_prefix, pipe=pipe)
 
         if rc:

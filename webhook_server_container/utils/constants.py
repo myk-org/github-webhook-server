@@ -1,5 +1,3 @@
-from typing import Dict
-
 OTHER_MAIN_BRANCH: str = "master"
 TOX_STR: str = "tox"
 PRE_COMMIT_STR: str = "pre-commit"
@@ -36,14 +34,14 @@ COMMAND_CHECK_CAN_MERGE_STR = "check-can-merge"
 COMMAND_ASSIGN_REVIEWER_STR = "assign-reviewer"
 
 # Gitlab colors require a '#' prefix; e.g: #
-USER_LABELS_DICT: Dict[str, str] = {
+USER_LABELS_DICT: dict[str, str] = {
     HOLD_LABEL_STR: "B60205",
     VERIFIED_LABEL_STR: "0E8A16",
     WIP_STR: "B60205",
     LGTM_STR: "0E8A16",
 }
 
-STATIC_LABELS_DICT: Dict[str, str] = {
+STATIC_LABELS_DICT: dict[str, str] = {
     **USER_LABELS_DICT,
     CHERRY_PICKED_LABEL_PREFIX: "1D76DB",
     f"{SIZE_LABEL_PREFIX}L": "F5621C",
@@ -57,7 +55,7 @@ STATIC_LABELS_DICT: Dict[str, str] = {
     HAS_CONFLICTS_LABEL_STR: "B60205",
 }
 
-DYNAMIC_LABELS_DICT: Dict[str, str] = {
+DYNAMIC_LABELS_DICT: dict[str, str] = {
     APPROVED_BY_LABEL_PREFIX: "0E8A16",
     LGTM_BY_LABEL_PREFIX: "DCED6F",
     COMMENTED_BY_LABEL_PREFIX: "D93F0B",
@@ -67,7 +65,7 @@ DYNAMIC_LABELS_DICT: Dict[str, str] = {
     JIRA_STR: "1D76DB",
 }
 
-ALL_LABELS_DICT: Dict[str, str] = {**STATIC_LABELS_DICT, **DYNAMIC_LABELS_DICT}
+ALL_LABELS_DICT: dict[str, str] = {**STATIC_LABELS_DICT, **DYNAMIC_LABELS_DICT}
 
 
 class REACTIONS:

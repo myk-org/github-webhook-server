@@ -1,5 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable
 
 import github
 from github.Hook import Hook
@@ -16,8 +16,8 @@ LOGGER = get_logger_with_params(name="webhook")
 
 
 def process_github_webhook(
-    repository_name: str, data: Dict[str, Any], webhook_ip: str, apis_dict: dict[str, dict[str, Any]]
-) -> Tuple[bool, str, Callable]:
+    repository_name: str, data: dict[str, Any], webhook_ip: str, apis_dict: dict[str, dict[str, Any]]
+) -> tuple[bool, str, Callable]:
     full_repository_name: str = data["name"]
     github_api = apis_dict[repository_name].get("api")
     api_user = apis_dict[repository_name].get("user")
@@ -29,11 +29,11 @@ def process_github_webhook(
     if not repo:
         return False, f"[API user {api_user}] - Could not find repository {full_repository_name}", LOGGER.error
 
-    config_: Dict[str, str] = {"url": f"{webhook_ip}/webhook_server", "content_type": "json"}
-    events: List[str] = data.get("events", ["*"])
+    config_: dict[str, str] = {"url": f"{webhook_ip}/webhook_server", "content_type": "json"}
+    events: list[str] = data.get("events", ["*"])
 
     try:
-        hooks: List[Hook] = list(repo.get_hooks())
+        hooks: list[Hook] = list(repo.get_hooks())
     except Exception as ex:
         return (
             False,
