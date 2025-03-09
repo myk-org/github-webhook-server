@@ -249,6 +249,9 @@ Available user actions:
         if self.pre_commit:
             retest_msg += f" * `/retest {PRE_COMMIT_STR}`: Retest pre-commit\n"
 
+        if self.conventional_title:
+            retest_msg += f"  * `/retest {CONVENTIONAL_TITLE_STR}`: Retest pre-commit\n"
+
         if retest_msg:
             retest_msg += " * `/retest all`: Retest all\n"
 
@@ -840,7 +843,7 @@ Publish to PYPI failed: `{_error}`
         self.pull_request_branch = pull_request_data["base"]["ref"]
         if self.conventional_title:
             self.set_conventional_title_queued()
-            self.conventional_title_check()
+            self._run_conventional_title_check()
 
         if hook_action == "edited":
             self.set_wip_label_based_on_title()
@@ -1871,6 +1874,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             PRE_COMMIT_STR: self._run_pre_commit,
             BUILD_CONTAINER_STR: self._run_build_container,
             PYTHON_MODULE_INSTALL_STR: self._run_install_python_module,
+            CONVENTIONAL_TITLE_STR: self._run_conventional_title_check,
         }
 
         if not _target_tests:
@@ -2310,7 +2314,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         self.logger.debug(f"{self.log_prefix} {_err}")
         self.pull_request.create_issue_comment(_err)
 
-    def conventional_title_check(self) -> None:
+    def _run_conventional_title_check(self) -> None:
         output: dict[str, str] = {
             "title": "Conventional Title",
             "summary": "",

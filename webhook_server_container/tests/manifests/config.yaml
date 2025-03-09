@@ -2,7 +2,7 @@ log-level: INFO # Set global log level, change take effect immediately without s
 log-file: webhook-server.log # Set global log file, change take effect immediately without server restart
 
 github-app-id: 123456 # GitHub app id
-github-toekns:
+github-tokens:
   - GITHIB TOKEN1
   - GITHIB TOKEN2
 

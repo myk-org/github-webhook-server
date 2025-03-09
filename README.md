@@ -92,7 +92,7 @@ Minimum config to get started
 ```yaml
 github-app-id: 123456
 webhook_ip: https://IP or FQDN
-github-toekns:
+github-tokens:
   - <GITHIB TOKEN1>
 
 repositories:
@@ -105,7 +105,7 @@ repositories:
 - `github-app-id`: The ID of the GitHub app. Need to add the APP to the repository.
 - `name`: repository full name (org or user/repository name)
 - `webhook_ip`: Ip or FQDN where this app will run, this will be added as webhook in the repository setting
-- `github-toekns`: List of admin users token for the repositories
+- `github-tokens`: List of admin users token for the repositories
 
 - If `slack_webhook_url` configured for the repository a slack massages will be sent to the configured channel
   about new releases to pypi, new containers that was pushed
