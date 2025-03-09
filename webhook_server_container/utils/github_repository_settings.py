@@ -26,7 +26,6 @@ from webhook_server_container.utils.constants import (
     TOX_STR,
 )
 from webhook_server_container.utils.helpers import (
-    get_api_with_highest_rate_limit,
     get_future_results,
     get_logger_with_params,
 )
@@ -193,11 +192,11 @@ def get_repo_branch_protection_rules(config: Config) -> dict[str, Any]:
     return branch_protection
 
 
-def set_repositories_settings(config_: Config, apis_dict: dict[str, dict[str, Any]]) -> None:
+def set_repositories_settings(config: Config, apis_dict: dict[str, dict[str, Any]]) -> None:
     logger = get_logger_with_params(name="github-repository-settings")
 
     logger.info("Processing repositories")
-    config_data = config_.data
+    config_data = config.data
 
     docker: dict[str, str] | None = config_data.get("docker")
     if docker:
@@ -314,7 +313,7 @@ def set_repository(
     return True, f"[API user {api_user}] - {full_repository_name}: Setting repository settings is done", logger.info
 
 
-def set_all_in_progress_check_runs_to_queued(config_: Config, apis_dict: dict[str, dict[str, Any]]) -> None:
+def set_all_in_progress_check_runs_to_queued(repo_config: Config, apis_dict: dict[str, dict[str, Any]]) -> None:
     check_runs = (
         PYTHON_MODULE_INSTALL_STR,
         CAN_BE_MERGED_STR,
@@ -325,13 +324,13 @@ def set_all_in_progress_check_runs_to_queued(config_: Config, apis_dict: dict[st
     futures: list["Future"] = []
 
     with ThreadPoolExecutor() as executor:
-        for repo, data in config_.data["repositories"].items():
-            config = Config(repository=repo)
+        for repo, data in repo_config.data["repositories"].items():
+            repo_config = Config(repository=repo)
             futures.append(
                 executor.submit(
                     set_repository_check_runs_to_queued,
                     **{
-                        "config_": config,
+                        "config_": repo_config,
                         "data": data,
                         "github_api": apis_dict[repo]["api"],
                         "check_runs": check_runs,
@@ -402,35 +401,3 @@ def get_repository_github_app_api(config_: Config, repository_name: str) -> Gith
             f"make sure the app installed (https://github.com/apps/manage-repositories-app)"
         )
         return None
-
-
-def get_repository_api(repository: str) -> tuple[str, github.Github | None, str]:
-    config = Config(repository=repository)
-    github_api, _, api_user = get_api_with_highest_rate_limit(config=config, repository_name=repository)
-    return repository, github_api, api_user
-
-
-if __name__ == "__main__":
-    logger = get_logger_with_params(name="github-repository-settings")
-
-    config = Config()
-    apis_dict: dict[str, dict[str, Any]] = {}
-
-    apis: list = []
-    with ThreadPoolExecutor() as executor:
-        for repo, data in config.data["repositories"].items():
-            apis.append(
-                executor.submit(
-                    get_repository_api,
-                    **{"repository": repo},
-                )
-            )
-
-    for result in as_completed(apis):
-        repository, github_api, api_user = result.result()
-        apis_dict[repository] = {"api": github_api, "user": api_user}
-
-    logger.debug(f"Repositories APIs: {apis_dict}")
-
-    set_repositories_settings(config_=config, apis_dict=apis_dict)
-    set_all_in_progress_check_runs_to_queued(config_=config, apis_dict=apis_dict)

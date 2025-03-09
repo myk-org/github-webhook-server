@@ -1,12 +1,10 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
-import github
 from github.Hook import Hook
 
 from webhook_server_container.libs.config import Config
 from webhook_server_container.utils.helpers import (
-    get_api_with_highest_rate_limit,
     get_future_results,
     get_github_repo_api,
     get_logger_with_params,
@@ -56,33 +54,9 @@ def process_github_webhook(
     return True, f"[API user {api_user}] - {full_repository_name}: Create webhook is done", LOGGER.info
 
 
-def get_repository_api(repository: str) -> tuple[str, github.Github | None, str]:
-    config = Config(repository=repository)
-    github_api, _, api_user = get_api_with_highest_rate_limit(config=config, repository_name=repository)
-    return repository, github_api, api_user
-
-
-def create_webhook() -> None:
-    config = Config()
+def create_webhook(config: Config, apis_dict: dict[str, dict[str, Any]]) -> None:
     LOGGER.info("Preparing webhook configuration")
     webhook_ip = config.data["webhook_ip"]
-    apis_dict: dict[str, dict[str, Any]] = {}
-
-    apis: list = []
-    with ThreadPoolExecutor() as executor:
-        for repo, data in config.data["repositories"].items():
-            apis.append(
-                executor.submit(
-                    get_repository_api,
-                    **{"repository": repo},
-                )
-            )
-
-    for result in as_completed(apis):
-        repository, github_api, api_user = result.result()
-        apis_dict[repository] = {"api": github_api, "user": api_user}
-
-    LOGGER.debug(f"Repositories APIs: {apis_dict}")
 
     futures = []
     with ThreadPoolExecutor() as executor:
@@ -95,7 +69,3 @@ def create_webhook() -> None:
             )
 
     get_future_results(futures=futures)
-
-
-if __name__ == "__main__":
-    create_webhook()
