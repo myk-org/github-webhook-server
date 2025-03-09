@@ -3,14 +3,14 @@ log-file: webhook-server.log # Set global log file, change take effect immediate
 
 github-app-id: 123456 # GitHub app id
 github-toekns:
-  - <GITHIB TOKEN1>
-  - <GITHIB TOKEN2>
+  - GITHIB TOKEN1
+  - GITHIB TOKEN2
 
-webhook_ip: <HTTP://IP OR URL:PORT>
+webhook_ip: HTTP://IP OR URL:PORT
 
 docker: # Used to pull images from docker.io
-  username: <username>
-  password: <password>
+  username: username
+  password: password # pragma: allowlist secret
 
 default-status-checks:
   - "WIP"
@@ -22,21 +22,21 @@ auto-verified-and-merged-users:
   - "pre-commit-ci[bot]"
 
 jira:
-  server: <JIRA URL>
-  project: <PROJECT KEY>
-  token: <JIRA TOKEN>
+  server: JIRA URL
+  project: PROJECT KEY
+  token: JIRA TOKEN
   user-mapping:
-    <GITHUB USER>: <JIRA USER> # if github user is not the same as jira
+    GITHUB USER: <JIRA USER> # if github user is not the same as jira
 
 repositories:
   test-repo:
     name: my-org/test-repo
     log-level: DEBUG # Override global log-level for repository
     log-file: test-repo.log # Override global log-file for repository
-    slack_webhook_url: <Slack webhook url> # Send notification to slack on several operations
+    slack_webhook_url: Slack webhook url # Send notification to slack on several operations
     verified_job: true
     pypi:
-      token: <PYPI TOKEN>
+      token: PYPI TOKEN
 
     events: # To listen to all events do not send events
       - push
@@ -60,10 +60,10 @@ repositories:
         exclude-runs:
           - "SonarCloud Code Analysis"
     container:
-      username: <registry username>
-      password: <registry_password>
-      repository: <registry_repository_full_path>
-      tag: <image_tag>
+      username: registry username
+      password: registry_password # pragma: allowlist secret
+      repository: registry_repository_full_path
+      tag: image_tag
       release: true # Push image to registry on new release with release as the tag
       build-args: # build args to send to podman build command
         - my-build-arg1=1
@@ -75,8 +75,8 @@ repositories:
       - "my[bot]"
 
     github-tokens: # override GitHub tokens per repository
-      - <GITHUB TOKEN1>
-      - <GITHUB TOKEN2>
+      - GITHUB TOKEN1
+      - GITHUB TOKEN2
 
     can-be-merged-required-labels: # check for extra labels to set PR as can be merged
       - my-label1
@@ -85,9 +85,9 @@ repositories:
     jira-tracking: true
 
     jira: # override Jira global settings
-      server: <JIRA URL>
-      project: <PROJECT KEY>
-      token: <JIRA TOKEN>
-      epic: <EPIC KEY> # Optional
+      server: JIRA URL
+      project: PROJECT KEY
+      token: JIRA TOKEN
+      epic: EPIC KEY # Optional
       user-mapping:
-        <GITHUB USER>: <JIRA USER> # if github user is not the same as jira
+        GITHUB USER: <JIRA USER> # if github user is not the same as jira
