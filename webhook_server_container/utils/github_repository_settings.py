@@ -18,6 +18,7 @@ from webhook_server_container.libs.config import Config
 from webhook_server_container.utils.constants import (
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
+    CONVENTIONAL_TITLE_STR,
     IN_PROGRESS_STR,
     PRE_COMMIT_STR,
     PYTHON_MODULE_INSTALL_STR,
@@ -136,6 +137,9 @@ def get_required_status_checks(
 
     if data.get("pre-commit"):
         default_status_checks.append(PRE_COMMIT_STR)
+
+    if data.get(CONVENTIONAL_TITLE_STR):
+        default_status_checks.append(CONVENTIONAL_TITLE_STR)
 
     with contextlib.suppress(Exception):
         repo.get_contents(".pre-commit-config.yaml")
@@ -265,9 +269,11 @@ def set_repository(
             for branch_name, status_checks in protected_branches.items():
                 logger.debug(f"[API user {api_user}] - {full_repository_name}: Getting branch {branch_name}")
                 branch = get_branch_sampler(repo=repo, branch_name=branch_name)
+
                 if not branch:
                     logger.error(f"[API user {api_user}] - {full_repository_name}: Failed to get branch {branch_name}")
                     continue
+
                 default_status_checks: list[str] = config.get_value(
                     value="default-status-checks", return_on_none=[]
                 ) + [
