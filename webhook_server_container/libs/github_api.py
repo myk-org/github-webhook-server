@@ -231,9 +231,6 @@ Available user actions:
             if self.github_event == "push":
                 self.process_push_webhook_data()
 
-            elif self.github_event == "check_run":
-                self.process_pull_request_check_run_webhook_data()
-
     @property
     def prepare_retest_wellcome_msg(self) -> str:
         retest_msg: str = ""
@@ -250,7 +247,7 @@ Available user actions:
             retest_msg += f" * `/retest {PRE_COMMIT_STR}`: Retest pre-commit\n"
 
         if self.conventional_title:
-            retest_msg += f"  * `/retest {CONVENTIONAL_TITLE_STR}`: Retest pre-commit\n"
+            retest_msg += f"  * `/retest {CONVENTIONAL_TITLE_STR}`: Retest conventional-title\n"
 
         if retest_msg:
             retest_msg += " * `/retest all`: Retest all\n"
@@ -330,7 +327,6 @@ Available user actions:
 
         check_run_status: str = _check_run["status"]
         check_run_conclusion: str = _check_run["conclusion"]
-        check_run_head_sha: str = _check_run["head_sha"]
         self.logger.debug(
             f"{self.log_prefix} processing check_run - Name: {check_run_name} Status: {check_run_status} Conclusion: {check_run_conclusion}"
         )
@@ -339,22 +335,7 @@ Available user actions:
             self.logger.debug(f"{self.log_prefix} check run is {CAN_BE_MERGED_STR}, skipping")
             return
 
-        if getattr(self, "pull_request", None):
-            return self.check_if_can_be_merged()
-
-        self.logger.debug(
-            f"{self.log_prefix} No pull request found in hook data, searching for pull request by head sha"
-        )
-        for _pull_request in self.repository.get_pulls(state="open"):
-            if _pull_request.head.sha == check_run_head_sha:
-                self.logger.debug(
-                    f"{self.log_prefix} Found pull request {_pull_request.title} [{_pull_request.number}] for check run {check_run_name}"
-                )
-                self.pull_request = _pull_request
-                self.last_commit = self._get_last_commit()
-                return self.check_if_can_be_merged()
-
-        self.logger.error(f"{self.log_prefix} No pull request found")
+        return self.check_if_can_be_merged()
 
     def _repo_data_from_config(self) -> None:
         if not self.config.repository:
@@ -420,6 +401,14 @@ Available user actions:
             commit_obj = self.repository.get_commit(commit["sha"])
             with contextlib.suppress(Exception):
                 return commit_obj.get_pulls()[0]
+
+        if self.github_event == "check_run":
+            for _pull_request in self.repository.get_pulls(state="open"):
+                if _pull_request.head.sha == self.hook_data["check_run"]["head_sha"]:
+                    self.logger.debug(
+                        f"{self.log_prefix} Found pull request {_pull_request.title} [{_pull_request.number}] for check run {self.hook_data['check_run']['name']}"
+                    )
+                    return _pull_request
 
         raise NoPullRequestError(f"{self.log_prefix} No issue or pull_request found in hook data")
 
@@ -841,14 +830,16 @@ Publish to PYPI failed: `{_error}`
         pull_request_data: dict[str, Any] = self.hook_data["pull_request"]
         self.parent_committer = pull_request_data["user"]["login"]
         self.pull_request_branch = pull_request_data["base"]["ref"]
-        if self.conventional_title:
-            self.set_conventional_title_queued()
-            self._run_conventional_title_check()
 
         if hook_action == "edited":
             self.set_wip_label_based_on_title()
+            if self.conventional_title:
+                self._run_conventional_title_check()
 
         if hook_action == "opened":
+            if self.conventional_title:
+                self.set_conventional_title_queued()
+
             self.logger.info(f"{self.log_prefix} Creating welcome comment")
             pull_request_opened_futures: list[Future] = []
             with ThreadPoolExecutor() as executor:
@@ -1156,7 +1147,7 @@ Publish to PYPI failed: `{_error}`
         elif _command == HOLD_LABEL_STR:
             if reviewed_user not in self.all_approvers:
                 self.pull_request.create_issue_comment(
-                    f"{reviewed_user} is not part of the approver, only approvers can mark pull request as hold"
+                    f"{reviewed_user} is not part of the approver, only approvers can mark pull request with hold"
                 )
             else:
                 if remove:
@@ -2060,7 +2051,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         if self.conventional_title:
             current_pull_request_supported_retest.append(CONVENTIONAL_TITLE_STR)
-
         return current_pull_request_supported_retest
 
     def is_podman_bug(self, err: str) -> bool:
@@ -2253,6 +2243,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         return failure_output
 
     def _check_lables_for_can_be_merged(self, labels: list[str]) -> str:
+        self.logger.debug(f"{self.log_prefix} _check_lables_for_can_be_merged.")
         failure_output = ""
 
         for _label in labels:
@@ -2272,6 +2263,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         return failure_output
 
     def _check_if_pr_approved(self, labels: list[str]) -> str:
+        self.logger.debug(f"{self.log_prefix} _check_if_pr_approved.")
         approved_by = []
         for _label in labels:
             if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
