@@ -833,13 +833,8 @@ Publish to PYPI failed: `{_error}`
 
         if hook_action == "edited":
             self.set_wip_label_based_on_title()
-            if self.conventional_title:
-                self._run_conventional_title_check()
 
         if hook_action == "opened":
-            if self.conventional_title:
-                self.set_conventional_title_queued()
-
             self.logger.info(f"{self.log_prefix} Creating welcome comment")
             pull_request_opened_futures: list[Future] = []
             with ThreadPoolExecutor() as executor:
@@ -849,10 +844,10 @@ Publish to PYPI failed: `{_error}`
                 pull_request_opened_futures.append(executor.submit(self.create_issue_for_new_pull_request))
                 pull_request_opened_futures.append(executor.submit(self.set_wip_label_based_on_title))
                 pull_request_opened_futures.append(executor.submit(self.process_opened_or_synchronize_pull_request))
+                pull_request_opened_futures.append(executor.submit(self.set_pull_request_automerge))
+
                 if self.jira_track_pr:
                     pull_request_opened_futures.append(executor.submit(self.create_jira_when_open_pull_reques))
-
-                pull_request_opened_futures.append(executor.submit(self.set_pull_request_automerge))
 
             for result in as_completed(pull_request_opened_futures):
                 if _exp := result.exception():
@@ -1563,6 +1558,10 @@ Publish to PYPI failed: `{_error}`
             prepare_pull_futures.append(executor.submit(self._run_pre_commit))
             prepare_pull_futures.append(executor.submit(self._run_install_python_module))
             prepare_pull_futures.append(executor.submit(self._run_build_container))
+
+            if self.conventional_title:
+                prepare_pull_futures.append(executor.submit(self.set_conventional_title_queued))
+                prepare_pull_futures.append(executor.submit(self._run_conventional_title_check))
 
         for result in as_completed(prepare_pull_futures):
             if _exp := result.exception():
