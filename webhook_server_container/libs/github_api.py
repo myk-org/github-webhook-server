@@ -385,6 +385,7 @@ Available user actions:
             value="can-be-merged-required-labels", return_on_none=[]
         )
         self.conventional_title: str = self.config.get_value(value="conventional-title")
+        self.set_auto_merge_prs: list[str] = self.config.get_value(value="set-auto-merge-prs", return_on_none=[])
 
     def _get_pull_request(self, number: int | None = None) -> PullRequest:
         if number:
@@ -2017,12 +2018,16 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 self.pull_request.add_to_assignees(self.root_approvers[0])
 
     def set_pull_request_automerge(self) -> None:
-        if self.parent_committer in self.auto_verified_and_merged_users:
+        auto_merge = (
+            self.pull_request_branch in self.set_auto_merge_prs
+            or self.parent_committer in self.auto_verified_and_merged_users
+        )
+        if auto_merge:
             try:
                 if not self.pull_request.raw_data.get("auto_merge"):
                     self.logger.info(
                         f"{self.log_prefix} will be merged automatically. owner: {self.parent_committer} "
-                        f"is part of auto merge enabled users"
+                        f"is part of auto merge enabled rules"
                     )
 
                     self.pull_request.enable_automerge(merge_method="SQUASH")
