@@ -845,7 +845,6 @@ Publish to PYPI failed: `{_error}`
                 pull_request_opened_futures.append(executor.submit(self.create_issue_for_new_pull_request))
                 pull_request_opened_futures.append(executor.submit(self.set_wip_label_based_on_title))
                 pull_request_opened_futures.append(executor.submit(self.process_opened_or_synchronize_pull_request))
-                pull_request_opened_futures.append(executor.submit(self.set_pull_request_automerge))
 
                 if self.jira_track_pr:
                     pull_request_opened_futures.append(executor.submit(self.create_jira_when_open_pull_reques))
@@ -853,6 +852,9 @@ Publish to PYPI failed: `{_error}`
             for result in as_completed(pull_request_opened_futures):
                 if _exp := result.exception():
                     self.logger.error(f"{self.log_prefix} {_exp}")
+
+            # Set automerge only after all initialization of a new PR is done.
+            self.set_pull_request_automerge()
 
         if hook_action == "synchronize":
             pull_request_synchronize_futures: list[Future] = []
