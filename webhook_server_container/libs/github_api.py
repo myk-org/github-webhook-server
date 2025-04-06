@@ -835,8 +835,7 @@ Publish to PYPI failed: `{_error}`
         if hook_action == "edited":
             self.set_wip_label_based_on_title()
 
-        if hook_action == "opened":
-            self.logger.info(f"{self.log_prefix} Creating welcome comment")
+        if hook_action in ("opened", "reopened"):
             pull_request_opened_futures: list[Future] = []
             with ThreadPoolExecutor() as executor:
                 pull_request_opened_futures.append(
@@ -2020,6 +2019,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 self.pull_request.add_to_assignees(self.root_approvers[0])
 
     def set_pull_request_automerge(self) -> None:
+        self.logger.error(f"AUTO_MERGE: {self.pull_request_branch} in {self.set_auto_merge_prs}")
         auto_merge = (
             self.pull_request_branch in self.set_auto_merge_prs
             or self.parent_committer in self.auto_verified_and_merged_users
