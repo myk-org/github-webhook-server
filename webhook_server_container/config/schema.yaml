@@ -171,12 +171,19 @@ properties:
               type: boolean
             required_conversation_resolution:
               type: boolean
-  can-be-merged-required-labels:
-    type: array
-    items:
-      type: string
-  jira-tracking:
-    type: boolean
-    default: true
 
-  conventional-title: string
+        set-auto-merge-prs:
+          description: Set auto merge for pull requests for specific branches
+          type: array
+          items:
+            type: string
+
+        can-be-merged-required-labels:
+          type: array
+          items:
+            type: string
+        jira-tracking:
+          type: boolean
+          default: true
+
+        conventional-title: string
