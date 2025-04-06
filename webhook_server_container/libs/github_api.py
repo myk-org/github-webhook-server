@@ -849,12 +849,12 @@ Publish to PYPI failed: `{_error}`
                 if self.jira_track_pr:
                     pull_request_opened_futures.append(executor.submit(self.create_jira_when_open_pull_reques))
 
+            # Set automerge only after all initialization of a new PR is done.
+            self.set_pull_request_automerge()
+
             for result in as_completed(pull_request_opened_futures):
                 if _exp := result.exception():
                     self.logger.error(f"{self.log_prefix} {_exp}")
-
-            # Set automerge only after all initialization of a new PR is done.
-            self.set_pull_request_automerge()
 
         if hook_action == "synchronize":
             pull_request_synchronize_futures: list[Future] = []
