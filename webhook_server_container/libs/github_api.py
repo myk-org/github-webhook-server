@@ -2024,6 +2024,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             self.pull_request_branch in self.set_auto_merge_prs
             or self.parent_committer in self.auto_verified_and_merged_users
         )
+        self.logger.debug(f"{self.log_prefix} auto_merge: {auto_merge}, branch: {self.pull_request_branch}")
         if auto_merge:
             try:
                 if not self.pull_request.raw_data.get("auto_merge"):
