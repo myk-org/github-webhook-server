@@ -2215,6 +2215,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
     def _required_check_failed(self, last_commit_check_runs: list[CheckRun], check_runs_in_progress: list[str]) -> str:
         failed_check_runs = []
         for check_run in last_commit_check_runs:
+            self.logger.debug(f"{self.log_prefix} Check if {check_run.name} failed.")
             if (
                 check_run.name == CAN_BE_MERGED_STR
                 or check_run.conclusion == SUCCESS_STR
