@@ -187,3 +187,4 @@ properties:
           default: true
 
         conventional-title: string
+        minimum-lgtm: integer

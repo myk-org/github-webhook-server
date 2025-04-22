@@ -30,6 +30,7 @@ from webhook_server_container.libs.config import Config
 from webhook_server_container.libs.jira_api import JiraApi
 from webhook_server_container.utils.constants import (
     ADD_STR,
+    APPROVE_STR,
     APPROVED_BY_LABEL_PREFIX,
     BRANCH_LABEL_PREFIX,
     BUILD_AND_PUSH_CONTAINER_STR,
@@ -386,6 +387,7 @@ Available user actions:
         )
         self.conventional_title: str = self.config.get_value(value="conventional-title")
         self.set_auto_merge_prs: list[str] = self.config.get_value(value="set-auto-merge-prs", return_on_none=[])
+        self.minimum_lgtm: int = self.config.get_value(value="minimum-lgtm", return_on_none=0)
 
     def _get_pull_request(self, number: int | None = None) -> PullRequest:
         if number:
@@ -624,9 +626,9 @@ Publish to PYPI failed: `{_error}`
             f"label requested by user {reviewed_user}: {user_requested_label}"
         )
 
-        if user_requested_label == LGTM_STR:
+        if user_requested_label == LGTM_STR or user_requested_label == APPROVE_STR:
             self.manage_reviewed_by_label(
-                review_state=LGTM_STR,
+                review_state=user_requested_label,
                 action=DELETE_STR if remove else ADD_STR,
                 reviewed_user=reviewed_user,
             )
@@ -973,11 +975,11 @@ Publish to PYPI failed: `{_error}`
             approved_lgtm_label = LGTM_BY_LABEL_PREFIX
 
         if review_state in ("approved", LGTM_STR):
-            base_dict = self.hook_data.get("issue", self.hook_data.get("pull_request"))
-            pr_owner = base_dict["user"]["login"]
-            if pr_owner == reviewed_user:
-                self.logger.info(f"{self.log_prefix} PR owner {pr_owner} set /lgtm, not adding label.")
-                return
+            if base_dict := self.hook_data.get("issue", self.hook_data.get("pull_request")):
+                pr_owner = base_dict["user"]["login"]
+                if pr_owner == reviewed_user:
+                    self.logger.info(f"{self.log_prefix} PR owner {pr_owner} set /lgtm, not adding label.")
+                    return
 
             _remove_label = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{reviewed_user}"
             label_prefix = approved_lgtm_label
