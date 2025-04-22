@@ -883,21 +883,20 @@ Publish to PYPI failed: `{_error}`
 
             _split_label = labeled.split(LABELS_SEPARATOR, 1)
 
-            if len(_split_label) != 2:
-                return
+            if len(_split_label) == 2:
+                _lable_prefix, _user = _split_label
 
-            _lable_prefix, _user = _split_label
-
-            if f"{_lable_prefix}{LABELS_SEPARATOR}" in (
-                APPROVED_BY_LABEL_PREFIX,
-                LGTM_BY_LABEL_PREFIX,
-                CHANGED_REQUESTED_BY_LABEL_PREFIX,
-            ):
-                if _user in self.all_reviewers + self.all_approvers:
-                    _check_for_merge = True
+                if f"{_lable_prefix}{LABELS_SEPARATOR}" in (
+                    APPROVED_BY_LABEL_PREFIX,
+                    LGTM_BY_LABEL_PREFIX,
+                    CHANGED_REQUESTED_BY_LABEL_PREFIX,
+                ):
+                    if _user in self.all_reviewers + self.all_approvers:
+                        _check_for_merge = True
 
             if self.verified_job and labeled == VERIFIED_LABEL_STR:
                 _check_for_merge = True
+
                 if action_labeled:
                     self.set_verify_check_success()
                 else:
