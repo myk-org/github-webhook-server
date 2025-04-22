@@ -943,7 +943,6 @@ Publish to PYPI failed: `{_error}`
         )
         label_prefix: str = ""
         label_to_remove: str = ""
-        lgtm_label = LGTM_BY_LABEL_PREFIX
 
         if review_state == APPROVE_STR and reviewed_user in self.all_approvers:
             label_prefix = APPROVED_BY_LABEL_PREFIX
@@ -957,12 +956,12 @@ Publish to PYPI failed: `{_error}`
                     return
 
             _remove_label = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{reviewed_user}"
-            label_prefix = lgtm_label
+            label_prefix = LGTM_BY_LABEL_PREFIX
             label_to_remove = _remove_label
 
         elif review_state == "changes_requested":
             label_prefix = CHANGED_REQUESTED_BY_LABEL_PREFIX
-            _remove_label = lgtm_label
+            _remove_label = LGTM_BY_LABEL_PREFIX
             label_to_remove = _remove_label
 
         elif review_state == "commented":
@@ -2129,16 +2128,18 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         return failure_output
 
     def _check_if_pr_approved(self, labels: list[str]) -> str:
+        self.logger.info(f"{self.log_prefix} Check if pull request is approved by pull request labels.")
         self.logger.debug(f"{self.log_prefix} _check_if_pr_approved.")
 
         error: str = ""
         approved_by = []
         lgtm_count: int = 0
 
-        for _label in labels:
-            reviewer = _label.split("-")[-1]
-            if LGTM_BY_LABEL_PREFIX.lower() in _label.lower() and reviewer in self.all_reviewers:
-                lgtm_count += 1
+        if self.minimum_lgtm:
+            for _label in labels:
+                reviewer = _label.split("-")[-1]
+                if LGTM_BY_LABEL_PREFIX.lower() in _label.lower() and reviewer in self.all_reviewers:
+                    lgtm_count += 1
 
         for _label in labels:
             if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
