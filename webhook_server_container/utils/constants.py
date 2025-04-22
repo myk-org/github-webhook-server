@@ -39,6 +39,7 @@ USER_LABELS_DICT: dict[str, str] = {
     VERIFIED_LABEL_STR: "0E8A16",
     WIP_STR: "B60205",
     LGTM_STR: "0E8A16",
+    APPROVE_STR: "0E8A16",
 }
 
 STATIC_LABELS_DICT: dict[str, str] = {

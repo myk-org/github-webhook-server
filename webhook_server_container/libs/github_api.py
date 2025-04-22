@@ -597,7 +597,10 @@ Publish to PYPI failed: `{_error}`
         self._add_label(label=size_label)
 
     def label_by_user_comment(
-        self, user_requested_label: str, remove: bool, reviewed_user: str, issue_comment_id: int
+        self,
+        user_requested_label: str,
+        remove: bool,
+        reviewed_user: str,
     ) -> None:
         self.logger.debug(
             f"{self.log_prefix} {DELETE_STR if remove else ADD_STR} "
@@ -868,23 +871,28 @@ Publish to PYPI failed: `{_error}`
 
         if hook_action in ("labeled", "unlabeled"):
             _check_for_merge: bool = False
-            _reviewer: str | None = None
+            _user: str | None = None
             action_labeled = hook_action == "labeled"
             labeled = self.hook_data["label"]["name"].lower()
+
             if labeled == CAN_BE_MERGED_STR:
                 return
 
             self.logger.info(f"{self.log_prefix} PR {self.pull_request.number} {hook_action} with {labeled}")
-            if labeled.startswith(APPROVED_BY_LABEL_PREFIX):
-                _reviewer = labeled.split(APPROVED_BY_LABEL_PREFIX)[-1]
 
-            if labeled.startswith(CHANGED_REQUESTED_BY_LABEL_PREFIX):
-                _reviewer = labeled.split(CHANGED_REQUESTED_BY_LABEL_PREFIX)[-1]
+            _lable_prefix = labeled.split("-")[0]
+            self.logger.debug(f"{self.log_prefix} _lable: {labeled}")
+            self.logger.debug(f"{self.log_prefix} _lable_prefix: {_lable_prefix}")
 
-            _approved_output: dict[str, Any] = {"title": "Approved", "summary": "", "text": ""}
-            if _reviewer in self.all_approvers:
-                _check_for_merge = True
-                _approved_output["text"] += f"Approved by {_reviewer}.\n"
+            if f"{_lable_prefix}-" in (
+                APPROVED_BY_LABEL_PREFIX,
+                LGTM_BY_LABEL_PREFIX,
+                CHANGED_REQUESTED_BY_LABEL_PREFIX,
+            ):
+                _user = labeled.split(APPROVED_BY_LABEL_PREFIX)[-1]
+
+                if _user in self.all_reviewers + self.all_approvers:
+                    _check_for_merge = True
 
             if self.verified_job and labeled == VERIFIED_LABEL_STR:
                 _check_for_merge = True
@@ -938,6 +946,7 @@ Publish to PYPI failed: `{_error}`
 
         if review_state == APPROVE_STR and reviewed_user in self.all_approvers:
             label_prefix = APPROVED_BY_LABEL_PREFIX
+            label_to_remove = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{reviewed_user}"
 
         elif review_state in ("approved", LGTM_STR):
             if base_dict := self.hook_data.get("issue", self.hook_data.get("pull_request")):
@@ -1039,8 +1048,6 @@ Publish to PYPI failed: `{_error}`
                 return self.set_run_pre_commit_check_failure(output=output)
 
     def user_commands(self, command: str, reviewed_user: str, issue_comment_id: int) -> None:
-        self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
-
         available_commands: list[str] = [
             COMMAND_RETEST_STR,
             COMMAND_CHERRY_PICK_STR,
@@ -1061,6 +1068,7 @@ Publish to PYPI failed: `{_error}`
             self.logger.debug(f"{self.log_prefix} Command {command} is not supported.")
             return
 
+        self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
         self.logger.info(f"{self.log_prefix} Processing label/user command {command} by user {reviewed_user}")
 
         if remove := len(command_and_args) > 1 and _args == "cancel":
@@ -1134,7 +1142,6 @@ Publish to PYPI failed: `{_error}`
                 user_requested_label=_command,
                 remove=remove,
                 reviewed_user=reviewed_user,
-                issue_comment_id=issue_comment_id,
             )
 
     def cherry_pick(self, target_branch: str, reviewed_user: str = "") -> None:
@@ -2149,14 +2156,16 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     break
 
         missing_approvers = list(set(missing_approvers))
-        if self.parent_committer in missing_approvers:
-            missing_approvers.remove(self.parent_committer)
 
         if missing_approvers:
-            error += f"Missing lgtm/approved from approvers: {', '.join(missing_approvers)}\n"
+            error += f"Missing approved from approvers: {', '.join(missing_approvers)}\n"
 
         if lgtm_count < self.minimum_lgtm:
-            error += f"Missing lgtm from reviewers. Minimum {self.minimum_lgtm} required. Reviewers: {', '.join(self.all_reviewers)}.\n"
+            all_reviewers = self.all_reviewers.copy()
+            if self.parent_committer in all_reviewers:
+                all_reviewers.pop(all_reviewers.index(self.parent_committer))
+
+            error += f"Missing lgtm from reviewers. Minimum {self.minimum_lgtm} required. Reviewers: {', '.join(all_reviewers)}.\n"
 
         return error
 
