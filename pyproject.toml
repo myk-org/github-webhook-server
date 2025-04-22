@@ -52,7 +52,6 @@ dependencies = [
   "colorama>=0.4.6",
   "colorlog>=6.8.2",
   "fastapi>=0.115.0",
-  "jira>=3.8.0",
   "pygithub>=2.4.0",
   "pyhelper-utils>=0.0.42",
   "pytest-cov>=6.0.0",
@@ -66,7 +65,7 @@ dependencies = [
   "string-color>=1.2.3",
   "timeout-sampler>=0.0.46",
   "uvicorn>=0.31.0",
-  "uwsgi>=2.0.27"
+  "uwsgi>=2.0.27",
 ]
 
   [[project.authors]]
