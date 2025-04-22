@@ -51,6 +51,7 @@ from webhook_server_container.utils.constants import (
     HAS_CONFLICTS_LABEL_STR,
     HOLD_LABEL_STR,
     IN_PROGRESS_STR,
+    LABELS_SEPERATOR,
     LGTM_BY_LABEL_PREFIX,
     LGTM_STR,
     NEEDS_REBASE_LABEL_STR,
@@ -880,14 +881,14 @@ Publish to PYPI failed: `{_error}`
 
             self.logger.info(f"{self.log_prefix} PR {self.pull_request.number} {hook_action} with {labeled}")
 
-            _split_label = labeled.split("-")
+            _split_label = labeled.split(LABELS_SEPERATOR, 1)
 
             if len(_split_label) != 2:
                 return
 
             _lable_prefix, _user = _split_label
 
-            if f"{_lable_prefix}-" in (
+            if f"{_lable_prefix}{LABELS_SEPERATOR}" in (
                 APPROVED_BY_LABEL_PREFIX,
                 LGTM_BY_LABEL_PREFIX,
                 CHANGED_REQUESTED_BY_LABEL_PREFIX,
@@ -2113,7 +2114,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         for _label in labels:
             if CHANGED_REQUESTED_BY_LABEL_PREFIX.lower() in _label.lower():
-                change_request_user = _label.split("-")[-1]
+                change_request_user = _label.split(LABELS_SEPERATOR)[-1]
                 if change_request_user in self.all_approvers:
                     failure_output += "PR has changed requests from approvers\n"
 
@@ -2137,13 +2138,13 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         if self.minimum_lgtm:
             for _label in labels:
-                reviewer = _label.split("-")[-1]
+                reviewer = _label.split(LABELS_SEPERATOR)[-1]
                 if LGTM_BY_LABEL_PREFIX.lower() in _label.lower() and reviewer in self.all_reviewers:
                     lgtm_count += 1
 
         for _label in labels:
             if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
-                approved_by.append(_label.split("-")[-1])
+                approved_by.append(_label.split(LABELS_SEPERATOR)[-1])
 
         missing_approvers = self.all_approvers.copy()
 
