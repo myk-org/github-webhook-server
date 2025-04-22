@@ -51,7 +51,7 @@ from webhook_server_container.utils.constants import (
     HAS_CONFLICTS_LABEL_STR,
     HOLD_LABEL_STR,
     IN_PROGRESS_STR,
-    LABELS_SEPERATOR,
+    LABELS_SEPARATOR,
     LGTM_BY_LABEL_PREFIX,
     LGTM_STR,
     NEEDS_REBASE_LABEL_STR,
@@ -608,7 +608,7 @@ Publish to PYPI failed: `{_error}`
             f"label requested by user {reviewed_user}: {user_requested_label}"
         )
 
-        if user_requested_label == LGTM_STR or user_requested_label == APPROVE_STR:
+        if user_requested_label in (LGTM_STR, APPROVE_STR):
             self.manage_reviewed_by_label(
                 review_state=user_requested_label,
                 action=DELETE_STR if remove else ADD_STR,
@@ -881,14 +881,14 @@ Publish to PYPI failed: `{_error}`
 
             self.logger.info(f"{self.log_prefix} PR {self.pull_request.number} {hook_action} with {labeled}")
 
-            _split_label = labeled.split(LABELS_SEPERATOR, 1)
+            _split_label = labeled.split(LABELS_SEPARATOR, 1)
 
             if len(_split_label) != 2:
                 return
 
             _lable_prefix, _user = _split_label
 
-            if f"{_lable_prefix}{LABELS_SEPERATOR}" in (
+            if f"{_lable_prefix}{LABELS_SEPARATOR}" in (
                 APPROVED_BY_LABEL_PREFIX,
                 LGTM_BY_LABEL_PREFIX,
                 CHANGED_REQUESTED_BY_LABEL_PREFIX,
@@ -1293,9 +1293,9 @@ Publish to PYPI failed: `{_error}`
             if required_check_failed_failure_output:
                 failure_output += required_check_failed_failure_output
 
-            lables_failue_output = self._check_lables_for_can_be_merged(labels=_labels)
-            if lables_failue_output:
-                failure_output += lables_failue_output
+            labels_failure_output = self._check_lables_for_can_be_merged(labels=_labels)
+            if labels_failure_output:
+                failure_output += labels_failure_output
 
             pr_approvered_failure_output = self._check_if_pr_approved(labels=_labels)
             if pr_approvered_failure_output:
@@ -2114,7 +2114,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         for _label in labels:
             if CHANGED_REQUESTED_BY_LABEL_PREFIX.lower() in _label.lower():
-                change_request_user = _label.split(LABELS_SEPERATOR)[-1]
+                change_request_user = _label.split(LABELS_SEPARATOR)[-1]
                 if change_request_user in self.all_approvers:
                     failure_output += "PR has changed requests from approvers\n"
 
@@ -2130,7 +2130,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
     def _check_if_pr_approved(self, labels: list[str]) -> str:
         self.logger.info(f"{self.log_prefix} Check if pull request is approved by pull request labels.")
-        self.logger.debug(f"{self.log_prefix} _check_if_pr_approved.")
 
         error: str = ""
         approved_by = []
@@ -2138,13 +2137,13 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         if self.minimum_lgtm:
             for _label in labels:
-                reviewer = _label.split(LABELS_SEPERATOR)[-1]
+                reviewer = _label.split(LABELS_SEPARATOR)[-1]
                 if LGTM_BY_LABEL_PREFIX.lower() in _label.lower() and reviewer in self.all_reviewers:
                     lgtm_count += 1
 
         for _label in labels:
             if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
-                approved_by.append(_label.split(LABELS_SEPERATOR)[-1])
+                approved_by.append(_label.split(LABELS_SEPARATOR)[-1])
 
         missing_approvers = self.all_approvers.copy()
 
