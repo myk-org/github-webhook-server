@@ -881,8 +881,6 @@ Publish to PYPI failed: `{_error}`
             self.logger.info(f"{self.log_prefix} PR {self.pull_request.number} {hook_action} with {labeled}")
 
             _lable_prefix = labeled.split("-")[0]
-            self.logger.debug(f"{self.log_prefix} _lable: {labeled}")
-            self.logger.debug(f"{self.log_prefix} _lable_prefix: {_lable_prefix}")
 
             if f"{_lable_prefix}-" in (
                 APPROVED_BY_LABEL_PREFIX,
@@ -1068,7 +1066,6 @@ Publish to PYPI failed: `{_error}`
             self.logger.debug(f"{self.log_prefix} Command {command} is not supported.")
             return
 
-        self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
         self.logger.info(f"{self.log_prefix} Processing label/user command {command} by user {reviewed_user}")
 
         if remove := len(command_and_args) > 1 and _args == "cancel":
@@ -1080,6 +1077,8 @@ Publish to PYPI failed: `{_error}`
             self.logger.debug(error_msg)
             self.pull_request.create_issue_comment(missing_command_arg_comment_msg)
             return
+
+        self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
 
         if _command == COMMAND_ASSIGN_REVIEWER_STR:
             self._add_reviewer_by_user_comment(reviewer=_args)
@@ -1512,6 +1511,7 @@ Publish to PYPI failed: `{_error}`
 
     def process_opened_or_synchronize_pull_request(self) -> None:
         prepare_pull_futures: list[Future] = []
+
         with ThreadPoolExecutor() as executor:
             prepare_pull_futures.append(executor.submit(self.assign_reviewers))
             prepare_pull_futures.append(
