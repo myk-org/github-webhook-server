@@ -39,18 +39,7 @@ properties:
     type: array
     items:
       type: string
-  jira:
-    type: object
-    properties:
-      server:
-        type: string
-        description: JIRA server URL
-      project:
-        type: string
-        description: JIRA project key
-      token:
-        type: string
-        format: password
+
   branch_protection:
     type: object
     properties:
@@ -182,9 +171,6 @@ properties:
           type: array
           items:
             type: string
-        jira-tracking:
-          type: boolean
-          default: true
 
         conventional-title: string
         minimum-lgtm: integer
