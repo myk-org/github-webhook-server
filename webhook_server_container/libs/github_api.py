@@ -880,15 +880,18 @@ Publish to PYPI failed: `{_error}`
 
             self.logger.info(f"{self.log_prefix} PR {self.pull_request.number} {hook_action} with {labeled}")
 
-            _lable_prefix = labeled.split("-")[0]
+            _split_label = labeled.split("-")
+
+            if len(_split_label) != 2:
+                return
+
+            _lable_prefix, _user = _split_label
 
             if f"{_lable_prefix}-" in (
                 APPROVED_BY_LABEL_PREFIX,
                 LGTM_BY_LABEL_PREFIX,
                 CHANGED_REQUESTED_BY_LABEL_PREFIX,
             ):
-                _user = labeled.split(APPROVED_BY_LABEL_PREFIX)[-1]
-
                 if _user in self.all_reviewers + self.all_approvers:
                     _check_for_merge = True
 
