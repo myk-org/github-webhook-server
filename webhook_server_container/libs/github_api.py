@@ -2170,11 +2170,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             self.set_conventional_title_failure(output=output)
 
     def _prepare_owners_welcome_comment(self) -> str:
-        body: str = """
-<details>
-<summary>Approvers and Reviewers</summary>
-
-"""
         body_approvers: str = " * Approvers:\n"
         body_reviewers: str = " * Reviewers:\n"
 
@@ -2184,15 +2179,11 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         for _reviewer in self.all_reviewers:
             body_reviewers += f"   * {_reviewer}\n"
 
-        body += f"""
+        return f"""
 {body_approvers}
 
 {body_reviewers}
-
-</details>
 """
-
-        return body
 
     def _prepare_welcome_comment(self) -> str:
         self.logger.info(f"{self.log_prefix} Prepare welcome comment")
@@ -2226,7 +2217,11 @@ PR will be approved when the following conditions are met:
  * `/approve` from one of the approvers.
  * Minimum number of required `/lgtm` (`{self.minimum_lgtm}`) is met.
 
+<details>
+<summary>Approvers and Reviewers</summary>
+
 {self._prepare_owners_welcome_comment()}
+</details>
 
 <details>
 <summary>Supported /retest check runs</summary>
