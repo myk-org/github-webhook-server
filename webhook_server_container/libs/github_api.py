@@ -208,7 +208,7 @@ class ProcessGithubWehook:
             retest_msg += f" * `/retest {PRE_COMMIT_STR}`: Retest pre-commit\n"
 
         if self.conventional_title:
-            retest_msg += f"  * `/retest {CONVENTIONAL_TITLE_STR}`: Retest conventional-title\n"
+            retest_msg += f" * `/retest {CONVENTIONAL_TITLE_STR}`: Retest conventional-title\n"
 
         if retest_msg:
             retest_msg += " * `/retest all`: Retest all\n"
