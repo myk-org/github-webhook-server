@@ -93,5 +93,6 @@ repositories:
       required_linear_history: True
       required_conversation_resolution: True
 
+    minimum-lgtm: 0 # The minimum PR lgtm required before approve the PR
     set-auto-merge-prs:
       - main

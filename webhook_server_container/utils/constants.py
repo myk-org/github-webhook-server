@@ -14,13 +14,15 @@ PYTHON_MODULE_INSTALL_STR: str = "python-module-install"
 CONVENTIONAL_TITLE_STR: str = "conventional-title"
 WIP_STR: str = "wip"
 LGTM_STR: str = "lgtm"
-CHERRY_PICK_LABEL_PREFIX: str = "cherry-pick-"
+APPROVE_STR: str = "approve"
+LABELS_SEPARATOR: str = "-"
+CHERRY_PICK_LABEL_PREFIX: str = f"cherry-pick{LABELS_SEPARATOR}"
 CHERRY_PICKED_LABEL_PREFIX: str = "CherryPicked"
-APPROVED_BY_LABEL_PREFIX: str = "approved-"
-LGTM_BY_LABEL_PREFIX: str = f"{LGTM_STR}-"
-CHANGED_REQUESTED_BY_LABEL_PREFIX: str = "changes-requested-"
-COMMENTED_BY_LABEL_PREFIX: str = "commented-"
-BRANCH_LABEL_PREFIX: str = "branch-"
+APPROVED_BY_LABEL_PREFIX: str = f"approved{LABELS_SEPARATOR}"
+LGTM_BY_LABEL_PREFIX: str = f"{LGTM_STR}{LABELS_SEPARATOR}"
+CHANGED_REQUESTED_BY_LABEL_PREFIX: str = f"changes-requested{LABELS_SEPARATOR}"
+COMMENTED_BY_LABEL_PREFIX: str = f"commented{LABELS_SEPARATOR}"
+BRANCH_LABEL_PREFIX: str = f"branch{LABELS_SEPARATOR}"
 VERIFIED_LABEL_STR: str = "verified"
 NEEDS_REBASE_LABEL_STR: str = "needs-rebase"
 HAS_CONFLICTS_LABEL_STR: str = "has-conflicts"
@@ -38,6 +40,7 @@ USER_LABELS_DICT: dict[str, str] = {
     VERIFIED_LABEL_STR: "0E8A16",
     WIP_STR: "B60205",
     LGTM_STR: "0E8A16",
+    APPROVE_STR: "0E8A16",
 }
 
 STATIC_LABELS_DICT: dict[str, str] = {

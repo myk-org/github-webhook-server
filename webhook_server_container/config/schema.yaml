@@ -173,3 +173,4 @@ properties:
             type: string
 
         conventional-title: string
+        minimum-lgtm: integer

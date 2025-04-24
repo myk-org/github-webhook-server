@@ -29,6 +29,7 @@ from timeout_sampler import TimeoutExpiredError, TimeoutSampler
 from webhook_server_container.libs.config import Config
 from webhook_server_container.utils.constants import (
     ADD_STR,
+    APPROVE_STR,
     APPROVED_BY_LABEL_PREFIX,
     BRANCH_LABEL_PREFIX,
     BUILD_AND_PUSH_CONTAINER_STR,
@@ -50,6 +51,7 @@ from webhook_server_container.utils.constants import (
     HAS_CONFLICTS_LABEL_STR,
     HOLD_LABEL_STR,
     IN_PROGRESS_STR,
+    LABELS_SEPARATOR,
     LGTM_BY_LABEL_PREFIX,
     LGTM_STR,
     NEEDS_REBASE_LABEL_STR,
@@ -364,6 +366,7 @@ Available user actions:
         )
         self.conventional_title: str = self.config.get_value(value="conventional-title")
         self.set_auto_merge_prs: list[str] = self.config.get_value(value="set-auto-merge-prs", return_on_none=[])
+        self.minimum_lgtm: int = self.config.get_value(value="minimum-lgtm", return_on_none=0)
 
     def _get_pull_request(self, number: int | None = None) -> PullRequest:
         if number:
@@ -595,16 +598,19 @@ Publish to PYPI failed: `{_error}`
         self._add_label(label=size_label)
 
     def label_by_user_comment(
-        self, user_requested_label: str, remove: bool, reviewed_user: str, issue_comment_id: int
+        self,
+        user_requested_label: str,
+        remove: bool,
+        reviewed_user: str,
     ) -> None:
         self.logger.debug(
             f"{self.log_prefix} {DELETE_STR if remove else ADD_STR} "
             f"label requested by user {reviewed_user}: {user_requested_label}"
         )
 
-        if user_requested_label == LGTM_STR:
+        if user_requested_label in (LGTM_STR, APPROVE_STR):
             self.manage_reviewed_by_label(
-                review_state=LGTM_STR,
+                review_state=user_requested_label,
                 action=DELETE_STR if remove else ADD_STR,
                 reviewed_user=reviewed_user,
             )
@@ -866,26 +872,31 @@ Publish to PYPI failed: `{_error}`
 
         if hook_action in ("labeled", "unlabeled"):
             _check_for_merge: bool = False
-            _reviewer: str | None = None
+            _user: str | None = None
             action_labeled = hook_action == "labeled"
             labeled = self.hook_data["label"]["name"].lower()
+
             if labeled == CAN_BE_MERGED_STR:
                 return
 
             self.logger.info(f"{self.log_prefix} PR {self.pull_request.number} {hook_action} with {labeled}")
-            if labeled.startswith(APPROVED_BY_LABEL_PREFIX):
-                _reviewer = labeled.split(APPROVED_BY_LABEL_PREFIX)[-1]
 
-            if labeled.startswith(CHANGED_REQUESTED_BY_LABEL_PREFIX):
-                _reviewer = labeled.split(CHANGED_REQUESTED_BY_LABEL_PREFIX)[-1]
+            _split_label = labeled.split(LABELS_SEPARATOR, 1)
 
-            _approved_output: dict[str, Any] = {"title": "Approved", "summary": "", "text": ""}
-            if _reviewer in self.all_approvers:
-                _check_for_merge = True
-                _approved_output["text"] += f"Approved by {_reviewer}.\n"
+            if len(_split_label) == 2:
+                _lable_prefix, _user = _split_label
+
+                if f"{_lable_prefix}{LABELS_SEPARATOR}" in (
+                    APPROVED_BY_LABEL_PREFIX,
+                    LGTM_BY_LABEL_PREFIX,
+                    CHANGED_REQUESTED_BY_LABEL_PREFIX,
+                ):
+                    if _user in self.all_reviewers + self.all_approvers:
+                        _check_for_merge = True
 
             if self.verified_job and labeled == VERIFIED_LABEL_STR:
                 _check_for_merge = True
+
                 if action_labeled:
                     self.set_verify_check_success()
                 else:
@@ -933,25 +944,24 @@ Publish to PYPI failed: `{_error}`
         label_prefix: str = ""
         label_to_remove: str = ""
 
-        if reviewed_user in self.all_approvers:
-            approved_lgtm_label = APPROVED_BY_LABEL_PREFIX
-        else:
-            approved_lgtm_label = LGTM_BY_LABEL_PREFIX
+        if review_state == APPROVE_STR and reviewed_user in self.all_approvers:
+            label_prefix = APPROVED_BY_LABEL_PREFIX
+            label_to_remove = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{reviewed_user}"
 
-        if review_state in ("approved", LGTM_STR):
-            base_dict = self.hook_data.get("issue", self.hook_data.get("pull_request"))
-            pr_owner = base_dict["user"]["login"]
-            if pr_owner == reviewed_user:
-                self.logger.info(f"{self.log_prefix} PR owner {pr_owner} set /lgtm, not adding label.")
-                return
+        elif review_state in ("approved", LGTM_STR):
+            if base_dict := self.hook_data.get("issue", self.hook_data.get("pull_request")):
+                pr_owner = base_dict["user"]["login"]
+                if pr_owner == reviewed_user:
+                    self.logger.info(f"{self.log_prefix} PR owner {pr_owner} set /lgtm, not adding label.")
+                    return
 
             _remove_label = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{reviewed_user}"
-            label_prefix = approved_lgtm_label
+            label_prefix = LGTM_BY_LABEL_PREFIX
             label_to_remove = _remove_label
 
         elif review_state == "changes_requested":
             label_prefix = CHANGED_REQUESTED_BY_LABEL_PREFIX
-            _remove_label = approved_lgtm_label
+            _remove_label = LGTM_BY_LABEL_PREFIX
             label_to_remove = _remove_label
 
         elif review_state == "commented":
@@ -1038,8 +1048,6 @@ Publish to PYPI failed: `{_error}`
                 return self.set_run_pre_commit_check_failure(output=output)
 
     def user_commands(self, command: str, reviewed_user: str, issue_comment_id: int) -> None:
-        self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
-
         available_commands: list[str] = [
             COMMAND_RETEST_STR,
             COMMAND_CHERRY_PICK_STR,
@@ -1071,6 +1079,8 @@ Publish to PYPI failed: `{_error}`
             self.logger.debug(error_msg)
             self.pull_request.create_issue_comment(missing_command_arg_comment_msg)
             return
+
+        self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
 
         if _command == COMMAND_ASSIGN_REVIEWER_STR:
             self._add_reviewer_by_user_comment(reviewer=_args)
@@ -1133,7 +1143,6 @@ Publish to PYPI failed: `{_error}`
                 user_requested_label=_command,
                 remove=remove,
                 reviewed_user=reviewed_user,
-                issue_comment_id=issue_comment_id,
             )
 
     def cherry_pick(self, target_branch: str, reviewed_user: str = "") -> None:
@@ -1283,9 +1292,9 @@ Publish to PYPI failed: `{_error}`
             if required_check_failed_failure_output:
                 failure_output += required_check_failed_failure_output
 
-            lables_failue_output = self._check_lables_for_can_be_merged(labels=_labels)
-            if lables_failue_output:
-                failure_output += lables_failue_output
+            labels_failure_output = self._check_lables_for_can_be_merged(labels=_labels)
+            if labels_failure_output:
+                failure_output += labels_failure_output
 
             pr_approvered_failure_output = self._check_if_pr_approved(labels=_labels)
             if pr_approvered_failure_output:
@@ -1504,6 +1513,7 @@ Publish to PYPI failed: `{_error}`
 
     def process_opened_or_synchronize_pull_request(self) -> None:
         prepare_pull_futures: list[Future] = []
+
         with ThreadPoolExecutor() as executor:
             prepare_pull_futures.append(executor.submit(self.assign_reviewers))
             prepare_pull_futures.append(
@@ -2103,7 +2113,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         for _label in labels:
             if CHANGED_REQUESTED_BY_LABEL_PREFIX.lower() in _label.lower():
-                change_request_user = _label.split("-")[-1]
+                change_request_user = _label.split(LABELS_SEPARATOR)[-1]
                 if change_request_user in self.all_approvers:
                     failure_output += "PR has changed requests from approvers\n"
 
@@ -2118,15 +2128,21 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         return failure_output
 
     def _check_if_pr_approved(self, labels: list[str]) -> str:
-        self.logger.debug(f"{self.log_prefix} _check_if_pr_approved.")
+        self.logger.info(f"{self.log_prefix} Check if pull request is approved by pull request labels.")
+
+        error: str = ""
         approved_by = []
+        lgtm_count: int = 0
+
+        if self.minimum_lgtm:
+            for _label in labels:
+                reviewer = _label.split(LABELS_SEPARATOR)[-1]
+                if LGTM_BY_LABEL_PREFIX.lower() in _label.lower() and reviewer in self.all_reviewers:
+                    lgtm_count += 1
+
         for _label in labels:
             if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
-                approved_user = _label.split("-")[-1]
-                if self.parent_committer == approved_user:
-                    continue
-
-                approved_by.append(approved_user)
+                approved_by.append(_label.split(LABELS_SEPARATOR)[-1])
 
         missing_approvers = self.all_approvers.copy()
 
@@ -2143,13 +2159,18 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     break
 
         missing_approvers = list(set(missing_approvers))
-        if self.parent_committer in missing_approvers:
-            missing_approvers.remove(self.parent_committer)
 
         if missing_approvers:
-            return f"Missing lgtm/approved from approvers: {', '.join(missing_approvers)}\n"
+            error += f"Missing approved from approvers: {', '.join(missing_approvers)}\n"
 
-        return ""
+        if lgtm_count < self.minimum_lgtm:
+            all_reviewers = self.all_reviewers.copy()
+            if self.parent_committer in all_reviewers:
+                all_reviewers.pop(all_reviewers.index(self.parent_committer))
+
+            error += f"Missing lgtm from reviewers. Minimum {self.minimum_lgtm} required. Reviewers: {', '.join(all_reviewers)}.\n"
+
+        return error
 
     def _add_reviewer_by_user_comment(self, reviewer: str) -> None:
         reviewer = reviewer.strip("@")
