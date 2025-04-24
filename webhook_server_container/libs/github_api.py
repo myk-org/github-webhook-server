@@ -150,45 +150,10 @@ class ProcessGithubWehook:
         self.clone_repo_dir: str = os.path.join("/tmp", f"{self.repository.name}")
         self.add_api_users_to_auto_verified_and_merged_users()
 
-        self.supported_user_labels_str: str = "".join([f" * {label}\n" for label in USER_LABELS_DICT.keys()])
         self.current_pull_request_supported_retest = self._current_pull_request_supported_retest
-        self.welcome_msg: str = f"""
-Report bugs in [Issues](https://github.com/myakove/github-webhook-server/issues)
-
-The following are automatically added:
- * Add reviewers from OWNER file (in the root of the repository) under reviewers section.
- * Set PR size label.
- * New issue is created for the PR. (Closed when PR is merged/closed)
- * Run [pre-commit](https://pre-commit.ci/) if `.pre-commit-config.yaml` exists in the repo.
-
-Available user actions:
- * To mark PR as WIP comment `/wip` to the PR, To remove it from the PR comment `/wip cancel` to the PR.
- * To block merging of PR comment `/hold`, To un-block merging of PR comment `/hold cancel`.
- * To mark PR as verified comment `/verified` to the PR, to un-verify comment `/verified cancel` to the PR.
-        verified label removed on each new commit push.
- * To cherry pick a merged PR comment `/cherry-pick <target branch to cherry-pick to>` in the PR.
-    * Multiple target branches can be cherry-picked, separated by spaces. (`/cherry-pick branch1 branch2`)
-    * Cherry-pick will be started when PR is merged
- * To build and push container image command `/build-and-push-container` in the PR (tag will be the PR number).
-    * You can add extra args to the Podman build command
-        * Example: `/build-and-push-container --build-arg OPENSHIFT_PYTHON_WRAPPER_COMMIT=<commit_hash>`
- * To add a label by comment use `/<label name>`, to remove, use `/<label name> cancel`
- * To assign reviewers based on OWNERS file use `/assign-reviewers`
- * To check if PR can be merged use `/check-can-merge`
- * to assign reviewer to PR use `/assign-reviewer @<reviewer>`
-
-<details>
-<summary>Supported /retest check runs</summary>
-
-{self.prepare_retest_wellcome_msg}
-</details>
-
-<details>
-<summary>Supported labels</summary>
-
-{self.supported_user_labels_str}
-</details>
-    """
+        self.issue_url_for_welcome_msg: str = (
+            "Report bugs in [Issues](https://github.com/myakove/github-webhook-server/issues)"
+        )
 
     def process(self) -> None:
         if self.github_event == "ping":
@@ -228,7 +193,7 @@ Available user actions:
                 self.process_push_webhook_data()
 
     @property
-    def prepare_retest_wellcome_msg(self) -> str:
+    def _prepare_retest_welcome_comment(self) -> str:
         retest_msg: str = ""
         if self.tox:
             retest_msg += f" * `/retest {TOX_STR}`: Retest tox\n"
@@ -243,7 +208,7 @@ Available user actions:
             retest_msg += f" * `/retest {PRE_COMMIT_STR}`: Retest pre-commit\n"
 
         if self.conventional_title:
-            retest_msg += f"  * `/retest {CONVENTIONAL_TITLE_STR}`: Retest conventional-title\n"
+            retest_msg += f" * `/retest {CONVENTIONAL_TITLE_STR}`: Retest conventional-title\n"
 
         if retest_msg:
             retest_msg += " * `/retest all`: Retest all\n"
@@ -792,7 +757,7 @@ Publish to PYPI failed: `{_error}`
 
         body: str = self.hook_data["comment"]["body"]
 
-        if body == self.welcome_msg:
+        if self.issue_url_for_welcome_msg in body:
             self.logger.debug(
                 f"{self.log_prefix} Welcome message found in issue {self.pull_request.title}. Not processing"
             )
@@ -822,9 +787,11 @@ Publish to PYPI failed: `{_error}`
         if hook_action in ("opened", "reopened"):
             pull_request_opened_futures: list[Future] = []
             with ThreadPoolExecutor() as executor:
-                pull_request_opened_futures.append(
-                    executor.submit(self.pull_request.create_issue_comment, **{"body": self.welcome_msg})
-                )
+                if hook_action == "opened":
+                    welcome_msg = self._prepare_welcome_comment()
+                    pull_request_opened_futures.append(
+                        executor.submit(self.pull_request.create_issue_comment, **{"body": welcome_msg})
+                    )
                 pull_request_opened_futures.append(executor.submit(self.create_issue_for_new_pull_request))
                 pull_request_opened_futures.append(executor.submit(self.set_wip_label_based_on_title))
                 pull_request_opened_futures.append(executor.submit(self.process_opened_or_synchronize_pull_request))
@@ -2201,3 +2168,70 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             output["text"] = f"Pull request title must starts with allowed title: {': ,'.join(allowed_names)}"
 
             self.set_conventional_title_failure(output=output)
+
+    def _prepare_owners_welcome_comment(self) -> str:
+        body_approvers: str = " * Approvers:\n"
+        body_reviewers: str = " * Reviewers:\n"
+
+        for _approver in self.all_approvers:
+            body_approvers += f"   * {_approver}\n"
+
+        for _reviewer in self.all_reviewers:
+            body_reviewers += f"   * {_reviewer}\n"
+
+        return f"""
+{body_approvers}
+
+{body_reviewers}
+"""
+
+    def _prepare_welcome_comment(self) -> str:
+        self.logger.info(f"{self.log_prefix} Prepare welcome comment")
+        supported_user_labels_str: str = "".join([f" * {label}\n" for label in USER_LABELS_DICT.keys()])
+        return f"""
+{self.issue_url_for_welcome_msg}
+
+The following are automatically added:
+ * Add reviewers from OWNER file (in the root of the repository) under reviewers section.
+ * Set PR size label.
+ * New issue is created for the PR. (Closed when PR is merged/closed)
+ * Run [pre-commit](https://pre-commit.ci/) if `.pre-commit-config.yaml` exists in the repo.
+
+Available user actions:
+ * To mark PR as WIP comment `/wip` to the PR, To remove it from the PR comment `/wip cancel` to the PR.
+ * To block merging of PR comment `/hold`, To un-block merging of PR comment `/hold cancel`.
+ * To mark PR as verified comment `/verified` to the PR, to un-verify comment `/verified cancel` to the PR.
+        verified label removed on each new commit push.
+ * To cherry pick a merged PR comment `/cherry-pick <target branch to cherry-pick to>` in the PR.
+    * Multiple target branches can be cherry-picked, separated by spaces. (`/cherry-pick branch1 branch2`)
+    * Cherry-pick will be started when PR is merged
+ * To build and push container image command `/build-and-push-container` in the PR (tag will be the PR number).
+    * You can add extra args to the Podman build command
+        * Example: `/build-and-push-container --build-arg OPENSHIFT_PYTHON_WRAPPER_COMMIT=<commit_hash>`
+ * To add a label by comment use `/<label name>`, to remove, use `/<label name> cancel`
+ * To assign reviewers based on OWNERS file use `/assign-reviewers`
+ * To check if PR can be merged use `/check-can-merge`
+ * to assign reviewer to PR use `/assign-reviewer @<reviewer>`
+
+PR will be approved when the following conditions are met:
+ * `/approve` from one of the approvers.
+ * Minimum number of required `/lgtm` (`{self.minimum_lgtm}`) is met.
+
+<details>
+<summary>Approvers and Reviewers</summary>
+
+{self._prepare_owners_welcome_comment()}
+</details>
+
+<details>
+<summary>Supported /retest check runs</summary>
+
+{self._prepare_retest_welcome_comment}
+</details>
+
+<details>
+<summary>Supported labels</summary>
+
+{supported_user_labels_str}
+</details>
+    """
