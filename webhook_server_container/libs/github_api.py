@@ -154,7 +154,6 @@ class ProcessGithubWehook:
         self.issue_url_for_welcome_msg: str = (
             "Report bugs in [Issues](https://github.com/myakove/github-webhook-server/issues)"
         )
-        self.welcome_msg = self._prepare_welcome_comment()
 
     def process(self) -> None:
         if self.github_event == "ping":
