@@ -2223,6 +2223,12 @@ Available user actions:
  * To check if PR can be merged use `/check-can-merge`
  * to assign reviewer to PR use `/assign-reviewer @<reviewer>`
 
+PR will be approved when the following conditions are met:
+ * `/approve` from one of the approvers.
+ * Minimum number of required `/lgtm` (`{self.minimum_lgtm}`) is met.
+
+{self._prepare_owners_welcome_comment()}
+
 <details>
 <summary>Supported /retest check runs</summary>
 
