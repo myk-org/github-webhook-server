@@ -2101,10 +2101,15 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         approved_by = []
         lgtm_count: int = 0
 
+        all_reviewers = self.all_reviewers.copy()
+        all_reviewers_without_pr_owner = [
+            _reviewer for _reviewer in all_reviewers if _reviewer != self.parent_committer
+        ]
+
         if self.minimum_lgtm:
             for _label in labels:
                 reviewer = _label.split(LABELS_SEPARATOR)[-1]
-                if LGTM_BY_LABEL_PREFIX.lower() in _label.lower() and reviewer in self.all_reviewers:
+                if LGTM_BY_LABEL_PREFIX.lower() in _label.lower() and reviewer in all_reviewers:
                     lgtm_count += 1
 
         for _label in labels:
@@ -2131,9 +2136,9 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             error += f"Missing approved from approvers: {', '.join(missing_approvers)}\n"
 
         if lgtm_count < self.minimum_lgtm:
-            if lgtm_count == len(self.all_reviewers):
+            if lgtm_count == len(all_reviewers_without_pr_owner):
                 self.logger.debug(
-                    f"{self.log_prefix} minimum_lgtm is {self.minimum_lgtm}, but number of reviewers is {len(self.all_reviewers)}. PR approved."
+                    f"{self.log_prefix} minimum_lgtm is {self.minimum_lgtm}, but number of reviewers is {len(all_reviewers_without_pr_owner)}. PR approved."
                 )
             else:
                 all_reviewers = self.all_reviewers.copy()
