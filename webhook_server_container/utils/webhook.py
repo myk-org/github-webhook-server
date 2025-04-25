@@ -56,11 +56,11 @@ def process_github_webhook(
 
 def create_webhook(config: Config, apis_dict: dict[str, dict[str, Any]]) -> None:
     LOGGER.info("Preparing webhook configuration")
-    webhook_ip = config.data["webhook_ip"]
+    webhook_ip = config.root_data["webhook_ip"]
 
     futures = []
     with ThreadPoolExecutor() as executor:
-        for repo, data in config.data["repositories"].items():
+        for repo, data in config.root_data["repositories"].items():
             futures.append(
                 executor.submit(
                     process_github_webhook,

@@ -13,7 +13,7 @@ def branch_protection_rules(request, mocker):
     os.environ["WEBHOOK_SERVER_DATA_DIR"] = "webhook_server_container/tests/manifests"
     repo_name = "test-repo"
     config = Config(repository=repo_name)
-    data = config.data
+    data = config.root_data
     data.setdefault("branch_protection", request.param.get("global", {}))
     data["repositories"][repo_name].setdefault("branch_protection", request.param.get("repo"))
     mocker.patch(
