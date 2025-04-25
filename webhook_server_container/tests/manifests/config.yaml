@@ -75,4 +75,4 @@ repositories:
       - my-label1
       - my-label2
 
-    minimum-lgtm: 2
+    minimum-lgtm: 0

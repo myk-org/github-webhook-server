@@ -41,15 +41,11 @@ class Config:
             2. Repository level global config file (config.yaml)
             3. Root level global config file (config.yaml)
         """
-        _val = self.repository_local_data.get(value)
 
-        if _val is None:
-            _val = self.repository_data.get(value)
-
-            if _val is None:
-                _val = self.root_data.get(value)
-
-        return _val or return_on_none
+        for scope in (self.repository_local_data, self.repository_data, self.root_data):
+            if value in scope:
+                return scope[value]
+        return return_on_none
 
     @property
     def repository_local_data(self) -> dict[str, Any]:
@@ -61,11 +57,9 @@ class Config:
             if github_api:
                 try:
                     repo = get_github_repo_api(github_api=github_api, repository=self.repository_full_name)
-                    config_file = repo.get_contents(".github-webhook-server.yaml")
-                    config_file = config_file[0] if isinstance(config_file, list) else config_file
-
-                    with open(config_file.content) as fd:
-                        return yaml.safe_load(fd)
+                    _path = repo.get_contents(",github-webhook-server.yaml")
+                    config_file = _path[0] if isinstance(_path, list) else _path
+                    yaml.safe_load(config_file.decoded_content)
 
                 except Exception:
                     return {}
