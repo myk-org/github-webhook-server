@@ -10,6 +10,8 @@ services:
       - TZ=Asia/Jerusalem
       - DEVELOPMENT=false # Set to true when developing.
       - UVICORN_MAX_WORKERS=50 # Defaults to 10 if not set and running in production
+      - WEBHOOK_SERVER_CONFIG_DIR: /path/to/config/dir # Default to WEBHOOK_SERVER_DATA_DIR if not set
+      - WEBHOOK_SERVER_DATA_DIR: /path/to/data/dir
     ports:
       - "5000:5000"
     privileged: true

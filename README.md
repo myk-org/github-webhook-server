@@ -42,7 +42,7 @@ The tool will manage the following:
 
 Pre-build container images available in:
 
-- quay.io/myakove/github-webhook-server
+- ghcr.io/myk-org/github-webhook-server:latest
 
 ## Build container
 
@@ -79,7 +79,11 @@ docker build -t github-webhook-server .
 Before running the application, ensure to set the following environment variables and configuration file:
 
 - `WEBHOOK_SERVER_LOG_FILE`: Path to the log file where the server logs are to be stored.
-- `WEBHOOK_SERVER_DATA_DIR`: Path to the data directory where the `config.yaml` file is located.
+- `WEBHOOK_SERVER_DATA_DIR`: Path to the data directory where the .
+- `WEBHOOK_SERVER_CONFIG_DIR`: Path to the config directory where the `config.yaml` and `*-private-key.pem` (Github APP cert) file is located.
+
+  - Default to WEBHOOK_SERVER_DATA_DIR if not set
+
 - `WEBHOOK_SERVER_LOG_LEVEL`: App log level.
 - `config.yaml`: Configuration file that contains settings for the server and repositories, which should be placed in the `WEBHOOK_SERVER_DATA_DIR` directory.
 
@@ -189,7 +193,7 @@ if the merged pull request is in any other branch than `main` or `master` the ta
 
 - `username`: User with push permissions to the repository
 - `password`: The password for the username
-- `repository`: the repository to push the container, for example `quay.io/myakove/github-webhook-server`
+- `repository`: the repository to push the container, for example `ghcr.io/myk-org/github-webhook-server:latest`
 - `tag`: The container tag to use when pushing the container
 - `release`: if `true` a new container will be pushed with the release version as the tag
 

@@ -390,7 +390,7 @@ def get_repository_github_app_api(config_: Config, repository_name: str) -> Gith
     logger = get_logger_with_params(name="github-repository-settings")
 
     logger.debug("Getting repositories GitHub app API")
-    with open(os.path.join(config_.data_dir, "webhook-server.private-key.pem")) as fd:
+    with open(os.path.join(config_.config_dir, "webhook-server.private-key.pem")) as fd:
         private_key = fd.read()
 
     github_app_id: int = config_.root_data["github-app-id"]

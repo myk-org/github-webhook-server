@@ -10,7 +10,8 @@ LOGGER = get_logger(name="config")
 class Config:
     def __init__(self, repository: str | None = None, repository_full_name: str | None = None) -> None:
         self.data_dir: str = os.environ.get("WEBHOOK_SERVER_DATA_DIR", "/home/podman/data")
-        self.config_path: str = os.path.join(self.data_dir, "config.yaml")
+        self.config_dir = os.environ.get("WEBHOOK_SERVER_CONFIG_DIR", self.data_dir)
+        self.config_path: str = os.path.join(self.config_dir, "config.yaml")
         self.exists()
         self.repository = repository
         self.repository_full_name = repository_full_name

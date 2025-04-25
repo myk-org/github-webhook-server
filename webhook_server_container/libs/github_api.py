@@ -259,8 +259,11 @@ class ProcessGithubWehook:
         else:
             _str_color = _get_random_color(_colors=_all_colors, _json=color_json)
 
-        with open(color_file, "w") as fd:
-            json.dump(color_json, fd)
+        try:
+            with open(color_file, "w") as fd:
+                json.dump(color_json, fd)
+        except Exception:
+            return self.repository_name
 
         if _str_color:
             _str_color = _str_color.replace("\x1b", "\033")
