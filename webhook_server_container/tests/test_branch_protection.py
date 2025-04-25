@@ -17,7 +17,7 @@ def branch_protection_rules(request, mocker):
     data.setdefault("branch_protection", request.param.get("global", {}))
     data["repositories"][repo_name].setdefault("branch_protection", request.param.get("repo"))
     mocker.patch(
-        "webhook_server_container.libs.config.Config.data", new_callable=mocker.PropertyMock, return_value=data
+        "webhook_server_container.libs.config.Config.root_data", new_callable=mocker.PropertyMock, return_value=data
     )
     mocker.patch(
         "webhook_server_container.libs.config.Config.repository_data",

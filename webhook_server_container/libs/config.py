@@ -2,6 +2,9 @@ import os
 from typing import Any
 
 import yaml
+from simple_logger.logger import get_logger
+
+LOGGER = get_logger(name="config")
 
 
 class Config:
@@ -18,12 +21,16 @@ class Config:
 
     @property
     def root_data(self) -> dict[str, Any]:
-        with open(self.config_path) as fd:
-            return yaml.safe_load(fd)
+        try:
+            with open(self.config_path) as fd:
+                return yaml.safe_load(fd)
+        except Exception:
+            LOGGER.error("Config file is empty")
+            return {}
 
     @property
     def repository_data(self) -> dict[str, Any]:
-        return self.root_data["repositories"].get(self.repository, {})
+        return self.root_data.get("repositories", {}).get(self.repository, {})
 
     def get_value(self, value: str, return_on_none: Any = None) -> Any:
         """

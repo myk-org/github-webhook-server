@@ -74,3 +74,5 @@ repositories:
     can-be-merged-required-labels: # check for extra labels to set PR as can be merged
       - my-label1
       - my-label2
+
+    minimum-lgtm: 2

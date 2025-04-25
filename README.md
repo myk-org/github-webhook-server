@@ -102,6 +102,21 @@ repositories:
       main: []
 ```
 
+Repository config can be override by config file in the root on the repository named `.github-webhook-server.yaml`
+
+```yaml
+minimum-lgtm: 1
+can-be-merged-required-labels:
+  - "my-label"
+tox:
+  main: all
+set-auto-merge-prs:
+  - dev
+pre-commit: true
+```
+
+````
+
 - `github-app-id`: The ID of the GitHub app. Need to add the APP to the repository.
 - `name`: repository full name (org or user/repository name)
 - `webhook_ip`: Ip or FQDN where this app will run, this will be added as webhook in the repository setting
@@ -112,7 +127,7 @@ repositories:
 
 ```yaml
 slack_webhook_url: https://hooks.slack.com/services/<channel>
-```
+````
 
 if `pypi` configured for the repository a new version will be pushed to pypi on new GitHub release
 
