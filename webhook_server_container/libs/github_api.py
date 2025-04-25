@@ -1843,12 +1843,13 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 self.pull_request.add_to_assignees(self.root_approvers[0])
 
     def set_pull_request_automerge(self) -> None:
-        self.logger.error(f"AUTO_MERGE: {self.pull_request_branch} in {self.set_auto_merge_prs}")
         auto_merge = (
             self.pull_request_branch in self.set_auto_merge_prs
             or self.parent_committer in self.auto_verified_and_merged_users
         )
+
         self.logger.debug(f"{self.log_prefix} auto_merge: {auto_merge}, branch: {self.pull_request_branch}")
+
         if auto_merge:
             try:
                 if not self.pull_request.raw_data.get("auto_merge"):
@@ -2102,9 +2103,9 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         lgtm_count: int = 0
 
         all_reviewers = self.all_reviewers.copy()
-        all_reviewers_without_pr_owner = [
+        all_reviewers_without_pr_owner = {
             _reviewer for _reviewer in all_reviewers if _reviewer != self.parent_committer
-        ]
+        }
 
         if self.minimum_lgtm:
             for _label in labels:
@@ -2141,13 +2142,9 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     f"{self.log_prefix} minimum_lgtm is {self.minimum_lgtm}, but number of reviewers is {len(all_reviewers_without_pr_owner)}. PR approved."
                 )
             else:
-                all_reviewers = self.all_reviewers.copy()
-                if self.parent_committer in all_reviewers:
-                    all_reviewers.pop(all_reviewers.index(self.parent_committer))
-
                 error += (
                     "Missing lgtm from reviewers. "
-                    f"Minimum {self.minimum_lgtm} required. Reviewers: {', '.join(all_reviewers)}.\n"
+                    f"Minimum {self.minimum_lgtm} required. Reviewers: {', '.join(all_reviewers_without_pr_owner)}.\n"
                 )
 
         return error
