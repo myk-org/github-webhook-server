@@ -26,7 +26,7 @@ if __name__ == "__main__":
 
     apis: list = []
     with ThreadPoolExecutor() as executor:
-        for repo, data in config.data["repositories"].items():
+        for repo, data in config.root_data["repositories"].items():
             apis.append(
                 executor.submit(
                     get_repository_api,

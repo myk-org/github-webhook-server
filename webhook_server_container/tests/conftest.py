@@ -112,6 +112,7 @@ def process_github_webhook(mocker, request):
     process_github_webhook.pull_request_branch = "main"
     if hasattr(request, "param") and request.param:
         process_github_webhook.changed_files = request.param[0]
+
     else:
         process_github_webhook.changed_files = ALL_CHANGED_FILES
 

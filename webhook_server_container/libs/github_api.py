@@ -2109,7 +2109,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         if self.minimum_lgtm:
             for _label in labels:
                 reviewer = _label.split(LABELS_SEPARATOR)[-1]
-                if LGTM_BY_LABEL_PREFIX.lower() in _label.lower() and reviewer in all_reviewers:
+                if LGTM_BY_LABEL_PREFIX.lower() in _label.lower() and reviewer in all_reviewers_without_pr_owner:
                     lgtm_count += 1
 
         for _label in labels:

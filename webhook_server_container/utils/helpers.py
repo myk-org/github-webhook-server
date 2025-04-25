@@ -140,7 +140,7 @@ def get_api_with_highest_rate_limit(
         repository_name (str, optional): Repository name, if provided try to get token set in config repository section.
 
     Returns:
-        tuple: API, token
+        tuple: API, token, api_user
     """
     logger = get_logger_with_params(name="helpers")
 
