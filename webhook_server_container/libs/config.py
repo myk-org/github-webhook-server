@@ -44,7 +44,10 @@ class Config:
 
         for scope in (self.repository_local_data, self.repository_data, self.root_data):
             if value in scope:
-                return scope[value]
+                value_data = scope[value]
+                if value_data is not None:
+                    return value_data
+
         return return_on_none
 
     @property
