@@ -2131,11 +2131,19 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             error += f"Missing approved from approvers: {', '.join(missing_approvers)}\n"
 
         if lgtm_count < self.minimum_lgtm:
-            all_reviewers = self.all_reviewers.copy()
-            if self.parent_committer in all_reviewers:
-                all_reviewers.pop(all_reviewers.index(self.parent_committer))
+            if lgtm_count == len(self.all_reviewers):
+                self.logger.debug(
+                    f"{self.log_prefix} minimum_lgtm is {self.minimum_lgtm}, but number of reviewers is {len(self.all_reviewers)}. PR approved."
+                )
+            else:
+                all_reviewers = self.all_reviewers.copy()
+                if self.parent_committer in all_reviewers:
+                    all_reviewers.pop(all_reviewers.index(self.parent_committer))
 
-            error += f"Missing lgtm from reviewers. Minimum {self.minimum_lgtm} required. Reviewers: {', '.join(all_reviewers)}.\n"
+                error += (
+                    "Missing lgtm from reviewers. "
+                    f"Minimum {self.minimum_lgtm} required. Reviewers: {', '.join(all_reviewers)}.\n"
+                )
 
         return error
 
