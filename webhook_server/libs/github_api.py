@@ -26,8 +26,8 @@ from starlette.datastructures import Headers
 from stringcolor import cs
 from timeout_sampler import TimeoutExpiredError, TimeoutSampler
 
-from webhook_server_container.libs.config import Config
-from webhook_server_container.utils.constants import (
+from webhook_server.libs.config import Config
+from webhook_server.utils.constants import (
     ADD_STR,
     APPROVE_STR,
     APPROVED_BY_LABEL_PREFIX,
@@ -68,10 +68,10 @@ from webhook_server_container.utils.constants import (
     VERIFIED_LABEL_STR,
     WIP_STR,
 )
-from webhook_server_container.utils.github_repository_settings import (
+from webhook_server.utils.github_repository_settings import (
     get_repository_github_app_api,
 )
-from webhook_server_container.utils.helpers import (
+from webhook_server.utils.helpers import (
     extract_key_from_dict,
     get_api_with_highest_rate_limit,
     get_apis_and_tokes_from_config,

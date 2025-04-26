@@ -13,7 +13,7 @@ from github.RateLimit import RateLimit
 from github.Repository import Repository
 from simple_logger.logger import get_logger
 
-from webhook_server_container.libs.config import Config
+from webhook_server.libs.config import Config
 
 
 def get_logger_with_params(name: str, repository_name: str = "") -> Logger:

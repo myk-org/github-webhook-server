@@ -53,7 +53,7 @@ class Config:
     @property
     def repository_local_data(self) -> dict[str, Any]:
         if self.repository and self.repository_full_name:
-            from webhook_server_container.utils.helpers import get_api_with_highest_rate_limit, get_github_repo_api
+            from webhook_server.utils.helpers import get_api_with_highest_rate_limit, get_github_repo_api
 
             github_api, _, _ = get_api_with_highest_rate_limit(config=self, repository_name=self.repository)
 

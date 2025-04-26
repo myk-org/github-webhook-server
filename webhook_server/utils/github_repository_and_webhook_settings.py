@@ -3,13 +3,13 @@ from typing import Any
 
 import github
 
-from webhook_server_container.libs.config import Config
-from webhook_server_container.utils.github_repository_settings import (
+from webhook_server.libs.config import Config
+from webhook_server.utils.github_repository_settings import (
     set_all_in_progress_check_runs_to_queued,
     set_repositories_settings,
 )
-from webhook_server_container.utils.helpers import get_api_with_highest_rate_limit, get_logger_with_params
-from webhook_server_container.utils.webhook import create_webhook
+from webhook_server.utils.helpers import get_api_with_highest_rate_limit, get_logger_with_params
+from webhook_server.utils.webhook import create_webhook
 
 
 def get_repository_api(repository: str) -> tuple[str, github.Github | None, str]:

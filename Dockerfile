@@ -35,7 +35,7 @@ RUN mkdir -p $BIN_DIR \
   && mkdir -p $DATA_DIR/logs
 
 COPY entrypoint.sh pyproject.toml uv.lock README.md $APP_DIR/
-COPY webhook_server_container $APP_DIR/webhook_server_container/
+COPY webhook_server $APP_DIR/webhook_server/
 
 RUN usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $USERNAME \
   && chown -R $USERNAME:$USERNAME $HOME_DIR

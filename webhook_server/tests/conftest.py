@@ -5,7 +5,7 @@ from simple_logger.logger import logging
 from starlette.datastructures import Headers
 
 import pytest
-from webhook_server_container.libs.github_api import ProcessGithubWehook
+from webhook_server.libs.github_api import ProcessGithubWehook
 
 ALL_CHANGED_FILES = [
     "OWNERS",
@@ -96,8 +96,8 @@ class Repository:
 
 @pytest.fixture(scope="function")
 def process_github_webhook(mocker, request):
-    base_import_path = "webhook_server_container.libs.github_api"
-    os.environ["WEBHOOK_SERVER_DATA_DIR"] = "webhook_server_container/tests/manifests"
+    base_import_path = "webhook_server.libs.github_api"
+    os.environ["WEBHOOK_SERVER_DATA_DIR"] = "webhook_server/tests/manifests"
 
     mocker.patch(f"{base_import_path}.get_repository_github_app_api", return_value=True)
     mocker.patch("github.AuthenticatedUser", return_value=True)

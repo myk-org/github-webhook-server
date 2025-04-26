@@ -1,8 +1,8 @@
 import yaml
 
 import pytest
-from webhook_server_container.tests.conftest import ContentFile, Tree
-from webhook_server_container.utils.constants import APPROVED_BY_LABEL_PREFIX
+from webhook_server.tests.conftest import ContentFile, Tree
+from webhook_server.utils.constants import APPROVED_BY_LABEL_PREFIX
 
 
 class Repository:

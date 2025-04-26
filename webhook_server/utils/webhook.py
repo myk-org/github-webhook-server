@@ -3,8 +3,8 @@ from typing import Any, Callable
 
 from github.Hook import Hook
 
-from webhook_server_container.libs.config import Config
-from webhook_server_container.utils.helpers import (
+from webhook_server.libs.config import Config
+from webhook_server.utils.helpers import (
     get_future_results,
     get_github_repo_api,
     get_logger_with_params,

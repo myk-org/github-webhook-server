@@ -14,8 +14,8 @@ from github.GithubException import UnknownObjectException
 from github.Label import Label
 from github.Repository import Repository
 
-from webhook_server_container.libs.config import Config
-from webhook_server_container.utils.constants import (
+from webhook_server.libs.config import Config
+from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
     CONVENTIONAL_TITLE_STR,
@@ -26,7 +26,7 @@ from webhook_server_container.utils.constants import (
     STATIC_LABELS_DICT,
     TOX_STR,
 )
-from webhook_server_container.utils.helpers import (
+from webhook_server.utils.helpers import (
     get_future_results,
     get_logger_with_params,
 )
