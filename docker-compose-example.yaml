@@ -8,7 +8,6 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=Asia/Jerusalem
-      - DEVELOPMENT=false # Set to true when developing.
       - UVICORN_MAX_WORKERS=50 # Defaults to 10 if not set and running in production
     ports:
       - "5000:5000"
