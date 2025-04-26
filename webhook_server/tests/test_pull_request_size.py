@@ -1,6 +1,5 @@
 import pytest
-
-from webhook_server_container.utils.constants import SIZE_LABEL_PREFIX
+from webhook_server.utils.constants import SIZE_LABEL_PREFIX
 
 
 class Label:

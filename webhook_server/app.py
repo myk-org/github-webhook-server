@@ -6,8 +6,8 @@ import requests
 import urllib3
 from fastapi import FastAPI, Request
 
-from webhook_server_container.libs.github_api import ProcessGithubWehook
-from webhook_server_container.utils.helpers import get_logger_with_params
+from webhook_server.libs.github_api import ProcessGithubWehook
+from webhook_server.utils.helpers import get_logger_with_params
 
 FASTAPI_APP: FastAPI = FastAPI(title="webhook-server")
 APP_URL_ROOT_PATH: str = "/webhook_server"

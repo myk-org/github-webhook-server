@@ -1,8 +1,8 @@
 import os
 
 import pytest
-from webhook_server_container.libs.config import Config
-from webhook_server_container.utils.github_repository_settings import (
+from webhook_server.libs.config import Config
+from webhook_server.utils.github_repository_settings import (
     DEFAULT_BRANCH_PROTECTION,
     get_repo_branch_protection_rules,
 )
@@ -10,8 +10,8 @@ from webhook_server_container.utils.github_repository_settings import (
 
 @pytest.fixture()
 def branch_protection_rules(request, mocker):
-    config_path = "webhook_server_container.libs.config.Config"
-    os.environ["WEBHOOK_SERVER_DATA_DIR"] = "webhook_server_container/tests/manifests"
+    config_path = "webhook_server.libs.config.Config"
+    os.environ["WEBHOOK_SERVER_DATA_DIR"] = "webhook_server/tests/manifests"
     repo_name = "test-repo"
     config = Config(repository=repo_name)
     root_data = config.root_data
