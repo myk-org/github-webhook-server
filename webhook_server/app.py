@@ -7,11 +7,16 @@ import urllib3
 from fastapi import FastAPI, Request
 
 from webhook_server.libs.github_api import ProcessGithubWehook
+from webhook_server.utils.github_repository_and_webhook_settings import repository_and_webhook_settings
 from webhook_server.utils.helpers import get_logger_with_params
 
 FASTAPI_APP: FastAPI = FastAPI(title="webhook-server")
 APP_URL_ROOT_PATH: str = "/webhook_server"
 urllib3.disable_warnings()
+
+
+def on_starting(server: Any) -> None:
+    repository_and_webhook_settings()
 
 
 @FASTAPI_APP.get(f"{APP_URL_ROOT_PATH}/healthcheck")

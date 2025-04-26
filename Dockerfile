@@ -34,7 +34,7 @@ RUN mkdir -p $BIN_DIR \
   && mkdir -p $DATA_DIR \
   && mkdir -p $DATA_DIR/logs
 
-COPY entrypoint.sh pyproject.toml uv.lock README.md $APP_DIR/
+COPY gunicorn.conf.py pyproject.toml uv.lock README.md $APP_DIR/
 COPY webhook_server $APP_DIR/webhook_server/
 
 RUN usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $USERNAME \
@@ -66,4 +66,4 @@ RUN uv sync
 
 HEALTHCHECK CMD curl --fail http://127.0.0.1:5000/webhook_server/healthcheck || exit 1
 
-ENTRYPOINT ["./entrypoint.sh"]
+ENTRYPOINT ["uv", "run", "gunicorn", "webhook_server.app:FASTAPI_APP", "-c", "./gunicorn.conf.py"]
