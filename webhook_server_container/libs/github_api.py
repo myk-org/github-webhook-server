@@ -725,23 +725,27 @@ Publish to PYPI failed: `{_error}`
         rc, out, err = self.run_podman_command(command=reg_login_cmd)
 
         if rc:
-            tag_ls_cmd = f"regctl tag ls {self.container_repository} --include {pr_tag}"
-            rc, out, err = self.run_podman_command(command=tag_ls_cmd)
+            try:
+                tag_ls_cmd = f"regctl tag ls {self.container_repository} --include {pr_tag}"
+                rc, out, err = self.run_podman_command(command=tag_ls_cmd)
 
-            if rc and out:
-                tag_del_cmd = f"regctl tag delete {repository_full_tag}"
+                if rc and out:
+                    tag_del_cmd = f"regctl tag delete {repository_full_tag}"
 
-                if self.run_podman_command(command=tag_del_cmd)[0]:
-                    self.pull_request.create_issue_comment(f"Successfully removed PR tag: {repository_full_tag}.")
+                    if self.run_podman_command(command=tag_del_cmd)[0]:
+                        self.pull_request.create_issue_comment(f"Successfully removed PR tag: {repository_full_tag}.")
+                    else:
+                        self.logger.error(
+                            f"{self.log_prefix} Failed to delete tag: {repository_full_tag}. OUT:{out}. ERR:{err}"
+                        )
                 else:
-                    self.logger.error(
-                        f"{self.log_prefix} Failed to delete tag: {repository_full_tag}. OUT:{out}. ERR:{err}"
+                    self.logger.warning(
+                        f"{self.log_prefix} {pr_tag} tag not found in registry {self.container_repository}. "
+                        f"OUT:{out}. ERR:{err}"
                     )
-            else:
-                self.logger.warning(
-                    f"{self.log_prefix} {pr_tag} tag not found in registry {self.container_repository}. "
-                    f"OUT:{out}. ERR:{err}"
-                )
+            finally:
+                self.run_podman_command(command="regctl registry logout")
+
         else:
             self.pull_request.create_issue_comment(
                 f"Failed to delete tag: {repository_full_tag}. Please delete it manually."
