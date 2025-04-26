@@ -957,8 +957,7 @@ Publish to PYPI failed: `{_error}`
             return
 
         if self.is_check_run_in_progress(check_run=TOX_STR):
-            self.logger.debug(f"{self.log_prefix} Check run is in progress, not running {TOX_STR}.")
-            return
+            self.logger.debug(f"{self.log_prefix} Check run is in progress, re-running {TOX_STR}.")
 
         clone_repo_dir = f"{self.clone_repo_dir}-{uuid4()}"
         python_ver = f"--python={self.tox_python_version}" if self.tox_python_version else ""
@@ -993,8 +992,7 @@ Publish to PYPI failed: `{_error}`
             return
 
         if self.is_check_run_in_progress(check_run=PRE_COMMIT_STR):
-            self.logger.debug(f"{self.log_prefix} Check run is in progress, not running {PRE_COMMIT_STR}.")
-            return
+            self.logger.debug(f"{self.log_prefix} Check run is in progress, re-running {PRE_COMMIT_STR}.")
 
         clone_repo_dir = f"{self.clone_repo_dir}-{uuid4()}"
         cmd = f" uvx --directory {clone_repo_dir} {PRE_COMMIT_STR} run --all-files"
@@ -1331,13 +1329,15 @@ Publish to PYPI failed: `{_error}`
         if not self.build_and_push_container:
             return
 
+        if self.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR):
+            self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {BUILD_CONTAINER_STR}.")
+
         clone_repo_dir = f"{self.clone_repo_dir}-{uuid4()}"
         pull_request = hasattr(self, "pull_request")
 
         if pull_request and set_check:
             if self.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR) and not is_merged:
-                self.logger.info(f"{self.log_prefix} Check run is in progress, not running {BUILD_CONTAINER_STR}.")
-                return
+                self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {BUILD_CONTAINER_STR}.")
 
             self.set_container_build_in_progress()
 
@@ -1418,8 +1418,7 @@ Publish to PYPI failed: `{_error}`
             return
 
         if self.is_check_run_in_progress(check_run=PYTHON_MODULE_INSTALL_STR):
-            self.logger.info(f"{self.log_prefix} Check run is in progress, not running {PYTHON_MODULE_INSTALL_STR}.")
-            return
+            self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {PYTHON_MODULE_INSTALL_STR}.")
 
         clone_repo_dir = f"{self.clone_repo_dir}-{uuid4()}"
         self.logger.info(f"{self.log_prefix} Installing python module")
@@ -2172,6 +2171,10 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             "summary": "",
             "text": "",
         }
+
+        if self.is_check_run_in_progress(check_run=CONVENTIONAL_TITLE_STR):
+            self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {CONVENTIONAL_TITLE_STR}.")
+
         self.set_conventional_title_in_progress()
         allowed_names = self.conventional_title.split(",")
         title = self.pull_request.title
