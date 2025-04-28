@@ -80,7 +80,5 @@ class Config:
                 value_data = scope[value]
                 if value_data is not None:
                     return value_data
-                else:
-                    return return_on_none
 
         return return_on_none

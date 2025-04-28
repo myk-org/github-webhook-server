@@ -103,6 +103,9 @@ def process_github_webhook(mocker, request):
     mocker.patch("github.AuthenticatedUser", return_value=True)
     mocker.patch(f"{base_import_path}.get_api_with_highest_rate_limit", return_value=("API", "TOKEN", "USER"))
     mocker.patch(f"{base_import_path}.get_github_repo_api", return_value=Repository())
+    mocker.patch(
+        "webhook_server.libs.config.Config.repository_local_data", new_callable=mocker.PropertyMock, return_value={}
+    )
 
     process_github_webhook = ProcessGithubWehook(
         hook_data={"repository": {"name": Repository().name, "full_name": Repository().full_name}},
