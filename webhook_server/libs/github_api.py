@@ -111,18 +111,25 @@ class ProcessGithubWehook:
         self.github_event: str = self.headers["X-GitHub-Event"]
         self.owners_content: dict[str, Any] = {}
 
-        self.config = Config(repository=self.repository_name, repository_full_name=self.repository_full_name)
+        self.config = Config(repository=self.repository_name)
 
         if not self.config.repository:
             raise RepositoryNotFoundError(f"Repository {self.repository_name} not found in config file")
 
-        self._repo_data_from_config()
+        # Get config without .github-webhook-server.yaml data
+        self._repo_data_from_config(repository_config={})
         self.github_api, self.token, self.api_user = get_api_with_highest_rate_limit(
             config=self.config, repository_name=self.repository_name
         )
 
         if self.github_api and self.token:
             self.repository = get_github_repo_api(github_api=self.github_api, repository=self.repository_full_name)
+            # Once we have a repository, we can get the config from .github-webhook-server.yaml
+            local_repository_config = self.config.repository_local_data(
+                github_api=self.github_api, repository_full_name=self.repository_full_name
+            )
+            # Call _repo_data_from_config() again to update self args from .github-webhook-server.yaml
+            self._repo_data_from_config(repository_config=local_repository_config)
 
         else:
             self.logger.error(f"Failed to get GitHub API and token for repository {self.repository_name}.")
@@ -302,16 +309,21 @@ class ProcessGithubWehook:
 
         return self.check_if_can_be_merged()
 
-    def _repo_data_from_config(self) -> None:
+    def _repo_data_from_config(self, repository_config: dict[str, Any]) -> None:
         self.logger.debug(f"Read config for repository {self.repository_name}")
-        self.github_app_id: str = self.config.get_value(value="github-app-id")
-        self.pypi: dict[str, str] = self.config.get_value(value="pypi")
-        self.verified_job: bool = self.config.get_value(value="verified-job", return_on_none=True)
-        self.tox: dict[str, str] = self.config.get_value(value="tox")
-        self.tox_python_version: str = self.config.get_value(value="tox-python-version")
-        self.slack_webhook_url: str = self.config.get_value(value="slack_webhook_url")
 
-        self.build_and_push_container: dict[str, Any] = self.config.get_value(value="container", return_on_none={})
+        self.github_app_id: str = self.config.get_value(value="github-app-id", extra_dict=repository_config)
+        self.pypi: dict[str, str] = self.config.get_value(value="pypi", extra_dict=repository_config)
+        self.verified_job: bool = self.config.get_value(
+            value="verified-job", return_on_none=True, extra_dict=repository_config
+        )
+        self.tox: dict[str, str] = self.config.get_value(value="tox", extra_dict=repository_config)
+        self.tox_python_version: str = self.config.get_value(value="tox-python-version", extra_dict=repository_config)
+        self.slack_webhook_url: str = self.config.get_value(value="slack_webhook_url", extra_dict=repository_config)
+
+        self.build_and_push_container: dict[str, Any] = self.config.get_value(
+            value="container", return_on_none={}, extra_dict=repository_config
+        )
         if self.build_and_push_container:
             self.container_repository_username: str = self.build_and_push_container["username"]
             self.container_repository_password: str = self.build_and_push_container["password"]
@@ -322,17 +334,23 @@ class ProcessGithubWehook:
             self.container_command_args: str = self.build_and_push_container.get("args", "")
             self.container_release: bool = self.build_and_push_container.get("release", False)
 
-        self.pre_commit: bool = self.config.get_value(value="pre-commit", return_on_none=False)
+        self.pre_commit: bool = self.config.get_value(
+            value="pre-commit", return_on_none=False, extra_dict=repository_config
+        )
 
         self.auto_verified_and_merged_users: list[str] = self.config.get_value(
-            value="auto-verified-and-merged-users", return_on_none=[]
+            value="auto-verified-and-merged-users", return_on_none=[], extra_dict=repository_config
         )
         self.can_be_merged_required_labels = self.config.get_value(
-            value="can-be-merged-required-labels", return_on_none=[]
+            value="can-be-merged-required-labels", return_on_none=[], extra_dict=repository_config
         )
-        self.conventional_title: str = self.config.get_value(value="conventional-title")
-        self.set_auto_merge_prs: list[str] = self.config.get_value(value="set-auto-merge-prs", return_on_none=[])
-        self.minimum_lgtm: int = self.config.get_value(value="minimum-lgtm", return_on_none=0)
+        self.conventional_title: str = self.config.get_value(value="conventional-title", extra_dict=repository_config)
+        self.set_auto_merge_prs: list[str] = self.config.get_value(
+            value="set-auto-merge-prs", return_on_none=[], extra_dict=repository_config
+        )
+        self.minimum_lgtm: int = self.config.get_value(
+            value="minimum-lgtm", return_on_none=0, extra_dict=repository_config
+        )
 
     def _get_pull_request(self, number: int | None = None) -> PullRequest:
         if number:

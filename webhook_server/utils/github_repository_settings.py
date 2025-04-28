@@ -212,7 +212,7 @@ def set_repositories_settings(config: Config, apis_dict: dict[str, dict[str, Any
     futures = []
     with ThreadPoolExecutor() as executor:
         for repo, data in config_data["repositories"].items():
-            config = Config(repository=repo, repository_full_name=data["name"])
+            config = Config(repository=repo)
             branch_protection = get_repo_branch_protection_rules(config=config)
             futures.append(
                 executor.submit(
@@ -331,7 +331,7 @@ def set_all_in_progress_check_runs_to_queued(repo_config: Config, apis_dict: dic
 
     with ThreadPoolExecutor() as executor:
         for repo, data in repo_config.root_data["repositories"].items():
-            repo_config = Config(repository=repo, repository_full_name=data["name"])
+            repo_config = Config(repository=repo)
             futures.append(
                 executor.submit(
                     set_repository_check_runs_to_queued,
