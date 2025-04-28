@@ -26,11 +26,6 @@ def branch_protection_rules(request, mocker):
         return_value=root_data["repositories"][repo_name],
     )
 
-    mocker.patch(
-        f"{config_path}.repository_local_data",
-        new_callable=mocker.PropertyMock,
-        return_value={},
-    )
     return get_repo_branch_protection_rules(config=config)
 
 

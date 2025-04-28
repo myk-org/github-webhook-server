@@ -159,6 +159,7 @@ def get_api_with_highest_rate_limit(
     logger.debug(msg)
 
     apis_and_tokens = get_apis_and_tokes_from_config(config=config)
+
     for _api, _token in apis_and_tokens:
         _api_user = _api.get_user().login
         rate_limit = _api.get_rate_limit()
