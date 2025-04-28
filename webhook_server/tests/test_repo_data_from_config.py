@@ -1,5 +1,5 @@
 def test_repo_data_from_config_repository_found(process_github_webhook):
-    process_github_webhook._repo_data_from_config()
+    process_github_webhook._repo_data_from_config(repository_config={})
 
     assert process_github_webhook.repository_full_name == "my-org/test-repo"
     assert process_github_webhook.github_app_id == 123456
