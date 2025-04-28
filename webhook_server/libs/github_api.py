@@ -111,7 +111,11 @@ class ProcessGithubWehook:
         self.github_event: str = self.headers["X-GitHub-Event"]
         self.owners_content: dict[str, Any] = {}
 
-        self.config = Config(repository=self.repository_name)
+        self.config = Config(repository=self.repository_name, repository_full_name=self.repository_full_name)
+
+        if not self.config.repository:
+            raise RepositoryNotFoundError(f"Repository {self.repository_name} not found in config file")
+
         self._repo_data_from_config()
         self.github_api, self.token, self.api_user = get_api_with_highest_rate_limit(
             config=self.config, repository_name=self.repository_name
@@ -216,7 +220,7 @@ class ProcessGithubWehook:
         return " * This repository does not support retest actions" if not retest_msg else retest_msg
 
     def add_api_users_to_auto_verified_and_merged_users(self) -> None:
-        apis_and_tokens = get_apis_and_tokes_from_config(config=self.config)
+        apis_and_tokens = get_apis_and_tokes_from_config(config=self.config, repository_name=self.repository_name)
         self.auto_verified_and_merged_users.extend([_api[0].get_user().login for _api in apis_and_tokens])
 
     def _get_reposiroty_color_for_log_prefix(self) -> str:
@@ -299,11 +303,8 @@ class ProcessGithubWehook:
         return self.check_if_can_be_merged()
 
     def _repo_data_from_config(self) -> None:
-        if not self.config.repository:
-            raise RepositoryNotFoundError(f"Repository {self.repository_name} not found in config file")
-
+        self.logger.debug(f"Read config for repository {self.repository_name}")
         self.github_app_id: str = self.config.get_value(value="github-app-id")
-
         self.pypi: dict[str, str] = self.config.get_value(value="pypi")
         self.verified_job: bool = self.config.get_value(value="verified-job", return_on_none=True)
         self.tox: dict[str, str] = self.config.get_value(value="tox")

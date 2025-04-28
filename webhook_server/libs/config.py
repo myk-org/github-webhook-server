@@ -21,6 +21,8 @@ class Config:
 
     @property
     def root_data(self) -> dict[str, Any]:
+        LOGGER.debug(f"Loading config file {self.config_path}")
+
         try:
             with open(self.config_path) as fd:
                 return yaml.safe_load(fd)
@@ -30,7 +32,33 @@ class Config:
 
     @property
     def repository_data(self) -> dict[str, Any]:
+        LOGGER.debug(f"Loading repository level config for repository {self.repository}")
         return self.root_data.get("repositories", {}).get(self.repository, {})
+
+    @property
+    def repository_local_data(self) -> dict[str, Any]:
+        LOGGER.debug(f"Loading local config for repository {self.repository_full_name}")
+
+        if self.repository and self.repository_full_name:
+            from webhook_server.utils.helpers import get_api_with_highest_rate_limit, get_github_repo_api
+
+            github_api, _, _ = get_api_with_highest_rate_limit(config=self, repository_name=self.repository)
+
+            if github_api:
+                try:
+                    repo = get_github_repo_api(github_api=github_api, repository=self.repository_full_name)
+                    _path = repo.get_contents(".github-webhook-server.yaml")
+                    config_file = _path[0] if isinstance(_path, list) else _path
+                    repo_config = yaml.safe_load(config_file.decoded_content)
+                    LOGGER.debug(f"Repository {self.repository_full_name} config: {repo_config}")
+                    return repo_config
+
+                except Exception as ex:
+                    LOGGER.debug(f"Repository {self.repository_full_name} config file not found or error. {ex}")
+                    return {}
+
+        LOGGER.debug("self.repository or self.repository_full_name is not defined")
+        return {}
 
     def get_value(self, value: str, return_on_none: Any = None) -> Any:
         """
@@ -47,25 +75,7 @@ class Config:
                 value_data = scope[value]
                 if value_data is not None:
                     return value_data
+                else:
+                    return return_on_none
 
         return return_on_none
-
-    @property
-    def repository_local_data(self) -> dict[str, Any]:
-        if self.repository and self.repository_full_name:
-            from webhook_server.utils.helpers import get_api_with_highest_rate_limit, get_github_repo_api
-
-            github_api, _, _ = get_api_with_highest_rate_limit(config=self, repository_name=self.repository)
-
-            if github_api:
-                try:
-                    repo = get_github_repo_api(github_api=github_api, repository=self.repository_full_name)
-                    _path = repo.get_contents(".github-webhook-server.yaml")
-                    config_file = _path[0] if isinstance(_path, list) else _path
-                    return yaml.safe_load(config_file.decoded_content)
-
-                except Exception as ex:
-                    LOGGER.debug(f"Repository {self.repository_full_name} config file not found or error. {ex}")
-                    return {}
-
-        return {}
