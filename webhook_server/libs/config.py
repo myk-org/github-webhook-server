@@ -11,13 +11,18 @@ class Config:
     def __init__(self, repository: str | None = None, repository_full_name: str | None = None) -> None:
         self.data_dir: str = os.environ.get("WEBHOOK_SERVER_DATA_DIR", "/home/podman/data")
         self.config_path: str = os.path.join(self.data_dir, "config.yaml")
-        self.exists()
         self.repository = repository
         self.repository_full_name = repository_full_name
+        self.exists()
+        self.repositories_exists()
 
     def exists(self) -> None:
         if not os.path.isfile(self.config_path):
             raise FileNotFoundError(f"Config file {self.config_path} not found")
+
+    def repositories_exists(self) -> None:
+        if not self.root_data.get("reposotories"):
+            raise ValueError(f"Config {self.config_path} does not have `repositories`")
 
     @property
     def root_data(self) -> dict[str, Any]:
@@ -33,7 +38,7 @@ class Config:
     @property
     def repository_data(self) -> dict[str, Any]:
         LOGGER.debug(f"Loading repository level config for repository {self.repository}")
-        return self.root_data.get("repositories", {}).get(self.repository, {})
+        return self.root_data["repositories"].get(self.repository, {})
 
     @property
     def repository_local_data(self) -> dict[str, Any]:
