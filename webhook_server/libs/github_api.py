@@ -227,7 +227,7 @@ class ProcessGithubWehook:
         return " * This repository does not support retest actions" if not retest_msg else retest_msg
 
     def add_api_users_to_auto_verified_and_merged_users(self) -> None:
-        apis_and_tokens = get_apis_and_tokes_from_config(config=self.config, repository_name=self.repository_name)
+        apis_and_tokens = get_apis_and_tokes_from_config(config=self.config)
         self.auto_verified_and_merged_users.extend([_api[0].get_user().login for _api in apis_and_tokens])
 
     def _get_reposiroty_color_for_log_prefix(self) -> str:

@@ -119,14 +119,9 @@ def run_command(
         return False, out_decoded, err_decoded
 
 
-def get_apis_and_tokes_from_config(config: Config, repository_name: str) -> list[tuple[github.Github, str]]:
+def get_apis_and_tokes_from_config(config: Config) -> list[tuple[github.Github, str]]:
     apis_and_tokens: list[tuple[github.Github, str]] = []
-
-    repository = config.root_data.get("repositories", {}).get(repository_name, {})
-    tokens = repository.get("github-tokens")
-
-    if not tokens:
-        tokens = config.root_data["github-tokens"]
+    tokens = config.get_value(value="github-tokens")
 
     for _token in tokens:
         apis_and_tokens.append((github.Github(auth=github.Auth.Token(_token)), _token))
@@ -163,7 +158,7 @@ def get_api_with_highest_rate_limit(
 
     logger.debug(msg)
 
-    apis_and_tokens = get_apis_and_tokes_from_config(config=config, repository_name=repository_name)
+    apis_and_tokens = get_apis_and_tokes_from_config(config=config)
 
     for _api, _token in apis_and_tokens:
         _api_user = _api.get_user().login
