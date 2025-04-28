@@ -62,7 +62,7 @@ class Config:
                     repo = get_github_repo_api(github_api=github_api, repository=self.repository_full_name)
                     _path = repo.get_contents(".github-webhook-server.yaml")
                     config_file = _path[0] if isinstance(_path, list) else _path
-                    yaml.safe_load(config_file.decoded_content)
+                    return yaml.safe_load(config_file.decoded_content)
 
                 except Exception as ex:
                     LOGGER.debug(f"Repository {self.repository_full_name} config file not found or error. {ex}")
