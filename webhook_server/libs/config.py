@@ -21,7 +21,7 @@ class Config:
             raise FileNotFoundError(f"Config file {self.config_path} not found")
 
     def repositories_exists(self) -> None:
-        if not self.root_data.get("reposotories"):
+        if not self.root_data.get("repositories"):
             raise ValueError(f"Config {self.config_path} does not have `repositories`")
 
     @property
