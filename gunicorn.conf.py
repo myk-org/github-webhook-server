@@ -5,4 +5,4 @@ worker_class = "uvicorn.workers.UvicornWorker"
 workers = int(os.environ.get("MAX_WORKERS", 10))
 on_starting = "webhook_server.app.on_starting"
 accesslog = "-"
-timeout = 0  # Disable workers timeout, some operation can take long time.
+timeout = 60 * 30  # some operation can take long time.
