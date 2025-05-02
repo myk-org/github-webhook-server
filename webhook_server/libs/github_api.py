@@ -16,6 +16,7 @@ from uuid import uuid4
 import requests
 import shortuuid
 import yaml
+from fastapi.exceptions import HTTPException
 from github import GithubException
 from github.Branch import Branch
 from github.CheckRun import CheckRun
@@ -173,13 +174,13 @@ class ProcessGithubWehook:
             if self.github_event == "issue_comment":
                 return self.process_comment_webhook_data()
 
-            elif self.github_event == "pull_request":
+            if self.github_event == "pull_request":
                 return self.process_pull_request_webhook_data()
 
-            elif self.github_event == "pull_request_review":
+            if self.github_event == "pull_request_review":
                 return self.process_pull_request_review_webhook_data()
 
-            elif self.github_event == "check_run":
+            if self.github_event == "check_run":
                 return self.process_pull_request_check_run_webhook_data()
 
         except NoPullRequestError:
@@ -189,6 +190,10 @@ class ProcessGithubWehook:
                 return self.process_push_webhook_data()
 
             raise
+
+        except Exception as e:
+            self.logger.error(f"{self.log_prefix} {event_log}. Exception: {e}")
+            raise HTTPException(status_code=404, detail=str(e))
 
     @property
     def _prepare_retest_welcome_comment(self) -> str:
