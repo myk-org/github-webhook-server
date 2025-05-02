@@ -151,9 +151,9 @@ class ProcessGithubWehook:
             "Report bugs in [Issues](https://github.com/myakove/github-webhook-server/issues)"
         )
 
-    def process(self) -> None:
+    def process(self) -> Any:
         if self.github_event == "ping":
-            return
+            return {"status": requests.codes.ok, "message": "pong"}
 
         event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
 
@@ -171,22 +171,24 @@ class ProcessGithubWehook:
             self.all_reviewers = self.get_all_reviewers()
 
             if self.github_event == "issue_comment":
-                self.process_comment_webhook_data()
+                return self.process_comment_webhook_data()
 
             elif self.github_event == "pull_request":
-                self.process_pull_request_webhook_data()
+                return self.process_pull_request_webhook_data()
 
             elif self.github_event == "pull_request_review":
-                self.process_pull_request_review_webhook_data()
+                return self.process_pull_request_review_webhook_data()
 
             elif self.github_event == "check_run":
-                self.process_pull_request_check_run_webhook_data()
+                return self.process_pull_request_check_run_webhook_data()
 
         except NoPullRequestError:
             self.logger.debug(f"{self.log_prefix} {event_log}. [No pull request found in hook data]")
 
             if self.github_event == "push":
-                self.process_push_webhook_data()
+                return self.process_push_webhook_data()
+
+            raise
 
     @property
     def _prepare_retest_welcome_comment(self) -> str:

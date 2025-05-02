@@ -56,15 +56,15 @@ async def process_webhook(request: Request) -> dict[str, Any]:
 
     except RepositoryNotFoundError as e:
         logger.error(f"{log_context} Configuration/Repository error: {e}")
-        raise HTTPException(status_code=404, detail=str(e))  # Not Found might be appropriate
+        raise HTTPException(status_code=404, detail=str(e))
 
     except ConnectionError as e:
         logger.error(f"{log_context} API connection error: {e}")
-        raise HTTPException(status_code=503, detail=f"API Connection Error: {e}")  # Service Unavailable
+        raise HTTPException(status_code=503, detail=f"API Connection Error: {e}")
 
     except NoPullRequestError as e:
         logger.debug(f"{log_context} Processing skipped: {e}")
-        return {"status": "OK", "message": f"Processing skipped: {e}"}  # Still a successful request handling
+        return {"status": "OK", "message": f"Processing skipped: {e}"}
 
     except HTTPException:
         raise
