@@ -3,6 +3,7 @@ import hmac
 import ipaddress
 import os
 import sys
+from functools import lru_cache
 from typing import Any
 
 import requests
@@ -50,40 +51,45 @@ def verify_signature(payload_body: bytes, secret_token: str, signature_header: H
         raise HTTPException(status_code=403, detail="Request signatures didn't match!")
 
 
-async def gate_by_github_ip(request: Request) -> None:
-    # Allow GitHub IPs only
-    if VERIFY_GITHUB_IPS:
+@lru_cache(maxsize=1)
+async def get_github_allowlist() -> list[str]:
+    """Fetch and cache GitHub IP allowlist"""
+    async with AsyncClient(timeout=10.0) as client:
+        response = await client.get("https://api.github.com/meta")
+        return response.json()["hooks"]
+
+
+@lru_cache(maxsize=1)
+async def get_cloudflare_allowlist() -> list[str]:
+    """Fetch and cache Cloudflare IP allowlist"""
+    async with AsyncClient(timeout=10.0) as client:
+        response = await client.get("https://api.cloudflare.com/client/v4/ips")
+        return response.json()["result"]["ipv4_cidrs"]
+
+
+async def gate_by_allowlist_ips(request: Request) -> None:
+    if VERIFY_GITHUB_IPS or VERIFY_CLOUDFLARE_IPS:
+        allowlist = []
+
         try:
             src_ip = ipaddress.ip_address(request.client.host)
         except ValueError:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Could not hook sender ip address")
 
-        async with AsyncClient() as client:
-            allowlist = await client.get("https://api.github.com/meta")
+        if VERIFY_GITHUB_IPS:
+            allowlist = await get_github_allowlist()
 
-        for valid_ip in allowlist.json()["hooks"]:
+        elif VERIFY_CLOUDFLARE_IPS:
+            allowlist = await get_cloudflare_allowlist()
+
+        if not allowlist:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Failed to get allowlist ips")
+
+        for valid_ip in allowlist:
             if src_ip in ipaddress.ip_network(valid_ip):
                 return
         else:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a GitHub hooks ip address")
-
-
-async def gate_by_cloudflare_ip(request: Request) -> None:
-    # Allow GitHub IPs only
-    if VERIFY_CLOUDFLARE_IPS:
-        try:
-            src_ip = ipaddress.ip_address(request.client.host)
-        except ValueError:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Could not hook sender ip address")
-
-        async with AsyncClient() as client:
-            allowlist = await client.get(" https://api.cloudflare.com/client/v4/ips")
-
-        for valid_ip in allowlist.json()["result"]["ipv4_cidrs"]:
-            if src_ip in ipaddress.ip_network(valid_ip):
-                return
-        else:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a Cloudflare hooks ip address")
 
 
 def on_starting(server: Any) -> None:
@@ -103,7 +109,7 @@ def healthcheck() -> dict[str, Any]:
     return {"status": requests.codes.ok, "message": "Alive"}
 
 
-@FASTAPI_APP.post(APP_URL_ROOT_PATH, dependencies=[Depends(gate_by_github_ip), Depends(gate_by_cloudflare_ip)])
+@FASTAPI_APP.post(APP_URL_ROOT_PATH, dependencies=[Depends(gate_by_allowlist_ips)])
 async def process_webhook(request: Request) -> dict[str, Any]:
     logger_name: str = "main"
     logger = get_logger_with_params(name=logger_name)
