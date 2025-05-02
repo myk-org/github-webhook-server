@@ -49,7 +49,7 @@ def process_github_webhook(
 
     for _hook in hooks:
         if webhook_ip in _hook.config["url"]:
-            if _hook.config["content_type"] == "json" and _hook.config.get("secret") == secret:
+            if _hook.config.get("secret") and secret:
                 return (
                     True,
                     f"[API user {api_user}] - {full_repository_name}: Hook already exists - {_hook.config['url']}",

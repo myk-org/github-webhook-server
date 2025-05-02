@@ -23,6 +23,7 @@ from webhook_server.utils.github_repository_and_webhook_settings import reposito
 from webhook_server.utils.helpers import get_logger_with_params
 
 GITHUB_IPS_ONLY = os.getenv("GITHUB_IPS_ONLY", "True").lower() in ["true", "1"]
+CLOUDFLARE_IPS_ONLY = os.getenv("CLOUDFLARE_IPS_ONLY", "True").lower() in ["true", "1"]
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
 FASTAPI_APP: FastAPI = FastAPI(title="webhook-server")
 APP_URL_ROOT_PATH: str = "/webhook_server"
@@ -65,6 +66,24 @@ async def gate_by_github_ip(request: Request) -> None:
                 return
         else:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a GitHub hooks ip address")
+
+
+async def gate_by_cloudflare_ip(request: Request) -> None:
+    # Allow GitHub IPs only
+    if CLOUDFLARE_IPS_ONLY:
+        try:
+            src_ip = ipaddress.ip_address(request.client.host)
+        except ValueError:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Could not hook sender ip address")
+
+        async with AsyncClient() as client:
+            allowlist = await client.get(" https://api.cloudflare.com/client/v4/ips")
+
+        for valid_ip in allowlist.json()["result"]["ipv4_cidrs"]:
+            if src_ip in ipaddress.ip_network(valid_ip):
+                return
+        else:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a Cloudflare hooks ip address")
 
 
 def on_starting(server: Any) -> None:
