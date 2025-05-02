@@ -77,10 +77,12 @@ async def gate_by_allowlist_ips(request: Request) -> None:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Could not hook sender ip address")
 
         if VERIFY_GITHUB_IPS:
-            allowlist = await get_github_allowlist()
+            github_allowlist = await get_github_allowlist()
+            allowlist.extend(github_allowlist)
 
-        elif VERIFY_CLOUDFLARE_IPS:
-            allowlist = await get_cloudflare_allowlist()
+        if VERIFY_CLOUDFLARE_IPS:
+            cloudflare_allowlist = await get_cloudflare_allowlist()
+            allowlist.extend(cloudflare_allowlist)
 
         if not allowlist:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Failed to get allowlist ips")
