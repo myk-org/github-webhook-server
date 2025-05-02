@@ -273,6 +273,7 @@ class ProcessGithubWehook:
 
     def prepare_log_prefix(self, pull_request: PullRequest | None = None) -> str:
         _repository_color = self._get_reposiroty_color_for_log_prefix()
+
         return (
             f"{_repository_color}[{self.github_event}][{self.x_github_delivery}][{self.api_user}][PR {pull_request.number}]:"
             if pull_request

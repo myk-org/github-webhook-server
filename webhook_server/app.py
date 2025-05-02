@@ -25,6 +25,7 @@ def on_starting(server: Any) -> None:
         logger.info("Repository and webhook settings initialized successfully.")
     except Exception as ex:
         logger.exception(f"FATAL: Error during startup initialization: {ex}")
+        raise
 
 
 @FASTAPI_APP.get(f"{APP_URL_ROOT_PATH}/healthcheck")
