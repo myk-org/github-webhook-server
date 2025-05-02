@@ -157,7 +157,7 @@ async def process_webhook(request: Request) -> dict[str, Any]:
 
     except Exception as e:
         logger.exception(f"{log_context} Unexpected error during processing: {e}")
-        exc_type, exc_obj, exc_tb = sys.exc_info()
+        exc_type, _, exc_tb = sys.exc_info()
         line_no = exc_tb.tb_lineno if exc_tb else "unknown"
         file_name = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1] if exc_tb else "unknown"
         error_details = f"Error type: {exc_type.__name__ if exc_type else ''}, File: {file_name}, Line: {line_no}"
