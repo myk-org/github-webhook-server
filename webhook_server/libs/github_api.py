@@ -27,6 +27,7 @@ from stringcolor import cs
 from timeout_sampler import TimeoutExpiredError, TimeoutSampler
 
 from webhook_server.libs.config import Config
+from webhook_server.libs.exceptions import NoPullRequestError, RepositoryNotFoundError
 from webhook_server.utils.constants import (
     ADD_STR,
     APPROVE_STR,
@@ -78,22 +79,6 @@ from webhook_server.utils.helpers import (
     get_github_repo_api,
     run_command,
 )
-
-
-class NoPullRequestError(Exception):
-    pass
-
-
-class RepositoryNotFoundError(Exception):
-    pass
-
-
-class ProcessGithubWehookError(Exception):
-    def __init__(self, err: dict[str, str]):
-        self.err = err
-
-    def __str__(self) -> str:
-        return f"{self.err}"
 
 
 class ProcessGithubWehook:
