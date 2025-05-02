@@ -14,7 +14,11 @@ LOGGER = get_logger_with_params(name="webhook")
 
 
 def process_github_webhook(
-    repository_name: str, data: dict[str, Any], webhook_ip: str, apis_dict: dict[str, dict[str, Any]]
+    repository_name: str,
+    data: dict[str, Any],
+    webhook_ip: str,
+    apis_dict: dict[str, dict[str, Any]],
+    secret: str | None = None,
 ) -> tuple[bool, str, Callable]:
     full_repository_name: str = data["name"]
     github_api = apis_dict[repository_name].get("api")
@@ -28,6 +32,10 @@ def process_github_webhook(
         return False, f"[API user {api_user}] - Could not find repository {full_repository_name}", LOGGER.error
 
     config_: dict[str, str] = {"url": f"{webhook_ip}/webhook_server", "content_type": "json"}
+
+    if secret:
+        config_["secret"] = secret
+
     events: list[str] = data.get("events", ["*"])
 
     try:
@@ -41,11 +49,15 @@ def process_github_webhook(
 
     for _hook in hooks:
         if webhook_ip in _hook.config["url"]:
-            return (
-                True,
-                f"[API user {api_user}] - {full_repository_name}: Hook already exists - {_hook.config['url']}",
-                LOGGER.info,
-            )
+            if _hook.config["content_type"] == "json" and _hook.config.get("secret") == secret:
+                return (
+                    True,
+                    f"[API user {api_user}] - {full_repository_name}: Hook already exists - {_hook.config['url']}",
+                    LOGGER.info,
+                )
+            else:
+                LOGGER.info(f"[API user {api_user}] - {full_repository_name}: Deleting old webhook")
+                _hook.delete()
 
     LOGGER.info(
         f"[API user {api_user}] - Creating webhook: {config_['url']} for {full_repository_name} with events: {events}"
@@ -54,7 +66,7 @@ def process_github_webhook(
     return True, f"[API user {api_user}] - {full_repository_name}: Create webhook is done", LOGGER.info
 
 
-def create_webhook(config: Config, apis_dict: dict[str, dict[str, Any]]) -> None:
+def create_webhook(config: Config, apis_dict: dict[str, dict[str, Any]], secret: str | None = None) -> None:
     LOGGER.info("Preparing webhook configuration")
     webhook_ip = config.root_data["webhook_ip"]
 
@@ -64,7 +76,13 @@ def create_webhook(config: Config, apis_dict: dict[str, dict[str, Any]]) -> None
             futures.append(
                 executor.submit(
                     process_github_webhook,
-                    **{"data": data, "webhook_ip": webhook_ip, "apis_dict": apis_dict, "repository_name": repo},
+                    **{
+                        "data": data,
+                        "webhook_ip": webhook_ip,
+                        "apis_dict": apis_dict,
+                        "repository_name": repo,
+                        "secret": secret,
+                    },
                 )
             )
 

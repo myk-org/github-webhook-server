@@ -1,28 +1,79 @@
+import hashlib
+import hmac
+import ipaddress
 import os
 import sys
 from typing import Any
 
 import requests
 import urllib3
-from fastapi import FastAPI, Request
-from fastapi.exceptions import HTTPException
+from fastapi import (
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+    status,
+)
+from httpx import AsyncClient
+from starlette.datastructures import Headers
 
 from webhook_server.libs.exceptions import NoPullRequestError, RepositoryNotFoundError
 from webhook_server.libs.github_api import ProcessGithubWehook
 from webhook_server.utils.github_repository_and_webhook_settings import repository_and_webhook_settings
 from webhook_server.utils.helpers import get_logger_with_params
 
+GITHUB_IPS_ONLY = os.getenv("GITHUB_IPS_ONLY", "True").lower() in ["true", "1"]
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
 FASTAPI_APP: FastAPI = FastAPI(title="webhook-server")
 APP_URL_ROOT_PATH: str = "/webhook_server"
 urllib3.disable_warnings()
+
+
+def verify_signature(payload_body: bytes, secret_token: str, signature_header: Headers | None = None) -> None:
+    """Verify that the payload was sent from GitHub by validating SHA256.
+
+    Raise and return 403 if not authorized.
+
+    Args:
+        payload_body: original request body to verify (request.body())
+        secret_token: GitHub app webhook token (WEBHOOK_SECRET)
+        signature_header: header received from GitHub (x-hub-signature-256)
+    """
+    if not signature_header:
+        raise HTTPException(status_code=403, detail="x-hub-signature-256 header is missing!")
+
+    hash_object = hmac.new(secret_token.encode("utf-8"), msg=payload_body, digestmod=hashlib.sha256)
+    expected_signature = "sha256=" + hash_object.hexdigest()
+
+    if not hmac.compare_digest(expected_signature, signature_header):
+        raise HTTPException(status_code=403, detail="Request signatures didn't match!")
+
+
+async def gate_by_github_ip(request: Request) -> None:
+    # Allow GitHub IPs only
+    if GITHUB_IPS_ONLY:
+        try:
+            src_ip = ipaddress.ip_address(request.client.host)
+        except ValueError:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Could not hook sender ip address")
+
+        async with AsyncClient() as client:
+            allowlist = await client.get("https://api.github.com/meta")
+
+        for valid_ip in allowlist.json()["hooks"]:
+            if src_ip in ipaddress.ip_network(valid_ip):
+                return
+        else:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a GitHub hooks ip address")
 
 
 def on_starting(server: Any) -> None:
     logger = get_logger_with_params(name="startup")
     logger.info("Application starting up...")
     try:
-        repository_and_webhook_settings()
+        repository_and_webhook_settings(webhook_secret=WEBHOOK_SECRET)
         logger.info("Repository and webhook settings initialized successfully.")
+
     except Exception as ex:
         logger.exception(f"FATAL: Error during startup initialization: {ex}")
         raise
@@ -33,10 +84,17 @@ def healthcheck() -> dict[str, Any]:
     return {"status": requests.codes.ok, "message": "Alive"}
 
 
-@FASTAPI_APP.post(APP_URL_ROOT_PATH)
+@FASTAPI_APP.post(APP_URL_ROOT_PATH, dependencies=[Depends(gate_by_github_ip)])
 async def process_webhook(request: Request) -> dict[str, Any]:
     logger_name: str = "main"
     logger = get_logger_with_params(name=logger_name)
+
+    payload_body = await request.body()
+
+    if WEBHOOK_SECRET:
+        signature_header = request.headers.get("x-hub-signature-256")
+        verify_signature(payload_body=payload_body, secret_token=WEBHOOK_SECRET, signature_header=signature_header)
+
     delivery_id = request.headers.get("X-GitHub-Delivery", "unknown-delivery")
     event_type = request.headers.get("X-GitHub-Event", "unknown-event")
     delivery_headers = request.headers.get("X-GitHub-Delivery", "")
