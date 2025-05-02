@@ -70,12 +70,9 @@ async def process_webhook(request: Request) -> dict[str, Any]:
         raise
 
     except Exception as e:
-        # Catch any other unexpected errors during processing
         logger.exception(f"{log_context} Unexpected error during processing: {e}")
-        # Include traceback details for debugging if needed (be careful in production)
         exc_type, exc_obj, exc_tb = sys.exc_info()
         line_no = exc_tb.tb_lineno if exc_tb else "unknown"
         file_name = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1] if exc_tb else "unknown"
         error_details = f"Error type: {exc_type.__name__ if exc_type else ''}, File: {file_name}, Line: {line_no}"
-        # Return a generic server error response
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {error_details}")
