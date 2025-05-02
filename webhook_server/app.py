@@ -22,8 +22,8 @@ from webhook_server.libs.github_api import ProcessGithubWehook
 from webhook_server.utils.github_repository_and_webhook_settings import repository_and_webhook_settings
 from webhook_server.utils.helpers import get_logger_with_params
 
-GITHUB_IPS_ONLY = os.getenv("GITHUB_IPS_ONLY", "True").lower() in ["true", "1"]
-CLOUDFLARE_IPS_ONLY = os.getenv("CLOUDFLARE_IPS_ONLY", "True").lower() in ["true", "1"]
+VERIFY_GITHUB_IPS = os.getenv("GITHUB_IPS_ONLY", "").lower() in ["true", "1"]
+VERIFY_CLOUDFLARE_IPS = os.getenv("CLOUDFLARE_IPS_ONLY", "").lower() in ["true", "1"]
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
 FASTAPI_APP: FastAPI = FastAPI(title="webhook-server")
 APP_URL_ROOT_PATH: str = "/webhook_server"
@@ -52,7 +52,7 @@ def verify_signature(payload_body: bytes, secret_token: str, signature_header: H
 
 async def gate_by_github_ip(request: Request) -> None:
     # Allow GitHub IPs only
-    if GITHUB_IPS_ONLY:
+    if VERIFY_GITHUB_IPS:
         try:
             src_ip = ipaddress.ip_address(request.client.host)
         except ValueError:
@@ -70,7 +70,7 @@ async def gate_by_github_ip(request: Request) -> None:
 
 async def gate_by_cloudflare_ip(request: Request) -> None:
     # Allow GitHub IPs only
-    if CLOUDFLARE_IPS_ONLY:
+    if VERIFY_CLOUDFLARE_IPS:
         try:
             src_ip = ipaddress.ip_address(request.client.host)
         except ValueError:
@@ -103,7 +103,7 @@ def healthcheck() -> dict[str, Any]:
     return {"status": requests.codes.ok, "message": "Alive"}
 
 
-@FASTAPI_APP.post(APP_URL_ROOT_PATH, dependencies=[Depends(gate_by_github_ip)])
+@FASTAPI_APP.post(APP_URL_ROOT_PATH, dependencies=[Depends(gate_by_github_ip), Depends(gate_by_cloudflare_ip)])
 async def process_webhook(request: Request) -> dict[str, Any]:
     logger_name: str = "main"
     logger = get_logger_with_params(name=logger_name)
