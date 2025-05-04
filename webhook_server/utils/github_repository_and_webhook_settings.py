@@ -18,7 +18,7 @@ def get_repository_api(repository: str) -> tuple[str, github.Github | None, str]
     return repository, github_api, api_user
 
 
-def repository_and_webhook_settings() -> None:
+def repository_and_webhook_settings(webhook_secret: str | None = None) -> None:
     logger = get_logger_with_params(name="github-repository-and-webhook-settings")
 
     config = Config()
@@ -42,8 +42,4 @@ def repository_and_webhook_settings() -> None:
 
     set_repositories_settings(config=config, apis_dict=apis_dict)
     set_all_in_progress_check_runs_to_queued(repo_config=config, apis_dict=apis_dict)
-    create_webhook(config=config, apis_dict=apis_dict)
-
-
-if __name__ == "__main__":
-    repository_and_webhook_settings()
+    create_webhook(config=config, apis_dict=apis_dict, secret=webhook_secret)

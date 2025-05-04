@@ -16,6 +16,7 @@ from uuid import uuid4
 import requests
 import shortuuid
 import yaml
+from fastapi.exceptions import HTTPException
 from github import GithubException
 from github.Branch import Branch
 from github.CheckRun import CheckRun
@@ -27,6 +28,7 @@ from stringcolor import cs
 from timeout_sampler import TimeoutExpiredError, TimeoutSampler
 
 from webhook_server.libs.config import Config
+from webhook_server.libs.exceptions import NoPullRequestError, RepositoryNotFoundError
 from webhook_server.utils.constants import (
     ADD_STR,
     APPROVE_STR,
@@ -78,22 +80,6 @@ from webhook_server.utils.helpers import (
     get_github_repo_api,
     run_command,
 )
-
-
-class NoPullRequestError(Exception):
-    pass
-
-
-class RepositoryNotFoundError(Exception):
-    pass
-
-
-class ProcessGithubWehookError(Exception):
-    def __init__(self, err: dict[str, str]):
-        self.err = err
-
-    def __str__(self) -> str:
-        return f"{self.err}"
 
 
 class ProcessGithubWehook:
@@ -166,9 +152,9 @@ class ProcessGithubWehook:
             "Report bugs in [Issues](https://github.com/myakove/github-webhook-server/issues)"
         )
 
-    def process(self) -> None:
+    def process(self) -> Any:
         if self.github_event == "ping":
-            return
+            return {"status": requests.codes.ok, "message": "pong"}
 
         event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
 
@@ -186,22 +172,28 @@ class ProcessGithubWehook:
             self.all_reviewers = self.get_all_reviewers()
 
             if self.github_event == "issue_comment":
-                self.process_comment_webhook_data()
+                return self.process_comment_webhook_data()
 
-            elif self.github_event == "pull_request":
-                self.process_pull_request_webhook_data()
+            if self.github_event == "pull_request":
+                return self.process_pull_request_webhook_data()
 
-            elif self.github_event == "pull_request_review":
-                self.process_pull_request_review_webhook_data()
+            if self.github_event == "pull_request_review":
+                return self.process_pull_request_review_webhook_data()
 
-            elif self.github_event == "check_run":
-                self.process_pull_request_check_run_webhook_data()
+            if self.github_event == "check_run":
+                return self.process_pull_request_check_run_webhook_data()
 
         except NoPullRequestError:
             self.logger.debug(f"{self.log_prefix} {event_log}. [No pull request found in hook data]")
 
             if self.github_event == "push":
-                self.process_push_webhook_data()
+                return self.process_push_webhook_data()
+
+            raise
+
+        except Exception as e:
+            self.logger.error(f"{self.log_prefix} {event_log}. Exception: {e}")
+            raise HTTPException(status_code=404, detail=str(e))
 
     @property
     def _prepare_retest_welcome_comment(self) -> str:
@@ -281,6 +273,7 @@ class ProcessGithubWehook:
 
     def prepare_log_prefix(self, pull_request: PullRequest | None = None) -> str:
         _repository_color = self._get_reposiroty_color_for_log_prefix()
+
         return (
             f"{_repository_color}[{self.github_event}][{self.x_github_delivery}][{self.api_user}][PR {pull_request.number}]:"
             if pull_request
