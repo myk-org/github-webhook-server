@@ -14,8 +14,8 @@ from github.GithubException import UnknownObjectException
 from github.Label import Label
 from github.Repository import Repository
 
-from webhook_server_container.libs.config import Config
-from webhook_server_container.utils.constants import (
+from webhook_server.libs.config import Config
+from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
     CONVENTIONAL_TITLE_STR,
@@ -26,7 +26,7 @@ from webhook_server_container.utils.constants import (
     STATIC_LABELS_DICT,
     TOX_STR,
 )
-from webhook_server_container.utils.helpers import (
+from webhook_server.utils.helpers import (
     get_future_results,
     get_logger_with_params,
 )
@@ -200,7 +200,7 @@ def set_repositories_settings(config: Config, apis_dict: dict[str, dict[str, Any
     logger = get_logger_with_params(name="github-repository-settings")
 
     logger.info("Processing repositories")
-    config_data = config.data
+    config_data = config.root_data
 
     docker: dict[str, str] | None = config_data.get("docker")
     if docker:
@@ -330,7 +330,7 @@ def set_all_in_progress_check_runs_to_queued(repo_config: Config, apis_dict: dic
     futures: list["Future"] = []
 
     with ThreadPoolExecutor() as executor:
-        for repo, data in repo_config.data["repositories"].items():
+        for repo, data in repo_config.root_data["repositories"].items():
             repo_config = Config(repository=repo)
             futures.append(
                 executor.submit(
@@ -393,7 +393,7 @@ def get_repository_github_app_api(config_: Config, repository_name: str) -> Gith
     with open(os.path.join(config_.data_dir, "webhook-server.private-key.pem")) as fd:
         private_key = fd.read()
 
-    github_app_id: int = config_.data["github-app-id"]
+    github_app_id: int = config_.root_data["github-app-id"]
     auth: AppAuth = Auth.AppAuth(app_id=github_app_id, private_key=private_key)
     app_instance: GithubIntegration = GithubIntegration(auth=auth)
     owner: str

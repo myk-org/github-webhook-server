@@ -1,5 +1,5 @@
 def test_repo_data_from_config_repository_found(process_github_webhook):
-    process_github_webhook._repo_data_from_config()
+    process_github_webhook._repo_data_from_config(repository_config={})
 
     assert process_github_webhook.repository_full_name == "my-org/test-repo"
     assert process_github_webhook.github_app_id == 123456
@@ -18,3 +18,4 @@ def test_repo_data_from_config_repository_found(process_github_webhook):
     assert process_github_webhook.pre_commit
     assert process_github_webhook.auto_verified_and_merged_users == ["my[bot]"]
     assert process_github_webhook.can_be_merged_required_labels == ["my-label1", "my-label2"]
+    assert process_github_webhook.minimum_lgtm == 0

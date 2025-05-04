@@ -16,6 +16,7 @@ from uuid import uuid4
 import requests
 import shortuuid
 import yaml
+from fastapi.exceptions import HTTPException
 from github import GithubException
 from github.Branch import Branch
 from github.CheckRun import CheckRun
@@ -26,8 +27,9 @@ from starlette.datastructures import Headers
 from stringcolor import cs
 from timeout_sampler import TimeoutExpiredError, TimeoutSampler
 
-from webhook_server_container.libs.config import Config
-from webhook_server_container.utils.constants import (
+from webhook_server.libs.config import Config
+from webhook_server.libs.exceptions import NoPullRequestError, RepositoryNotFoundError
+from webhook_server.utils.constants import (
     ADD_STR,
     APPROVE_STR,
     APPROVED_BY_LABEL_PREFIX,
@@ -68,32 +70,16 @@ from webhook_server_container.utils.constants import (
     VERIFIED_LABEL_STR,
     WIP_STR,
 )
-from webhook_server_container.utils.github_repository_settings import (
+from webhook_server.utils.github_repository_settings import (
     get_repository_github_app_api,
 )
-from webhook_server_container.utils.helpers import (
+from webhook_server.utils.helpers import (
     extract_key_from_dict,
     get_api_with_highest_rate_limit,
     get_apis_and_tokes_from_config,
     get_github_repo_api,
     run_command,
 )
-
-
-class NoPullRequestError(Exception):
-    pass
-
-
-class RepositoryNotFoundError(Exception):
-    pass
-
-
-class ProcessGithubWehookError(Exception):
-    def __init__(self, err: dict[str, str]):
-        self.err = err
-
-    def __str__(self) -> str:
-        return f"{self.err}"
 
 
 class ProcessGithubWehook:
@@ -112,13 +98,24 @@ class ProcessGithubWehook:
         self.owners_content: dict[str, Any] = {}
 
         self.config = Config(repository=self.repository_name)
-        self._repo_data_from_config()
+
+        if not self.config.repository:
+            raise RepositoryNotFoundError(f"Repository {self.repository_name} not found in config file")
+
+        # Get config without .github-webhook-server.yaml data
+        self._repo_data_from_config(repository_config={})
         self.github_api, self.token, self.api_user = get_api_with_highest_rate_limit(
             config=self.config, repository_name=self.repository_name
         )
 
         if self.github_api and self.token:
             self.repository = get_github_repo_api(github_api=self.github_api, repository=self.repository_full_name)
+            # Once we have a repository, we can get the config from .github-webhook-server.yaml
+            local_repository_config = self.config.repository_local_data(
+                github_api=self.github_api, repository_full_name=self.repository_full_name
+            )
+            # Call _repo_data_from_config() again to update self args from .github-webhook-server.yaml
+            self._repo_data_from_config(repository_config=local_repository_config)
 
         else:
             self.logger.error(f"Failed to get GitHub API and token for repository {self.repository_name}.")
@@ -150,49 +147,14 @@ class ProcessGithubWehook:
         self.clone_repo_dir: str = os.path.join("/tmp", f"{self.repository.name}")
         self.add_api_users_to_auto_verified_and_merged_users()
 
-        self.supported_user_labels_str: str = "".join([f" * {label}\n" for label in USER_LABELS_DICT.keys()])
         self.current_pull_request_supported_retest = self._current_pull_request_supported_retest
-        self.welcome_msg: str = f"""
-Report bugs in [Issues](https://github.com/myakove/github-webhook-server/issues)
+        self.issue_url_for_welcome_msg: str = (
+            "Report bugs in [Issues](https://github.com/myakove/github-webhook-server/issues)"
+        )
 
-The following are automatically added:
- * Add reviewers from OWNER file (in the root of the repository) under reviewers section.
- * Set PR size label.
- * New issue is created for the PR. (Closed when PR is merged/closed)
- * Run [pre-commit](https://pre-commit.ci/) if `.pre-commit-config.yaml` exists in the repo.
-
-Available user actions:
- * To mark PR as WIP comment `/wip` to the PR, To remove it from the PR comment `/wip cancel` to the PR.
- * To block merging of PR comment `/hold`, To un-block merging of PR comment `/hold cancel`.
- * To mark PR as verified comment `/verified` to the PR, to un-verify comment `/verified cancel` to the PR.
-        verified label removed on each new commit push.
- * To cherry pick a merged PR comment `/cherry-pick <target branch to cherry-pick to>` in the PR.
-    * Multiple target branches can be cherry-picked, separated by spaces. (`/cherry-pick branch1 branch2`)
-    * Cherry-pick will be started when PR is merged
- * To build and push container image command `/build-and-push-container` in the PR (tag will be the PR number).
-    * You can add extra args to the Podman build command
-        * Example: `/build-and-push-container --build-arg OPENSHIFT_PYTHON_WRAPPER_COMMIT=<commit_hash>`
- * To add a label by comment use `/<label name>`, to remove, use `/<label name> cancel`
- * To assign reviewers based on OWNERS file use `/assign-reviewers`
- * To check if PR can be merged use `/check-can-merge`
- * to assign reviewer to PR use `/assign-reviewer @<reviewer>`
-
-<details>
-<summary>Supported /retest check runs</summary>
-
-{self.prepare_retest_wellcome_msg}
-</details>
-
-<details>
-<summary>Supported labels</summary>
-
-{self.supported_user_labels_str}
-</details>
-    """
-
-    def process(self) -> None:
+    def process(self) -> Any:
         if self.github_event == "ping":
-            return
+            return {"status": requests.codes.ok, "message": "pong"}
 
         event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
 
@@ -210,25 +172,31 @@ Available user actions:
             self.all_reviewers = self.get_all_reviewers()
 
             if self.github_event == "issue_comment":
-                self.process_comment_webhook_data()
+                return self.process_comment_webhook_data()
 
-            elif self.github_event == "pull_request":
-                self.process_pull_request_webhook_data()
+            if self.github_event == "pull_request":
+                return self.process_pull_request_webhook_data()
 
-            elif self.github_event == "pull_request_review":
-                self.process_pull_request_review_webhook_data()
+            if self.github_event == "pull_request_review":
+                return self.process_pull_request_review_webhook_data()
 
-            elif self.github_event == "check_run":
-                self.process_pull_request_check_run_webhook_data()
+            if self.github_event == "check_run":
+                return self.process_pull_request_check_run_webhook_data()
 
         except NoPullRequestError:
             self.logger.debug(f"{self.log_prefix} {event_log}. [No pull request found in hook data]")
 
             if self.github_event == "push":
-                self.process_push_webhook_data()
+                return self.process_push_webhook_data()
+
+            raise
+
+        except Exception as e:
+            self.logger.error(f"{self.log_prefix} {event_log}. Exception: {e}")
+            raise HTTPException(status_code=404, detail=str(e))
 
     @property
-    def prepare_retest_wellcome_msg(self) -> str:
+    def _prepare_retest_welcome_comment(self) -> str:
         retest_msg: str = ""
         if self.tox:
             retest_msg += f" * `/retest {TOX_STR}`: Retest tox\n"
@@ -243,7 +211,7 @@ Available user actions:
             retest_msg += f" * `/retest {PRE_COMMIT_STR}`: Retest pre-commit\n"
 
         if self.conventional_title:
-            retest_msg += f"  * `/retest {CONVENTIONAL_TITLE_STR}`: Retest conventional-title\n"
+            retest_msg += f" * `/retest {CONVENTIONAL_TITLE_STR}`: Retest conventional-title\n"
 
         if retest_msg:
             retest_msg += " * `/retest all`: Retest all\n"
@@ -305,6 +273,7 @@ Available user actions:
 
     def prepare_log_prefix(self, pull_request: PullRequest | None = None) -> str:
         _repository_color = self._get_reposiroty_color_for_log_prefix()
+
         return (
             f"{_repository_color}[{self.github_event}][{self.x_github_delivery}][{self.api_user}][PR {pull_request.number}]:"
             if pull_request
@@ -333,19 +302,21 @@ Available user actions:
 
         return self.check_if_can_be_merged()
 
-    def _repo_data_from_config(self) -> None:
-        if not self.config.repository:
-            raise RepositoryNotFoundError(f"Repository {self.repository_name} not found in config file")
+    def _repo_data_from_config(self, repository_config: dict[str, Any]) -> None:
+        self.logger.debug(f"Read config for repository {self.repository_name}")
 
-        self.github_app_id: str = self.config.get_value(value="github-app-id")
+        self.github_app_id: str = self.config.get_value(value="github-app-id", extra_dict=repository_config)
+        self.pypi: dict[str, str] = self.config.get_value(value="pypi", extra_dict=repository_config)
+        self.verified_job: bool = self.config.get_value(
+            value="verified-job", return_on_none=True, extra_dict=repository_config
+        )
+        self.tox: dict[str, str] = self.config.get_value(value="tox", extra_dict=repository_config)
+        self.tox_python_version: str = self.config.get_value(value="tox-python-version", extra_dict=repository_config)
+        self.slack_webhook_url: str = self.config.get_value(value="slack_webhook_url", extra_dict=repository_config)
 
-        self.pypi: dict[str, str] = self.config.get_value(value="pypi")
-        self.verified_job: bool = self.config.get_value(value="verified-job", return_on_none=True)
-        self.tox: dict[str, str] = self.config.get_value(value="tox")
-        self.tox_python_version: str = self.config.get_value(value="tox-python-version")
-        self.slack_webhook_url: str = self.config.get_value(value="slack_webhook_url")
-
-        self.build_and_push_container: dict[str, Any] = self.config.get_value(value="container", return_on_none={})
+        self.build_and_push_container: dict[str, Any] = self.config.get_value(
+            value="container", return_on_none={}, extra_dict=repository_config
+        )
         if self.build_and_push_container:
             self.container_repository_username: str = self.build_and_push_container["username"]
             self.container_repository_password: str = self.build_and_push_container["password"]
@@ -356,17 +327,23 @@ Available user actions:
             self.container_command_args: str = self.build_and_push_container.get("args", "")
             self.container_release: bool = self.build_and_push_container.get("release", False)
 
-        self.pre_commit: bool = self.config.get_value(value="pre-commit", return_on_none=False)
+        self.pre_commit: bool = self.config.get_value(
+            value="pre-commit", return_on_none=False, extra_dict=repository_config
+        )
 
         self.auto_verified_and_merged_users: list[str] = self.config.get_value(
-            value="auto-verified-and-merged-users", return_on_none=[]
+            value="auto-verified-and-merged-users", return_on_none=[], extra_dict=repository_config
         )
         self.can_be_merged_required_labels = self.config.get_value(
-            value="can-be-merged-required-labels", return_on_none=[]
+            value="can-be-merged-required-labels", return_on_none=[], extra_dict=repository_config
         )
-        self.conventional_title: str = self.config.get_value(value="conventional-title")
-        self.set_auto_merge_prs: list[str] = self.config.get_value(value="set-auto-merge-prs", return_on_none=[])
-        self.minimum_lgtm: int = self.config.get_value(value="minimum-lgtm", return_on_none=0)
+        self.conventional_title: str = self.config.get_value(value="conventional-title", extra_dict=repository_config)
+        self.set_auto_merge_prs: list[str] = self.config.get_value(
+            value="set-auto-merge-prs", return_on_none=[], extra_dict=repository_config
+        )
+        self.minimum_lgtm: int = self.config.get_value(
+            value="minimum-lgtm", return_on_none=0, extra_dict=repository_config
+        )
 
     def _get_pull_request(self, number: int | None = None) -> PullRequest:
         if number:
@@ -760,23 +737,27 @@ Publish to PYPI failed: `{_error}`
         rc, out, err = self.run_podman_command(command=reg_login_cmd)
 
         if rc:
-            tag_ls_cmd = f"regctl tag ls {self.container_repository} --include {pr_tag}"
-            rc, out, err = self.run_podman_command(command=tag_ls_cmd)
+            try:
+                tag_ls_cmd = f"regctl tag ls {self.container_repository} --include {pr_tag}"
+                rc, out, err = self.run_podman_command(command=tag_ls_cmd)
 
-            if rc and out:
-                tag_del_cmd = f"regctl tag delete {repository_full_tag}"
+                if rc and out:
+                    tag_del_cmd = f"regctl tag delete {repository_full_tag}"
 
-                if self.run_podman_command(command=tag_del_cmd)[0]:
-                    self.pull_request.create_issue_comment(f"Successfully removed PR tag: {repository_full_tag}.")
+                    if self.run_podman_command(command=tag_del_cmd)[0]:
+                        self.pull_request.create_issue_comment(f"Successfully removed PR tag: {repository_full_tag}.")
+                    else:
+                        self.logger.error(
+                            f"{self.log_prefix} Failed to delete tag: {repository_full_tag}. OUT:{out}. ERR:{err}"
+                        )
                 else:
-                    self.logger.error(
-                        f"{self.log_prefix} Failed to delete tag: {repository_full_tag}. OUT:{out}. ERR:{err}"
+                    self.logger.warning(
+                        f"{self.log_prefix} {pr_tag} tag not found in registry {self.container_repository}. "
+                        f"OUT:{out}. ERR:{err}"
                     )
-            else:
-                self.logger.warning(
-                    f"{self.log_prefix} {pr_tag} tag not found in registry {self.container_repository}. "
-                    f"OUT:{out}. ERR:{err}"
-                )
+            finally:
+                self.run_podman_command(command="regctl registry logout")
+
         else:
             self.pull_request.create_issue_comment(
                 f"Failed to delete tag: {repository_full_tag}. Please delete it manually."
@@ -792,7 +773,7 @@ Publish to PYPI failed: `{_error}`
 
         body: str = self.hook_data["comment"]["body"]
 
-        if body == self.welcome_msg:
+        if self.issue_url_for_welcome_msg in body:
             self.logger.debug(
                 f"{self.log_prefix} Welcome message found in issue {self.pull_request.title}. Not processing"
             )
@@ -822,9 +803,11 @@ Publish to PYPI failed: `{_error}`
         if hook_action in ("opened", "reopened"):
             pull_request_opened_futures: list[Future] = []
             with ThreadPoolExecutor() as executor:
-                pull_request_opened_futures.append(
-                    executor.submit(self.pull_request.create_issue_comment, **{"body": self.welcome_msg})
-                )
+                if hook_action == "opened":
+                    welcome_msg = self._prepare_welcome_comment()
+                    pull_request_opened_futures.append(
+                        executor.submit(self.pull_request.create_issue_comment, **{"body": welcome_msg})
+                    )
                 pull_request_opened_futures.append(executor.submit(self.create_issue_for_new_pull_request))
                 pull_request_opened_futures.append(executor.submit(self.set_wip_label_based_on_title))
                 pull_request_opened_futures.append(executor.submit(self.process_opened_or_synchronize_pull_request))
@@ -986,8 +969,7 @@ Publish to PYPI failed: `{_error}`
             return
 
         if self.is_check_run_in_progress(check_run=TOX_STR):
-            self.logger.debug(f"{self.log_prefix} Check run is in progress, not running {TOX_STR}.")
-            return
+            self.logger.debug(f"{self.log_prefix} Check run is in progress, re-running {TOX_STR}.")
 
         clone_repo_dir = f"{self.clone_repo_dir}-{uuid4()}"
         python_ver = f"--python={self.tox_python_version}" if self.tox_python_version else ""
@@ -1022,8 +1004,7 @@ Publish to PYPI failed: `{_error}`
             return
 
         if self.is_check_run_in_progress(check_run=PRE_COMMIT_STR):
-            self.logger.debug(f"{self.log_prefix} Check run is in progress, not running {PRE_COMMIT_STR}.")
-            return
+            self.logger.debug(f"{self.log_prefix} Check run is in progress, re-running {PRE_COMMIT_STR}.")
 
         clone_repo_dir = f"{self.clone_repo_dir}-{uuid4()}"
         cmd = f" uvx --directory {clone_repo_dir} {PRE_COMMIT_STR} run --all-files"
@@ -1360,13 +1341,15 @@ Publish to PYPI failed: `{_error}`
         if not self.build_and_push_container:
             return
 
+        if self.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR):
+            self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {BUILD_CONTAINER_STR}.")
+
         clone_repo_dir = f"{self.clone_repo_dir}-{uuid4()}"
         pull_request = hasattr(self, "pull_request")
 
         if pull_request and set_check:
             if self.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR) and not is_merged:
-                self.logger.info(f"{self.log_prefix} Check run is in progress, not running {BUILD_CONTAINER_STR}.")
-                return
+                self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {BUILD_CONTAINER_STR}.")
 
             self.set_container_build_in_progress()
 
@@ -1447,8 +1430,7 @@ Publish to PYPI failed: `{_error}`
             return
 
         if self.is_check_run_in_progress(check_run=PYTHON_MODULE_INSTALL_STR):
-            self.logger.info(f"{self.log_prefix} Check run is in progress, not running {PYTHON_MODULE_INSTALL_STR}.")
-            return
+            self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {PYTHON_MODULE_INSTALL_STR}.")
 
         clone_repo_dir = f"{self.clone_repo_dir}-{uuid4()}"
         self.logger.info(f"{self.log_prefix} Installing python module")
@@ -1876,12 +1858,13 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 self.pull_request.add_to_assignees(self.root_approvers[0])
 
     def set_pull_request_automerge(self) -> None:
-        self.logger.error(f"AUTO_MERGE: {self.pull_request_branch} in {self.set_auto_merge_prs}")
         auto_merge = (
             self.pull_request_branch in self.set_auto_merge_prs
             or self.parent_committer in self.auto_verified_and_merged_users
         )
+
         self.logger.debug(f"{self.log_prefix} auto_merge: {auto_merge}, branch: {self.pull_request_branch}")
+
         if auto_merge:
             try:
                 if not self.pull_request.raw_data.get("auto_merge"):
@@ -2134,10 +2117,15 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         approved_by = []
         lgtm_count: int = 0
 
+        all_reviewers = self.all_reviewers.copy()
+        all_reviewers_without_pr_owner = {
+            _reviewer for _reviewer in all_reviewers if _reviewer != self.parent_committer
+        }
+
         if self.minimum_lgtm:
             for _label in labels:
                 reviewer = _label.split(LABELS_SEPARATOR)[-1]
-                if LGTM_BY_LABEL_PREFIX.lower() in _label.lower() and reviewer in self.all_reviewers:
+                if LGTM_BY_LABEL_PREFIX.lower() in _label.lower() and reviewer in all_reviewers_without_pr_owner:
                     lgtm_count += 1
 
         for _label in labels:
@@ -2164,11 +2152,15 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             error += f"Missing approved from approvers: {', '.join(missing_approvers)}\n"
 
         if lgtm_count < self.minimum_lgtm:
-            all_reviewers = self.all_reviewers.copy()
-            if self.parent_committer in all_reviewers:
-                all_reviewers.pop(all_reviewers.index(self.parent_committer))
-
-            error += f"Missing lgtm from reviewers. Minimum {self.minimum_lgtm} required. Reviewers: {', '.join(all_reviewers)}.\n"
+            if lgtm_count == len(all_reviewers_without_pr_owner):
+                self.logger.debug(
+                    f"{self.log_prefix} minimum_lgtm is {self.minimum_lgtm}, but number of reviewers is {len(all_reviewers_without_pr_owner)}. PR approved."
+                )
+            else:
+                error += (
+                    "Missing lgtm from reviewers. "
+                    f"Minimum {self.minimum_lgtm} required. Reviewers: {', '.join(all_reviewers_without_pr_owner)}.\n"
+                )
 
         return error
 
@@ -2191,6 +2183,10 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             "summary": "",
             "text": "",
         }
+
+        if self.is_check_run_in_progress(check_run=CONVENTIONAL_TITLE_STR):
+            self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {CONVENTIONAL_TITLE_STR}.")
+
         self.set_conventional_title_in_progress()
         allowed_names = self.conventional_title.split(",")
         title = self.pull_request.title
@@ -2201,3 +2197,70 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             output["text"] = f"Pull request title must starts with allowed title: {': ,'.join(allowed_names)}"
 
             self.set_conventional_title_failure(output=output)
+
+    def _prepare_owners_welcome_comment(self) -> str:
+        body_approvers: str = " * Approvers:\n"
+        body_reviewers: str = " * Reviewers:\n"
+
+        for _approver in self.all_approvers:
+            body_approvers += f"   * {_approver}\n"
+
+        for _reviewer in self.all_reviewers:
+            body_reviewers += f"   * {_reviewer}\n"
+
+        return f"""
+{body_approvers}
+
+{body_reviewers}
+"""
+
+    def _prepare_welcome_comment(self) -> str:
+        self.logger.info(f"{self.log_prefix} Prepare welcome comment")
+        supported_user_labels_str: str = "".join([f" * {label}\n" for label in USER_LABELS_DICT.keys()])
+        return f"""
+{self.issue_url_for_welcome_msg}
+
+The following are automatically added:
+ * Add reviewers from OWNER file (in the root of the repository) under reviewers section.
+ * Set PR size label.
+ * New issue is created for the PR. (Closed when PR is merged/closed)
+ * Run [pre-commit](https://pre-commit.ci/) if `.pre-commit-config.yaml` exists in the repo.
+
+Available user actions:
+ * To mark PR as WIP comment `/wip` to the PR, To remove it from the PR comment `/wip cancel` to the PR.
+ * To block merging of PR comment `/hold`, To un-block merging of PR comment `/hold cancel`.
+ * To mark PR as verified comment `/verified` to the PR, to un-verify comment `/verified cancel` to the PR.
+        verified label removed on each new commit push.
+ * To cherry pick a merged PR comment `/cherry-pick <target branch to cherry-pick to>` in the PR.
+    * Multiple target branches can be cherry-picked, separated by spaces. (`/cherry-pick branch1 branch2`)
+    * Cherry-pick will be started when PR is merged
+ * To build and push container image command `/build-and-push-container` in the PR (tag will be the PR number).
+    * You can add extra args to the Podman build command
+        * Example: `/build-and-push-container --build-arg OPENSHIFT_PYTHON_WRAPPER_COMMIT=<commit_hash>`
+ * To add a label by comment use `/<label name>`, to remove, use `/<label name> cancel`
+ * To assign reviewers based on OWNERS file use `/assign-reviewers`
+ * To check if PR can be merged use `/check-can-merge`
+ * to assign reviewer to PR use `/assign-reviewer @<reviewer>`
+
+PR will be approved when the following conditions are met:
+ * `/approve` from one of the approvers.
+ * Minimum number of required `/lgtm` (`{self.minimum_lgtm}`) is met.
+
+<details>
+<summary>Approvers and Reviewers</summary>
+
+{self._prepare_owners_welcome_comment()}
+</details>
+
+<details>
+<summary>Supported /retest check runs</summary>
+
+{self._prepare_retest_welcome_comment}
+</details>
+
+<details>
+<summary>Supported labels</summary>
+
+{supported_user_labels_str}
+</details>
+    """

@@ -13,7 +13,7 @@ from github.RateLimit import RateLimit
 from github.Repository import Repository
 from simple_logger.logger import get_logger
 
-from webhook_server_container.libs.config import Config
+from webhook_server.libs.config import Config
 
 
 def get_logger_with_params(name: str, repository_name: str = "") -> Logger:
@@ -140,7 +140,7 @@ def get_api_with_highest_rate_limit(
         repository_name (str, optional): Repository name, if provided try to get token set in config repository section.
 
     Returns:
-        tuple: API, token
+        tuple: API, token, api_user
     """
     logger = get_logger_with_params(name="helpers")
 
@@ -159,6 +159,7 @@ def get_api_with_highest_rate_limit(
     logger.debug(msg)
 
     apis_and_tokens = get_apis_and_tokes_from_config(config=config)
+
     for _api, _token in apis_and_tokens:
         _api_user = _api.get_user().login
         rate_limit = _api.get_rate_limit()

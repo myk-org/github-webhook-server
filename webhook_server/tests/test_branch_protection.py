@@ -1,8 +1,8 @@
 import os
 
 import pytest
-from webhook_server_container.libs.config import Config
-from webhook_server_container.utils.github_repository_settings import (
+from webhook_server.libs.config import Config
+from webhook_server.utils.github_repository_settings import (
     DEFAULT_BRANCH_PROTECTION,
     get_repo_branch_protection_rules,
 )
@@ -10,20 +10,22 @@ from webhook_server_container.utils.github_repository_settings import (
 
 @pytest.fixture()
 def branch_protection_rules(request, mocker):
-    os.environ["WEBHOOK_SERVER_DATA_DIR"] = "webhook_server_container/tests/manifests"
+    config_path = "webhook_server.libs.config.Config"
+    os.environ["WEBHOOK_SERVER_DATA_DIR"] = "webhook_server/tests/manifests"
     repo_name = "test-repo"
     config = Config(repository=repo_name)
-    data = config.data
-    data.setdefault("branch_protection", request.param.get("global", {}))
-    data["repositories"][repo_name].setdefault("branch_protection", request.param.get("repo"))
+    root_data = config.root_data
+    root_data.setdefault("branch_protection", request.param.get("global", {}))
+    root_data["repositories"][repo_name].setdefault("branch_protection", request.param.get("repo"))
+
+    mocker.patch(f"{config_path}.root_data", new_callable=mocker.PropertyMock, return_value=root_data)
+
     mocker.patch(
-        "webhook_server_container.libs.config.Config.data", new_callable=mocker.PropertyMock, return_value=data
-    )
-    mocker.patch(
-        "webhook_server_container.libs.config.Config.repository_data",
+        f"{config_path}.repository_data",
         new_callable=mocker.PropertyMock,
-        return_value=data["repositories"][repo_name],
+        return_value=root_data["repositories"][repo_name],
     )
+
     return get_repo_branch_protection_rules(config=config)
 
 

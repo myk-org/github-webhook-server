@@ -3,13 +3,13 @@ from typing import Any
 
 import github
 
-from webhook_server_container.libs.config import Config
-from webhook_server_container.utils.github_repository_settings import (
+from webhook_server.libs.config import Config
+from webhook_server.utils.github_repository_settings import (
     set_all_in_progress_check_runs_to_queued,
     set_repositories_settings,
 )
-from webhook_server_container.utils.helpers import get_api_with_highest_rate_limit, get_logger_with_params
-from webhook_server_container.utils.webhook import create_webhook
+from webhook_server.utils.helpers import get_api_with_highest_rate_limit, get_logger_with_params
+from webhook_server.utils.webhook import create_webhook
 
 
 def get_repository_api(repository: str) -> tuple[str, github.Github | None, str]:
@@ -18,7 +18,7 @@ def get_repository_api(repository: str) -> tuple[str, github.Github | None, str]
     return repository, github_api, api_user
 
 
-if __name__ == "__main__":
+def repository_and_webhook_settings(webhook_secret: str | None = None) -> None:
     logger = get_logger_with_params(name="github-repository-and-webhook-settings")
 
     config = Config()
@@ -26,7 +26,7 @@ if __name__ == "__main__":
 
     apis: list = []
     with ThreadPoolExecutor() as executor:
-        for repo, data in config.data["repositories"].items():
+        for repo, data in config.root_data["repositories"].items():
             apis.append(
                 executor.submit(
                     get_repository_api,
@@ -42,4 +42,4 @@ if __name__ == "__main__":
 
     set_repositories_settings(config=config, apis_dict=apis_dict)
     set_all_in_progress_check_runs_to_queued(repo_config=config, apis_dict=apis_dict)
-    create_webhook(config=config, apis_dict=apis_dict)
+    create_webhook(config=config, apis_dict=apis_dict, secret=webhook_secret)
