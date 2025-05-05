@@ -88,8 +88,11 @@ def on_starting(server: Any) -> None:
         logger.info("Repository and webhook settings initialized successfully.")
 
         global ALLOWED_IPS
-        ALLOWED_IPS.extend(get_cloudflare_allowlist())
-        ALLOWED_IPS.extend(get_github_allowlist())
+
+        if VERIFY_GITHUB_IPS or VERIFY_CLOUDFLARE_IPS:
+            ALLOWED_IPS.extend(get_cloudflare_allowlist())
+            ALLOWED_IPS.extend(get_github_allowlist())
+            logger.info(f"IP allowlist initialized successfully. {ALLOWED_IPS}")
 
     except Exception as ex:
         logger.exception(f"FATAL: Error during startup initialization: {ex}")
