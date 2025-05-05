@@ -75,7 +75,8 @@ async def gate_by_allowlist_ips(request: Request) -> None:
                 return
         else:
             raise HTTPException(
-                status.HTTP_403_FORBIDDEN, f"Not a {'GitHub' if VERIFY_GITHUB_IPS else 'Cloudflare'} hooks ip address"
+                status.HTTP_403_FORBIDDEN,
+                f"{src_ip} IP is not a {'GitHub' if VERIFY_GITHUB_IPS else 'Cloudflare'} hooks ip address",
             )
 
 
