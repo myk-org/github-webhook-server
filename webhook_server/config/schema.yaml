@@ -21,6 +21,25 @@ properties:
   webhook_ip:
     type: string
     description: IP or FQDN address of the webhook server for adding to the repositories
+
+  ip-bind:
+    type: string
+    description: IP address to bind the server to
+  port:
+    type: integer
+    description: Port to bind the server to
+  max-workers:
+    type: integer
+    description: Maximum number of workers to run
+  webhook-secret:
+    type: string
+    description: Secret for validating webhook
+  verify-github-ips:
+    type: boolean
+    description: Verify hook request is from GitHub IPs
+  verify-cloudflare-ips:
+    type: boolean
+    description: Verify hook request is from Cloudflare IPs
   docker:
     type: object
     properties:
