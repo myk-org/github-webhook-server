@@ -78,9 +78,7 @@ docker build -t github-webhook-server .
 
 Before running the application, ensure to set the following environment variables and configuration file:
 
-- `WEBHOOK_SERVER_LOG_FILE`: Path to the log file where the server logs are to be stored.
 - `WEBHOOK_SERVER_DATA_DIR`: Path to the data directory where the `config.yaml` file is located.
-- `WEBHOOK_SERVER_LOG_LEVEL`: App log level.
 - `config.yaml`: Configuration file that contains settings for the server and repositories, which should be placed in the `WEBHOOK_SERVER_DATA_DIR` directory.
 
 Follow the instructions to build the container using either podman or docker as described in the Build container section. Once that is done, proceed with the configurations outlined below.
@@ -100,6 +98,16 @@ repositories:
     name: my-org/my-repository-name
     protected-branches:
       main: []
+```
+
+Server configuration and security:
+
+```yaml
+ip-bond: "0.0.0.0" # IP address to bind the server to
+port: 5000 # Port to bind the server to
+max-workers: 10 # Maximum number of workers to run
+webhook-secret: "<SECRET>" # Secret to verify hook is a valid hook from Github
+verify-github-ips: True # Verify hook request is from GitHub IPs
 ```
 
 Repository config can be override by config file in the root on the repository named `.github-webhook-server.yaml`
@@ -129,7 +137,7 @@ pre-commit: true
 slack_webhook_url: https://hooks.slack.com/services/<channel>
 ````
 
-if `pypi` configured for the repository a new version will be pushed to pypi on new GitHub release
+If `pypi` configured for the repository a new version will be pushed to pypi on new GitHub release
 
 - `token`: pypi token with push permissions
 - `tool`: The tool to use to build the package, can be `twine` or `poetry`

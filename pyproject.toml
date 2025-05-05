@@ -1,5 +1,5 @@
 [tool.coverage.run]
-omit = ["tests/*"]
+omit = [ "tests/*" ]
 
 [tool.coverage.report]
 fail_under = 35
@@ -14,8 +14,8 @@ line-length = 120
 fix = true
 output-format = "grouped"
 
-[tool.ruff.format]
-exclude = [".git", ".venv", ".mypy_cache", ".tox", "__pycache__"]
+  [tool.ruff.format]
+  exclude = [ ".git", ".venv", ".mypy_cache", ".tox", "__pycache__" ]
 
 [tool.mypy]
 check_untyped_defs = true
@@ -31,21 +31,21 @@ warn_unused_configs = true
 warn_redundant_casts = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["webhook_server"]
+packages = [ "webhook_server" ]
 
 [tool.uv]
-dev-dependencies = ["ipdb>=0.13.13", "ipython>=8.12.3"]
+dev-dependencies = [ "ipdb>=0.13.13", "ipython>=8.12.3" ]
 
 [project]
 name = "github-webhook-server"
-version = "2.0.11"
+version = "2.0.12"
 requires-python = ">=3.10"
 description = "A webhook server to manage Github reposotories and pull requests."
 readme = "README.md"
 license = "Apache-2.0"
 classifiers = [
   "Programming Language :: Python :: 3",
-  "Operating System :: OS Independent",
+  "Operating System :: OS Independent"
 ]
 dependencies = [
   "build>=1.2.2.post1",
@@ -67,23 +67,23 @@ dependencies = [
   "uvicorn>=0.31.0",
   "uvicorn-worker>=0.3.0",
   "gunicorn>=23.0.0",
-  "httpx>=0.28.1",
+  "httpx>=0.28.1"
 ]
 
-[[project.authors]]
-name = "Meni Yakove"
-email = " myakove@gmail.com"
+  [[project.authors]]
+  name = "Meni Yakove"
+  email = " myakove@gmail.com"
 
-[[project.authors]]
-name = "Ruth Netser"
-email = "ruth.netser@gmail.com"
+  [[project.authors]]
+  name = "Ruth Netser"
+  email = "ruth.netser@gmail.com"
 
-[project.urls]
-homepage = "https://github.com/myakove/github-webhook-server"
-repository = "https://github.com/myakove/github-webhook-server"
-Download = "https://quay.io/repository/myakove/github-webhook-server"
-"Bug Tracker" = "https://github.com/myakove/github-webhook-server/issues"
+  [project.urls]
+  homepage = "https://github.com/myakove/github-webhook-server"
+  repository = "https://github.com/myakove/github-webhook-server"
+  Download = "https://quay.io/repository/myakove/github-webhook-server"
+  "Bug Tracker" = "https://github.com/myakove/github-webhook-server/issues"
 
 [build-system]
-requires = ["hatchling"]
+requires = [ "hatchling" ]
 build-backend = "hatchling.build"
