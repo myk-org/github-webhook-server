@@ -49,15 +49,17 @@ def process_github_webhook(
 
     for _hook in hooks:
         if webhook_ip in _hook.config["url"]:
-            if _hook.config.get("secret") and secret:
+            secret_presence_mismatch = bool(_hook.config.get("secret")) != bool(secret)
+            if secret_presence_mismatch:
+                LOGGER.info(f"[API user {api_user}] - {full_repository_name}: Deleting old webhook")
+                _hook.delete()
+
+            else:
                 return (
                     True,
                     f"[API user {api_user}] - {full_repository_name}: Hook already exists - {_hook.config['url']}",
                     LOGGER.info,
                 )
-            else:
-                LOGGER.info(f"[API user {api_user}] - {full_repository_name}: Deleting old webhook")
-                _hook.delete()
 
     LOGGER.info(
         f"[API user {api_user}] - Creating webhook: {config_['url']} for {full_repository_name} with events: {events}"
