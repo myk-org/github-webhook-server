@@ -23,7 +23,7 @@ from webhook_server.utils.helpers import get_logger_with_params
 
 VERIFY_GITHUB_IPS = os.getenv("GITHUB_IPS_ONLY", "").lower() in ["true", "1"]
 VERIFY_CLOUDFLARE_IPS = os.getenv("CLOUDFLARE_IPS_ONLY", "").lower() in ["true", "1"]
-ALLOWED_IPS: list[str] = []
+ALLOWED_IPS: tuple[ipaddress._BaseNetwork, ...] = ()
 
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
 FASTAPI_APP: FastAPI = FastAPI(title="webhook-server")
@@ -53,14 +53,18 @@ def verify_signature(payload_body: bytes, secret_token: str, signature_header: H
 
 def get_github_allowlist() -> list[str]:
     """Fetch and cache GitHub IP allowlist"""
-    response = requests.get("https://api.github.com/meta")
-    return response.json()["hooks"]
+    response = requests.get("https://api.github.com/meta", timeout=5)
+    response.raise_for_status()
+    data = response.json()
+    return data.get("hooks", [])
 
 
 def get_cloudflare_allowlist() -> list[str]:
     """Fetch and cache Cloudflare IP allowlist"""
-    response = requests.get("https://api.cloudflare.com/client/v4/ips")
-    return response.json()["result"]["ipv4_cidrs"]
+    response = requests.get("https://api.cloudflare.com/client/v4/ips", timeout=5)
+    response.raise_for_status()
+    result = response.json()["result"]
+    return result.get("ipv4_cidrs", []) + result.get("ipv6_cidrs", [])
 
 
 async def gate_by_allowlist_ips(request: Request) -> None:
@@ -70,13 +74,13 @@ async def gate_by_allowlist_ips(request: Request) -> None:
         except ValueError:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Could not hook sender ip address")
 
-        for valid_ip in ALLOWED_IPS:
-            if src_ip in ipaddress.ip_network(valid_ip):
+        for valid_ip_range in ALLOWED_IPS:
+            if src_ip in valid_ip_range:
                 return
         else:
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN,
-                f"{src_ip} IP is not a {'GitHub' if VERIFY_GITHUB_IPS else 'Cloudflare'} hooks ip address",
+                f"{src_ip} IP is not a valid ip in allowlist IPs",
             )
 
 
@@ -89,9 +93,17 @@ def on_starting(server: Any) -> None:
 
         global ALLOWED_IPS
 
-        if VERIFY_GITHUB_IPS or VERIFY_CLOUDFLARE_IPS:
-            ALLOWED_IPS.extend(get_cloudflare_allowlist())
-            ALLOWED_IPS.extend(get_github_allowlist())
+        if VERIFY_GITHUB_IPS and VERIFY_CLOUDFLARE_IPS:
+            networks: list[ipaddress._BaseNetwork] = []
+
+            if VERIFY_CLOUDFLARE_IPS:
+                networks += [ipaddress.ip_network(cidr) for cidr in get_cloudflare_allowlist()]
+
+            if VERIFY_GITHUB_IPS:
+                networks += [ipaddress.ip_network(cidr) for cidr in get_github_allowlist()]
+
+            ALLOWED_IPS = tuple(networks)  # immutable & de-duplicated
+
             logger.info(f"IP allowlist initialized successfully. {ALLOWED_IPS}")
 
     except Exception as ex:
