@@ -16,16 +16,13 @@ from fastapi import (
 )
 from starlette.datastructures import Headers
 
+from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import NoPullRequestError, RepositoryNotFoundError
 from webhook_server.libs.github_api import ProcessGithubWehook
 from webhook_server.utils.github_repository_and_webhook_settings import repository_and_webhook_settings
 from webhook_server.utils.helpers import get_logger_with_params
 
-VERIFY_GITHUB_IPS = os.getenv("GITHUB_IPS_ONLY", "").lower() in ["true", "1"]
-VERIFY_CLOUDFLARE_IPS = os.getenv("CLOUDFLARE_IPS_ONLY", "").lower() in ["true", "1"]
 ALLOWED_IPS: tuple[ipaddress._BaseNetwork, ...] = ()
-
-WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
 FASTAPI_APP: FastAPI = FastAPI(title="webhook-server")
 APP_URL_ROOT_PATH: str = "/webhook_server"
 urllib3.disable_warnings()
@@ -88,18 +85,24 @@ def on_starting(server: Any) -> None:
     logger = get_logger_with_params(name="startup")
     logger.info("Application starting up...")
     try:
-        repository_and_webhook_settings(webhook_secret=WEBHOOK_SECRET)
+        config = Config()
+        root_config = config.root_data
+        webhook_secret = root_config.get("webhook-secret")
+        verify_github_ips = root_config.get("verify-github-ips")
+        verify_cloudflare_ips = root_config.get("verify-cloudflare-ips")
+
+        repository_and_webhook_settings(webhook_secret=webhook_secret)
         logger.info("Repository and webhook settings initialized successfully.")
 
         global ALLOWED_IPS
 
-        if VERIFY_GITHUB_IPS and VERIFY_CLOUDFLARE_IPS:
+        if verify_github_ips or verify_cloudflare_ips:
             networks: list[ipaddress._BaseNetwork] = []
 
-            if VERIFY_CLOUDFLARE_IPS:
+            if verify_cloudflare_ips:
                 networks += [ipaddress.ip_network(cidr) for cidr in get_cloudflare_allowlist()]
 
-            if VERIFY_GITHUB_IPS:
+            if verify_github_ips:
                 networks += [ipaddress.ip_network(cidr) for cidr in get_github_allowlist()]
 
             ALLOWED_IPS = tuple(networks)  # immutable & de-duplicated
@@ -123,9 +126,13 @@ async def process_webhook(request: Request) -> dict[str, Any]:
 
     payload_body = await request.body()
 
-    if WEBHOOK_SECRET:
+    config = Config()
+    root_config = config.root_data
+    webhook_secret = root_config.get("webhook-secret")
+
+    if webhook_secret:
         signature_header = request.headers.get("x-hub-signature-256")
-        verify_signature(payload_body=payload_body, secret_token=WEBHOOK_SECRET, signature_header=signature_header)
+        verify_signature(payload_body=payload_body, secret_token=webhook_secret, signature_header=signature_header)
 
     delivery_id = request.headers.get("X-GitHub-Delivery", "unknown-delivery")
     event_type = request.headers.get("X-GitHub-Event", "unknown-event")
