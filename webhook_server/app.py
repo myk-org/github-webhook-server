@@ -3,7 +3,6 @@ import hmac
 import ipaddress
 import os
 import sys
-from functools import lru_cache
 from typing import Any
 
 import requests
@@ -15,7 +14,6 @@ from fastapi import (
     Request,
     status,
 )
-from httpx import AsyncClient
 from starlette.datastructures import Headers
 
 from webhook_server.libs.exceptions import NoPullRequestError, RepositoryNotFoundError
@@ -25,6 +23,8 @@ from webhook_server.utils.helpers import get_logger_with_params
 
 VERIFY_GITHUB_IPS = os.getenv("GITHUB_IPS_ONLY", "").lower() in ["true", "1"]
 VERIFY_CLOUDFLARE_IPS = os.getenv("CLOUDFLARE_IPS_ONLY", "").lower() in ["true", "1"]
+ALLOWED_IPS: tuple[ipaddress._BaseNetwork, ...] = ()
+
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
 FASTAPI_APP: FastAPI = FastAPI(title="webhook-server")
 APP_URL_ROOT_PATH: str = "/webhook_server"
@@ -51,47 +51,37 @@ def verify_signature(payload_body: bytes, secret_token: str, signature_header: H
         raise HTTPException(status_code=403, detail="Request signatures didn't match!")
 
 
-@lru_cache(maxsize=1)
-async def get_github_allowlist() -> list[str]:
+def get_github_allowlist() -> list[str]:
     """Fetch and cache GitHub IP allowlist"""
-    async with AsyncClient(timeout=10.0) as client:
-        response = await client.get("https://api.github.com/meta")
-        return response.json()["hooks"]
+    response = requests.get("https://api.github.com/meta", timeout=5)
+    response.raise_for_status()
+    data = response.json()
+    return data.get("hooks", [])
 
 
-@lru_cache(maxsize=1)
-async def get_cloudflare_allowlist() -> list[str]:
+def get_cloudflare_allowlist() -> list[str]:
     """Fetch and cache Cloudflare IP allowlist"""
-    async with AsyncClient(timeout=10.0) as client:
-        response = await client.get("https://api.cloudflare.com/client/v4/ips")
-        return response.json()["result"]["ipv4_cidrs"]
+    response = requests.get("https://api.cloudflare.com/client/v4/ips", timeout=5)
+    response.raise_for_status()
+    result = response.json()["result"]
+    return result.get("ipv4_cidrs", []) + result.get("ipv6_cidrs", [])
 
 
 async def gate_by_allowlist_ips(request: Request) -> None:
-    if VERIFY_GITHUB_IPS or VERIFY_CLOUDFLARE_IPS:
-        allowlist = []
-
+    if ALLOWED_IPS:
         try:
             src_ip = ipaddress.ip_address(request.client.host)
         except ValueError:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Could not hook sender ip address")
 
-        if VERIFY_GITHUB_IPS:
-            github_allowlist = await get_github_allowlist()
-            allowlist.extend(github_allowlist)
-
-        if VERIFY_CLOUDFLARE_IPS:
-            cloudflare_allowlist = await get_cloudflare_allowlist()
-            allowlist.extend(cloudflare_allowlist)
-
-        if not allowlist:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Failed to get allowlist ips")
-
-        for valid_ip in allowlist:
-            if src_ip in ipaddress.ip_network(valid_ip):
+        for valid_ip_range in ALLOWED_IPS:
+            if src_ip in valid_ip_range:
                 return
         else:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a GitHub hooks ip address")
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                f"{src_ip} IP is not a valid ip in allowlist IPs",
+            )
 
 
 def on_starting(server: Any) -> None:
@@ -100,6 +90,21 @@ def on_starting(server: Any) -> None:
     try:
         repository_and_webhook_settings(webhook_secret=WEBHOOK_SECRET)
         logger.info("Repository and webhook settings initialized successfully.")
+
+        global ALLOWED_IPS
+
+        if VERIFY_GITHUB_IPS and VERIFY_CLOUDFLARE_IPS:
+            networks: list[ipaddress._BaseNetwork] = []
+
+            if VERIFY_CLOUDFLARE_IPS:
+                networks += [ipaddress.ip_network(cidr) for cidr in get_cloudflare_allowlist()]
+
+            if VERIFY_GITHUB_IPS:
+                networks += [ipaddress.ip_network(cidr) for cidr in get_github_allowlist()]
+
+            ALLOWED_IPS = tuple(networks)  # immutable & de-duplicated
+
+            logger.info(f"IP allowlist initialized successfully. {ALLOWED_IPS}")
 
     except Exception as ex:
         logger.exception(f"FATAL: Error during startup initialization: {ex}")
