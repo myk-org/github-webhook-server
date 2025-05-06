@@ -149,7 +149,7 @@ async def process_webhook(request: Request) -> dict[str, Any]:
 
     try:
         api: ProcessGithubWehook = ProcessGithubWehook(hook_data=hook_data, headers=request.headers, logger=logger)
-        api.process()
+        await api.process()
         return {"status": requests.codes.ok, "message": "process success", "log_prefix": delivery_headers}
 
     except RepositoryNotFoundError as e:
