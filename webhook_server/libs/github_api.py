@@ -152,7 +152,7 @@ class ProcessGithubWehook:
             "Report bugs in [Issues](https://github.com/myakove/github-webhook-server/issues)"
         )
 
-    def process(self) -> Any:
+    async def process(self) -> Any:
         if self.github_event == "ping":
             return {"status": requests.codes.ok, "message": "pong"}
 
