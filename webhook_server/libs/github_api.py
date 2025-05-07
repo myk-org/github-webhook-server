@@ -857,9 +857,10 @@ Publish to PYPI failed: `{_error}`
             _check_for_merge: bool = False
             _user: str | None = None
             action_labeled = hook_action == "labeled"
-            labeled = self.hook_data["label"]["name"].lower()
+            labeled = self.hook_data["label"]["name"]
+            labeled_lower = labeled.lower()
 
-            if labeled == CAN_BE_MERGED_STR:
+            if labeled_lower == CAN_BE_MERGED_STR:
                 return
 
             self.logger.info(f"{self.log_prefix} PR {self.pull_request.number} {hook_action} with {labeled}")
@@ -877,7 +878,7 @@ Publish to PYPI failed: `{_error}`
                     if _user in self.all_reviewers + self.all_approvers:
                         _check_for_merge = True
 
-            if self.verified_job and labeled == VERIFIED_LABEL_STR:
+            if self.verified_job and labeled_lower == VERIFIED_LABEL_STR:
                 _check_for_merge = True
 
                 if action_labeled:
