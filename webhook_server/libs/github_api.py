@@ -919,6 +919,14 @@ Publish to PYPI failed: `{_error}`
                 reviewed_user=reviewed_user,
             )
 
+            if body := self.hook_data["review"]["body"]:
+                if f"/{APPROVE_STR}" in body:
+                    self.label_by_user_comment(
+                        user_requested_label=APPROVE_STR,
+                        remove=False,
+                        reviewed_user=reviewed_user,
+                    )
+
     def manage_reviewed_by_label(self, review_state: str, action: str, reviewed_user: str) -> None:
         self.logger.info(
             f"{self.log_prefix} "
