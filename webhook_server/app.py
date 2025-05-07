@@ -8,6 +8,7 @@ from typing import Any
 import requests
 import urllib3
 from fastapi import (
+    BackgroundTasks,
     Depends,
     FastAPI,
     HTTPException,
@@ -120,7 +121,7 @@ def healthcheck() -> dict[str, Any]:
 
 
 @FASTAPI_APP.post(APP_URL_ROOT_PATH, dependencies=[Depends(gate_by_allowlist_ips)])
-async def process_webhook(request: Request) -> dict[str, Any]:
+async def process_webhook(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
     logger_name: str = "main"
     logger = get_logger_with_params(name=logger_name)
 
@@ -149,7 +150,18 @@ async def process_webhook(request: Request) -> dict[str, Any]:
 
     try:
         api: ProcessGithubWehook = ProcessGithubWehook(hook_data=hook_data, headers=request.headers, logger=logger)
-        await api.process()
+
+        async def process_with_error_handling() -> None:
+            try:
+                await api.process()
+
+            except NoPullRequestError:
+                return
+
+            except Exception as e:
+                logger.exception(f"{log_context} Error in background task: {e}")
+
+        background_tasks.add_task(process_with_error_handling)
         return {"status": requests.codes.ok, "message": "process success", "log_prefix": delivery_headers}
 
     except RepositoryNotFoundError as e:
