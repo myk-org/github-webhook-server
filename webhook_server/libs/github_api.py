@@ -112,7 +112,8 @@ class ProcessGithubWehook:
             self.repository = get_github_repo_api(github_api=self.github_api, repository=self.repository_full_name)
             # Once we have a repository, we can get the config from .github-webhook-server.yaml
             local_repository_config = self.config.repository_local_data(
-                github_api=self.github_api, repository_full_name=self.repository_full_name
+                github_api=self.github_api,
+                repository_full_name=self.repository_full_name,
             )
             # Call _repo_data_from_config() again to update self args from .github-webhook-server.yaml
             self._repo_data_from_config(repository_config=local_repository_config)
@@ -332,10 +333,14 @@ class ProcessGithubWehook:
         )
 
         self.auto_verified_and_merged_users: list[str] = self.config.get_value(
-            value="auto-verified-and-merged-users", return_on_none=[], extra_dict=repository_config
+            value="auto-verified-and-merged-users",
+            return_on_none=[],
+            extra_dict=repository_config,
         )
         self.can_be_merged_required_labels = self.config.get_value(
-            value="can-be-merged-required-labels", return_on_none=[], extra_dict=repository_config
+            value="can-be-merged-required-labels",
+            return_on_none=[],
+            extra_dict=repository_config,
         )
         self.conventional_title: str = self.config.get_value(value="conventional-title", extra_dict=repository_config)
         self.set_auto_merge_prs: list[str] = self.config.get_value(
@@ -479,7 +484,8 @@ Publish to PYPI failed: `{_error}`
                 return _issue_on_error(_error=_error)
 
             rc, out, err = run_command(
-                command=f"uv {uv_cmd_dir} build --sdist --out-dir {_dist_dir}", log_prefix=self.log_prefix
+                command=f"uv {uv_cmd_dir} build --sdist --out-dir {_dist_dir}",
+                log_prefix=self.log_prefix,
             )
             if not rc:
                 _error = self.get_check_run_text(out=out, err=err)
@@ -806,7 +812,10 @@ Publish to PYPI failed: `{_error}`
                 if hook_action == "opened":
                     welcome_msg = self._prepare_welcome_comment()
                     pull_request_opened_futures.append(
-                        executor.submit(self.pull_request.create_issue_comment, **{"body": welcome_msg})
+                        executor.submit(
+                            self.pull_request.create_issue_comment,
+                            **{"body": welcome_msg},
+                        )
                     )
                 pull_request_opened_futures.append(executor.submit(self.create_issue_for_new_pull_request))
                 pull_request_opened_futures.append(executor.submit(self.set_wip_label_based_on_title))
@@ -936,9 +945,16 @@ Publish to PYPI failed: `{_error}`
         label_prefix: str = ""
         label_to_remove: str = ""
 
-        if review_state == APPROVE_STR and reviewed_user in self.all_approvers:
-            label_prefix = APPROVED_BY_LABEL_PREFIX
-            label_to_remove = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{reviewed_user}"
+        if review_state == APPROVE_STR:
+            if reviewed_user in self.all_approvers:
+                label_prefix = APPROVED_BY_LABEL_PREFIX
+                label_to_remove = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{reviewed_user}"
+
+            else:
+                self.logger.warning(
+                    f"{self.log_prefix} {reviewed_user} not in approvers list, will not {action} label."
+                )
+                return
 
         elif review_state in ("approved", LGTM_STR):
             if base_dict := self.hook_data.get("issue", self.hook_data.get("pull_request")):
@@ -1083,7 +1099,9 @@ Publish to PYPI failed: `{_error}`
 
         elif _command == COMMAND_CHERRY_PICK_STR:
             self.process_cherry_pick_command(
-                issue_comment_id=issue_comment_id, command_args=_args, reviewed_user=reviewed_user
+                issue_comment_id=issue_comment_id,
+                command_args=_args,
+                reviewed_user=reviewed_user,
             )
 
         elif _command == COMMAND_RETEST_STR:
@@ -1277,7 +1295,8 @@ Publish to PYPI failed: `{_error}`
                 failure_output += labels_failure_output
 
             required_check_failed_failure_output = self._required_check_failed(
-                last_commit_check_runs=last_commit_check_runs, check_runs_in_progress=check_runs_in_progress
+                last_commit_check_runs=last_commit_check_runs,
+                check_runs_in_progress=check_runs_in_progress,
             )
             if required_check_failed_failure_output:
                 failure_output += required_check_failed_failure_output
@@ -1592,13 +1611,15 @@ Publish to PYPI failed: `{_error}`
         )
         try:
             rc, out, err = run_command(
-                command=f"{git_cmd} config user.name '{self.repository.owner.login}'", log_prefix=self.log_prefix
+                command=f"{git_cmd} config user.name '{self.repository.owner.login}'",
+                log_prefix=self.log_prefix,
             )
             if not rc:
                 yield rc, out, err
 
             rc, out, err = run_command(
-                f"{git_cmd} config user.email '{self.repository.owner.email}'", log_prefix=self.log_prefix
+                f"{git_cmd} config user.email '{self.repository.owner.email}'",
+                log_prefix=self.log_prefix,
             )
             if not rc:
                 yield rc, out, err
@@ -1632,13 +1653,17 @@ Publish to PYPI failed: `{_error}`
             else:
                 if is_merged:
                     rc, out, err = run_command(
-                        command=f"{git_cmd} checkout {self.pull_request_branch}", log_prefix=self.log_prefix
+                        command=f"{git_cmd} checkout {self.pull_request_branch}",
+                        log_prefix=self.log_prefix,
                     )
                     if not rc:
                         yield rc, out, err
 
                 elif tag_name:
-                    rc, out, err = run_command(command=f"{git_cmd} checkout {tag_name}", log_prefix=self.log_prefix)
+                    rc, out, err = run_command(
+                        command=f"{git_cmd} checkout {tag_name}",
+                        log_prefix=self.log_prefix,
+                    )
                     if not rc:
                         yield rc, out, err
 
@@ -1647,7 +1672,8 @@ Publish to PYPI failed: `{_error}`
                     try:
                         pull_request = self._get_pull_request()
                         rc, out, err = run_command(
-                            command=f"{git_cmd} checkout origin/pr/{pull_request.number}", log_prefix=self.log_prefix
+                            command=f"{git_cmd} checkout origin/pr/{pull_request.number}",
+                            log_prefix=self.log_prefix,
                         )
                         if not rc:
                             yield rc, out, err
@@ -2059,7 +2085,10 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 f"{self.log_prefix} Some required check runs in progress {check_runs_in_progress}, "
                 f"skipping check if {CAN_BE_MERGED_STR}."
             )
-            return f"Some required check runs in progress {', '.join(check_runs_in_progress)}\n", check_runs_in_progress
+            return (
+                f"Some required check runs in progress {', '.join(check_runs_in_progress)}\n",
+                check_runs_in_progress,
+            )
         return "", []
 
     def _required_check_failed(self, last_commit_check_runs: list[CheckRun], check_runs_in_progress: list[str]) -> str:
