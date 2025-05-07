@@ -1529,9 +1529,10 @@ Publish to PYPI failed: `{_error}`
                 self.logger.error(f"{self.log_prefix} {_exp}")
 
     def is_check_run_in_progress(self, check_run: str) -> bool:
-        for run in self.last_commit.get_check_runs():
-            if run.name == check_run and run.status == IN_PROGRESS_STR:
-                return True
+        if hasattr(self, "last_commit") and self.last_commit:
+            for run in self.last_commit.get_check_runs():
+                if run.name == check_run and run.status == IN_PROGRESS_STR:
+                    return True
         return False
 
     def set_check_run_status(
