@@ -153,6 +153,7 @@ class ProcessGithubWehook:
         )
 
     async def process(self) -> Any:
+        time.sleep(240)
         if self.github_event == "ping":
             return {"status": requests.codes.ok, "message": "pong"}
 
