@@ -154,6 +154,10 @@ async def process_webhook(request: Request, background_tasks: BackgroundTasks) -
         async def process_with_error_handling() -> None:
             try:
                 await api.process()
+
+            except NoPullRequestError:
+                return
+
             except Exception as e:
                 logger.exception(f"{log_context} Error in background task: {e}")
 
