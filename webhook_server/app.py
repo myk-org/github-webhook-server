@@ -150,7 +150,14 @@ async def process_webhook(request: Request, background_tasks: BackgroundTasks) -
 
     try:
         api: ProcessGithubWehook = ProcessGithubWehook(hook_data=hook_data, headers=request.headers, logger=logger)
-        background_tasks.add_task(api.process)
+
+        async def process_with_error_handling() -> None:
+            try:
+                await api.process()
+            except Exception as e:
+                logger.exception(f"{log_context} Error in background task: {e}")
+
+        background_tasks.add_task(process_with_error_handling)
         return {"status": requests.codes.ok, "message": "process success", "log_prefix": delivery_headers}
 
     except RepositoryNotFoundError as e:
