@@ -3,9 +3,10 @@ from typing import Any
 
 import github
 import yaml
-from simple_logger.logger import get_logger
 
-LOGGER = get_logger(name="config")
+from webhook_server.utils.helpers import get_logger_with_params
+
+LOGGER = get_logger_with_params(name="config")
 
 
 class Config:
