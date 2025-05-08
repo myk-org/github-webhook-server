@@ -936,9 +936,14 @@ Publish to PYPI failed: `{_error}`
         label_prefix: str = ""
         label_to_remove: str = ""
 
-        if review_state == APPROVE_STR and reviewed_user in self.all_approvers:
-            label_prefix = APPROVED_BY_LABEL_PREFIX
-            label_to_remove = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{reviewed_user}"
+        if review_state == APPROVE_STR:
+            if reviewed_user in self.all_approvers:
+                label_prefix = APPROVED_BY_LABEL_PREFIX
+                label_to_remove = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{reviewed_user}"
+
+            else:
+                self.logger.debug(f"{self.log_prefix} {reviewed_user} not in approvers list, will not {action} label.")
+                return
 
         elif review_state in ("approved", LGTM_STR):
             if base_dict := self.hook_data.get("issue", self.hook_data.get("pull_request")):
