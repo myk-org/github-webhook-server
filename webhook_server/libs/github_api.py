@@ -942,9 +942,7 @@ Publish to PYPI failed: `{_error}`
                 label_to_remove = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{reviewed_user}"
 
             else:
-                self.logger.warning(
-                    f"{self.log_prefix} {reviewed_user} not in approvers list, will not {action} label."
-                )
+                self.logger.debug(f"{self.log_prefix} {reviewed_user} not in approvers list, will not {action} label.")
                 return
 
         elif review_state in ("approved", LGTM_STR):
