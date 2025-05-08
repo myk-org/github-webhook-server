@@ -212,7 +212,7 @@ def set_repositories_settings(config: Config, apis_dict: dict[str, dict[str, Any
     futures = []
     with ThreadPoolExecutor() as executor:
         for repo, data in config_data["repositories"].items():
-            config = Config(repository=repo)
+            config = Config(repository=repo, logger=logger)
             branch_protection = get_repo_branch_protection_rules(config=config)
             futures.append(
                 executor.submit(

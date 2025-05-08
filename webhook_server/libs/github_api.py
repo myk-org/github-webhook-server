@@ -97,7 +97,7 @@ class ProcessGithubWehook:
         self.github_event: str = self.headers["X-GitHub-Event"]
         self.owners_content: dict[str, Any] = {}
 
-        self.config = Config(repository=self.repository_name)
+        self.config = Config(repository=self.repository_name, logger=self.logger)
 
         if not self.config.repository:
             raise RepositoryNotFoundError(f"Repository {self.repository_name} not found in config file")

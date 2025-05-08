@@ -21,7 +21,7 @@ def get_repository_api(repository: str) -> tuple[str, github.Github | None, str]
 def repository_and_webhook_settings(webhook_secret: str | None = None) -> None:
     logger = get_logger_with_params(name="github-repository-and-webhook-settings")
 
-    config = Config()
+    config = Config(logger=logger)
     apis_dict: dict[str, dict[str, Any]] = {}
 
     apis: list = []

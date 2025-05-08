@@ -86,7 +86,7 @@ def on_starting(server: Any) -> None:
     logger = get_logger_with_params(name="startup")
     logger.info("Application starting up...")
     try:
-        config = Config()
+        config = Config(logger=logger)
         root_config = config.root_data
         webhook_secret = root_config.get("webhook-secret")
         verify_github_ips = root_config.get("verify-github-ips")
@@ -127,7 +127,7 @@ async def process_webhook(request: Request, background_tasks: BackgroundTasks) -
 
     payload_body = await request.body()
 
-    config = Config()
+    config = Config(logger=logger)
     root_config = config.root_data
     webhook_secret = root_config.get("webhook-secret")
 
