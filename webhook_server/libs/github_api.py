@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import functools
 import json
 import logging
 import os
@@ -10,7 +11,7 @@ import shutil
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Callable, Generator, Iterable
+from typing import Any, Callable, Generator
 from uuid import uuid4
 
 import requests
@@ -170,7 +171,7 @@ class ProcessGithubWehook:
             self.all_approvers_and_reviewers = self.get_all_approvers_and_reviewers()
             self.all_approvers = self.get_all_approvers()
             self.all_reviewers = self.get_all_reviewers()
-            self.valid_users_to_run_commands = self._get_valid_users_to_run_commands()
+            self.valid_users_to_run_commands = self._get_valid_users_to_run_commands
 
             if self.github_event == "issue_comment":
                 return self.process_comment_webhook_data()
@@ -2286,10 +2287,11 @@ PR will be approved when the following conditions are met:
 </details>
     """
 
-    def _get_valid_users_to_run_commands(self) -> Iterable[str]:
+    @functools.cached_property
+    def _get_valid_users_to_run_commands(self) -> set[str]:
         contributors = [val.login for val in self.repository.get_contributors()]
         collaborators = [val.login for val in self.repository.get_collaborators()]
-        return set(contributors + collaborators)
+        return set((*contributors, *collaborators))
 
     def _is_user_valid_to_run_commands(self, reviewed_user: str) -> bool:
         allow_user_comment = f"/add-allowed-user @{reviewed_user}"
