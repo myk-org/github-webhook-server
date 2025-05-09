@@ -2287,7 +2287,7 @@ PR will be approved when the following conditions are met:
     """
 
     def _get_valid_users_to_run_commands(self) -> Iterable[str]:
-        if not self.pull_request:
+        if not getattr(self, "pull_request", None):
             return set()
 
         contributors = [val.login for val in self.repository.get_contributors()]
