@@ -2291,7 +2291,8 @@ PR will be approved when the following conditions are met:
     def _get_valid_users_to_run_commands(self) -> set[str]:
         contributors = [val.login for val in self.repository.get_contributors()]
         collaborators = [val.login for val in self.repository.get_collaborators()]
-        return set((*contributors, *collaborators))
+        owners = set(self.all_pull_request_approvers)
+        return set((*contributors, *collaborators, *owners))
 
     def _is_user_valid_to_run_commands(self, reviewed_user: str) -> bool:
         allow_user_comment = f"/add-allowed-user @{reviewed_user}"
@@ -2299,13 +2300,13 @@ PR will be approved when the following conditions are met:
 {reviewed_user} is not allowed to run retest commands.
 maintainers can allow it by comment `{allow_user_comment}`
 Maintainers:
-    {"\n - @".join(self.all_pull_request_approvers)}
+ - {"\n - @".join(self.all_pull_request_approvers)}
 """
 
         if reviewed_user not in self.valid_users_to_run_commands:
             comments_from_approvers = [
                 comment.body
-                for comment in self.pull_request.get_comments()
+                for comment in self.pull_request.get_issue_comments()
                 if comment.user.login in self.all_pull_request_approvers
             ]
             for comment in comments_from_approvers:
