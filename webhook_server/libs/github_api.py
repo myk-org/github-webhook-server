@@ -10,7 +10,7 @@ import shutil
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Callable, Generator
+from typing import Any, Callable, Generator, Iterable
 from uuid import uuid4
 
 import requests
@@ -151,6 +151,7 @@ class ProcessGithubWehook:
         self.issue_url_for_welcome_msg: str = (
             "Report bugs in [Issues](https://github.com/myakove/github-webhook-server/issues)"
         )
+        self.valid_users_to_run_commands = self._get_valid_users_to_run_commands()
 
     async def process(self) -> Any:
         if self.github_event == "ping":
@@ -1087,16 +1088,14 @@ Publish to PYPI failed: `{_error}`
             self.check_if_can_be_merged()
 
         elif _command == COMMAND_CHERRY_PICK_STR:
-            self.process_cherry_pick_command(
-                issue_comment_id=issue_comment_id, command_args=_args, reviewed_user=reviewed_user
-            )
+            self.process_cherry_pick_command(command_args=_args, reviewed_user=reviewed_user)
 
         elif _command == COMMAND_RETEST_STR:
-            self.process_retest_command(issue_comment_id=issue_comment_id, command_args=_args)
+            self.process_retest_command(command_args=_args, reviewed_user=reviewed_user)
 
         elif _command == BUILD_AND_PUSH_CONTAINER_STR:
             if self.build_and_push_container:
-                self._run_build_container(push=True, set_check=False, command_args=_args)
+                self._run_build_container(push=True, set_check=False, command_args=_args, reviewed_user=reviewed_user)
             else:
                 msg = f"No {BUILD_AND_PUSH_CONTAINER_STR} configured for this repository"
                 error_msg = f"{self.log_prefix} {msg}"
@@ -1351,8 +1350,12 @@ Publish to PYPI failed: `{_error}`
         is_merged: bool = False,
         tag: str = "",
         command_args: str = "",
+        reviewed_user: str | None = None,
     ) -> None:
         if not self.build_and_push_container:
+            return
+
+        if reviewed_user and not self._is_user_valid_to_run_commands(reviewed_user=reviewed_user):
             return
 
         if self.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR):
@@ -1747,7 +1750,7 @@ Publish to PYPI failed: `{_error}`
             )
             self._remove_label(label=WIP_STR)
 
-    def process_cherry_pick_command(self, issue_comment_id: int, command_args: str, reviewed_user: str) -> None:
+    def process_cherry_pick_command(self, command_args: str, reviewed_user: str) -> None:
         _target_branches: list[str] = command_args.split()
         _exits_target_branches: set[str] = set()
         _non_exits_target_branches_msg: str = ""
@@ -1784,7 +1787,10 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                         reviewed_user=reviewed_user,
                     )
 
-    def process_retest_command(self, issue_comment_id: int, command_args: str) -> None:
+    def process_retest_command(self, command_args: str, reviewed_user: str) -> None:
+        if not self._is_user_valid_to_run_commands(reviewed_user=reviewed_user):
+            return
+
         _target_tests: list[str] = command_args.split()
         _not_supported_retests: list[str] = []
         _supported_retests: list[str] = []
@@ -2279,3 +2285,34 @@ PR will be approved when the following conditions are met:
 {supported_user_labels_str}
 </details>
     """
+
+    def _get_valid_users_to_run_commands(self) -> Iterable[str]:
+        if not self.pull_request:
+            return set()
+
+        contributors = [val.login for val in self.repository.get_contributors()]
+        collaborators = [val.login for val in self.repository.get_collaborators()]
+        return set(contributors + collaborators)
+
+    def _is_user_valid_to_run_commands(self, reviewed_user: str) -> bool:
+        allow_user_comment = f"/add-allowed-user @{reviewed_user}"
+        comment_msg = f"""
+{reviewed_user} is not allowed to run retest commands.
+maintainers can allow it by comment `{allow_user_comment}`
+Maintainers:
+    {"\n - @".join(self.all_approvers)}
+"""
+
+        if reviewed_user not in self.valid_users_to_run_commands:
+            comments_from_approvers = [
+                comment.body for comment in self.pull_request.get_comments() if comment.user.login in self.all_approvers
+            ]
+            for comment in comments_from_approvers:
+                if allow_user_comment in comment:
+                    return True
+
+            self.logger.debug(f"{self.log_prefix} {reviewed_user} is not in {self.valid_users_to_run_commands}")
+            self.pull_request.create_issue_comment(comment_msg)
+            return False
+
+        return True
