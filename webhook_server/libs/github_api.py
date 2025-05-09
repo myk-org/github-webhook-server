@@ -168,9 +168,9 @@ class ProcessGithubWehook:
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
             self.changed_files = self.list_changed_files()
             self.pull_request_branch = self.pull_request.base.ref
-            self.all_approvers_and_reviewers = self.get_all_approvers_and_reviewers()
-            self.all_approvers = self.get_all_approvers()
-            self.all_reviewers = self.get_all_reviewers()
+            self.all_pull_request_approvers_and_reviewers = self.get_all_pull_request_approvers_and_reviewers()
+            self.all_pull_request_approvers = self.get_all_pull_request_approvers()
+            self.all_pull_request_reviewers = self.get_all_pull_request_reviewers()
             self.valid_users_to_run_commands = self._get_valid_users_to_run_commands
 
             if self.github_event == "issue_comment":
@@ -515,13 +515,13 @@ Publish to PYPI failed: `{_error}`
 
     @property
     def root_reviewers(self) -> list[str]:
-        _reviewers = self.all_approvers_and_reviewers.get(".", {}).get("reviewers", [])
+        _reviewers = self.all_pull_request_approvers_and_reviewers.get(".", {}).get("reviewers", [])
         self.logger.debug(f"{self.log_prefix} ROOT Reviewers: {_reviewers}")
         return _reviewers
 
     @property
     def root_approvers(self) -> list[str]:
-        _approvers = self.all_approvers_and_reviewers.get(".", {}).get("approvers", [])
+        _approvers = self.all_pull_request_approvers_and_reviewers.get(".", {}).get("approvers", [])
         self.logger.debug(f"{self.log_prefix} ROOT Approvers: {_approvers}")
         return _approvers
 
@@ -531,7 +531,7 @@ Publish to PYPI failed: `{_error}`
     def assign_reviewers(self) -> None:
         self.logger.info(f"{self.log_prefix} Assign reviewers")
 
-        _to_add: list[str] = list(set(self.all_reviewers))
+        _to_add: list[str] = list(set(self.all_pull_request_reviewers))
         self.logger.debug(f"{self.log_prefix} Reviewers to add: {', '.join(_to_add)}")
 
         for reviewer in _to_add:
@@ -877,7 +877,7 @@ Publish to PYPI failed: `{_error}`
                     LGTM_BY_LABEL_PREFIX,
                     CHANGED_REQUESTED_BY_LABEL_PREFIX,
                 ):
-                    if _user in self.all_reviewers + self.all_approvers:
+                    if _user in self.all_pull_request_reviewers + self.all_pull_request_approvers:
                         _check_for_merge = True
 
             if self.verified_job and labeled_lower == VERIFIED_LABEL_STR:
@@ -939,7 +939,7 @@ Publish to PYPI failed: `{_error}`
         label_to_remove: str = ""
 
         if review_state == APPROVE_STR:
-            if reviewed_user in self.all_approvers:
+            if reviewed_user in self.all_pull_request_approvers:
                 label_prefix = APPROVED_BY_LABEL_PREFIX
                 label_to_remove = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{reviewed_user}"
 
@@ -1113,7 +1113,7 @@ Publish to PYPI failed: `{_error}`
                 self.pull_request.edit(title=f"{wip_for_title} {self.pull_request.title}")
 
         elif _command == HOLD_LABEL_STR:
-            if reviewed_user not in self.all_approvers:
+            if reviewed_user not in self.all_pull_request_approvers:
                 self.pull_request.create_issue_comment(
                     f"{reviewed_user} is not part of the approver, only approvers can mark pull request with hold"
                 )
@@ -1943,7 +1943,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         return rc, out, err
 
-    def get_all_approvers_and_reviewers(self) -> dict[str, dict[str, Any]]:
+    def get_all_pull_request_approvers_and_reviewers(self) -> dict[str, dict[str, Any]]:
         # Dictionary mapping OWNERS file paths to their approvers and reviewers
         _owners: dict[str, dict[str, Any]] = {}
 
@@ -1979,7 +1979,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         return _owners
 
-    def get_all_approvers(self) -> list[str]:
+    def get_all_pull_request_approvers(self) -> list[str]:
         _approvers: list[str] = []
         for list_of_approvers in self.owners_data_for_changed_files().values():
             for _approver in list_of_approvers.get("approvers", []):
@@ -1988,7 +1988,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         _approvers.sort()
         return _approvers
 
-    def get_all_reviewers(self) -> list[str]:
+    def get_all_pull_request_reviewers(self) -> list[str]:
         _reviewers: list[str] = []
         for list_of_reviewers in self.owners_data_for_changed_files().values():
             for _approver in list_of_reviewers.get("reviewers", []):
@@ -2006,7 +2006,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         require_root_approvers: bool | None = None
 
-        for owners_dir, owners_data in self.all_approvers_and_reviewers.items():
+        for owners_dir, owners_data in self.all_pull_request_approvers_and_reviewers.items():
             if owners_dir == ".":
                 continue
 
@@ -2021,7 +2021,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         if require_root_approvers or require_root_approvers is None:
             self.logger.debug(f"{self.log_prefix} require root_approvers")
-            data["."] = self.all_approvers_and_reviewers.get(".", {})
+            data["."] = self.all_pull_request_approvers_and_reviewers.get(".", {})
 
         else:
             for _folder in changed_folders:
@@ -2029,7 +2029,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     if _folder == _changed_path or _changed_path in _folder.parents:
                         continue
                     else:
-                        data["."] = self.all_approvers_and_reviewers.get(".", {})
+                        data["."] = self.all_pull_request_approvers_and_reviewers.get(".", {})
                         break
 
         self.logger.debug(f"{self.log_prefix} Owners data for current pull request: {yaml.dump(data)}")
@@ -2119,7 +2119,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         for _label in labels:
             if CHANGED_REQUESTED_BY_LABEL_PREFIX.lower() in _label.lower():
                 change_request_user = _label.split(LABELS_SEPARATOR)[-1]
-                if change_request_user in self.all_approvers:
+                if change_request_user in self.all_pull_request_approvers:
                     failure_output += "PR has changed requests from approvers\n"
 
         missing_required_labels = []
@@ -2139,7 +2139,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         approved_by = []
         lgtm_count: int = 0
 
-        all_reviewers = self.all_reviewers.copy()
+        all_reviewers = self.all_pull_request_reviewers.copy()
         all_reviewers_without_pr_owner = {
             _reviewer for _reviewer in all_reviewers if _reviewer != self.parent_committer
         }
@@ -2154,7 +2154,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
                 approved_by.append(_label.split(LABELS_SEPARATOR)[-1])
 
-        missing_approvers = self.all_approvers.copy()
+        missing_approvers = self.all_pull_request_approvers.copy()
 
         for data in self.owners_data_for_changed_files().values():
             required_pr_approvers = data.get("approvers", [])
@@ -2224,10 +2224,10 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         body_approvers: str = " * Approvers:\n"
         body_reviewers: str = " * Reviewers:\n"
 
-        for _approver in self.all_approvers:
+        for _approver in self.all_pull_request_approvers:
             body_approvers += f"   * {_approver}\n"
 
-        for _reviewer in self.all_reviewers:
+        for _reviewer in self.all_pull_request_reviewers:
             body_reviewers += f"   * {_reviewer}\n"
 
         return f"""
@@ -2299,12 +2299,14 @@ PR will be approved when the following conditions are met:
 {reviewed_user} is not allowed to run retest commands.
 maintainers can allow it by comment `{allow_user_comment}`
 Maintainers:
-    {"\n - @".join(self.all_approvers)}
+    {"\n - @".join(self.all_pull_request_approvers)}
 """
 
         if reviewed_user not in self.valid_users_to_run_commands:
             comments_from_approvers = [
-                comment.body for comment in self.pull_request.get_comments() if comment.user.login in self.all_approvers
+                comment.body
+                for comment in self.pull_request.get_comments()
+                if comment.user.login in self.all_pull_request_approvers
             ]
             for comment in comments_from_approvers:
                 if allow_user_comment in comment:
