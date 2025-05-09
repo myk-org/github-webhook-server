@@ -2132,7 +2132,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         approved_by = []
         lgtm_count: int = 0
 
-        all_reviewers = self.all_reviewers.copy() + self.root_approvers.copy()
+        all_reviewers = self.all_reviewers.copy() + self.root_approvers.copy() + self.root_reviewers.copy()
         all_reviewers_without_pr_owner = {
             _reviewer for _reviewer in all_reviewers if _reviewer != self.parent_committer
         }
