@@ -1,6 +1,6 @@
+import pytest
 import yaml
 
-import pytest
 from webhook_server.tests.conftest import ContentFile, Tree
 from webhook_server.utils.constants import APPROVED_BY_LABEL_PREFIX
 
@@ -54,7 +54,7 @@ class Repository:
 
 @pytest.fixture(scope="function")
 def all_approvers_and_reviewers(process_github_webhook):
-    process_github_webhook.all_approvers_and_reviewers = {
+    process_github_webhook.all_pull_request_approvers_and_reviewers = {
         ".": {"approvers": ["root_approver1", "root_approver2"], "reviewers": ["root_reviewer1", "root_reviewer2"]},
         "folder1": {
             "approvers": ["folder1_approver1", "folder1_approver2"],
@@ -75,7 +75,7 @@ def all_approvers_and_reviewers(process_github_webhook):
 
 @pytest.fixture(scope="function")
 def all_approvers_reviewers(process_github_webhook):
-    process_github_webhook.all_approvers = [
+    process_github_webhook.all_pull_request_approvers = [
         "folder1_approver1",
         "folder1_approver2",
         "folder4_approver1",
@@ -86,9 +86,9 @@ def all_approvers_reviewers(process_github_webhook):
         "root_approver2",
     ]
 
-    process_github_webhook.all_approvers.sort()
+    process_github_webhook.all_pull_request_approvers.sort()
 
-    process_github_webhook.all_reviewers = [
+    process_github_webhook.all_pull_request_reviewers = [
         "folder1_reviewer1",
         "folder1_reviewer2",
         "folder4_reviewer1",
@@ -99,13 +99,13 @@ def all_approvers_reviewers(process_github_webhook):
         "root_reviewer2",
     ]
 
-    process_github_webhook.all_reviewers.sort()
+    process_github_webhook.all_pull_request_reviewers.sort()
 
 
 def test_get_all_approvers_and_reviewers(process_github_webhook, all_approvers_and_reviewers):
     process_github_webhook.repository = Repository()
-    read_owners_result = process_github_webhook.get_all_approvers_and_reviewers()
-    assert read_owners_result == process_github_webhook.all_approvers_and_reviewers
+    read_owners_result = process_github_webhook.get_all_pull_request_approvers_and_reviewers()
+    assert read_owners_result == process_github_webhook.all_pull_request_approvers_and_reviewers
 
 
 def test_owners_data_for_changed_files(process_github_webhook, all_approvers_and_reviewers):
@@ -132,15 +132,15 @@ def test_owners_data_for_changed_files(process_github_webhook, all_approvers_and
 
 
 def test_all_approvers_reviewers(process_github_webhook, all_approvers_and_reviewers, all_approvers_reviewers):
-    all_approvers = process_github_webhook.get_all_approvers()
-    assert all_approvers == process_github_webhook.all_approvers
+    all_approvers = process_github_webhook.get_all_pull_request_approvers()
+    assert all_approvers == process_github_webhook.all_pull_request_approvers
 
-    all_reviewers = process_github_webhook.get_all_reviewers()
-    assert all_reviewers == process_github_webhook.all_reviewers
+    all_pull_request_reviewers = process_github_webhook.get_all_pull_request_reviewers()
+    assert all_pull_request_reviewers == process_github_webhook.all_pull_request_reviewers
 
 
 def test_check_pr_approved(process_github_webhook, all_approvers_and_reviewers, all_approvers_reviewers):
-    process_github_webhook.all_approvers = process_github_webhook.get_all_approvers()
+    process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
 
     check_if_pr_approved = process_github_webhook._check_if_pr_approved(
         labels=[
@@ -158,7 +158,7 @@ def test_check_pr_approved(process_github_webhook, all_approvers_and_reviewers, 
 
 
 def test_check_pr_minimum_approved(process_github_webhook, all_approvers_and_reviewers, all_approvers_reviewers):
-    process_github_webhook.all_approvers = process_github_webhook.get_all_approvers()
+    process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
     check_if_pr_approved = process_github_webhook._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}root_approver1",
@@ -171,7 +171,7 @@ def test_check_pr_minimum_approved(process_github_webhook, all_approvers_and_rev
 
 
 def test_check_pr_not_approved(process_github_webhook, all_approvers_and_reviewers, all_approvers_reviewers):
-    process_github_webhook.all_approvers = process_github_webhook.get_all_approvers()
+    process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
     check_if_pr_approved = process_github_webhook._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}root_approver1",
@@ -192,7 +192,7 @@ def test_check_pr_not_approved(process_github_webhook, all_approvers_and_reviewe
 
 
 def test_check_pr_partial_approved(process_github_webhook, all_approvers_and_reviewers, all_approvers_reviewers):
-    process_github_webhook.all_approvers = process_github_webhook.get_all_approvers()
+    process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
     check_if_pr_approved = process_github_webhook._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}root_approver1",
@@ -229,7 +229,7 @@ def test_check_pr_partial_approved(process_github_webhook, all_approvers_and_rev
 def test_check_pr_approved_specific_folder(
     process_github_webhook, all_approvers_and_reviewers, all_approvers_reviewers
 ):
-    process_github_webhook.all_approvers = process_github_webhook.get_all_approvers()
+    process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
     check_if_pr_approved = process_github_webhook._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}root_approver1",
@@ -255,7 +255,7 @@ def test_check_pr_approved_specific_folder(
 def test_check_pr_approved_nested_folder_no_owners(
     process_github_webhook, all_approvers_and_reviewers, all_approvers_reviewers
 ):
-    process_github_webhook.all_approvers = process_github_webhook.get_all_approvers()
+    process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
     check_if_pr_approved = process_github_webhook._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}root_approver1",
@@ -278,7 +278,7 @@ def test_check_pr_approved_nested_folder_no_owners(
 def test_check_pr_approved_specific_folder_with_root_approvers(
     process_github_webhook, all_approvers_and_reviewers, all_approvers_reviewers
 ):
-    process_github_webhook.all_approvers = process_github_webhook.get_all_approvers()
+    process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
     check_if_pr_approved = process_github_webhook._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}folder1_approver1",
@@ -308,7 +308,7 @@ def test_check_pr_approved_specific_folder_with_root_approvers(
 def test_check_pr_approved_specific_folder_no_root_approvers(
     process_github_webhook, all_approvers_and_reviewers, all_approvers_reviewers
 ):
-    process_github_webhook.all_approvers = process_github_webhook.get_all_approvers()
+    process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
     check_if_pr_approved = process_github_webhook._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}folder5_approver1",
@@ -331,7 +331,7 @@ def test_check_pr_approved_specific_folder_no_root_approvers(
 def test_check_pr_not_approved_specific_folder_without_owners(
     process_github_webhook, all_approvers_and_reviewers, all_approvers_reviewers
 ):
-    process_github_webhook.all_approvers = process_github_webhook.get_all_approvers()
+    process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
     check_if_pr_approved = process_github_webhook._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}folder5_approver1",
@@ -361,7 +361,7 @@ def test_check_pr_not_approved_specific_folder_without_owners(
 def test_check_pr_approved_specific_folder_without_owners(
     process_github_webhook, all_approvers_and_reviewers, all_approvers_reviewers
 ):
-    process_github_webhook.all_approvers = process_github_webhook.get_all_approvers()
+    process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
     check_if_pr_approved = process_github_webhook._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}root_approver1",
@@ -385,7 +385,7 @@ def test_check_pr_approved_specific_folder_without_owners(
 def test_check_pr_approved_folder_with_no_owners_and_folder_without_root_approvers(
     process_github_webhook, all_approvers_and_reviewers, all_approvers_reviewers
 ):
-    process_github_webhook.all_approvers = process_github_webhook.get_all_approvers()
+    process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
     check_if_pr_approved = process_github_webhook._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}root_approver1",
@@ -410,7 +410,7 @@ def test_check_pr_approved_folder_with_no_owners_and_folder_without_root_approve
 def test_check_pr_not_approved_folder_with_no_owners_and_folder_without_root_approvers(
     process_github_webhook, all_approvers_and_reviewers, all_approvers_reviewers
 ):
-    process_github_webhook.all_approvers = process_github_webhook.get_all_approvers()
+    process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
     check_if_pr_approved = process_github_webhook._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}folder5_approver1",
@@ -440,7 +440,7 @@ def test_check_pr_not_approved_folder_with_no_owners_and_folder_without_root_app
 def test_check_pr_not_approved_subfolder_with_owners(
     process_github_webhook, all_approvers_and_reviewers, all_approvers_reviewers
 ):
-    process_github_webhook.all_approvers = process_github_webhook.get_all_approvers()
+    process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
     check_if_pr_approved = process_github_webhook._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}root_approver1",
@@ -470,7 +470,7 @@ def test_check_pr_not_approved_subfolder_with_owners(
 def test_check_pr_approved_subfolder_with_owners_no_root_approvers(
     process_github_webhook, all_approvers_and_reviewers, all_approvers_reviewers
 ):
-    process_github_webhook.all_approvers = process_github_webhook.get_all_approvers()
+    process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
     check_if_pr_approved = process_github_webhook._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}folder5_approver1",
