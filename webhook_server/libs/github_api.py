@@ -151,7 +151,6 @@ class ProcessGithubWehook:
         self.issue_url_for_welcome_msg: str = (
             "Report bugs in [Issues](https://github.com/myakove/github-webhook-server/issues)"
         )
-        self.valid_users_to_run_commands = self._get_valid_users_to_run_commands()
 
     async def process(self) -> Any:
         if self.github_event == "ping":
@@ -171,6 +170,7 @@ class ProcessGithubWehook:
             self.all_approvers_and_reviewers = self.get_all_approvers_and_reviewers()
             self.all_approvers = self.get_all_approvers()
             self.all_reviewers = self.get_all_reviewers()
+            self.valid_users_to_run_commands = self._get_valid_users_to_run_commands()
 
             if self.github_event == "issue_comment":
                 return self.process_comment_webhook_data()
@@ -2287,9 +2287,6 @@ PR will be approved when the following conditions are met:
     """
 
     def _get_valid_users_to_run_commands(self) -> Iterable[str]:
-        if not getattr(self, "pull_request", None):
-            return set()
-
         contributors = [val.login for val in self.repository.get_contributors()]
         collaborators = [val.login for val in self.repository.get_collaborators()]
         return set(contributors + collaborators)
