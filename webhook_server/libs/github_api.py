@@ -23,6 +23,8 @@ from github.Branch import Branch
 from github.CheckRun import CheckRun
 from github.Commit import Commit
 from github.GithubException import UnknownObjectException
+from github.NamedUser import NamedUser
+from github.PaginatedList import PaginatedList
 from github.PullRequest import PullRequest
 from starlette.datastructures import Headers
 from stringcolor import cs
@@ -168,10 +170,11 @@ class ProcessGithubWehook:
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
             self.changed_files = self.list_changed_files()
             self.pull_request_branch = self.pull_request.base.ref
-            self.all_pull_request_approvers_and_reviewers = self.get_all_pull_request_approvers_and_reviewers()
+            self.all_repository_approvers_and_reviewers = self.get_all_repository_approvers_and_reviewers()
+            self.all_repository_approvers = self.get_all_repository_approvers()
+            self.all_repository_reviewers = self.get_all_repository_reviewers()
             self.all_pull_request_approvers = self.get_all_pull_request_approvers()
             self.all_pull_request_reviewers = self.get_all_pull_request_reviewers()
-            self.valid_users_to_run_commands = self._get_valid_users_to_run_commands
 
             if self.github_event == "issue_comment":
                 return self.process_comment_webhook_data()
@@ -515,13 +518,13 @@ Publish to PYPI failed: `{_error}`
 
     @property
     def root_reviewers(self) -> list[str]:
-        _reviewers = self.all_pull_request_approvers_and_reviewers.get(".", {}).get("reviewers", [])
+        _reviewers = self.all_repository_approvers_and_reviewers.get(".", {}).get("reviewers", [])
         self.logger.debug(f"{self.log_prefix} ROOT Reviewers: {_reviewers}")
         return _reviewers
 
     @property
     def root_approvers(self) -> list[str]:
-        _approvers = self.all_pull_request_approvers_and_reviewers.get(".", {}).get("approvers", [])
+        _approvers = self.all_repository_approvers_and_reviewers.get(".", {}).get("approvers", [])
         self.logger.debug(f"{self.log_prefix} ROOT Approvers: {_approvers}")
         return _approvers
 
@@ -1943,7 +1946,32 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         return rc, out, err
 
-    def get_all_pull_request_approvers_and_reviewers(self) -> dict[str, dict[str, Any]]:
+    @functools.cached_property
+    def _get_collaborators(self) -> PaginatedList[NamedUser]:
+        return self.repository.get_collaborators()
+
+    @functools.cached_property
+    def _get_contributors(self) -> PaginatedList[NamedUser]:
+        return self.repository.get_contributors()
+
+    def get_all_repository_contributors(self) -> list[str]:
+        return [val.login for val in self._get_contributors]
+
+    def get_all_repository_collaborators(self) -> list[str]:
+        return [val.login for val in self._get_collaborators]
+
+    def get_all_repository_maintainers(self) -> list[str]:
+        maintainers: list[str] = []
+
+        for user in self._get_contributors:
+            permmissions = user.permissions
+
+            if permmissions.admin or permmissions.maintain:
+                maintainers.append(user.login)
+
+        return maintainers
+
+    def get_all_repository_approvers_and_reviewers(self) -> dict[str, dict[str, Any]]:
         # Dictionary mapping OWNERS file paths to their approvers and reviewers
         _owners: dict[str, dict[str, Any]] = {}
 
@@ -1979,6 +2007,26 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         return _owners
 
+    def get_all_repository_approvers(self) -> list[str]:
+        _approvers: list[str] = []
+
+        for value in self.all_repository_approvers_and_reviewers.values():
+            for key, val in value.items():
+                if key == "approvers":
+                    _approvers.extend(val)
+
+        return _approvers
+
+    def get_all_repository_reviewers(self) -> list[str]:
+        _reviewers: list[str] = []
+
+        for value in self.all_repository_approvers_and_reviewers.values():
+            for key, val in value.items():
+                if key == "reviewers":
+                    _reviewers.extend(val)
+
+        return _reviewers
+
     def get_all_pull_request_approvers(self) -> list[str]:
         _approvers: list[str] = []
         for list_of_approvers in self.owners_data_for_changed_files().values():
@@ -2006,7 +2054,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         require_root_approvers: bool | None = None
 
-        for owners_dir, owners_data in self.all_pull_request_approvers_and_reviewers.items():
+        for owners_dir, owners_data in self.all_repository_approvers_and_reviewers.items():
             if owners_dir == ".":
                 continue
 
@@ -2021,7 +2069,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
         if require_root_approvers or require_root_approvers is None:
             self.logger.debug(f"{self.log_prefix} require root_approvers")
-            data["."] = self.all_pull_request_approvers_and_reviewers.get(".", {})
+            data["."] = self.all_repository_approvers_and_reviewers.get(".", {})
 
         else:
             for _folder in changed_folders:
@@ -2029,7 +2077,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     if _folder == _changed_path or _changed_path in _folder.parents:
                         continue
                     else:
-                        data["."] = self.all_pull_request_approvers_and_reviewers.get(".", {})
+                        data["."] = self.all_repository_approvers_and_reviewers.get(".", {})
                         break
 
         self.logger.debug(f"{self.log_prefix} Owners data for current pull request: {yaml.dump(data)}")
@@ -2288,26 +2336,29 @@ PR will be approved when the following conditions are met:
     """
 
     @functools.cached_property
-    def _get_valid_users_to_run_commands(self) -> set[str]:
-        contributors = [val.login for val in self.repository.get_contributors()]
-        collaborators = [val.login for val in self.repository.get_collaborators()]
-        owners = set(self.all_pull_request_approvers)
-        return set((*contributors, *collaborators, *owners))
+    def valid_users_to_run_commands(self) -> set[str]:
+        return set((
+            *self.get_all_repository_contributors(),
+            *self.get_all_repository_collaborators(),
+            *self.all_repository_approvers_and_reviewers,
+        ))
 
     def _is_user_valid_to_run_commands(self, reviewed_user: str) -> bool:
+        allowed_user_to_approve = self.get_all_repository_maintainers() + self.all_repository_approvers
         allow_user_comment = f"/add-allowed-user @{reviewed_user}"
+
         comment_msg = f"""
 {reviewed_user} is not allowed to run retest commands.
 maintainers can allow it by comment `{allow_user_comment}`
 Maintainers:
- - {"\n - @".join(self.all_pull_request_approvers)}
+ - {"\n - @".join(allowed_user_to_approve)}
 """
 
         if reviewed_user not in self.valid_users_to_run_commands:
             comments_from_approvers = [
                 comment.body
                 for comment in self.pull_request.get_issue_comments()
-                if comment.user.login in self.all_pull_request_approvers
+                if comment.user.login in allowed_user_to_approve
             ]
             for comment in comments_from_approvers:
                 if allow_user_comment in comment:
