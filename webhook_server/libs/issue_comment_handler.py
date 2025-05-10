@@ -3,6 +3,8 @@ from __future__ import annotations
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from typing import Any, Callable
 
+from webhook_server.libs.check_run_handler import CheckRunHandler
+from webhook_server.libs.labels_handler import LabelsHandler
 from webhook_server.utils.constants import (
     BUILD_AND_PUSH_CONTAINER_STR,
     BUILD_CONTAINER_STR,
@@ -32,6 +34,8 @@ class IssueCommentHandler:
         self.log_prefix = self.github_webhook.log_prefix
         self.repository = self.github_webhook.repository
         self.pull_request = self.github_webhook.pull_request
+        self.labels_handler = LabelsHandler(github_webhook=self.github_webhook)
+        self.check_run_handler = CheckRunHandler(github_webhook=self.github_webhook)
 
     def process_comment_webhook_data(self) -> None:
         if comment_action := self.hook_data["action"] in ("edited", "deleted"):
@@ -122,10 +126,10 @@ class IssueCommentHandler:
         elif _command == WIP_STR:
             wip_for_title: str = f"{WIP_STR.upper()}:"
             if remove:
-                self.github_webhook._remove_label(label=WIP_STR)
+                self.labels_handler._remove_label(label=WIP_STR)
                 self.pull_request.edit(title=self.pull_request.title.replace(wip_for_title, ""))
             else:
-                self.github_webhook._add_label(label=WIP_STR)
+                self.labels_handler._add_label(label=WIP_STR)
                 self.pull_request.edit(title=f"{wip_for_title} {self.pull_request.title}")
 
         elif _command == HOLD_LABEL_STR:
@@ -135,19 +139,19 @@ class IssueCommentHandler:
                 )
             else:
                 if remove:
-                    self.github_webhook._remove_label(label=HOLD_LABEL_STR)
+                    self.labels_handler._remove_label(label=HOLD_LABEL_STR)
                 else:
-                    self.github_webhook._add_label(label=HOLD_LABEL_STR)
+                    self.labels_handler._add_label(label=HOLD_LABEL_STR)
 
                 self.github_webhook.check_if_can_be_merged()
 
         elif _command == VERIFIED_LABEL_STR:
             if remove:
-                self.github_webhook._remove_label(label=VERIFIED_LABEL_STR)
-                self.github_webhook.set_verify_check_queued()
+                self.labels_handler._remove_label(label=VERIFIED_LABEL_STR)
+                self.check_run_handler.set_verify_check_queued()
             else:
-                self.github_webhook._add_label(label=VERIFIED_LABEL_STR)
-                self.github_webhook.set_verify_check_success()
+                self.labels_handler._add_label(label=VERIFIED_LABEL_STR)
+                self.check_run_handler.set_verify_check_success()
 
         else:
             self.github_webhook.label_by_user_comment(
@@ -202,7 +206,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 self.logger.info(f"{self.log_prefix} {info_msg}")
                 self.pull_request.create_issue_comment(info_msg)
                 for _cp_label in cp_labels:
-                    self.github_webhook._add_label(label=_cp_label)
+                    self.labels_handler._add_label(label=_cp_label)
             else:
                 for _exits_target_branch in _exits_target_branches:
                     self.github_webhook.cherry_pick(
