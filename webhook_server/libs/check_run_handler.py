@@ -26,7 +26,7 @@ class CheckRunHandler:
         self.logger = self.github_webhook.logger
         self.log_prefix = self.github_webhook.log_prefix
         self.repository = self.github_webhook.repository
-        self.pull_request = self.github_webhook.pull_request
+        self.pull_request = getattr(self.github_webhook, "pull_request", None)
 
     def process_pull_request_check_run_webhook_data(self) -> None:
         _check_run: dict[str, Any] = self.hook_data["check_run"]
@@ -237,7 +237,7 @@ class CheckRunHandler:
 
     @functools.cached_property
     def all_required_status_checks(self) -> list[str]:
-        if not hasattr(self, "pull_request_branch"):
+        if self.pull_request and not hasattr(self, "pull_request_branch"):
             self.pull_request_branch = self.pull_request.base.ref
 
         all_required_status_checks: list[str] = []
