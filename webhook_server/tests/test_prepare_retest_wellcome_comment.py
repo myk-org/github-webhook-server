@@ -1,5 +1,7 @@
 import pytest
 
+from webhook_server.libs.pull_request_handler import PullRequestHandler
+
 
 class TestPrepareRetestWellcomeMsg:
     @pytest.mark.parametrize(
@@ -57,5 +59,7 @@ class TestPrepareRetestWellcomeMsg:
         process_github_webhook.pypi = pypi
         process_github_webhook.pre_commit = pre_commit
         process_github_webhook.conventional_title = conventional_title
+        process_github_webhook.pull_request = None
+        pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
 
-        assert process_github_webhook._prepare_retest_welcome_comment == expected
+        assert pull_request_handler._prepare_retest_welcome_comment == expected

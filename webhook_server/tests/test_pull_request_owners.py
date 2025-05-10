@@ -1,6 +1,7 @@
 import pytest
 import yaml
 
+from webhook_server.libs.pull_request_handler import PullRequestHandler
 from webhook_server.tests.conftest import ContentFile, Tree
 from webhook_server.utils.constants import APPROVED_BY_LABEL_PREFIX
 
@@ -143,8 +144,9 @@ def test_all_approvers_reviewers(
 
 def test_check_pr_approved(process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers):
     process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
-
-    check_if_pr_approved = process_github_webhook._check_if_pr_approved(
+    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    pull_request_handler.parent_committer = "test"
+    check_if_pr_approved = pull_request_handler._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}root_approver1",
             f"{APPROVED_BY_LABEL_PREFIX}root_approver2",
@@ -163,7 +165,9 @@ def test_check_pr_minimum_approved(
     process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers
 ):
     process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
-    check_if_pr_approved = process_github_webhook._check_if_pr_approved(
+    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    pull_request_handler.parent_committer = "test"
+    check_if_pr_approved = pull_request_handler._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}root_approver1",
             f"{APPROVED_BY_LABEL_PREFIX}folder1_approver1",
@@ -176,7 +180,9 @@ def test_check_pr_minimum_approved(
 
 def test_check_pr_not_approved(process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers):
     process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
-    check_if_pr_approved = process_github_webhook._check_if_pr_approved(
+    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    pull_request_handler.parent_committer = "test"
+    check_if_pr_approved = pull_request_handler._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}root_approver1",
         ]
@@ -199,7 +205,9 @@ def test_check_pr_partial_approved(
     process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers
 ):
     process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
-    check_if_pr_approved = process_github_webhook._check_if_pr_approved(
+    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    pull_request_handler.parent_committer = "test"
+    check_if_pr_approved = pull_request_handler._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}root_approver1",
             f"{APPROVED_BY_LABEL_PREFIX}root_approver2",
@@ -236,7 +244,9 @@ def test_check_pr_approved_specific_folder(
     process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers
 ):
     process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
-    check_if_pr_approved = process_github_webhook._check_if_pr_approved(
+    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    pull_request_handler.parent_committer = "test"
+    check_if_pr_approved = pull_request_handler._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}root_approver1",
             f"{APPROVED_BY_LABEL_PREFIX}folder4_approver1",
@@ -262,7 +272,9 @@ def test_check_pr_approved_nested_folder_no_owners(
     process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers
 ):
     process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
-    check_if_pr_approved = process_github_webhook._check_if_pr_approved(
+    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    pull_request_handler.parent_committer = "test"
+    check_if_pr_approved = pull_request_handler._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}root_approver1",
         ]
@@ -285,7 +297,9 @@ def test_check_pr_approved_specific_folder_with_root_approvers(
     process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers
 ):
     process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
-    check_if_pr_approved = process_github_webhook._check_if_pr_approved(
+    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    pull_request_handler.parent_committer = "test"
+    check_if_pr_approved = pull_request_handler._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}folder1_approver1",
         ]
@@ -315,7 +329,9 @@ def test_check_pr_approved_specific_folder_no_root_approvers(
     process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers
 ):
     process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
-    check_if_pr_approved = process_github_webhook._check_if_pr_approved(
+    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    pull_request_handler.parent_committer = "test"
+    check_if_pr_approved = pull_request_handler._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}folder5_approver1",
         ]
@@ -338,7 +354,9 @@ def test_check_pr_not_approved_specific_folder_without_owners(
     process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers
 ):
     process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
-    check_if_pr_approved = process_github_webhook._check_if_pr_approved(
+    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    pull_request_handler.parent_committer = "test"
+    check_if_pr_approved = pull_request_handler._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}folder5_approver1",
         ]
@@ -368,7 +386,9 @@ def test_check_pr_approved_specific_folder_without_owners(
     process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers
 ):
     process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
-    check_if_pr_approved = process_github_webhook._check_if_pr_approved(
+    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    pull_request_handler.parent_committer = "test"
+    check_if_pr_approved = pull_request_handler._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}root_approver1",
         ]
@@ -392,7 +412,9 @@ def test_check_pr_approved_folder_with_no_owners_and_folder_without_root_approve
     process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers
 ):
     process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
-    check_if_pr_approved = process_github_webhook._check_if_pr_approved(
+    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    pull_request_handler.parent_committer = "test"
+    check_if_pr_approved = pull_request_handler._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}root_approver1",
             f"{APPROVED_BY_LABEL_PREFIX}folder5_approver1",
@@ -417,7 +439,9 @@ def test_check_pr_not_approved_folder_with_no_owners_and_folder_without_root_app
     process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers
 ):
     process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
-    check_if_pr_approved = process_github_webhook._check_if_pr_approved(
+    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    pull_request_handler.parent_committer = "test"
+    check_if_pr_approved = pull_request_handler._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}folder5_approver1",
         ]
@@ -447,7 +471,9 @@ def test_check_pr_not_approved_subfolder_with_owners(
     process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers
 ):
     process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
-    check_if_pr_approved = process_github_webhook._check_if_pr_approved(
+    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    pull_request_handler.parent_committer = "test"
+    check_if_pr_approved = pull_request_handler._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}root_approver1",
         ]
@@ -477,7 +503,9 @@ def test_check_pr_approved_subfolder_with_owners_no_root_approvers(
     process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers
 ):
     process_github_webhook.all_pull_request_approvers = process_github_webhook.get_all_pull_request_approvers()
-    check_if_pr_approved = process_github_webhook._check_if_pr_approved(
+    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    pull_request_handler.parent_committer = "test"
+    check_if_pr_approved = pull_request_handler._check_if_pr_approved(
         labels=[
             f"{APPROVED_BY_LABEL_PREFIX}folder5_approver1",
         ]
