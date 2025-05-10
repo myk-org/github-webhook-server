@@ -14,7 +14,6 @@ class PushHandler:
         self.logger = self.github_webhook.logger
         self.log_prefix = self.github_webhook.log_prefix
         self.repository = self.github_webhook.repository
-        self.pull_request = self.github_webhook.pull_request
         self.check_run_handler = CheckRunHandler(github_webhook=self.github_webhook)
         self.runner_handler = RunnerHandler(github_webhook=self.github_webhook)
 
