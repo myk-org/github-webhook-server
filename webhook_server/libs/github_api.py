@@ -1265,7 +1265,7 @@ Publish to PYPI failed: `{_error}`
 
         try:
             self.logger.info(f"{self.log_prefix} Check if {CAN_BE_MERGED_STR}.")
-            self.set_merge_check_queued()
+            self.set_merge_check_in_progress()
             last_commit_check_runs = list(self.last_commit.get_check_runs())
             _labels = self.pull_request_labels_names()
             self.logger.debug(f"{self.log_prefix} check if can be merged. PR labels are: {_labels}")
@@ -2039,8 +2039,8 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
     def get_all_pull_request_reviewers(self) -> list[str]:
         _reviewers: list[str] = []
         for list_of_reviewers in self.owners_data_for_changed_files().values():
-            for _approver in list_of_reviewers.get("reviewers", []):
-                _reviewers.append(_approver)
+            for _reviewer in list_of_reviewers.get("reviewers", []):
+                _reviewers.append(_reviewer)
 
         _reviewers.sort()
         return _reviewers
@@ -2187,7 +2187,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         approved_by = []
         lgtm_count: int = 0
 
-        all_reviewers = self.all_pull_request_reviewers.copy()
+        all_reviewers = self.all_pull_request_reviewers.copy() + self.root_approvers.copy() + self.root_reviewers.copy()
         all_reviewers_without_pr_owner = {
             _reviewer for _reviewer in all_reviewers if _reviewer != self.parent_committer
         }
