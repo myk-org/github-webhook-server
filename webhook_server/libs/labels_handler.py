@@ -30,10 +30,10 @@ class LabelsHandler:
         self.pull_request = self.github_webhook.pull_request
 
     def label_exists_in_pull_request(self, label: str) -> bool:
-        return any(lb for lb in self.pull_request_labels_names() if lb == label)
+        return label in self.pull_request_labels_names()
 
     def pull_request_labels_names(self) -> list[str]:
-        return [lb.name for lb in self.pull_request.labels] if self.pull_request else []
+        return [lb.name for lb in self.pull_request.labels]
 
     def _remove_label(self, label: str) -> bool:
         try:
@@ -51,7 +51,7 @@ class LabelsHandler:
     def _add_label(self, label: str) -> None:
         label = label.strip()
         if len(label) > 49:
-            self.logger.debug(f"{label} is to long, not adding.")
+            self.logger.debug(f"{label} is too long, not adding.")
             return
 
         if self.label_exists_in_pull_request(label=label):
