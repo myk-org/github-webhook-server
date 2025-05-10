@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import os
 import shlex
 import subprocess
 from concurrent.futures import Future, as_completed
@@ -21,6 +22,10 @@ def get_logger_with_params(name: str, repository_name: str = "") -> Logger:
 
     log_level: str = _config.get_value(value="log-level", return_on_none="INFO")
     log_file: str = _config.get_value(value="log-file")
+
+    if log_file and not log_file.startswith("/"):
+        log_file = os.path.join(_config.data_dir, "logs", log_file)
+
     return get_logger(name=name, filename=log_file, level=log_level, file_max_bytes=1048576 * 50)  # 50MB
 
 
