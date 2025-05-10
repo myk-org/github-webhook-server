@@ -156,7 +156,7 @@ class IssueCommentHandler:
                 self.check_run_handler.set_verify_check_success()
 
         else:
-            self.github_webhook.label_by_user_comment(
+            self.labels_handler.label_by_user_comment(
                 user_requested_label=_command,
                 remove=remove,
                 reviewed_user=reviewed_user,

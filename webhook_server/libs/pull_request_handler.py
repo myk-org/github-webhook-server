@@ -456,7 +456,7 @@ PR will be approved when the following conditions are met:
     def add_pull_request_owner_as_assingee(self) -> None:
         try:
             self.logger.info(f"{self.log_prefix} Adding PR owner as assignee")
-            self.pull_request.add_to_assignees()
+            self.pull_request.add_to_assignees(self.pull_request.user.login)
         except Exception as exp:
             self.logger.debug(f"{self.log_prefix} Exception while adding PR owner as assignee: {exp}")
 

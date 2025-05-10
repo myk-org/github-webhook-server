@@ -135,7 +135,8 @@ class RunnerHandler:
                                 return
                     except NoPullRequestError:
                         self.logger.error(f"{self.log_prefix} [func:_run_in_container] No pull request found")
-                        yield False, "", "[func:_run_in_container] No pull request found"
+                        result = (False, "", "[func:_run_in_container] No pull request found")
+                        return
 
         finally:
             self.logger.debug(f"{self.log_prefix} Deleting {clone_repo_dir}")
@@ -260,7 +261,7 @@ class RunnerHandler:
         build_cmd: str = f"--network=host {no_cache} -f {clone_repo_dir}/{self.github_webhook.dockerfile} {clone_repo_dir} -t {_container_repository_and_tag}"
 
         if self.github_webhook.container_build_args:
-            build_args: str = [f"--build-arg {b_arg}" for b_arg in self.github_webhook.container_build_args][0]
+            build_args = " ".join(f"--build-arg {arg}" for arg in self.github_webhook.container_build_args)
             build_cmd = f"{build_args} {build_cmd}"
 
         if self.github_webhook.container_command_args:
