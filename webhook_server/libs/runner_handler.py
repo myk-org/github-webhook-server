@@ -42,6 +42,7 @@ class RunnerHandler:
     ) -> Generator[tuple[bool, Any, Any], None, None]:
         git_cmd = f"git --work-tree={clone_repo_dir} --git-dir={clone_repo_dir}/.git"
         result: tuple[bool, str, str] = (True, "", "")
+        success = True
 
         try:
             # Clone the repository
@@ -52,91 +53,96 @@ class RunnerHandler:
             )
             if not rc:
                 result = (rc, out, err)
-                return
+                success = False
 
-            rc, out, err = run_command(
-                command=f"{git_cmd} config user.name '{self.repository.owner.login}'", log_prefix=self.log_prefix
-            )
-            if not rc:
-                result = (rc, out, err)
-                return
+            if success:
+                rc, out, err = run_command(
+                    command=f"{git_cmd} config user.name '{self.repository.owner.login}'", log_prefix=self.log_prefix
+                )
+                if not rc:
+                    result = (rc, out, err)
+                    success = False
 
-            rc, out, err = run_command(
-                f"{git_cmd} config user.email '{self.repository.owner.email}'", log_prefix=self.log_prefix
-            )
-            if not rc:
-                result = (rc, out, err)
-                return
+            if success:
+                rc, out, err = run_command(
+                    f"{git_cmd} config user.email '{self.repository.owner.email}'", log_prefix=self.log_prefix
+                )
+                if not rc:
+                    result = (rc, out, err)
+                    success = False
 
-            rc, out, err = run_command(
-                command=f"{git_cmd} config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*",
-                log_prefix=self.log_prefix,
-            )
-            if not rc:
-                result = (rc, out, err)
-                return
+            if success:
+                rc, out, err = run_command(
+                    command=f"{git_cmd} config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*",
+                    log_prefix=self.log_prefix,
+                )
+                if not rc:
+                    result = (rc, out, err)
+                    success = False
 
-            rc, out, err = run_command(command=f"{git_cmd} remote update", log_prefix=self.log_prefix)
-            if not rc:
-                result = (rc, out, err)
-                return
+            if success:
+                rc, out, err = run_command(command=f"{git_cmd} remote update", log_prefix=self.log_prefix)
+                if not rc:
+                    result = (rc, out, err)
+                    success = False
 
             # Checkout to requested branch/tag
-            if checkout:
+            if checkout and success:
                 rc, out, err = run_command(f"{git_cmd} checkout {checkout}", log_prefix=self.log_prefix)
                 if not rc:
                     result = (rc, out, err)
-                    return
+                    success = False
 
-                if self.pull_request:
+                if success and self.pull_request:
                     rc, out, err = run_command(
                         f"{git_cmd} merge origin/{self.github_webhook.pull_request_branch} -m 'Merge {self.github_webhook.pull_request_branch}'",
                         log_prefix=self.log_prefix,
                     )
                     if not rc:
                         result = (rc, out, err)
-                        return
+                        success = False
 
             # Checkout the branch if pull request is merged or for release
             else:
-                if is_merged:
-                    rc, out, err = run_command(
-                        command=f"{git_cmd} checkout {self.github_webhook.pull_request_branch}",
-                        log_prefix=self.log_prefix,
-                    )
-                    if not rc:
-                        result = (rc, out, err)
-                        return
-
-                elif tag_name:
-                    rc, out, err = run_command(command=f"{git_cmd} checkout {tag_name}", log_prefix=self.log_prefix)
-                    if not rc:
-                        result = (rc, out, err)
-                        return
-
-                # Checkout the pull request
-                else:
-                    try:
-                        pull_request = self.github_webhook._get_pull_request()
+                if success:
+                    if is_merged:
                         rc, out, err = run_command(
-                            command=f"{git_cmd} checkout origin/pr/{pull_request.number}", log_prefix=self.log_prefix
+                            command=f"{git_cmd} checkout {self.github_webhook.pull_request_branch}",
+                            log_prefix=self.log_prefix,
                         )
                         if not rc:
                             result = (rc, out, err)
-                            return
+                            success = False
 
-                        if self.pull_request:
+                    elif tag_name:
+                        rc, out, err = run_command(command=f"{git_cmd} checkout {tag_name}", log_prefix=self.log_prefix)
+                        if not rc:
+                            result = (rc, out, err)
+                            success = False
+
+                    # Checkout the pull request
+                    else:
+                        try:
+                            pull_request = self.github_webhook._get_pull_request()
                             rc, out, err = run_command(
-                                f"{git_cmd} merge origin/{self.github_webhook.pull_request_branch} -m 'Merge {self.github_webhook.pull_request_branch}'",
+                                command=f"{git_cmd} checkout origin/pr/{pull_request.number}",
                                 log_prefix=self.log_prefix,
                             )
                             if not rc:
                                 result = (rc, out, err)
-                                return
-                    except NoPullRequestError:
-                        self.logger.error(f"{self.log_prefix} [func:_run_in_container] No pull request found")
-                        result = (False, "", "[func:_run_in_container] No pull request found")
-                        return
+                                success = False
+
+                            if self.pull_request and success:
+                                rc, out, err = run_command(
+                                    f"{git_cmd} merge origin/{self.github_webhook.pull_request_branch} -m 'Merge {self.github_webhook.pull_request_branch}'",
+                                    log_prefix=self.log_prefix,
+                                )
+                                if not rc:
+                                    result = (rc, out, err)
+
+                        except NoPullRequestError:
+                            self.logger.error(f"{self.log_prefix} [func:_run_in_container] No pull request found")
+                            result = (False, "", "[func:_run_in_container] No pull request found")
 
         finally:
             yield result
