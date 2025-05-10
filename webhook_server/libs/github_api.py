@@ -144,7 +144,8 @@ class GithubWebhook:
                 return PullRequestReviewHandler(github_webhook=self).process_pull_request_review_webhook_data()
 
             if self.github_event == "check_run":
-                return CheckRunHandler(github_webhook=self).process_pull_request_check_run_webhook_data()
+                if CheckRunHandler(github_webhook=self).process_pull_request_check_run_webhook_data():
+                    PullRequestHandler(github_webhook=self).check_if_can_be_merged()
 
         except NoPullRequestError:
             self.logger.debug(f"{self.log_prefix} {event_log}. [No pull request found in hook data]")

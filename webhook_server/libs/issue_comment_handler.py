@@ -5,6 +5,7 @@ from typing import Any, Callable
 
 from webhook_server.libs.check_run_handler import CheckRunHandler
 from webhook_server.libs.labels_handler import LabelsHandler
+from webhook_server.libs.pull_request_handler import PullRequestHandler
 from webhook_server.utils.constants import (
     BUILD_AND_PUSH_CONTAINER_STR,
     BUILD_CONTAINER_STR,
@@ -36,6 +37,7 @@ class IssueCommentHandler:
         self.pull_request = self.github_webhook.pull_request
         self.labels_handler = LabelsHandler(github_webhook=self.github_webhook)
         self.check_run_handler = CheckRunHandler(github_webhook=self.github_webhook)
+        self.pull_request_handler = PullRequestHandler(github_webhook=self.github_webhook)
 
     def process_comment_webhook_data(self) -> None:
         if comment_action := self.hook_data["action"] in ("edited", "deleted"):
@@ -104,7 +106,7 @@ class IssueCommentHandler:
             self.github_webhook.assign_reviewers()
 
         elif _command == COMMAND_CHECK_CAN_MERGE_STR:
-            self.github_webhook.check_if_can_be_merged()
+            self.pull_request_handler.check_if_can_be_merged()
 
         elif _command == COMMAND_CHERRY_PICK_STR:
             self.process_cherry_pick_command(command_args=_args, reviewed_user=reviewed_user)
@@ -143,7 +145,7 @@ class IssueCommentHandler:
                 else:
                     self.labels_handler._add_label(label=HOLD_LABEL_STR)
 
-                self.github_webhook.check_if_can_be_merged()
+                self.pull_request_handler.check_if_can_be_merged()
 
         elif _command == VERIFIED_LABEL_STR:
             if remove:

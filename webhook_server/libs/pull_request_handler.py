@@ -144,7 +144,7 @@ class PullRequestHandler:
                     self.check_run_handler.set_verify_check_queued()
 
             if _check_for_merge:
-                self.github_webhook.check_if_can_be_merged()
+                self.check_if_can_be_merged()
 
     def set_wip_label_based_on_title(self) -> None:
         if self.pull_request.title.lower().startswith(f"{WIP_STR}:"):

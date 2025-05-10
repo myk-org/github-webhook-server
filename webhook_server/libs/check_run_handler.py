@@ -28,7 +28,9 @@ class CheckRunHandler:
         self.repository = self.github_webhook.repository
         self.pull_request = getattr(self.github_webhook, "pull_request", None)
 
-    def process_pull_request_check_run_webhook_data(self) -> None:
+    def process_pull_request_check_run_webhook_data(self) -> bool:
+        """Return True if check_if_can_be_merged need to run"""
+
         _check_run: dict[str, Any] = self.hook_data["check_run"]
         check_run_name: str = _check_run["name"]
 
@@ -36,7 +38,7 @@ class CheckRunHandler:
             self.logger.debug(
                 f"{self.log_prefix} check run {check_run_name} action is {self.hook_data.get('action', 'N/A')} and not completed, skipping"
             )
-            return
+            return False
 
         check_run_status: str = _check_run["status"]
         check_run_conclusion: str = _check_run["conclusion"]
@@ -46,9 +48,9 @@ class CheckRunHandler:
 
         if check_run_name == CAN_BE_MERGED_STR:
             self.logger.debug(f"{self.log_prefix} check run is {CAN_BE_MERGED_STR}, skipping")
-            return
+            return False
 
-        return self.github_webhook.check_if_can_be_merged()
+        return True
 
     def set_verify_check_queued(self) -> None:
         return self.set_check_run_status(check_run=VERIFIED_LABEL_STR, status=QUEUED_STR)
