@@ -1,11 +1,11 @@
 import os
 
+import pytest
 import yaml
 from simple_logger.logger import logging
 from starlette.datastructures import Headers
 
-import pytest
-from webhook_server.libs.github_api import ProcessGithubWehook
+from webhook_server.libs.github_api import GithubWebhook
 
 ALL_CHANGED_FILES = [
     "OWNERS",
@@ -104,7 +104,7 @@ def process_github_webhook(mocker, request):
     mocker.patch(f"{base_import_path}.get_api_with_highest_rate_limit", return_value=("API", "TOKEN", "USER"))
     mocker.patch(f"{base_import_path}.get_github_repo_api", return_value=Repository())
 
-    process_github_webhook = ProcessGithubWehook(
+    process_github_webhook = GithubWebhook(
         hook_data={"repository": {"name": Repository().name, "full_name": Repository().full_name}},
         headers=Headers({"X-GitHub-Event": "test-event"}),
         logger=logging.getLogger(),

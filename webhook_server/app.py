@@ -19,7 +19,7 @@ from starlette.datastructures import Headers
 
 from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import NoPullRequestError, RepositoryNotFoundError
-from webhook_server.libs.github_api import ProcessGithubWehook
+from webhook_server.libs.github_api import GithubWebhook
 from webhook_server.utils.github_repository_and_webhook_settings import repository_and_webhook_settings
 from webhook_server.utils.helpers import get_logger_with_params
 
@@ -149,7 +149,7 @@ async def process_webhook(request: Request, background_tasks: BackgroundTasks) -
     logger = get_logger_with_params(name=logger_name, repository_name=hook_data["repository"]["name"])
 
     try:
-        api: ProcessGithubWehook = ProcessGithubWehook(hook_data=hook_data, headers=request.headers, logger=logger)
+        api: GithubWebhook = GithubWebhook(hook_data=hook_data, headers=request.headers, logger=logger)
 
         async def process_with_error_handling() -> None:
             try:
