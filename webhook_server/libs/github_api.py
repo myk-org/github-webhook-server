@@ -2340,7 +2340,8 @@ PR will be approved when the following conditions are met:
         return set((
             *self.get_all_repository_contributors(),
             *self.get_all_repository_collaborators(),
-            *self.all_repository_approvers_and_reviewers,
+            *self.all_repository_approvers,
+            *self.all_pull_request_reviewers,
         ))
 
     def _is_user_valid_to_run_commands(self, reviewed_user: str) -> bool:
