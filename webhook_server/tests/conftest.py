@@ -94,6 +94,10 @@ class Repository:
             return ContentFile(folder5_owners_data)
 
 
+class PullRequest:
+    def __init__(self): ...
+
+
 @pytest.fixture(scope="function")
 def process_github_webhook(mocker, request):
     base_import_path = "webhook_server.libs.github_api"
@@ -116,4 +120,5 @@ def process_github_webhook(mocker, request):
     else:
         process_github_webhook.changed_files = ALL_CHANGED_FILES
 
+    process_github_webhook.pull_request = PullRequest()
     return process_github_webhook

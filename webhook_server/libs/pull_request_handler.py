@@ -226,6 +226,7 @@ PR will be approved when the following conditions are met:
 {body_reviewers}
 """
 
+    @property
     def _prepare_retest_welcome_comment(self) -> str:
         retest_msg: str = ""
         if self.github_webhook.tox:
@@ -441,7 +442,7 @@ PR will be approved when the following conditions are met:
 
         if self.parent_committer in self.github_webhook.auto_verified_and_merged_users:
             self.logger.info(
-                f"{self.log_prefix} Committer {self.github_webhook.parent_committer} is part of {self.github_webhook.auto_verified_and_merged_users}"
+                f"{self.log_prefix} Committer {self.parent_committer} is part of {self.github_webhook.auto_verified_and_merged_users}"
                 ", Setting verified label"
             )
             self.labels_handler._add_label(label=VERIFIED_LABEL_STR)
@@ -575,11 +576,10 @@ PR will be approved when the following conditions are met:
             for required_pr_approver in required_pr_approvers:
                 if required_pr_approver in approved_by:
                     # Once we found approver in approved_by list, we remove all approvers from missing_approvers list for this owners file
-                    {
-                        missing_approvers.remove(_approver)
-                        for _approver in required_pr_approvers
-                        if _approver in missing_approvers
-                    }
+                    for _approver in required_pr_approvers:
+                        if _approver in missing_approvers:
+                            missing_approvers.remove(_approver)
+
                     break
 
         missing_approvers = list(set(missing_approvers))

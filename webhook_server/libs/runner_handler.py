@@ -41,42 +41,52 @@ class RunnerHandler:
         tag_name: str = "",
     ) -> Generator[tuple[bool, Any, Any], None, None]:
         git_cmd = f"git --work-tree={clone_repo_dir} --git-dir={clone_repo_dir}/.git"
+        result: tuple[bool, str, str] = (True, "", "")
 
-        # Clone the repository
-        rc, out, err = run_command(
-            command=f"git clone {self.repository.clone_url.replace('https://', f'https://{self.github_webhook.token}@')} "
-            f"{clone_repo_dir}",
-            log_prefix=self.log_prefix,
-        )
         try:
+            # Clone the repository
+            rc, out, err = run_command(
+                command=f"git clone {self.repository.clone_url.replace('https://', f'https://{self.github_webhook.token}@')} "
+                f"{clone_repo_dir}",
+                log_prefix=self.log_prefix,
+            )
+            if not rc:
+                result = (rc, out, err)
+                return
+
             rc, out, err = run_command(
                 command=f"{git_cmd} config user.name '{self.repository.owner.login}'", log_prefix=self.log_prefix
             )
             if not rc:
-                yield rc, out, err
+                result = (rc, out, err)
+                return
 
             rc, out, err = run_command(
                 f"{git_cmd} config user.email '{self.repository.owner.email}'", log_prefix=self.log_prefix
             )
             if not rc:
-                yield rc, out, err
+                result = (rc, out, err)
+                return
 
             rc, out, err = run_command(
                 command=f"{git_cmd} config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*",
                 log_prefix=self.log_prefix,
             )
             if not rc:
-                yield rc, out, err
+                result = (rc, out, err)
+                return
 
             rc, out, err = run_command(command=f"{git_cmd} remote update", log_prefix=self.log_prefix)
             if not rc:
-                yield rc, out, err
+                result = (rc, out, err)
+                return
 
             # Checkout to requested branch/tag
             if checkout:
                 rc, out, err = run_command(f"{git_cmd} checkout {checkout}", log_prefix=self.log_prefix)
                 if not rc:
-                    yield rc, out, err
+                    result = (rc, out, err)
+                    return
 
                 if getattr(self, "pull_request", None):
                     rc, out, err = run_command(
@@ -84,7 +94,8 @@ class RunnerHandler:
                         log_prefix=self.log_prefix,
                     )
                     if not rc:
-                        yield rc, out, err
+                        result = (rc, out, err)
+                        return
 
             # Checkout the branch if pull request is merged or for release
             else:
@@ -94,12 +105,14 @@ class RunnerHandler:
                         log_prefix=self.log_prefix,
                     )
                     if not rc:
-                        yield rc, out, err
+                        result = (rc, out, err)
+                        return
 
                 elif tag_name:
                     rc, out, err = run_command(command=f"{git_cmd} checkout {tag_name}", log_prefix=self.log_prefix)
                     if not rc:
-                        yield rc, out, err
+                        result = (rc, out, err)
+                        return
 
                 # Checkout the pull request
                 else:
@@ -109,7 +122,8 @@ class RunnerHandler:
                             command=f"{git_cmd} checkout origin/pr/{pull_request.number}", log_prefix=self.log_prefix
                         )
                         if not rc:
-                            yield rc, out, err
+                            result = (rc, out, err)
+                            return
 
                         if getattr(self, "pull_request", None):
                             rc, out, err = run_command(
@@ -117,16 +131,16 @@ class RunnerHandler:
                                 log_prefix=self.log_prefix,
                             )
                             if not rc:
-                                yield rc, out, err
+                                result = (rc, out, err)
+                                return
                     except NoPullRequestError:
                         self.logger.error(f"{self.log_prefix} [func:_run_in_container] No pull request found")
                         yield False, "", "[func:_run_in_container] No pull request found"
 
-            yield rc, out, err
-
         finally:
             self.logger.debug(f"{self.log_prefix} Deleting {clone_repo_dir}")
             shutil.rmtree(clone_repo_dir)
+            yield result
 
     def is_podman_bug(self, err: str) -> bool:
         _err = "Error: current system boot ID differs from cached boot ID; an unhandled reboot has occurred"

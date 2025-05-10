@@ -195,10 +195,10 @@ class CheckRunHandler:
         if self.github_webhook.pypi and self.github_webhook.pypi.get("token"):
             _output = _output.replace(self.github_webhook.pypi["token"], _hased_str)
 
-        if getattr(self, "container_repository_username", None):
+        if getattr(self.github_webhook, "container_repository_username", None):
             _output = _output.replace(self.github_webhook.container_repository_username, _hased_str)
 
-        if getattr(self, "container_repository_password", None):
+        if getattr(self.github_webhook, "container_repository_password", None):
             _output = _output.replace(self.github_webhook.container_repository_password, _hased_str)
 
         if self.github_webhook.token:
@@ -207,7 +207,7 @@ class CheckRunHandler:
         return _output
 
     def is_check_run_in_progress(self, check_run: str) -> bool:
-        if hasattr(self, "last_commit") and self.github_webhook.last_commit:
+        if self.github_webhook.last_commit:
             for run in self.github_webhook.last_commit.get_check_runs():
                 if run.name == check_run and run.status == IN_PROGRESS_STR:
                     return True

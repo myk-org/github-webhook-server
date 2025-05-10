@@ -59,15 +59,18 @@ Publish to PYPI failed: `{_error}`
 
             rc, tar_gz_file, err = run_command(command=f"ls {_dist_dir}", log_prefix=self.log_prefix)
             if not rc:
-                _error = self.check_run_handler.get_check_run_text(out=out, err=err)
+                _error = self.check_run_handler.get_check_run_text(out=tar_gz_file, err=err)
                 return _issue_on_error(_error=_error)
 
             tar_gz_file = tar_gz_file.strip()
 
             commands: list[str] = [
                 f"uvx {uv_cmd_dir} twine check {_dist_dir}/{tar_gz_file}",
-                f"uvx {uv_cmd_dir} twine upload --username __token__ --password {self.github_webhook.pypi['token']} {_dist_dir}/{tar_gz_file} --skip-existing",
+                f"TWINE_PASSWORD={self.github_webhook.pypi['token']} "
+                f"uvx {uv_cmd_dir} twine upload --username __token__ "
+                f"--password-stdin {_dist_dir}/{tar_gz_file} --skip-existing",
             ]
+
             for cmd in commands:
                 rc, out, err = run_command(command=cmd, log_prefix=self.log_prefix)
                 if not rc:
