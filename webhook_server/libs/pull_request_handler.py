@@ -18,6 +18,7 @@ from webhook_server.utils.constants import (
     CONVENTIONAL_TITLE_STR,
     FAILURE_STR,
     HAS_CONFLICTS_LABEL_STR,
+    HOLD_LABEL_STR,
     LABELS_SEPARATOR,
     LGTM_BY_LABEL_PREFIX,
     NEEDS_REBASE_LABEL_STR,
@@ -47,8 +48,6 @@ class PullRequestHandler:
         self.logger.info(f"{self.log_prefix} hook_action is: {hook_action}")
 
         pull_request_data: dict[str, Any] = self.hook_data["pull_request"]
-        self.parent_committer = pull_request_data["user"]["login"]
-        self.pull_request_branch = pull_request_data["base"]["ref"]
 
         if hook_action == "edited":
             self.set_wip_label_based_on_title()
@@ -142,6 +141,9 @@ class PullRequestHandler:
                     self.check_run_handler.set_verify_check_success()
                 else:
                     self.check_run_handler.set_verify_check_queued()
+
+            if labeled_lower in (WIP_STR, HOLD_LABEL_STR):
+                _check_for_merge = True
 
             if _check_for_merge:
                 self.check_if_can_be_merged()
@@ -327,7 +329,7 @@ PR will be approved when the following conditions are met:
             prepare_pull_futures.append(
                 executor.submit(
                     self.labels_handler._add_label,
-                    **{"label": f"{BRANCH_LABEL_PREFIX}{self.pull_request_branch}"},
+                    **{"label": f"{BRANCH_LABEL_PREFIX}{self.github_webhook.pull_request_branch}"},
                 )
             )
             prepare_pull_futures.append(executor.submit(self.label_pull_request_by_merge_state))
@@ -354,9 +356,9 @@ PR will be approved when the following conditions are met:
                 self.logger.error(f"{self.log_prefix} {_exp}")
 
     def create_issue_for_new_pull_request(self) -> None:
-        if self.parent_committer in self.github_webhook.auto_verified_and_merged_users:
+        if self.github_webhook.parent_committer in self.github_webhook.auto_verified_and_merged_users:
             self.logger.info(
-                f"{self.log_prefix} Committer {self.parent_committer} is part of "
+                f"{self.log_prefix} Committer {self.github_webhook.parent_committer} is part of "
                 f"{self.github_webhook.auto_verified_and_merged_users}, will not create issue."
             )
             return
@@ -376,17 +378,19 @@ PR will be approved when the following conditions are met:
 
     def set_pull_request_automerge(self) -> None:
         auto_merge = (
-            self.pull_request_branch in self.github_webhook.set_auto_merge_prs
-            or self.parent_committer in self.github_webhook.auto_verified_and_merged_users
+            self.github_webhook.pull_request_branch in self.github_webhook.set_auto_merge_prs
+            or self.github_webhook.parent_committer in self.github_webhook.auto_verified_and_merged_users
         )
 
-        self.logger.debug(f"{self.log_prefix} auto_merge: {auto_merge}, branch: {self.pull_request_branch}")
+        self.logger.debug(
+            f"{self.log_prefix} auto_merge: {auto_merge}, branch: {self.github_webhook.pull_request_branch}"
+        )
 
         if auto_merge:
             try:
                 if not self.pull_request.raw_data.get("auto_merge"):
                     self.logger.info(
-                        f"{self.log_prefix} will be merged automatically. owner: {self.parent_committer} "
+                        f"{self.log_prefix} will be merged automatically. owner: {self.github_webhook.parent_committer} "
                         f"is part of auto merge enabled rules"
                     )
 
@@ -440,9 +444,9 @@ PR will be approved when the following conditions are met:
         if not self.github_webhook.verified_job:
             return
 
-        if self.parent_committer in self.github_webhook.auto_verified_and_merged_users:
+        if self.github_webhook.parent_committer in self.github_webhook.auto_verified_and_merged_users:
             self.logger.info(
-                f"{self.log_prefix} Committer {self.parent_committer} is part of {self.github_webhook.auto_verified_and_merged_users}"
+                f"{self.log_prefix} Committer {self.github_webhook.parent_committer} is part of {self.github_webhook.auto_verified_and_merged_users}"
                 ", Setting verified label"
             )
             self.labels_handler._add_label(label=VERIFIED_LABEL_STR)
@@ -504,7 +508,7 @@ PR will be approved when the following conditions are met:
             if required_check_in_progress_failure_output:
                 failure_output += required_check_in_progress_failure_output
 
-            labels_failure_output = self.labels_handler._wip_or_hold_lables_exists(labels=_labels)
+            labels_failure_output = self.labels_handler.wip_or_hold_lables_exists(labels=_labels)
             if labels_failure_output:
                 failure_output += labels_failure_output
 
@@ -556,7 +560,7 @@ PR will be approved when the following conditions are met:
             + self.github_webhook.root_reviewers.copy()
         )
         all_reviewers_without_pr_owner = {
-            _reviewer for _reviewer in all_reviewers if _reviewer != self.parent_committer
+            _reviewer for _reviewer in all_reviewers if _reviewer != self.github_webhook.parent_committer
         }
 
         if self.github_webhook.minimum_lgtm:

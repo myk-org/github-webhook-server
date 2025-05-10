@@ -203,16 +203,15 @@ class LabelsHandler:
                 f"{self.log_prefix} PR {self.pull_request.number} got unsupported review state: {review_state}"
             )
 
-    def _wip_or_hold_lables_exists(self, labels: list[str]) -> str:
+    def wip_or_hold_lables_exists(self, labels: list[str]) -> str:
         failure_output = ""
-        is_hold = HOLD_LABEL_STR in labels
-        is_wip = WIP_STR in labels
 
-        if is_hold or is_wip:
-            if is_hold:
-                failure_output += "Hold label exists.\n"
+        if HOLD_LABEL_STR in labels:
+            self.logger.debug(f"{self.log_prefix} Hold label exists.")
+            failure_output += "Hold label exists.\n"
 
-            if is_wip:
-                failure_output += "WIP label exists.\n"
+        if WIP_STR in labels:
+            self.logger.debug(f"{self.log_prefix} WIP label exists.")
+            failure_output += "WIP label exists.\n"
 
         return failure_output
