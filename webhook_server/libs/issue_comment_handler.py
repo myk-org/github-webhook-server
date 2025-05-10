@@ -6,6 +6,7 @@ from typing import Any, Callable
 from webhook_server.libs.check_run_handler import CheckRunHandler
 from webhook_server.libs.labels_handler import LabelsHandler
 from webhook_server.libs.pull_request_handler import PullRequestHandler
+from webhook_server.libs.runner_handler import RunnerHandler
 from webhook_server.utils.constants import (
     BUILD_AND_PUSH_CONTAINER_STR,
     BUILD_CONTAINER_STR,
@@ -38,6 +39,7 @@ class IssueCommentHandler:
         self.labels_handler = LabelsHandler(github_webhook=self.github_webhook)
         self.check_run_handler = CheckRunHandler(github_webhook=self.github_webhook)
         self.pull_request_handler = PullRequestHandler(github_webhook=self.github_webhook)
+        self.runner_handler = RunnerHandler(github_webhook=self.github_webhook)
 
     def process_comment_webhook_data(self) -> None:
         if comment_action := self.hook_data["action"] in ("edited", "deleted"):
@@ -217,18 +219,18 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     )
 
     def process_retest_command(self, command_args: str, reviewed_user: str) -> None:
-        if not self.github_webhook._is_user_valid_to_run_commands(reviewed_user=reviewed_user):
+        if not self.runner_handler._is_user_valid_to_run_commands(reviewed_user=reviewed_user):
             return
 
         _target_tests: list[str] = command_args.split()
         _not_supported_retests: list[str] = []
         _supported_retests: list[str] = []
         _retests_to_func_map: dict[str, Callable] = {
-            TOX_STR: self.github_webhook._run_tox,
-            PRE_COMMIT_STR: self.github_webhook._run_pre_commit,
-            BUILD_CONTAINER_STR: self.github_webhook._run_build_container,
-            PYTHON_MODULE_INSTALL_STR: self.github_webhook._run_install_python_module,
-            CONVENTIONAL_TITLE_STR: self.github_webhook._run_conventional_title_check,
+            TOX_STR: self.runner_handler._run_tox,
+            PRE_COMMIT_STR: self.runner_handler._run_pre_commit,
+            BUILD_CONTAINER_STR: self.runner_handler._run_build_container,
+            PYTHON_MODULE_INSTALL_STR: self.runner_handler._run_install_python_module,
+            CONVENTIONAL_TITLE_STR: self.runner_handler._run_conventional_title_check,
         }
 
         if not _target_tests:

@@ -65,12 +65,12 @@ class PullRequestHandler:
                 pull_request_opened_futures.append(executor.submit(self.set_wip_label_based_on_title))
                 pull_request_opened_futures.append(executor.submit(self.process_opened_or_synchronize_pull_request))
 
-            # Set automerge only after all initialization of a new PR is done.
-            self.set_pull_request_automerge()
-
             for result in as_completed(pull_request_opened_futures):
                 if _exp := result.exception():
                     self.logger.error(f"{self.log_prefix} {_exp}")
+
+            # Set automerge only after all initialization of a new PR is done.
+            self.set_pull_request_automerge()
 
         if hook_action == "synchronize":
             pull_request_synchronize_futures: list[Future] = []

@@ -88,7 +88,7 @@ class RunnerHandler:
                     result = (rc, out, err)
                     return
 
-                if getattr(self, "pull_request", None):
+                if self.pull_request:
                     rc, out, err = run_command(
                         f"{git_cmd} merge origin/{self.github_webhook.pull_request_branch} -m 'Merge {self.github_webhook.pull_request_branch}'",
                         log_prefix=self.log_prefix,
@@ -125,7 +125,7 @@ class RunnerHandler:
                             result = (rc, out, err)
                             return
 
-                        if getattr(self, "pull_request", None):
+                        if self.pull_request:
                             rc, out, err = run_command(
                                 f"{git_cmd} merge origin/{self.github_webhook.pull_request_branch} -m 'Merge {self.github_webhook.pull_request_branch}'",
                                 log_prefix=self.log_prefix,
@@ -139,9 +139,9 @@ class RunnerHandler:
                         return
 
         finally:
+            yield result
             self.logger.debug(f"{self.log_prefix} Deleting {clone_repo_dir}")
             shutil.rmtree(clone_repo_dir)
-            yield result
 
     def is_podman_bug(self, err: str) -> bool:
         _err = "Error: current system boot ID differs from cached boot ID; an unhandled reboot has occurred"
