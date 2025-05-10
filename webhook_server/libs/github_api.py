@@ -1947,23 +1947,23 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         return rc, out, err
 
     @functools.cached_property
-    def _get_collaborators(self) -> PaginatedList[NamedUser]:
+    def repository_collaborators(self) -> PaginatedList[NamedUser]:
         return self.repository.get_collaborators()
 
     @functools.cached_property
-    def _get_contributors(self) -> PaginatedList[NamedUser]:
+    def repository_contributors(self) -> PaginatedList[NamedUser]:
         return self.repository.get_contributors()
 
     def get_all_repository_contributors(self) -> list[str]:
-        return [val.login for val in self._get_contributors]
+        return [val.login for val in self.repository_contributors]
 
     def get_all_repository_collaborators(self) -> list[str]:
-        return [val.login for val in self._get_collaborators]
+        return [val.login for val in self.repository_collaborators]
 
     def get_all_repository_maintainers(self) -> list[str]:
         maintainers: list[str] = []
 
-        for user in self._get_contributors:
+        for user in self.repository_collaborators:
             permmissions = user.permissions
 
             if permmissions.admin or permmissions.maintain:
