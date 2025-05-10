@@ -30,23 +30,18 @@ class Config:
 
     @property
     def root_data(self) -> dict[str, Any]:
-        self.logger.debug(f"Loading config file {self.config_path}")
-
         try:
             with open(self.config_path) as fd:
                 return yaml.safe_load(fd)
         except Exception:
-            self.logger.error("Config file is empty")
+            self.logger.error(f"Config file is empty: {self.config_path}")
             return {}
 
     @property
     def repository_data(self) -> dict[str, Any]:
-        self.logger.debug(f"Loading repository level config for repository {self.repository}")
         return self.root_data["repositories"].get(self.repository, {})
 
     def repository_local_data(self, github_api: github.Github, repository_full_name: str) -> dict[str, Any]:
-        self.logger.debug(f"Loading local config for repository {repository_full_name}")
-
         if self.repository and repository_full_name:
             from webhook_server.utils.helpers import get_github_repo_api
 
@@ -55,14 +50,13 @@ class Config:
                 _path = repo.get_contents(".github-webhook-server.yaml")
                 config_file = _path[0] if isinstance(_path, list) else _path
                 repo_config = yaml.safe_load(config_file.decoded_content)
-                self.logger.debug(f"Repository {repository_full_name} config: {repo_config}")
                 return repo_config
 
             except Exception as ex:
-                self.logger.debug(f"Repository {repository_full_name} config file not found or error. {ex}")
+                self.logger.error(f"Repository {repository_full_name} config file not found or error. {ex}")
                 return {}
 
-        self.logger.debug("self.repository or self.repository_full_name is not defined")
+        self.logger.error("self.repository or self.repository_full_name is not defined")
         return {}
 
     def get_value(self, value: str, return_on_none: Any = None, extra_dict: dict[str, Any] | None = None) -> Any:
