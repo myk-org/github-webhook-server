@@ -28,7 +28,8 @@ class RunnerHandler:
         self.logger = self.github_webhook.logger
         self.log_prefix = self.github_webhook.log_prefix
         self.repository = self.github_webhook.repository
-        self.pull_request = self.github_webhook.pull_request
+        self.pull_request = getattr(self.github_webhook, "pull_request", None)
+
         self.check_run_handler = CheckRunHandler(github_webhook=self.github_webhook)
 
     @contextlib.contextmanager
@@ -233,9 +234,8 @@ class RunnerHandler:
             self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {BUILD_CONTAINER_STR}.")
 
         clone_repo_dir = f"{self.github_webhook.clone_repo_dir}-{uuid4()}"
-        pull_request = hasattr(self, "pull_request")
 
-        if pull_request and set_check:
+        if self.pull_request and set_check:
             if self.check_run_handler.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR) and not is_merged:
                 self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {BUILD_CONTAINER_STR}.")
 
@@ -276,7 +276,7 @@ class RunnerHandler:
 
             if build_rc:
                 self.logger.info(f"{self.log_prefix} Done building {_container_repository_and_tag}")
-                if pull_request and set_check:
+                if self.pull_request and set_check:
                     return self.check_run_handler.set_container_build_success(output=output)
             else:
                 self.logger.error(f"{self.log_prefix} Failed to build {_container_repository_and_tag}")
@@ -288,7 +288,7 @@ class RunnerHandler:
                 push_rc, _, _ = self.run_podman_command(command=cmd)
                 if push_rc:
                     push_msg: str = f"New container for {_container_repository_and_tag} published"
-                    if pull_request:
+                    if self.pull_request:
                         self.pull_request.create_issue_comment(push_msg)
 
                     if self.github_webhook.slack_webhook_url:
@@ -352,6 +352,9 @@ class RunnerHandler:
             return self.check_run_handler.set_python_module_install_failure(output=output)
 
     def _run_conventional_title_check(self) -> None:
+        if not self.pull_request:
+            return
+
         output: dict[str, str] = {
             "title": "Conventional Title",
             "summary": "",
@@ -373,6 +376,9 @@ class RunnerHandler:
             self.check_run_handler.set_conventional_title_failure(output=output)
 
     def _is_user_valid_to_run_commands(self, reviewed_user: str) -> bool:
+        if not self.pull_request:
+            return False
+
         allowed_user_to_approve = self.get_all_repository_maintainers() + self.github_webhook.all_repository_approvers
         allow_user_comment = f"/add-allowed-user @{reviewed_user}"
 
@@ -434,6 +440,9 @@ Maintainers:
         return [val.login for val in self.repository_collaborators]
 
     def cherry_pick(self, target_branch: str, reviewed_user: str = "") -> None:
+        if not self.pull_request:
+            return
+
         requested_by = reviewed_user or "by target-branch label"
         self.logger.info(f"{self.log_prefix} Cherry-pick requested by user: {requested_by}")
 
