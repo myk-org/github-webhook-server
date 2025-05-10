@@ -53,10 +53,10 @@ class Config:
                 return repo_config
 
             except Exception as ex:
-                self.logger.debug(f"Repository {repository_full_name} config file not found or error. {ex}")
+                self.logger.error(f"Repository {repository_full_name} config file not found or error. {ex}")
                 return {}
 
-        self.logger.debug("self.repository or self.repository_full_name is not defined")
+        self.logger.error("self.repository or self.repository_full_name is not defined")
         return {}
 
     def get_value(self, value: str, return_on_none: Any = None, extra_dict: dict[str, Any] | None = None) -> Any:
