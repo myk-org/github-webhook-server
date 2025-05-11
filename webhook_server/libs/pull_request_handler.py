@@ -94,7 +94,7 @@ class PullRequestHandler:
                     if _label_name.startswith(CHERRY_PICK_LABEL_PREFIX):
                         self.github_webhook.cherry_pick(target_branch=_label_name.replace(CHERRY_PICK_LABEL_PREFIX, ""))
 
-                self.github_webhook._run_build_container(
+                self.runner_handler._run_build_container(
                     push=True,
                     set_check=False,
                     is_merged=is_merged,

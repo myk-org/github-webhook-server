@@ -28,7 +28,7 @@ class PushHandler:
 
             if self.github_webhook.build_and_push_container and self.github_webhook.container_release:
                 self.logger.info(f"{self.log_prefix} Processing build and push container for tag: {tag_name}")
-                self.github_webhook._run_build_container(push=True, set_check=False, tag=tag_name)
+                self.runner_handler._run_build_container(push=True, set_check=False, tag=tag_name)
 
     def upload_to_pypi(self, tag_name: str) -> None:
         def _issue_on_error(_error: str) -> None:

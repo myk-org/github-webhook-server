@@ -118,7 +118,7 @@ class IssueCommentHandler:
 
         elif _command == BUILD_AND_PUSH_CONTAINER_STR:
             if self.github_webhook.build_and_push_container:
-                self.github_webhook._run_build_container(
+                self.runner_handler._run_build_container(
                     push=True, set_check=False, command_args=_args, reviewed_user=reviewed_user
                 )
             else:
