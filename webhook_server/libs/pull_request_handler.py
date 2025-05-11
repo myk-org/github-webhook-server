@@ -512,7 +512,7 @@ PR will be approved when the following conditions are met:
             if labels_failure_output:
                 failure_output += labels_failure_output
 
-            required_check_failed_failure_output = self.check_run_handler._required_check_failed(
+            required_check_failed_failure_output = self.check_run_handler.required_check_failed(
                 last_commit_check_runs=last_commit_check_runs, check_runs_in_progress=check_runs_in_progress
             )
             if required_check_failed_failure_output:

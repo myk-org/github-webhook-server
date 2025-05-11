@@ -213,7 +213,7 @@ class CheckRunHandler:
                     return True
         return False
 
-    def _required_check_failed(self, last_commit_check_runs: list[CheckRun], check_runs_in_progress: list[str]) -> str:
+    def required_check_failed(self, last_commit_check_runs: list[CheckRun], check_runs_in_progress: list[str]) -> str:
         failed_check_runs = []
         for check_run in last_commit_check_runs:
             self.logger.debug(f"{self.log_prefix} Check if {check_run.name} failed.")
