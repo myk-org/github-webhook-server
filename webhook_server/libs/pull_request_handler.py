@@ -326,7 +326,7 @@ PR will be approved when the following conditions are met:
 
     def close_issue_for_merged_or_closed_pr(self, hook_action: str) -> None:
         for issue in self.repository.get_issues():
-            if issue.body == self.github_webhook._generate_issue_body():
+            if issue.body == self._generate_issue_body():
                 self.logger.info(f"{self.log_prefix} Closing issue {issue.title} for PR: {self.pull_request.title}")
                 issue.create_comment(
                     f"{self.log_prefix} Closing issue for PR: {self.pull_request.title}.\nPR was {hook_action}."
