@@ -294,7 +294,6 @@ PR will be approved when the following conditions are met:
             f"-p {self.github_webhook.container_repository_password}"
         )
 
-        reg_login_cmd = f"regctl registry login {registry_url} -u {self.github_webhook.container_repository_username} -p {self.github_webhook.container_repository_password}"
         rc, out, err = self.runner_handler.run_podman_command(command=reg_login_cmd)
 
         if rc:
