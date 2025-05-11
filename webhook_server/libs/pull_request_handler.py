@@ -278,7 +278,21 @@ PR will be approved when the following conditions are met:
 
         pr_tag = repository_full_tag.split(":")[-1]
         registry_info = self.github_webhook.container_repository.split("/")
-        registry_url = "" if len(registry_info) < 3 else registry_info[0]
+        # If the repository reference does not contain an explicit registry host we
+        # cannot (and should not) try to log in – just skip the deletion logic.
+        if len(registry_info) < 3:
+            self.logger.debug(
+                f"{self.log_prefix} No registry host found in "
+                f"{self.github_webhook.container_repository}; skipping tag deletion"
+            )
+            return
+
+        registry_url = registry_info[0]
+        reg_login_cmd = (
+            f"regctl registry login {registry_url} "
+            f"-u {self.github_webhook.container_repository_username} "
+            f"-p {self.github_webhook.container_repository_password}"
+        )
 
         reg_login_cmd = f"regctl registry login {registry_url} -u {self.github_webhook.container_repository_username} -p {self.github_webhook.container_repository_password}"
         rc, out, err = self.runner_handler.run_podman_command(command=reg_login_cmd)
