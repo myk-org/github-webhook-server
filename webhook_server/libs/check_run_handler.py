@@ -1,4 +1,3 @@
-import functools
 from typing import Any
 
 from github.CheckRun import CheckRun
@@ -239,7 +238,6 @@ class CheckRunHandler:
 
         return ""
 
-    @functools.lru_cache
     def all_required_status_checks(self, pull_request: PullRequest) -> list[str]:
         all_required_status_checks: list[str] = []
         branch_required_status_checks = self.get_branch_required_status_checks(pull_request=pull_request)

@@ -32,37 +32,39 @@ LOGGER = get_logger_with_params(name="main")
 APP_URL_ROOT_PATH: str = "/webhook_server"
 urllib3.disable_warnings()
 
-_lifespan_http_client = httpx.AsyncClient(timeout=10.0)
+_lifespan_http_client: httpx.AsyncClient | None = None
 
 
 async def get_github_allowlist() -> list[str]:
     """Fetch and cache GitHub IP allowlist asynchronously."""
     try:
+        assert _lifespan_http_client is not None
         response = await _lifespan_http_client.get("https://api.github.com/meta")
         response.raise_for_status()  # Check for HTTP errors
         data = response.json()
         return data.get("hooks", [])
     except httpx.RequestError as e:
         LOGGER.error(f"Error fetching GitHub allowlist: {e}")
-        return []  # Return empty list or raise startup error
+        raise
     except Exception as e:
         LOGGER.error(f"Unexpected error fetching GitHub allowlist: {e}")
-        return []
+        raise
 
 
 async def get_cloudflare_allowlist() -> list[str]:
     """Fetch and cache Cloudflare IP allowlist asynchronously."""
     try:
+        assert _lifespan_http_client is not None
         response = await _lifespan_http_client.get("https://api.cloudflare.com/client/v4/ips")
         response.raise_for_status()
         result = response.json().get("result", {})
         return result.get("ipv4_cidrs", []) + result.get("ipv6_cidrs", [])
     except httpx.RequestError as e:
         LOGGER.error(f"Error fetching Cloudflare allowlist: {e}")
-        return []
+        raise
     except Exception as e:
         LOGGER.error(f"Unexpected error fetching Cloudflare allowlist: {e}")
-        return []
+        raise
 
 
 def verify_signature(payload_body: bytes, secret_token: str, signature_header: Headers | None = None) -> None:
@@ -85,22 +87,6 @@ def verify_signature(payload_body: bytes, secret_token: str, signature_header: H
         raise HTTPException(status_code=403, detail="Request signatures didn't match!")
 
 
-# def get_github_allowlist() -> list[str]:
-#     """Fetch and cache GitHub IP allowlist"""
-#     response = requests.get("https://api.github.com/meta", timeout=5)
-#     response.raise_for_status()
-#     data = response.json()
-#     return data.get("hooks", [])
-#
-#
-# def get_cloudflare_allowlist() -> list[str]:
-#     """Fetch and cache Cloudflare IP allowlist"""
-#     response = requests.get("https://api.cloudflare.com/client/v4/ips", timeout=5)
-#     response.raise_for_status()
-#     result = response.json()["result"]
-#     return result.get("ipv4_cidrs", []) + result.get("ipv6_cidrs", [])
-
-
 async def gate_by_allowlist_ips(request: Request) -> None:
     if ALLOWED_IPS:
         try:
@@ -120,6 +106,9 @@ async def gate_by_allowlist_ips(request: Request) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    global _lifespan_http_client
+    _lifespan_http_client = httpx.AsyncClient(timeout=10.0)
+
     try:
         LOGGER.info("Application starting up...")
         config = Config(logger=LOGGER)
@@ -130,23 +119,27 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         LOGGER.info("Repository and webhook settings initialized successfully.")
 
         global ALLOWED_IPS
-        networks: list[ipaddress._BaseNetwork] = []
+        networks: set[ipaddress._BaseNetwork] = set()
 
         if verify_cloudflare_ips:
             cf_ips = await get_cloudflare_allowlist()
 
-            if cf_ips:
-                networks += [ipaddress.ip_network(cidr) for cidr in cf_ips]
-            else:
-                LOGGER.warning("Could not fetch Cloudflare IPs, proceeding without them in allowlist.")
+            for cidr in cf_ips:
+                try:
+                    networks.add(ipaddress.ip_network(cidr))
+                except ValueError:
+                    LOGGER.warning(f"Skipping invalid CIDR from Cloudflare: {cidr}")
+        else:
+            LOGGER.warning("Could not fetch Cloudflare IPs, proceeding without them in allowlist.")
 
         if verify_github_ips:
             gh_ips = await get_github_allowlist()
 
-            if gh_ips:
-                networks += [ipaddress.ip_network(cidr) for cidr in gh_ips]
-            else:
-                LOGGER.warning("Could not fetch GitHub IPs, proceeding without them in allowlist.")
+            for cidr in gh_ips:
+                try:
+                    networks.add(ipaddress.ip_network(cidr))
+                except ValueError:
+                    LOGGER.warning(f"Skipping invalid CIDR from Github: {cidr}")
 
         if networks:
             ALLOWED_IPS = tuple(networks)
@@ -154,31 +147,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         yield
 
-        LOGGER.info("Application shutting down...")
-        await _lifespan_http_client.aclose()
-
     except Exception as ex:
         LOGGER.error(f"Application failed during lifespan management: {ex}")
-        await _lifespan_http_client.aclose()
         raise
 
-    #     if verify_github_ips or verify_cloudflare_ips:
-    #         networks: list[ipaddress._BaseNetwork] = []
-    #
-    #         if verify_cloudflare_ips:
-    #             networks += [ipaddress.ip_network(cidr) for cidr in get_cloudflare_allowlist()]
-    #
-    #         if verify_github_ips:
-    #             networks += [ipaddress.ip_network(cidr) for cidr in get_github_allowlist()]
-    #
-    #         ALLOWED_IPS = tuple(networks)  # immutable & de-duplicated
-    #
-    #         logger.info(f"IP allowlist initialized successfully. {ALLOWED_IPS}")
-    #
-    #     yield
-    # except Exception as ex:
-    #     logger.error(f"Application failed to start up: {ex}")
-    #     raise
+    finally:
+        if _lifespan_http_client:
+            await _lifespan_http_client.aclose()
+
+        LOGGER.info("Application shutdown complete.")
 
 
 FASTAPI_APP: FastAPI = FastAPI(title="webhook-server", lifespan=lifespan)
