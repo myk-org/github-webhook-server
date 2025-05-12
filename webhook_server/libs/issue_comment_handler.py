@@ -213,7 +213,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     self.labels_handler._add_label(label=_cp_label)
             else:
                 for _exits_target_branch in _exits_target_branches:
-                    self.github_webhook.cherry_pick(
+                    self.runner_handler.cherry_pick(
                         target_branch=_exits_target_branch,
                         reviewed_user=reviewed_user,
                     )
