@@ -11,4 +11,4 @@ worker_class = "uvicorn.workers.UvicornWorker"
 workers = int(_max_workers)
 on_starting = "webhook_server.app.on_starting"
 accesslog = "-"
-timeout = 60 * 30  # some operation can take long time.
+timeout = 30
