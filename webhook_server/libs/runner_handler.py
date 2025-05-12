@@ -122,9 +122,9 @@ class RunnerHandler:
 
                     # Checkout the pull request
                     else:
-                        if pull_request := self.github_webhook._get_pull_request():
+                        if _pull_request := self.github_webhook._get_pull_request():
                             rc, out, err = run_command(
-                                command=f"{git_cmd} checkout origin/pr/{pull_request.number}",
+                                command=f"{git_cmd} checkout origin/pr/{_pull_request.number}",
                                 log_prefix=self.log_prefix,
                             )
                             if not rc:

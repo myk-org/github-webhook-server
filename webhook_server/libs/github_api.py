@@ -315,8 +315,13 @@ class GithubWebhook:
 </details>
         """
 
-    def container_repository_and_tag(self, pull_request: PullRequest, is_merged: bool = False, tag: str = "") -> str:
+    def container_repository_and_tag(
+        self, is_merged: bool = False, tag: str = "", pull_request: PullRequest | None = None
+    ) -> str | None:
         if not tag:
+            if not pull_request:
+                return None
+
             if is_merged:
                 pull_request_branch = pull_request.base.ref
                 tag = (
@@ -325,15 +330,14 @@ class GithubWebhook:
                     else self.container_tag
                 )
             else:
-                if pull_request:
-                    tag = f"pr-{pull_request.number}"
+                tag = f"pr-{pull_request.number}"
 
         if tag:
             self.logger.debug(f"{self.log_prefix} container tag is: {tag}")
             return f"{self.container_repository}:{tag}"
 
         self.logger.error(f"{self.log_prefix} container tag not found")
-        return f"{self.container_repository}:webhook-server-tag-not-found"
+        return None
 
     def send_slack_message(self, message: str, webhook_url: str) -> None:
         slack_data: dict[str, str] = {"text": message}

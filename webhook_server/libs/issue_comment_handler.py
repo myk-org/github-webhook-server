@@ -123,7 +123,11 @@ class IssueCommentHandler:
         elif _command == BUILD_AND_PUSH_CONTAINER_STR:
             if self.github_webhook.build_and_push_container:
                 self.runner_handler.run_build_container(
-                    push=True, set_check=False, command_args=_args, reviewed_user=reviewed_user
+                    push=True,
+                    set_check=False,
+                    command_args=_args,
+                    reviewed_user=reviewed_user,
+                    pull_request=pull_request,
                 )
             else:
                 msg = f"No {BUILD_AND_PUSH_CONTAINER_STR} configured for this repository"
@@ -277,7 +281,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             _retest_to_exec: list[Future] = []
             with ThreadPoolExecutor() as executor:
                 for _test in _supported_retests:
-                    _retest_to_exec.append(executor.submit(_retests_to_func_map[_test]))
+                    _retest_to_exec.append(executor.submit(_retests_to_func_map[_test], pull_request))
 
             for result in as_completed(_retest_to_exec):
                 if _exp := result.exception():

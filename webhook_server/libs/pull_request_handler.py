@@ -107,6 +107,7 @@ class PullRequestHandler:
                     push=True,
                     set_check=False,
                     is_merged=is_merged,
+                    pull_request=pull_request,
                 )
 
                 # label_by_pull_requests_merge_state_after_merged will override pull_request
@@ -369,7 +370,7 @@ PR will be approved when the following conditions are met:
             prepare_pull_futures.append(executor.submit(self.runner_handler.run_tox, pull_request))
             prepare_pull_futures.append(executor.submit(self.runner_handler.run_pre_commit, pull_request))
             prepare_pull_futures.append(executor.submit(self.runner_handler.run_install_python_module, pull_request))
-            prepare_pull_futures.append(executor.submit(self.runner_handler.run_build_container))
+            prepare_pull_futures.append(executor.submit(self.runner_handler.run_build_container, pull_request))
 
             if self.github_webhook.conventional_title:
                 prepare_pull_futures.append(executor.submit(self.check_run_handler.set_conventional_title_queued))
