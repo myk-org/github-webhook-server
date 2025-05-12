@@ -374,7 +374,7 @@ PR will be approved when the following conditions are met:
             if self.github_webhook.conventional_title:
                 prepare_pull_futures.append(executor.submit(self.check_run_handler.set_conventional_title_queued))
                 prepare_pull_futures.append(
-                    executor.submit(self.runner_handler._run_conventional_title_check, pull_request)
+                    executor.submit(self.runner_handler.run_conventional_title_check, pull_request)
                 )
 
         for result in as_completed(prepare_pull_futures):

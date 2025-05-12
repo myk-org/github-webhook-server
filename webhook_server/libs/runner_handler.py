@@ -95,7 +95,7 @@ class RunnerHandler:
 
                 if success and pull_request:
                     rc, out, err = run_command(
-                        f"{git_cmd} merge origin/{pull_request.head.ref} -m 'Merge {self.github_webhook.pull_request_branch}'",
+                        f"{git_cmd} merge origin/{pull_request.head.ref} -m 'Merge {pull_request.head.ref}'",
                         log_prefix=self.log_prefix,
                     )
                     if not rc:
@@ -133,7 +133,7 @@ class RunnerHandler:
 
                             if pull_request and success:
                                 rc, out, err = run_command(
-                                    f"{git_cmd} merge origin/{pull_request.head.ref} -m 'Merge {self.github_webhook.pull_request_branch}'",
+                                    f"{git_cmd} merge origin/{pull_request.head.ref} -m 'Merge {pull_request.head.ref}'",
                                     log_prefix=self.log_prefix,
                                 )
                                 if not rc:
@@ -257,7 +257,7 @@ class RunnerHandler:
             if self.check_run_handler.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR) and not is_merged:
                 self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {BUILD_CONTAINER_STR}.")
 
-            self.check_run_handler.set_container_build_in_progress()
+        self.check_run_handler.set_container_build_in_progress()
 
         _container_repository_and_tag = self.github_webhook.container_repository_and_tag(
             pull_request=pull_request, is_merged=is_merged, tag=tag
@@ -373,7 +373,7 @@ class RunnerHandler:
 
             return self.check_run_handler.set_python_module_install_failure(output=output)
 
-    def _run_conventional_title_check(self, pull_request: PullRequest) -> None:
+    def run_conventional_title_check(self, pull_request: PullRequest) -> None:
         output: dict[str, str] = {
             "title": "Conventional Title",
             "summary": "",

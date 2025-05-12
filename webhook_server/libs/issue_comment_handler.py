@@ -238,7 +238,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             PRE_COMMIT_STR: self.runner_handler.run_pre_commit,
             BUILD_CONTAINER_STR: self.runner_handler.run_build_container,
             PYTHON_MODULE_INSTALL_STR: self.runner_handler.run_install_python_module,
-            CONVENTIONAL_TITLE_STR: self.runner_handler._run_conventional_title_check,
+            CONVENTIONAL_TITLE_STR: self.runner_handler.run_conventional_title_check,
         }
 
         if not _target_tests:
