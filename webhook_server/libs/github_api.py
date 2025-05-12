@@ -315,7 +315,7 @@ class GithubWebhook:
 </details>
         """
 
-    def _container_repository_and_tag(self, pull_request: PullRequest, is_merged: bool = False, tag: str = "") -> str:
+    def container_repository_and_tag(self, pull_request: PullRequest, is_merged: bool = False, tag: str = "") -> str:
         if not tag:
             if is_merged:
                 pull_request_branch = pull_request.base.ref

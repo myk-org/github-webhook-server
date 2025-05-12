@@ -165,7 +165,7 @@ class RunnerHandler:
 
         return rc, out, err
 
-    def _run_tox(self, pull_request: PullRequest) -> None:
+    def run_tox(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.tox:
             return
 
@@ -202,7 +202,7 @@ class RunnerHandler:
             else:
                 return self.check_run_handler.set_run_tox_check_failure(output=output)
 
-    def _run_pre_commit(self, pull_request: PullRequest) -> None:
+    def run_pre_commit(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.pre_commit:
             return
 
@@ -231,7 +231,7 @@ class RunnerHandler:
             else:
                 return self.check_run_handler.set_run_pre_commit_check_failure(output=output)
 
-    def _run_build_container(
+    def run_build_container(
         self,
         pull_request: PullRequest | None = None,
         set_check: bool = True,
@@ -251,9 +251,6 @@ class RunnerHandler:
         ):
             return
 
-        if self.check_run_handler.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR):
-            self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {BUILD_CONTAINER_STR}.")
-
         clone_repo_dir = f"{self.github_webhook.clone_repo_dir}-{uuid4()}"
 
         if pull_request and set_check:
@@ -262,7 +259,9 @@ class RunnerHandler:
 
             self.check_run_handler.set_container_build_in_progress()
 
-        _container_repository_and_tag = self.github_webhook._container_repository_and_tag(is_merged=is_merged, tag=tag)
+        _container_repository_and_tag = self.github_webhook.container_repository_and_tag(
+            pull_request=pull_request, is_merged=is_merged, tag=tag
+        )
         no_cache: str = " --no-cache" if is_merged else ""
         build_cmd: str = f"--network=host {no_cache} -f {clone_repo_dir}/{self.github_webhook.dockerfile} {clone_repo_dir} -t {_container_repository_and_tag}"
 
@@ -339,7 +338,7 @@ class RunnerHandler:
                             message=message, webhook_url=self.github_webhook.slack_webhook_url
                         )
 
-    def _run_install_python_module(self, pull_request: PullRequest) -> None:
+    def run_install_python_module(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.pypi:
             return
 

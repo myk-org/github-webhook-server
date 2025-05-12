@@ -122,7 +122,7 @@ class IssueCommentHandler:
 
         elif _command == BUILD_AND_PUSH_CONTAINER_STR:
             if self.github_webhook.build_and_push_container:
-                self.runner_handler._run_build_container(
+                self.runner_handler.run_build_container(
                     push=True, set_check=False, command_args=_args, reviewed_user=reviewed_user
                 )
             else:
@@ -234,10 +234,10 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         _not_supported_retests: list[str] = []
         _supported_retests: list[str] = []
         _retests_to_func_map: dict[str, Callable] = {
-            TOX_STR: self.runner_handler._run_tox,
-            PRE_COMMIT_STR: self.runner_handler._run_pre_commit,
-            BUILD_CONTAINER_STR: self.runner_handler._run_build_container,
-            PYTHON_MODULE_INSTALL_STR: self.runner_handler._run_install_python_module,
+            TOX_STR: self.runner_handler.run_tox,
+            PRE_COMMIT_STR: self.runner_handler.run_pre_commit,
+            BUILD_CONTAINER_STR: self.runner_handler.run_build_container,
+            PYTHON_MODULE_INSTALL_STR: self.runner_handler.run_install_python_module,
             CONVENTIONAL_TITLE_STR: self.runner_handler._run_conventional_title_check,
         }
 

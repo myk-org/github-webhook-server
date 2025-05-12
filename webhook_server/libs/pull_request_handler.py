@@ -103,14 +103,14 @@ class PullRequestHandler:
                             pull_request=pull_request, target_branch=_label_name.replace(CHERRY_PICK_LABEL_PREFIX, "")
                         )
 
-                self.runner_handler._run_build_container(
+                self.runner_handler.run_build_container(
                     push=True,
                     set_check=False,
                     is_merged=is_merged,
                 )
 
-                # label_by_pull_requests_merge_state_after_merged will override self.pull_request
-                original_pull_request = self.pull_request
+                # label_by_pull_requests_merge_state_after_merged will override pull_request
+                original_pull_request = pull_request
                 self.label_all_opened_pull_requests_merge_state_after_merged()
                 pull_request = original_pull_request
 
@@ -270,7 +270,6 @@ PR will be approved when the following conditions are met:
         time.sleep(time_sleep)
 
         for pull_request in self.repository.get_pulls(state="open"):
-            self.pull_request = pull_request
             self.logger.info(f"{self.log_prefix} check label pull request after merge")
             self.label_pull_request_by_merge_state(pull_request=pull_request)
 
@@ -279,7 +278,7 @@ PR will be approved when the following conditions are met:
             self.logger.info(f"{self.log_prefix} repository do not have container configured")
             return
 
-        repository_full_tag = self.github_webhook._container_repository_and_tag()
+        repository_full_tag = self.github_webhook.container_repository_and_tag(pull_request=pull_request)
         if not repository_full_tag:
             return
 
@@ -367,10 +366,10 @@ PR will be approved when the following conditions are met:
             prepare_pull_futures.append(executor.submit(self.labels_handler.add_size_label, pull_request))
             prepare_pull_futures.append(executor.submit(self.add_pull_request_owner_as_assingee, pull_request))
 
-            prepare_pull_futures.append(executor.submit(self.runner_handler._run_tox, pull_request))
-            prepare_pull_futures.append(executor.submit(self.runner_handler._run_pre_commit, pull_request))
-            prepare_pull_futures.append(executor.submit(self.runner_handler._run_install_python_module, pull_request))
-            prepare_pull_futures.append(executor.submit(self.runner_handler._run_build_container))
+            prepare_pull_futures.append(executor.submit(self.runner_handler.run_tox, pull_request))
+            prepare_pull_futures.append(executor.submit(self.runner_handler.run_pre_commit, pull_request))
+            prepare_pull_futures.append(executor.submit(self.runner_handler.run_install_python_module, pull_request))
+            prepare_pull_futures.append(executor.submit(self.runner_handler.run_build_container))
 
             if self.github_webhook.conventional_title:
                 prepare_pull_futures.append(executor.submit(self.check_run_handler.set_conventional_title_queued))
@@ -457,14 +456,14 @@ PR will be approved when the following conditions are met:
             return
 
         if merge_state == "behind":
-            self.labels_handler._add_label(pull_request=self.pull_request, label=NEEDS_REBASE_LABEL_STR)
+            self.labels_handler._add_label(pull_request=pull_request, label=NEEDS_REBASE_LABEL_STR)
         else:
-            self.labels_handler._remove_label(pull_request=self.pull_request, label=NEEDS_REBASE_LABEL_STR)
+            self.labels_handler._remove_label(pull_request=pull_request, label=NEEDS_REBASE_LABEL_STR)
 
         if merge_state == "dirty":
-            self.labels_handler._add_label(pull_request=self.pull_request, label=HAS_CONFLICTS_LABEL_STR)
+            self.labels_handler._add_label(pull_request=pull_request, label=HAS_CONFLICTS_LABEL_STR)
         else:
-            self.labels_handler._remove_label(pull_request=self.pull_request, label=HAS_CONFLICTS_LABEL_STR)
+            self.labels_handler._remove_label(pull_request=pull_request, label=HAS_CONFLICTS_LABEL_STR)
 
     def _process_verified_for_update_or_new_pull_request(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.verified_job:
@@ -475,7 +474,7 @@ PR will be approved when the following conditions are met:
                 f"{self.log_prefix} Committer {self.github_webhook.parent_committer} is part of {self.github_webhook.auto_verified_and_merged_users}"
                 ", Setting verified label"
             )
-            self.labels_handler._add_label(pull_request=self.pull_request, label=VERIFIED_LABEL_STR)
+            self.labels_handler._add_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
             self.check_run_handler.set_verify_check_success()
         else:
             self.logger.info(f"{self.log_prefix} Processing reset {VERIFIED_LABEL_STR} label on new commit push")
