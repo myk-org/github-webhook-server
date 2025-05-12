@@ -7,8 +7,8 @@ _port = _root_config.get("port", 5000)
 _max_workers = _root_config.get("max-workers", 10)
 
 bind = f"{_ip_bind}:{_port}"
-worker_class = "uvicorn.workers.UvicornWorker"
 workers = int(_max_workers)
 on_starting = "webhook_server.app.on_starting"
-accesslog = "-"
-timeout = 30
+
+
+print(f"uv run uvicorn webhook_server.app:FASTAPI_APP --host {_ip_bind} --port {_port} --workers {_max_workers}")

@@ -3,7 +3,8 @@ import hmac
 import ipaddress
 import os
 import sys
-from typing import Any
+from contextlib import asynccontextmanager
+from typing import Any, AsyncGenerator
 
 import requests
 import urllib3
@@ -24,7 +25,7 @@ from webhook_server.utils.github_repository_and_webhook_settings import reposito
 from webhook_server.utils.helpers import get_logger_with_params
 
 ALLOWED_IPS: tuple[ipaddress._BaseNetwork, ...] = ()
-FASTAPI_APP: FastAPI = FastAPI(title="webhook-server")
+
 APP_URL_ROOT_PATH: str = "/webhook_server"
 urllib3.disable_warnings()
 
@@ -82,37 +83,39 @@ async def gate_by_allowlist_ips(request: Request) -> None:
             )
 
 
-def on_starting(server: Any) -> None:
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger = get_logger_with_params(name="startup")
     logger.info("Application starting up...")
-    try:
-        config = Config(logger=logger)
-        root_config = config.root_data
-        webhook_secret = root_config.get("webhook-secret")
-        verify_github_ips = root_config.get("verify-github-ips")
-        verify_cloudflare_ips = root_config.get("verify-cloudflare-ips")
+    config = Config(logger=logger)
+    root_config = config.root_data
+    webhook_secret = root_config.get("webhook-secret")
+    verify_github_ips = root_config.get("verify-github-ips")
+    verify_cloudflare_ips = root_config.get("verify-cloudflare-ips")
 
-        repository_and_webhook_settings(webhook_secret=webhook_secret)
-        logger.info("Repository and webhook settings initialized successfully.")
+    repository_and_webhook_settings(webhook_secret=webhook_secret)
+    logger.info("Repository and webhook settings initialized successfully.")
 
-        global ALLOWED_IPS
+    global ALLOWED_IPS
 
-        if verify_github_ips or verify_cloudflare_ips:
-            networks: list[ipaddress._BaseNetwork] = []
+    if verify_github_ips or verify_cloudflare_ips:
+        networks: list[ipaddress._BaseNetwork] = []
 
-            if verify_cloudflare_ips:
-                networks += [ipaddress.ip_network(cidr) for cidr in get_cloudflare_allowlist()]
+        if verify_cloudflare_ips:
+            networks += [ipaddress.ip_network(cidr) for cidr in get_cloudflare_allowlist()]
 
-            if verify_github_ips:
-                networks += [ipaddress.ip_network(cidr) for cidr in get_github_allowlist()]
+        if verify_github_ips:
+            networks += [ipaddress.ip_network(cidr) for cidr in get_github_allowlist()]
 
-            ALLOWED_IPS = tuple(networks)  # immutable & de-duplicated
+        ALLOWED_IPS = tuple(networks)  # immutable & de-duplicated
 
-            logger.info(f"IP allowlist initialized successfully. {ALLOWED_IPS}")
+        logger.info(f"IP allowlist initialized successfully. {ALLOWED_IPS}")
+        yield
+    else:
+        yield
 
-    except Exception as ex:
-        logger.exception(f"FATAL: Error during startup initialization: {ex}")
-        raise
+
+FASTAPI_APP: FastAPI = FastAPI(title="webhook-server", lifespan=lifespan)
 
 
 @FASTAPI_APP.get(f"{APP_URL_ROOT_PATH}/healthcheck")
