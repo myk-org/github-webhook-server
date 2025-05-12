@@ -29,6 +29,7 @@ from webhook_server.utils.constants import (
 from webhook_server.utils.helpers import (
     get_future_results,
     get_logger_with_params,
+    run_command,
 )
 
 DEFAULT_BRANCH_PROTECTION = {
@@ -207,7 +208,9 @@ def set_repositories_settings(config: Config, apis_dict: dict[str, dict[str, Any
         logger.info("Login in to docker.io")
         docker_username: str = docker["username"]
         docker_password: str = docker["password"]
-        os.system(f"podman login -u {docker_username} -p {docker_password} docker.io")
+        run_command(
+            log_prefix="", command=f"podman login -u {docker_username} -p {docker_password} docker.io", check=True
+        )
 
     futures = []
     with ThreadPoolExecutor() as executor:

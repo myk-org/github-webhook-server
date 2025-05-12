@@ -22,7 +22,6 @@ from starlette.datastructures import Headers
 from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import NoPullRequestError, RepositoryNotFoundError
 from webhook_server.libs.github_api import GithubWebhook
-from webhook_server.utils.github_repository_and_webhook_settings import repository_and_webhook_settings
 from webhook_server.utils.helpers import get_logger_with_params
 
 ALLOWED_IPS: tuple[ipaddress._BaseNetwork, ...] = ()
@@ -92,11 +91,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("Application starting up...")
         config = Config(logger=logger)
         root_config = config.root_data
-        webhook_secret = root_config.get("webhook-secret")
         verify_github_ips = root_config.get("verify-github-ips")
         verify_cloudflare_ips = root_config.get("verify-cloudflare-ips")
-
-        repository_and_webhook_settings(webhook_secret=webhook_secret)
         logger.info("Repository and webhook settings initialized successfully.")
 
         global ALLOWED_IPS
@@ -119,7 +115,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as e:
         logger.error(f"Application failed to start up: {e}")
         os.kill(os.getpid(), signal.SIGTERM)
-        # sys.exit(1)
 
 
 FASTAPI_APP: FastAPI = FastAPI(title="webhook-server", lifespan=lifespan)
