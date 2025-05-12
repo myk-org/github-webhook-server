@@ -351,7 +351,7 @@ PR will be approved when the following conditions are met:
                     self.labels_handler._add_label,
                     **{
                         "pull_request": pull_request,
-                        "label": f"{BRANCH_LABEL_PREFIX}{self.github_webhook.pull_request_branch}",
+                        "label": f"{BRANCH_LABEL_PREFIX}{pull_request.head.ref}",
                     },
                 )
             )
@@ -367,9 +367,9 @@ PR will be approved when the following conditions are met:
             prepare_pull_futures.append(executor.submit(self.labels_handler.add_size_label, pull_request))
             prepare_pull_futures.append(executor.submit(self.add_pull_request_owner_as_assingee, pull_request))
 
-            prepare_pull_futures.append(executor.submit(self.runner_handler._run_tox))
-            prepare_pull_futures.append(executor.submit(self.runner_handler._run_pre_commit))
-            prepare_pull_futures.append(executor.submit(self.runner_handler._run_install_python_module))
+            prepare_pull_futures.append(executor.submit(self.runner_handler._run_tox, pull_request))
+            prepare_pull_futures.append(executor.submit(self.runner_handler._run_pre_commit, pull_request))
+            prepare_pull_futures.append(executor.submit(self.runner_handler._run_install_python_module, pull_request))
             prepare_pull_futures.append(executor.submit(self.runner_handler._run_build_container))
 
             if self.github_webhook.conventional_title:
@@ -405,13 +405,11 @@ PR will be approved when the following conditions are met:
 
     def set_pull_request_automerge(self, pull_request: PullRequest) -> None:
         auto_merge = (
-            self.github_webhook.pull_request_branch in self.github_webhook.set_auto_merge_prs
+            pull_request.head.ref in self.github_webhook.set_auto_merge_prs
             or self.github_webhook.parent_committer in self.github_webhook.auto_verified_and_merged_users
         )
 
-        self.logger.debug(
-            f"{self.log_prefix} auto_merge: {auto_merge}, branch: {self.github_webhook.pull_request_branch}"
-        )
+        self.logger.debug(f"{self.log_prefix} auto_merge: {auto_merge}, branch: {pull_request.head.ref}")
 
         if auto_merge:
             try:

@@ -35,10 +35,10 @@ class RunnerHandler:
     def _prepare_cloned_repo_dir(
         self,
         clone_repo_dir: str,
+        pull_request: PullRequest | None = None,
         is_merged: bool = False,
         checkout: str = "",
         tag_name: str = "",
-        pull_request: PullRequest | None = None,
     ) -> Generator[tuple[bool, Any, Any], None, None]:
         git_cmd = f"git --work-tree={clone_repo_dir} --git-dir={clone_repo_dir}/.git"
         result: tuple[bool, str, str] = (True, "", "")
@@ -95,7 +95,7 @@ class RunnerHandler:
 
                 if success and pull_request:
                     rc, out, err = run_command(
-                        f"{git_cmd} merge origin/{self.github_webhook.pull_request_branch} -m 'Merge {self.github_webhook.pull_request_branch}'",
+                        f"{git_cmd} merge origin/{pull_request.head.ref} -m 'Merge {self.github_webhook.pull_request_branch}'",
                         log_prefix=self.log_prefix,
                     )
                     if not rc:
@@ -105,9 +105,9 @@ class RunnerHandler:
             # Checkout the branch if pull request is merged or for release
             else:
                 if success:
-                    if is_merged:
+                    if is_merged and pull_request:
                         rc, out, err = run_command(
-                            command=f"{git_cmd} checkout {self.github_webhook.pull_request_branch}",
+                            command=f"{git_cmd} checkout {pull_request.base.ref}",
                             log_prefix=self.log_prefix,
                         )
                         if not rc:
@@ -133,7 +133,7 @@ class RunnerHandler:
 
                             if pull_request and success:
                                 rc, out, err = run_command(
-                                    f"{git_cmd} merge origin/{self.github_webhook.pull_request_branch} -m 'Merge {self.github_webhook.pull_request_branch}'",
+                                    f"{git_cmd} merge origin/{pull_request.head.ref} -m 'Merge {self.github_webhook.pull_request_branch}'",
                                     log_prefix=self.log_prefix,
                                 )
                                 if not rc:
@@ -165,7 +165,7 @@ class RunnerHandler:
 
         return rc, out, err
 
-    def _run_tox(self) -> None:
+    def _run_tox(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.tox:
             return
 
@@ -177,13 +177,13 @@ class RunnerHandler:
             f"--python={self.github_webhook.tox_python_version}" if self.github_webhook.tox_python_version else ""
         )
         cmd = f"uvx {python_ver} {TOX_STR} --workdir {clone_repo_dir} --root {clone_repo_dir} -c {clone_repo_dir}"
-        _tox_tests = self.github_webhook.tox.get(self.github_webhook.pull_request_branch, "")
+        _tox_tests = self.github_webhook.tox.get(pull_request.base.ref, "")
         if _tox_tests and _tox_tests != "all":
             tests = _tox_tests.replace(" ", "")
             cmd += f" -e {tests}"
 
         self.check_run_handler.set_run_tox_check_in_progress()
-        with self._prepare_cloned_repo_dir(clone_repo_dir=clone_repo_dir) as _res:
+        with self._prepare_cloned_repo_dir(clone_repo_dir=clone_repo_dir, pull_request=pull_request) as _res:
             output: dict[str, Any] = {
                 "title": "Tox",
                 "summary": "",
@@ -202,7 +202,7 @@ class RunnerHandler:
             else:
                 return self.check_run_handler.set_run_tox_check_failure(output=output)
 
-    def _run_pre_commit(self) -> None:
+    def _run_pre_commit(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.pre_commit:
             return
 
@@ -212,7 +212,7 @@ class RunnerHandler:
         clone_repo_dir = f"{self.github_webhook.clone_repo_dir}-{uuid4()}"
         cmd = f" uvx --directory {clone_repo_dir} {PRE_COMMIT_STR} run --all-files"
         self.check_run_handler.set_run_pre_commit_check_in_progress()
-        with self._prepare_cloned_repo_dir(clone_repo_dir=clone_repo_dir) as _res:
+        with self._prepare_cloned_repo_dir(pull_request=pull_request, clone_repo_dir=clone_repo_dir) as _res:
             output: dict[str, Any] = {
                 "title": "Pre-Commit",
                 "summary": "",
@@ -233,13 +233,13 @@ class RunnerHandler:
 
     def _run_build_container(
         self,
+        pull_request: PullRequest | None = None,
         set_check: bool = True,
         push: bool = False,
         is_merged: bool = False,
         tag: str = "",
         command_args: str = "",
         reviewed_user: str | None = None,
-        pull_request: PullRequest | None = None,
     ) -> None:
         if not self.github_webhook.build_and_push_container:
             return
@@ -278,6 +278,7 @@ class RunnerHandler:
 
         podman_build_cmd: str = f"podman build {build_cmd}"
         with self._prepare_cloned_repo_dir(
+            pull_request=pull_request,
             is_merged=is_merged,
             tag_name=tag,
             clone_repo_dir=clone_repo_dir,
@@ -338,7 +339,7 @@ class RunnerHandler:
                             message=message, webhook_url=self.github_webhook.slack_webhook_url
                         )
 
-    def _run_install_python_module(self) -> None:
+    def _run_install_python_module(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.pypi:
             return
 
@@ -349,6 +350,7 @@ class RunnerHandler:
         self.logger.info(f"{self.log_prefix} Installing python module")
         self.check_run_handler.set_python_module_install_in_progress()
         with self._prepare_cloned_repo_dir(
+            pull_request=pull_request,
             clone_repo_dir=clone_repo_dir,
         ) as _res:
             output: dict[str, Any] = {
@@ -482,7 +484,7 @@ Maintainers:
             ]
 
             rc, out, err = None, "", ""
-            with self._prepare_cloned_repo_dir(clone_repo_dir=clone_repo_dir) as _res:
+            with self._prepare_cloned_repo_dir(pull_request=pull_request, clone_repo_dir=clone_repo_dir) as _res:
                 output = {
                     "title": "Cherry-pick details",
                     "summary": "",
