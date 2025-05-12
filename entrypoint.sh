@@ -1,7 +1,9 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-set -ep
+# Generate the uvicorn command from Python
+cmd="$(uv run ./entrypoint.py)"
+echo "${cmd}"
 
-CMD=$(uv run ./entrypoint.py)
-echo "$CMD"
-$CMD
+# Replace the shell with the server process (PID 1 inside container)
+exec ${cmd}
