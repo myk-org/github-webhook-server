@@ -101,14 +101,9 @@ class Label:
 
 
 class PullRequest:
-    def __init__(self, additions: int | None = None, deletions: int | None = None, labels: list[str] | None = None):
+    def __init__(self, additions: int | None = None, deletions: int | None = None):
         self.additions = additions
         self.deletions = deletions
-        self.labels = labels or []
-
-    @property
-    def lables(self) -> list[Label]:
-        return [Label(label) for label in self.labels]
 
     class base:
         ref = "refs/heads/main"
@@ -138,12 +133,10 @@ def process_github_webhook(mocker, request):
         headers=Headers({"X-GitHub-Event": "test-event"}),
         logger=logging.getLogger(),
     )
-    process_github_webhook.pull_request_branch = "main"
     if hasattr(request, "param") and request.param:
         process_github_webhook.changed_files = request.param[0]
 
     else:
         process_github_webhook.changed_files = ALL_CHANGED_FILES
 
-    process_github_webhook.pull_request = PullRequest()
     return process_github_webhook
