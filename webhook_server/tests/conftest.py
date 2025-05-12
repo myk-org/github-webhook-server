@@ -5,17 +5,10 @@ import yaml
 from simple_logger.logger import logging
 from starlette.datastructures import Headers
 
-from webhook_server.libs.github_api import GithubWebhook
+from webhook_server.libs.owners_files_handler import OwnersFileHandler
 
-ALL_CHANGED_FILES = [
-    "OWNERS",
-    "folder1/OWNERS",
-    "code/file.py",
-    "README.md",
-    "folder2/lib.py",
-    "folder/folder4/another_file.txt",
-    "folder5/file",
-]
+os.environ["WEBHOOK_SERVER_DATA_DIR"] = "webhook_server/tests/manifests"
+from webhook_server.libs.github_api import GithubWebhook
 
 
 class Tree:
@@ -54,7 +47,7 @@ class Repository:
     def get_git_tree(self, sha: str, recursive: bool):
         return Tree("")
 
-    def get_contents(self, path: str):
+    def get_contents(self, path: str, ref: str):
         owners_data = yaml.dump({
             "approvers": ["root_approver1", "root_approver2"],
             "reviewers": ["root_reviewer1", "root_reviewer2"],
@@ -94,14 +87,34 @@ class Repository:
             return ContentFile(folder5_owners_data)
 
 
+class Label:
+    def __init__(self, name: str):
+        self.name = name
+
+
 class PullRequest:
-    def __init__(self): ...
+    def __init__(self, additions: int | None = None, deletions: int | None = None):
+        self.additions = additions
+        self.deletions = deletions
+
+    class base:
+        ref = "refs/heads/main"
+
+    def create_issue_comment(self, *args, **kwargs): ...
+
+    def create_review_request(self, *args, **kwargs): ...
+
+    def get_files(self): ...
 
 
 @pytest.fixture(scope="function")
-def process_github_webhook(mocker, request):
+def pull_request():
+    return PullRequest()
+
+
+@pytest.fixture(scope="function")
+def github_webhook(mocker, request):
     base_import_path = "webhook_server.libs.github_api"
-    os.environ["WEBHOOK_SERVER_DATA_DIR"] = "webhook_server/tests/manifests"
 
     mocker.patch(f"{base_import_path}.get_repository_github_app_api", return_value=True)
     mocker.patch("github.AuthenticatedUser", return_value=True)
@@ -113,12 +126,16 @@ def process_github_webhook(mocker, request):
         headers=Headers({"X-GitHub-Event": "test-event"}),
         logger=logging.getLogger(),
     )
-    process_github_webhook.pull_request_branch = "main"
-    if hasattr(request, "param") and request.param:
-        process_github_webhook.changed_files = request.param[0]
+    owners_file_handler = OwnersFileHandler(github_webhook=process_github_webhook)
 
-    else:
-        process_github_webhook.changed_files = ALL_CHANGED_FILES
+    return process_github_webhook, owners_file_handler
 
-    process_github_webhook.pull_request = PullRequest()
-    return process_github_webhook
+
+@pytest.fixture(scope="function")
+def process_github_webhook(github_webhook):
+    return github_webhook[0]
+
+
+@pytest.fixture(scope="function")
+def owners_file_handler(github_webhook):
+    return github_webhook[1]

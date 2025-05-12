@@ -60,7 +60,6 @@ def set_branch_protection(
     branch: Branch,
     repository: Repository,
     required_status_checks: list[str],
-    github_api: Github,
     strict: bool,
     require_code_owner_reviews: bool,
     dismiss_stale_reviews: bool,
@@ -192,7 +191,7 @@ def get_repo_branch_protection_rules(config: Config) -> dict[str, Any]:
     return branch_protection
 
 
-def set_repositories_settings(config: Config, apis_dict: dict[str, dict[str, Any]]) -> None:
+async def set_repositories_settings(config: Config, apis_dict: dict[str, dict[str, Any]]) -> None:
     LOGGER.info("Processing repositories")
     config_data = config.root_data
 
@@ -201,9 +200,7 @@ def set_repositories_settings(config: Config, apis_dict: dict[str, dict[str, Any
         LOGGER.info("Login in to docker.io")
         docker_username: str = docker["username"]
         docker_password: str = docker["password"]
-        run_command(
-            log_prefix="", command=f"podman login -u {docker_username} -p {docker_password} docker.io", check=True
-        )
+        await run_command(log_prefix="", command=f"podman login -u {docker_username} -p {docker_password} docker.io")
 
     futures = []
     with ThreadPoolExecutor() as executor:
@@ -292,7 +289,6 @@ def set_repository(
                             "branch": branch,
                             "repository": repo,
                             "required_status_checks": required_status_checks,
-                            "github_api": github_api,
                             "api_user": api_user,
                         },
                         **branch_protection,
@@ -380,6 +376,7 @@ def set_repository_check_runs_to_queued(
 
 def get_repository_github_app_api(config_: Config, repository_name: str) -> Github | None:
     LOGGER.debug("Getting repositories GitHub app API")
+
     with open(os.path.join(config_.data_dir, "webhook-server.private-key.pem")) as fd:
         private_key = fd.read()
 
@@ -389,11 +386,14 @@ def get_repository_github_app_api(config_: Config, repository_name: str) -> Gith
     owner: str
     repo: str
     owner, repo = repository_name.split("/")
+
     try:
         return app_instance.get_repo_installation(owner=owner, repo=repo).get_github_for_installation()
-    except UnknownObjectException:
+
+    except Exception:
         LOGGER.error(
             f"Repository {repository_name} not found by manage-repositories-app, "
             f"make sure the app installed (https://github.com/apps/manage-repositories-app)"
         )
+
         return None

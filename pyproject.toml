@@ -66,6 +66,7 @@ dependencies = [
   "timeout-sampler>=0.0.46",
   "uvicorn>=0.31.0",
   "httpx>=0.28.1",
+  "asyncstdlib>=3.13.1",
 ]
 
   [[project.authors]]
@@ -81,6 +82,11 @@ dependencies = [
   repository = "https://github.com/myakove/github-webhook-server"
   Download = "https://quay.io/repository/myakove/github-webhook-server"
   "Bug Tracker" = "https://github.com/myakove/github-webhook-server/issues"
+
+[project.optional-dependencies]
+tests = [
+    "pytest-asyncio>=0.26.0",
+]
 
 [build-system]
 requires = [ "hatchling" ]
