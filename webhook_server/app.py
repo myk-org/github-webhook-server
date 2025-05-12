@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import ipaddress
+import logging
 import os
 import sys
 from contextlib import asynccontextmanager
@@ -151,28 +152,28 @@ async def process_webhook(request: Request, background_tasks: BackgroundTasks) -
 
     logger = get_logger_with_params(name=logger_name, repository_name=hook_data["repository"]["name"])
 
+    async def process_with_error_handling(_api: GithubWebhook, _logger: logging.Logger) -> None:
+        try:
+            await _api.process()
+
+        except NoPullRequestError:
+            return
+
+        except Exception as e:
+            _logger.exception(f"{log_context} Error in background task: {e}")
+
     try:
         api: GithubWebhook = GithubWebhook(hook_data=hook_data, headers=request.headers, logger=logger)
 
-        async def process_with_error_handling() -> None:
-            try:
-                await api.process()
-
-            except NoPullRequestError:
-                return
-
-            except Exception as e:
-                logger.exception(f"{log_context} Error in background task: {e}")
-
-        background_tasks.add_task(process_with_error_handling)
-        return {"status": requests.codes.ok, "message": "process success", "log_prefix": delivery_headers}
+        background_tasks.add_task(process_with_error_handling, _api=api, _logger=logger)
+        return {"status": requests.codes.ok, "message": "ok", "delivery headers": delivery_headers}
 
     except RepositoryNotFoundError as e:
-        logger.error(f"{log_context} Configuration/Repository error: {e}")
+        logger.exception(f"{log_context} Configuration/Repository error: {e}")
         raise HTTPException(status_code=404, detail=str(e))
 
     except ConnectionError as e:
-        logger.error(f"{log_context} API connection error: {e}")
+        logger.exception(f"{log_context} API connection error: {e}")
         raise HTTPException(status_code=503, detail=f"API Connection Error: {e}")
 
     except NoPullRequestError as e:
