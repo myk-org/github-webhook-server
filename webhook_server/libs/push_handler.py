@@ -66,9 +66,7 @@ Publish to PYPI failed: `{_error}`
 
             commands: list[str] = [
                 f"uvx {uv_cmd_dir} twine check {_dist_dir}/{tar_gz_file}",
-                f"TWINE_PASSWORD={self.github_webhook.pypi['token']} "
-                f"uvx {uv_cmd_dir} twine upload --username __token__ "
-                f"--password-stdin {_dist_dir}/{tar_gz_file} --skip-existing",
+                f"uvx {uv_cmd_dir} twine upload --username __token__ --password {self.github_webhook.pypi['token']} {_dist_dir}/{tar_gz_file} --skip-existing",
             ]
 
             for cmd in commands:
