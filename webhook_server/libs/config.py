@@ -4,6 +4,7 @@ from typing import Any
 
 import github
 import yaml
+from github.GithubException import UnknownObjectException
 from simple_logger.logger import get_logger
 
 
@@ -47,7 +48,11 @@ class Config:
 
             try:
                 repo = get_github_repo_api(github_api=github_api, repository=repository_full_name)
-                _path = repo.get_contents(".github-webhook-server.yaml")
+                try:
+                    _path = repo.get_contents(".github-webhook-server.yaml")
+                except UnknownObjectException:
+                    return {}
+
                 config_file = _path[0] if isinstance(_path, list) else _path
                 repo_config = yaml.safe_load(config_file.decoded_content)
                 return repo_config
