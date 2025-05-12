@@ -2,7 +2,6 @@ import hashlib
 import hmac
 import ipaddress
 import os
-import signal
 import sys
 from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator
@@ -109,12 +108,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             ALLOWED_IPS = tuple(networks)  # immutable & de-duplicated
 
             logger.info(f"IP allowlist initialized successfully. {ALLOWED_IPS}")
-            yield
-        else:
-            yield
-    except Exception as e:
-        logger.error(f"Application failed to start up: {e}")
-        os.kill(os.getpid(), signal.SIGTERM)
+
+        yield
+    except Exception as ex:
+        logger.error(f"Application failed to start up: {ex}")
+        raise
 
 
 FASTAPI_APP: FastAPI = FastAPI(title="webhook-server", lifespan=lifespan)

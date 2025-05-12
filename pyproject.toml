@@ -65,7 +65,6 @@ dependencies = [
   "string-color>=1.2.3",
   "timeout-sampler>=0.0.46",
   "uvicorn>=0.31.0",
-  "uvicorn-worker>=0.3.0",
   "httpx>=0.28.1",
 ]
 
