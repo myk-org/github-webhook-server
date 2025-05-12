@@ -90,9 +90,11 @@ class GithubWebhook:
             )
             return
 
-        repository_by_github_app = get_github_repo_api(github_api=github_app_api, repository=self.repository_full_name)
+        self.repository_by_github_app = get_github_repo_api(
+            github_api=github_app_api, repository=self.repository_full_name
+        )
 
-        if not (self.repository or repository_by_github_app):
+        if not (self.repository or self.repository_by_github_app):
             self.logger.error(f"{self.log_prefix} Failed to get repository.")
             return
 
