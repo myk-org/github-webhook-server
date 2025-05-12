@@ -10,7 +10,6 @@ from typing import Any
 
 import requests
 import yaml
-from fastapi.exceptions import HTTPException
 from github import GithubException
 from github.Branch import Branch
 from github.Commit import Commit
@@ -20,7 +19,7 @@ from stringcolor import cs
 
 from webhook_server.libs.check_run_handler import CheckRunHandler
 from webhook_server.libs.config import Config
-from webhook_server.libs.exceptions import NoPullRequestError, RepositoryNotFoundError
+from webhook_server.libs.exceptions import RepositoryNotFoundError
 from webhook_server.libs.issue_comment_handler import IssueCommentHandler
 from webhook_server.libs.pull_request_handler import PullRequestHandler
 from webhook_server.libs.pull_request_review_handler import PullRequestReviewHandler
@@ -46,18 +45,14 @@ from webhook_server.utils.helpers import (
 
 class GithubWebhook:
     def __init__(self, hook_data: dict[Any, Any], headers: Headers, logger: logging.Logger) -> None:
+        logger.name = "GithubWebhook"
         self.logger = logger
-        self.logger.name = "GithubWebhook"
         self.hook_data = hook_data
-        self.headers = headers
         self.repository_name: str = hook_data["repository"]["name"]
         self.repository_full_name: str = hook_data["repository"]["full_name"]
         self.parent_committer: str = ""
-        self.issue_title: str = ""
-        self.x_github_delivery: str = self.headers.get("X-GitHub-Delivery", "")
-        self.github_event: str = self.headers["X-GitHub-Event"]
-        self.owners_content: dict[str, Any] = {}
-
+        self.x_github_delivery: str = headers.get("X-GitHub-Delivery", "")
+        self.github_event: str = headers["X-GitHub-Event"]
         self.config = Config(repository=self.repository_name, logger=self.logger)
 
         if not self.config.repository:
@@ -65,15 +60,15 @@ class GithubWebhook:
 
         # Get config without .github-webhook-server.yaml data
         self._repo_data_from_config(repository_config={})
-        self.github_api, self.token, self.api_user = get_api_with_highest_rate_limit(
+        github_api, self.token, self.api_user = get_api_with_highest_rate_limit(
             config=self.config, repository_name=self.repository_name
         )
 
-        if self.github_api and self.token:
-            self.repository = get_github_repo_api(github_api=self.github_api, repository=self.repository_full_name)
+        if github_api and self.token:
+            self.repository = get_github_repo_api(github_api=github_api, repository=self.repository_full_name)
             # Once we have a repository, we can get the config from .github-webhook-server.yaml
             local_repository_config = self.config.repository_local_data(
-                github_api=self.github_api, repository_full_name=self.repository_full_name
+                github_api=github_api, repository_full_name=self.repository_full_name
             )
             # Call _repo_data_from_config() again to update self args from .github-webhook-server.yaml
             self._repo_data_from_config(repository_config=local_repository_config)
@@ -84,11 +79,9 @@ class GithubWebhook:
 
         self.log_prefix = self.prepare_log_prefix()
 
-        self.github_app_api = get_repository_github_app_api(
-            config_=self.config, repository_name=self.repository_full_name
-        )
+        github_app_api = get_repository_github_app_api(config_=self.config, repository_name=self.repository_full_name)
 
-        if not self.github_app_api:
+        if not github_app_api:
             self.logger.error(
                 (
                     f"{self.log_prefix} not found by manage-repositories-app, "
@@ -97,11 +90,9 @@ class GithubWebhook:
             )
             return
 
-        self.repository_by_github_app = get_github_repo_api(
-            github_api=self.github_app_api, repository=self.repository_full_name
-        )
+        repository_by_github_app = get_github_repo_api(github_api=github_app_api, repository=self.repository_full_name)
 
-        if not (self.repository or self.repository_by_github_app):
+        if not (self.repository or repository_by_github_app):
             self.logger.error(f"{self.log_prefix} Failed to get repository.")
             return
 
@@ -114,50 +105,51 @@ class GithubWebhook:
         )
 
     async def process(self) -> Any:
-        if self.github_event == "ping":
-            return {"status": requests.codes.ok, "message": "pong"}
-
         event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
 
-        try:
-            self.pull_request = self._get_pull_request()
-            self.log_prefix = self.prepare_log_prefix(pull_request=self.pull_request)
+        if self.github_event == "ping":
             self.logger.debug(f"{self.log_prefix} {event_log}")
-            self.last_commit = self._get_last_commit()
-            self.parent_committer = self.pull_request.user.login
+            return {"status": requests.codes.ok, "message": "pong"}
+
+        if self.github_event == "push":
+            self.logger.debug(f"{self.log_prefix} {event_log}")
+            return await PushHandler(github_webhook=self).process_push_webhook_data()
+
+        if pull_request := self._get_pull_request():
+            self.log_prefix = self.prepare_log_prefix(pull_request=pull_request)
+            self.logger.debug(f"{self.log_prefix} {event_log}")
+            self.last_commit = self._get_last_commit(pull_request=pull_request)
+            self.parent_committer = pull_request.user.login
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
-            self.changed_files = self.list_changed_files()
-            self.pull_request_branch = self.pull_request.base.ref
-            self.all_repository_approvers_and_reviewers = self.get_all_repository_approvers_and_reviewers()
+            self.changed_files = self.list_changed_files(pull_request=pull_request)
+            self.all_repository_approvers_and_reviewers = self.get_all_repository_approvers_and_reviewers(
+                pull_request=pull_request
+            )
             self.all_repository_approvers = self.get_all_repository_approvers()
             self.all_repository_reviewers = self.get_all_repository_reviewers()
             self.all_pull_request_approvers = self.get_all_pull_request_approvers()
             self.all_pull_request_reviewers = self.get_all_pull_request_reviewers()
 
             if self.github_event == "issue_comment":
-                return IssueCommentHandler(github_webhook=self).process_comment_webhook_data()
+                return await IssueCommentHandler(github_webhook=self).process_comment_webhook_data(
+                    pull_request=pull_request
+                )
 
-            if self.github_event == "pull_request":
-                return PullRequestHandler(github_webhook=self).process_pull_request_webhook_data()
+            elif self.github_event == "pull_request":
+                return await PullRequestHandler(github_webhook=self).process_pull_request_webhook_data(
+                    pull_request=pull_request
+                )
 
-            if self.github_event == "pull_request_review":
-                return PullRequestReviewHandler(github_webhook=self).process_pull_request_review_webhook_data()
+            elif self.github_event == "pull_request_review":
+                return await PullRequestReviewHandler(github_webhook=self).process_pull_request_review_webhook_data(
+                    pull_request=pull_request
+                )
 
-            if self.github_event == "check_run":
-                if CheckRunHandler(github_webhook=self).process_pull_request_check_run_webhook_data():
-                    PullRequestHandler(github_webhook=self).check_if_can_be_merged()
-
-        except NoPullRequestError:
-            self.logger.debug(f"{self.log_prefix} {event_log}. [No pull request found in hook data]")
-
-            if self.github_event == "push":
-                return PushHandler(github_webhook=self).process_push_webhook_data()
-
-            raise
-
-        except Exception as e:
-            self.logger.error(f"{self.log_prefix} {event_log}. Exception: {e}")
-            raise HTTPException(status_code=404, detail=str(e))
+            elif self.github_event == "check_run":
+                if await CheckRunHandler(github_webhook=self).process_pull_request_check_run_webhook_data():
+                    return await PullRequestHandler(github_webhook=self).check_if_can_be_merged(
+                        pull_request=pull_request
+                    )
 
     @property
     def add_api_users_to_auto_verified_and_merged_users(self) -> None:
@@ -265,7 +257,7 @@ class GithubWebhook:
             value="minimum-lgtm", return_on_none=0, extra_dict=repository_config
         )
 
-    def _get_pull_request(self, number: int | None = None) -> PullRequest:
+    def _get_pull_request(self, number: int | None = None) -> PullRequest | None:
         if number:
             return self.repository.get_pull(number)
 
@@ -289,10 +281,10 @@ class GithubWebhook:
                     )
                     return _pull_request
 
-        raise NoPullRequestError(f"{self.log_prefix} No issue or pull_request found in hook data")
+        return None
 
-    def _get_last_commit(self) -> Commit:
-        return list(self.pull_request.get_commits())[-1]
+    def _get_last_commit(self, pull_request: PullRequest) -> Commit:
+        return list(pull_request.get_commits())[-1]
 
     def is_branch_exists(self, branch: str) -> Branch:
         return self.repository.get_branch(branch)
@@ -309,8 +301,8 @@ class GithubWebhook:
         self.logger.debug(f"{self.log_prefix} ROOT Approvers: {_approvers}")
         return _approvers
 
-    def list_changed_files(self) -> list[str]:
-        return [_file.filename for _file in self.pull_request.get_files()]
+    def list_changed_files(self, pull_request: PullRequest) -> list[str]:
+        return [_file.filename for _file in pull_request.get_files()]
 
     @staticmethod
     def _comment_with_details(title: str, body: str) -> str:
@@ -321,17 +313,18 @@ class GithubWebhook:
 </details>
         """
 
-    def _container_repository_and_tag(self, is_merged: bool = False, tag: str = "") -> str:
+    def _container_repository_and_tag(self, pull_request: PullRequest, is_merged: bool = False, tag: str = "") -> str:
         if not tag:
             if is_merged:
+                pull_request_branch = pull_request.base.ref
                 tag = (
-                    self.pull_request_branch
-                    if self.pull_request_branch not in (OTHER_MAIN_BRANCH, "main")
+                    pull_request_branch
+                    if pull_request_branch not in (OTHER_MAIN_BRANCH, "main")
                     else self.container_tag
                 )
             else:
-                if self.pull_request:
-                    tag = f"pr-{self.pull_request.number}"
+                if pull_request:
+                    tag = f"pr-{pull_request.number}"
 
         if tag:
             self.logger.debug(f"{self.log_prefix} container tag is: {tag}")
@@ -373,7 +366,7 @@ class GithubWebhook:
             current_pull_request_supported_retest.append(CONVENTIONAL_TITLE_STR)
         return current_pull_request_supported_retest
 
-    def get_all_repository_approvers_and_reviewers(self) -> dict[str, dict[str, Any]]:
+    def get_all_repository_approvers_and_reviewers(self, pull_request: PullRequest) -> dict[str, dict[str, Any]]:
         # Dictionary mapping OWNERS file paths to their approvers and reviewers
         _owners: dict[str, dict[str, Any]] = {}
 
@@ -381,7 +374,7 @@ class GithubWebhook:
         owners_count = 0
 
         self.logger.debug(f"{self.log_prefix} Get git tree")
-        tree = self.repository.get_git_tree(self.pull_request_branch, recursive=True)
+        tree = self.repository.get_git_tree(pull_request.base.ref, recursive=True)
         for element in tree.tree:
             if element.type == "blob" and element.path.endswith("OWNERS"):
                 owners_count += 1
@@ -391,7 +384,7 @@ class GithubWebhook:
 
                 content_path = element.path
                 self.logger.debug(f"{self.log_prefix} Get OWNERS file from {content_path}")
-                _path = self.repository.get_contents(content_path, self.pull_request_branch)
+                _path = self.repository.get_contents(content_path, pull_request.base.ref)
                 if isinstance(_path, list):
                     _path = _path[0]
 
@@ -505,17 +498,17 @@ class GithubWebhook:
             self.logger.error(f"{self.log_prefix} Invalid OWNERS file {path}: {e}")
             return False
 
-    def assign_reviewers(self) -> None:
+    def assign_reviewers(self, pull_request: PullRequest) -> None:
         self.logger.info(f"{self.log_prefix} Assign reviewers")
 
         _to_add: list[str] = list(set(self.all_pull_request_reviewers))
         self.logger.debug(f"{self.log_prefix} Reviewers to add: {', '.join(_to_add)}")
 
         for reviewer in _to_add:
-            if reviewer != self.pull_request.user.login:
+            if reviewer != pull_request.user.login:
                 self.logger.debug(f"{self.log_prefix} Adding reviewer {reviewer}")
                 try:
-                    self.pull_request.create_review_request([reviewer])
+                    pull_request.create_review_request([reviewer])
                 except GithubException as ex:
                     self.logger.debug(f"{self.log_prefix} Failed to add reviewer {reviewer}. {ex}")
-                    self.pull_request.create_issue_comment(f"{reviewer} can not be added as reviewer. {ex}")
+                    pull_request.create_issue_comment(f"{reviewer} can not be added as reviewer. {ex}")

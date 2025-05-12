@@ -7,9 +7,9 @@ from uuid import uuid4
 import shortuuid
 from github.NamedUser import NamedUser
 from github.PaginatedList import PaginatedList
+from github.PullRequest import PullRequest
 
 from webhook_server.libs.check_run_handler import CheckRunHandler
-from webhook_server.libs.exceptions import NoPullRequestError
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CHERRY_PICKED_LABEL_PREFIX,
@@ -28,7 +28,6 @@ class RunnerHandler:
         self.logger = self.github_webhook.logger
         self.log_prefix = self.github_webhook.log_prefix
         self.repository = self.github_webhook.repository
-        self.pull_request = getattr(self.github_webhook, "pull_request", None)
 
         self.check_run_handler = CheckRunHandler(github_webhook=self.github_webhook)
 
@@ -39,6 +38,7 @@ class RunnerHandler:
         is_merged: bool = False,
         checkout: str = "",
         tag_name: str = "",
+        pull_request: PullRequest | None = None,
     ) -> Generator[tuple[bool, Any, Any], None, None]:
         git_cmd = f"git --work-tree={clone_repo_dir} --git-dir={clone_repo_dir}/.git"
         result: tuple[bool, str, str] = (True, "", "")
@@ -93,7 +93,7 @@ class RunnerHandler:
                     result = (rc, out, err)
                     success = False
 
-                if success and self.pull_request:
+                if success and pull_request:
                     rc, out, err = run_command(
                         f"{git_cmd} merge origin/{self.github_webhook.pull_request_branch} -m 'Merge {self.github_webhook.pull_request_branch}'",
                         log_prefix=self.log_prefix,
@@ -122,8 +122,7 @@ class RunnerHandler:
 
                     # Checkout the pull request
                     else:
-                        try:
-                            pull_request = self.github_webhook._get_pull_request()
+                        if pull_request := self.github_webhook._get_pull_request():
                             rc, out, err = run_command(
                                 command=f"{git_cmd} checkout origin/pr/{pull_request.number}",
                                 log_prefix=self.log_prefix,
@@ -132,17 +131,13 @@ class RunnerHandler:
                                 result = (rc, out, err)
                                 success = False
 
-                            if self.pull_request and success:
+                            if pull_request and success:
                                 rc, out, err = run_command(
                                     f"{git_cmd} merge origin/{self.github_webhook.pull_request_branch} -m 'Merge {self.github_webhook.pull_request_branch}'",
                                     log_prefix=self.log_prefix,
                                 )
                                 if not rc:
                                     result = (rc, out, err)
-
-                        except NoPullRequestError:
-                            self.logger.error(f"{self.log_prefix} [func:_run_in_container] No pull request found")
-                            result = (False, "", "[func:_run_in_container] No pull request found")
 
         finally:
             yield result
@@ -244,11 +239,16 @@ class RunnerHandler:
         tag: str = "",
         command_args: str = "",
         reviewed_user: str | None = None,
+        pull_request: PullRequest | None = None,
     ) -> None:
         if not self.github_webhook.build_and_push_container:
             return
 
-        if reviewed_user and not self._is_user_valid_to_run_commands(reviewed_user=reviewed_user):
+        if (
+            reviewed_user
+            and pull_request
+            and not self._is_user_valid_to_run_commands(reviewed_user=reviewed_user, pull_request=pull_request)
+        ):
             return
 
         if self.check_run_handler.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR):
@@ -256,7 +256,7 @@ class RunnerHandler:
 
         clone_repo_dir = f"{self.github_webhook.clone_repo_dir}-{uuid4()}"
 
-        if self.pull_request and set_check:
+        if pull_request and set_check:
             if self.check_run_handler.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR) and not is_merged:
                 self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {BUILD_CONTAINER_STR}.")
 
@@ -289,7 +289,7 @@ class RunnerHandler:
             }
             if not _res[0]:
                 output["text"] = self.check_run_handler.get_check_run_text(out=_res[1], err=_res[2])
-                if self.pull_request and set_check:
+                if pull_request and set_check:
                     return self.check_run_handler.set_container_build_failure(output=output)
 
             build_rc, build_out, build_err = self.run_podman_command(command=podman_build_cmd, pipe=True)
@@ -297,11 +297,11 @@ class RunnerHandler:
 
             if build_rc:
                 self.logger.info(f"{self.log_prefix} Done building {_container_repository_and_tag}")
-                if self.pull_request and set_check:
+                if pull_request and set_check:
                     return self.check_run_handler.set_container_build_success(output=output)
             else:
                 self.logger.error(f"{self.log_prefix} Failed to build {_container_repository_and_tag}")
-                if self.pull_request and set_check:
+                if pull_request and set_check:
                     return self.check_run_handler.set_container_build_failure(output=output)
 
             if push and build_rc:
@@ -309,8 +309,8 @@ class RunnerHandler:
                 push_rc, _, _ = self.run_podman_command(command=cmd)
                 if push_rc:
                     push_msg: str = f"New container for {_container_repository_and_tag} published"
-                    if self.pull_request:
-                        self.pull_request.create_issue_comment(push_msg)
+                    if pull_request:
+                        pull_request.create_issue_comment(push_msg)
 
                     if self.github_webhook.slack_webhook_url:
                         message = f"""
@@ -325,8 +325,8 @@ class RunnerHandler:
                     self.logger.info(f"{self.log_prefix} Done push {_container_repository_and_tag}")
                 else:
                     err_msg: str = f"Failed to build and push {_container_repository_and_tag}"
-                    if self.pull_request:
-                        self.pull_request.create_issue_comment(err_msg)
+                    if pull_request:
+                        pull_request.create_issue_comment(err_msg)
 
                     if self.github_webhook.slack_webhook_url:
                         message = f"""
@@ -372,10 +372,7 @@ class RunnerHandler:
 
             return self.check_run_handler.set_python_module_install_failure(output=output)
 
-    def _run_conventional_title_check(self) -> None:
-        if not self.pull_request:
-            return
-
+    def _run_conventional_title_check(self, pull_request: PullRequest) -> None:
         output: dict[str, str] = {
             "title": "Conventional Title",
             "summary": "",
@@ -387,7 +384,7 @@ class RunnerHandler:
 
         self.check_run_handler.set_conventional_title_in_progress()
         allowed_names = self.github_webhook.conventional_title.split(",")
-        title = self.pull_request.title
+        title = pull_request.title
         if any([title.startswith(f"{_name}:") for _name in allowed_names]):
             self.check_run_handler.set_conventional_title_success(output=output)
         else:
@@ -396,10 +393,7 @@ class RunnerHandler:
 
             self.check_run_handler.set_conventional_title_failure(output=output)
 
-    def _is_user_valid_to_run_commands(self, reviewed_user: str) -> bool:
-        if not self.pull_request:
-            return False
-
+    def _is_user_valid_to_run_commands(self, pull_request: PullRequest, reviewed_user: str) -> bool:
         allowed_user_to_approve = self.get_all_repository_maintainers() + self.github_webhook.all_repository_approvers
         allow_user_comment = f"/add-allowed-user @{reviewed_user}"
 
@@ -413,7 +407,7 @@ Maintainers:
         if reviewed_user not in self.valid_users_to_run_commands:
             comments_from_approvers = [
                 comment.body
-                for comment in self.pull_request.get_issue_comments()
+                for comment in pull_request.get_issue_comments()
                 if comment.user.login in allowed_user_to_approve
             ]
             for comment in comments_from_approvers:
@@ -421,7 +415,7 @@ Maintainers:
                     return True
 
             self.logger.debug(f"{self.log_prefix} {reviewed_user} is not in {self.valid_users_to_run_commands}")
-            self.pull_request.create_issue_comment(comment_msg)
+            pull_request.create_issue_comment(comment_msg)
             return False
 
         return True
@@ -460,24 +454,21 @@ Maintainers:
     def get_all_repository_collaborators(self) -> list[str]:
         return [val.login for val in self.repository_collaborators]
 
-    def cherry_pick(self, target_branch: str, reviewed_user: str = "") -> None:
-        if not self.pull_request:
-            return
-
+    def cherry_pick(self, pull_request: PullRequest, target_branch: str, reviewed_user: str = "") -> None:
         requested_by = reviewed_user or "by target-branch label"
         self.logger.info(f"{self.log_prefix} Cherry-pick requested by user: {requested_by}")
 
-        new_branch_name = f"{CHERRY_PICKED_LABEL_PREFIX}-{self.pull_request.head.ref}-{shortuuid.uuid()[:5]}"
+        new_branch_name = f"{CHERRY_PICKED_LABEL_PREFIX}-{pull_request.head.ref}-{shortuuid.uuid()[:5]}"
         if not self.github_webhook.is_branch_exists(branch=target_branch):
             err_msg = f"cherry-pick failed: {target_branch} does not exists"
             self.logger.error(err_msg)
-            self.pull_request.create_issue_comment(err_msg)
+            pull_request.create_issue_comment(err_msg)
 
         else:
             self.check_run_handler.set_cherry_pick_in_progress()
-            commit_hash = self.pull_request.merge_commit_sha
-            commit_msg_striped = self.pull_request.title.replace("'", "")
-            pull_request_url = self.pull_request.html_url
+            commit_hash = pull_request.merge_commit_sha
+            commit_msg_striped = pull_request.title.replace("'", "")
+            pull_request_url = pull_request.html_url
             clone_repo_dir = f"{self.github_webhook.clone_repo_dir}-{uuid4()}"
             git_cmd = f"git --work-tree={clone_repo_dir} --git-dir={clone_repo_dir}/.git"
             hub_cmd = f"GITHUB_TOKEN={self.github_webhook.token} hub --work-tree={clone_repo_dir} --git-dir={clone_repo_dir}/.git"
@@ -507,8 +498,8 @@ Maintainers:
                         output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
                         self.check_run_handler.set_cherry_pick_failure(output=output)
                         self.logger.error(f"{self.log_prefix} Cherry pick failed: {out} --- {err}")
-                        local_branch_name = f"{self.pull_request.head.ref}-{target_branch}"
-                        self.pull_request.create_issue_comment(
+                        local_branch_name = f"{pull_request.head.ref}-{target_branch}"
+                        pull_request.create_issue_comment(
                             f"**Manual cherry-pick is needed**\nCherry pick failed for "
                             f"{commit_hash} to {target_branch}:\n"
                             f"To cherry-pick run:\n"
@@ -526,4 +517,4 @@ Maintainers:
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
 
             self.check_run_handler.set_cherry_pick_success(output=output)
-            self.pull_request.create_issue_comment(f"Cherry-picked PR {self.pull_request.title} into {target_branch}")
+            pull_request.create_issue_comment(f"Cherry-picked PR {pull_request.title} into {target_branch}")

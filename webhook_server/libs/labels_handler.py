@@ -1,6 +1,7 @@
 from typing import Any
 
 from github.GithubException import UnknownObjectException
+from github.PullRequest import PullRequest
 from timeout_sampler import TimeoutExpiredError, TimeoutSampler
 
 from webhook_server.utils.constants import (
@@ -27,19 +28,18 @@ class LabelsHandler:
         self.logger = self.github_webhook.logger
         self.log_prefix = self.github_webhook.log_prefix
         self.repository = self.github_webhook.repository
-        self.pull_request = self.github_webhook.pull_request
 
-    def label_exists_in_pull_request(self, label: str) -> bool:
-        return label in self.pull_request_labels_names()
+    def label_exists_in_pull_request(self, pull_request: PullRequest, label: str) -> bool:
+        return label in self.pull_request_labels_names(pull_request=pull_request)
 
-    def pull_request_labels_names(self) -> list[str]:
-        return [lb.name for lb in self.pull_request.labels]
+    def pull_request_labels_names(self, pull_request: PullRequest) -> list[str]:
+        return [lb.name for lb in pull_request.labels]
 
-    def _remove_label(self, label: str) -> bool:
+    def _remove_label(self, pull_request: PullRequest, label: str) -> bool:
         try:
-            if self.label_exists_in_pull_request(label=label):
+            if self.label_exists_in_pull_request(pull_request=pull_request, label=label):
                 self.logger.info(f"{self.log_prefix} Removing label {label}")
-                self.pull_request.remove_from_labels(label)
+                pull_request.remove_from_labels(label)
                 return self.wait_for_label(label=label, exists=False)
         except Exception as exp:
             self.logger.debug(f"{self.log_prefix} Failed to remove {label} label. Exception: {exp}")
@@ -48,19 +48,19 @@ class LabelsHandler:
         self.logger.debug(f"{self.log_prefix} Label {label} not found and cannot be removed")
         return False
 
-    def _add_label(self, label: str) -> None:
+    def _add_label(self, pull_request: PullRequest, label: str) -> None:
         label = label.strip()
         if len(label) > 49:
             self.logger.debug(f"{label} is too long, not adding.")
             return
 
-        if self.label_exists_in_pull_request(label=label):
+        if self.label_exists_in_pull_request(pull_request=pull_request, label=label):
             self.logger.debug(f"{self.log_prefix} Label {label} already assign")
             return
 
         if label in STATIC_LABELS_DICT:
             self.logger.info(f"{self.log_prefix} Adding pull request label {label}")
-            self.pull_request.add_to_labels(label)
+            pull_request.add_to_labels(label)
             return
 
         _color = [DYNAMIC_LABELS_DICT[_label] for _label in DYNAMIC_LABELS_DICT if _label in label]
@@ -78,7 +78,7 @@ class LabelsHandler:
             self.repository.create_label(name=label, color=color)
 
         self.logger.info(f"{self.log_prefix} Adding pull request label {label}")
-        self.pull_request.add_to_labels(label)
+        pull_request.add_to_labels(label)
         self.wait_for_label(label=label, exists=True)
 
     def wait_for_label(self, label: str, exists: bool) -> bool:
@@ -97,10 +97,10 @@ class LabelsHandler:
 
         return False
 
-    def get_size(self) -> str:
+    def get_size(self, pull_request: PullRequest) -> str:
         """Calculates size label based on additions and deletions."""
 
-        size = self.pull_request.additions + self.pull_request.deletions
+        size = pull_request.additions + pull_request.deletions
 
         # Define label thresholds in a more readable way
         threshold_sizes = [20, 50, 100, 300, 500]
@@ -113,25 +113,30 @@ class LabelsHandler:
 
         return f"{SIZE_LABEL_PREFIX}XXL"
 
-    def add_size_label(self) -> None:
+    def add_size_label(self, pull_request: PullRequest) -> None:
         """Add a size label to the pull request based on its additions and deletions."""
-        size_label = self.get_size()
+        size_label = self.get_size(pull_request=pull_request)
         if not size_label:
             self.logger.debug(f"{self.log_prefix} Size label not found")
             return
 
-        if size_label in self.pull_request_labels_names():
+        if size_label in self.pull_request_labels_names(pull_request=pull_request):
             return
 
-        exists_size_label = [label for label in self.pull_request_labels_names() if label.startswith(SIZE_LABEL_PREFIX)]
+        exists_size_label = [
+            label
+            for label in self.pull_request_labels_names(pull_request=pull_request)
+            if label.startswith(SIZE_LABEL_PREFIX)
+        ]
 
         if exists_size_label:
-            self._remove_label(label=exists_size_label[0])
+            self._remove_label(pull_request=pull_request, label=exists_size_label[0])
 
-        self._add_label(label=size_label)
+        self._add_label(pull_request=pull_request, label=size_label)
 
     def label_by_user_comment(
         self,
+        pull_request: PullRequest,
         user_requested_label: str,
         remove: bool,
         reviewed_user: str,
@@ -143,6 +148,7 @@ class LabelsHandler:
 
         if user_requested_label in (LGTM_STR, APPROVE_STR):
             self.manage_reviewed_by_label(
+                pull_request=pull_request,
                 review_state=user_requested_label,
                 action=DELETE_STR if remove else ADD_STR,
                 reviewed_user=reviewed_user,
@@ -150,9 +156,11 @@ class LabelsHandler:
 
         else:
             label_func = self._remove_label if remove else self._add_label
-            label_func(label=user_requested_label)
+            label_func(pull_request=pull_request, label=user_requested_label)
 
-    def manage_reviewed_by_label(self, review_state: str, action: str, reviewed_user: str) -> None:
+    def manage_reviewed_by_label(
+        self, pull_request: PullRequest, review_state: str, action: str, reviewed_user: str
+    ) -> None:
         self.logger.info(
             f"{self.log_prefix} "
             f"Processing label for review from {reviewed_user}. "
@@ -193,14 +201,14 @@ class LabelsHandler:
             reviewer_label = f"{label_prefix}{reviewed_user}"
 
             if action == ADD_STR:
-                self._add_label(label=reviewer_label)
-                self._remove_label(label=label_to_remove)
+                self._add_label(pull_request=pull_request, label=reviewer_label)
+                self._remove_label(pull_request=pull_request, label=label_to_remove)
 
             if action == DELETE_STR:
-                self._remove_label(label=reviewer_label)
+                self._remove_label(pull_request=pull_request, label=reviewer_label)
         else:
             self.logger.warning(
-                f"{self.log_prefix} PR {self.pull_request.number} got unsupported review state: {review_state}"
+                f"{self.log_prefix} PR {pull_request.number} got unsupported review state: {review_state}"
             )
 
     def wip_or_hold_lables_exists(self, labels: list[str]) -> str:

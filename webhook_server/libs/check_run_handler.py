@@ -2,6 +2,7 @@ import functools
 from typing import Any
 
 from github.CheckRun import CheckRun
+from github.PullRequest import PullRequest
 
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
@@ -26,9 +27,8 @@ class CheckRunHandler:
         self.logger = self.github_webhook.logger
         self.log_prefix = self.github_webhook.log_prefix
         self.repository = self.github_webhook.repository
-        self.pull_request = getattr(self.github_webhook, "pull_request", None)
 
-    def process_pull_request_check_run_webhook_data(self) -> bool:
+    async def process_pull_request_check_run_webhook_data(self) -> bool:
         """Return True if check_if_can_be_merged need to run"""
 
         _check_run: dict[str, Any] = self.hook_data["check_run"]
@@ -213,7 +213,9 @@ class CheckRunHandler:
                     return True
         return False
 
-    def required_check_failed(self, last_commit_check_runs: list[CheckRun], check_runs_in_progress: list[str]) -> str:
+    def required_check_failed(
+        self, pull_request: PullRequest, last_commit_check_runs: list[CheckRun], check_runs_in_progress: list[str]
+    ) -> str:
         failed_check_runs = []
         for check_run in last_commit_check_runs:
             self.logger.debug(f"{self.log_prefix} Check if {check_run.name} failed.")
@@ -221,7 +223,7 @@ class CheckRunHandler:
                 check_run.name == CAN_BE_MERGED_STR
                 or check_run.conclusion == SUCCESS_STR
                 or check_run.conclusion == QUEUED_STR
-                or check_run.name not in self.all_required_status_checks
+                or check_run.name not in self.all_required_status_checks(pull_request=pull_request)
             ):
                 continue
 
@@ -237,13 +239,11 @@ class CheckRunHandler:
 
         return ""
 
-    @functools.cached_property
-    def all_required_status_checks(self) -> list[str]:
-        if self.pull_request and not hasattr(self, "pull_request_branch"):
-            self.pull_request_branch = self.pull_request.base.ref
-
+    @functools.lru_cache
+    def all_required_status_checks(self, pull_request: PullRequest) -> list[str]:
         all_required_status_checks: list[str] = []
-        branch_required_status_checks = self.get_branch_required_status_checks()
+        branch_required_status_checks = self.get_branch_required_status_checks(pull_request=pull_request)
+
         if self.github_webhook.tox:
             all_required_status_checks.append(TOX_STR)
 
@@ -263,18 +263,20 @@ class CheckRunHandler:
         self.logger.debug(f"{self.log_prefix} All required status checks: {_all_required_status_checks}")
         return _all_required_status_checks
 
-    def get_branch_required_status_checks(self) -> list[str]:
+    def get_branch_required_status_checks(self, pull_request: PullRequest) -> list[str]:
         if self.repository.private:
             self.logger.info(
                 f"{self.log_prefix} Repository is private, skipping getting branch protection required status checks"
             )
             return []
 
-        pull_request_branch = self.repository.get_branch(self.pull_request_branch)
+        pull_request_branch = self.repository.get_branch(pull_request.base.ref)
         branch_protection = pull_request_branch.get_protection()
         return branch_protection.required_status_checks.contexts
 
-    def required_check_in_progress(self, last_commit_check_runs: list[CheckRun]) -> tuple[str, list[str]]:
+    def required_check_in_progress(
+        self, pull_request: PullRequest, last_commit_check_runs: list[CheckRun]
+    ) -> tuple[str, list[str]]:
         last_commit_check_runs = list(self.github_webhook.last_commit.get_check_runs())
         self.logger.debug(f"{self.log_prefix} Check if any required check runs in progress.")
         check_runs_in_progress = [
@@ -282,7 +284,7 @@ class CheckRunHandler:
             for check_run in last_commit_check_runs
             if check_run.status == IN_PROGRESS_STR
             and check_run.name != CAN_BE_MERGED_STR
-            and check_run.name in self.all_required_status_checks
+            and check_run.name in self.all_required_status_checks(pull_request=pull_request)
         ]
         if check_runs_in_progress:
             self.logger.debug(

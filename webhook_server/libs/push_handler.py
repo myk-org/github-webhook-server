@@ -17,7 +17,7 @@ class PushHandler:
         self.check_run_handler = CheckRunHandler(github_webhook=self.github_webhook)
         self.runner_handler = RunnerHandler(github_webhook=self.github_webhook)
 
-    def process_push_webhook_data(self) -> None:
+    async def process_push_webhook_data(self) -> None:
         tag = re.search(r"refs/tags/?(.*)", self.hook_data["ref"])
         if tag:
             tag_name = tag.group(1)

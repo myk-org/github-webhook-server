@@ -1,7 +1,3 @@
-class NoPullRequestError(Exception):
-    pass
-
-
 class RepositoryNotFoundError(Exception):
     pass
 

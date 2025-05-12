@@ -22,7 +22,7 @@ from fastapi import (
 from starlette.datastructures import Headers
 
 from webhook_server.libs.config import Config
-from webhook_server.libs.exceptions import NoPullRequestError, RepositoryNotFoundError
+from webhook_server.libs.exceptions import RepositoryNotFoundError
 from webhook_server.libs.github_api import GithubWebhook
 from webhook_server.utils.helpers import get_logger_with_params
 
@@ -218,9 +218,6 @@ async def process_webhook(request: Request, background_tasks: BackgroundTasks) -
         try:
             await _api.process()
 
-        except NoPullRequestError:
-            return
-
         except Exception as e:
             _logger.exception(f"{log_context} Error in background task: {e}")
 
@@ -237,10 +234,6 @@ async def process_webhook(request: Request, background_tasks: BackgroundTasks) -
     except ConnectionError as e:
         logger.exception(f"{log_context} API connection error: {e}")
         raise HTTPException(status_code=503, detail=f"API Connection Error: {e}")
-
-    except NoPullRequestError as e:
-        logger.debug(f"{log_context} Processing skipped: {e}")
-        return {"status": "OK", "message": f"Processing skipped: {e}"}
 
     except HTTPException:
         raise
