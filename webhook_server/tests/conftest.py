@@ -5,6 +5,7 @@ import yaml
 from simple_logger.logger import logging
 from starlette.datastructures import Headers
 
+os.environ["WEBHOOK_SERVER_DATA_DIR"] = "webhook_server/tests/manifests"
 from webhook_server.libs.github_api import GithubWebhook
 
 ALL_CHANGED_FILES = [
@@ -94,8 +95,32 @@ class Repository:
             return ContentFile(folder5_owners_data)
 
 
+class Label:
+    def __init__(self, name: str):
+        self.name = name
+
+
 class PullRequest:
-    def __init__(self): ...
+    def __init__(self, additions: int | None = None, deletions: int | None = None, labels: list[str] | None = None):
+        self.additions = additions
+        self.deletions = deletions
+        self.labels = labels or []
+
+    @property
+    def lables(self) -> list[Label]:
+        return [Label(label) for label in self.labels]
+
+    class base:
+        ref = "refs/heads/main"
+
+    def create_issue_comment(self, *args, **kwargs): ...
+
+    def create_review_request(self, *args, **kwargs): ...
+
+
+@pytest.fixture(scope="function")
+def pull_request(mocker):
+    return PullRequest()
 
 
 @pytest.fixture(scope="function")

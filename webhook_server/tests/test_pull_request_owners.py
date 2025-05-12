@@ -103,9 +103,11 @@ def all_approvers_reviewers(process_github_webhook):
     process_github_webhook.all_pull_request_reviewers.sort()
 
 
-def test_get_all_repository_approvers_and_reviewers(process_github_webhook, all_repository_approvers_and_reviewers):
+def test_get_all_repository_approvers_and_reviewers(
+    process_github_webhook, pull_request, all_repository_approvers_and_reviewers
+):
     process_github_webhook.repository = Repository()
-    read_owners_result = process_github_webhook.get_all_repository_approvers_and_reviewers()
+    read_owners_result = process_github_webhook.get_all_repository_approvers_and_reviewers(pull_request=pull_request)
     assert read_owners_result == process_github_webhook.all_repository_approvers_and_reviewers
 
 

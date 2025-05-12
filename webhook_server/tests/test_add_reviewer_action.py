@@ -27,19 +27,19 @@ class PullRequest:
         return
 
 
-def test_add_reviewer_by_user_comment(caplog, process_github_webhook):
+def test_add_reviewer_by_user_comment(caplog, process_github_webhook, pull_request):
     process_github_webhook.repository = Repository()
     process_github_webhook.pull_request = PullRequest()
     issue_comment_handler = IssueCommentHandler(github_webhook=process_github_webhook)
-    issue_comment_handler._add_reviewer_by_user_comment("user1")
+    issue_comment_handler._add_reviewer_by_user_comment(pull_request=pull_request, reviewer="user1")
     caplog.set_level(logging.DEBUG)
     assert "Adding reviewer user1 by user comment" in caplog.text
 
 
-def test_add_reviewer_by_user_comment_invalid_user(caplog, process_github_webhook):
+def test_add_reviewer_by_user_comment_invalid_user(caplog, process_github_webhook, pull_request):
     process_github_webhook.repository = Repository()
     process_github_webhook.pull_request = PullRequest()
     issue_comment_handler = IssueCommentHandler(github_webhook=process_github_webhook)
-    issue_comment_handler._add_reviewer_by_user_comment("user2")
+    issue_comment_handler._add_reviewer_by_user_comment(pull_request=pull_request, reviewer="user2")
     caplog.set_level(logging.DEBUG)
     assert "not adding reviewer user2 by user comment, user2 is not part of contributers" in caplog.text
