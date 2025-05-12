@@ -345,7 +345,7 @@ PR will be approved when the following conditions are met:
         prepare_pull_futures: list[Future] = []
 
         with ThreadPoolExecutor() as executor:
-            prepare_pull_futures.append(executor.submit(self.github_webhook.assign_reviewers))
+            prepare_pull_futures.append(executor.submit(self.github_webhook.assign_reviewers, pull_request))
             prepare_pull_futures.append(
                 executor.submit(
                     self.labels_handler._add_label,
