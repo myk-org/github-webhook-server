@@ -17,7 +17,9 @@ from simple_logger.logger import get_logger
 from webhook_server.libs.config import Config
 
 
-def get_logger_with_params(name: str, repository_name: str = "") -> Logger:
+def get_logger_with_params(
+    name: str, repository_name: str = "", mask_sensitive: bool = False, mask_sensitive_patterns: list[str] | None = None
+) -> Logger:
     _config = Config(repository=repository_name)
 
     log_level: str = _config.get_value(value="log-level", return_on_none="INFO")
@@ -26,7 +28,14 @@ def get_logger_with_params(name: str, repository_name: str = "") -> Logger:
     if log_file and not log_file.startswith("/"):
         log_file = os.path.join(_config.data_dir, "logs", log_file)
 
-    return get_logger(name=name, filename=log_file, level=log_level, file_max_bytes=1048576 * 50)  # 50MB
+    return get_logger(
+        name=name,
+        filename=log_file,
+        level=log_level,
+        file_max_bytes=1048576 * 50,
+        mask_sensitive=mask_sensitive,
+        mask_sensitive_patterns=mask_sensitive_patterns,
+    )  # 50MB
 
 
 def extract_key_from_dict(key: Any, _dict: dict[Any, Any]) -> Any:
@@ -77,7 +86,10 @@ def run_command(
     Returns:
         tuple: True, out if command succeeded, False, err otherwise.
     """
-    logger = get_logger_with_params(name="helpers")
+    mask_sensitive_patterns: list[str] = ["-p", "password", "token", "apikey", "secret"]
+    logger = get_logger_with_params(
+        name="helpers", mask_sensitive=True, mask_sensitive_patterns=mask_sensitive_patterns
+    )
     text = True
     out_decoded: str = ""
     err_decoded: str = ""
