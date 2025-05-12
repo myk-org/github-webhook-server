@@ -148,3 +148,4 @@ local-run.sh
 .scannerwork/
 webhook-server.private-key.pem
 log-colors.json
+webhook_server/tests/manifests/logs

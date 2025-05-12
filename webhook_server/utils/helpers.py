@@ -26,7 +26,12 @@ def get_logger_with_params(
     log_file: str = _config.get_value(value="log-file")
 
     if log_file and not log_file.startswith("/"):
-        log_file = os.path.join(_config.data_dir, "logs", log_file)
+        log_file_path = os.path.join(_config.data_dir, "logs")
+
+        if not os.path.isdir(log_file_path):
+            os.makedirs(log_file_path, exist_ok=True)
+
+        log_file = os.path.join(log_file_path, log_file)
 
     return get_logger(
         name=name,
