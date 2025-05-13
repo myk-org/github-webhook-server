@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from typing import Any
 
 from github.PullRequest import PullRequest
@@ -55,25 +54,20 @@ class PullRequestHandler:
             await self.set_wip_label_based_on_title(pull_request=pull_request)
 
         if hook_action in ("opened", "reopened"):
-            pull_request_opened_futures: list[Future] = []
+            tasks = []
 
-            with ThreadPoolExecutor() as executor:
-                if hook_action == "opened":
-                    welcome_msg = self._prepare_welcome_comment()
-                    pull_request_opened_futures.append(
-                        executor.submit(pull_request.create_issue_comment, **{"body": welcome_msg})
-                    )
-                pull_request_opened_futures.append(
-                    executor.submit(self.create_issue_for_new_pull_request, pull_request)
-                )
-                pull_request_opened_futures.append(executor.submit(self.set_wip_label_based_on_title, pull_request))
-                pull_request_opened_futures.append(
-                    executor.submit(self.process_opened_or_synchronize_pull_request, pull_request)
-                )
+            if hook_action == "opened":
+                welcome_msg = self._prepare_welcome_comment()
+                tasks.append(pull_request.create_issue_comment(**{"body": welcome_msg}))
 
-            for result in as_completed(pull_request_opened_futures):
-                if _exp := result.exception():
-                    self.logger.error(f"{self.log_prefix} {_exp}")
+            tasks.append(self.create_issue_for_new_pull_request(pull_request=pull_request))
+            tasks.append(self.set_wip_label_based_on_title(pull_request=pull_request))
+            tasks.append(self.process_opened_or_synchronize_pull_request(pull_request=pull_request))
+
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for result in results:
+                if isinstance(result, Exception):
+                    self.logger.error(f"{self.log_prefix} Async task failed: {results}")
 
             # Set automerge only after all initialization of a new PR is done.
             self.set_pull_request_automerge(pull_request=pull_request)
@@ -86,7 +80,7 @@ class PullRequestHandler:
 
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            for result in results:  # type: ignore
+            for result in results:
                 if isinstance(result, Exception):
                     self.logger.error(f"{self.log_prefix} Async task failed: {result}")
 
@@ -376,7 +370,7 @@ PR will be approved when the following conditions are met:
             if isinstance(result, Exception):
                 self.logger.error(f"{self.log_prefix} Async task failed: {result}")
 
-    def create_issue_for_new_pull_request(self, pull_request: PullRequest) -> None:
+    async def create_issue_for_new_pull_request(self, pull_request: PullRequest) -> None:
         if self.github_webhook.parent_committer in self.github_webhook.auto_verified_and_merged_users:
             self.logger.info(
                 f"{self.log_prefix} Committer {self.github_webhook.parent_committer} is part of "
