@@ -1,3 +1,4 @@
+import asyncio
 import contextlib
 import functools
 import shutil
@@ -5,6 +6,7 @@ from typing import Any, AsyncGenerator
 from uuid import uuid4
 
 import shortuuid
+from github.Branch import Branch
 from github.NamedUser import NamedUser
 from github.PaginatedList import PaginatedList
 from github.PullRequest import PullRequest
@@ -124,7 +126,7 @@ class RunnerHandler:
 
                     # Checkout the pull request
                     else:
-                        if _pull_request := self.github_webhook._get_pull_request():
+                        if _pull_request := await self.github_webhook.get_pull_request():
                             rc, out, err = await run_command(
                                 command=f"{git_cmd} checkout origin/pr/{_pull_request.number}",
                                 log_prefix=self.log_prefix,
@@ -259,7 +261,7 @@ class RunnerHandler:
             if self.check_run_handler.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR) and not is_merged:
                 self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {BUILD_CONTAINER_STR}.")
 
-        self.check_run_handler.set_container_build_in_progress()
+        await self.check_run_handler.set_container_build_in_progress()
 
         _container_repository_and_tag = self.github_webhook.container_repository_and_tag(
             pull_request=pull_request, is_merged=is_merged, tag=tag
@@ -292,7 +294,7 @@ class RunnerHandler:
             if not _res[0]:
                 output["text"] = self.check_run_handler.get_check_run_text(out=_res[1], err=_res[2])
                 if pull_request and set_check:
-                    return self.check_run_handler.set_container_build_failure(output=output)
+                    return await self.check_run_handler.set_container_build_failure(output=output)
 
             build_rc, build_out, build_err = await self.run_podman_command(command=podman_build_cmd)
             output["text"] = self.check_run_handler.get_check_run_text(err=build_err, out=build_out)
@@ -300,11 +302,11 @@ class RunnerHandler:
             if build_rc:
                 self.logger.info(f"{self.log_prefix} Done building {_container_repository_and_tag}")
                 if pull_request and set_check:
-                    return self.check_run_handler.set_container_build_success(output=output)
+                    return await self.check_run_handler.set_container_build_success(output=output)
             else:
                 self.logger.error(f"{self.log_prefix} Failed to build {_container_repository_and_tag}")
                 if pull_request and set_check:
-                    return self.check_run_handler.set_container_build_failure(output=output)
+                    return await self.check_run_handler.set_container_build_failure(output=output)
 
             if push and build_rc:
                 cmd = f"podman push --creds {self.github_webhook.container_repository_username}:{self.github_webhook.container_repository_password} {_container_repository_and_tag}"
@@ -349,7 +351,7 @@ class RunnerHandler:
 
         clone_repo_dir = f"{self.github_webhook.clone_repo_dir}-{uuid4()}"
         self.logger.info(f"{self.log_prefix} Installing python module")
-        self.check_run_handler.set_python_module_install_in_progress()
+        await self.check_run_handler.set_python_module_install_in_progress()
         async with self._prepare_cloned_repo_dir(
             pull_request=pull_request,
             clone_repo_dir=clone_repo_dir,
@@ -361,7 +363,7 @@ class RunnerHandler:
             }
             if not _res[0]:
                 output["text"] = self.check_run_handler.get_check_run_text(out=_res[1], err=_res[2])
-                return self.check_run_handler.set_python_module_install_failure(output=output)
+                return await self.check_run_handler.set_python_module_install_failure(output=output)
 
             rc, out, err = await run_command(
                 command=f"uvx pip wheel --no-cache-dir -w {clone_repo_dir}/dist {clone_repo_dir}",
@@ -371,9 +373,9 @@ class RunnerHandler:
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
 
             if rc:
-                return self.check_run_handler.set_python_module_install_success(output=output)
+                return await self.check_run_handler.set_python_module_install_success(output=output)
 
-            return self.check_run_handler.set_python_module_install_failure(output=output)
+            return await self.check_run_handler.set_python_module_install_failure(output=output)
 
     async def run_conventional_title_check(self, pull_request: PullRequest) -> None:
         output: dict[str, str] = {
@@ -385,16 +387,16 @@ class RunnerHandler:
         if self.check_run_handler.is_check_run_in_progress(check_run=CONVENTIONAL_TITLE_STR):
             self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {CONVENTIONAL_TITLE_STR}.")
 
-        self.check_run_handler.set_conventional_title_in_progress()
+        await self.check_run_handler.set_conventional_title_in_progress()
         allowed_names = self.github_webhook.conventional_title.split(",")
         title = pull_request.title
         if any([title.startswith(f"{_name}:") for _name in allowed_names]):
-            self.check_run_handler.set_conventional_title_success(output=output)
+            await self.check_run_handler.set_conventional_title_success(output=output)
         else:
             output["summary"] = "Failed"
             output["text"] = f"Pull request title must starts with allowed title: {': ,'.join(allowed_names)}"
 
-            self.check_run_handler.set_conventional_title_failure(output=output)
+            await self.check_run_handler.set_conventional_title_failure(output=output)
 
     def _is_user_valid_to_run_commands(self, pull_request: PullRequest, reviewed_user: str) -> bool:
         allowed_user_to_approve = self.get_all_repository_maintainers() + self.github_webhook.all_repository_approvers
@@ -451,6 +453,9 @@ Maintainers:
     def repository_contributors(self) -> PaginatedList[NamedUser]:
         return self.repository.get_contributors()
 
+    async def is_branch_exists(self, branch: str) -> Branch:
+        return await asyncio.to_thread(self.repository.get_branch, branch)
+
     def get_all_repository_contributors(self) -> list[str]:
         return [val.login for val in self.repository_contributors]
 
@@ -462,13 +467,13 @@ Maintainers:
         self.logger.info(f"{self.log_prefix} Cherry-pick requested by user: {requested_by}")
 
         new_branch_name = f"{CHERRY_PICKED_LABEL_PREFIX}-{pull_request.head.ref}-{shortuuid.uuid()[:5]}"
-        if not self.github_webhook.is_branch_exists(branch=target_branch):
+        if not await self.is_branch_exists(branch=target_branch):
             err_msg = f"cherry-pick failed: {target_branch} does not exists"
             self.logger.error(err_msg)
             pull_request.create_issue_comment(err_msg)
 
         else:
-            self.check_run_handler.set_cherry_pick_in_progress()
+            await self.check_run_handler.set_cherry_pick_in_progress()
             commit_hash = pull_request.merge_commit_sha
             commit_msg_striped = pull_request.title.replace("'", "")
             pull_request_url = pull_request.html_url
@@ -493,13 +498,13 @@ Maintainers:
                 }
                 if not _res[0]:
                     output["text"] = self.check_run_handler.get_check_run_text(out=_res[1], err=_res[2])
-                    self.check_run_handler.set_cherry_pick_failure(output=output)
+                    await self.check_run_handler.set_cherry_pick_failure(output=output)
 
                 for cmd in commands:
                     rc, out, err = await run_command(command=cmd, log_prefix=self.log_prefix)
                     if not rc:
                         output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
-                        self.check_run_handler.set_cherry_pick_failure(output=output)
+                        await self.check_run_handler.set_cherry_pick_failure(output=output)
                         self.logger.error(f"{self.log_prefix} Cherry pick failed: {out} --- {err}")
                         local_branch_name = f"{pull_request.head.ref}-{target_branch}"
                         pull_request.create_issue_comment(
@@ -519,5 +524,5 @@ Maintainers:
 
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
 
-            self.check_run_handler.set_cherry_pick_success(output=output)
+            await self.check_run_handler.set_cherry_pick_success(output=output)
             pull_request.create_issue_comment(f"Cherry-picked PR {pull_request.title} into {target_branch}")

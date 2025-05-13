@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import time
 from typing import Any
 
 from github.PullRequest import PullRequest
@@ -259,7 +258,7 @@ PR will be approved when the following conditions are met:
         """
         time_sleep = 30
         self.logger.info(f"{self.log_prefix} Sleep for {time_sleep} seconds before getting all opened PRs")
-        time.sleep(time_sleep)
+        await asyncio.sleep(time_sleep)
 
         for pull_request in self.repository.get_pulls(state="open"):
             self.logger.info(f"{self.log_prefix} check label pull request after merge")

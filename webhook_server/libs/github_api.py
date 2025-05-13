@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import logging
@@ -11,7 +12,6 @@ from typing import Any
 import requests
 import yaml
 from github import GithubException
-from github.Branch import Branch
 from github.Commit import Commit
 from github.PullRequest import PullRequest
 from starlette.datastructures import Headers
@@ -117,10 +117,10 @@ class GithubWebhook:
             self.logger.debug(f"{self.log_prefix} {event_log}")
             return await PushHandler(github_webhook=self).process_push_webhook_data()
 
-        if pull_request := self._get_pull_request():
+        if pull_request := await self.get_pull_request():
             self.log_prefix = self.prepare_log_prefix(pull_request=pull_request)
             self.logger.debug(f"{self.log_prefix} {event_log}")
-            self.last_commit = self._get_last_commit(pull_request=pull_request)
+            self.last_commit = await self._get_last_commit(pull_request=pull_request)
             self.parent_committer = pull_request.user.login
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
             self.changed_files = self.list_changed_files(pull_request=pull_request)
@@ -259,24 +259,25 @@ class GithubWebhook:
             value="minimum-lgtm", return_on_none=0, extra_dict=repository_config
         )
 
-    def _get_pull_request(self, number: int | None = None) -> PullRequest | None:
+    async def get_pull_request(self, number: int | None = None) -> PullRequest | None:
         if number:
-            return self.repository.get_pull(number)
+            return await asyncio.to_thread(self.repository.get_pull, number)
 
         for _number in extract_key_from_dict(key="number", _dict=self.hook_data):
             try:
-                return self.repository.get_pull(_number)
+                return await asyncio.to_thread(self.repository.get_pull, _number)
             except GithubException:
                 continue
 
         commit: dict[str, Any] = self.hook_data.get("commit", {})
         if commit:
-            commit_obj = self.repository.get_commit(commit["sha"])
+            commit_obj = await asyncio.to_thread(self.repository.get_commit, commit["sha"])
             with contextlib.suppress(Exception):
-                return commit_obj.get_pulls()[0]
+                _pulls = await asyncio.to_thread(commit_obj.get_pulls)
+                return _pulls[0]
 
         if self.github_event == "check_run":
-            for _pull_request in self.repository.get_pulls(state="open"):
+            for _pull_request in await asyncio.to_thread(self.repository.get_pulls, state="open"):
                 if _pull_request.head.sha == self.hook_data["check_run"]["head_sha"]:
                     self.logger.debug(
                         f"{self.log_prefix} Found pull request {_pull_request.title} [{_pull_request.number}] for check run {self.hook_data['check_run']['name']}"
@@ -285,11 +286,9 @@ class GithubWebhook:
 
         return None
 
-    def _get_last_commit(self, pull_request: PullRequest) -> Commit:
-        return list(pull_request.get_commits())[-1]
-
-    def is_branch_exists(self, branch: str) -> Branch:
-        return self.repository.get_branch(branch)
+    async def _get_last_commit(self, pull_request: PullRequest) -> Commit:
+        _commits = await asyncio.to_thread(pull_request.get_commits)
+        return list(_commits)[-1]
 
     @property
     def root_reviewers(self) -> list[str]:
