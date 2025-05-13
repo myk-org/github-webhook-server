@@ -1,3 +1,5 @@
+import asyncio
+
 from webhook_server.libs.config import Config
 from webhook_server.utils.github_repository_and_webhook_settings import repository_and_webhook_settings
 
@@ -9,5 +11,5 @@ _max_workers = _root_config.get("max-workers", 10)
 _webhook_secret = _root_config.get("webhook-secret")
 
 if __name__ == "__main__":
-    repository_and_webhook_settings(webhook_secret=_webhook_secret)
+    result = asyncio.run(repository_and_webhook_settings(webhook_secret=_webhook_secret))
     print(f"uv run uvicorn webhook_server.app:FASTAPI_APP --host {_ip_bind} --port {_port} --workers {_max_workers}")

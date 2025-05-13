@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from typing import Any
@@ -78,34 +79,27 @@ class PullRequestHandler:
             self.set_pull_request_automerge(pull_request=pull_request)
 
         if hook_action == "synchronize":
-            pull_request_synchronize_futures: list[Future] = []
+            tasks = []
+            tasks.append(self.process_opened_or_synchronize_pull_request(pull_request=pull_request))
 
-            with ThreadPoolExecutor() as executor:
-                pull_request_synchronize_futures.append(
-                    executor.submit(self.remove_labels_when_pull_request_sync, pull_request)
-                )
-                pull_request_synchronize_futures.append(
-                    executor.submit(self.process_opened_or_synchronize_pull_request, pull_request)
-                )
+            self.remove_labels_when_pull_request_sync(pull_request=pull_request)
 
-            for result in as_completed(pull_request_synchronize_futures):
-                if _exp := result.exception():
-                    self.logger.error(f"{self.log_prefix} {_exp}")
+            await asyncio.gather(*tasks)
 
         if hook_action == "closed":
             self.close_issue_for_merged_or_closed_pr(pull_request=pull_request, hook_action=hook_action)
-            self.delete_remote_tag_for_merged_or_closed_pr(pull_request=pull_request)
+            await self.delete_remote_tag_for_merged_or_closed_pr(pull_request=pull_request)
             if is_merged := pull_request_data.get("merged", False):
                 self.logger.info(f"{self.log_prefix} PR is merged")
 
                 for _label in pull_request.labels:
                     _label_name = _label.name
                     if _label_name.startswith(CHERRY_PICK_LABEL_PREFIX):
-                        self.runner_handler.cherry_pick(
+                        await self.runner_handler.cherry_pick(
                             pull_request=pull_request, target_branch=_label_name.replace(CHERRY_PICK_LABEL_PREFIX, "")
                         )
 
-                self.runner_handler.run_build_container(
+                await self.runner_handler.run_build_container(
                     push=True,
                     set_check=False,
                     is_merged=is_merged,
@@ -276,7 +270,7 @@ PR will be approved when the following conditions are met:
             self.logger.info(f"{self.log_prefix} check label pull request after merge")
             self.label_pull_request_by_merge_state(pull_request=pull_request)
 
-    def delete_remote_tag_for_merged_or_closed_pr(self, pull_request: PullRequest) -> None:
+    async def delete_remote_tag_for_merged_or_closed_pr(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.build_and_push_container:
             self.logger.info(f"{self.log_prefix} repository do not have container configured")
             return
@@ -303,17 +297,18 @@ PR will be approved when the following conditions are met:
             f"-p {self.github_webhook.container_repository_password}"
         )
 
-        rc, out, err = self.runner_handler.run_podman_command(command=reg_login_cmd)
+        rc, out, err = await self.runner_handler.run_podman_command(command=reg_login_cmd)
 
         if rc:
             try:
                 tag_ls_cmd = f"regctl tag ls {self.github_webhook.container_repository} --include {pr_tag}"
-                rc, out, err = self.runner_handler.run_podman_command(command=tag_ls_cmd)
+                rc, out, err = await self.runner_handler.run_podman_command(command=tag_ls_cmd)
 
                 if rc and out:
                     tag_del_cmd = f"regctl tag delete {repository_full_tag}"
 
-                    if self.runner_handler.run_podman_command(command=tag_del_cmd)[0]:
+                    rc, _, _ = await self.runner_handler.run_podman_command(command=tag_del_cmd)
+                    if rc:
                         pull_request.create_issue_comment(f"Successfully removed PR tag: {repository_full_tag}.")
                     else:
                         self.logger.error(
@@ -325,7 +320,7 @@ PR will be approved when the following conditions are met:
                         f"OUT:{out}. ERR:{err}"
                     )
             finally:
-                self.runner_handler.run_podman_command(command="regctl registry logout")
+                await self.runner_handler.run_podman_command(command="regctl registry logout")
 
         else:
             pull_request.create_issue_comment(
@@ -343,8 +338,9 @@ PR will be approved when the following conditions are met:
                 issue.edit(state="closed")
                 break
 
-    def process_opened_or_synchronize_pull_request(self, pull_request: PullRequest) -> None:
+    async def process_opened_or_synchronize_pull_request(self, pull_request: PullRequest) -> None:
         prepare_pull_futures: list[Future] = []
+        tasks = []
 
         with ThreadPoolExecutor() as executor:
             prepare_pull_futures.append(executor.submit(self.github_webhook.assign_reviewers, pull_request))
@@ -369,20 +365,20 @@ PR will be approved when the following conditions are met:
             prepare_pull_futures.append(executor.submit(self.labels_handler.add_size_label, pull_request))
             prepare_pull_futures.append(executor.submit(self.add_pull_request_owner_as_assingee, pull_request))
 
-            prepare_pull_futures.append(executor.submit(self.runner_handler.run_tox, pull_request))
-            prepare_pull_futures.append(executor.submit(self.runner_handler.run_pre_commit, pull_request))
-            prepare_pull_futures.append(executor.submit(self.runner_handler.run_install_python_module, pull_request))
-            prepare_pull_futures.append(executor.submit(self.runner_handler.run_build_container, pull_request))
-
             if self.github_webhook.conventional_title:
                 prepare_pull_futures.append(executor.submit(self.check_run_handler.set_conventional_title_queued))
-                prepare_pull_futures.append(
-                    executor.submit(self.runner_handler.run_conventional_title_check, pull_request)
-                )
 
-        for result in as_completed(prepare_pull_futures):
-            if _exp := result.exception():
-                self.logger.error(f"{self.log_prefix} {_exp}")
+        tasks.append(self.runner_handler.run_tox(pull_request=pull_request))
+        tasks.append(self.runner_handler.run_pre_commit(pull_request=pull_request))
+        tasks.append(self.runner_handler.run_install_python_module(pull_request=pull_request))
+        tasks.append(self.runner_handler.run_build_container(pull_request=pull_request))
+        if self.github_webhook.conventional_title:
+            tasks.append(self.runner_handler.run_conventional_title_check(pull_request=pull_request))
+
+        for _ in as_completed(prepare_pull_futures):
+            ...
+
+        await asyncio.gather(*tasks)
 
     def create_issue_for_new_pull_request(self, pull_request: PullRequest) -> None:
         if self.github_webhook.parent_committer in self.github_webhook.auto_verified_and_merged_users:

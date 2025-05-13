@@ -1,7 +1,7 @@
 import contextlib
 import functools
 import shutil
-from typing import Any, Generator
+from typing import Any, AsyncGenerator
 from uuid import uuid4
 
 import shortuuid
@@ -31,22 +31,22 @@ class RunnerHandler:
 
         self.check_run_handler = CheckRunHandler(github_webhook=self.github_webhook)
 
-    @contextlib.contextmanager
-    def _prepare_cloned_repo_dir(
+    @contextlib.asynccontextmanager
+    async def _prepare_cloned_repo_dir(
         self,
         clone_repo_dir: str,
         pull_request: PullRequest | None = None,
         is_merged: bool = False,
         checkout: str = "",
         tag_name: str = "",
-    ) -> Generator[tuple[bool, Any, Any], None, None]:
+    ) -> AsyncGenerator[tuple[bool, Any, Any]]:
         git_cmd = f"git --work-tree={clone_repo_dir} --git-dir={clone_repo_dir}/.git"
         result: tuple[bool, str, str] = (True, "", "")
         success = True
 
         try:
             # Clone the repository
-            rc, out, err = run_command(
+            rc, out, err = await run_command(
                 command=f"git clone {self.repository.clone_url.replace('https://', f'https://{self.github_webhook.token}@')} "
                 f"{clone_repo_dir}",
                 log_prefix=self.log_prefix,
@@ -56,7 +56,7 @@ class RunnerHandler:
                 success = False
 
             if success:
-                rc, out, err = run_command(
+                rc, out, err = await run_command(
                     command=f"{git_cmd} config user.name '{self.repository.owner.login}'", log_prefix=self.log_prefix
                 )
                 if not rc:
@@ -64,7 +64,7 @@ class RunnerHandler:
                     success = False
 
             if success:
-                rc, out, err = run_command(
+                rc, out, err = await run_command(
                     f"{git_cmd} config user.email '{self.repository.owner.email}'", log_prefix=self.log_prefix
                 )
                 if not rc:
@@ -72,7 +72,7 @@ class RunnerHandler:
                     success = False
 
             if success:
-                rc, out, err = run_command(
+                rc, out, err = await run_command(
                     command=f"{git_cmd} config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*",
                     log_prefix=self.log_prefix,
                 )
@@ -81,20 +81,20 @@ class RunnerHandler:
                     success = False
 
             if success:
-                rc, out, err = run_command(command=f"{git_cmd} remote update", log_prefix=self.log_prefix)
+                rc, out, err = await run_command(command=f"{git_cmd} remote update", log_prefix=self.log_prefix)
                 if not rc:
                     result = (rc, out, err)
                     success = False
 
             # Checkout to requested branch/tag
             if checkout and success:
-                rc, out, err = run_command(f"{git_cmd} checkout {checkout}", log_prefix=self.log_prefix)
+                rc, out, err = await run_command(f"{git_cmd} checkout {checkout}", log_prefix=self.log_prefix)
                 if not rc:
                     result = (rc, out, err)
                     success = False
 
                 if success and pull_request:
-                    rc, out, err = run_command(
+                    rc, out, err = await run_command(
                         f"{git_cmd} merge origin/{pull_request.base.ref} -m 'Merge {pull_request.base.ref}'",
                         log_prefix=self.log_prefix,
                     )
@@ -106,7 +106,7 @@ class RunnerHandler:
             else:
                 if success:
                     if is_merged and pull_request:
-                        rc, out, err = run_command(
+                        rc, out, err = await run_command(
                             command=f"{git_cmd} checkout {pull_request.base.ref}",
                             log_prefix=self.log_prefix,
                         )
@@ -115,7 +115,9 @@ class RunnerHandler:
                             success = False
 
                     elif tag_name:
-                        rc, out, err = run_command(command=f"{git_cmd} checkout {tag_name}", log_prefix=self.log_prefix)
+                        rc, out, err = await run_command(
+                            command=f"{git_cmd} checkout {tag_name}", log_prefix=self.log_prefix
+                        )
                         if not rc:
                             result = (rc, out, err)
                             success = False
@@ -123,7 +125,7 @@ class RunnerHandler:
                     # Checkout the pull request
                     else:
                         if _pull_request := self.github_webhook._get_pull_request():
-                            rc, out, err = run_command(
+                            rc, out, err = await run_command(
                                 command=f"{git_cmd} checkout origin/pr/{_pull_request.number}",
                                 log_prefix=self.log_prefix,
                             )
@@ -132,7 +134,7 @@ class RunnerHandler:
                                 success = False
 
                             if pull_request and success:
-                                rc, out, err = run_command(
+                                rc, out, err = await run_command(
                                     f"{git_cmd} merge origin/{pull_request.base.ref} -m 'Merge {pull_request.base.ref}'",
                                     log_prefix=self.log_prefix,
                                 )
@@ -153,19 +155,19 @@ class RunnerHandler:
         shutil.rmtree("/tmp/storage-run-1000/containers", ignore_errors=True)
         shutil.rmtree("/tmp/storage-run-1000/libpod/tmp", ignore_errors=True)
 
-    def run_podman_command(self, command: str, pipe: bool = False) -> tuple[bool, str, str]:
-        rc, out, err = run_command(command=command, log_prefix=self.log_prefix, pipe=pipe)
+    async def run_podman_command(self, command: str) -> tuple[bool, str, str]:
+        rc, out, err = await run_command(command=command, log_prefix=self.log_prefix)
 
         if rc:
             return rc, out, err
 
         if self.is_podman_bug(err=err):
             self.fix_podman_bug()
-            return run_command(command=command, log_prefix=self.log_prefix, pipe=pipe)
+            return await run_command(command=command, log_prefix=self.log_prefix)
 
         return rc, out, err
 
-    def run_tox(self, pull_request: PullRequest) -> None:
+    async def run_tox(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.tox:
             return
 
@@ -183,7 +185,7 @@ class RunnerHandler:
             cmd += f" -e {tests}"
 
         self.check_run_handler.set_run_tox_check_in_progress()
-        with self._prepare_cloned_repo_dir(clone_repo_dir=clone_repo_dir, pull_request=pull_request) as _res:
+        async with self._prepare_cloned_repo_dir(clone_repo_dir=clone_repo_dir, pull_request=pull_request) as _res:
             output: dict[str, Any] = {
                 "title": "Tox",
                 "summary": "",
@@ -193,7 +195,7 @@ class RunnerHandler:
                 output["text"] = self.check_run_handler.get_check_run_text(out=_res[1], err=_res[2])
                 return self.check_run_handler.set_run_tox_check_failure(output=output)
 
-            rc, out, err = run_command(command=cmd, log_prefix=self.log_prefix)
+            rc, out, err = await run_command(command=cmd, log_prefix=self.log_prefix)
 
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
 
@@ -202,7 +204,7 @@ class RunnerHandler:
             else:
                 return self.check_run_handler.set_run_tox_check_failure(output=output)
 
-    def run_pre_commit(self, pull_request: PullRequest) -> None:
+    async def run_pre_commit(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.pre_commit:
             return
 
@@ -212,7 +214,7 @@ class RunnerHandler:
         clone_repo_dir = f"{self.github_webhook.clone_repo_dir}-{uuid4()}"
         cmd = f" uvx --directory {clone_repo_dir} {PRE_COMMIT_STR} run --all-files"
         self.check_run_handler.set_run_pre_commit_check_in_progress()
-        with self._prepare_cloned_repo_dir(pull_request=pull_request, clone_repo_dir=clone_repo_dir) as _res:
+        async with self._prepare_cloned_repo_dir(pull_request=pull_request, clone_repo_dir=clone_repo_dir) as _res:
             output: dict[str, Any] = {
                 "title": "Pre-Commit",
                 "summary": "",
@@ -222,7 +224,7 @@ class RunnerHandler:
                 output["text"] = self.check_run_handler.get_check_run_text(out=_res[1], err=_res[2])
                 return self.check_run_handler.set_run_pre_commit_check_failure(output=output)
 
-            rc, out, err = run_command(command=cmd, log_prefix=self.log_prefix)
+            rc, out, err = await run_command(command=cmd, log_prefix=self.log_prefix)
 
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
 
@@ -231,7 +233,7 @@ class RunnerHandler:
             else:
                 return self.check_run_handler.set_run_pre_commit_check_failure(output=output)
 
-    def run_build_container(
+    async def run_build_container(
         self,
         pull_request: PullRequest | None = None,
         set_check: bool = True,
@@ -276,7 +278,7 @@ class RunnerHandler:
             build_cmd = f"{command_args} {build_cmd}"
 
         podman_build_cmd: str = f"podman build {build_cmd}"
-        with self._prepare_cloned_repo_dir(
+        async with self._prepare_cloned_repo_dir(
             pull_request=pull_request,
             is_merged=is_merged,
             tag_name=tag,
@@ -292,7 +294,7 @@ class RunnerHandler:
                 if pull_request and set_check:
                     return self.check_run_handler.set_container_build_failure(output=output)
 
-            build_rc, build_out, build_err = self.run_podman_command(command=podman_build_cmd, pipe=True)
+            build_rc, build_out, build_err = await self.run_podman_command(command=podman_build_cmd)
             output["text"] = self.check_run_handler.get_check_run_text(err=build_err, out=build_out)
 
             if build_rc:
@@ -306,7 +308,7 @@ class RunnerHandler:
 
             if push and build_rc:
                 cmd = f"podman push --creds {self.github_webhook.container_repository_username}:{self.github_webhook.container_repository_password} {_container_repository_and_tag}"
-                push_rc, _, _ = self.run_podman_command(command=cmd)
+                push_rc, _, _ = await self.run_podman_command(command=cmd)
                 if push_rc:
                     push_msg: str = f"New container for {_container_repository_and_tag} published"
                     if pull_request:
@@ -338,7 +340,7 @@ class RunnerHandler:
                             message=message, webhook_url=self.github_webhook.slack_webhook_url
                         )
 
-    def run_install_python_module(self, pull_request: PullRequest) -> None:
+    async def run_install_python_module(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.pypi:
             return
 
@@ -348,7 +350,7 @@ class RunnerHandler:
         clone_repo_dir = f"{self.github_webhook.clone_repo_dir}-{uuid4()}"
         self.logger.info(f"{self.log_prefix} Installing python module")
         self.check_run_handler.set_python_module_install_in_progress()
-        with self._prepare_cloned_repo_dir(
+        async with self._prepare_cloned_repo_dir(
             pull_request=pull_request,
             clone_repo_dir=clone_repo_dir,
         ) as _res:
@@ -361,7 +363,7 @@ class RunnerHandler:
                 output["text"] = self.check_run_handler.get_check_run_text(out=_res[1], err=_res[2])
                 return self.check_run_handler.set_python_module_install_failure(output=output)
 
-            rc, out, err = run_command(
+            rc, out, err = await run_command(
                 command=f"uvx pip wheel --no-cache-dir -w {clone_repo_dir}/dist {clone_repo_dir}",
                 log_prefix=self.log_prefix,
             )
@@ -373,7 +375,7 @@ class RunnerHandler:
 
             return self.check_run_handler.set_python_module_install_failure(output=output)
 
-    def run_conventional_title_check(self, pull_request: PullRequest) -> None:
+    async def run_conventional_title_check(self, pull_request: PullRequest) -> None:
         output: dict[str, str] = {
             "title": "Conventional Title",
             "summary": "",
@@ -455,7 +457,7 @@ Maintainers:
     def get_all_repository_collaborators(self) -> list[str]:
         return [val.login for val in self.repository_collaborators]
 
-    def cherry_pick(self, pull_request: PullRequest, target_branch: str, reviewed_user: str = "") -> None:
+    async def cherry_pick(self, pull_request: PullRequest, target_branch: str, reviewed_user: str = "") -> None:
         requested_by = reviewed_user or "by target-branch label"
         self.logger.info(f"{self.log_prefix} Cherry-pick requested by user: {requested_by}")
 
@@ -483,7 +485,7 @@ Maintainers:
             ]
 
             rc, out, err = None, "", ""
-            with self._prepare_cloned_repo_dir(pull_request=pull_request, clone_repo_dir=clone_repo_dir) as _res:
+            async with self._prepare_cloned_repo_dir(pull_request=pull_request, clone_repo_dir=clone_repo_dir) as _res:
                 output = {
                     "title": "Cherry-pick details",
                     "summary": "",
@@ -494,7 +496,7 @@ Maintainers:
                     self.check_run_handler.set_cherry_pick_failure(output=output)
 
                 for cmd in commands:
-                    rc, out, err = run_command(command=cmd, log_prefix=self.log_prefix)
+                    rc, out, err = await run_command(command=cmd, log_prefix=self.log_prefix)
                     if not rc:
                         output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
                         self.check_run_handler.set_cherry_pick_failure(output=output)

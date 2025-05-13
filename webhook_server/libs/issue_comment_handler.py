@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+import asyncio
 from typing import Any, Callable
 
 from github.PullRequest import PullRequest
@@ -115,14 +115,18 @@ class IssueCommentHandler:
             await self.pull_request_handler.check_if_can_be_merged(pull_request=pull_request)
 
         elif _command == COMMAND_CHERRY_PICK_STR:
-            self.process_cherry_pick_command(pull_request=pull_request, command_args=_args, reviewed_user=reviewed_user)
+            await self.process_cherry_pick_command(
+                pull_request=pull_request, command_args=_args, reviewed_user=reviewed_user
+            )
 
         elif _command == COMMAND_RETEST_STR:
-            self.process_retest_command(pull_request=pull_request, command_args=_args, reviewed_user=reviewed_user)
+            await self.process_retest_command(
+                pull_request=pull_request, command_args=_args, reviewed_user=reviewed_user
+            )
 
         elif _command == BUILD_AND_PUSH_CONTAINER_STR:
             if self.github_webhook.build_and_push_container:
-                self.runner_handler.run_build_container(
+                await self.runner_handler.run_build_container(
                     push=True,
                     set_check=False,
                     command_args=_args,
@@ -190,7 +194,9 @@ class IssueCommentHandler:
         self.logger.debug(f"{self.log_prefix} {_err}")
         pull_request.create_issue_comment(_err)
 
-    def process_cherry_pick_command(self, pull_request: PullRequest, command_args: str, reviewed_user: str) -> None:
+    async def process_cherry_pick_command(
+        self, pull_request: PullRequest, command_args: str, reviewed_user: str
+    ) -> None:
         _target_branches: list[str] = command_args.split()
         _exits_target_branches: set[str] = set()
         _non_exits_target_branches_msg: str = ""
@@ -222,13 +228,13 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     self.labels_handler._add_label(pull_request=pull_request, label=_cp_label)
             else:
                 for _exits_target_branch in _exits_target_branches:
-                    self.runner_handler.cherry_pick(
+                    await self.runner_handler.cherry_pick(
                         pull_request=pull_request,
                         target_branch=_exits_target_branch,
                         reviewed_user=reviewed_user,
                     )
 
-    def process_retest_command(self, pull_request: PullRequest, command_args: str, reviewed_user: str) -> None:
+    async def process_retest_command(self, pull_request: PullRequest, command_args: str, reviewed_user: str) -> None:
         if not self.runner_handler._is_user_valid_to_run_commands(
             pull_request=pull_request, reviewed_user=reviewed_user
         ):
@@ -278,11 +284,12 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             pull_request.create_issue_comment(msg)
 
         if _supported_retests:
-            _retest_to_exec: list[Future] = []
-            with ThreadPoolExecutor() as executor:
-                for _test in _supported_retests:
-                    _retest_to_exec.append(executor.submit(_retests_to_func_map[_test], pull_request))
+            tasks = []
+            for _test in _supported_retests:
+                self.logger.debug(f"{self.log_prefix} running retest {_test}")
+                task = asyncio.create_task(_retests_to_func_map[_test](pull_request=pull_request))
+                tasks.append(task)
 
-            for result in as_completed(_retest_to_exec):
-                if _exp := result.exception():
-                    self.logger.error(f"{self.log_prefix} {_exp}")
+            await asyncio.gather(*tasks)
+
+            #     self.logger.debug(f"{self.log_prefix} Retest '{_test}' completed. Result: {result}")

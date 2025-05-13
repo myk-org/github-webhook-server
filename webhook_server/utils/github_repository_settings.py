@@ -60,7 +60,6 @@ def set_branch_protection(
     branch: Branch,
     repository: Repository,
     required_status_checks: list[str],
-    github_api: Github,
     strict: bool,
     require_code_owner_reviews: bool,
     dismiss_stale_reviews: bool,
@@ -192,7 +191,7 @@ def get_repo_branch_protection_rules(config: Config) -> dict[str, Any]:
     return branch_protection
 
 
-def set_repositories_settings(config: Config, apis_dict: dict[str, dict[str, Any]]) -> None:
+async def set_repositories_settings(config: Config, apis_dict: dict[str, dict[str, Any]]) -> None:
     LOGGER.info("Processing repositories")
     config_data = config.root_data
 
@@ -201,9 +200,7 @@ def set_repositories_settings(config: Config, apis_dict: dict[str, dict[str, Any
         LOGGER.info("Login in to docker.io")
         docker_username: str = docker["username"]
         docker_password: str = docker["password"]
-        run_command(
-            log_prefix="", command=f"podman login -u {docker_username} -p {docker_password} docker.io", check=True
-        )
+        await run_command(log_prefix="", command=f"podman login -u {docker_username} -p {docker_password} docker.io")
 
     futures = []
     with ThreadPoolExecutor() as executor:
@@ -292,7 +289,6 @@ def set_repository(
                             "branch": branch,
                             "repository": repo,
                             "required_status_checks": required_status_checks,
-                            "github_api": github_api,
                             "api_user": api_user,
                         },
                         **branch_protection,
