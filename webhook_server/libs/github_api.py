@@ -514,6 +514,7 @@ class GithubWebhook:
                 self.logger.debug(f"{self.log_prefix} Adding reviewer {reviewer}")
                 try:
                     await asyncio.to_thread(pull_request.create_review_request, [reviewer])
+
                 except GithubException as ex:
                     self.logger.debug(f"{self.log_prefix} Failed to add reviewer {reviewer}. {ex}")
                     await asyncio.to_thread(
