@@ -303,7 +303,9 @@ PR will be approved when the following conditions are met:
 
                     rc, _, _ = await self.runner_handler.run_podman_command(command=tag_del_cmd)
                     if rc:
-                        pull_request.create_issue_comment(f"Successfully removed PR tag: {repository_full_tag}.")
+                        await asyncio.to_thread(
+                            pull_request.create_issue_comment, f"Successfully removed PR tag: {repository_full_tag}."
+                        )
                     else:
                         self.logger.error(
                             f"{self.log_prefix} Failed to delete tag: {repository_full_tag}. OUT:{out}. ERR:{err}"

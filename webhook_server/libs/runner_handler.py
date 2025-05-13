@@ -470,7 +470,7 @@ Maintainers:
         if not await self.is_branch_exists(branch=target_branch):
             err_msg = f"cherry-pick failed: {target_branch} does not exists"
             self.logger.error(err_msg)
-            pull_request.create_issue_comment(err_msg)
+            await asyncio.to_thread(pull_request.create_issue_comment, err_msg)
 
         else:
             await self.check_run_handler.set_cherry_pick_in_progress()

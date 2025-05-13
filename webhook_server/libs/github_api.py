@@ -513,7 +513,9 @@ class GithubWebhook:
             if reviewer != pull_request.user.login:
                 self.logger.debug(f"{self.log_prefix} Adding reviewer {reviewer}")
                 try:
-                    pull_request.create_review_request([reviewer])
+                    await asyncio.to_thread(pull_request.create_review_request, [reviewer])
                 except GithubException as ex:
                     self.logger.debug(f"{self.log_prefix} Failed to add reviewer {reviewer}. {ex}")
-                    pull_request.create_issue_comment(f"{reviewer} can not be added as reviewer. {ex}")
+                    await asyncio.to_thread(
+                        pull_request.create_issue_comment, f"{reviewer} can not be added as reviewer. {ex}"
+                    )
