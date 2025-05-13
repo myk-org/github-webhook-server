@@ -1,8 +1,9 @@
+import asyncio
 from typing import Any
 
 from github.GithubException import UnknownObjectException
 from github.PullRequest import PullRequest
-from timeout_sampler import TimeoutExpiredError, TimeoutSampler
+from timeout_sampler import TimeoutWatch
 
 from webhook_server.utils.constants import (
     ADD_STR,
@@ -29,18 +30,19 @@ class LabelsHandler:
         self.log_prefix = self.github_webhook.log_prefix
         self.repository = self.github_webhook.repository
 
-    def label_exists_in_pull_request(self, pull_request: PullRequest, label: str) -> bool:
-        return label in self.pull_request_labels_names(pull_request=pull_request)
+    async def label_exists_in_pull_request(self, pull_request: PullRequest, label: str) -> bool:
+        return label in await self.pull_request_labels_names(pull_request=pull_request)
 
-    def pull_request_labels_names(self, pull_request: PullRequest) -> list[str]:
-        return [lb.name for lb in pull_request.labels]
+    async def pull_request_labels_names(self, pull_request: PullRequest) -> list[str]:
+        labels = await asyncio.to_thread(pull_request.get_labels)
+        return [lb.name for lb in labels]
 
     async def _remove_label(self, pull_request: PullRequest, label: str) -> bool:
         try:
-            if self.label_exists_in_pull_request(pull_request=pull_request, label=label):
+            if await self.label_exists_in_pull_request(pull_request=pull_request, label=label):
                 self.logger.info(f"{self.log_prefix} Removing label {label}")
-                pull_request.remove_from_labels(label)
-                return self.wait_for_label(label=label, exists=False)
+                await asyncio.to_thread(pull_request.remove_from_labels, label)
+                return await self.wait_for_label(pull_request=pull_request, label=label, exists=False)
         except Exception as exp:
             self.logger.debug(f"{self.log_prefix} Failed to remove {label} label. Exception: {exp}")
             return False
@@ -54,13 +56,13 @@ class LabelsHandler:
             self.logger.debug(f"{label} is too long, not adding.")
             return
 
-        if self.label_exists_in_pull_request(pull_request=pull_request, label=label):
+        if await self.label_exists_in_pull_request(pull_request=pull_request, label=label):
             self.logger.debug(f"{self.log_prefix} Label {label} already assign")
             return
 
         if label in STATIC_LABELS_DICT:
             self.logger.info(f"{self.log_prefix} Adding pull request label {label}")
-            pull_request.add_to_labels(label)
+            await asyncio.to_thread(pull_request.add_to_labels, label)
             return
 
         _color = [DYNAMIC_LABELS_DICT[_label] for _label in DYNAMIC_LABELS_DICT if _label in label]
@@ -69,32 +71,27 @@ class LabelsHandler:
         _with_color_msg = f"repository label {label} with color {color}"
 
         try:
-            _repo_label = self.repository.get_label(label)
-            _repo_label.edit(name=_repo_label.name, color=color)
+            _repo_label = await asyncio.to_thread(self.repository.get_label, label)
+            await asyncio.to_thread(_repo_label.edit, name=_repo_label.name, color=color)
             self.logger.debug(f"{self.log_prefix} Edit {_with_color_msg}")
 
         except UnknownObjectException:
             self.logger.debug(f"{self.log_prefix} Add {_with_color_msg}")
-            self.repository.create_label(name=label, color=color)
+            await asyncio.to_thread(self.repository.create_label, name=label, color=color)
 
         self.logger.info(f"{self.log_prefix} Adding pull request label {label}")
-        pull_request.add_to_labels(label)
-        self.wait_for_label(label=label, exists=True)
+        await asyncio.to_thread(pull_request.add_to_labels, label)
+        await self.wait_for_label(pull_request=pull_request, label=label, exists=True)
 
-    def wait_for_label(self, label: str, exists: bool) -> bool:
-        try:
-            for sample in TimeoutSampler(
-                wait_timeout=30,
-                sleep=5,
-                func=self.label_exists_in_pull_request,
-                label=label,
-            ):
-                if sample == exists:
-                    return True
+    async def wait_for_label(self, pull_request: PullRequest, label: str, exists: bool) -> bool:
+        while TimeoutWatch(timeout=30).remaining_time() > 0:
+            res = await self.label_exists_in_pull_request(pull_request=pull_request, label=label)
+            if res == exists:
+                return True
 
-        except TimeoutExpiredError:
-            self.logger.debug(f"{self.log_prefix} Label {label} {'not found' if exists else 'found'}")
+        await asyncio.sleep(5)
 
+        self.logger.debug(f"{self.log_prefix} Label {label} {'not found' if exists else 'found'}")
         return False
 
     def get_size(self, pull_request: PullRequest) -> str:
@@ -120,12 +117,12 @@ class LabelsHandler:
             self.logger.debug(f"{self.log_prefix} Size label not found")
             return
 
-        if size_label in self.pull_request_labels_names(pull_request=pull_request):
+        if size_label in await self.pull_request_labels_names(pull_request=pull_request):
             return
 
         exists_size_label = [
             label
-            for label in self.pull_request_labels_names(pull_request=pull_request)
+            for label in await self.pull_request_labels_names(pull_request=pull_request)
             if label.startswith(SIZE_LABEL_PREFIX)
         ]
 

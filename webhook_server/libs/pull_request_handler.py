@@ -512,7 +512,7 @@ PR will be approved when the following conditions are met:
             self.logger.info(f"{self.log_prefix} Check if {CAN_BE_MERGED_STR}.")
             await self.check_run_handler.set_merge_check_in_progress()
             last_commit_check_runs = list(self.github_webhook.last_commit.get_check_runs())
-            _labels = self.labels_handler.pull_request_labels_names(pull_request=pull_request)
+            _labels = await self.labels_handler.pull_request_labels_names(pull_request=pull_request)
             self.logger.debug(f"{self.log_prefix} check if can be merged. PR labels are: {_labels}")
 
             is_pr_mergable = pull_request.mergeable
