@@ -51,55 +51,55 @@ class CheckRunHandler:
 
         return True
 
-    def set_verify_check_queued(self) -> None:
+    async def set_verify_check_queued(self) -> None:
         return self.set_check_run_status(check_run=VERIFIED_LABEL_STR, status=QUEUED_STR)
 
-    def set_verify_check_success(self) -> None:
+    async def set_verify_check_success(self) -> None:
         return self.set_check_run_status(check_run=VERIFIED_LABEL_STR, conclusion=SUCCESS_STR)
 
-    def set_run_tox_check_queued(self) -> None:
+    async def set_run_tox_check_queued(self) -> None:
         if not self.github_webhook.tox:
             return
 
         return self.set_check_run_status(check_run=TOX_STR, status=QUEUED_STR)
 
-    def set_run_tox_check_in_progress(self) -> None:
+    async def set_run_tox_check_in_progress(self) -> None:
         return self.set_check_run_status(check_run=TOX_STR, status=IN_PROGRESS_STR)
 
-    def set_run_tox_check_failure(self, output: dict[str, Any]) -> None:
+    async def set_run_tox_check_failure(self, output: dict[str, Any]) -> None:
         return self.set_check_run_status(check_run=TOX_STR, conclusion=FAILURE_STR, output=output)
 
-    def set_run_tox_check_success(self, output: dict[str, Any]) -> None:
+    async def set_run_tox_check_success(self, output: dict[str, Any]) -> None:
         return self.set_check_run_status(check_run=TOX_STR, conclusion=SUCCESS_STR, output=output)
 
-    def set_run_pre_commit_check_queued(self) -> None:
+    async def set_run_pre_commit_check_queued(self) -> None:
         if not self.github_webhook.pre_commit:
             return
 
         return self.set_check_run_status(check_run=PRE_COMMIT_STR, status=QUEUED_STR)
 
-    def set_run_pre_commit_check_in_progress(self) -> None:
+    async def set_run_pre_commit_check_in_progress(self) -> None:
         return self.set_check_run_status(check_run=PRE_COMMIT_STR, status=IN_PROGRESS_STR)
 
-    def set_run_pre_commit_check_failure(self, output: dict[str, Any] | None = None) -> None:
+    async def set_run_pre_commit_check_failure(self, output: dict[str, Any] | None = None) -> None:
         return self.set_check_run_status(check_run=PRE_COMMIT_STR, conclusion=FAILURE_STR, output=output)
 
-    def set_run_pre_commit_check_success(self, output: dict[str, Any] | None = None) -> None:
+    async def set_run_pre_commit_check_success(self, output: dict[str, Any] | None = None) -> None:
         return self.set_check_run_status(check_run=PRE_COMMIT_STR, conclusion=SUCCESS_STR, output=output)
 
-    def set_merge_check_queued(self, output: dict[str, Any] | None = None) -> None:
+    async def set_merge_check_queued(self, output: dict[str, Any] | None = None) -> None:
         return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, status=QUEUED_STR, output=output)
 
-    def set_merge_check_in_progress(self) -> None:
+    async def set_merge_check_in_progress(self) -> None:
         return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, status=IN_PROGRESS_STR)
 
-    def set_merge_check_success(self) -> None:
+    async def set_merge_check_success(self) -> None:
         return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, conclusion=SUCCESS_STR)
 
-    def set_merge_check_failure(self, output: dict[str, Any]) -> None:
+    async def set_merge_check_failure(self, output: dict[str, Any]) -> None:
         return self.set_check_run_status(check_run=CAN_BE_MERGED_STR, conclusion=FAILURE_STR, output=output)
 
-    def set_container_build_queued(self) -> None:
+    async def set_container_build_queued(self) -> None:
         if not self.github_webhook.build_and_push_container:
             return
 
@@ -114,7 +114,7 @@ class CheckRunHandler:
     def set_container_build_failure(self, output: dict[str, Any]) -> None:
         return self.set_check_run_status(check_run=BUILD_CONTAINER_STR, conclusion=FAILURE_STR, output=output)
 
-    def set_python_module_install_queued(self) -> None:
+    async def set_python_module_install_queued(self) -> None:
         if not self.github_webhook.pypi:
             return
 
@@ -129,7 +129,7 @@ class CheckRunHandler:
     def set_python_module_install_failure(self, output: dict[str, Any]) -> None:
         return self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, conclusion=FAILURE_STR, output=output)
 
-    def set_conventional_title_queued(self) -> None:
+    async def set_conventional_title_queued(self) -> None:
         return self.set_check_run_status(check_run=CONVENTIONAL_TITLE_STR, status=QUEUED_STR)
 
     def set_conventional_title_in_progress(self) -> None:

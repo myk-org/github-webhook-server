@@ -184,7 +184,7 @@ class RunnerHandler:
             tests = _tox_tests.replace(" ", "")
             cmd += f" -e {tests}"
 
-        self.check_run_handler.set_run_tox_check_in_progress()
+        await self.check_run_handler.set_run_tox_check_in_progress()
         async with self._prepare_cloned_repo_dir(clone_repo_dir=clone_repo_dir, pull_request=pull_request) as _res:
             output: dict[str, Any] = {
                 "title": "Tox",
@@ -193,16 +193,16 @@ class RunnerHandler:
             }
             if not _res[0]:
                 output["text"] = self.check_run_handler.get_check_run_text(out=_res[1], err=_res[2])
-                return self.check_run_handler.set_run_tox_check_failure(output=output)
+                return await self.check_run_handler.set_run_tox_check_failure(output=output)
 
             rc, out, err = await run_command(command=cmd, log_prefix=self.log_prefix)
 
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
 
             if rc:
-                return self.check_run_handler.set_run_tox_check_success(output=output)
+                return await self.check_run_handler.set_run_tox_check_success(output=output)
             else:
-                return self.check_run_handler.set_run_tox_check_failure(output=output)
+                return await self.check_run_handler.set_run_tox_check_failure(output=output)
 
     async def run_pre_commit(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.pre_commit:
@@ -213,7 +213,7 @@ class RunnerHandler:
 
         clone_repo_dir = f"{self.github_webhook.clone_repo_dir}-{uuid4()}"
         cmd = f" uvx --directory {clone_repo_dir} {PRE_COMMIT_STR} run --all-files"
-        self.check_run_handler.set_run_pre_commit_check_in_progress()
+        await self.check_run_handler.set_run_pre_commit_check_in_progress()
         async with self._prepare_cloned_repo_dir(pull_request=pull_request, clone_repo_dir=clone_repo_dir) as _res:
             output: dict[str, Any] = {
                 "title": "Pre-Commit",
@@ -222,16 +222,16 @@ class RunnerHandler:
             }
             if not _res[0]:
                 output["text"] = self.check_run_handler.get_check_run_text(out=_res[1], err=_res[2])
-                return self.check_run_handler.set_run_pre_commit_check_failure(output=output)
+                return await self.check_run_handler.set_run_pre_commit_check_failure(output=output)
 
             rc, out, err = await run_command(command=cmd, log_prefix=self.log_prefix)
 
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
 
             if rc:
-                return self.check_run_handler.set_run_pre_commit_check_success(output=output)
+                return await self.check_run_handler.set_run_pre_commit_check_success(output=output)
             else:
-                return self.check_run_handler.set_run_pre_commit_check_failure(output=output)
+                return await self.check_run_handler.set_run_pre_commit_check_failure(output=output)
 
     async def run_build_container(
         self,

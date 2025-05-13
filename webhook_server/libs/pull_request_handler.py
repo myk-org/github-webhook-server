@@ -52,7 +52,7 @@ class PullRequestHandler:
         pull_request_data: dict[str, Any] = self.hook_data["pull_request"]
 
         if hook_action == "edited":
-            self.set_wip_label_based_on_title(pull_request=pull_request)
+            await self.set_wip_label_based_on_title(pull_request=pull_request)
 
         if hook_action in ("opened", "reopened"):
             pull_request_opened_futures: list[Future] = []
@@ -80,11 +80,15 @@ class PullRequestHandler:
 
         if hook_action == "synchronize":
             tasks = []
+
             tasks.append(self.process_opened_or_synchronize_pull_request(pull_request=pull_request))
+            tasks.append(self.remove_labels_when_pull_request_sync(pull_request=pull_request))
 
-            self.remove_labels_when_pull_request_sync(pull_request=pull_request)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            await asyncio.gather(*tasks)
+            for result in results:  # type: ignore
+                if isinstance(result, Exception):
+                    self.logger.error(f"{self.log_prefix} Async task failed: {result}")
 
         if hook_action == "closed":
             self.close_issue_for_merged_or_closed_pr(pull_request=pull_request, hook_action=hook_action)
@@ -106,10 +110,7 @@ class PullRequestHandler:
                     pull_request=pull_request,
                 )
 
-                # label_by_pull_requests_merge_state_after_merged will override pull_request
-                original_pull_request = pull_request
-                self.label_all_opened_pull_requests_merge_state_after_merged()
-                pull_request = original_pull_request
+                await self.label_all_opened_pull_requests_merge_state_after_merged()
 
         if hook_action in ("labeled", "unlabeled"):
             _check_for_merge: bool = False
@@ -144,9 +145,9 @@ class PullRequestHandler:
                 _check_for_merge = True
 
                 if action_labeled:
-                    self.check_run_handler.set_verify_check_success()
+                    await self.check_run_handler.set_verify_check_success()
                 else:
-                    self.check_run_handler.set_verify_check_queued()
+                    await self.check_run_handler.set_verify_check_queued()
 
             if labeled_lower in (WIP_STR, HOLD_LABEL_STR):
                 _check_for_merge = True
@@ -154,10 +155,10 @@ class PullRequestHandler:
             if _check_for_merge:
                 await self.check_if_can_be_merged(pull_request=pull_request)
 
-    def set_wip_label_based_on_title(self, pull_request: PullRequest) -> None:
+    async def set_wip_label_based_on_title(self, pull_request: PullRequest) -> None:
         if pull_request.title.lower().startswith(f"{WIP_STR}:"):
             self.logger.debug(f"{self.log_prefix} Found {WIP_STR} in {pull_request.title}; adding {WIP_STR} label.")
-            self.labels_handler._add_label(pull_request=pull_request, label=WIP_STR)
+            await self.labels_handler._add_label(pull_request=pull_request, label=WIP_STR)
 
         else:
             self.logger.debug(
@@ -255,7 +256,7 @@ PR will be approved when the following conditions are met:
 
         return " * This repository does not support retest actions" if not retest_msg else retest_msg
 
-    def label_all_opened_pull_requests_merge_state_after_merged(self) -> None:
+    async def label_all_opened_pull_requests_merge_state_after_merged(self) -> None:
         """
         Labels pull requests based on their mergeable state.
 
@@ -268,7 +269,7 @@ PR will be approved when the following conditions are met:
 
         for pull_request in self.repository.get_pulls(state="open"):
             self.logger.info(f"{self.log_prefix} check label pull request after merge")
-            self.label_pull_request_by_merge_state(pull_request=pull_request)
+            await self.label_pull_request_by_merge_state(pull_request=pull_request)
 
     async def delete_remote_tag_for_merged_or_closed_pr(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.build_and_push_container:
@@ -339,47 +340,40 @@ PR will be approved when the following conditions are met:
                 break
 
     async def process_opened_or_synchronize_pull_request(self, pull_request: PullRequest) -> None:
-        prepare_pull_futures: list[Future] = []
         tasks = []
 
-        with ThreadPoolExecutor() as executor:
-            prepare_pull_futures.append(executor.submit(self.github_webhook.assign_reviewers, pull_request))
-            prepare_pull_futures.append(
-                executor.submit(
-                    self.labels_handler._add_label,
-                    **{
-                        "pull_request": pull_request,
-                        "label": f"{BRANCH_LABEL_PREFIX}{pull_request.base.ref}",
-                    },
-                )
-            )
-            prepare_pull_futures.append(executor.submit(self.label_pull_request_by_merge_state, pull_request))
-            prepare_pull_futures.append(executor.submit(self.check_run_handler.set_merge_check_queued))
-            prepare_pull_futures.append(executor.submit(self.check_run_handler.set_run_tox_check_queued))
-            prepare_pull_futures.append(executor.submit(self.check_run_handler.set_run_pre_commit_check_queued))
-            prepare_pull_futures.append(executor.submit(self.check_run_handler.set_python_module_install_queued))
-            prepare_pull_futures.append(executor.submit(self.check_run_handler.set_container_build_queued))
-            prepare_pull_futures.append(
-                executor.submit(self._process_verified_for_update_or_new_pull_request, pull_request)
-            )
-            prepare_pull_futures.append(executor.submit(self.labels_handler.add_size_label, pull_request))
-            prepare_pull_futures.append(executor.submit(self.add_pull_request_owner_as_assingee, pull_request))
-
-            if self.github_webhook.conventional_title:
-                prepare_pull_futures.append(executor.submit(self.check_run_handler.set_conventional_title_queued))
+        tasks.append(self.github_webhook.assign_reviewers(pull_request=pull_request))
+        tasks.append(
+            self.labels_handler._add_label,
+            **{
+                "pull_request": pull_request,
+                "label": f"{BRANCH_LABEL_PREFIX}{pull_request.base.ref}",
+            },
+        )
+        tasks.append(self.label_pull_request_by_merge_state(pull_request=pull_request))
+        tasks.append(self.check_run_handler.set_merge_check_queued())
+        tasks.append(self.check_run_handler.set_run_tox_check_queued())
+        tasks.append(self.check_run_handler.set_run_pre_commit_check_queued())
+        tasks.append(self.check_run_handler.set_python_module_install_queued())
+        tasks.append(self.check_run_handler.set_container_build_queued())
+        tasks.append(self._process_verified_for_update_or_new_pull_request(pull_request=pull_request))
+        tasks.append(self.labels_handler.add_size_label(pull_request=pull_request))
+        tasks.append(self.add_pull_request_owner_as_assingee(pull_request=pull_request))
 
         tasks.append(self.runner_handler.run_tox(pull_request=pull_request))
         tasks.append(self.runner_handler.run_pre_commit(pull_request=pull_request))
         tasks.append(self.runner_handler.run_install_python_module(pull_request=pull_request))
         tasks.append(self.runner_handler.run_build_container(pull_request=pull_request))
+
         if self.github_webhook.conventional_title:
+            tasks.append(self.check_run_handler.set_conventional_title_queued())
             tasks.append(self.runner_handler.run_conventional_title_check(pull_request=pull_request))
 
-        for result in as_completed(prepare_pull_futures):
-            if _exp := result.exception():
-                self.logger.error(f"{self.log_prefix} {_exp}")
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        await asyncio.gather(*tasks)
+        for result in results:
+            if isinstance(result, Exception):
+                self.logger.error(f"{self.log_prefix} Async task failed: {result}")
 
     def create_issue_for_new_pull_request(self, pull_request: PullRequest) -> None:
         if self.github_webhook.parent_committer in self.github_webhook.auto_verified_and_merged_users:
@@ -425,7 +419,7 @@ PR will be approved when the following conditions are met:
             except Exception as exp:
                 self.logger.error(f"{self.log_prefix} Exception while setting auto merge: {exp}")
 
-    def remove_labels_when_pull_request_sync(self, pull_request: PullRequest) -> None:
+    async def remove_labels_when_pull_request_sync(self, pull_request: PullRequest) -> None:
         futures = []
         with ThreadPoolExecutor() as executor:
             for _label in pull_request.labels:
@@ -445,26 +439,28 @@ PR will be approved when the following conditions are met:
                             },
                         )
                     )
-        for _ in as_completed(futures):
-            ...
 
-    def label_pull_request_by_merge_state(self, pull_request: PullRequest) -> None:
+        for future in as_completed(futures):
+            if exc := future.exception():
+                self.logger.error(f"{self.log_prefix} Exception when removing labels: {exc}")
+
+    async def label_pull_request_by_merge_state(self, pull_request: PullRequest) -> None:
         merge_state = pull_request.mergeable_state
         self.logger.debug(f"{self.log_prefix} Mergeable state is {merge_state}")
         if merge_state == "unknown":
             return
 
         if merge_state == "behind":
-            self.labels_handler._add_label(pull_request=pull_request, label=NEEDS_REBASE_LABEL_STR)
+            await self.labels_handler._add_label(pull_request=pull_request, label=NEEDS_REBASE_LABEL_STR)
         else:
             self.labels_handler._remove_label(pull_request=pull_request, label=NEEDS_REBASE_LABEL_STR)
 
         if merge_state == "dirty":
-            self.labels_handler._add_label(pull_request=pull_request, label=HAS_CONFLICTS_LABEL_STR)
+            await self.labels_handler._add_label(pull_request=pull_request, label=HAS_CONFLICTS_LABEL_STR)
         else:
             self.labels_handler._remove_label(pull_request=pull_request, label=HAS_CONFLICTS_LABEL_STR)
 
-    def _process_verified_for_update_or_new_pull_request(self, pull_request: PullRequest) -> None:
+    async def _process_verified_for_update_or_new_pull_request(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.verified_job:
             return
 
@@ -473,15 +469,15 @@ PR will be approved when the following conditions are met:
                 f"{self.log_prefix} Committer {self.github_webhook.parent_committer} is part of {self.github_webhook.auto_verified_and_merged_users}"
                 ", Setting verified label"
             )
-            self.labels_handler._add_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
-            self.check_run_handler.set_verify_check_success()
+            await self.labels_handler._add_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
+            await self.check_run_handler.set_verify_check_success()
         else:
             self.logger.info(f"{self.log_prefix} Processing reset {VERIFIED_LABEL_STR} label on new commit push")
             # Remove verified label
             self.labels_handler._remove_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
-            self.check_run_handler.set_verify_check_queued()
+            await self.check_run_handler.set_verify_check_queued()
 
-    def add_pull_request_owner_as_assingee(self, pull_request: PullRequest) -> None:
+    async def add_pull_request_owner_as_assingee(self, pull_request: PullRequest) -> None:
         try:
             self.logger.info(f"{self.log_prefix} Adding PR owner as assignee")
             pull_request.add_to_assignees(pull_request.user.login)
@@ -517,7 +513,7 @@ PR will be approved when the following conditions are met:
 
         try:
             self.logger.info(f"{self.log_prefix} Check if {CAN_BE_MERGED_STR}.")
-            self.check_run_handler.set_merge_check_in_progress()
+            await self.check_run_handler.set_merge_check_in_progress()
             last_commit_check_runs = list(self.github_webhook.last_commit.get_check_runs())
             _labels = self.labels_handler.pull_request_labels_names(pull_request=pull_request)
             self.logger.debug(f"{self.log_prefix} check if can be merged. PR labels are: {_labels}")
@@ -555,8 +551,8 @@ PR will be approved when the following conditions are met:
                 failure_output += pr_approvered_failure_output
 
             if not failure_output:
-                self.labels_handler._add_label(pull_request=pull_request, label=CAN_BE_MERGED_STR)
-                self.check_run_handler.set_merge_check_success()
+                await self.labels_handler._add_label(pull_request=pull_request, label=CAN_BE_MERGED_STR)
+                await self.check_run_handler.set_merge_check_success()
 
                 self.logger.info(f"{self.log_prefix} Pull request can be merged")
                 return
@@ -564,7 +560,7 @@ PR will be approved when the following conditions are met:
             self.logger.debug(f"{self.log_prefix} cannot be merged: {failure_output}")
             output["text"] = failure_output
             self.labels_handler._remove_label(pull_request=pull_request, label=CAN_BE_MERGED_STR)
-            self.check_run_handler.set_merge_check_failure(output=output)
+            await self.check_run_handler.set_merge_check_failure(output=output)
 
         except Exception as ex:
             self.logger.error(
@@ -573,7 +569,7 @@ PR will be approved when the following conditions are met:
             _err = "Failed to check if can be merged, check logs"
             output["text"] = _err
             self.labels_handler._remove_label(pull_request=pull_request, label=CAN_BE_MERGED_STR)
-            self.check_run_handler.set_merge_check_failure(output=output)
+            await self.check_run_handler.set_merge_check_failure(output=output)
 
     def _check_if_pr_approved(self, labels: list[str]) -> str:
         self.logger.info(f"{self.log_prefix} Check if pull request is approved by pull request labels.")

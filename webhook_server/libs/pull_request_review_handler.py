@@ -23,7 +23,7 @@ class PullRequestReviewHandler:
             reviewed_user = self.hook_data["review"]["user"]["login"]
 
             review_state = self.hook_data["review"]["state"]
-            self.labels_handler.manage_reviewed_by_label(
+            await self.labels_handler.manage_reviewed_by_label(
                 pull_request=pull_request,
                 review_state=review_state,
                 action=ADD_STR,
@@ -32,7 +32,7 @@ class PullRequestReviewHandler:
 
             if body := self.hook_data["review"]["body"]:
                 if f"/{APPROVE_STR}" in body:
-                    self.labels_handler.label_by_user_comment(
+                    await self.labels_handler.label_by_user_comment(
                         pull_request=pull_request,
                         user_requested_label=APPROVE_STR,
                         remove=False,

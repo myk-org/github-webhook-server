@@ -145,7 +145,7 @@ class IssueCommentHandler:
                 self.labels_handler._remove_label(pull_request=pull_request, label=WIP_STR)
                 pull_request.edit(title=pull_request.title.replace(wip_for_title, ""))
             else:
-                self.labels_handler._add_label(pull_request=pull_request, label=WIP_STR)
+                await self.labels_handler._add_label(pull_request=pull_request, label=WIP_STR)
                 pull_request.edit(title=f"{wip_for_title} {pull_request.title}")
 
         elif _command == HOLD_LABEL_STR:
@@ -157,20 +157,20 @@ class IssueCommentHandler:
                 if remove:
                     self.labels_handler._remove_label(pull_request=pull_request, label=HOLD_LABEL_STR)
                 else:
-                    self.labels_handler._add_label(pull_request=pull_request, label=HOLD_LABEL_STR)
+                    await self.labels_handler._add_label(pull_request=pull_request, label=HOLD_LABEL_STR)
 
                 await self.pull_request_handler.check_if_can_be_merged(pull_request=pull_request)
 
         elif _command == VERIFIED_LABEL_STR:
             if remove:
                 self.labels_handler._remove_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
-                self.check_run_handler.set_verify_check_queued()
+                await self.check_run_handler.set_verify_check_queued()
             else:
-                self.labels_handler._add_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
-                self.check_run_handler.set_verify_check_success()
+                await self.labels_handler._add_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
+                await self.check_run_handler.set_verify_check_success()
 
         else:
-            self.labels_handler.label_by_user_comment(
+            await self.labels_handler.label_by_user_comment(
                 pull_request=pull_request,
                 user_requested_label=_command,
                 remove=remove,
@@ -225,7 +225,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 self.logger.info(f"{self.log_prefix} {info_msg}")
                 pull_request.create_issue_comment(info_msg)
                 for _cp_label in cp_labels:
-                    self.labels_handler._add_label(pull_request=pull_request, label=_cp_label)
+                    await self.labels_handler._add_label(pull_request=pull_request, label=_cp_label)
             else:
                 for _exits_target_branch in _exits_target_branches:
                     await self.runner_handler.cherry_pick(
@@ -290,6 +290,9 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 task = asyncio.create_task(_retests_to_func_map[_test](pull_request=pull_request))
                 tasks.append(task)
 
-            await asyncio.gather(*tasks)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for result in results:
+                if isinstance(result, Exception):
+                    self.logger.error(f"{self.log_prefix} Async task failed: {result}")
 
             #     self.logger.debug(f"{self.log_prefix} Retest '{_test}' completed. Result: {result}")

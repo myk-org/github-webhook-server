@@ -504,7 +504,7 @@ class GithubWebhook:
             self.logger.error(f"{self.log_prefix} Invalid OWNERS file {path}: {e}")
             return False
 
-    def assign_reviewers(self, pull_request: PullRequest) -> None:
+    async def assign_reviewers(self, pull_request: PullRequest) -> None:
         self.logger.info(f"{self.log_prefix} Assign reviewers")
 
         _to_add: list[str] = list(set(self.all_pull_request_reviewers))

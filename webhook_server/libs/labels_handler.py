@@ -48,7 +48,7 @@ class LabelsHandler:
         self.logger.debug(f"{self.log_prefix} Label {label} not found and cannot be removed")
         return False
 
-    def _add_label(self, pull_request: PullRequest, label: str) -> None:
+    async def _add_label(self, pull_request: PullRequest, label: str) -> None:
         label = label.strip()
         if len(label) > 49:
             self.logger.debug(f"{label} is too long, not adding.")
@@ -113,7 +113,7 @@ class LabelsHandler:
 
         return f"{SIZE_LABEL_PREFIX}XXL"
 
-    def add_size_label(self, pull_request: PullRequest) -> None:
+    async def add_size_label(self, pull_request: PullRequest) -> None:
         """Add a size label to the pull request based on its additions and deletions."""
         size_label = self.get_size(pull_request=pull_request)
         if not size_label:
@@ -132,9 +132,9 @@ class LabelsHandler:
         if exists_size_label:
             self._remove_label(pull_request=pull_request, label=exists_size_label[0])
 
-        self._add_label(pull_request=pull_request, label=size_label)
+        await self._add_label(pull_request=pull_request, label=size_label)
 
-    def label_by_user_comment(
+    async def label_by_user_comment(
         self,
         pull_request: PullRequest,
         user_requested_label: str,
@@ -147,7 +147,7 @@ class LabelsHandler:
         )
 
         if user_requested_label in (LGTM_STR, APPROVE_STR):
-            self.manage_reviewed_by_label(
+            await self.manage_reviewed_by_label(
                 pull_request=pull_request,
                 review_state=user_requested_label,
                 action=DELETE_STR if remove else ADD_STR,
@@ -158,7 +158,7 @@ class LabelsHandler:
             label_func = self._remove_label if remove else self._add_label
             label_func(pull_request=pull_request, label=user_requested_label)
 
-    def manage_reviewed_by_label(
+    async def manage_reviewed_by_label(
         self, pull_request: PullRequest, review_state: str, action: str, reviewed_user: str
     ) -> None:
         self.logger.info(
@@ -201,7 +201,7 @@ class LabelsHandler:
             reviewer_label = f"{label_prefix}{reviewed_user}"
 
             if action == ADD_STR:
-                self._add_label(pull_request=pull_request, label=reviewer_label)
+                await self._add_label(pull_request=pull_request, label=reviewer_label)
                 self._remove_label(pull_request=pull_request, label=label_to_remove)
 
             if action == DELETE_STR:
