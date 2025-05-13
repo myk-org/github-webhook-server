@@ -142,7 +142,7 @@ class IssueCommentHandler:
         elif _command == WIP_STR:
             wip_for_title: str = f"{WIP_STR.upper()}:"
             if remove:
-                self.labels_handler._remove_label(pull_request=pull_request, label=WIP_STR)
+                await self.labels_handler._remove_label(pull_request=pull_request, label=WIP_STR)
                 pull_request.edit(title=pull_request.title.replace(wip_for_title, ""))
             else:
                 await self.labels_handler._add_label(pull_request=pull_request, label=WIP_STR)
@@ -155,7 +155,7 @@ class IssueCommentHandler:
                 )
             else:
                 if remove:
-                    self.labels_handler._remove_label(pull_request=pull_request, label=HOLD_LABEL_STR)
+                    await self.labels_handler._remove_label(pull_request=pull_request, label=HOLD_LABEL_STR)
                 else:
                     await self.labels_handler._add_label(pull_request=pull_request, label=HOLD_LABEL_STR)
 
@@ -163,7 +163,7 @@ class IssueCommentHandler:
 
         elif _command == VERIFIED_LABEL_STR:
             if remove:
-                self.labels_handler._remove_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
+                await self.labels_handler._remove_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
                 await self.check_run_handler.set_verify_check_queued()
             else:
                 await self.labels_handler._add_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
