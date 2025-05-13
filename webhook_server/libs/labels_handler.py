@@ -35,7 +35,7 @@ class LabelsHandler:
     def pull_request_labels_names(self, pull_request: PullRequest) -> list[str]:
         return [lb.name for lb in pull_request.labels]
 
-    def _remove_label(self, pull_request: PullRequest, label: str) -> bool:
+    async def _remove_label(self, pull_request: PullRequest, label: str) -> bool:
         try:
             if self.label_exists_in_pull_request(pull_request=pull_request, label=label):
                 self.logger.info(f"{self.log_prefix} Removing label {label}")
@@ -130,7 +130,7 @@ class LabelsHandler:
         ]
 
         if exists_size_label:
-            self._remove_label(pull_request=pull_request, label=exists_size_label[0])
+            await self._remove_label(pull_request=pull_request, label=exists_size_label[0])
 
         await self._add_label(pull_request=pull_request, label=size_label)
 
@@ -202,10 +202,10 @@ class LabelsHandler:
 
             if action == ADD_STR:
                 await self._add_label(pull_request=pull_request, label=reviewer_label)
-                self._remove_label(pull_request=pull_request, label=label_to_remove)
+                await self._remove_label(pull_request=pull_request, label=label_to_remove)
 
             if action == DELETE_STR:
-                self._remove_label(pull_request=pull_request, label=reviewer_label)
+                await self._remove_label(pull_request=pull_request, label=reviewer_label)
         else:
             self.logger.warning(
                 f"{self.log_prefix} PR {pull_request.number} got unsupported review state: {review_state}"

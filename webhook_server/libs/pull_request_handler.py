@@ -164,7 +164,7 @@ class PullRequestHandler:
             self.logger.debug(
                 f"{self.log_prefix} {WIP_STR} not found in {pull_request.title}; removing {WIP_STR} label."
             )
-            self.labels_handler._remove_label(pull_request=pull_request, label=WIP_STR)
+            await self.labels_handler._remove_label(pull_request=pull_request, label=WIP_STR)
 
     def _prepare_welcome_comment(self) -> str:
         self.logger.info(f"{self.log_prefix} Prepare welcome comment")
@@ -344,11 +344,12 @@ PR will be approved when the following conditions are met:
 
         tasks.append(self.github_webhook.assign_reviewers(pull_request=pull_request))
         tasks.append(
-            self.labels_handler._add_label,
-            **{
-                "pull_request": pull_request,
-                "label": f"{BRANCH_LABEL_PREFIX}{pull_request.base.ref}",
-            },
+            self.labels_handler._add_label(
+                **{
+                    "pull_request": pull_request,
+                    "label": f"{BRANCH_LABEL_PREFIX}{pull_request.base.ref}",
+                },
+            )
         )
         tasks.append(self.label_pull_request_by_merge_state(pull_request=pull_request))
         tasks.append(self.check_run_handler.set_merge_check_queued())
@@ -420,29 +421,29 @@ PR will be approved when the following conditions are met:
                 self.logger.error(f"{self.log_prefix} Exception while setting auto merge: {exp}")
 
     async def remove_labels_when_pull_request_sync(self, pull_request: PullRequest) -> None:
-        futures = []
-        with ThreadPoolExecutor() as executor:
-            for _label in pull_request.labels:
-                _label_name = _label.name
-                if (
-                    _label_name.startswith(APPROVED_BY_LABEL_PREFIX)
-                    or _label_name.startswith(COMMENTED_BY_LABEL_PREFIX)
-                    or _label_name.startswith(CHANGED_REQUESTED_BY_LABEL_PREFIX)
-                    or _label_name.startswith(LGTM_BY_LABEL_PREFIX)
-                ):
-                    futures.append(
-                        executor.submit(
-                            self.labels_handler._remove_label,
-                            **{
-                                "pull_request": pull_request,
-                                "label": _label_name,
-                            },
-                        )
+        tasks = []
+        for _label in pull_request.labels:
+            _label_name = _label.name
+            if (
+                _label_name.startswith(APPROVED_BY_LABEL_PREFIX)
+                or _label_name.startswith(COMMENTED_BY_LABEL_PREFIX)
+                or _label_name.startswith(CHANGED_REQUESTED_BY_LABEL_PREFIX)
+                or _label_name.startswith(LGTM_BY_LABEL_PREFIX)
+            ):
+                tasks.append(
+                    self.labels_handler._remove_label(
+                        **{
+                            "pull_request": pull_request,
+                            "label": _label_name,
+                        },
                     )
+                )
 
-        for future in as_completed(futures):
-            if exc := future.exception():
-                self.logger.error(f"{self.log_prefix} Exception when removing labels: {exc}")
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for result in results:
+            if isinstance(result, Exception):
+                self.logger.error(f"{self.log_prefix} Async task failed: {result}")
 
     async def label_pull_request_by_merge_state(self, pull_request: PullRequest) -> None:
         merge_state = pull_request.mergeable_state
@@ -453,12 +454,12 @@ PR will be approved when the following conditions are met:
         if merge_state == "behind":
             await self.labels_handler._add_label(pull_request=pull_request, label=NEEDS_REBASE_LABEL_STR)
         else:
-            self.labels_handler._remove_label(pull_request=pull_request, label=NEEDS_REBASE_LABEL_STR)
+            await self.labels_handler._remove_label(pull_request=pull_request, label=NEEDS_REBASE_LABEL_STR)
 
         if merge_state == "dirty":
             await self.labels_handler._add_label(pull_request=pull_request, label=HAS_CONFLICTS_LABEL_STR)
         else:
-            self.labels_handler._remove_label(pull_request=pull_request, label=HAS_CONFLICTS_LABEL_STR)
+            await self.labels_handler._remove_label(pull_request=pull_request, label=HAS_CONFLICTS_LABEL_STR)
 
     async def _process_verified_for_update_or_new_pull_request(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.verified_job:
@@ -474,7 +475,7 @@ PR will be approved when the following conditions are met:
         else:
             self.logger.info(f"{self.log_prefix} Processing reset {VERIFIED_LABEL_STR} label on new commit push")
             # Remove verified label
-            self.labels_handler._remove_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
+            await self.labels_handler._remove_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
             await self.check_run_handler.set_verify_check_queued()
 
     async def add_pull_request_owner_as_assingee(self, pull_request: PullRequest) -> None:
@@ -559,7 +560,7 @@ PR will be approved when the following conditions are met:
 
             self.logger.debug(f"{self.log_prefix} cannot be merged: {failure_output}")
             output["text"] = failure_output
-            self.labels_handler._remove_label(pull_request=pull_request, label=CAN_BE_MERGED_STR)
+            await self.labels_handler._remove_label(pull_request=pull_request, label=CAN_BE_MERGED_STR)
             await self.check_run_handler.set_merge_check_failure(output=output)
 
         except Exception as ex:
@@ -568,7 +569,7 @@ PR will be approved when the following conditions are met:
             )
             _err = "Failed to check if can be merged, check logs"
             output["text"] = _err
-            self.labels_handler._remove_label(pull_request=pull_request, label=CAN_BE_MERGED_STR)
+            await self.labels_handler._remove_label(pull_request=pull_request, label=CAN_BE_MERGED_STR)
             await self.check_run_handler.set_merge_check_failure(output=output)
 
     def _check_if_pr_approved(self, labels: list[str]) -> str:
