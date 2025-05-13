@@ -375,8 +375,9 @@ PR will be approved when the following conditions are met:
         if self.github_webhook.conventional_title:
             tasks.append(self.runner_handler.run_conventional_title_check(pull_request=pull_request))
 
-        for _ in as_completed(prepare_pull_futures):
-            ...
+        for result in as_completed(prepare_pull_futures):
+            if _exp := result.exception():
+                self.logger.error(f"{self.log_prefix} {_exp}")
 
         await asyncio.gather(*tasks)
 
@@ -445,8 +446,7 @@ PR will be approved when the following conditions are met:
                         )
                     )
         for _ in as_completed(futures):
-            # wait for all tasks to complete
-            pass
+            ...
 
     def label_pull_request_by_merge_state(self, pull_request: PullRequest) -> None:
         merge_state = pull_request.mergeable_state
