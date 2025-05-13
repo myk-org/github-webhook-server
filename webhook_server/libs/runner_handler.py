@@ -5,6 +5,7 @@ from typing import Any, Generator
 from uuid import uuid4
 
 import shortuuid
+from github.Branch import Branch
 from github.NamedUser import NamedUser
 from github.PaginatedList import PaginatedList
 from github.PullRequest import PullRequest
@@ -45,6 +46,11 @@ class RunnerHandler:
         success = True
 
         try:
+            pull_request_branch: Branch | None = None
+
+            if pull_request:
+                pull_request_branch = self.repository.get_branch(pull_request.head.ref)
+
             # Clone the repository
             rc, out, err = run_command(
                 command=f"git clone {self.repository.clone_url.replace('https://', f'https://{self.github_webhook.token}@')} "
@@ -95,7 +101,7 @@ class RunnerHandler:
 
                 if success and pull_request:
                     rc, out, err = run_command(
-                        f"{git_cmd} merge origin/{pull_request.head.ref} -m 'Merge {pull_request.head.ref}'",
+                        f"{git_cmd} merge origin/{pull_request_branch} -m 'Merge {pull_request_branch}'",
                         log_prefix=self.log_prefix,
                     )
                     if not rc:
@@ -133,7 +139,7 @@ class RunnerHandler:
 
                             if pull_request and success:
                                 rc, out, err = run_command(
-                                    f"{git_cmd} merge origin/{pull_request.head.ref} -m 'Merge {pull_request.head.ref}'",
+                                    f"{git_cmd} merge origin/{pull_request_branch} -m 'Merge {pull_request_branch}'",
                                     log_prefix=self.log_prefix,
                                 )
                                 if not rc:

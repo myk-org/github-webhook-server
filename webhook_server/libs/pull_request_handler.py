@@ -4,6 +4,7 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from typing import Any
 
+from github.Branch import Branch
 from github.PullRequest import PullRequest
 
 from webhook_server.libs.check_run_handler import CheckRunHandler
@@ -55,6 +56,8 @@ class PullRequestHandler:
 
         if hook_action in ("opened", "reopened"):
             pull_request_opened_futures: list[Future] = []
+            pull_request_branch = self.repository.get_branch(pull_request.head.ref)
+
             with ThreadPoolExecutor() as executor:
                 if hook_action == "opened":
                     welcome_msg = self._prepare_welcome_comment()
@@ -66,7 +69,7 @@ class PullRequestHandler:
                 )
                 pull_request_opened_futures.append(executor.submit(self.set_wip_label_based_on_title, pull_request))
                 pull_request_opened_futures.append(
-                    executor.submit(self.process_opened_or_synchronize_pull_request, pull_request)
+                    executor.submit(self.process_opened_or_synchronize_pull_request, pull_request, pull_request_branch)
                 )
 
             for result in as_completed(pull_request_opened_futures):
@@ -74,16 +77,18 @@ class PullRequestHandler:
                     self.logger.error(f"{self.log_prefix} {_exp}")
 
             # Set automerge only after all initialization of a new PR is done.
-            self.set_pull_request_automerge(pull_request=pull_request)
+            self.set_pull_request_automerge(pull_request=pull_request, pull_request_branch=pull_request_branch)
 
         if hook_action == "synchronize":
             pull_request_synchronize_futures: list[Future] = []
+            pull_request_branch = self.repository.get_branch(pull_request.head.ref)
+
             with ThreadPoolExecutor() as executor:
                 pull_request_synchronize_futures.append(
                     executor.submit(self.remove_labels_when_pull_request_sync, pull_request)
                 )
                 pull_request_synchronize_futures.append(
-                    executor.submit(self.process_opened_or_synchronize_pull_request, pull_request)
+                    executor.submit(self.process_opened_or_synchronize_pull_request, pull_request, pull_request_branch)
                 )
 
             for result in as_completed(pull_request_synchronize_futures):
@@ -341,7 +346,9 @@ PR will be approved when the following conditions are met:
                 issue.edit(state="closed")
                 break
 
-    def process_opened_or_synchronize_pull_request(self, pull_request: PullRequest) -> None:
+    def process_opened_or_synchronize_pull_request(
+        self, pull_request: PullRequest, pull_request_branch: Branch
+    ) -> None:
         prepare_pull_futures: list[Future] = []
 
         with ThreadPoolExecutor() as executor:
@@ -351,7 +358,7 @@ PR will be approved when the following conditions are met:
                     self.labels_handler._add_label,
                     **{
                         "pull_request": pull_request,
-                        "label": f"{BRANCH_LABEL_PREFIX}{pull_request.head.ref}",
+                        "label": f"{BRANCH_LABEL_PREFIX}{pull_request_branch}",
                     },
                 )
             )
@@ -403,13 +410,13 @@ PR will be approved when the following conditions are met:
     def _generate_issue_body(self, pull_request: PullRequest) -> str:
         return f"[Auto generated]\nNumber: [#{pull_request.number}]"
 
-    def set_pull_request_automerge(self, pull_request: PullRequest) -> None:
+    def set_pull_request_automerge(self, pull_request: PullRequest, pull_request_branch: Branch) -> None:
         auto_merge = (
-            pull_request.head.ref in self.github_webhook.set_auto_merge_prs
+            pull_request_branch in self.github_webhook.set_auto_merge_prs
             or self.github_webhook.parent_committer in self.github_webhook.auto_verified_and_merged_users
         )
 
-        self.logger.debug(f"{self.log_prefix} auto_merge: {auto_merge}, branch: {pull_request.head.ref}")
+        self.logger.debug(f"{self.log_prefix} auto_merge: {auto_merge}, branch: {pull_request_branch}")
 
         if auto_merge:
             try:
