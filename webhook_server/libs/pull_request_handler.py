@@ -69,7 +69,7 @@ class PullRequestHandler:
                 if isinstance(result, Exception):
                     self.logger.error(f"{self.log_prefix} Async task failed: {results}")
 
-            # Set automerge only after all initialization of a new PR is done.
+            # Set auto merge only after all initialization of a new PR is done.
             self.set_pull_request_automerge(pull_request=pull_request)
 
         if hook_action == "synchronize":
