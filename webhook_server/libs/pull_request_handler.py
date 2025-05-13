@@ -58,7 +58,7 @@ class PullRequestHandler:
 
             if hook_action == "opened":
                 welcome_msg = self._prepare_welcome_comment()
-                tasks.append(pull_request.create_issue_comment(**{"body": welcome_msg}))
+                tasks.append(asyncio.to_thread(pull_request.create_issue_comment, body=welcome_msg))
 
             tasks.append(self.create_issue_for_new_pull_request(pull_request=pull_request))
             tasks.append(self.set_wip_label_based_on_title(pull_request=pull_request))
@@ -70,7 +70,7 @@ class PullRequestHandler:
                     self.logger.error(f"{self.log_prefix} Async task failed: {results}")
 
             # Set auto merge only after all initialization of a new PR is done.
-            self.set_pull_request_automerge(pull_request=pull_request)
+            await self.set_pull_request_automerge(pull_request=pull_request)
 
         if hook_action == "synchronize":
             tasks = []
@@ -85,7 +85,7 @@ class PullRequestHandler:
                     self.logger.error(f"{self.log_prefix} Async task failed: {result}")
 
         if hook_action == "closed":
-            self.close_issue_for_merged_or_closed_pr(pull_request=pull_request, hook_action=hook_action)
+            await self.close_issue_for_merged_or_closed_pr(pull_request=pull_request, hook_action=hook_action)
             await self.delete_remote_tag_for_merged_or_closed_pr(pull_request=pull_request)
             if is_merged := pull_request_data.get("merged", False):
                 self.logger.info(f"{self.log_prefix} PR is merged")
@@ -323,14 +323,16 @@ PR will be approved when the following conditions are met:
             )
             self.logger.error(f"{self.log_prefix} Failed to delete tag: {repository_full_tag}. OUT:{out}. ERR:{err}")
 
-    def close_issue_for_merged_or_closed_pr(self, pull_request: PullRequest, hook_action: str) -> None:
+    async def close_issue_for_merged_or_closed_pr(self, pull_request: PullRequest, hook_action: str) -> None:
         for issue in self.repository.get_issues():
             if issue.body == self._generate_issue_body(pull_request=pull_request):
                 self.logger.info(f"{self.log_prefix} Closing issue {issue.title} for PR: {pull_request.title}")
-                issue.create_comment(
-                    f"{self.log_prefix} Closing issue for PR: {pull_request.title}.\nPR was {hook_action}."
+                await asyncio.to_thread(
+                    issue.create_comment,
+                    f"{self.log_prefix} Closing issue for PR: {pull_request.title}.\nPR was {hook_action}.",
                 )
-                issue.edit(state="closed")
+                await asyncio.to_thread(issue.edit, state="closed")
+
                 break
 
     async def process_opened_or_synchronize_pull_request(self, pull_request: PullRequest) -> None:
@@ -379,7 +381,8 @@ PR will be approved when the following conditions are met:
             return
 
         self.logger.info(f"{self.log_prefix} Creating issue for new PR: {pull_request.title}")
-        self.repository.create_issue(
+        await asyncio.to_thread(
+            self.repository.create_issue,
             title=self._generate_issue_title(pull_request=pull_request),
             body=self._generate_issue_body(pull_request=pull_request),
             assignee=pull_request.user.login,
@@ -391,7 +394,7 @@ PR will be approved when the following conditions are met:
     def _generate_issue_body(self, pull_request: PullRequest) -> str:
         return f"[Auto generated]\nNumber: [#{pull_request.number}]"
 
-    def set_pull_request_automerge(self, pull_request: PullRequest) -> None:
+    async def set_pull_request_automerge(self, pull_request: PullRequest) -> None:
         auto_merge = (
             pull_request.base.ref in self.github_webhook.set_auto_merge_prs
             or self.github_webhook.parent_committer in self.github_webhook.auto_verified_and_merged_users
@@ -407,7 +410,7 @@ PR will be approved when the following conditions are met:
                         f"is part of auto merge enabled rules"
                     )
 
-                    pull_request.enable_automerge(merge_method="SQUASH")
+                    await asyncio.to_thread(pull_request.enable_automerge, merge_method="SQUASH")
                 else:
                     self.logger.debug(f"{self.log_prefix} is already set to auto merge")
 
