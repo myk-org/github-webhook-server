@@ -514,7 +514,8 @@ PR will be approved when the following conditions are met:
         try:
             self.logger.info(f"{self.log_prefix} Check if {CAN_BE_MERGED_STR}.")
             await self.check_run_handler.set_merge_check_in_progress()
-            last_commit_check_runs = list(self.github_webhook.last_commit.get_check_runs())
+            _last_commit_check_runs = await asyncio.to_thread(self.github_webhook.last_commit.get_check_runs)
+            last_commit_check_runs = list(_last_commit_check_runs)
             _labels = await self.labels_handler.pull_request_labels_names(pull_request=pull_request)
             self.logger.debug(f"{self.log_prefix} check if can be merged. PR labels are: {_labels}")
 
@@ -535,7 +536,7 @@ PR will be approved when the following conditions are met:
             if labels_failure_output:
                 failure_output += labels_failure_output
 
-            required_check_failed_failure_output = await self.check_run_handler.required_check_failed(
+            required_check_failed_failure_output = await self.check_run_handler.required_check_failed_or_no_status(
                 pull_request=pull_request,
                 last_commit_check_runs=last_commit_check_runs,
                 check_runs_in_progress=check_runs_in_progress,

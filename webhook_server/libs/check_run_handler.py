@@ -221,21 +221,28 @@ class CheckRunHandler:
                     return True
         return False
 
-    async def required_check_failed(
+    async def required_check_failed_or_no_status(
         self, pull_request: PullRequest, last_commit_check_runs: list[CheckRun], check_runs_in_progress: list[str]
     ) -> str:
         failed_check_runs = []
+        no_status_check_runs = []
+
         for check_run in last_commit_check_runs:
-            self.logger.debug(f"{self.log_prefix} Check if {check_run.name} failed.")
+            self.logger.debug(f"{self.log_prefix} Check if {check_run.name} failed or do not have status.")
             if (
                 check_run.name == CAN_BE_MERGED_STR
                 or check_run.conclusion == SUCCESS_STR
-                or check_run.conclusion == QUEUED_STR
                 or check_run.name not in await self.all_required_status_checks(pull_request=pull_request)
             ):
                 continue
 
-            failed_check_runs.append(check_run.name)
+            if check_run.conclusion is None:
+                no_status_check_runs.append(check_run.name)
+
+            else:
+                failed_check_runs.append(check_run.name)
+
+        msg = ""
 
         if failed_check_runs:
             exclude_in_progress = [
@@ -243,9 +250,12 @@ class CheckRunHandler:
                 for failed_check_run in failed_check_runs
                 if failed_check_run not in check_runs_in_progress
             ]
-            return f"Some check runs failed: {', '.join(exclude_in_progress)}\n"
+            msg += f"Some check runs failed: {', '.join(exclude_in_progress)}\n"
 
-        return ""
+        if no_status_check_runs:
+            msg += f"Some check runs not started: {', '.join(no_status_check_runs)}\n"
+
+        return msg
 
     async def all_required_status_checks(self, pull_request: PullRequest) -> list[str]:
         all_required_status_checks: list[str] = []
