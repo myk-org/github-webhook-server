@@ -74,7 +74,7 @@ class CheckRunHandler:
         return await self.set_check_run_status(check_run=TOX_STR, conclusion=SUCCESS_STR, output=output)
 
     async def set_run_pre_commit_check_queued(self) -> None:
-        if not await self.github_webhook.pre_commit:
+        if not self.github_webhook.pre_commit:
             return
 
         return await self.set_check_run_status(check_run=PRE_COMMIT_STR, status=QUEUED_STR)
