@@ -205,10 +205,9 @@ class IssueCommentHandler:
         for _target_branch in _target_branches:
             try:
                 await asyncio.to_thread(self.repository.get_branch, _target_branch)
+                _exits_target_branches.add(_target_branch)
             except Exception:
                 _non_exits_target_branches_msg += f"Target branch `{_target_branch}` does not exist\n"
-
-            _exits_target_branches.add(_target_branch)
 
         if _non_exits_target_branches_msg:
             self.logger.info(f"{self.log_prefix} {_non_exits_target_branches_msg}")

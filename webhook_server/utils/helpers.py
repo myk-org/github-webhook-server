@@ -19,8 +19,19 @@ from webhook_server.libs.config import Config
 
 
 def get_logger_with_params(
-    name: str, repository_name: str = "", mask_sensitive: bool = False, mask_sensitive_patterns: list[str] | None = None
+    name: str,
+    repository_name: str = "",
+    mask_sensitive: bool = True,
 ) -> Logger:
+    mask_sensitive_patterns: list[str] = [
+        "container_repository_password",
+        "-p",
+        "password",
+        "token",
+        "apikey",
+        "secret",
+    ]
+
     _config = Config(repository=repository_name)
 
     log_level: str = _config.get_value(value="log-level", return_on_none="INFO")
@@ -79,10 +90,7 @@ async def run_command(
     Returns:
         tuple: True, out if command succeeded, False, err otherwise.
     """
-    mask_sensitive_patterns: list[str] = ["-p", "password", "token", "apikey", "secret"]
-    logger = get_logger_with_params(
-        name="helpers", mask_sensitive=True, mask_sensitive_patterns=mask_sensitive_patterns
-    )
+    logger = get_logger_with_params(name="helpers")
     out_decoded: str = ""
     err_decoded: str = ""
     kwargs["stdout"] = subprocess.PIPE
@@ -154,7 +162,7 @@ def get_api_with_highest_rate_limit(
 
     remaining = 0
 
-    msg = "Get API and token"
+    msg = "Get API and tokens"
 
     if repository_name:
         msg += f" for repository {repository_name}"

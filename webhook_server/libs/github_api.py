@@ -484,7 +484,6 @@ class GithubWebhook:
                         data["."] = self.all_repository_approvers_and_reviewers.get(".", {})
                         break
 
-        self.logger.debug(f"{self.log_prefix} Owners data for current pull request: {yaml.dump(data)}")
         return data
 
     def _validate_owners_content(self, content: Any, path: str) -> bool:
