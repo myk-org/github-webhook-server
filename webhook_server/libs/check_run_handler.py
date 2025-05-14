@@ -294,8 +294,6 @@ class CheckRunHandler:
     async def required_check_in_progress(
         self, pull_request: PullRequest, last_commit_check_runs: list[CheckRun]
     ) -> tuple[str, list[str]]:
-        check_runs = await asyncio.to_thread(self.github_webhook.last_commit.get_check_runs)
-        last_commit_check_runs = list(check_runs)
         self.logger.debug(f"{self.log_prefix} Check if any required check runs in progress.")
 
         check_runs_in_progress = [
