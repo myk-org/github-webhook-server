@@ -114,14 +114,13 @@ class PullRequest:
 
 
 @pytest.fixture(scope="function")
-def pull_request(mocker):
+def pull_request():
     return PullRequest()
 
 
 @pytest.fixture(scope="function")
 def process_github_webhook(mocker, request):
     base_import_path = "webhook_server.libs.github_api"
-    os.environ["WEBHOOK_SERVER_DATA_DIR"] = "webhook_server/tests/manifests"
 
     mocker.patch(f"{base_import_path}.get_repository_github_app_api", return_value=True)
     mocker.patch("github.AuthenticatedUser", return_value=True)

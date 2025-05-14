@@ -98,18 +98,18 @@ class IssueCommentHandler:
             missing_command_arg_comment_msg: str = f"{_command} requires an argument"
             error_msg: str = f"{self.log_prefix} {missing_command_arg_comment_msg}"
             self.logger.debug(error_msg)
-            pull_request.create_issue_comment(missing_command_arg_comment_msg)
+            await asyncio.to_thread(pull_request.create_issue_comment, body=missing_command_arg_comment_msg)
             return
 
-        self.create_comment_reaction(
+        await self.create_comment_reaction(
             pull_request=pull_request, issue_comment_id=issue_comment_id, reaction=REACTIONS.ok
         )
 
         if _command == COMMAND_ASSIGN_REVIEWER_STR:
-            self._add_reviewer_by_user_comment(pull_request=pull_request, reviewer=_args)
+            await self._add_reviewer_by_user_comment(pull_request=pull_request, reviewer=_args)
 
         elif _command == COMMAND_ASSIGN_REVIEWERS_STR:
-            self.github_webhook.assign_reviewers(pull_request=pull_request)
+            await self.github_webhook.assign_reviewers(pull_request=pull_request)
 
         elif _command == COMMAND_CHECK_CAN_MERGE_STR:
             await self.pull_request_handler.check_if_can_be_merged(pull_request=pull_request)
@@ -137,21 +137,22 @@ class IssueCommentHandler:
                 msg = f"No {BUILD_AND_PUSH_CONTAINER_STR} configured for this repository"
                 error_msg = f"{self.log_prefix} {msg}"
                 self.logger.debug(error_msg)
-                pull_request.create_issue_comment(msg)
+                await asyncio.to_thread(pull_request.create_issue_comment, msg)
 
         elif _command == WIP_STR:
             wip_for_title: str = f"{WIP_STR.upper()}:"
             if remove:
                 await self.labels_handler._remove_label(pull_request=pull_request, label=WIP_STR)
-                pull_request.edit(title=pull_request.title.replace(wip_for_title, ""))
+                await asyncio.to_thread(pull_request.edit, title=pull_request.title.replace(wip_for_title, ""))
             else:
                 await self.labels_handler._add_label(pull_request=pull_request, label=WIP_STR)
-                pull_request.edit(title=f"{wip_for_title} {pull_request.title}")
+                await asyncio.to_thread(pull_request.edit, title=f"{wip_for_title} {pull_request.title}")
 
         elif _command == HOLD_LABEL_STR:
             if reviewed_user not in self.github_webhook.all_pull_request_approvers:
-                pull_request.create_issue_comment(
-                    f"{reviewed_user} is not part of the approver, only approvers can mark pull request with hold"
+                await asyncio.to_thread(
+                    pull_request.create_issue_comment,
+                    f"{reviewed_user} is not part of the approver, only approvers can mark pull request with hold",
                 )
             else:
                 if remove:
@@ -177,22 +178,22 @@ class IssueCommentHandler:
                 reviewed_user=reviewed_user,
             )
 
-    def create_comment_reaction(self, pull_request: PullRequest, issue_comment_id: int, reaction: str) -> None:
-        _comment = pull_request.get_issue_comment(issue_comment_id)
-        _comment.create_reaction(reaction)
+    async def create_comment_reaction(self, pull_request: PullRequest, issue_comment_id: int, reaction: str) -> None:
+        _comment = await asyncio.to_thread(pull_request.get_issue_comment, issue_comment_id)
+        await asyncio.to_thread(_comment.create_reaction, reaction)
 
-    def _add_reviewer_by_user_comment(self, pull_request: PullRequest, reviewer: str) -> None:
+    async def _add_reviewer_by_user_comment(self, pull_request: PullRequest, reviewer: str) -> None:
         reviewer = reviewer.strip("@")
         self.logger.info(f"{self.log_prefix} Adding reviewer {reviewer} by user comment")
 
-        for contributer in self.repository.get_contributors():
+        for contributer in await asyncio.to_thread(self.repository.get_contributors):
             if contributer.login == reviewer:
-                pull_request.create_review_request([reviewer])
+                await asyncio.to_thread(pull_request.create_review_request, [reviewer])
                 return
 
         _err = f"not adding reviewer {reviewer} by user comment, {reviewer} is not part of contributers"
         self.logger.debug(f"{self.log_prefix} {_err}")
-        pull_request.create_issue_comment(_err)
+        await asyncio.to_thread(pull_request.create_issue_comment, _err)
 
     async def process_cherry_pick_command(
         self, pull_request: PullRequest, command_args: str, reviewed_user: str
@@ -203,7 +204,7 @@ class IssueCommentHandler:
 
         for _target_branch in _target_branches:
             try:
-                self.repository.get_branch(_target_branch)
+                await asyncio.to_thread(self.repository.get_branch, _target_branch)
             except Exception:
                 _non_exits_target_branches_msg += f"Target branch `{_target_branch}` does not exist\n"
 
@@ -211,10 +212,10 @@ class IssueCommentHandler:
 
         if _non_exits_target_branches_msg:
             self.logger.info(f"{self.log_prefix} {_non_exits_target_branches_msg}")
-            pull_request.create_issue_comment(_non_exits_target_branches_msg)
+            await asyncio.to_thread(pull_request.create_issue_comment, _non_exits_target_branches_msg)
 
         if _exits_target_branches:
-            if not pull_request.is_merged():
+            if not await asyncio.to_thread(pull_request.is_merged):
                 cp_labels: list[str] = [
                     f"{CHERRY_PICK_LABEL_PREFIX}{_target_branch}" for _target_branch in _exits_target_branches
                 ]
@@ -223,7 +224,7 @@ Cherry-pick requested for PR: `{pull_request.title}` by user `{reviewed_user}`
 Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automatic cheery-pick once the PR is merged
 """
                 self.logger.info(f"{self.log_prefix} {info_msg}")
-                pull_request.create_issue_comment(info_msg)
+                await asyncio.to_thread(pull_request.create_issue_comment, info_msg)
                 for _cp_label in cp_labels:
                     await self.labels_handler._add_label(pull_request=pull_request, label=_cp_label)
             else:
@@ -235,7 +236,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     )
 
     async def process_retest_command(self, pull_request: PullRequest, command_args: str, reviewed_user: str) -> None:
-        if not self.runner_handler._is_user_valid_to_run_commands(
+        if not await self.runner_handler._is_user_valid_to_run_commands(
             pull_request=pull_request, reviewed_user=reviewed_user
         ):
             return
@@ -255,7 +256,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             msg = "No test defined to retest"
             error_msg = f"{self.log_prefix} {msg}."
             self.logger.debug(error_msg)
-            pull_request.create_issue_comment(msg)
+            await asyncio.to_thread(pull_request.create_issue_comment, msg)
             return
 
         if "all" in command_args:
@@ -263,7 +264,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 msg = "Invalid command. `all` cannot be used with other tests"
                 error_msg = f"{self.log_prefix} {msg}."
                 self.logger.debug(error_msg)
-                pull_request.create_issue_comment(msg)
+                await asyncio.to_thread(pull_request.create_issue_comment, msg)
                 return
 
             else:
@@ -281,7 +282,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             msg = f"No {' '.join(_not_supported_retests)} configured for this repository"
             error_msg = f"{self.log_prefix} {msg}."
             self.logger.debug(error_msg)
-            pull_request.create_issue_comment(msg)
+            await asyncio.to_thread(pull_request.create_issue_comment, msg)
 
         if _supported_retests:
             tasks = []

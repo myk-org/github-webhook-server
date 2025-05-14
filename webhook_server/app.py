@@ -29,6 +29,7 @@ from webhook_server.utils.helpers import get_logger_with_params
 ALLOWED_IPS: tuple[ipaddress._BaseNetwork, ...] = ()
 LOGGER = get_logger_with_params(name="main")
 
+
 APP_URL_ROOT_PATH: str = "/webhook_server"
 urllib3.disable_warnings()
 
@@ -43,9 +44,11 @@ async def get_github_allowlist() -> list[str]:
         response.raise_for_status()  # Check for HTTP errors
         data = response.json()
         return data.get("hooks", [])
+
     except httpx.RequestError as e:
         LOGGER.error(f"Error fetching GitHub allowlist: {e}")
         raise
+
     except Exception as e:
         LOGGER.error(f"Unexpected error fetching GitHub allowlist: {e}")
         raise
@@ -59,9 +62,11 @@ async def get_cloudflare_allowlist() -> list[str]:
         response.raise_for_status()
         result = response.json().get("result", {})
         return result.get("ipv4_cidrs", []) + result.get("ipv6_cidrs", [])
+
     except httpx.RequestError as e:
         LOGGER.error(f"Error fetching Cloudflare allowlist: {e}")
         raise
+
     except Exception as e:
         LOGGER.error(f"Unexpected error fetching Cloudflare allowlist: {e}")
         raise
@@ -116,7 +121,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         verify_github_ips = root_config.get("verify-github-ips")
         verify_cloudflare_ips = root_config.get("verify-cloudflare-ips")
         LOGGER.debug(f"verify_github_ips: {verify_github_ips}, verify_cloudflare_ips: {verify_cloudflare_ips}")
-        LOGGER.info("Repository and webhook settings initialized successfully.")
 
         global ALLOWED_IPS
         networks: set[ipaddress._BaseNetwork] = set()
@@ -129,8 +133,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     networks.add(ipaddress.ip_network(cidr))
                 except ValueError:
                     LOGGER.warning(f"Skipping invalid CIDR from Cloudflare: {cidr}")
-        else:
-            LOGGER.warning("Could not fetch Cloudflare IPs, proceeding without them in allowlist.")
 
         if verify_github_ips:
             gh_ips = await get_github_allowlist()
@@ -185,6 +187,7 @@ async def process_webhook(request: Request, background_tasks: BackgroundTasks) -
 
     try:
         hook_data: dict[Any, Any] = json.loads(payload_body)
+
     except Exception as e:
         LOGGER.error(f"{log_context} Error parsing JSON body: {e}")
         raise HTTPException(status_code=400, detail="Invalid JSON payload")

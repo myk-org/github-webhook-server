@@ -214,14 +214,14 @@ class CheckRunHandler:
 
         return _output
 
-    def is_check_run_in_progress(self, check_run: str) -> bool:
+    async def is_check_run_in_progress(self, check_run: str) -> bool:
         if self.github_webhook.last_commit:
-            for run in self.github_webhook.last_commit.get_check_runs():
+            for run in await asyncio.to_thread(self.github_webhook.last_commit.get_check_runs):
                 if run.name == check_run and run.status == IN_PROGRESS_STR:
                     return True
         return False
 
-    def required_check_failed(
+    async def required_check_failed(
         self, pull_request: PullRequest, last_commit_check_runs: list[CheckRun], check_runs_in_progress: list[str]
     ) -> str:
         failed_check_runs = []
@@ -231,7 +231,7 @@ class CheckRunHandler:
                 check_run.name == CAN_BE_MERGED_STR
                 or check_run.conclusion == SUCCESS_STR
                 or check_run.conclusion == QUEUED_STR
-                or check_run.name not in self.all_required_status_checks(pull_request=pull_request)
+                or check_run.name not in await self.all_required_status_checks(pull_request=pull_request)
             ):
                 continue
 
@@ -247,9 +247,9 @@ class CheckRunHandler:
 
         return ""
 
-    def all_required_status_checks(self, pull_request: PullRequest) -> list[str]:
+    async def all_required_status_checks(self, pull_request: PullRequest) -> list[str]:
         all_required_status_checks: list[str] = []
-        branch_required_status_checks = self.get_branch_required_status_checks(pull_request=pull_request)
+        branch_required_status_checks = await self.get_branch_required_status_checks(pull_request=pull_request)
 
         if self.github_webhook.tox:
             all_required_status_checks.append(TOX_STR)
@@ -270,28 +270,30 @@ class CheckRunHandler:
         self.logger.debug(f"{self.log_prefix} All required status checks: {_all_required_status_checks}")
         return _all_required_status_checks
 
-    def get_branch_required_status_checks(self, pull_request: PullRequest) -> list[str]:
+    async def get_branch_required_status_checks(self, pull_request: PullRequest) -> list[str]:
         if self.repository.private:
             self.logger.info(
                 f"{self.log_prefix} Repository is private, skipping getting branch protection required status checks"
             )
             return []
 
-        pull_request_branch = self.repository.get_branch(pull_request.base.ref)
-        branch_protection = pull_request_branch.get_protection()
+        pull_request_branch = await asyncio.to_thread(self.repository.get_branch, pull_request.base.ref)
+        branch_protection = await asyncio.to_thread(pull_request_branch.get_protection)
         return branch_protection.required_status_checks.contexts
 
-    def required_check_in_progress(
+    async def required_check_in_progress(
         self, pull_request: PullRequest, last_commit_check_runs: list[CheckRun]
     ) -> tuple[str, list[str]]:
-        last_commit_check_runs = list(self.github_webhook.last_commit.get_check_runs())
+        check_runs = await asyncio.to_thread(self.github_webhook.last_commit.get_check_runs)
+        last_commit_check_runs = list(check_runs)
         self.logger.debug(f"{self.log_prefix} Check if any required check runs in progress.")
+
         check_runs_in_progress = [
             check_run.name
             for check_run in last_commit_check_runs
             if check_run.status == IN_PROGRESS_STR
             and check_run.name != CAN_BE_MERGED_STR
-            and check_run.name in self.all_required_status_checks(pull_request=pull_request)
+            and check_run.name in await self.all_required_status_checks(pull_request=pull_request)
         ]
         if check_runs_in_progress:
             self.logger.debug(

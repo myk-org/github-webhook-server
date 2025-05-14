@@ -124,13 +124,13 @@ class GithubWebhook:
             self.parent_committer = pull_request.user.login
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
             self.changed_files = self.list_changed_files(pull_request=pull_request)
-            self.all_repository_approvers_and_reviewers = self.get_all_repository_approvers_and_reviewers(
+            self.all_repository_approvers_and_reviewers = await self.get_all_repository_approvers_and_reviewers(
                 pull_request=pull_request
             )
-            self.all_repository_approvers = self.get_all_repository_approvers()
-            self.all_repository_reviewers = self.get_all_repository_reviewers()
-            self.all_pull_request_approvers = self.get_all_pull_request_approvers()
-            self.all_pull_request_reviewers = self.get_all_pull_request_reviewers()
+            self.all_repository_approvers = await self.get_all_repository_approvers()
+            self.all_repository_reviewers = await self.get_all_repository_reviewers()
+            self.all_pull_request_approvers = await self.get_all_pull_request_approvers()
+            self.all_pull_request_reviewers = await self.get_all_pull_request_reviewers()
 
             if self.github_event == "issue_comment":
                 return await IssueCommentHandler(github_webhook=self).process_comment_webhook_data(
@@ -371,7 +371,7 @@ class GithubWebhook:
             current_pull_request_supported_retest.append(CONVENTIONAL_TITLE_STR)
         return current_pull_request_supported_retest
 
-    def get_all_repository_approvers_and_reviewers(self, pull_request: PullRequest) -> dict[str, dict[str, Any]]:
+    async def get_all_repository_approvers_and_reviewers(self, pull_request: PullRequest) -> dict[str, dict[str, Any]]:
         # Dictionary mapping OWNERS file paths to their approvers and reviewers
         _owners: dict[str, dict[str, Any]] = {}
 
@@ -379,7 +379,7 @@ class GithubWebhook:
         owners_count = 0
 
         self.logger.debug(f"{self.log_prefix} Get git tree")
-        tree = self.repository.get_git_tree(pull_request.base.ref, recursive=True)
+        tree = await asyncio.to_thread(self.repository.get_git_tree, pull_request.base.ref, recursive=True)
         for element in tree.tree:
             if element.type == "blob" and element.path.endswith("OWNERS"):
                 owners_count += 1
@@ -389,7 +389,7 @@ class GithubWebhook:
 
                 content_path = element.path
                 self.logger.debug(f"{self.log_prefix} Get OWNERS file from {content_path}")
-                _path = self.repository.get_contents(content_path, pull_request.base.ref)
+                _path = await asyncio.to_thread(self.repository.get_contents, content_path, pull_request.base.ref)
                 if isinstance(_path, list):
                     _path = _path[0]
 
@@ -407,7 +407,7 @@ class GithubWebhook:
 
         return _owners
 
-    def get_all_repository_approvers(self) -> list[str]:
+    async def get_all_repository_approvers(self) -> list[str]:
         _approvers: list[str] = []
 
         for value in self.all_repository_approvers_and_reviewers.values():
@@ -417,7 +417,7 @@ class GithubWebhook:
 
         return _approvers
 
-    def get_all_repository_reviewers(self) -> list[str]:
+    async def get_all_repository_reviewers(self) -> list[str]:
         _reviewers: list[str] = []
 
         for value in self.all_repository_approvers_and_reviewers.values():
@@ -427,25 +427,29 @@ class GithubWebhook:
 
         return _reviewers
 
-    def get_all_pull_request_approvers(self) -> list[str]:
+    async def get_all_pull_request_approvers(self) -> list[str]:
         _approvers: list[str] = []
-        for list_of_approvers in self.owners_data_for_changed_files().values():
+        changed_files = await self.owners_data_for_changed_files()
+
+        for list_of_approvers in changed_files.values():
             for _approver in list_of_approvers.get("approvers", []):
                 _approvers.append(_approver)
 
         _approvers.sort()
         return _approvers
 
-    def get_all_pull_request_reviewers(self) -> list[str]:
+    async def get_all_pull_request_reviewers(self) -> list[str]:
         _reviewers: list[str] = []
-        for list_of_reviewers in self.owners_data_for_changed_files().values():
+        changed_files = await self.owners_data_for_changed_files()
+
+        for list_of_reviewers in changed_files.values():
             for _reviewer in list_of_reviewers.get("reviewers", []):
                 _reviewers.append(_reviewer)
 
         _reviewers.sort()
         return _reviewers
 
-    def owners_data_for_changed_files(self) -> dict[str, dict[str, Any]]:
+    async def owners_data_for_changed_files(self) -> dict[str, dict[str, Any]]:
         data: dict[str, dict[str, Any]] = {}
 
         changed_folders = {Path(cf).parent for cf in self.changed_files}

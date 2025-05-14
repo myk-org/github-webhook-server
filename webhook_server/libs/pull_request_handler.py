@@ -319,13 +319,14 @@ PR will be approved when the following conditions are met:
                 await self.runner_handler.run_podman_command(command="regctl registry logout")
 
         else:
-            pull_request.create_issue_comment(
-                f"Failed to delete tag: {repository_full_tag}. Please delete it manually."
+            await asyncio.to_thread(
+                pull_request.create_issue_comment,
+                f"Failed to delete tag: {repository_full_tag}. Please delete it manually.",
             )
             self.logger.error(f"{self.log_prefix} Failed to delete tag: {repository_full_tag}. OUT:{out}. ERR:{err}")
 
     async def close_issue_for_merged_or_closed_pr(self, pull_request: PullRequest, hook_action: str) -> None:
-        for issue in self.repository.get_issues():
+        for issue in await asyncio.to_thread(self.repository.get_issues):
             if issue.body == self._generate_issue_body(pull_request=pull_request):
                 self.logger.info(f"{self.log_prefix} Closing issue {issue.title} for PR: {pull_request.title}")
                 await asyncio.to_thread(
@@ -521,10 +522,11 @@ PR will be approved when the following conditions are met:
             if not is_pr_mergable:
                 failure_output += f"PR is not mergeable: {is_pr_mergable}\n"
 
-            required_check_in_progress_failure_output, check_runs_in_progress = (
-                self.check_run_handler.required_check_in_progress(
-                    pull_request=pull_request, last_commit_check_runs=last_commit_check_runs
-                )
+            (
+                required_check_in_progress_failure_output,
+                check_runs_in_progress,
+            ) = await self.check_run_handler.required_check_in_progress(
+                pull_request=pull_request, last_commit_check_runs=last_commit_check_runs
             )
             if required_check_in_progress_failure_output:
                 failure_output += required_check_in_progress_failure_output
@@ -533,7 +535,7 @@ PR will be approved when the following conditions are met:
             if labels_failure_output:
                 failure_output += labels_failure_output
 
-            required_check_failed_failure_output = self.check_run_handler.required_check_failed(
+            required_check_failed_failure_output = await self.check_run_handler.required_check_failed(
                 pull_request=pull_request,
                 last_commit_check_runs=last_commit_check_runs,
                 check_runs_in_progress=check_runs_in_progress,
@@ -545,7 +547,7 @@ PR will be approved when the following conditions are met:
             if labels_failure_output:
                 failure_output += labels_failure_output
 
-            pr_approvered_failure_output = self._check_if_pr_approved(labels=_labels)
+            pr_approvered_failure_output = await self._check_if_pr_approved(labels=_labels)
             if pr_approvered_failure_output:
                 failure_output += pr_approvered_failure_output
 
@@ -570,7 +572,7 @@ PR will be approved when the following conditions are met:
             await self.labels_handler._remove_label(pull_request=pull_request, label=CAN_BE_MERGED_STR)
             await self.check_run_handler.set_merge_check_failure(output=output)
 
-    def _check_if_pr_approved(self, labels: list[str]) -> str:
+    async def _check_if_pr_approved(self, labels: list[str]) -> str:
         self.logger.info(f"{self.log_prefix} Check if pull request is approved by pull request labels.")
 
         error: str = ""
@@ -598,7 +600,8 @@ PR will be approved when the following conditions are met:
 
         missing_approvers = self.github_webhook.all_pull_request_approvers.copy()
 
-        for data in self.github_webhook.owners_data_for_changed_files().values():
+        owners_data_changed_files = await self.github_webhook.owners_data_for_changed_files()
+        for data in owners_data_changed_files.values():
             required_pr_approvers = data.get("approvers", [])
             for required_pr_approver in required_pr_approvers:
                 if required_pr_approver in approved_by:

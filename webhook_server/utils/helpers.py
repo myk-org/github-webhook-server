@@ -38,10 +38,10 @@ def get_logger_with_params(
         name=name,
         filename=log_file,
         level=log_level,
-        file_max_bytes=1048576 * 50,
+        file_max_bytes=1024 * 1024 * 10,
         mask_sensitive=mask_sensitive,
         mask_sensitive_patterns=mask_sensitive_patterns,
-    )  # 50MB
+    )
 
 
 def extract_key_from_dict(key: Any, _dict: dict[Any, Any]) -> Any:
