@@ -118,7 +118,7 @@ class IssueCommentHandler:
             await self._add_reviewer_by_user_comment(pull_request=pull_request, reviewer=_args)
 
         elif _command == COMMAND_ASSIGN_REVIEWERS_STR:
-            await self.github_webhook.assign_reviewers(pull_request=pull_request)
+            await self.owners_file_handler.assign_reviewers(pull_request=pull_request)
 
         elif _command == COMMAND_CHECK_CAN_MERGE_STR:
             await self.pull_request_handler.check_if_can_be_merged(pull_request=pull_request)

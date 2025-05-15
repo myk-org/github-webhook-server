@@ -347,7 +347,7 @@ PR will be approved when the following conditions are met:
     async def process_opened_or_synchronize_pull_request(self, pull_request: PullRequest) -> None:
         tasks = []
 
-        tasks.append(self.github_webhook.assign_reviewers(pull_request=pull_request))
+        tasks.append(self.owners_file_handler.assign_reviewers(pull_request=pull_request))
         tasks.append(
             self.labels_handler._add_label(
                 **{
