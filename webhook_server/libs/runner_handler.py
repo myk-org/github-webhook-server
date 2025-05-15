@@ -5,13 +5,11 @@ from typing import Any, AsyncGenerator
 from uuid import uuid4
 
 import shortuuid
-from asyncstdlib import functools
 from github.Branch import Branch
-from github.NamedUser import NamedUser
-from github.PaginatedList import PaginatedList
 from github.PullRequest import PullRequest
 
 from webhook_server.libs.check_run_handler import CheckRunHandler
+from webhook_server.libs.owners_files_handler import OwnersFileHandler
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CHERRY_PICKED_LABEL_PREFIX,
@@ -24,8 +22,9 @@ from webhook_server.utils.helpers import run_command
 
 
 class RunnerHandler:
-    def __init__(self, github_webhook: Any):
+    def __init__(self, github_webhook: Any, owners_file_handler: OwnersFileHandler | None = None):
         self.github_webhook = github_webhook
+        self.owners_file_handler = owners_file_handler
         self.hook_data = self.github_webhook.hook_data
         self.logger = self.github_webhook.logger
         self.log_prefix = self.github_webhook.log_prefix
@@ -249,9 +248,12 @@ class RunnerHandler:
             return
 
         if (
-            reviewed_user
+            self.owners_file_handler
+            and reviewed_user
             and pull_request
-            and not await self._is_user_valid_to_run_commands(reviewed_user=reviewed_user, pull_request=pull_request)
+            and not await self.owners_file_handler.is_user_valid_to_run_commands(
+                reviewed_user=reviewed_user, pull_request=pull_request
+            )
         ):
             return
 
@@ -398,75 +400,8 @@ class RunnerHandler:
 
             await self.check_run_handler.set_conventional_title_failure(output=output)
 
-    async def _is_user_valid_to_run_commands(self, pull_request: PullRequest, reviewed_user: str) -> bool:
-        allowed_user_to_approve = (
-            await self.get_all_repository_maintainers() + self.github_webhook.all_repository_approvers
-        )
-        allow_user_comment = f"/add-allowed-user @{reviewed_user}"
-
-        comment_msg = f"""
-{reviewed_user} is not allowed to run retest commands.
-maintainers can allow it by comment `{allow_user_comment}`
-Maintainers:
- - {"\n - @".join(allowed_user_to_approve)}
-"""
-
-        if reviewed_user not in await self.valid_users_to_run_commands:
-            comments_from_approvers = [
-                comment.body
-                for comment in await asyncio.to_thread(pull_request.get_issue_comments)
-                if comment.user.login in allowed_user_to_approve
-            ]
-            for comment in comments_from_approvers:
-                if allow_user_comment in comment:
-                    return True
-
-            self.logger.debug(f"{self.log_prefix} {reviewed_user} is not in {await self.valid_users_to_run_commands}")
-            await asyncio.to_thread(pull_request.create_issue_comment, comment_msg)
-            return False
-
-        return True
-
-    @functools.cached_property
-    async def valid_users_to_run_commands(self) -> set[str]:
-        repository_collaborators = await self.get_all_repository_collaborators()
-        reposotory_contributors = await self.get_all_repository_contributors()
-        return set((
-            *repository_collaborators,
-            *reposotory_contributors,
-            *self.github_webhook.all_repository_approvers,
-            *self.github_webhook.all_pull_request_reviewers,
-        ))
-
-    async def get_all_repository_maintainers(self) -> list[str]:
-        maintainers: list[str] = []
-
-        for user in await self.repository_collaborators:
-            permmissions = user.permissions
-
-            if permmissions.admin or permmissions.maintain:
-                maintainers.append(user.login)
-
-        return maintainers
-
-    @functools.cached_property
-    async def repository_collaborators(self) -> PaginatedList[NamedUser]:
-        return await asyncio.to_thread(self.repository.get_collaborators)
-
-    @functools.cached_property
-    async def repository_contributors(self) -> PaginatedList[NamedUser]:
-        return await asyncio.to_thread(self.repository.get_contributors)
-
     async def is_branch_exists(self, branch: str) -> Branch:
         return await asyncio.to_thread(self.repository.get_branch, branch)
-
-    async def get_all_repository_contributors(self) -> list[str]:
-        contributors = await self.repository_contributors
-        return [val.login for val in contributors]
-
-    async def get_all_repository_collaborators(self) -> list[str]:
-        collaborators = await self.repository_collaborators
-        return [val.login for val in collaborators]
 
     async def cherry_pick(self, pull_request: PullRequest, target_branch: str, reviewed_user: str = "") -> None:
         requested_by = reviewed_user or "by target-branch label"

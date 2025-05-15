@@ -7,6 +7,7 @@ from github.PullRequest import PullRequest
 
 from webhook_server.libs.check_run_handler import CheckRunHandler
 from webhook_server.libs.labels_handler import LabelsHandler
+from webhook_server.libs.owners_files_handler import OwnersFileHandler
 from webhook_server.libs.runner_handler import RunnerHandler
 from webhook_server.utils.constants import (
     APPROVED_BY_LABEL_PREFIX,
@@ -33,15 +34,21 @@ from webhook_server.utils.constants import (
 
 
 class PullRequestHandler:
-    def __init__(self, github_webhook: Any):
+    def __init__(self, github_webhook: Any, owners_file_handler: OwnersFileHandler):
         self.github_webhook = github_webhook
+        self.owners_file_handler = owners_file_handler
+
         self.hook_data = self.github_webhook.hook_data
         self.logger = self.github_webhook.logger
         self.log_prefix = self.github_webhook.log_prefix
         self.repository = self.github_webhook.repository
-        self.labels_handler = LabelsHandler(github_webhook=self.github_webhook)
+        self.labels_handler = LabelsHandler(
+            github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
+        )
         self.check_run_handler = CheckRunHandler(github_webhook=self.github_webhook)
-        self.runner_handler = RunnerHandler(github_webhook=self.github_webhook)
+        self.runner_handler = RunnerHandler(
+            github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
+        )
 
     async def process_pull_request_webhook_data(self, pull_request: PullRequest) -> None:
         hook_action: str = self.hook_data["action"]
@@ -129,8 +136,8 @@ class PullRequestHandler:
                 ):
                     if (
                         _user
-                        in self.github_webhook.all_pull_request_reviewers
-                        + self.github_webhook.all_pull_request_approvers
+                        in self.owners_file_handler.all_pull_request_reviewers
+                        + self.owners_file_handler.all_pull_request_approvers
                     ):
                         _check_for_merge = True
 
@@ -214,10 +221,10 @@ PR will be approved when the following conditions are met:
         body_approvers: str = " * Approvers:\n"
         body_reviewers: str = " * Reviewers:\n"
 
-        for _approver in self.github_webhook.all_pull_request_approvers:
+        for _approver in self.owners_file_handler.all_pull_request_approvers:
             body_approvers += f"   * {_approver}\n"
 
-        for _reviewer in self.github_webhook.all_pull_request_reviewers:
+        for _reviewer in self.owners_file_handler.all_pull_request_reviewers:
             body_reviewers += f"   * {_reviewer}\n"
 
         return f"""
@@ -581,9 +588,9 @@ PR will be approved when the following conditions are met:
         lgtm_count: int = 0
 
         all_reviewers = (
-            self.github_webhook.all_pull_request_reviewers.copy()
-            + self.github_webhook.root_approvers.copy()
-            + self.github_webhook.root_reviewers.copy()
+            self.owners_file_handler.all_pull_request_reviewers.copy()
+            + self.owners_file_handler.root_approvers.copy()
+            + self.owners_file_handler.root_reviewers.copy()
         )
         all_reviewers_without_pr_owner = {
             _reviewer for _reviewer in all_reviewers if _reviewer != self.github_webhook.parent_committer
@@ -599,9 +606,9 @@ PR will be approved when the following conditions are met:
             if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
                 approved_by.append(_label.split(LABELS_SEPARATOR)[-1])
 
-        missing_approvers = self.github_webhook.all_pull_request_approvers.copy()
+        missing_approvers = self.owners_file_handler.all_pull_request_approvers.copy()
+        owners_data_changed_files = await self.owners_file_handler.owners_data_for_changed_files()
 
-        owners_data_changed_files = await self.github_webhook.owners_data_for_changed_files()
         for data in owners_data_changed_files.values():
             required_pr_approvers = data.get("approvers", [])
             for required_pr_approver in required_pr_approvers:
@@ -638,7 +645,7 @@ PR will be approved when the following conditions are met:
         for _label in labels:
             if CHANGED_REQUESTED_BY_LABEL_PREFIX.lower() in _label.lower():
                 change_request_user = _label.split(LABELS_SEPARATOR)[-1]
-                if change_request_user in self.github_webhook.all_pull_request_approvers:
+                if change_request_user in self.owners_file_handler.all_pull_request_approvers:
                     failure_output += "PR has changed requests from approvers\n"
 
         missing_required_labels = []

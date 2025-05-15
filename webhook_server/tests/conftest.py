@@ -5,18 +5,10 @@ import yaml
 from simple_logger.logger import logging
 from starlette.datastructures import Headers
 
+from webhook_server.libs.owners_files_handler import OwnersFileHandler
+
 os.environ["WEBHOOK_SERVER_DATA_DIR"] = "webhook_server/tests/manifests"
 from webhook_server.libs.github_api import GithubWebhook
-
-ALL_CHANGED_FILES = [
-    "OWNERS",
-    "folder1/OWNERS",
-    "code/file.py",
-    "README.md",
-    "folder2/lib.py",
-    "folder/folder4/another_file.txt",
-    "folder5/file",
-]
 
 
 class Tree:
@@ -55,7 +47,7 @@ class Repository:
     def get_git_tree(self, sha: str, recursive: bool):
         return Tree("")
 
-    def get_contents(self, path: str):
+    def get_contents(self, path: str, ref: str):
         owners_data = yaml.dump({
             "approvers": ["root_approver1", "root_approver2"],
             "reviewers": ["root_reviewer1", "root_reviewer2"],
@@ -112,6 +104,8 @@ class PullRequest:
 
     def create_review_request(self, *args, **kwargs): ...
 
+    def get_files(self): ...
+
 
 @pytest.fixture(scope="function")
 def pull_request():
@@ -119,7 +113,7 @@ def pull_request():
 
 
 @pytest.fixture(scope="function")
-def process_github_webhook(mocker, request):
+def github_webhook(mocker, request):
     base_import_path = "webhook_server.libs.github_api"
 
     mocker.patch(f"{base_import_path}.get_repository_github_app_api", return_value=True)
@@ -132,10 +126,22 @@ def process_github_webhook(mocker, request):
         headers=Headers({"X-GitHub-Event": "test-event"}),
         logger=logging.getLogger(),
     )
-    if hasattr(request, "param") and request.param:
-        process_github_webhook.changed_files = request.param[0]
+    owners_file_handler = OwnersFileHandler(github_webhook=process_github_webhook)
 
-    else:
-        process_github_webhook.changed_files = ALL_CHANGED_FILES
+    # if hasattr(request, "param") and request.param:
+    #     owners_file_handler.changed_files = request.param[0]
+    #
+    # else:
+    #     owners_file_handler.changed_files = ALL_CHANGED_FILES
 
-    return process_github_webhook
+    return process_github_webhook, owners_file_handler
+
+
+@pytest.fixture(scope="function")
+def process_github_webhook(github_webhook):
+    return github_webhook[0]
+
+
+@pytest.fixture(scope="function")
+def owners_file_handler(github_webhook):
+    return github_webhook[1]

@@ -7,6 +7,7 @@ from github.PullRequest import PullRequest
 
 from webhook_server.libs.check_run_handler import CheckRunHandler
 from webhook_server.libs.labels_handler import LabelsHandler
+from webhook_server.libs.owners_files_handler import OwnersFileHandler
 from webhook_server.libs.pull_request_handler import PullRequestHandler
 from webhook_server.libs.runner_handler import RunnerHandler
 from webhook_server.utils.constants import (
@@ -31,16 +32,24 @@ from webhook_server.utils.constants import (
 
 
 class IssueCommentHandler:
-    def __init__(self, github_webhook: Any):
+    def __init__(self, github_webhook: Any, owners_file_handler: OwnersFileHandler):
         self.github_webhook = github_webhook
+        self.owners_file_handler = owners_file_handler
+
         self.hook_data = self.github_webhook.hook_data
         self.logger = self.github_webhook.logger
         self.log_prefix = self.github_webhook.log_prefix
         self.repository = self.github_webhook.repository
-        self.labels_handler = LabelsHandler(github_webhook=self.github_webhook)
+        self.labels_handler = LabelsHandler(
+            github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
+        )
         self.check_run_handler = CheckRunHandler(github_webhook=self.github_webhook)
-        self.pull_request_handler = PullRequestHandler(github_webhook=self.github_webhook)
-        self.runner_handler = RunnerHandler(github_webhook=self.github_webhook)
+        self.pull_request_handler = PullRequestHandler(
+            github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
+        )
+        self.runner_handler = RunnerHandler(
+            github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
+        )
 
     async def process_comment_webhook_data(self, pull_request: PullRequest) -> None:
         if comment_action := self.hook_data["action"] in ("edited", "deleted"):
@@ -149,7 +158,7 @@ class IssueCommentHandler:
                 await asyncio.to_thread(pull_request.edit, title=f"{wip_for_title} {pull_request.title}")
 
         elif _command == HOLD_LABEL_STR:
-            if reviewed_user not in self.github_webhook.all_pull_request_approvers:
+            if reviewed_user not in self.owners_file_handler.all_pull_request_approvers:
                 await asyncio.to_thread(
                     pull_request.create_issue_comment,
                     f"{reviewed_user} is not part of the approver, only approvers can mark pull request with hold",
@@ -235,7 +244,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     )
 
     async def process_retest_command(self, pull_request: PullRequest, command_args: str, reviewed_user: str) -> None:
-        if not await self.runner_handler._is_user_valid_to_run_commands(
+        if not await self.owners_file_handler.is_user_valid_to_run_commands(
             pull_request=pull_request, reviewed_user=reviewed_user
         ):
             return

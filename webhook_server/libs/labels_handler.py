@@ -5,6 +5,7 @@ from github.GithubException import UnknownObjectException
 from github.PullRequest import PullRequest
 from timeout_sampler import TimeoutWatch
 
+from webhook_server.libs.owners_files_handler import OwnersFileHandler
 from webhook_server.utils.constants import (
     ADD_STR,
     APPROVE_STR,
@@ -23,8 +24,10 @@ from webhook_server.utils.constants import (
 
 
 class LabelsHandler:
-    def __init__(self, github_webhook: Any) -> None:
+    def __init__(self, github_webhook: Any, owners_file_handler: OwnersFileHandler) -> None:
         self.github_webhook = github_webhook
+        self.owners_file_handler = owners_file_handler
+
         self.hook_data = self.github_webhook.hook_data
         self.logger = self.github_webhook.logger
         self.log_prefix = self.github_webhook.log_prefix
@@ -167,7 +170,7 @@ class LabelsHandler:
         label_to_remove: str = ""
 
         if review_state == APPROVE_STR:
-            if reviewed_user in self.github_webhook.all_pull_request_approvers:
+            if reviewed_user in self.owners_file_handler.all_pull_request_approvers:
                 label_prefix = APPROVED_BY_LABEL_PREFIX
                 label_to_remove = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{reviewed_user}"
 

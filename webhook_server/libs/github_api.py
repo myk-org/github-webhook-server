@@ -6,11 +6,9 @@ import json
 import logging
 import os
 import random
-from pathlib import Path
 from typing import Any
 
 import requests
-import yaml
 from github import GithubException
 from github.Commit import Commit
 from github.PullRequest import PullRequest
@@ -21,6 +19,7 @@ from webhook_server.libs.check_run_handler import CheckRunHandler
 from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import RepositoryNotFoundError
 from webhook_server.libs.issue_comment_handler import IssueCommentHandler
+from webhook_server.libs.owners_files_handler import OwnersFileHandler
 from webhook_server.libs.pull_request_handler import PullRequestHandler
 from webhook_server.libs.pull_request_review_handler import PullRequestReviewHandler
 from webhook_server.libs.push_handler import PushHandler
@@ -123,35 +122,41 @@ class GithubWebhook:
             self.last_commit = await self._get_last_commit(pull_request=pull_request)
             self.parent_committer = pull_request.user.login
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
-            self.changed_files = self.list_changed_files(pull_request=pull_request)
-            self.all_repository_approvers_and_reviewers = await self.get_all_repository_approvers_and_reviewers(
-                pull_request=pull_request
-            )
-            self.all_repository_approvers = await self.get_all_repository_approvers()
-            self.all_repository_reviewers = await self.get_all_repository_reviewers()
-            self.all_pull_request_approvers = await self.get_all_pull_request_approvers()
-            self.all_pull_request_reviewers = await self.get_all_pull_request_reviewers()
 
             if self.github_event == "issue_comment":
-                return await IssueCommentHandler(github_webhook=self).process_comment_webhook_data(
-                    pull_request=pull_request
-                )
+                owners_file_handler = OwnersFileHandler(github_webhook=self)
+                owners_file_handler = await owners_file_handler.initilaize(pull_request=pull_request)
+
+                return await IssueCommentHandler(
+                    github_webhook=self, owners_file_handler=owners_file_handler
+                ).process_comment_webhook_data(pull_request=pull_request)
 
             elif self.github_event == "pull_request":
-                return await PullRequestHandler(github_webhook=self).process_pull_request_webhook_data(
-                    pull_request=pull_request
-                )
+                owners_file_handler = OwnersFileHandler(github_webhook=self)
+                owners_file_handler = await owners_file_handler.initilaize(pull_request=pull_request)
+
+                return await PullRequestHandler(
+                    github_webhook=self, owners_file_handler=owners_file_handler
+                ).process_pull_request_webhook_data(pull_request=pull_request)
 
             elif self.github_event == "pull_request_review":
-                return await PullRequestReviewHandler(github_webhook=self).process_pull_request_review_webhook_data(
-                    pull_request=pull_request
+                owners_file_handler = OwnersFileHandler(github_webhook=self)
+                owners_file_handler = await owners_file_handler.initilaize(pull_request=pull_request)
+
+                return await PullRequestReviewHandler(
+                    github_webhook=self, owners_file_handler=owners_file_handler
+                ).process_pull_request_review_webhook_data(
+                    pull_request=pull_request,
                 )
 
             elif self.github_event == "check_run":
                 if await CheckRunHandler(github_webhook=self).process_pull_request_check_run_webhook_data():
-                    return await PullRequestHandler(github_webhook=self).check_if_can_be_merged(
-                        pull_request=pull_request
-                    )
+                    owners_file_handler = OwnersFileHandler(github_webhook=self)
+                    owners_file_handler = await owners_file_handler.initilaize(pull_request=pull_request)
+
+                    return await PullRequestHandler(
+                        github_webhook=self, owners_file_handler=owners_file_handler
+                    ).check_if_can_be_merged(pull_request=pull_request)
 
     @property
     def add_api_users_to_auto_verified_and_merged_users(self) -> None:
@@ -290,21 +295,6 @@ class GithubWebhook:
         _commits = await asyncio.to_thread(pull_request.get_commits)
         return list(_commits)[-1]
 
-    @property
-    def root_reviewers(self) -> list[str]:
-        _reviewers = self.all_repository_approvers_and_reviewers.get(".", {}).get("reviewers", [])
-        self.logger.debug(f"{self.log_prefix} ROOT Reviewers: {_reviewers}")
-        return _reviewers
-
-    @property
-    def root_approvers(self) -> list[str]:
-        _approvers = self.all_repository_approvers_and_reviewers.get(".", {}).get("approvers", [])
-        self.logger.debug(f"{self.log_prefix} ROOT Approvers: {_approvers}")
-        return _approvers
-
-    def list_changed_files(self, pull_request: PullRequest) -> list[str]:
-        return [_file.filename for _file in pull_request.get_files()]
-
     @staticmethod
     def _comment_with_details(title: str, body: str) -> str:
         return f"""
@@ -370,156 +360,3 @@ class GithubWebhook:
         if self.conventional_title:
             current_pull_request_supported_retest.append(CONVENTIONAL_TITLE_STR)
         return current_pull_request_supported_retest
-
-    async def get_all_repository_approvers_and_reviewers(self, pull_request: PullRequest) -> dict[str, dict[str, Any]]:
-        # Dictionary mapping OWNERS file paths to their approvers and reviewers
-        _owners: dict[str, dict[str, Any]] = {}
-
-        max_owners_files = 1000  # Configurable limit
-        owners_count = 0
-
-        self.logger.debug(f"{self.log_prefix} Get git tree")
-        tree = await asyncio.to_thread(self.repository.get_git_tree, pull_request.base.ref, recursive=True)
-        for element in tree.tree:
-            if element.type == "blob" and element.path.endswith("OWNERS"):
-                owners_count += 1
-                if owners_count > max_owners_files:
-                    self.logger.error(f"{self.log_prefix} Too many OWNERS files (>{max_owners_files})")
-                    break
-
-                content_path = element.path
-                self.logger.debug(f"{self.log_prefix} Get OWNERS file from {content_path}")
-                _path = await asyncio.to_thread(self.repository.get_contents, content_path, pull_request.base.ref)
-                if isinstance(_path, list):
-                    _path = _path[0]
-
-                try:
-                    content = yaml.safe_load(_path.decoded_content)
-                    if self._validate_owners_content(content, content_path):
-                        parent_path = str(Path(content_path).parent)
-                        if not parent_path:
-                            parent_path = "."
-                        _owners[parent_path] = content
-
-                except yaml.YAMLError as exp:
-                    self.logger.error(f"{self.log_prefix} Invalid OWNERS file {content_path}: {exp}")
-                    continue
-
-        return _owners
-
-    async def get_all_repository_approvers(self) -> list[str]:
-        _approvers: list[str] = []
-
-        for value in self.all_repository_approvers_and_reviewers.values():
-            for key, val in value.items():
-                if key == "approvers":
-                    _approvers.extend(val)
-
-        return _approvers
-
-    async def get_all_repository_reviewers(self) -> list[str]:
-        _reviewers: list[str] = []
-
-        for value in self.all_repository_approvers_and_reviewers.values():
-            for key, val in value.items():
-                if key == "reviewers":
-                    _reviewers.extend(val)
-
-        return _reviewers
-
-    async def get_all_pull_request_approvers(self) -> list[str]:
-        _approvers: list[str] = []
-        changed_files = await self.owners_data_for_changed_files()
-
-        for list_of_approvers in changed_files.values():
-            for _approver in list_of_approvers.get("approvers", []):
-                _approvers.append(_approver)
-
-        _approvers.sort()
-        return _approvers
-
-    async def get_all_pull_request_reviewers(self) -> list[str]:
-        _reviewers: list[str] = []
-        changed_files = await self.owners_data_for_changed_files()
-
-        for list_of_reviewers in changed_files.values():
-            for _reviewer in list_of_reviewers.get("reviewers", []):
-                _reviewers.append(_reviewer)
-
-        _reviewers.sort()
-        return _reviewers
-
-    async def owners_data_for_changed_files(self) -> dict[str, dict[str, Any]]:
-        data: dict[str, dict[str, Any]] = {}
-
-        changed_folders = {Path(cf).parent for cf in self.changed_files}
-
-        changed_folder_match: list[Path] = []
-
-        require_root_approvers: bool | None = None
-
-        for owners_dir, owners_data in self.all_repository_approvers_and_reviewers.items():
-            if owners_dir == ".":
-                continue
-
-            _owners_dir = Path(owners_dir)
-
-            for changed_folder in changed_folders:
-                if changed_folder == _owners_dir or _owners_dir in changed_folder.parents:
-                    data[owners_dir] = owners_data
-                    changed_folder_match.append(_owners_dir)
-                    if require_root_approvers is None:
-                        require_root_approvers = owners_data.get("root-approvers", True)
-
-        if require_root_approvers or require_root_approvers is None:
-            self.logger.debug(f"{self.log_prefix} require root_approvers")
-            data["."] = self.all_repository_approvers_and_reviewers.get(".", {})
-
-        else:
-            for _folder in changed_folders:
-                for _changed_path in changed_folder_match:
-                    if _folder == _changed_path or _changed_path in _folder.parents:
-                        continue
-                    else:
-                        data["."] = self.all_repository_approvers_and_reviewers.get(".", {})
-                        break
-
-        return data
-
-    def _validate_owners_content(self, content: Any, path: str) -> bool:
-        """Validate OWNERS file content structure."""
-        try:
-            if not isinstance(content, dict):
-                raise ValueError("OWNERS file must contain a dictionary")
-
-            for key in ["approvers", "reviewers"]:
-                if key in content:
-                    if not isinstance(content[key], list):
-                        raise ValueError(f"{key} must be a list")
-
-                    if not all(isinstance(_elm, str) for _elm in content[key]):
-                        raise ValueError(f"All {key} must be strings")
-
-            return True
-
-        except ValueError as e:
-            self.logger.error(f"{self.log_prefix} Invalid OWNERS file {path}: {e}")
-            return False
-
-    async def assign_reviewers(self, pull_request: PullRequest) -> None:
-        self.logger.info(f"{self.log_prefix} Assign reviewers")
-
-        _to_add: list[str] = list(set(self.all_pull_request_reviewers))
-        self.logger.debug(f"{self.log_prefix} Reviewers to add: {', '.join(_to_add)}")
-
-        for reviewer in _to_add:
-            if reviewer != pull_request.user.login:
-                self.logger.debug(f"{self.log_prefix} Adding reviewer {reviewer}")
-                try:
-                    await asyncio.to_thread(pull_request.create_review_request, [reviewer])
-
-                except GithubException as ex:
-                    self.logger.debug(f"{self.log_prefix} Failed to add reviewer {reviewer}. {ex}")
-                    await asyncio.to_thread(
-                        pull_request.create_issue_comment, f"{reviewer} can not be added as reviewer. {ex}"
-                    )

@@ -3,14 +3,19 @@ from typing import Any
 from github.PullRequest import PullRequest
 
 from webhook_server.libs.labels_handler import LabelsHandler
+from webhook_server.libs.owners_files_handler import OwnersFileHandler
 from webhook_server.utils.constants import ADD_STR, APPROVE_STR
 
 
 class PullRequestReviewHandler:
-    def __init__(self, github_webhook: Any):
+    def __init__(self, github_webhook: Any, owners_file_handler: OwnersFileHandler):
         self.github_webhook = github_webhook
+        self.owners_file_handler = owners_file_handler
+
         self.hook_data = self.github_webhook.hook_data
-        self.labels_handler = LabelsHandler(github_webhook=self.github_webhook)
+        self.labels_handler = LabelsHandler(
+            github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
+        )
 
     async def process_pull_request_review_webhook_data(self, pull_request: PullRequest) -> None:
         if self.hook_data["action"] == "submitted":

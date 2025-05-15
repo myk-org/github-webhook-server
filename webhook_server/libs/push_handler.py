@@ -10,6 +10,7 @@ from webhook_server.utils.helpers import run_command
 class PushHandler:
     def __init__(self, github_webhook: Any):
         self.github_webhook = github_webhook
+
         self.hook_data = self.github_webhook.hook_data
         self.logger = self.github_webhook.logger
         self.log_prefix = self.github_webhook.log_prefix

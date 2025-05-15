@@ -5,6 +5,16 @@ from webhook_server.libs.pull_request_handler import PullRequestHandler
 from webhook_server.tests.conftest import ContentFile, Tree
 from webhook_server.utils.constants import APPROVED_BY_LABEL_PREFIX
 
+ALL_CHANGED_FILES = [
+    "OWNERS",
+    "folder1/OWNERS",
+    "code/file.py",
+    "README.md",
+    "folder2/lib.py",
+    "folder/folder4/another_file.txt",
+    "folder5/file",
+]
+
 
 class Repository:
     def __init__(self):
@@ -13,7 +23,7 @@ class Repository:
     def get_git_tree(self, sha: str, recursive: bool):
         return Tree("")
 
-    def get_contents(self, path: str, ref):
+    def get_contents(self, path: str, ref: str):
         owners_data = yaml.dump({
             "approvers": ["root_approver1", "root_approver2"],
             "reviewers": ["root_reviewer1", "root_reviewer2"],
@@ -54,8 +64,17 @@ class Repository:
 
 
 @pytest.fixture(scope="function")
-def all_repository_approvers_and_reviewers(process_github_webhook):
-    process_github_webhook.all_repository_approvers_and_reviewers = {
+def changed_files(request, owners_file_handler):
+    if hasattr(request, "param") and request.param:
+        owners_file_handler.changed_files = request.param[0]
+
+    else:
+        owners_file_handler.changed_files = ALL_CHANGED_FILES
+
+
+@pytest.fixture(scope="function")
+def all_repository_approvers_and_reviewers(owners_file_handler):
+    owners_file_handler.all_repository_approvers_and_reviewers = {
         ".": {"approvers": ["root_approver1", "root_approver2"], "reviewers": ["root_reviewer1", "root_reviewer2"]},
         "folder1": {
             "approvers": ["folder1_approver1", "folder1_approver2"],
@@ -75,8 +94,8 @@ def all_repository_approvers_and_reviewers(process_github_webhook):
 
 
 @pytest.fixture(scope="function")
-def all_approvers_reviewers(process_github_webhook):
-    process_github_webhook.all_pull_request_approvers = [
+def all_approvers_reviewers(owners_file_handler):
+    owners_file_handler.all_pull_request_approvers = [
         "folder1_approver1",
         "folder1_approver2",
         "folder4_approver1",
@@ -87,9 +106,9 @@ def all_approvers_reviewers(process_github_webhook):
         "root_approver2",
     ]
 
-    process_github_webhook.all_pull_request_approvers.sort()
+    owners_file_handler.all_pull_request_approvers.sort()
 
-    process_github_webhook.all_pull_request_reviewers = [
+    owners_file_handler.all_pull_request_reviewers = [
         "folder1_reviewer1",
         "folder1_reviewer2",
         "folder4_reviewer1",
@@ -100,23 +119,23 @@ def all_approvers_reviewers(process_github_webhook):
         "root_reviewer2",
     ]
 
-    process_github_webhook.all_pull_request_reviewers.sort()
+    owners_file_handler.all_pull_request_reviewers.sort()
 
 
 @pytest.mark.asyncio
 async def test_get_all_repository_approvers_and_reviewers(
-    process_github_webhook, pull_request, all_repository_approvers_and_reviewers
+    changed_files, process_github_webhook, owners_file_handler, pull_request, all_repository_approvers_and_reviewers
 ):
     process_github_webhook.repository = Repository()
-    read_owners_result = await process_github_webhook.get_all_repository_approvers_and_reviewers(
-        pull_request=pull_request
-    )
-    assert read_owners_result == process_github_webhook.all_repository_approvers_and_reviewers
+    read_owners_result = await owners_file_handler.get_all_repository_approvers_and_reviewers(pull_request=pull_request)
+    assert read_owners_result == owners_file_handler.all_repository_approvers_and_reviewers
 
 
 @pytest.mark.asyncio
-async def test_owners_data_for_changed_files(process_github_webhook, all_repository_approvers_and_reviewers):
-    owners_data_chaged_files_result = await process_github_webhook.owners_data_for_changed_files()
+async def test_owners_data_for_changed_files(
+    changed_files, process_github_webhook, owners_file_handler, all_repository_approvers_and_reviewers
+):
+    owners_data_chaged_files_result = await owners_file_handler.owners_data_for_changed_files()
     owners_data_chaged_files_expected = {
         "folder5": {
             "approvers": ["folder5_approver1", "folder5_approver2"],
@@ -140,21 +159,32 @@ async def test_owners_data_for_changed_files(process_github_webhook, all_reposit
 
 @pytest.mark.asyncio
 async def test_all_approvers_reviewers(
-    process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers
+    changed_files,
+    process_github_webhook,
+    owners_file_handler,
+    all_repository_approvers_and_reviewers,
+    all_approvers_reviewers,
 ):
-    all_approvers = await process_github_webhook.get_all_pull_request_approvers()
-    assert all_approvers == process_github_webhook.all_pull_request_approvers
+    all_approvers = await owners_file_handler.get_all_pull_request_approvers()
+    assert all_approvers == owners_file_handler.all_pull_request_approvers
 
-    all_pull_request_reviewers = await process_github_webhook.get_all_pull_request_reviewers()
-    assert all_pull_request_reviewers == process_github_webhook.all_pull_request_reviewers
+    all_pull_request_reviewers = await owners_file_handler.get_all_pull_request_reviewers()
+    assert all_pull_request_reviewers == owners_file_handler.all_pull_request_reviewers
 
 
 @pytest.mark.asyncio
 async def test_check_pr_approved(
-    process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers
+    changed_files,
+    process_github_webhook,
+    owners_file_handler,
+    all_repository_approvers_and_reviewers,
+    all_approvers_reviewers,
 ):
-    process_github_webhook.all_pull_request_approvers = await process_github_webhook.get_all_pull_request_approvers()
-    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    owners_file_handler.all_pull_request_approvers = await owners_file_handler.get_all_pull_request_approvers()
+    pull_request_handler = PullRequestHandler(
+        github_webhook=process_github_webhook,
+        owners_file_handler=owners_file_handler,
+    )
     process_github_webhook.parent_committer = "test"
     check_if_pr_approved = await pull_request_handler._check_if_pr_approved(
         labels=[
@@ -173,10 +203,17 @@ async def test_check_pr_approved(
 
 @pytest.mark.asyncio
 async def test_check_pr_minimum_approved(
-    process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers
+    changed_files,
+    process_github_webhook,
+    owners_file_handler,
+    all_repository_approvers_and_reviewers,
+    all_approvers_reviewers,
 ):
-    process_github_webhook.all_pull_request_approvers = await process_github_webhook.get_all_pull_request_approvers()
-    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    owners_file_handler.all_pull_request_approvers = await owners_file_handler.get_all_pull_request_approvers()
+    pull_request_handler = PullRequestHandler(
+        github_webhook=process_github_webhook,
+        owners_file_handler=owners_file_handler,
+    )
     process_github_webhook.parent_commiter = "test"
     check_if_pr_approved = await pull_request_handler._check_if_pr_approved(
         labels=[
@@ -191,10 +228,17 @@ async def test_check_pr_minimum_approved(
 
 @pytest.mark.asyncio
 async def test_check_pr_not_approved(
-    process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers
+    changed_files,
+    process_github_webhook,
+    owners_file_handler,
+    all_repository_approvers_and_reviewers,
+    all_approvers_reviewers,
 ):
-    process_github_webhook.all_pull_request_approvers = await process_github_webhook.get_all_pull_request_approvers()
-    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    owners_file_handler.all_pull_request_approvers = await owners_file_handler.get_all_pull_request_approvers()
+    pull_request_handler = PullRequestHandler(
+        github_webhook=process_github_webhook,
+        owners_file_handler=owners_file_handler,
+    )
     process_github_webhook.parent_commiter = "test"
     check_if_pr_approved = await pull_request_handler._check_if_pr_approved(
         labels=[
@@ -217,10 +261,16 @@ async def test_check_pr_not_approved(
 
 @pytest.mark.asyncio
 async def test_check_pr_partial_approved(
-    process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers
+    changed_files,
+    process_github_webhook,
+    owners_file_handler,
+    all_repository_approvers_and_reviewers,
+    all_approvers_reviewers,
 ):
-    process_github_webhook.all_pull_request_approvers = await process_github_webhook.get_all_pull_request_approvers()
-    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    owners_file_handler.all_pull_request_approvers = await owners_file_handler.get_all_pull_request_approvers()
+    pull_request_handler = PullRequestHandler(
+        github_webhook=process_github_webhook, owners_file_handler=owners_file_handler
+    )
     process_github_webhook.parent_commiter = "test"
     check_if_pr_approved = await pull_request_handler._check_if_pr_approved(
         labels=[
@@ -243,7 +293,7 @@ async def test_check_pr_partial_approved(
 
 
 @pytest.mark.parametrize(
-    "process_github_webhook",
+    "changed_files",
     [
         pytest.param([
             [
@@ -257,10 +307,16 @@ async def test_check_pr_partial_approved(
 )
 @pytest.mark.asyncio
 async def test_check_pr_approved_specific_folder(
-    process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers
+    changed_files,
+    process_github_webhook,
+    owners_file_handler,
+    all_repository_approvers_and_reviewers,
+    all_approvers_reviewers,
 ):
-    process_github_webhook.all_pull_request_approvers = await process_github_webhook.get_all_pull_request_approvers()
-    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    owners_file_handler.all_pull_request_approvers = await owners_file_handler.get_all_pull_request_approvers()
+    pull_request_handler = PullRequestHandler(
+        github_webhook=process_github_webhook, owners_file_handler=owners_file_handler
+    )
     process_github_webhook.parent_commiter = "test"
     check_if_pr_approved = await pull_request_handler._check_if_pr_approved(
         labels=[
@@ -272,7 +328,7 @@ async def test_check_pr_approved_specific_folder(
 
 
 @pytest.mark.parametrize(
-    "process_github_webhook",
+    "changed_files",
     [
         pytest.param([
             [
@@ -286,10 +342,16 @@ async def test_check_pr_approved_specific_folder(
 )
 @pytest.mark.asyncio
 async def test_check_pr_approved_nested_folder_no_owners(
-    process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers
+    changed_files,
+    process_github_webhook,
+    owners_file_handler,
+    all_repository_approvers_and_reviewers,
+    all_approvers_reviewers,
 ):
-    process_github_webhook.all_pull_request_approvers = await process_github_webhook.get_all_pull_request_approvers()
-    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    owners_file_handler.all_pull_request_approvers = await owners_file_handler.get_all_pull_request_approvers()
+    pull_request_handler = PullRequestHandler(
+        github_webhook=process_github_webhook, owners_file_handler=owners_file_handler
+    )
     process_github_webhook.parent_commiter = "test"
     check_if_pr_approved = await pull_request_handler._check_if_pr_approved(
         labels=[
@@ -300,7 +362,7 @@ async def test_check_pr_approved_nested_folder_no_owners(
 
 
 @pytest.mark.parametrize(
-    "process_github_webhook",
+    "changed_files",
     [
         pytest.param([
             [
@@ -312,10 +374,16 @@ async def test_check_pr_approved_nested_folder_no_owners(
 )
 @pytest.mark.asyncio
 async def test_check_pr_approved_specific_folder_with_root_approvers(
-    process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers
+    changed_files,
+    process_github_webhook,
+    owners_file_handler,
+    all_repository_approvers_and_reviewers,
+    all_approvers_reviewers,
 ):
-    process_github_webhook.all_pull_request_approvers = await process_github_webhook.get_all_pull_request_approvers()
-    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    owners_file_handler.all_pull_request_approvers = await owners_file_handler.get_all_pull_request_approvers()
+    pull_request_handler = PullRequestHandler(
+        github_webhook=process_github_webhook, owners_file_handler=owners_file_handler
+    )
     process_github_webhook.parent_commiter = "test"
     check_if_pr_approved = await pull_request_handler._check_if_pr_approved(
         labels=[
@@ -333,7 +401,7 @@ async def test_check_pr_approved_specific_folder_with_root_approvers(
 
 
 @pytest.mark.parametrize(
-    "process_github_webhook",
+    "changed_files",
     [
         pytest.param([
             [
@@ -345,10 +413,16 @@ async def test_check_pr_approved_specific_folder_with_root_approvers(
 )
 @pytest.mark.asyncio
 async def test_check_pr_approved_specific_folder_no_root_approvers(
-    process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers
+    changed_files,
+    process_github_webhook,
+    owners_file_handler,
+    all_repository_approvers_and_reviewers,
+    all_approvers_reviewers,
 ):
-    process_github_webhook.all_pull_request_approvers = await process_github_webhook.get_all_pull_request_approvers()
-    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    owners_file_handler.all_pull_request_approvers = await owners_file_handler.get_all_pull_request_approvers()
+    pull_request_handler = PullRequestHandler(
+        github_webhook=process_github_webhook, owners_file_handler=owners_file_handler
+    )
     process_github_webhook.parent_commiter = "test"
     check_if_pr_approved = await pull_request_handler._check_if_pr_approved(
         labels=[
@@ -359,7 +433,7 @@ async def test_check_pr_approved_specific_folder_no_root_approvers(
 
 
 @pytest.mark.parametrize(
-    "process_github_webhook",
+    "changed_files",
     [
         pytest.param([
             [
@@ -371,10 +445,16 @@ async def test_check_pr_approved_specific_folder_no_root_approvers(
 )
 @pytest.mark.asyncio
 async def test_check_pr_not_approved_specific_folder_without_owners(
-    process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers
+    changed_files,
+    process_github_webhook,
+    owners_file_handler,
+    all_repository_approvers_and_reviewers,
+    all_approvers_reviewers,
 ):
-    process_github_webhook.all_pull_request_approvers = await process_github_webhook.get_all_pull_request_approvers()
-    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    owners_file_handler.all_pull_request_approvers = await owners_file_handler.get_all_pull_request_approvers()
+    pull_request_handler = PullRequestHandler(
+        github_webhook=process_github_webhook, owners_file_handler=owners_file_handler
+    )
     process_github_webhook.parent_commiter = "test"
     check_if_pr_approved = await pull_request_handler._check_if_pr_approved(
         labels=[
@@ -392,7 +472,7 @@ async def test_check_pr_not_approved_specific_folder_without_owners(
 
 
 @pytest.mark.parametrize(
-    "process_github_webhook",
+    "changed_files",
     [
         pytest.param([
             [
@@ -404,10 +484,16 @@ async def test_check_pr_not_approved_specific_folder_without_owners(
 )
 @pytest.mark.asyncio
 async def test_check_pr_approved_specific_folder_without_owners(
-    process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers
+    changed_files,
+    process_github_webhook,
+    owners_file_handler,
+    all_repository_approvers_and_reviewers,
+    all_approvers_reviewers,
 ):
-    process_github_webhook.all_pull_request_approvers = await process_github_webhook.get_all_pull_request_approvers()
-    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    owners_file_handler.all_pull_request_approvers = await owners_file_handler.get_all_pull_request_approvers()
+    pull_request_handler = PullRequestHandler(
+        github_webhook=process_github_webhook, owners_file_handler=owners_file_handler
+    )
     process_github_webhook.parent_commiter = "test"
     check_if_pr_approved = await pull_request_handler._check_if_pr_approved(
         labels=[
@@ -418,7 +504,7 @@ async def test_check_pr_approved_specific_folder_without_owners(
 
 
 @pytest.mark.parametrize(
-    "process_github_webhook",
+    "changed_files",
     [
         pytest.param([
             [
@@ -431,10 +517,16 @@ async def test_check_pr_approved_specific_folder_without_owners(
 )
 @pytest.mark.asyncio
 async def test_check_pr_approved_folder_with_no_owners_and_folder_without_root_approvers(
-    process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers
+    changed_files,
+    process_github_webhook,
+    owners_file_handler,
+    all_repository_approvers_and_reviewers,
+    all_approvers_reviewers,
 ):
-    process_github_webhook.all_pull_request_approvers = await process_github_webhook.get_all_pull_request_approvers()
-    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    owners_file_handler.all_pull_request_approvers = await owners_file_handler.get_all_pull_request_approvers()
+    pull_request_handler = PullRequestHandler(
+        github_webhook=process_github_webhook, owners_file_handler=owners_file_handler
+    )
     process_github_webhook.parent_commiter = "test"
     check_if_pr_approved = await pull_request_handler._check_if_pr_approved(
         labels=[
@@ -446,7 +538,7 @@ async def test_check_pr_approved_folder_with_no_owners_and_folder_without_root_a
 
 
 @pytest.mark.parametrize(
-    "process_github_webhook",
+    "changed_files",
     [
         pytest.param([
             [
@@ -459,10 +551,16 @@ async def test_check_pr_approved_folder_with_no_owners_and_folder_without_root_a
 )
 @pytest.mark.asyncio
 async def test_check_pr_not_approved_folder_with_no_owners_and_folder_without_root_approvers(
-    process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers
+    changed_files,
+    process_github_webhook,
+    owners_file_handler,
+    all_repository_approvers_and_reviewers,
+    all_approvers_reviewers,
 ):
-    process_github_webhook.all_pull_request_approvers = await process_github_webhook.get_all_pull_request_approvers()
-    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    owners_file_handler.all_pull_request_approvers = await owners_file_handler.get_all_pull_request_approvers()
+    pull_request_handler = PullRequestHandler(
+        github_webhook=process_github_webhook, owners_file_handler=owners_file_handler
+    )
     process_github_webhook.parent_commiter = "test"
     check_if_pr_approved = await pull_request_handler._check_if_pr_approved(
         labels=[
@@ -480,7 +578,7 @@ async def test_check_pr_not_approved_folder_with_no_owners_and_folder_without_ro
 
 
 @pytest.mark.parametrize(
-    "process_github_webhook",
+    "changed_files",
     [
         pytest.param([
             [
@@ -492,10 +590,16 @@ async def test_check_pr_not_approved_folder_with_no_owners_and_folder_without_ro
 )
 @pytest.mark.asyncio
 async def test_check_pr_not_approved_subfolder_with_owners(
-    process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers
+    changed_files,
+    process_github_webhook,
+    owners_file_handler,
+    all_repository_approvers_and_reviewers,
+    all_approvers_reviewers,
 ):
-    process_github_webhook.all_pull_request_approvers = await process_github_webhook.get_all_pull_request_approvers()
-    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    owners_file_handler.all_pull_request_approvers = await owners_file_handler.get_all_pull_request_approvers()
+    pull_request_handler = PullRequestHandler(
+        github_webhook=process_github_webhook, owners_file_handler=owners_file_handler
+    )
     process_github_webhook.parent_commiter = "test"
     check_if_pr_approved = await pull_request_handler._check_if_pr_approved(
         labels=[
@@ -513,7 +617,7 @@ async def test_check_pr_not_approved_subfolder_with_owners(
 
 
 @pytest.mark.parametrize(
-    "process_github_webhook",
+    "changed_files",
     [
         pytest.param([
             [
@@ -525,10 +629,16 @@ async def test_check_pr_not_approved_subfolder_with_owners(
 )
 @pytest.mark.asyncio
 async def test_check_pr_approved_subfolder_with_owners_no_root_approvers(
-    process_github_webhook, all_repository_approvers_and_reviewers, all_approvers_reviewers
+    changed_files,
+    process_github_webhook,
+    owners_file_handler,
+    all_repository_approvers_and_reviewers,
+    all_approvers_reviewers,
 ):
-    process_github_webhook.all_pull_request_approvers = await process_github_webhook.get_all_pull_request_approvers()
-    pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+    owners_file_handler.all_pull_request_approvers = await owners_file_handler.get_all_pull_request_approvers()
+    pull_request_handler = PullRequestHandler(
+        github_webhook=process_github_webhook, owners_file_handler=owners_file_handler
+    )
     process_github_webhook.parent_commiter = "test"
     check_if_pr_approved = await pull_request_handler._check_if_pr_approved(
         labels=[
