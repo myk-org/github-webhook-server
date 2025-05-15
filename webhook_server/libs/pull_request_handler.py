@@ -606,19 +606,27 @@ PR will be approved when the following conditions are met:
             if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
                 approved_by.append(_label.split(LABELS_SEPARATOR)[-1])
 
-        missing_approvers = self.owners_file_handler.all_pull_request_approvers.copy()
+        missing_approvers = list(set(self.owners_file_handler.all_pull_request_approvers.copy()))
         owners_data_changed_files = await self.owners_file_handler.owners_data_for_changed_files()
 
-        for data in owners_data_changed_files.values():
-            required_pr_approvers = data.get("approvers", [])
-            for required_pr_approver in required_pr_approvers:
-                if required_pr_approver in approved_by:
-                    # Once we found approver in approved_by list, we remove all approvers from missing_approvers list for this owners file
-                    for _approver in required_pr_approvers:
-                        if _approver in missing_approvers:
-                            missing_approvers.remove(_approver)
+        # If any of root approvers is in approved_by list, the pull request is approved
+        for _approver in approved_by:
+            if _approver in self.owners_file_handler.root_approvers:
+                missing_approvers = []
+                break
 
-                    break
+        if missing_approvers:
+            for data in owners_data_changed_files.values():
+                required_pr_approvers = data.get("approvers", [])
+
+                for required_pr_approver in required_pr_approvers:
+                    if required_pr_approver in approved_by:
+                        # Once we found approver in approved_by list, we remove all approvers from missing_approvers list for this owners file
+                        for _approver in required_pr_approvers:
+                            if _approver in missing_approvers:
+                                missing_approvers.remove(_approver)
+
+                        break
 
         missing_approvers = list(set(missing_approvers))
 
