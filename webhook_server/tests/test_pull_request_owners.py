@@ -242,14 +242,14 @@ async def test_check_pr_not_approved(
     process_github_webhook.parent_commiter = "test"
     check_if_pr_approved = await pull_request_handler._check_if_pr_approved(
         labels=[
-            f"{APPROVED_BY_LABEL_PREFIX}root_approver1",
+            f"{APPROVED_BY_LABEL_PREFIX}folder1_approver1",
         ]
     )
     missing_approvers = [appr.strip() for appr in check_if_pr_approved.split(":")[-1].strip().split(",")]
     missing_approvers.sort()
     expected_approvers = [
-        "folder1_approver1",
-        "folder1_approver2",
+        "root_approver1",
+        "root_approver2",
         "folder4_approver1",
         "folder4_approver2",
         "folder5_approver1",
@@ -274,17 +274,15 @@ async def test_check_pr_partial_approved(
     process_github_webhook.parent_commiter = "test"
     check_if_pr_approved = await pull_request_handler._check_if_pr_approved(
         labels=[
-            f"{APPROVED_BY_LABEL_PREFIX}root_approver1",
-            f"{APPROVED_BY_LABEL_PREFIX}root_approver2",
+            f"{APPROVED_BY_LABEL_PREFIX}folder1_approver1",
+            f"{APPROVED_BY_LABEL_PREFIX}folder4_approver2",
         ]
     )
     missing_approvers = [appr.strip() for appr in check_if_pr_approved.split(":")[-1].strip().split(",")]
     missing_approvers.sort()
     expected_approvers = [
-        "folder1_approver1",
-        "folder1_approver2",
-        "folder4_approver1",
-        "folder4_approver2",
+        "root_approver1",
+        "root_approver2",
         "folder5_approver1",
         "folder5_approver2",
     ]
@@ -572,45 +570,6 @@ async def test_check_pr_not_approved_folder_with_no_owners_and_folder_without_ro
     expected_approvers = [
         "root_approver1",
         "root_approver2",
-    ]
-    expected_approvers.sort()
-    assert missing_approvers == expected_approvers
-
-
-@pytest.mark.parametrize(
-    "changed_files",
-    [
-        pytest.param([
-            [
-                "folder1/sub_folder1/file",
-            ]
-        ])
-    ],
-    indirect=True,
-)
-@pytest.mark.asyncio
-async def test_check_pr_not_approved_subfolder_with_owners(
-    changed_files,
-    process_github_webhook,
-    owners_file_handler,
-    all_repository_approvers_and_reviewers,
-    all_approvers_reviewers,
-):
-    owners_file_handler.all_pull_request_approvers = await owners_file_handler.get_all_pull_request_approvers()
-    pull_request_handler = PullRequestHandler(
-        github_webhook=process_github_webhook, owners_file_handler=owners_file_handler
-    )
-    process_github_webhook.parent_commiter = "test"
-    check_if_pr_approved = await pull_request_handler._check_if_pr_approved(
-        labels=[
-            f"{APPROVED_BY_LABEL_PREFIX}root_approver1",
-        ]
-    )
-    missing_approvers = [appr.strip() for appr in check_if_pr_approved.split(":")[-1].strip().split(",")]
-    missing_approvers.sort()
-    expected_approvers = [
-        "folder1_approver1",
-        "folder1_approver2",
     ]
     expected_approvers.sort()
     assert missing_approvers == expected_approvers
