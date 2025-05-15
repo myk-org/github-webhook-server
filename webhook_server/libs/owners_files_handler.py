@@ -4,6 +4,7 @@ from typing import Any
 
 import yaml
 from asyncstdlib import functools
+from github.ContentFile import ContentFile
 from github.GithubException import GithubException
 from github.NamedUser import NamedUser
 from github.PaginatedList import PaginatedList
@@ -64,9 +65,21 @@ class OwnersFileHandler:
             self.logger.error(f"{self.log_prefix} Invalid OWNERS file {path}: {e}")
             return False
 
+    async def _get_file_content(self, content_path: str, pull_request: PullRequest) -> tuple[ContentFile, str]:
+        self.logger.debug(f"{self.log_prefix} Get OWNERS file from {content_path}")
+
+        _path = await asyncio.to_thread(self.repository.get_contents, content_path, pull_request.base.ref)
+
+        if isinstance(_path, list):
+            _path = _path[0]
+
+        return _path, content_path
+
+    @functools.lru_cache
     async def get_all_repository_approvers_and_reviewers(self, pull_request: PullRequest) -> dict[str, dict[str, Any]]:
         # Dictionary mapping OWNERS file paths to their approvers and reviewers
         _owners: dict[str, dict[str, Any]] = {}
+        tasks = []
 
         max_owners_files = 1000  # Configurable limit
         owners_count = 0
@@ -82,22 +95,24 @@ class OwnersFileHandler:
                     break
 
                 content_path = element.path
-                self.logger.debug(f"{self.log_prefix} Get OWNERS file from {content_path}")
-                _path = await asyncio.to_thread(self.repository.get_contents, content_path, pull_request.base.ref)
-                if isinstance(_path, list):
-                    _path = _path[0]
+                tasks.append(self._get_file_content(content_path, pull_request))
 
-                try:
-                    content = yaml.safe_load(_path.decoded_content)
-                    if self._validate_owners_content(content, content_path):
-                        parent_path = str(Path(content_path).parent)
-                        if not parent_path:
-                            parent_path = "."
-                        _owners[parent_path] = content
+        results = await asyncio.gather(*tasks)
 
-                except yaml.YAMLError as exp:
-                    self.logger.error(f"{self.log_prefix} Invalid OWNERS file {content_path}: {exp}")
-                    continue
+        for result in results:
+            _path, _content_path = result
+
+            try:
+                content = yaml.safe_load(_path.decoded_content)
+                if self._validate_owners_content(content, _content_path):
+                    parent_path = str(Path(_content_path).parent)
+                    if not parent_path:
+                        parent_path = "."
+                    _owners[parent_path] = content
+
+            except yaml.YAMLError as exp:
+                self.logger.error(f"{self.log_prefix} Invalid OWNERS file {_content_path}: {exp}")
+                continue
 
         return _owners
 
