@@ -125,7 +125,7 @@ class GithubWebhook:
 
             if self.github_event == "issue_comment":
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
-                owners_file_handler = await owners_file_handler.initilaize(pull_request=pull_request)
+                owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
 
                 return await IssueCommentHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
@@ -133,7 +133,7 @@ class GithubWebhook:
 
             elif self.github_event == "pull_request":
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
-                owners_file_handler = await owners_file_handler.initilaize(pull_request=pull_request)
+                owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
 
                 return await PullRequestHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
@@ -141,7 +141,7 @@ class GithubWebhook:
 
             elif self.github_event == "pull_request_review":
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
-                owners_file_handler = await owners_file_handler.initilaize(pull_request=pull_request)
+                owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
 
                 return await PullRequestReviewHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
@@ -152,7 +152,7 @@ class GithubWebhook:
             elif self.github_event == "check_run":
                 if await CheckRunHandler(github_webhook=self).process_pull_request_check_run_webhook_data():
                     owners_file_handler = OwnersFileHandler(github_webhook=self)
-                    owners_file_handler = await owners_file_handler.initilaize(pull_request=pull_request)
+                    owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
 
                     return await PullRequestHandler(
                         github_webhook=self, owners_file_handler=owners_file_handler

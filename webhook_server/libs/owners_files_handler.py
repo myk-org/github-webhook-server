@@ -17,7 +17,7 @@ class OwnersFileHandler:
         self.log_prefix = self.github_webhook.log_prefix
         self.repository = self.github_webhook.repository
 
-    async def initilaize(self, pull_request: PullRequest) -> "OwnersFileHandler":
+    async def initialize(self, pull_request: PullRequest) -> "OwnersFileHandler":
         self.changed_files = await self.list_changed_files(pull_request=pull_request)
         self.all_repository_approvers_and_reviewers = await self.get_all_repository_approvers_and_reviewers(
             pull_request=pull_request
