@@ -223,8 +223,9 @@ maintainers can allow it by comment `{allow_user_comment}`
 Maintainers:
  - {"\n - @".join(allowed_user_to_approve)}
 """
+        valid_users = await self.valid_users_to_run_commands
 
-        if reviewed_user not in await self.valid_users_to_run_commands:
+        if reviewed_user not in valid_users:
             comments_from_approvers = [
                 comment.body
                 for comment in await asyncio.to_thread(pull_request.get_issue_comments)
@@ -234,7 +235,7 @@ Maintainers:
                 if allow_user_comment in comment:
                     return True
 
-            self.logger.debug(f"{self.log_prefix} {reviewed_user} is not in {await self.valid_users_to_run_commands}")
+            self.logger.debug(f"{self.log_prefix} {reviewed_user} is not in {valid_users}")
             await asyncio.to_thread(pull_request.create_issue_comment, comment_msg)
             return False
 
