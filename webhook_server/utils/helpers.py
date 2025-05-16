@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import datetime
 import os
 import shlex
@@ -18,24 +19,40 @@ from webhook_server.libs.config import Config
 
 
 def get_logger_with_params(
-    name: str, repository_name: str = "", mask_sensitive: bool = False, mask_sensitive_patterns: list[str] | None = None
+    name: str,
+    repository_name: str = "",
+    mask_sensitive: bool = True,
 ) -> Logger:
+    mask_sensitive_patterns: list[str] = [
+        "container_repository_password",
+        "-p",
+        "password",
+        "token",
+        "apikey",
+        "secret",
+    ]
+
     _config = Config(repository=repository_name)
 
     log_level: str = _config.get_value(value="log-level", return_on_none="INFO")
     log_file: str = _config.get_value(value="log-file")
 
     if log_file and not log_file.startswith("/"):
-        log_file = os.path.join(_config.data_dir, "logs", log_file)
+        log_file_path = os.path.join(_config.data_dir, "logs")
+
+        if not os.path.isdir(log_file_path):
+            os.makedirs(log_file_path, exist_ok=True)
+
+        log_file = os.path.join(log_file_path, log_file)
 
     return get_logger(
         name=name,
         filename=log_file,
         level=log_level,
-        file_max_bytes=1048576 * 50,
+        file_max_bytes=1024 * 1024 * 10,
         mask_sensitive=mask_sensitive,
         mask_sensitive_patterns=mask_sensitive_patterns,
-    )  # 50MB
+    )
 
 
 def extract_key_from_dict(key: Any, _dict: dict[Any, Any]) -> Any:
@@ -56,15 +73,10 @@ def get_github_repo_api(github_api: github.Github, repository: int | str) -> Rep
     return github_api.get_repo(repository)
 
 
-def run_command(
+async def run_command(
     command: str,
     log_prefix: str,
     verify_stderr: bool = False,
-    shell: bool = False,
-    timeout: int | None = None,
-    capture_output: bool = True,
-    check: bool = False,
-    pipe: bool = False,
     **kwargs: Any,
 ) -> tuple[bool, Any, Any]:
     """
@@ -74,47 +86,28 @@ def run_command(
         command (str): Command to run
         log_prefix (str): Prefix for log messages
         verify_stderr (bool, default False): Check command stderr
-        shell (bool, default False): run subprocess with shell toggle
-        timeout (int, optional): Command wait timeout
-        capture_output (bool, default True): Capture command output
-        check (bool, default False):  If check is True and the exit code was non-zero, it raises a
-            CalledProcessError
-        pipe (bool, default False): If pipe is True, text and capture_output would be set to False. stdout and
-            stderr, would be set to subprocess.PIPE and passed to subprocess.run call
-
 
     Returns:
         tuple: True, out if command succeeded, False, err otherwise.
     """
-    mask_sensitive_patterns: list[str] = ["-p", "password", "token", "apikey", "secret"]
-    logger = get_logger_with_params(
-        name="helpers", mask_sensitive=True, mask_sensitive_patterns=mask_sensitive_patterns
-    )
-    text = True
+    logger = get_logger_with_params(name="helpers")
     out_decoded: str = ""
     err_decoded: str = ""
-    if pipe:
-        capture_output = False
-        text = False
-        kwargs["stdout"] = subprocess.PIPE
-        kwargs["stderr"] = subprocess.PIPE
+    kwargs["stdout"] = subprocess.PIPE
+    kwargs["stderr"] = subprocess.PIPE
+
     try:
         logger.debug(f"{log_prefix} Running '{command}' command")
-        sub_process = subprocess.run(
-            shlex.split(command),
-            capture_output=capture_output,
-            check=check,
-            shell=shell,
-            text=text,
-            timeout=timeout,
+        command_list = shlex.split(command)
+
+        sub_process = await asyncio.create_subprocess_exec(
+            *command_list,
             **kwargs,
         )
-        out_decoded = (
-            sub_process.stdout.decode(errors="ignore") if isinstance(sub_process.stdout, bytes) else sub_process.stdout
-        )
-        err_decoded = (
-            sub_process.stderr.decode(errors="ignore") if isinstance(sub_process.stderr, bytes) else sub_process.stderr
-        )
+
+        stdout, stderr = await sub_process.communicate()
+        out_decoded = stdout.decode(errors="ignore") if isinstance(stdout, bytes) else stdout
+        err_decoded = stderr.decode(errors="ignore") if isinstance(stderr, bytes) else stderr
 
         error_msg = (
             f"{log_prefix} Failed to run '{command}'. "
@@ -131,6 +124,7 @@ def run_command(
             return False, out_decoded, err_decoded
 
         return True, out_decoded, err_decoded
+
     except Exception as ex:
         logger.error(f"{log_prefix} Failed to run '{command}' command: {ex}")
         return False, out_decoded, err_decoded
@@ -168,7 +162,7 @@ def get_api_with_highest_rate_limit(
 
     remaining = 0
 
-    msg = "Get API and token"
+    msg = "Get API and tokens"
 
     if repository_name:
         msg += f" for repository {repository_name}"

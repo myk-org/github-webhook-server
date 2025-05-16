@@ -52,7 +52,15 @@ class TestPrepareRetestWellcomeMsg:
         ],
     )
     def test_prepare_retest_wellcome_comment(
-        self, process_github_webhook, tox, build_and_push_container, pypi, pre_commit, conventional_title, expected
+        self,
+        process_github_webhook,
+        owners_file_handler,
+        tox,
+        build_and_push_container,
+        pypi,
+        pre_commit,
+        conventional_title,
+        expected,
     ):
         process_github_webhook.tox = tox
         process_github_webhook.build_and_push_container = build_and_push_container
@@ -60,6 +68,8 @@ class TestPrepareRetestWellcomeMsg:
         process_github_webhook.pre_commit = pre_commit
         process_github_webhook.conventional_title = conventional_title
         process_github_webhook.pull_request = None
-        pull_request_handler = PullRequestHandler(github_webhook=process_github_webhook)
+        pull_request_handler = PullRequestHandler(
+            github_webhook=process_github_webhook, owners_file_handler=owners_file_handler
+        )
 
         assert pull_request_handler._prepare_retest_welcome_comment == expected
