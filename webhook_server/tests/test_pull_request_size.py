@@ -1,23 +1,8 @@
 import pytest
 
 from webhook_server.libs.labels_handler import LabelsHandler
+from webhook_server.tests.conftest import PullRequest
 from webhook_server.utils.constants import SIZE_LABEL_PREFIX
-
-
-class Label:
-    def __init__(self, name: str):
-        self.name = name
-
-
-class PullRequest:
-    def __init__(self, additions: int, deletions: int, labels: list[str] | None = None):
-        self.additions = additions
-        self.deletions = deletions
-        self.labels = labels or []
-
-    @property
-    def lables(self) -> list[Label]:
-        return [Label(label) for label in self.labels]
 
 
 @pytest.mark.parametrize(
@@ -32,9 +17,9 @@ class PullRequest:
         (1000, 1, "XXL"),
     ],
 )
-def test_get_size_thresholds(process_github_webhook, additions, deletions, expected_label):
-    process_github_webhook.pull_request = PullRequest(additions=additions, deletions=deletions)
-    lables_handler = LabelsHandler(github_webhook=process_github_webhook)
-    result = lables_handler.get_size()
+def test_get_size_thresholds(process_github_webhook, owners_file_handler, additions, deletions, expected_label):
+    pull_request = PullRequest(additions=additions, deletions=deletions)
+    lables_handler = LabelsHandler(github_webhook=process_github_webhook, owners_file_handler=owners_file_handler)
+    result = lables_handler.get_size(pull_request=pull_request)
 
     assert result == f"{SIZE_LABEL_PREFIX}{expected_label}"

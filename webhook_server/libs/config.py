@@ -47,7 +47,7 @@ class Config:
             from webhook_server.utils.helpers import get_github_repo_api
 
             try:
-                repo = get_github_repo_api(github_api=github_api, repository=repository_full_name)
+                repo = get_github_repo_api(github_app_api=github_api, repository=repository_full_name)
                 try:
                     _path = repo.get_contents(".github-webhook-server.yaml")
                 except UnknownObjectException:

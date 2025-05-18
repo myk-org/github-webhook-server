@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+import asyncio
 from typing import Any, Callable
+
+from github.PullRequest import PullRequest
 
 from webhook_server.libs.check_run_handler import CheckRunHandler
 from webhook_server.libs.labels_handler import LabelsHandler
+from webhook_server.libs.owners_files_handler import OwnersFileHandler
 from webhook_server.libs.pull_request_handler import PullRequestHandler
 from webhook_server.libs.runner_handler import RunnerHandler
 from webhook_server.utils.constants import (
@@ -29,20 +32,29 @@ from webhook_server.utils.constants import (
 
 
 class IssueCommentHandler:
-    def __init__(self, github_webhook: Any):
+    def __init__(self, github_webhook: Any, owners_file_handler: OwnersFileHandler):
         self.github_webhook = github_webhook
+        self.owners_file_handler = owners_file_handler
+
         self.hook_data = self.github_webhook.hook_data
         self.logger = self.github_webhook.logger
         self.log_prefix = self.github_webhook.log_prefix
         self.repository = self.github_webhook.repository
-        self.pull_request = self.github_webhook.pull_request
-        self.labels_handler = LabelsHandler(github_webhook=self.github_webhook)
+        self.labels_handler = LabelsHandler(
+            github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
+        )
         self.check_run_handler = CheckRunHandler(github_webhook=self.github_webhook)
-        self.pull_request_handler = PullRequestHandler(github_webhook=self.github_webhook)
-        self.runner_handler = RunnerHandler(github_webhook=self.github_webhook)
+        self.pull_request_handler = PullRequestHandler(
+            github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
+        )
+        self.runner_handler = RunnerHandler(
+            github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
+        )
 
-    def process_comment_webhook_data(self) -> None:
-        if comment_action := self.hook_data["action"] in ("edited", "deleted"):
+    async def process_comment_webhook_data(self, pull_request: PullRequest) -> None:
+        comment_action = self.hook_data["action"]
+
+        if comment_action in ("edited", "deleted"):
             self.logger.debug(f"{self.log_prefix} Not processing comment. action is {comment_action}")
             return
 
@@ -51,22 +63,23 @@ class IssueCommentHandler:
         body: str = self.hook_data["comment"]["body"]
 
         if self.github_webhook.issue_url_for_welcome_msg in body:
-            self.logger.debug(
-                f"{self.log_prefix} Welcome message found in issue {self.pull_request.title}. Not processing"
-            )
+            self.logger.debug(f"{self.log_prefix} Welcome message found in issue {pull_request.title}. Not processing")
             return
 
         _user_commands: list[str] = [_cmd.strip("/") for _cmd in body.strip().splitlines() if _cmd.startswith("/")]
 
         user_login: str = self.hook_data["sender"]["login"]
         for user_command in _user_commands:
-            self.user_commands(
+            await self.user_commands(
+                pull_request=pull_request,
                 command=user_command,
                 reviewed_user=user_login,
                 issue_comment_id=self.hook_data["comment"]["id"],
             )
 
-    def user_commands(self, command: str, reviewed_user: str, issue_comment_id: int) -> None:
+    async def user_commands(
+        self, pull_request: PullRequest, command: str, reviewed_user: str, issue_comment_id: int
+    ) -> None:
         available_commands: list[str] = [
             COMMAND_RETEST_STR,
             COMMAND_CHERRY_PICK_STR,
@@ -96,148 +109,164 @@ class IssueCommentHandler:
             missing_command_arg_comment_msg: str = f"{_command} requires an argument"
             error_msg: str = f"{self.log_prefix} {missing_command_arg_comment_msg}"
             self.logger.debug(error_msg)
-            self.pull_request.create_issue_comment(missing_command_arg_comment_msg)
+            await asyncio.to_thread(pull_request.create_issue_comment, body=missing_command_arg_comment_msg)
             return
 
-        self.create_comment_reaction(issue_comment_id=issue_comment_id, reaction=REACTIONS.ok)
+        await self.create_comment_reaction(
+            pull_request=pull_request, issue_comment_id=issue_comment_id, reaction=REACTIONS.ok
+        )
 
         if _command == COMMAND_ASSIGN_REVIEWER_STR:
-            self._add_reviewer_by_user_comment(reviewer=_args)
+            await self._add_reviewer_by_user_comment(pull_request=pull_request, reviewer=_args)
 
         elif _command == COMMAND_ASSIGN_REVIEWERS_STR:
-            self.github_webhook.assign_reviewers()
+            await self.owners_file_handler.assign_reviewers(pull_request=pull_request)
 
         elif _command == COMMAND_CHECK_CAN_MERGE_STR:
-            self.pull_request_handler.check_if_can_be_merged()
+            await self.pull_request_handler.check_if_can_be_merged(pull_request=pull_request)
 
         elif _command == COMMAND_CHERRY_PICK_STR:
-            self.process_cherry_pick_command(command_args=_args, reviewed_user=reviewed_user)
+            await self.process_cherry_pick_command(
+                pull_request=pull_request, command_args=_args, reviewed_user=reviewed_user
+            )
 
         elif _command == COMMAND_RETEST_STR:
-            self.process_retest_command(command_args=_args, reviewed_user=reviewed_user)
+            await self.process_retest_command(
+                pull_request=pull_request, command_args=_args, reviewed_user=reviewed_user
+            )
 
         elif _command == BUILD_AND_PUSH_CONTAINER_STR:
             if self.github_webhook.build_and_push_container:
-                self.runner_handler._run_build_container(
-                    push=True, set_check=False, command_args=_args, reviewed_user=reviewed_user
+                await self.runner_handler.run_build_container(
+                    push=True,
+                    set_check=False,
+                    command_args=_args,
+                    reviewed_user=reviewed_user,
+                    pull_request=pull_request,
                 )
             else:
                 msg = f"No {BUILD_AND_PUSH_CONTAINER_STR} configured for this repository"
                 error_msg = f"{self.log_prefix} {msg}"
                 self.logger.debug(error_msg)
-                self.pull_request.create_issue_comment(msg)
+                await asyncio.to_thread(pull_request.create_issue_comment, msg)
 
         elif _command == WIP_STR:
             wip_for_title: str = f"{WIP_STR.upper()}:"
             if remove:
-                self.labels_handler._remove_label(label=WIP_STR)
-                self.pull_request.edit(title=self.pull_request.title.replace(wip_for_title, ""))
+                await self.labels_handler._remove_label(pull_request=pull_request, label=WIP_STR)
+                await asyncio.to_thread(pull_request.edit, title=pull_request.title.replace(wip_for_title, ""))
             else:
-                self.labels_handler._add_label(label=WIP_STR)
-                self.pull_request.edit(title=f"{wip_for_title} {self.pull_request.title}")
+                await self.labels_handler._add_label(pull_request=pull_request, label=WIP_STR)
+                await asyncio.to_thread(pull_request.edit, title=f"{wip_for_title} {pull_request.title}")
 
         elif _command == HOLD_LABEL_STR:
-            if reviewed_user not in self.github_webhook.all_pull_request_approvers:
-                self.pull_request.create_issue_comment(
-                    f"{reviewed_user} is not part of the approver, only approvers can mark pull request with hold"
+            if reviewed_user not in self.owners_file_handler.all_pull_request_approvers:
+                await asyncio.to_thread(
+                    pull_request.create_issue_comment,
+                    f"{reviewed_user} is not part of the approver, only approvers can mark pull request with hold",
                 )
             else:
                 if remove:
-                    self.labels_handler._remove_label(label=HOLD_LABEL_STR)
+                    await self.labels_handler._remove_label(pull_request=pull_request, label=HOLD_LABEL_STR)
                 else:
-                    self.labels_handler._add_label(label=HOLD_LABEL_STR)
+                    await self.labels_handler._add_label(pull_request=pull_request, label=HOLD_LABEL_STR)
 
-                self.pull_request_handler.check_if_can_be_merged()
+                await self.pull_request_handler.check_if_can_be_merged(pull_request=pull_request)
 
         elif _command == VERIFIED_LABEL_STR:
             if remove:
-                self.labels_handler._remove_label(label=VERIFIED_LABEL_STR)
-                self.check_run_handler.set_verify_check_queued()
+                await self.labels_handler._remove_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
+                await self.check_run_handler.set_verify_check_queued()
             else:
-                self.labels_handler._add_label(label=VERIFIED_LABEL_STR)
-                self.check_run_handler.set_verify_check_success()
+                await self.labels_handler._add_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
+                await self.check_run_handler.set_verify_check_success()
 
         else:
-            self.labels_handler.label_by_user_comment(
+            await self.labels_handler.label_by_user_comment(
+                pull_request=pull_request,
                 user_requested_label=_command,
                 remove=remove,
                 reviewed_user=reviewed_user,
             )
 
-    def create_comment_reaction(self, issue_comment_id: int, reaction: str) -> None:
-        _comment = self.pull_request.get_issue_comment(issue_comment_id)
-        _comment.create_reaction(reaction)
+    async def create_comment_reaction(self, pull_request: PullRequest, issue_comment_id: int, reaction: str) -> None:
+        _comment = await asyncio.to_thread(pull_request.get_issue_comment, issue_comment_id)
+        await asyncio.to_thread(_comment.create_reaction, reaction)
 
-    def _add_reviewer_by_user_comment(self, reviewer: str) -> None:
+    async def _add_reviewer_by_user_comment(self, pull_request: PullRequest, reviewer: str) -> None:
         reviewer = reviewer.strip("@")
         self.logger.info(f"{self.log_prefix} Adding reviewer {reviewer} by user comment")
 
-        for contributer in self.repository.get_contributors():
+        for contributer in await asyncio.to_thread(self.repository.get_contributors):
             if contributer.login == reviewer:
-                self.pull_request.create_review_request([reviewer])
+                await asyncio.to_thread(pull_request.create_review_request, [reviewer])
                 return
 
         _err = f"not adding reviewer {reviewer} by user comment, {reviewer} is not part of contributers"
         self.logger.debug(f"{self.log_prefix} {_err}")
-        self.pull_request.create_issue_comment(_err)
+        await asyncio.to_thread(pull_request.create_issue_comment, _err)
 
-    def process_cherry_pick_command(self, command_args: str, reviewed_user: str) -> None:
+    async def process_cherry_pick_command(
+        self, pull_request: PullRequest, command_args: str, reviewed_user: str
+    ) -> None:
         _target_branches: list[str] = command_args.split()
         _exits_target_branches: set[str] = set()
         _non_exits_target_branches_msg: str = ""
 
         for _target_branch in _target_branches:
             try:
-                self.repository.get_branch(_target_branch)
+                await asyncio.to_thread(self.repository.get_branch, _target_branch)
+                _exits_target_branches.add(_target_branch)
             except Exception:
                 _non_exits_target_branches_msg += f"Target branch `{_target_branch}` does not exist\n"
 
-            _exits_target_branches.add(_target_branch)
-
         if _non_exits_target_branches_msg:
             self.logger.info(f"{self.log_prefix} {_non_exits_target_branches_msg}")
-            self.pull_request.create_issue_comment(_non_exits_target_branches_msg)
+            await asyncio.to_thread(pull_request.create_issue_comment, _non_exits_target_branches_msg)
 
         if _exits_target_branches:
-            if not self.pull_request.is_merged():
+            if not await asyncio.to_thread(pull_request.is_merged):
                 cp_labels: list[str] = [
                     f"{CHERRY_PICK_LABEL_PREFIX}{_target_branch}" for _target_branch in _exits_target_branches
                 ]
                 info_msg: str = f"""
-Cherry-pick requested for PR: `{self.pull_request.title}` by user `{reviewed_user}`
+Cherry-pick requested for PR: `{pull_request.title}` by user `{reviewed_user}`
 Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automatic cheery-pick once the PR is merged
 """
                 self.logger.info(f"{self.log_prefix} {info_msg}")
-                self.pull_request.create_issue_comment(info_msg)
+                await asyncio.to_thread(pull_request.create_issue_comment, info_msg)
                 for _cp_label in cp_labels:
-                    self.labels_handler._add_label(label=_cp_label)
+                    await self.labels_handler._add_label(pull_request=pull_request, label=_cp_label)
             else:
                 for _exits_target_branch in _exits_target_branches:
-                    self.runner_handler.cherry_pick(
+                    await self.runner_handler.cherry_pick(
+                        pull_request=pull_request,
                         target_branch=_exits_target_branch,
                         reviewed_user=reviewed_user,
                     )
 
-    def process_retest_command(self, command_args: str, reviewed_user: str) -> None:
-        if not self.runner_handler._is_user_valid_to_run_commands(reviewed_user=reviewed_user):
+    async def process_retest_command(self, pull_request: PullRequest, command_args: str, reviewed_user: str) -> None:
+        if not await self.owners_file_handler.is_user_valid_to_run_commands(
+            pull_request=pull_request, reviewed_user=reviewed_user
+        ):
             return
 
         _target_tests: list[str] = command_args.split()
         _not_supported_retests: list[str] = []
         _supported_retests: list[str] = []
         _retests_to_func_map: dict[str, Callable] = {
-            TOX_STR: self.runner_handler._run_tox,
-            PRE_COMMIT_STR: self.runner_handler._run_pre_commit,
-            BUILD_CONTAINER_STR: self.runner_handler._run_build_container,
-            PYTHON_MODULE_INSTALL_STR: self.runner_handler._run_install_python_module,
-            CONVENTIONAL_TITLE_STR: self.runner_handler._run_conventional_title_check,
+            TOX_STR: self.runner_handler.run_tox,
+            PRE_COMMIT_STR: self.runner_handler.run_pre_commit,
+            BUILD_CONTAINER_STR: self.runner_handler.run_build_container,
+            PYTHON_MODULE_INSTALL_STR: self.runner_handler.run_install_python_module,
+            CONVENTIONAL_TITLE_STR: self.runner_handler.run_conventional_title_check,
         }
 
         if not _target_tests:
             msg = "No test defined to retest"
             error_msg = f"{self.log_prefix} {msg}."
             self.logger.debug(error_msg)
-            self.pull_request.create_issue_comment(msg)
+            await asyncio.to_thread(pull_request.create_issue_comment, msg)
             return
 
         if "all" in command_args:
@@ -245,7 +274,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 msg = "Invalid command. `all` cannot be used with other tests"
                 error_msg = f"{self.log_prefix} {msg}."
                 self.logger.debug(error_msg)
-                self.pull_request.create_issue_comment(msg)
+                await asyncio.to_thread(pull_request.create_issue_comment, msg)
                 return
 
             else:
@@ -263,14 +292,16 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             msg = f"No {' '.join(_not_supported_retests)} configured for this repository"
             error_msg = f"{self.log_prefix} {msg}."
             self.logger.debug(error_msg)
-            self.pull_request.create_issue_comment(msg)
+            await asyncio.to_thread(pull_request.create_issue_comment, msg)
 
         if _supported_retests:
-            _retest_to_exec: list[Future] = []
-            with ThreadPoolExecutor() as executor:
-                for _test in _supported_retests:
-                    _retest_to_exec.append(executor.submit(_retests_to_func_map[_test]))
+            tasks = []
+            for _test in _supported_retests:
+                self.logger.debug(f"{self.log_prefix} running retest {_test}")
+                task = asyncio.create_task(_retests_to_func_map[_test](pull_request=pull_request))
+                tasks.append(task)
 
-            for result in as_completed(_retest_to_exec):
-                if _exp := result.exception():
-                    self.logger.error(f"{self.log_prefix} {_exp}")
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for result in results:
+                if isinstance(result, Exception):
+                    self.logger.error(f"{self.log_prefix} Async task failed: {result}")

@@ -27,7 +27,7 @@ def process_github_webhook(
     if not github_api:
         return False, f"{full_repository_name}: Failed to get github api", LOGGER.error
 
-    repo = get_github_repo_api(github_api=github_api, repository=full_repository_name)
+    repo = get_github_repo_api(github_app_api=github_api, repository=full_repository_name)
     if not repo:
         return False, f"[API user {api_user}] - Could not find repository {full_repository_name}", LOGGER.error
 
