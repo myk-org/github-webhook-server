@@ -138,6 +138,7 @@ class PullRequestHandler:
                         _user
                         in self.owners_file_handler.all_pull_request_reviewers
                         + self.owners_file_handler.all_pull_request_approvers
+                        + self.owners_file_handler.root_approvers
                     ):
                         _check_for_merge = True
 
