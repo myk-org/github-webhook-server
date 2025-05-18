@@ -120,6 +120,7 @@ def github_webhook(mocker, request):
     mocker.patch("github.AuthenticatedUser", return_value=True)
     mocker.patch(f"{base_import_path}.get_api_with_highest_rate_limit", return_value=("API", "TOKEN", "USER"))
     mocker.patch(f"{base_import_path}.get_github_repo_api", return_value=Repository())
+    mocker.patch(f"{base_import_path}.GithubWebhook.add_api_users_to_auto_verified_and_merged_users", return_value=None)
 
     process_github_webhook = GithubWebhook(
         hook_data={"repository": {"name": Repository().name, "full_name": Repository().full_name}},
