@@ -62,10 +62,10 @@ class PullRequestHandler:
         if hook_action == "edited":
             await self.set_wip_label_based_on_title(pull_request=pull_request)
 
-        if hook_action in ("opened", "reopened"):
+        if hook_action in ("opened", "reopened", "ready_for_review"):
             tasks = []
 
-            if hook_action == "opened":
+            if hook_action in ("opened", "ready_for_review"):
                 welcome_msg = self._prepare_welcome_comment()
                 tasks.append(asyncio.to_thread(pull_request.create_issue_comment, body=welcome_msg))
 
