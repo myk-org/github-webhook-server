@@ -12,6 +12,7 @@ from github.Branch import Branch
 from github.Commit import Commit
 from github.GithubException import UnknownObjectException
 from github.Label import Label
+from github.PullRequest import PullRequest
 from github.Repository import Repository
 
 from webhook_server.libs.config import Config
@@ -345,6 +346,16 @@ def set_repository_check_runs_to_queued(
     check_runs: tuple[str],
     api_user: str,
 ) -> tuple[bool, str, Callable]:
+    def _set_checkrun_queued(_api: Repository, _pull_request: PullRequest) -> None:
+        last_commit: Commit = list(_pull_request.get_commits())[-1]
+        for check_run in last_commit.get_check_runs():
+            if check_run.name in check_runs and check_run.status == IN_PROGRESS_STR:
+                LOGGER.warning(
+                    f"[API user {api_user}] - {repository}: [PR:{pull_request.number}] {check_run.name} status is {IN_PROGRESS_STR}, "
+                    f"Setting check run {check_run.name} to {QUEUED_STR}"
+                )
+                _api.create_check_run(name=check_run.name, head_sha=last_commit.sha, status=QUEUED_STR)
+
     repository: str = data["name"]
     repository_app_api = get_repository_github_app_api(config_=config_, repository_name=repository)
     if not repository_app_api:
@@ -361,15 +372,23 @@ def set_repository_check_runs_to_queued(
         return False, f"[API user {api_user}] - Failed to get GitHub API for repository {repository}", LOGGER.error
 
     LOGGER.info(f"{repository}: Set all {IN_PROGRESS_STR} check runs to {QUEUED_STR}")
-    for pull_request in repo.get_pulls(state="open"):
-        last_commit: Commit = list(pull_request.get_commits())[-1]
-        for check_run in last_commit.get_check_runs():
-            if check_run.name in check_runs and check_run.status == IN_PROGRESS_STR:
-                LOGGER.warning(
-                    f"[API user {api_user}] - {repository}: [PR:{pull_request.number}] {check_run.name} status is {IN_PROGRESS_STR}, "
-                    f"Setting check run {check_run.name} to {QUEUED_STR}"
-                )
-                app_api.create_check_run(name=check_run.name, head_sha=last_commit.sha, status=QUEUED_STR)
+
+    futures = []
+    with ThreadPoolExecutor() as executor:
+        for pull_request in repo.get_pulls(state="open"):
+            futures.append(executor.submit(_set_checkrun_queued, _api=app_api, _pull_request=pull_request))
+
+    for _ in as_completed(futures):
+        ...
+
+        # last_commit: Commit = list(pull_request.get_commits())[-1]
+        # for check_run in last_commit.get_check_runs():
+        #     if check_run.name in check_runs and check_run.status == IN_PROGRESS_STR:
+        #         LOGGER.warning(
+        #             f"[API user {api_user}] - {repository}: [PR:{pull_request.number}] {check_run.name} status is {IN_PROGRESS_STR}, "
+        #             f"Setting check run {check_run.name} to {QUEUED_STR}"
+        #         )
+        #         app_api.create_check_run(name=check_run.name, head_sha=last_commit.sha, status=QUEUED_STR)
 
     return True, f"[API user {api_user}] - {repository}: Set check run status to {QUEUED_STR} is done", LOGGER.debug
 
