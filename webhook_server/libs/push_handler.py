@@ -1,14 +1,17 @@
 import re
-from typing import Any
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from webhook_server.libs.check_run_handler import CheckRunHandler
 from webhook_server.libs.runner_handler import RunnerHandler
 from webhook_server.utils.helpers import run_command
 
+if TYPE_CHECKING:
+    from webhook_server.libs.github_api import GithubWebhook
+
 
 class PushHandler:
-    def __init__(self, github_webhook: Any):
+    def __init__(self, github_webhook: "GithubWebhook"):
         self.github_webhook = github_webhook
 
         self.hook_data = self.github_webhook.hook_data
@@ -35,7 +38,6 @@ class PushHandler:
         def _issue_on_error(_error: str) -> None:
             self.repository.create_issue(
                 title=_error,
-                assignee=self.github_webhook.root_approvers[0] if self.github_webhook.root_approvers else "",
                 body=f"""
 Publish to PYPI failed: `{_error}`
 """,

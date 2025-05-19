@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from github.PullRequest import PullRequest
 
@@ -32,9 +32,12 @@ from webhook_server.utils.constants import (
     WIP_STR,
 )
 
+if TYPE_CHECKING:
+    from webhook_server.libs.github_api import GithubWebhook
+
 
 class PullRequestHandler:
-    def __init__(self, github_webhook: Any, owners_file_handler: OwnersFileHandler):
+    def __init__(self, github_webhook: "GithubWebhook", owners_file_handler: OwnersFileHandler):
         self.github_webhook = github_webhook
         self.owners_file_handler = owners_file_handler
 
@@ -492,9 +495,9 @@ PR will be approved when the following conditions are met:
         except Exception as exp:
             self.logger.debug(f"{self.log_prefix} Exception while adding PR owner as assignee: {exp}")
 
-            if self.github_webhook.root_approvers:
+            if self.owners_file_handler.root_approvers:
                 self.logger.debug(f"{self.log_prefix} Falling back to first approver as assignee")
-                pull_request.add_to_assignees(self.github_webhook.root_approvers[0])
+                pull_request.add_to_assignees(self.owners_file_handler.root_approvers[0])
 
     async def check_if_can_be_merged(self, pull_request: PullRequest) -> None:
         """

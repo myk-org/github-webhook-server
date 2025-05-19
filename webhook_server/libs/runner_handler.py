@@ -1,7 +1,7 @@
 import asyncio
 import contextlib
 import shutil
-from typing import Any, AsyncGenerator
+from typing import TYPE_CHECKING, Any, AsyncGenerator
 from uuid import uuid4
 
 import shortuuid
@@ -20,9 +20,12 @@ from webhook_server.utils.constants import (
 )
 from webhook_server.utils.helpers import run_command
 
+if TYPE_CHECKING:
+    from webhook_server.libs.github_api import GithubWebhook
+
 
 class RunnerHandler:
-    def __init__(self, github_webhook: Any, owners_file_handler: OwnersFileHandler | None = None):
+    def __init__(self, github_webhook: "GithubWebhook", owners_file_handler: OwnersFileHandler | None = None):
         self.github_webhook = github_webhook
         self.owners_file_handler = owners_file_handler
         self.hook_data = self.github_webhook.hook_data

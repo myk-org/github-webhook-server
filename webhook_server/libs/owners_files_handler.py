@@ -1,6 +1,6 @@
 import asyncio
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from asyncstdlib import functools
@@ -10,9 +10,12 @@ from github.NamedUser import NamedUser
 from github.PaginatedList import PaginatedList
 from github.PullRequest import PullRequest
 
+if TYPE_CHECKING:
+    from webhook_server.libs.github_api import GithubWebhook
+
 
 class OwnersFileHandler:
-    def __init__(self, github_webhook: Any) -> None:
+    def __init__(self, github_webhook: "GithubWebhook") -> None:
         self.github_webhook = github_webhook
         self.logger = self.github_webhook.logger
         self.log_prefix = self.github_webhook.log_prefix

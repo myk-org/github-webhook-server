@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Callable
 
 from github.PullRequest import PullRequest
 
@@ -30,9 +30,12 @@ from webhook_server.utils.constants import (
     WIP_STR,
 )
 
+if TYPE_CHECKING:
+    from webhook_server.libs.github_api import GithubWebhook
+
 
 class IssueCommentHandler:
-    def __init__(self, github_webhook: Any, owners_file_handler: OwnersFileHandler):
+    def __init__(self, github_webhook: "GithubWebhook", owners_file_handler: OwnersFileHandler):
         self.github_webhook = github_webhook
         self.owners_file_handler = owners_file_handler
 

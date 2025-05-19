@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from github.CheckRun import CheckRun
 from github.PullRequest import PullRequest
@@ -19,9 +19,12 @@ from webhook_server.utils.constants import (
     VERIFIED_LABEL_STR,
 )
 
+if TYPE_CHECKING:
+    from webhook_server.libs.github_api import GithubWebhook
+
 
 class CheckRunHandler:
-    def __init__(self, github_webhook: Any):
+    def __init__(self, github_webhook: "GithubWebhook"):
         self.github_webhook = github_webhook
         self.hook_data = self.github_webhook.hook_data
         self.logger = self.github_webhook.logger
@@ -182,7 +185,7 @@ class CheckRunHandler:
         try:
             await asyncio.to_thread(self.github_webhook.repository_by_github_app.create_check_run, **kwargs)
             if conclusion in (SUCCESS_STR, IN_PROGRESS_STR):
-                self.logger.success(msg)
+                self.logger.success(msg)  # type: ignore
             return
 
         except Exception as ex:
