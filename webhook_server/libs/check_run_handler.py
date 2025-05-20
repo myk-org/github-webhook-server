@@ -183,7 +183,7 @@ class CheckRunHandler:
         msg: str = f"{self.log_prefix} check run {check_run} status: {status or conclusion}"
 
         try:
-            await asyncio.to_thread(self.github_webhook.repository_by_github_app.create_check_run, **kwargs)
+            await asyncio.to_thread(self.github_webhook.repository.create_check_run, **kwargs)
             if conclusion in (SUCCESS_STR, IN_PROGRESS_STR):
                 self.logger.success(msg)  # type: ignore
             return
@@ -191,7 +191,7 @@ class CheckRunHandler:
         except Exception as ex:
             self.logger.debug(f"{self.log_prefix} Failed to set {check_run} check to {status or conclusion}, {ex}")
             kwargs["conclusion"] = FAILURE_STR
-            await asyncio.to_thread(self.github_webhook.repository_by_github_app.create_check_run, **kwargs)
+            await asyncio.to_thread(self.github_webhook.repository.create_check_run, **kwargs)
 
     def get_check_run_text(self, err: str, out: str) -> str:
         total_len: int = len(err) + len(out)
@@ -230,12 +230,14 @@ class CheckRunHandler:
         failed_check_runs = []
         no_status_check_runs = []
 
+        all_required_status_checks = await self.all_required_status_checks(pull_request=pull_request)
+
         for check_run in last_commit_check_runs:
             self.logger.debug(f"{self.log_prefix} Check if {check_run.name} failed or do not have status.")
             if (
                 check_run.name == CAN_BE_MERGED_STR
                 or check_run.conclusion == SUCCESS_STR
-                or check_run.name not in await self.all_required_status_checks(pull_request=pull_request)
+                or check_run.name not in all_required_status_checks
             ):
                 continue
 

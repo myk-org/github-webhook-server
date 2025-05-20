@@ -31,9 +31,6 @@ from webhook_server.utils.constants import (
     PYTHON_MODULE_INSTALL_STR,
     TOX_STR,
 )
-from webhook_server.utils.github_repository_settings import (
-    get_repository_github_app_api,
-)
 from webhook_server.utils.helpers import (
     extract_key_from_dict,
     get_api_with_highest_rate_limit,
@@ -78,22 +75,22 @@ class GithubWebhook:
 
         self.log_prefix = self.prepare_log_prefix()
 
-        github_app_api = get_repository_github_app_api(config_=self.config, repository_name=self.repository_full_name)
+        # github_app_api = get_repository_github_app_api(config_=self.config, repository_name=self.repository_full_name)
+        #
+        # if not github_app_api:
+        #     self.logger.error(
+        #         (
+        #             f"{self.log_prefix} not found by manage-repositories-app, "
+        #             "make sure the app installed (https://github.com/apps/manage-repositories-app)"
+        #         ),
+        #     )
+        #     return
+        #
+        # self.repository_by_github_app = get_github_repo_api(
+        #     github_app_api=github_app_api, repository=self.repository_full_name
+        # )
 
-        if not github_app_api:
-            self.logger.error(
-                (
-                    f"{self.log_prefix} not found by manage-repositories-app, "
-                    "make sure the app installed (https://github.com/apps/manage-repositories-app)"
-                ),
-            )
-            return
-
-        self.repository_by_github_app = get_github_repo_api(
-            github_app_api=github_app_api, repository=self.repository_full_name
-        )
-
-        if not (self.repository or self.repository_by_github_app):
+        if not (self.repository):  # or self.repository_by_github_app):
             self.logger.error(f"{self.log_prefix} Failed to get repository.")
             return
 

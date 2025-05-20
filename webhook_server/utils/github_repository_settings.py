@@ -1,13 +1,11 @@
 import contextlib
 import copy
-import os
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from typing import Any, Callable
 
 import github
-from github import Auth, Github, GithubIntegration
-from github.Auth import AppAuth
+from github import Github
 from github.Branch import Branch
 from github.Commit import Commit
 from github.GithubException import UnknownObjectException
@@ -357,16 +355,19 @@ def set_repository_check_runs_to_queued(
                 _api.create_check_run(name=check_run.name, head_sha=last_commit.sha, status=QUEUED_STR)
 
     repository: str = data["name"]
-    repository_app_api = get_repository_github_app_api(config_=config_, repository_name=repository)
-    if not repository_app_api:
-        return False, f"[API user {api_user}] - {repository}: Failed to get repositories GitHub app API", LOGGER.error
+    # repository_app_api = get_repository_github_app_api(config_=config_, repository_name=repository)
+    #
+    # if not repository_app_api:
+    #     return False, f"[API user {api_user}] - {repository}: Failed to get repositories GitHub app API", LOGGER.error
 
-    app_api = _get_github_repo_api(github_api=repository_app_api, repository=repository)
+    app_api = _get_github_repo_api(github_api=github_api, repository=repository)
+
     if not app_api:
         LOGGER.error(f"[API user {api_user}] - Failed to get GitHub app API for repository {repository}")
         return False, f"[API user {api_user}] - Failed to get GitHub app API for repository {repository}", LOGGER.error
 
     repo = _get_github_repo_api(github_api=github_api, repository=repository)
+
     if not repo:
         LOGGER.error(f"[API user {api_user}] - Failed to get GitHub API for repository {repository}")
         return False, f"[API user {api_user}] - Failed to get GitHub API for repository {repository}", LOGGER.error
@@ -381,38 +382,29 @@ def set_repository_check_runs_to_queued(
     for _ in as_completed(futures):
         ...
 
-        # last_commit: Commit = list(pull_request.get_commits())[-1]
-        # for check_run in last_commit.get_check_runs():
-        #     if check_run.name in check_runs and check_run.status == IN_PROGRESS_STR:
-        #         LOGGER.warning(
-        #             f"[API user {api_user}] - {repository}: [PR:{pull_request.number}] {check_run.name} status is {IN_PROGRESS_STR}, "
-        #             f"Setting check run {check_run.name} to {QUEUED_STR}"
-        #         )
-        #         app_api.create_check_run(name=check_run.name, head_sha=last_commit.sha, status=QUEUED_STR)
-
     return True, f"[API user {api_user}] - {repository}: Set check run status to {QUEUED_STR} is done", LOGGER.debug
 
 
-def get_repository_github_app_api(config_: Config, repository_name: str) -> Github | None:
-    LOGGER.debug("Getting repositories GitHub app API")
-
-    with open(os.path.join(config_.data_dir, "webhook-server.private-key.pem")) as fd:
-        private_key = fd.read()
-
-    github_app_id: int = config_.root_data["github-app-id"]
-    auth: AppAuth = Auth.AppAuth(app_id=github_app_id, private_key=private_key)
-    app_instance: GithubIntegration = GithubIntegration(auth=auth)
-    owner: str
-    repo: str
-    owner, repo = repository_name.split("/")
-
-    try:
-        return app_instance.get_repo_installation(owner=owner, repo=repo).get_github_for_installation()
-
-    except Exception:
-        LOGGER.error(
-            f"Repository {repository_name} not found by manage-repositories-app, "
-            f"make sure the app installed (https://github.com/apps/manage-repositories-app)"
-        )
-
-        return None
+# def get_repository_github_app_api(config_: Config, repository_name: str) -> Github | None:
+#     LOGGER.debug("Getting repositories GitHub app API")
+#
+#     with open(os.path.join(config_.data_dir, "webhook-server.private-key.pem")) as fd:
+#         private_key = fd.read()
+#
+#     github_app_id: int = config_.root_data["github-app-id"]
+#     auth: AppAuth = Auth.AppAuth(app_id=github_app_id, private_key=private_key)
+#     app_instance: GithubIntegration = GithubIntegration(auth=auth)
+#     owner: str
+#     repo: str
+#     owner, repo = repository_name.split("/")
+#
+#     try:
+#         return app_instance.get_repo_installation(owner=owner, repo=repo).get_github_for_installation()
+#
+#     except Exception:
+#         LOGGER.error(
+#             f"Repository {repository_name} not found by manage-repositories-app, "
+#             f"make sure the app installed (https://github.com/apps/manage-repositories-app)"
+#         )
+#
+#         return None
