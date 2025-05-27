@@ -600,11 +600,14 @@ PR will be approved when the following conditions are met:
             _reviewer for _reviewer in all_reviewers if _reviewer != self.github_webhook.parent_committer
         }
 
+        all_reviewers_without_pr_owner_and_lgtmed = all_reviewers_without_pr_owner.copy()
+
         if self.github_webhook.minimum_lgtm:
             for _label in labels:
                 reviewer = _label.split(LABELS_SEPARATOR)[-1]
                 if LGTM_BY_LABEL_PREFIX.lower() in _label.lower() and reviewer in all_reviewers_without_pr_owner:
                     lgtm_count += 1
+                    all_reviewers_without_pr_owner_and_lgtmed.remove(reviewer)
 
         for _label in labels:
             if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
@@ -645,7 +648,7 @@ PR will be approved when the following conditions are met:
             else:
                 error += (
                     "Missing lgtm from reviewers. "
-                    f"Minimum {self.github_webhook.minimum_lgtm} required. Reviewers: {', '.join(all_reviewers_without_pr_owner)}.\n"
+                    f"Minimum {self.github_webhook.minimum_lgtm} required, ({lgtm_count} given). Reviewers: {', '.join(all_reviewers_without_pr_owner)}.\n"
                 )
 
         return error
