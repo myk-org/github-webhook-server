@@ -790,21 +790,13 @@ uv run pre-commit install
 
 ```bash
 # Run all tests
-uv run pytest
-
-# Run configuration tests
-uv run pytest webhook_server/tests/test_config_schema.py -v
-
-# Run with coverage
-uv run pytest --cov=webhook_server
+tox
 ```
 
 ### Code Quality
 
 - **Linting**: `uv run ruff check`
 - **Formatting**: `uv run ruff format`
-- **Type checking**: `uv run mypy webhook_server`
-- **Security**: `uv run bandit -r webhook_server`
 
 ## License
 
