@@ -12,6 +12,7 @@ A comprehensive [FastAPI-based](https://fastapi.tiangolo.com) webhook server for
 - [Overview](#overview)
 - [Features](#features)
 - [Prerequisites](#prerequisites)
+- [Examples](#examples)
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Configuration Validation](#configuration-validation)
@@ -118,6 +119,22 @@ Your GitHub App requires the following permissions:
 
 - **Events:**
   - `Push`, `Pull request`, `Issue comment`, `Check run`, `Pull request review`
+
+## Examples
+
+The [`examples/`](examples/) directory contains comprehensive configuration examples to help you get started:
+
+| File | Description |
+|------|-------------|
+| [`config.yaml`](examples/config.yaml) | Complete webhook server configuration with all available options |
+| [`docker-compose.yaml`](examples/docker-compose.yaml) | Docker Compose deployment configuration |
+| [`.github-webhook-server.yaml`](examples/.github-webhook-server.yaml) | Repository-specific configuration template |
+
+These examples demonstrate:
+- 🔧 **Server configuration** with security settings
+- 🏗️ **Multi-repository setup** with different features per repo
+- 🐳 **Container deployment** configurations
+- 📝 **Repository-specific overrides** using `.github-webhook-server.yaml`
 
 ## Installation
 
@@ -280,9 +297,11 @@ repositories:
 
 ### Repository-Level Overrides
 
-Create `.github-webhook-server.yaml` in your repository root:
+Create `.github-webhook-server.yaml` in your repository root to override or extend the global configuration for that specific repository. This file supports all repository-level configuration options.
 
+**Simple Example:**
 ```yaml
+# Basic repository-specific settings
 minimum-lgtm: 1
 can-be-merged-required-labels:
   - "ready-to-merge"
@@ -294,6 +313,14 @@ set-auto-merge-prs:
 pre-commit: true
 conventional-title: "feat,fix,docs"
 ```
+
+For a comprehensive example showing all available options, see [`examples/.github-webhook-server.yaml`](examples/.github-webhook-server.yaml).
+
+**Key Benefits:**
+- 🎯 **Repository-specific settings** without modifying global config
+- 🔧 **Per-project customization** of CI/CD behavior  
+- 📝 **Version-controlled configuration** alongside your code
+- 🚀 **Zero-downtime updates** to repository settings
 
 ## Configuration Validation
 
@@ -308,7 +335,7 @@ The webhook server includes comprehensive configuration validation with JSON Sch
 uv run webhook_server/tests/test_schema_validator.py config.yaml
 
 # Validate example configuration
-uv run webhook_server/tests/test_schema_validator.py example.config.yaml
+uv run webhook_server/tests/test_schema_validator.py examples/config.yaml
 ```
 
 #### Validation Features
