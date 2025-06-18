@@ -252,7 +252,7 @@ async def process_webhook(request: Request, background_tasks: BackgroundTasks) -
 
         LOGGER.info(f"{log_context} Webhook queued for background processing")
         return {
-            "status": requests.codes.ok,
+            "status": status.HTTP_200_OK,
             "message": "Webhook queued for processing",
             "delivery_id": delivery_id,
             "event_type": event_type,
