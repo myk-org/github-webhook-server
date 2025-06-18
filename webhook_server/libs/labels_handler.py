@@ -103,7 +103,10 @@ class LabelsHandler:
     def get_size(self, pull_request: PullRequest) -> str:
         """Calculates size label based on additions and deletions."""
 
-        size = pull_request.additions + pull_request.deletions
+        # Handle None values by defaulting to 0
+        additions = pull_request.additions if pull_request.additions is not None else 0
+        deletions = pull_request.deletions if pull_request.deletions is not None else 0
+        size = additions + deletions
 
         # Define label thresholds in a more readable way
         threshold_sizes = [20, 50, 100, 300, 500]

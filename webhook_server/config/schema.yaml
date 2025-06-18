@@ -40,6 +40,10 @@ properties:
   verify-cloudflare-ips:
     type: boolean
     description: Verify hook request is from Cloudflare IPs
+  disable-ssl-warnings:
+    type: boolean
+    description: Disable SSL warnings (useful in production to reduce log noise from SSL certificate issues)
+    default: false
   docker:
     type: object
     properties:
@@ -76,67 +80,74 @@ properties:
         type: boolean
   repositories:
     type: object
-    properties:
-      my-repository:
+    additionalProperties:
+      type: object
+      properties:
         name:
           type: string
-          description: Repository name
+          description: Repository name (org/repo format)
         log-level:
           type: string
           enum:
             - INFO
             - DEBUG
+          description: Override global log-level for repository
         log-file:
           type: string
-          description: File path for the log file
+          description: Override global log-file for repository
         slack_webhook_url:
           type: string
           description: Slack webhook URL
         verified_job:
           type: boolean
           default: true
+          description: Enable verified job functionality
         pypi:
           type: object
           properties:
             token:
               type: string
               format: password
+              description: PyPI token for publishing packages
         events:
           type: array
           items:
             type: string
+          description: GitHub events to listen to
         tox:
           type: object
-          properties:
-            main:
-              type: array
-              items:
-                type: string
-            dev:
-              type: array
-              items:
-                type: string
+          patternProperties:
+            "^.*$":
+              oneOf:
+                - type: string
+                - type: array
+                  items:
+                    type: string
+          description: Tox configuration per branch
+        tox-python-version:
+          type: string
+          description: Python version for tox execution
         pre-commit:
           type: boolean
           default: true
+          description: Enable pre-commit checks
         protected-branches:
           type: object
-          properties:
-            dev:
-              type: array
-              items:
-                type: string
-            main:
-              type: object
-              properties:
-                include-runs:
-                  type: array
-                  items:
-                    type: string
-                exclude-runs:
-                  type: array
-                  items:
-                    type: string
+          additionalProperties:
+            oneOf:
+              - type: array
+                items:
+                  type: string
+              - type: object
+                properties:
+                  include-runs:
+                    type: array
+                    items:
+                      type: string
+                  exclude-runs:
+                    type: array
+                    items:
+                      type: string
         container:
           type: object
           properties:
@@ -146,24 +157,36 @@ properties:
             password:
               type: string
               format: password
+              description: Docker registry password
             repository:
               type: string
               description: Docker registry repository URL
             tag:
               type: string
               description: Image tag
+            release:
+              type: boolean
+              description: Push image to registry on new release
             build-args:
               type: array
               items:
                 type: string
+              description: Build arguments for container build
             args:
               type: array
               items:
                 type: string
+              description: Additional arguments for build command
         auto-verified-and-merged-users:
           type: array
           items:
             type: string
+          description: Users whose PRs are automatically verified and merged
+        github-tokens:
+          type: array
+          items:
+            type: string
+          description: Override GitHub tokens for this repository
         branch_protection:
           type: object
           properties:
@@ -179,17 +202,20 @@ properties:
               type: boolean
             required_conversation_resolution:
               type: boolean
-
         set-auto-merge-prs:
-          description: Set auto merge for pull requests for specific branches
           type: array
           items:
             type: string
-
+          description: Set auto merge for pull requests for specific branches
         can-be-merged-required-labels:
           type: array
           items:
             type: string
-
-        conventional-title: string
-        minimum-lgtm: integer
+          description: Required labels for PR to be marked as can-be-merged
+        conventional-title:
+          type: string
+          description: Comma-separated list of conventional commit prefixes
+        minimum-lgtm:
+          type: integer
+          description: Minimum number of LGTM required before approving PR
+          default: 0

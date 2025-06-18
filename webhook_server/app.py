@@ -19,19 +19,21 @@ from fastapi import (
     Request,
     status,
 )
-from starlette.datastructures import Headers
 
 from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import RepositoryNotFoundError
 from webhook_server.libs.github_api import GithubWebhook
 from webhook_server.utils.helpers import get_logger_with_params
 
+# Constants
+APP_URL_ROOT_PATH: str = "/webhook_server"
+HTTP_TIMEOUT_SECONDS: float = 10.0
+GITHUB_META_URL: str = "https://api.github.com/meta"
+CLOUDFLARE_IPS_URL: str = "https://api.cloudflare.com/client/v4/ips"
+
+# Global variables
 ALLOWED_IPS: tuple[ipaddress._BaseNetwork, ...] = ()
 LOGGER = get_logger_with_params(name="main")
-
-
-APP_URL_ROOT_PATH: str = "/webhook_server"
-urllib3.disable_warnings()
 
 _lifespan_http_client: httpx.AsyncClient | None = None
 
@@ -40,7 +42,7 @@ async def get_github_allowlist() -> list[str]:
     """Fetch and cache GitHub IP allowlist asynchronously."""
     try:
         assert _lifespan_http_client is not None
-        response = await _lifespan_http_client.get("https://api.github.com/meta")
+        response = await _lifespan_http_client.get(GITHUB_META_URL)
         response.raise_for_status()  # Check for HTTP errors
         data = response.json()
         return data.get("hooks", [])
@@ -58,7 +60,7 @@ async def get_cloudflare_allowlist() -> list[str]:
     """Fetch and cache Cloudflare IP allowlist asynchronously."""
     try:
         assert _lifespan_http_client is not None
-        response = await _lifespan_http_client.get("https://api.cloudflare.com/client/v4/ips")
+        response = await _lifespan_http_client.get(CLOUDFLARE_IPS_URL)
         response.raise_for_status()
         result = response.json().get("result", {})
         return result.get("ipv4_cidrs", []) + result.get("ipv6_cidrs", [])
@@ -72,7 +74,7 @@ async def get_cloudflare_allowlist() -> list[str]:
         raise
 
 
-def verify_signature(payload_body: bytes, secret_token: str, signature_header: Headers | None = None) -> None:
+def verify_signature(payload_body: bytes, secret_token: str, signature_header: str | None = None) -> None:
     """Verify that the payload was sent from GitHub by validating SHA256.
 
     Raise and return 403 if not authorized.
@@ -94,10 +96,13 @@ def verify_signature(payload_body: bytes, secret_token: str, signature_header: H
 
 async def gate_by_allowlist_ips(request: Request) -> None:
     if ALLOWED_IPS:
+        if not request.client or not request.client.host:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Could not determine client IP address")
+
         try:
             src_ip = ipaddress.ip_address(request.client.host)
         except ValueError:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Could not hook sender ip address")
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Could not parse client IP address")
 
         for valid_ip_range in ALLOWED_IPS:
             if src_ip in valid_ip_range:
@@ -112,7 +117,7 @@ async def gate_by_allowlist_ips(request: Request) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     global _lifespan_http_client
-    _lifespan_http_client = httpx.AsyncClient(timeout=10.0)
+    _lifespan_http_client = httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS)
 
     try:
         LOGGER.info("Application starting up...")
@@ -120,32 +125,49 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         root_config = config.root_data
         verify_github_ips = root_config.get("verify-github-ips")
         verify_cloudflare_ips = root_config.get("verify-cloudflare-ips")
+        disable_ssl_warnings = root_config.get("disable-ssl-warnings", False)
+
+        # Conditionally disable urllib3 warnings based on config
+        if disable_ssl_warnings:
+            urllib3.disable_warnings()
+            LOGGER.debug("SSL warnings disabled per configuration")
+
         LOGGER.debug(f"verify_github_ips: {verify_github_ips}, verify_cloudflare_ips: {verify_cloudflare_ips}")
 
         global ALLOWED_IPS
         networks: set[ipaddress._BaseNetwork] = set()
 
         if verify_cloudflare_ips:
-            cf_ips = await get_cloudflare_allowlist()
-
-            for cidr in cf_ips:
-                try:
-                    networks.add(ipaddress.ip_network(cidr))
-                except ValueError:
-                    LOGGER.warning(f"Skipping invalid CIDR from Cloudflare: {cidr}")
+            try:
+                cf_ips = await get_cloudflare_allowlist()
+                for cidr in cf_ips:
+                    try:
+                        networks.add(ipaddress.ip_network(cidr))
+                    except ValueError:
+                        LOGGER.warning(f"Skipping invalid CIDR from Cloudflare: {cidr}")
+            except Exception as e:
+                LOGGER.error(f"Failed to fetch Cloudflare IPs: {e}")
+                if verify_github_ips is False:
+                    raise  # If neither source works, fail
 
         if verify_github_ips:
-            gh_ips = await get_github_allowlist()
-
-            for cidr in gh_ips:
-                try:
-                    networks.add(ipaddress.ip_network(cidr))
-                except ValueError:
-                    LOGGER.warning(f"Skipping invalid CIDR from Github: {cidr}")
+            try:
+                gh_ips = await get_github_allowlist()
+                for cidr in gh_ips:
+                    try:
+                        networks.add(ipaddress.ip_network(cidr))
+                    except ValueError:
+                        LOGGER.warning(f"Skipping invalid CIDR from Github: {cidr}")
+            except Exception as e:
+                LOGGER.error(f"Failed to fetch GitHub IPs: {e}")
+                if verify_cloudflare_ips is False:
+                    raise  # If neither source works, fail
 
         if networks:
             ALLOWED_IPS = tuple(networks)
             LOGGER.info(f"IP allowlist initialized successfully with {len(ALLOWED_IPS)} networks.")
+        elif verify_github_ips or verify_cloudflare_ips:
+            LOGGER.warning("IP verification enabled but no valid IPs loaded - webhook will accept from any IP")
 
         yield
 
@@ -156,6 +178,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     finally:
         if _lifespan_http_client:
             await _lifespan_http_client.aclose()
+            LOGGER.debug("HTTP client closed")
 
         LOGGER.info("Application shutdown complete.")
 
@@ -170,49 +193,77 @@ def healthcheck() -> dict[str, Any]:
 
 @FASTAPI_APP.post(APP_URL_ROOT_PATH, dependencies=[Depends(gate_by_allowlist_ips)])
 async def process_webhook(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
-    payload_body = await request.body()
-
-    config = Config(logger=LOGGER)
-    root_config = config.root_data
-    webhook_secret = root_config.get("webhook-secret")
-
-    if webhook_secret:
-        signature_header = request.headers.get("x-hub-signature-256")
-        verify_signature(payload_body=payload_body, secret_token=webhook_secret, signature_header=signature_header)
-
+    # Extract headers early for logging
     delivery_id = request.headers.get("X-GitHub-Delivery", "unknown-delivery")
     event_type = request.headers.get("X-GitHub-Event", "unknown-event")
-    delivery_headers = request.headers.get("X-GitHub-Delivery", "")
     log_context = f"[Event: {event_type}][Delivery: {delivery_id}]"
 
+    LOGGER.info(f"{log_context} Processing webhook")
+
+    try:
+        payload_body = await request.body()
+    except Exception as e:
+        LOGGER.error(f"{log_context} Failed to read request body: {e}")
+        raise HTTPException(status_code=400, detail="Failed to read request body")
+
+    # Load config and verify signature
+    try:
+        config = Config(logger=LOGGER)
+        root_config = config.root_data
+        webhook_secret = root_config.get("webhook-secret")
+
+        if webhook_secret:
+            signature_header = request.headers.get("x-hub-signature-256")
+            verify_signature(payload_body=payload_body, secret_token=webhook_secret, signature_header=signature_header)
+            LOGGER.debug(f"{log_context} Signature verification successful")
+    except HTTPException:
+        raise
+    except Exception as e:
+        LOGGER.error(f"{log_context} Configuration error: {e}")
+        raise HTTPException(status_code=500, detail="Configuration error")
+
+    # Parse JSON payload
     try:
         hook_data: dict[Any, Any] = json.loads(payload_body)
-
-    except Exception as e:
-        LOGGER.error(f"{log_context} Error parsing JSON body: {e}")
+        if "repository" not in hook_data or "name" not in hook_data["repository"]:
+            raise ValueError("Missing repository information in payload")
+    except json.JSONDecodeError as e:
+        LOGGER.error(f"{log_context} Invalid JSON payload: {e}")
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
+    except ValueError as e:
+        LOGGER.error(f"{log_context} Invalid payload structure: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
 
-    logger = get_logger_with_params(name="main", repository_name=hook_data["repository"]["name"])
+    # Create repository-specific logger
+    repository_name = hook_data["repository"]["name"]
+    logger = get_logger_with_params(name="main", repository_name=repository_name)
+    logger.info(f"{log_context} Processing webhook for repository: {repository_name}")
 
     async def process_with_error_handling(_api: GithubWebhook, _logger: logging.Logger) -> None:
         try:
             await _api.process()
-
+            _logger.info(f"{log_context} Webhook processing completed successfully")
         except Exception as e:
             _logger.exception(f"{log_context} Error in background task: {e}")
 
     try:
         api: GithubWebhook = GithubWebhook(hook_data=hook_data, headers=request.headers, logger=logger)
-
         background_tasks.add_task(process_with_error_handling, _api=api, _logger=logger)
-        return {"status": requests.codes.ok, "message": "ok", "delivery headers": delivery_headers}
+
+        LOGGER.info(f"{log_context} Webhook queued for background processing")
+        return {
+            "status": requests.codes.ok,
+            "message": "Webhook queued for processing",
+            "delivery_id": delivery_id,
+            "event_type": event_type,
+        }
 
     except RepositoryNotFoundError as e:
-        logger.exception(f"{log_context} Configuration/Repository error: {e}")
+        logger.error(f"{log_context} Repository not found: {e}")
         raise HTTPException(status_code=404, detail=str(e))
 
     except ConnectionError as e:
-        logger.exception(f"{log_context} API connection error: {e}")
+        logger.error(f"{log_context} API connection error: {e}")
         raise HTTPException(status_code=503, detail=f"API Connection Error: {e}")
 
     except HTTPException:
