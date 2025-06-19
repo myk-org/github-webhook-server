@@ -14,4 +14,15 @@ commands = [
 
 [env.unittests]
 deps = ["uv"]
-commands = [["uv", "run", "--extra", "tests", "pytest", "webhook_server/tests"]]
+commands = [
+  [
+    "uv",
+    "run",
+    "--extra",
+    "tests",
+    "pytest",
+    "-n",
+    "auto",
+    "webhook_server/tests",
+  ],
+]
