@@ -680,9 +680,6 @@ class TestRunnerHandler:
                                                 await runner_handler.run_build_container(
                                                     pull_request=mock_pull_request, push=True, set_check=False
                                                 )
-                                                print("to_thread calls:", mock_to_thread.call_args_list)
-                                                print("run_podman_command calls:", mock_run_podman.call_args_list)
-                                                print("run_podman_command call count:", mock_run_podman.call_count)
                                                 mock_set_progress.assert_called_once()
                                                 # Should not call set_success because set_check=False
                                                 mock_set_success.assert_not_called()
