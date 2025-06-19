@@ -54,7 +54,7 @@ class ConfigValidator:
     def _validate_root_fields(self, config: dict[str, Any]) -> None:
         """Validate root-level configuration fields."""
         # String fields
-        string_fields = ["log-level", "log-file", "webhook_ip", "ip-bind", "webhook-secret"]
+        string_fields = ["log-level", "log-file", "webhook-ip", "ip-bind", "webhook-secret"]
         for field in string_fields:
             if field in config and not isinstance(config[field], str):
                 self.errors.append(f"Field '{field}' must be a string")
@@ -85,8 +85,8 @@ class ConfigValidator:
         if "docker" in config:
             self._validate_docker_config(config["docker"])
 
-        if "branch_protection" in config:
-            self._validate_branch_protection(config["branch_protection"])
+        if "branch-protection" in config:
+            self._validate_branch_protection(config["branch-protection"])
 
     def _validate_docker_config(self, docker_config: Any) -> None:
         """Validate docker configuration."""
@@ -104,7 +104,7 @@ class ConfigValidator:
     def _validate_branch_protection(self, branch_protection_config: Any) -> None:
         """Validate branch protection configuration."""
         if not isinstance(branch_protection_config, dict):
-            self.errors.append("Field 'branch_protection' must be an object")
+            self.errors.append("Field 'branch-protection' must be an object")
             return
 
         boolean_branch_protection_fields = [
@@ -116,11 +116,11 @@ class ConfigValidator:
         ]
         for field in boolean_branch_protection_fields:
             if field in branch_protection_config and not isinstance(branch_protection_config[field], bool):
-                self.errors.append(f"Branch protection field '{field}' must be a boolean")
+                self.errors.append(f"Field 'branch-protection.{field}' must be a boolean")
 
         if "required_approving_review_count" in branch_protection_config:
             if not isinstance(branch_protection_config["required_approving_review_count"], int):
-                self.errors.append("Field 'required_approving_review_count' must be an integer")
+                self.errors.append("Field 'branch-protection.required_approving_review_count' must be an integer")
 
     def _validate_repositories(self, repositories: Any) -> None:
         """Validate repositories configuration."""
@@ -150,7 +150,7 @@ class ConfigValidator:
             "name",
             "log-level",
             "log-file",
-            "slack_webhook_url",
+            "slack-webhook-url",
             "tox-python-version",
             "conventional-title",
         ]
@@ -159,7 +159,7 @@ class ConfigValidator:
                 self.errors.append(f"Repository '{repo_name}' field '{field}' must be a string")
 
         # Boolean fields
-        boolean_fields = ["verified_job", "pre-commit"]
+        boolean_fields = ["verified-job", "pre-commit"]
         for field in boolean_fields:
             if field in repo_config and not isinstance(repo_config[field], bool):
                 self.errors.append(f"Repository '{repo_name}' field '{field}' must be a boolean")

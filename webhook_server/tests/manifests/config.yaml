@@ -6,7 +6,7 @@ github-tokens:
   - GITHIB TOKEN1
   - GITHIB TOKEN2
 
-webhook_ip: HTTP://IP OR URL:PORT
+webhook-ip: HTTP://IP OR URL:PORT
 webhook-secret: test-webhook-secret # pragma: allowlist secret
 
 docker: # Used to pull images from docker.io
@@ -27,8 +27,8 @@ repositories:
     name: my-org/test-repo
     log-level: DEBUG # Override global log-level for repository
     log-file: test-repo.log # Override global log-file for repository
-    slack_webhook_url: Slack webhook url # Send notification to slack on several operations
-    verified_job: true
+    slack-webhook-url: Slack webhook url # Send notification to slack on several operations
+    verified-job: true
     pypi:
       token: PYPI TOKEN
 

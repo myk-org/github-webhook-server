@@ -320,7 +320,7 @@ class TestCreateWebhook:
         """Mock Config object for testing."""
         config = Mock()
         config.root_data = {
-            "webhook_ip": "http://example.com",
+            "webhook-ip": "http://example.com",
             "repositories": {
                 "repo1": {"name": "owner/repo1", "events": ["push"]},
                 "repo2": {"name": "owner/repo2", "events": ["pull_request"]},
@@ -424,7 +424,7 @@ class TestCreateWebhook:
     ) -> None:
         """Test webhook creation with no repositories."""
         config = Mock()
-        config.root_data = {"webhook_ip": "http://example.com", "repositories": {}}
+        config.root_data = {"webhook-ip": "http://example.com", "repositories": {}}
 
         mock_executor = Mock()
         mock_thread_pool.return_value.__enter__.return_value = mock_executor

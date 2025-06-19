@@ -124,7 +124,7 @@ def get_required_status_checks(
     if data.get("tox"):
         default_status_checks.append("tox")
 
-    if data.get("verified_job", True):
+    if data.get("verified-job", True):
         default_status_checks.append("verified")
 
     if data.get("container"):
@@ -169,25 +169,25 @@ def set_repository_labels(repository: Repository, api_user: str) -> str:
             "color": label.color,
         }
 
-    for label, color in STATIC_LABELS_DICT.items():
-        label_lower: str = label.lower()
+    for label_name, label_color in STATIC_LABELS_DICT.items():
+        label_lower: str = label_name.lower()
         if label_lower in repository_labels:
             repo_label: Label = repository_labels[label_lower]["object"]
-            if repository_labels[label_lower]["color"] == color:
+            if repository_labels[label_lower]["color"] == label_color:
                 continue
             else:
-                LOGGER.debug(f"{repository.name}: Edit repository label {label} with color {color}")
-                repo_label.edit(name=repo_label.name, color=color)
+                LOGGER.debug(f"{repository.name}: Edit repository label {label_name} with color {label_color}")
+                repo_label.edit(name=repo_label.name, color=label_color)
         else:
-            LOGGER.debug(f"{repository.name}: Add repository label {label} with color {color}")
-            repository.create_label(name=label, color=color)
+            LOGGER.debug(f"{repository.name}: Add repository label {label_name} with color {label_color}")
+            repository.create_label(name=label_name, color=label_color)
 
     return f"[API user {api_user}] - {repository}: Setting repository labels is done"
 
 
 def get_repo_branch_protection_rules(config: Config) -> dict[str, Any]:
     branch_protection = copy.deepcopy(DEFAULT_BRANCH_PROTECTION)
-    repo_branch_protection = config.get_value(value="branch_protection", return_on_none={})
+    repo_branch_protection = config.get_value(value="branch-protection", return_on_none={})
     branch_protection.update(repo_branch_protection)
     return branch_protection
 

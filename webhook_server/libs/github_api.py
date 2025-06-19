@@ -243,7 +243,7 @@ class GithubWebhook:
         )
         self.tox: dict[str, str] = self.config.get_value(value="tox", extra_dict=repository_config)
         self.tox_python_version: str = self.config.get_value(value="tox-python-version", extra_dict=repository_config)
-        self.slack_webhook_url: str = self.config.get_value(value="slack_webhook_url", extra_dict=repository_config)
+        self.slack_webhook_url: str = self.config.get_value(value="slack-webhook-url", extra_dict=repository_config)
 
         self.build_and_push_container: dict[str, Any] = self.config.get_value(
             value="container", return_on_none={}, extra_dict=repository_config
@@ -274,6 +274,14 @@ class GithubWebhook:
         )
         self.minimum_lgtm: int = self.config.get_value(
             value="minimum-lgtm", return_on_none=0, extra_dict=repository_config
+        )
+        # Load global create_issue_for_new_pr setting as fallback
+        global_create_issue_for_new_pr: bool = self.config.get_value(
+            value="create-issue-for-new-pr", return_on_none=True
+        )
+        # Repository-specific setting overrides global setting
+        self.create_issue_for_new_pr: bool = self.config.get_value(
+            value="create-issue-for-new-pr", return_on_none=global_create_issue_for_new_pr, extra_dict=repository_config
         )
 
     async def get_pull_request(self, number: int | None = None) -> PullRequest | None:

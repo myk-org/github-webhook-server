@@ -1,4 +1,5 @@
 import os
+from typing import Any
 
 import pytest
 from webhook_server.libs.config import Config
@@ -9,14 +10,14 @@ from webhook_server.utils.github_repository_settings import (
 
 
 @pytest.fixture()
-def branch_protection_rules(request, mocker):
+def branch_protection_rules(request: pytest.FixtureRequest, mocker: Any) -> dict[str, Any]:
     config_path = "webhook_server.libs.config.Config"
     os.environ["WEBHOOK_SERVER_DATA_DIR"] = "webhook_server/tests/manifests"
     repo_name = "test-repo"
     config = Config(repository=repo_name)
     root_data = config.root_data
-    root_data.setdefault("branch_protection", request.param.get("global", {}))
-    root_data["repositories"][repo_name].setdefault("branch_protection", request.param.get("repo"))
+    root_data.setdefault("branch-protection", request.param.get("global", {}))
+    root_data["repositories"][repo_name].setdefault("branch-protection", request.param.get("repo"))
 
     mocker.patch(f"{config_path}.root_data", new_callable=mocker.PropertyMock, return_value=root_data)
 
@@ -93,7 +94,7 @@ def branch_protection_rules(request, mocker):
     ],
     indirect=["branch_protection_rules"],
 )
-def test_branch_protection_setup(branch_protection_rules, expected):
+def test_branch_protection_setup(branch_protection_rules: dict[str, Any], expected: dict[str, Any]) -> None:
     mismatch = {}
     for key in expected:
         if branch_protection_rules[key] != expected[key]:

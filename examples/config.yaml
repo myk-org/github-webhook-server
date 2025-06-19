@@ -11,7 +11,7 @@ github-tokens:
   - <GITHIB TOKEN1>
   - <GITHIB TOKEN2>
 
-webhook_ip: <HTTP://IP OR URL:PORT>
+webhook-ip: <HTTP://IP OR URL:PORT>
 
 docker: # Used to pull images from docker.io
   username: <username>
@@ -26,7 +26,9 @@ auto-verified-and-merged-users:
   - "renovate[bot]"
   - "pre-commit-ci[bot]"
 
-branch_protection:
+create-issue-for-new-pr: true  # Global default: create tracking issues for new PRs
+
+branch-protection:
   strict: True
   require_code_owner_reviews: True
   dismiss_stale_reviews: False
@@ -39,8 +41,8 @@ repositories:
     name: my-org/my-repository
     log-level: DEBUG # Override global log-level for repository
     log-file: my-repository.log # Override global log-file for repository
-    slack_webhook_url: <Slack webhook url> # Send notification to slack on several operations
-    verified_job: true
+    slack-webhook-url: <Slack webhook url> # Send notification to slack on several operations
+    verified-job: true
     pypi:
       token: <PYPI TOKEN>
 
@@ -88,7 +90,7 @@ repositories:
       - my-label2
 
     conventional-title: "ci,docs,feat,fix,refactor,test,release" # Check PR title start with any of these words + :
-    branch_protection:
+    branch-protection:
       strict: True
       require_code_owner_reviews: True
       dismiss_stale_reviews: False
@@ -97,5 +99,6 @@ repositories:
       required_conversation_resolution: True
 
     minimum-lgtm: 0 # The minimum PR lgtm required before approve the PR
+    create-issue-for-new-pr: true # Override global setting: create tracking issues for new PRs (default: true)
     set-auto-merge-prs:
       - main
