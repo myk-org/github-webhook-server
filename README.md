@@ -1,5 +1,3 @@
-# GitHub Webhook Server
-
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Container](https://img.shields.io/badge/Container-quay.io-red)](https://quay.io/repository/myakove/github-webhook-server)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
@@ -124,13 +122,14 @@ Your GitHub App requires the following permissions:
 
 The [`examples/`](examples/) directory contains comprehensive configuration examples to help you get started:
 
-| File | Description |
-|------|-------------|
-| [`config.yaml`](examples/config.yaml) | Complete webhook server configuration with all available options |
-| [`docker-compose.yaml`](examples/docker-compose.yaml) | Docker Compose deployment configuration |
-| [`.github-webhook-server.yaml`](examples/.github-webhook-server.yaml) | Repository-specific configuration template |
+| File                                                                  | Description                                                      |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| [`config.yaml`](examples/config.yaml)                                 | Complete webhook server configuration with all available options |
+| [`docker-compose.yaml`](examples/docker-compose.yaml)                 | Docker Compose deployment configuration                          |
+| [`.github-webhook-server.yaml`](examples/.github-webhook-server.yaml) | Repository-specific configuration template                       |
 
 These examples demonstrate:
+
 - 🔧 **Server configuration** with security settings
 - 🏗️ **Multi-repository setup** with different features per repo
 - 🐳 **Container deployment** configurations
@@ -300,6 +299,7 @@ repositories:
 Create `.github-webhook-server.yaml` in your repository root to override or extend the global configuration for that specific repository. This file supports all repository-level configuration options.
 
 **Simple Example:**
+
 ```yaml
 # Basic repository-specific settings
 minimum-lgtm: 1
@@ -317,8 +317,9 @@ conventional-title: "feat,fix,docs"
 For a comprehensive example showing all available options, see [`examples/.github-webhook-server.yaml`](examples/.github-webhook-server.yaml).
 
 **Key Benefits:**
+
 - 🎯 **Repository-specific settings** without modifying global config
-- 🔧 **Per-project customization** of CI/CD behavior  
+- 🔧 **Per-project customization** of CI/CD behavior
 - 📝 **Version-controlled configuration** alongside your code
 - 🚀 **Zero-downtime updates** to repository settings
 
@@ -360,22 +361,22 @@ uv run pytest webhook_server/tests/test_config_schema.py::TestConfigSchema::test
 
 #### Root Level Options
 
-| Category     | Options                                                                                  |
-| ------------ | ---------------------------------------------------------------------------------------- |
-| **Server**   | `ip-bind`, `port`, `max-workers`, `log-level`, `log-file`                                |
-| **Security** | `webhook-secret`, `verify-github-ips`, `verify-cloudflare-ips`, `disable-ssl-warnings`   |
-| **GitHub**   | `github-app-id`, `github-tokens`, `webhook-ip`                                           |
+| Category     | Options                                                                                                             |
+| ------------ | ------------------------------------------------------------------------------------------------------------------- |
+| **Server**   | `ip-bind`, `port`, `max-workers`, `log-level`, `log-file`                                                           |
+| **Security** | `webhook-secret`, `verify-github-ips`, `verify-cloudflare-ips`, `disable-ssl-warnings`                              |
+| **GitHub**   | `github-app-id`, `github-tokens`, `webhook-ip`                                                                      |
 | **Defaults** | `docker`, `default-status-checks`, `auto-verified-and-merged-users`, `branch-protection`, `create-issue-for-new-pr` |
 
 #### Repository Level Options
 
-| Category          | Options                                                               |
-| ----------------- | --------------------------------------------------------------------- |
-| **Basic**         | `name`, `log-level`, `log-file`, `slack-webhook-url`, `events`        |
-| **Features**      | `verified-job`, `pre-commit`, `pypi`, `tox`, `container`              |
+| Category          | Options                                                                                          |
+| ----------------- | ------------------------------------------------------------------------------------------------ |
+| **Basic**         | `name`, `log-level`, `log-file`, `slack-webhook-url`, `events`                                   |
+| **Features**      | `verified-job`, `pre-commit`, `pypi`, `tox`, `container`                                         |
 | **Pull Requests** | `minimum-lgtm`, `conventional-title`, `can-be-merged-required-labels`, `create-issue-for-new-pr` |
-| **Automation**    | `set-auto-merge-prs`, `auto-verified-and-merged-users`                |
-| **Protection**    | `protected-branches`, `branch-protection`                             |
+| **Automation**    | `set-auto-merge-prs`, `auto-verified-and-merged-users`                                           |
+| **Protection**    | `protected-branches`, `branch-protection`                                                        |
 
 ## Deployment
 

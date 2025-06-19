@@ -1,15 +1,15 @@
+import asyncio
+import logging
 import os
 import tempfile
 from typing import Any
-from unittest.mock import Mock, patch, AsyncMock
-import logging
-import asyncio
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from starlette.datastructures import Headers
 
-from webhook_server.libs.github_api import GithubWebhook
 from webhook_server.libs.exceptions import RepositoryNotFoundError
+from webhook_server.libs.github_api import GithubWebhook
 
 
 class TestGithubWebhook:
@@ -691,8 +691,6 @@ class TestGithubWebhook:
 
             # Check that a color file was created
             color_file = os.path.join(temp_dir, "log-colors.json")
-            print(f"Color file path: {color_file}")
-            print(f"Color file exists: {os.path.exists(color_file)}")
             assert os.path.exists(color_file)
             assert result is not None
             assert result2 is not None
