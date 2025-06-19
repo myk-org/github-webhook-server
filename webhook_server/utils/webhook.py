@@ -70,7 +70,7 @@ def process_github_webhook(
 
 def create_webhook(config: Config, apis_dict: dict[str, dict[str, Any]], secret: str | None = None) -> None:
     LOGGER.info("Preparing webhook configuration")
-    webhook_ip = config.root_data["webhook_ip"]
+    webhook_ip = config.root_data["webhook-ip"]
 
     futures = []
     with ThreadPoolExecutor() as executor:

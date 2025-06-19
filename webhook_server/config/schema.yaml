@@ -18,7 +18,7 @@ properties:
     items:
       type: string
       description: Global GitHub token for all repositories
-  webhook_ip:
+  webhook-ip:
     type: string
     description: IP or FQDN address of the webhook server for adding to the repositories
 
@@ -62,8 +62,12 @@ properties:
     type: array
     items:
       type: string
+  create-issue-for-new-pr:
+    type: boolean
+    description: Create a tracking issue for new pull requests (global default)
+    default: true
 
-  branch_protection:
+  branch-protection:
     type: object
     properties:
       strict:
@@ -95,10 +99,10 @@ properties:
         log-file:
           type: string
           description: Override global log-file for repository
-        slack_webhook_url:
+        slack-webhook-url:
           type: string
           description: Slack webhook URL
-        verified_job:
+        verified-job:
           type: boolean
           default: true
           description: Enable verified job functionality
@@ -187,7 +191,7 @@ properties:
           items:
             type: string
           description: Override GitHub tokens for this repository
-        branch_protection:
+        branch-protection:
           type: object
           properties:
             strict:
@@ -219,3 +223,7 @@ properties:
           type: integer
           description: Minimum number of LGTM required before approving PR
           default: 0
+        create-issue-for-new-pr:
+          type: boolean
+          description: Create a tracking issue for new pull requests
+          default: true

@@ -3,7 +3,7 @@ import tempfile
 from typing import Any
 
 import pytest
-import yaml  # type: ignore
+import yaml
 
 from webhook_server.libs.config import Config
 
@@ -17,7 +17,7 @@ class TestConfigSchema:
         return {
             "github-app-id": 123456,
             "github-tokens": ["token1"],
-            "webhook_ip": "http://localhost:5000",
+            "webhook-ip": "http://localhost:5000",
             "repositories": {"test-repo": {"name": "org/test-repo"}},
         }
 
@@ -29,7 +29,7 @@ class TestConfigSchema:
             "log-file": "webhook.log",
             "github-app-id": 123456,
             "github-tokens": ["token1", "token2"],
-            "webhook_ip": "http://localhost:5000",
+            "webhook-ip": "http://localhost:5000",
             "ip-bind": "0.0.0.0",
             "port": 8080,
             "max-workers": 20,
@@ -40,7 +40,7 @@ class TestConfigSchema:
             "docker": {"username": "dockeruser", "password": "dockerpass"},  # pragma: allowlist secret
             "default-status-checks": ["WIP", "build"],
             "auto-verified-and-merged-users": ["bot[bot]"],
-            "branch_protection": {
+            "branch-protection": {
                 "strict": True,
                 "require_code_owner_reviews": True,
                 "dismiss_stale_reviews": False,
@@ -53,8 +53,8 @@ class TestConfigSchema:
                     "name": "org/test-repo",
                     "log-level": "INFO",
                     "log-file": "test-repo.log",
-                    "slack_webhook_url": "https://hooks.slack.com/test",
-                    "verified_job": True,
+                    "slack-webhook-url": "https://hooks.slack.com/test",
+                    "verified-job": True,
                     "pypi": {"token": "pypi-token"},
                     "events": ["push", "pull_request"],
                     "tox": {"main": "all", "dev": ["test1", "test2"]},
@@ -72,7 +72,7 @@ class TestConfigSchema:
                     },
                     "auto-verified-and-merged-users": ["user1"],
                     "github-tokens": ["repo-token"],
-                    "branch_protection": {"strict": False, "required_approving_review_count": 1},
+                    "branch-protection": {"strict": False, "required_approving_review_count": 1},
                     "set-auto-merge-prs": ["main"],
                     "can-be-merged-required-labels": ["ready"],
                     "conventional-title": "feat,fix,docs",
@@ -102,7 +102,7 @@ class TestConfigSchema:
 
             config = Config()
             assert config.root_data["github-app-id"] == 123456
-            assert config.root_data["webhook_ip"] == "http://localhost:5000"
+            assert config.root_data["webhook-ip"] == "http://localhost:5000"
             assert "test-repo" in config.root_data["repositories"]
         finally:
             # Clean up
@@ -160,7 +160,7 @@ class TestConfigSchema:
         config_without_repos = {
             "github-app-id": 123456,
             "github-tokens": ["token1"],
-            "webhook_ip": "http://localhost:5000",
+            "webhook-ip": "http://localhost:5000",
         }
 
         temp_dir = self.create_temp_config_dir_and_data(config_without_repos)
@@ -215,9 +215,9 @@ class TestConfigSchema:
             shutil.rmtree(temp_dir)
 
     def test_branch_protection_object_validation(self, valid_minimal_config: dict[str, Any]) -> None:
-        """Test that branch_protection accepts proper boolean and integer values."""
+        """Test that branch-protection accepts proper boolean and integer values."""
         config = valid_minimal_config.copy()
-        config["branch_protection"] = {
+        config["branch-protection"] = {
             "strict": True,
             "require_code_owner_reviews": False,
             "dismiss_stale_reviews": True,
@@ -232,7 +232,7 @@ class TestConfigSchema:
             config_file = os.path.join(temp_dir, "config.yaml")
             with open(config_file, "r") as file_handle:
                 data = yaml.safe_load(file_handle)
-                branch_protection = data["branch_protection"]
+                branch_protection = data["branch-protection"]
                 assert branch_protection["strict"] is True
                 assert branch_protection["require_code_owner_reviews"] is False
                 assert branch_protection["required_approving_review_count"] == 2
@@ -246,7 +246,7 @@ class TestConfigSchema:
         config = valid_minimal_config.copy()
         config["repositories"] = {
             "repo1": {"name": "org/repo1"},
-            "repo2": {"name": "org/repo2", "verified_job": False, "minimum-lgtm": 1},
+            "repo2": {"name": "org/repo2", "verified-job": False, "minimum-lgtm": 1},
         }
 
         temp_dir = self.create_temp_config_dir_and_data(config)
@@ -344,7 +344,7 @@ class TestConfigSchema:
         """Test that boolean fields accept proper boolean values."""
         config = valid_minimal_config.copy()
         config.update({"verify-github-ips": True, "verify-cloudflare-ips": False, "disable-ssl-warnings": True})
-        config["repositories"]["test-repo"].update({"verified_job": False, "pre-commit": True})
+        config["repositories"]["test-repo"].update({"verified-job": False, "pre-commit": True})
 
         temp_dir = self.create_temp_config_dir_and_data(config)
 
@@ -355,7 +355,7 @@ class TestConfigSchema:
                 assert data["verify-github-ips"] is True
                 assert data["verify-cloudflare-ips"] is False
                 assert data["disable-ssl-warnings"] is True
-                assert data["repositories"]["test-repo"]["verified_job"] is False
+                assert data["repositories"]["test-repo"]["verified-job"] is False
                 assert data["repositories"]["test-repo"]["pre-commit"] is True
         finally:
             import shutil
@@ -434,8 +434,10 @@ class TestConfigSchema:
 
             shutil.rmtree(temp_dir)
 
-    def test_default_values_behavior(self, valid_minimal_config: dict[str, Any]) -> None:
-        """Test that default values are handled correctly when not specified."""
+    def test_default_values_behavior(
+        self, valid_minimal_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that default values are properly applied when not specified."""
         # Test that optional fields can be omitted
         config = valid_minimal_config.copy()
 
@@ -443,13 +445,63 @@ class TestConfigSchema:
         temp_dir = self.create_temp_config_dir_and_data(config)
 
         try:
-            config_file = os.path.join(temp_dir, "config.yaml")
-            with open(config_file, "r") as file_handle:
-                data = yaml.safe_load(file_handle)
-                # These fields should not be present since they weren't specified
-                assert "disable-ssl-warnings" not in data
-                assert "verify-github-ips" not in data
-                assert "minimum-lgtm" not in data["repositories"]["test-repo"]
+            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
+            config_obj = Config()
+            # These fields should not be present since they weren't specified
+            assert "disable-ssl-warnings" not in config_obj.root_data
+            assert "verify-github-ips" not in config_obj.root_data
+            assert "minimum-lgtm" not in config_obj.root_data["repositories"]["test-repo"]
+        finally:
+            import shutil
+
+            shutil.rmtree(temp_dir)
+
+    def test_create_issue_for_new_pr_configuration(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test create-issue-for-new-pr configuration at global and repository levels."""
+        # Test global configuration
+        global_config = {
+            "github-app-id": 123456,
+            "github-tokens": ["token1"],
+            "webhook-ip": "http://localhost:8080",
+            "create-issue-for-new-pr": False,  # Global setting
+            "repositories": {
+                "test-repo": {
+                    "name": "test-org/test-repo",
+                    # No repository-specific setting - should use global
+                }
+            },
+        }
+
+        temp_dir = self.create_temp_config_dir_and_data(global_config)
+        try:
+            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
+            config = Config()
+            assert config.root_data["create-issue-for-new-pr"] is False
+        finally:
+            import shutil
+
+            shutil.rmtree(temp_dir)
+
+        # Test repository-specific override
+        repo_override_config = {
+            "github-app-id": 123456,
+            "github-tokens": ["token1"],
+            "webhook-ip": "http://localhost:8080",
+            "create-issue-for-new-pr": False,  # Global setting
+            "repositories": {
+                "test-repo": {
+                    "name": "test-org/test-repo",
+                    "create-issue-for-new-pr": True,  # Repository override
+                }
+            },
+        }
+
+        temp_dir = self.create_temp_config_dir_and_data(repo_override_config)
+        try:
+            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
+            config = Config()
+            assert config.root_data["create-issue-for-new-pr"] is False
+            assert config.root_data["repositories"]["test-repo"]["create-issue-for-new-pr"] is True
         finally:
             import shutil
 

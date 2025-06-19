@@ -183,6 +183,13 @@ class PullRequestHandler:
 > **Note**: You are an auto-verified user. Your PRs will be automatically verified and may be auto-merged when all requirements are met.
 """
 
+        # Check if issue creation is enabled
+        issue_creation_note = ""
+        if self.github_webhook.create_issue_for_new_pr:
+            issue_creation_note = "* **Issue Creation**: A tracking issue is created for this PR and will be closed when the PR is merged or closed\n"
+        else:
+            issue_creation_note = "* **Issue Creation**: Disabled for this repository\n"
+
         return f"""
 {self.github_webhook.issue_url_for_welcome_msg}
 
@@ -193,8 +200,7 @@ This pull request will be automatically processed with the following features:{a
 ### 🔄 Automatic Actions
 * **Reviewer Assignment**: Reviewers are automatically assigned based on the OWNERS file in the repository root
 * **Size Labeling**: PR size labels (XS, S, M, L, XL, XXL) are automatically applied based on changes
-* **Issue Creation**: A tracking issue is created for this PR and will be closed when the PR is merged or closed
-* **Pre-commit Checks**: [pre-commit](https://pre-commit.ci/) runs automatically if `.pre-commit-config.yaml` exists
+{issue_creation_note}* **Pre-commit Checks**: [pre-commit](https://pre-commit.ci/) runs automatically if `.pre-commit-config.yaml` exists
 * **Branch Labeling**: Branch-specific labels are applied to track the target branch
 * **Auto-verification**: Auto-verified users have their PRs automatically marked as verified
 
@@ -430,6 +436,10 @@ For more information, please refer to the project documentation or contact the m
                 self.logger.error(f"{self.log_prefix} Async task failed: {result}")
 
     async def create_issue_for_new_pull_request(self, pull_request: PullRequest) -> None:
+        if not self.github_webhook.create_issue_for_new_pr:
+            self.logger.info(f"{self.log_prefix} Issue creation for new PRs is disabled for this repository")
+            return
+
         if self.github_webhook.parent_committer in self.github_webhook.auto_verified_and_merged_users:
             self.logger.info(
                 f"{self.log_prefix} Committer {self.github_webhook.parent_committer} is part of "

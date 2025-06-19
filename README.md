@@ -197,7 +197,7 @@ Create `config.yaml` in your data directory:
 # yaml-language-server: $schema=https://raw.githubusercontent.com/myk-org/github-webhook-server/refs/heads/main/webhook_server/config/schema.yaml
 
 github-app-id: 123456
-webhook_ip: https://your-domain.com
+webhook-ip: https://your-domain.com
 github-tokens:
   - ghp_your_github_token
 
@@ -244,10 +244,10 @@ repositories:
   my-project:
     name: my-org/my-project
     log-level: DEBUG
-    slack_webhook_url: https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK
+    slack-webhook-url: https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK
 
     # CI/CD Features
-    verified_job: true
+    verified-job: true
     pre-commit: true
 
     # Testing Configuration
@@ -364,18 +364,18 @@ uv run pytest webhook_server/tests/test_config_schema.py::TestConfigSchema::test
 | ------------ | ---------------------------------------------------------------------------------------- |
 | **Server**   | `ip-bind`, `port`, `max-workers`, `log-level`, `log-file`                                |
 | **Security** | `webhook-secret`, `verify-github-ips`, `verify-cloudflare-ips`, `disable-ssl-warnings`   |
-| **GitHub**   | `github-app-id`, `github-tokens`, `webhook_ip`                                           |
-| **Defaults** | `docker`, `default-status-checks`, `auto-verified-and-merged-users`, `branch_protection` |
+| **GitHub**   | `github-app-id`, `github-tokens`, `webhook-ip`                                           |
+| **Defaults** | `docker`, `default-status-checks`, `auto-verified-and-merged-users`, `branch-protection`, `create-issue-for-new-pr` |
 
 #### Repository Level Options
 
 | Category          | Options                                                               |
 | ----------------- | --------------------------------------------------------------------- |
-| **Basic**         | `name`, `log-level`, `log-file`, `slack_webhook_url`, `events`        |
-| **Features**      | `verified_job`, `pre-commit`, `pypi`, `tox`, `container`              |
-| **Pull Requests** | `minimum-lgtm`, `conventional-title`, `can-be-merged-required-labels` |
+| **Basic**         | `name`, `log-level`, `log-file`, `slack-webhook-url`, `events`        |
+| **Features**      | `verified-job`, `pre-commit`, `pypi`, `tox`, `container`              |
+| **Pull Requests** | `minimum-lgtm`, `conventional-title`, `can-be-merged-required-labels`, `create-issue-for-new-pr` |
 | **Automation**    | `set-auto-merge-prs`, `auto-verified-and-merged-users`                |
-| **Protection**    | `protected-branches`, `branch_protection`                             |
+| **Protection**    | `protected-branches`, `branch-protection`                             |
 
 ## Deployment
 

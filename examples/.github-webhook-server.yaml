@@ -7,10 +7,10 @@ log-level: DEBUG # Options: INFO, DEBUG
 log-file: /path/to/repository-specific.log
 
 # Slack integration
-slack_webhook_url: https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK
+slack-webhook-url: https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK
 
 # Job verification settings
-verified_job: true # Enable/disable verified job functionality
+verified-job: true # Enable/disable verified job functionality
 
 # PyPI publishing configuration
 pypi:
@@ -70,12 +70,12 @@ github-tokens:
   - ghp_your_repository_specific_token_here
 
 # Branch protection rules
-branch_protection:
+branch-protection:
   strict: true
   require_code_owner_reviews: true
-  dismiss_stale_reviews: true
-  required_approving_review_count: 2
-  required_linear_history: false
+  dismiss_stale_reviews: false
+  required_approving_review_count: 1
+  required_linear_history: true
   required_conversation_resolution: true
 
 # Auto-merge configuration
@@ -94,3 +94,6 @@ conventional-title: "feat,fix,docs,style,refactor,test,chore"
 
 # Minimum LGTM count required
 minimum-lgtm: 2
+
+# Issue creation for new pull requests
+create-issue-for-new-pr: true  # Create tracking issues for new PRs
