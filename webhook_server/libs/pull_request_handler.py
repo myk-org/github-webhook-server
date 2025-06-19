@@ -173,63 +173,108 @@ class PullRequestHandler:
     def _prepare_welcome_comment(self) -> str:
         self.logger.info(f"{self.log_prefix} Prepare welcome comment")
         supported_user_labels_str: str = "".join([f" * {label}\n" for label in USER_LABELS_DICT.keys()])
+
+        # Check if current user is auto-verified
+        is_auto_verified = self.github_webhook.parent_committer in self.github_webhook.auto_verified_and_merged_users
+        auto_verified_note = ""
+        if is_auto_verified:
+            auto_verified_note = """
+
+> **Note**: You are an auto-verified user. Your PRs will be automatically verified and may be auto-merged when all requirements are met.
+"""
+
         return f"""
 {self.github_webhook.issue_url_for_welcome_msg}
 
-The following are automatically added:
- * Add reviewers from OWNER file (in the root of the repository) under reviewers section.
- * Set PR size label.
- * New issue is created for the PR. (Closed when PR is merged/closed)
- * Run [pre-commit](https://pre-commit.ci/) if `.pre-commit-config.yaml` exists in the repo.
+## Welcome! 🎉
 
-Available user actions:
- * To mark PR as WIP comment `/wip` to the PR, To remove it from the PR comment `/wip cancel` to the PR.
- * To block merging of PR comment `/hold`, To un-block merging of PR comment `/hold cancel`.
- * To mark PR as verified comment `/verified` to the PR, to un-verify comment `/verified cancel` to the PR.
-        verified label removed on each new commit push.
- * To cherry pick a merged PR comment `/cherry-pick <target branch to cherry-pick to>` in the PR.
-    * Multiple target branches can be cherry-picked, separated by spaces. (`/cherry-pick branch1 branch2`)
-    * Cherry-pick will be started when PR is merged
- * To build and push container image command `/build-and-push-container` in the PR (tag will be the PR number).
-    * You can add extra args to the Podman build command
-        * Example: `/build-and-push-container --build-arg OPENSHIFT_PYTHON_WRAPPER_COMMIT=<commit_hash>`
- * To add a label by comment use `/<label name>`, to remove, use `/<label name> cancel`
- * To assign reviewers based on OWNERS file use `/assign-reviewers`
- * To check if PR can be merged use `/check-can-merge`
- * to assign reviewer to PR use `/assign-reviewer @<reviewer>`
+This pull request will be automatically processed with the following features:{auto_verified_note}
 
-PR will be approved when the following conditions are met:
- * `/approve` from one of the approvers.
- * Minimum number of required `/lgtm` (`{self.github_webhook.minimum_lgtm}`) is met.
+### 🔄 Automatic Actions
+* **Reviewer Assignment**: Reviewers are automatically assigned based on the OWNERS file in the repository root
+* **Size Labeling**: PR size labels (XS, S, M, L, XL, XXL) are automatically applied based on changes
+* **Issue Creation**: A tracking issue is created for this PR and will be closed when the PR is merged or closed
+* **Pre-commit Checks**: [pre-commit](https://pre-commit.ci/) runs automatically if `.pre-commit-config.yaml` exists
+* **Branch Labeling**: Branch-specific labels are applied to track the target branch
+* **Auto-verification**: Auto-verified users have their PRs automatically marked as verified
+
+### 📋 Available Commands
+
+#### PR Status Management
+* `/wip` - Mark PR as work in progress (adds WIP: prefix to title)
+* `/wip cancel` - Remove work in progress status
+* `/hold` - Block PR merging (approvers only)
+* `/hold cancel` - Unblock PR merging
+* `/verified` - Mark PR as verified
+* `/verified cancel` - Remove verification status
+
+#### Review & Approval
+* `/lgtm` - Approve changes (looks good to me)
+* `/approve` - Approve PR (approvers only)
+* `/assign-reviewers` - Assign reviewers based on OWNERS file
+* `/assign-reviewer @username` - Assign specific reviewer
+* `/check-can-merge` - Check if PR meets merge requirements
+
+#### Testing & Validation
+{self._prepare_retest_welcome_comment}
+
+#### Container Operations
+* `/build-and-push-container` - Build and push container image (tagged with PR number)
+  * Supports additional build arguments: `/build-and-push-container --build-arg KEY=value`
+
+#### Cherry-pick Operations
+* `/cherry-pick <branch>` - Schedule cherry-pick to target branch when PR is merged
+  * Multiple branches: `/cherry-pick branch1 branch2 branch3`
+
+#### Label Management
+* `/<label-name>` - Add a label to the PR
+* `/<label-name> cancel` - Remove a label from the PR
+
+### ✅ Merge Requirements
+
+This PR will be automatically approved when the following conditions are met:
+
+1. **Approval**: `/approve` from at least one approver
+2. **LGTM Count**: Minimum {self.github_webhook.minimum_lgtm} `/lgtm` from reviewers
+3. **Status Checks**: All required status checks must pass
+4. **No Blockers**: No WIP, hold, or conflict labels
+5. **Verified**: PR must be marked as verified (if verification is enabled)
+
+### 📊 Review Process
 
 <details>
-<summary>Approvers and Reviewers</summary>
+<summary><strong>Approvers and Reviewers</strong></summary>
 
 {self._prepare_owners_welcome_comment()}
 </details>
 
 <details>
-<summary>Supported /retest check runs</summary>
-
-{self._prepare_retest_welcome_comment}
-</details>
-
-<details>
-<summary>Supported labels</summary>
+<summary><strong>Available Labels</strong></summary>
 
 {supported_user_labels_str}
 </details>
+
+### 💡 Tips
+
+* **WIP Status**: Use `/wip` when your PR is not ready for review
+* **Verification**: The verified label is automatically removed on each new commit
+* **Cherry-picking**: Cherry-pick labels are processed when the PR is merged
+* **Container Builds**: Container images are automatically tagged with the PR number
+* **Permission Levels**: Some commands require approver permissions
+* **Auto-verified Users**: Certain users have automatic verification and merge privileges
+
+For more information, please refer to the project documentation or contact the maintainers.
     """
 
     def _prepare_owners_welcome_comment(self) -> str:
-        body_approvers: str = " * Approvers:\n"
-        body_reviewers: str = " * Reviewers:\n"
+        body_approvers: str = "**Approvers:**\n"
+        body_reviewers: str = "**Reviewers:**\n"
 
         for _approver in self.owners_file_handler.all_pull_request_approvers:
-            body_approvers += f"   * {_approver}\n"
+            body_approvers += f" * @{_approver}\n"
 
         for _reviewer in self.owners_file_handler.all_pull_request_reviewers:
-            body_reviewers += f"   * {_reviewer}\n"
+            body_reviewers += f" * @{_reviewer}\n"
 
         return f"""
 {body_approvers}
@@ -240,25 +285,26 @@ PR will be approved when the following conditions are met:
     @property
     def _prepare_retest_welcome_comment(self) -> str:
         retest_msg: str = ""
+
         if self.github_webhook.tox:
-            retest_msg += f" * `/retest {TOX_STR}`: Retest tox\n"
+            retest_msg += f" * `/retest {TOX_STR}` - Run Python test suite with tox\n"
 
         if self.github_webhook.build_and_push_container:
-            retest_msg += f" * `/retest {BUILD_CONTAINER_STR}`: Retest build-container\n"
+            retest_msg += f" * `/retest {BUILD_CONTAINER_STR}` - Rebuild and test container image\n"
 
         if self.github_webhook.pypi:
-            retest_msg += f" * `/retest {PYTHON_MODULE_INSTALL_STR}`: Retest python-module-install\n"
+            retest_msg += f" * `/retest {PYTHON_MODULE_INSTALL_STR}` - Test Python package installation\n"
 
         if self.github_webhook.pre_commit:
-            retest_msg += f" * `/retest {PRE_COMMIT_STR}`: Retest pre-commit\n"
+            retest_msg += f" * `/retest {PRE_COMMIT_STR}` - Run pre-commit hooks and checks\n"
 
         if self.github_webhook.conventional_title:
-            retest_msg += f" * `/retest {CONVENTIONAL_TITLE_STR}`: Retest conventional-title\n"
+            retest_msg += f" * `/retest {CONVENTIONAL_TITLE_STR}` - Validate commit message format\n"
 
         if retest_msg:
-            retest_msg += " * `/retest all`: Retest all\n"
+            retest_msg += " * `/retest all` - Run all available tests\n"
 
-        return " * This repository does not support retest actions" if not retest_msg else retest_msg
+        return " * No retest actions are configured for this repository" if not retest_msg else retest_msg
 
     async def label_all_opened_pull_requests_merge_state_after_merged(self) -> None:
         """
