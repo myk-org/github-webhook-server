@@ -2,7 +2,7 @@
 omit = ["webhook_server/tests/*"]
 
 [tool.coverage.report]
-fail_under = 35
+fail_under = 90
 skip_empty = true
 
 [tool.coverage.html]
@@ -35,11 +35,11 @@ packages = ["webhook_server"]
 
 [tool.uv]
 dev-dependencies = [
-    "ipdb>=0.13.13",
-    "ipython>=8.12.3",
-    "types-colorama>=0.4.15.20240311",
-    "types-pyyaml>=6.0.12.20250516",
-    "types-requests>=2.32.4.20250611",
+  "ipdb>=0.13.13",
+  "ipython>=8.12.3",
+  "types-colorama>=0.4.15.20240311",
+  "types-pyyaml>=6.0.12.20250516",
+  "types-requests>=2.32.4.20250611",
 ]
 
 [project]
