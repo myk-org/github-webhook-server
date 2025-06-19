@@ -389,6 +389,7 @@ dependencies = [
 [package.optional-dependencies]
 tests = [
     { name = "pytest-asyncio" },
+    { name = "pytest-xdist" },
 ]
 
 [package.dev-dependencies]
@@ -398,9 +399,6 @@ dev = [
     { name = "types-colorama" },
     { name = "types-pyyaml" },
     { name = "types-requests" },
-]
-tests = [
-    { name = "pytest-xdist" },
 ]
 
 [package.metadata]
@@ -417,6 +415,7 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'tests'", specifier = ">=0.26.0" },
     { name = "pytest-cov", specifier = ">=6.0.0" },
     { name = "pytest-mock", specifier = ">=3.14.0" },
+    { name = "pytest-xdist", marker = "extra == 'tests'", specifier = ">=3.7.0" },
     { name = "python-simple-logger", specifier = ">=1.0.40" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "requests", specifier = ">=2.32.3" },
@@ -436,7 +435,7 @@ dev = [
     { name = "types-pyyaml", specifier = ">=6.0.12.20250516" },
     { name = "types-requests", specifier = ">=2.32.4.20250611" },
 ]
-tests = [{ name = "pytest-xdist", specifier = ">=3.7.0" }]
+tests = []
 
 [[package]]
 name = "h11"

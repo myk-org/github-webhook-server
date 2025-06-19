@@ -90,13 +90,14 @@ Download = "https://quay.io/repository/myakove/github-webhook-server"
 "Bug Tracker" = "https://github.com/myakove/github-webhook-server/issues"
 
 [project.optional-dependencies]
-tests = ["pytest-asyncio>=0.26.0"]
+tests = [
+    "pytest-asyncio>=0.26.0",
+    "pytest-xdist>=3.7.0",
+]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [dependency-groups]
-tests = [
-    "pytest-xdist>=3.7.0",
-]
+tests = []
