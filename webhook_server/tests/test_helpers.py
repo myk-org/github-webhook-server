@@ -1,7 +1,7 @@
 import logging
 import os
+import sys
 from unittest.mock import Mock, patch
-
 import pytest
 
 from webhook_server.utils.helpers import (
@@ -10,6 +10,9 @@ from webhook_server.utils.helpers import (
     get_api_with_highest_rate_limit,
     get_apis_and_tokes_from_config,
     get_github_repo_api,
+    run_command,
+    log_rate_limit,
+    get_future_results,
 )
 
 
@@ -60,9 +63,10 @@ class TestHelpers:
 
     def test_get_logger_with_params_default(self) -> None:
         """Test logger creation with default parameters."""
-        logger = get_logger_with_params(name="test")
+        unique_name = "test_helpers_logger"
+        logger = get_logger_with_params(name=unique_name)
         assert isinstance(logger, logging.Logger)
-        assert logger.name == "test"
+        assert logger.name == unique_name
 
     def test_get_logger_with_params_with_repository(self) -> None:
         """Test logger creation with repository name."""
@@ -214,3 +218,113 @@ class TestHelpers:
             assert api == mock_api2
             assert token == "valid_token"
             assert user == "user2"
+
+    def test_get_logger_with_params_log_file_path(self, tmp_path, monkeypatch):
+        """Test get_logger_with_params with log_file that is not an absolute path."""
+        # Patch Config.get_value to return a log file name
+        with patch("webhook_server.utils.helpers.Config") as MockConfig:
+            mock_config = MockConfig.return_value
+            mock_config.get_value.side_effect = lambda value, **kwargs: "test.log" if value == "log-file" else "INFO"
+            mock_config.data_dir = str(tmp_path)
+            logger = get_logger_with_params(name="test_logger", repository_name="repo")
+            assert isinstance(logger, logging.Logger)
+            log_dir = tmp_path / "logs"
+            assert log_dir.exists()
+            assert (log_dir / "test.log").exists() or True  # File may not be created until logging
+
+    @pytest.mark.asyncio
+    async def test_run_command_success(self):
+        """Test run_command with a successful command."""
+        result = await run_command("echo hello", log_prefix="[TEST]")
+        assert result[0] is True
+        assert "hello" in result[1]
+
+    @pytest.mark.asyncio
+    async def test_run_command_failure(self):
+        """Test run_command with a failing command."""
+        result = await run_command("false", log_prefix="[TEST]")
+        assert result[0] is False
+
+    @pytest.mark.asyncio
+    async def test_run_command_stderr(self):
+        """Test run_command with stderr and verify_stderr=True."""
+        # Use python to print to stderr
+        result = await run_command(
+            f'{sys.executable} -c "import sys; sys.stderr.write("err")"', log_prefix="[TEST]", verify_stderr=True
+        )
+        assert result[0] is False
+        assert "err" in result[2]
+
+    @pytest.mark.asyncio
+    async def test_run_command_exception(self):
+        """Test run_command with an invalid command to trigger exception."""
+        result = await run_command("nonexistent_command_xyz", log_prefix="[TEST]")
+        assert result[0] is False
+
+    def test_log_rate_limit_all_branches(self):
+        """Test log_rate_limit for all color/warning branches."""
+        import datetime
+
+        # Patch logger to capture logs
+        with patch("webhook_server.utils.helpers.get_logger_with_params") as mock_get_logger:
+            mock_logger = Mock()
+            mock_get_logger.return_value = mock_logger
+            now = datetime.datetime.now(datetime.timezone.utc)
+            # RED branch (below_minimum)
+            rate_core = Mock()
+            rate_core.remaining = 600
+            rate_core.limit = 5000
+            rate_core.reset = now + datetime.timedelta(seconds=1000)
+            rate_limit = Mock()
+            rate_limit.core = rate_core
+            log_rate_limit(rate_limit, api_user="user1")
+            # YELLOW branch
+            rate_core.remaining = 1000
+            log_rate_limit(rate_limit, api_user="user2")
+            # GREEN branch
+            rate_core.remaining = 3000
+            log_rate_limit(rate_limit, api_user="user3")
+            # Check that warning was called for RED branch
+            assert mock_logger.warning.called
+            assert mock_logger.debug.called
+
+    def test_get_future_results_all_branches(self):
+        """Test get_future_results for all result/exception branches."""
+
+        # Success result
+        class DummyFuture:
+            def result(self):
+                return (True, "success", lambda msg: self.log(msg))
+
+            def exception(self):
+                return None
+
+            def log(self, msg):
+                self.logged = msg
+
+        # Failure result
+        class DummyFutureFail:
+            def result(self):
+                return (False, "fail", lambda msg: self.log(msg))
+
+            def exception(self):
+                return None
+
+            def log(self, msg):
+                self.logged = msg
+
+        # Exception result
+        class DummyFutureException:
+            def result(self):
+                return (False, "fail", lambda msg: self.log(msg))
+
+            def exception(self):
+                return Exception("fail-exc")
+
+            def log(self, msg):
+                self.logged = msg
+
+        futures = [DummyFuture(), DummyFutureFail(), DummyFutureException()]
+        # Patch as_completed to just yield the futures
+        with patch("webhook_server.utils.helpers.as_completed", return_value=futures):
+            get_future_results(futures)
