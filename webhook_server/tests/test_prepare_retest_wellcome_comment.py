@@ -7,15 +7,22 @@ class TestPrepareRetestWellcomeMsg:
     @pytest.mark.parametrize(
         "tox, build_and_push_container, pypi, pre_commit, conventional_title, expected",
         [
-            (False, False, False, False, False, " * This repository does not support retest actions"),
-            (True, False, False, False, False, " * `/retest tox`: Retest tox\n * `/retest all`: Retest all\n"),
+            (False, False, False, False, False, " * No retest actions are configured for this repository"),
+            (
+                True,
+                False,
+                False,
+                False,
+                False,
+                " * `/retest tox` - Run Python test suite with tox\n * `/retest all` - Run all available tests\n",
+            ),
             (
                 False,
                 True,
                 False,
                 False,
                 False,
-                " * `/retest build-container`: Retest build-container\n * `/retest all`: Retest all\n",
+                " * `/retest build-container` - Rebuild and test container image\n * `/retest all` - Run all available tests\n",
             ),
             (
                 False,
@@ -23,7 +30,7 @@ class TestPrepareRetestWellcomeMsg:
                 True,
                 False,
                 False,
-                " * `/retest python-module-install`: Retest python-module-install\n * `/retest all`: Retest all\n",
+                " * `/retest python-module-install` - Test Python package installation\n * `/retest all` - Run all available tests\n",
             ),
             (
                 False,
@@ -31,7 +38,7 @@ class TestPrepareRetestWellcomeMsg:
                 False,
                 True,
                 False,
-                " * `/retest pre-commit`: Retest pre-commit\n * `/retest all`: Retest all\n",
+                " * `/retest pre-commit` - Run pre-commit hooks and checks\n * `/retest all` - Run all available tests\n",
             ),
             (
                 True,
@@ -39,7 +46,7 @@ class TestPrepareRetestWellcomeMsg:
                 True,
                 True,
                 True,
-                " * `/retest tox`: Retest tox\n * `/retest build-container`: Retest build-container\n * `/retest python-module-install`: Retest python-module-install\n * `/retest pre-commit`: Retest pre-commit\n * `/retest conventional-title`: Retest conventional-title\n * `/retest all`: Retest all\n",
+                " * `/retest tox` - Run Python test suite with tox\n * `/retest build-container` - Rebuild and test container image\n * `/retest python-module-install` - Test Python package installation\n * `/retest pre-commit` - Run pre-commit hooks and checks\n * `/retest conventional-title` - Validate commit message format\n * `/retest all` - Run all available tests\n",
             ),
             (
                 False,
@@ -47,7 +54,7 @@ class TestPrepareRetestWellcomeMsg:
                 False,
                 False,
                 True,
-                " * `/retest conventional-title`: Retest conventional-title\n * `/retest all`: Retest all\n",
+                " * `/retest conventional-title` - Validate commit message format\n * `/retest all` - Run all available tests\n",
             ),
         ],
     )

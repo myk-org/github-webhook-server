@@ -1,0 +1,96 @@
+# Example .github-webhook-server.yaml
+# This file should be placed in the root of your repository to configure
+# repository-specific webhook server behavior.
+
+# Logging configuration (overrides global settings)
+log-level: DEBUG # Options: INFO, DEBUG
+log-file: /path/to/repository-specific.log
+
+# Slack integration
+slack_webhook_url: https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK
+
+# Job verification settings
+verified_job: true # Enable/disable verified job functionality
+
+# PyPI publishing configuration
+pypi:
+  token: pypi-your-token-here
+
+# GitHub events to listen to
+events:
+  - push
+  - pull_request
+  - issue_comment
+  - check_run
+  - pull_request_review
+  - pull_request_review_comment
+
+# Tox configuration
+tox:
+  main: "tests,linting" # Commands for main branch
+  develop: "tests" # Commands for develop branch
+  feature/*: ["tests", "quick-lint"] # Array format also supported
+
+# Python version for tox execution
+tox-python-version: "3.11"
+
+# Pre-commit hooks
+pre-commit: true
+
+# Protected branches configuration
+protected-branches:
+  main: [] # No additional requirements
+  develop:
+    include-runs:
+      - "Required CI Check"
+    exclude-runs:
+      - "Optional Check"
+  release/*: ["Required Release Check"]
+
+# Container/Docker configuration
+container:
+  username: your-registry-username
+  password: your-registry-password # pragma: allowlist secret
+  repository: quay.io/your-org/your-repo
+  tag: latest
+  release: true # Push on new releases
+  build-args:
+    - "BUILD_ARG=value"
+  args:
+    - "--platform=linux/amd64"
+
+# Auto-verified and merged users (repository-specific)
+auto-verified-and-merged-users:
+  - "renovate[bot]"
+  - "dependabot[bot]"
+  - "trusted-user"
+
+# Repository-specific GitHub tokens
+github-tokens:
+  - ghp_your_repository_specific_token_here
+
+# Branch protection rules
+branch_protection:
+  strict: true
+  require_code_owner_reviews: true
+  dismiss_stale_reviews: true
+  required_approving_review_count: 2
+  required_linear_history: false
+  required_conversation_resolution: true
+
+# Auto-merge configuration
+set-auto-merge-prs:
+  - main
+  - develop
+
+# Required labels for merge
+can-be-merged-required-labels:
+  - "approved"
+  - "tests-passed"
+  - "security-reviewed"
+
+# Conventional commit configuration
+conventional-title: "feat,fix,docs,style,refactor,test,chore"
+
+# Minimum LGTM count required
+minimum-lgtm: 2

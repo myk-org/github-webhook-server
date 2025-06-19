@@ -3,6 +3,9 @@
 log-level: INFO # Set global log level, change take effect immediately without server restart
 log-file: webhook-server.log # Set global log file, change take effect immediately without server restart
 
+# Server configuration
+disable-ssl-warnings: true # Disable SSL warnings (useful in production to reduce log noise from SSL certificate issues)
+
 github-app-id: 123456 # GitHub app id
 github-tokens:
   - <GITHIB TOKEN1>
