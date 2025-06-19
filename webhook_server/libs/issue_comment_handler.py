@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, Any, Coroutine, Union
+from asyncio import Task
 
 from github.PullRequest import PullRequest
 
@@ -298,7 +299,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             await asyncio.to_thread(pull_request.create_issue_comment, msg)
 
         if _supported_retests:
-            tasks = []
+            tasks: list[Union[Coroutine[Any, Any, Any], Task[Any]]] = []
             for _test in _supported_retests:
                 self.logger.debug(f"{self.log_prefix} running retest {_test}")
                 task = asyncio.create_task(_retests_to_func_map[_test](pull_request=pull_request))

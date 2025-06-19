@@ -60,4 +60,4 @@ repos:
     hooks:
       - id: mypy
         exclude: (tests/)
-        additional_dependencies: [types-requests, types-PyYAML]
+        additional_dependencies: [types-requests, types-PyYAML, types-colorama]

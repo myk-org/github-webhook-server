@@ -34,7 +34,13 @@ warn_redundant_casts = true
 packages = ["webhook_server"]
 
 [tool.uv]
-dev-dependencies = ["ipdb>=0.13.13", "ipython>=8.12.3"]
+dev-dependencies = [
+    "ipdb>=0.13.13",
+    "ipython>=8.12.3",
+    "types-colorama>=0.4.15.20240311",
+    "types-pyyaml>=6.0.12.20250516",
+    "types-requests>=2.32.4.20250611",
+]
 
 [project]
 name = "github-webhook-server"
