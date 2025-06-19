@@ -1,6 +1,6 @@
 import asyncio
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Coroutine
 
 import yaml
 from asyncstdlib import functools
@@ -90,7 +90,7 @@ class OwnersFileHandler:
     async def get_all_repository_approvers_and_reviewers(self, pull_request: PullRequest) -> dict[str, dict[str, Any]]:
         # Dictionary mapping OWNERS file paths to their approvers and reviewers
         _owners: dict[str, dict[str, Any]] = {}
-        tasks = []
+        tasks: list[Coroutine[Any, Any, Any]] = []
 
         max_owners_files = 1000  # Configurable limit
         owners_count = 0

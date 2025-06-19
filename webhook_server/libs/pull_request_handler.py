@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Coroutine
 
 from github.PullRequest import PullRequest
 
@@ -63,7 +63,7 @@ class PullRequestHandler:
             await self.set_wip_label_based_on_title(pull_request=pull_request)
 
         if hook_action in ("opened", "reopened", "ready_for_review"):
-            tasks = []
+            tasks: list[Coroutine[Any, Any, Any]] = []
 
             if hook_action in ("opened", "ready_for_review"):
                 welcome_msg = self._prepare_welcome_comment()
@@ -76,18 +76,18 @@ class PullRequestHandler:
             results = await asyncio.gather(*tasks, return_exceptions=True)
             for result in results:
                 if isinstance(result, Exception):
-                    self.logger.error(f"{self.log_prefix} Async task failed: {results}")
+                    self.logger.error(f"{self.log_prefix} Async task failed: {result}")
 
             # Set auto merge only after all initialization of a new PR is done.
             await self.set_pull_request_automerge(pull_request=pull_request)
 
         if hook_action == "synchronize":
-            tasks = []
+            sync_tasks: list[Coroutine[Any, Any, Any]] = []
 
-            tasks.append(self.process_opened_or_synchronize_pull_request(pull_request=pull_request))
-            tasks.append(self.remove_labels_when_pull_request_sync(pull_request=pull_request))
+            sync_tasks.append(self.process_opened_or_synchronize_pull_request(pull_request=pull_request))
+            sync_tasks.append(self.remove_labels_when_pull_request_sync(pull_request=pull_request))
 
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+            results = await asyncio.gather(*sync_tasks, return_exceptions=True)
 
             for result in results:
                 if isinstance(result, Exception):
@@ -130,9 +130,9 @@ class PullRequestHandler:
             _split_label = labeled.split(LABELS_SEPARATOR, 1)
 
             if len(_split_label) == 2:
-                _lable_prefix, _user = _split_label
+                _label_prefix, _user = _split_label
 
-                if f"{_lable_prefix}{LABELS_SEPARATOR}" in (
+                if f"{_label_prefix}{LABELS_SEPARATOR}" in (
                     APPROVED_BY_LABEL_PREFIX,
                     LGTM_BY_LABEL_PREFIX,
                     CHANGED_REQUESTED_BY_LABEL_PREFIX,
@@ -395,15 +395,13 @@ For more information, please refer to the project documentation or contact the m
                 break
 
     async def process_opened_or_synchronize_pull_request(self, pull_request: PullRequest) -> None:
-        tasks = []
+        tasks: list[Coroutine[Any, Any, Any]] = []
 
         tasks.append(self.owners_file_handler.assign_reviewers(pull_request=pull_request))
         tasks.append(
             self.labels_handler._add_label(
-                **{
-                    "pull_request": pull_request,
-                    "label": f"{BRANCH_LABEL_PREFIX}{pull_request.base.ref}",
-                },
+                pull_request=pull_request,
+                label=f"{BRANCH_LABEL_PREFIX}{pull_request.base.ref}",
             )
         )
         tasks.append(self.label_pull_request_by_merge_state(pull_request=pull_request))
@@ -477,7 +475,7 @@ For more information, please refer to the project documentation or contact the m
                 self.logger.error(f"{self.log_prefix} Exception while setting auto merge: {exp}")
 
     async def remove_labels_when_pull_request_sync(self, pull_request: PullRequest) -> None:
-        tasks = []
+        tasks: list[Coroutine[Any, Any, Any]] = []
         for _label in pull_request.labels:
             _label_name = _label.name
             if (
@@ -488,10 +486,8 @@ For more information, please refer to the project documentation or contact the m
             ):
                 tasks.append(
                     self.labels_handler._remove_label(
-                        **{
-                            "pull_request": pull_request,
-                            "label": _label_name,
-                        },
+                        pull_request=pull_request,
+                        label=_label_name,
                     )
                 )
 
@@ -601,7 +597,7 @@ For more information, please refer to the project documentation or contact the m
             if required_check_failed_failure_output:
                 failure_output += required_check_failed_failure_output
 
-            labels_failure_output = self._check_lables_for_can_be_merged(labels=_labels)
+            labels_failure_output = self._check_labels_for_can_be_merged(labels=_labels)
             if labels_failure_output:
                 failure_output += labels_failure_output
 
@@ -699,8 +695,8 @@ For more information, please refer to the project documentation or contact the m
 
         return error
 
-    def _check_lables_for_can_be_merged(self, labels: list[str]) -> str:
-        self.logger.debug(f"{self.log_prefix} _check_lables_for_can_be_merged.")
+    def _check_labels_for_can_be_merged(self, labels: list[str]) -> str:
+        self.logger.debug(f"{self.log_prefix} _check_labels_for_can_be_merged.")
         failure_output = ""
 
         for _label in labels:
