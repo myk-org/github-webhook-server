@@ -149,3 +149,7 @@ local-run.sh
 webhook-server.private-key.pem
 log-colors.json
 webhook_server/tests/manifests/logs
+
+
+.coverage_report.txt
+.cursor

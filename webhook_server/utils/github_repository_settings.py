@@ -144,7 +144,7 @@ def get_required_status_checks(
         default_status_checks.append("pre-commit.ci - pr")
 
     for status_check in exclude_status_checks:
-        if status_check in default_status_checks:
+        while status_check in default_status_checks:
             default_status_checks.remove(status_check)
 
     return default_status_checks

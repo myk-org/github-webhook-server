@@ -60,9 +60,10 @@ class TestHelpers:
 
     def test_get_logger_with_params_default(self) -> None:
         """Test logger creation with default parameters."""
-        logger = get_logger_with_params(name="test")
+        unique_name = "test_helpers_logger"
+        logger = get_logger_with_params(name=unique_name)
         assert isinstance(logger, logging.Logger)
-        assert logger.name == "test"
+        assert logger.name == unique_name
 
     def test_get_logger_with_params_with_repository(self) -> None:
         """Test logger creation with repository name."""

@@ -3,13 +3,14 @@ import hmac
 import json
 import os
 from typing import Any
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, AsyncMock
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+import ipaddress
 
-from webhook_server.app import FASTAPI_APP, verify_signature
+from webhook_server.app import FASTAPI_APP, verify_signature, gate_by_allowlist_ips
 from webhook_server.libs.exceptions import RepositoryNotFoundError
 
 
@@ -218,8 +219,8 @@ class TestWebhookApp:
     def test_process_webhook_unexpected_error(
         self, mock_github_webhook: Mock, client: TestClient, valid_webhook_payload: dict[str, Any], webhook_secret: str
     ) -> None:
-        """Test webhook processing with unexpected error."""
-        mock_github_webhook.side_effect = RuntimeError("Unexpected error")
+        """Test webhook processing when unexpected error occurs."""
+        mock_github_webhook.side_effect = Exception("Unexpected error")
 
         payload_json = json.dumps(valid_webhook_payload)
         signature = self.create_github_signature(payload_json, webhook_secret)
@@ -239,67 +240,384 @@ class TestWebhookApp:
     @patch("webhook_server.app.get_github_allowlist")
     @patch("webhook_server.app.get_cloudflare_allowlist")
     async def test_ip_allowlist_functionality(self, mock_cf_allowlist: Mock, mock_gh_allowlist: Mock) -> None:
-        """Test IP allowlist functionality during app startup."""
+        """Test IP allowlist functionality."""
+        # Mock allowlist responses
         mock_gh_allowlist.return_value = ["192.30.252.0/22", "185.199.108.0/22"]
-        mock_cf_allowlist.return_value = ["103.21.244.0/22", "103.22.200.0/22"]
+        mock_cf_allowlist.return_value = ["103.21.244.0/22", "2400:cb00::/32"]
 
-        # This would be tested through lifespan but requires more complex setup
-        github_ips = await mock_gh_allowlist()
-        cloudflare_ips = await mock_cf_allowlist()
+        # Test that the allowlists are fetched correctly
+        result = await mock_gh_allowlist()
+        assert "192.30.252.0/22" in result
+        assert "185.199.108.0/22" in result
 
-        assert len(github_ips) == 2
-        assert len(cloudflare_ips) == 2
-        assert "192.30.252.0/22" in github_ips
-        assert "103.21.244.0/22" in cloudflare_ips
+        result = await mock_cf_allowlist()
+        assert "103.21.244.0/22" in result
+        assert "2400:cb00::/32" in result
 
     @patch("httpx.AsyncClient.get")
     async def test_get_github_allowlist_success(self, mock_get: Mock) -> None:
         """Test successful GitHub allowlist fetching."""
-        from webhook_server.app import get_github_allowlist
-
-        # Mock the global HTTP client
         mock_response = Mock()
         mock_response.json.return_value = {"hooks": ["192.30.252.0/22", "185.199.108.0/22"]}
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        # Use AsyncMock for the client
+        from unittest.mock import AsyncMock
 
-        # Mock the global client
-        with patch("webhook_server.app._lifespan_http_client", Mock()) as mock_client:
-            mock_client.get = mock_get
+        async_client = AsyncMock()
+        async_client.get.return_value = mock_response
 
-            result = await get_github_allowlist()
-            assert len(result) == 2
-            assert "192.30.252.0/22" in result
+        from webhook_server import app as app_module
+
+        with patch.object(app_module, "_lifespan_http_client", async_client):
+            result = await app_module.get_github_allowlist()
+            assert result == ["192.30.252.0/22", "185.199.108.0/22"]
+            async_client.get.assert_called_once()
 
     @patch("httpx.AsyncClient.get")
     async def test_get_github_allowlist_error(self, mock_get: Mock) -> None:
-        """Test GitHub allowlist fetching with HTTP error."""
-        from webhook_server.app import get_github_allowlist
+        """Test GitHub allowlist fetching with error."""
+        from unittest.mock import AsyncMock
 
-        mock_get.side_effect = httpx.RequestError("Network error")
+        async_client = AsyncMock()
+        async_client.get.side_effect = httpx.RequestError("Network error")
 
-        with patch("webhook_server.app._lifespan_http_client", Mock()) as mock_client:
-            mock_client.get = mock_get
+        from webhook_server import app as app_module
 
+        with patch.object(app_module, "_lifespan_http_client", async_client):
             with pytest.raises(httpx.RequestError):
-                await get_github_allowlist()
+                await app_module.get_github_allowlist()
 
     @patch("httpx.AsyncClient.get")
     async def test_get_cloudflare_allowlist_success(self, mock_get: Mock) -> None:
         """Test successful Cloudflare allowlist fetching."""
-        from webhook_server.app import get_cloudflare_allowlist
-
         mock_response = Mock()
         mock_response.json.return_value = {
-            "result": {"ipv4_cidrs": ["103.21.244.0/22", "103.22.200.0/22"], "ipv6_cidrs": ["2400:cb00::/32"]}
+            "result": {"ipv4_cidrs": ["103.21.244.0/22"], "ipv6_cidrs": ["2400:cb00::/32"]}
         }
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        from unittest.mock import AsyncMock
 
-        with patch("webhook_server.app._lifespan_http_client", Mock()) as mock_client:
-            mock_client.get = mock_get
+        async_client = AsyncMock()
+        async_client.get.return_value = mock_response
 
-            result = await get_cloudflare_allowlist()
-            assert len(result) == 3  # 2 IPv4 + 1 IPv6
-            assert "103.21.244.0/22" in result
-            assert "2400:cb00::/32" in result
+        from webhook_server import app as app_module
+
+        with patch.object(app_module, "_lifespan_http_client", async_client):
+            result = await app_module.get_cloudflare_allowlist()
+            assert result == ["103.21.244.0/22", "2400:cb00::/32"]
+            async_client.get.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_gate_by_allowlist_ips_allowed(self, monkeypatch: Any) -> None:
+        """Test gate_by_allowlist_ips with allowed IP."""
+        # Patch ALLOWED_IPS to allow 127.0.0.1
+        monkeypatch.setattr("webhook_server.app.ALLOWED_IPS", (ipaddress.ip_network("127.0.0.1/32"),))
+
+        class DummyRequest:
+            client = type("client", (), {"host": "127.0.0.1"})()
+
+        await gate_by_allowlist_ips(DummyRequest())  # type: ignore
+
+    @pytest.mark.asyncio
+    async def test_gate_by_allowlist_ips_forbidden(self, monkeypatch: Any) -> None:
+        """Test gate_by_allowlist_ips with forbidden IP."""
+        monkeypatch.setattr("webhook_server.app.ALLOWED_IPS", (ipaddress.ip_network("10.0.0.0/8"),))
+
+        class DummyRequest:
+            client = type("client", (), {"host": "127.0.0.1"})()
+
+        with pytest.raises(Exception) as exc:
+            await gate_by_allowlist_ips(DummyRequest())  # type: ignore
+        assert "not a valid ip in allowlist" in str(exc.value)
+
+    @pytest.mark.asyncio
+    async def test_gate_by_allowlist_ips_no_client(self) -> None:
+        """Test gate_by_allowlist_ips with no client."""
+        from webhook_server import app as app_module
+
+        app_module.ALLOWED_IPS = (ipaddress.ip_network("127.0.0.1/32"),)
+
+        class DummyRequest:
+            client = None
+
+        with pytest.raises(Exception) as exc:
+            await gate_by_allowlist_ips(DummyRequest())  # type: ignore
+        assert "Could not determine client IP address" in str(exc.value)
+
+    @pytest.mark.asyncio
+    async def test_gate_by_allowlist_ips_bad_ip(self) -> None:
+        """Test gate_by_allowlist_ips with bad IP."""
+        from webhook_server import app as app_module
+
+        app_module.ALLOWED_IPS = (ipaddress.ip_network("127.0.0.1/32"),)
+
+        class DummyRequest:
+            class client:
+                host = "not-an-ip"
+
+        with pytest.raises(Exception) as exc:
+            await gate_by_allowlist_ips(DummyRequest())  # type: ignore
+        assert "Could not parse client IP address" in str(exc.value)
+
+    @pytest.mark.asyncio
+    async def test_gate_by_allowlist_ips_empty_allowlist(self) -> None:
+        """Test gate_by_allowlist_ips with empty allowlist."""
+        from webhook_server import app as app_module
+
+        app_module.ALLOWED_IPS = ()
+
+        class DummyRequest:
+            client = type("client", (), {"host": "127.0.0.1"})()
+
+        # Should not raise when ALLOWED_IPS is empty
+        await gate_by_allowlist_ips(DummyRequest())  # type: ignore
+
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
+    def test_process_webhook_request_body_error(self, client: TestClient) -> None:
+        """Test webhook processing when request body reading fails."""
+        # Mock the request to raise an exception when reading body
+        with patch("fastapi.Request.body", side_effect=Exception("Body read error")):
+            headers = {
+                "X-GitHub-Event": "pull_request",
+                "X-GitHub-Delivery": "test-delivery-123",
+                "Content-Type": "application/json",
+            }
+            response = client.post("/webhook_server", content="", headers=headers)
+            assert response.status_code == 400
+            assert "Failed to read request body" in response.json()["detail"]
+
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
+    def test_process_webhook_configuration_error(
+        self, client: TestClient, valid_webhook_payload: dict[str, Any]
+    ) -> None:
+        """Test webhook processing when configuration error occurs."""
+        payload_json = json.dumps(valid_webhook_payload)
+
+        with patch("webhook_server.app.Config", side_effect=Exception("Config error")):
+            headers = {
+                "X-GitHub-Event": "pull_request",
+                "X-GitHub-Delivery": "test-delivery-123",
+                "Content-Type": "application/json",
+            }
+            response = client.post("/webhook_server", content=payload_json, headers=headers)
+            assert response.status_code == 500
+            assert "Configuration error" in response.json()["detail"]
+
+    @patch("webhook_server.app.GithubWebhook")
+    def test_process_webhook_no_webhook_secret(
+        self, mock_github_webhook: Mock, client: TestClient, valid_webhook_payload: dict[str, Any]
+    ) -> None:
+        """Test webhook processing when no webhook secret is configured."""
+        payload_json = json.dumps(valid_webhook_payload)
+        # Mock config to return no webhook secret
+        with patch("webhook_server.app.Config") as mock_config:
+            mock_config.return_value.root_data.get.return_value = None
+            mock_github_webhook.return_value = Mock()
+            headers = {
+                "X-GitHub-Event": "pull_request",
+                "X-GitHub-Delivery": "test-delivery-123",
+                "Content-Type": "application/json",
+            }
+            response = client.post("/webhook_server", content=payload_json, headers=headers)
+            # Should still process the webhook without signature verification
+            assert response.status_code == 200
+
+    @patch("httpx.AsyncClient.get")
+    async def test_get_github_allowlist_unexpected_error(self, mock_get: Mock) -> None:
+        """Test GitHub allowlist fetching with unexpected error."""
+        from unittest.mock import AsyncMock
+
+        async_client = AsyncMock()
+        async_client.get.side_effect = Exception("Unexpected error")
+
+        from webhook_server import app as app_module
+
+        with patch.object(app_module, "_lifespan_http_client", async_client):
+            with pytest.raises(Exception):
+                await app_module.get_github_allowlist()
+
+    @patch("httpx.AsyncClient.get")
+    async def test_get_cloudflare_allowlist_request_error(self, mock_get: Mock) -> None:
+        """Test Cloudflare allowlist fetching with request error."""
+        from unittest.mock import AsyncMock
+
+        async_client = AsyncMock()
+        async_client.get.side_effect = httpx.RequestError("Network error")
+
+        from webhook_server import app as app_module
+
+        with patch.object(app_module, "_lifespan_http_client", async_client):
+            with pytest.raises(httpx.RequestError):
+                await app_module.get_cloudflare_allowlist()
+
+    @patch("httpx.AsyncClient.get")
+    async def test_get_cloudflare_allowlist_unexpected_error(self, mock_get: Mock) -> None:
+        """Test Cloudflare allowlist fetching with unexpected error."""
+        from unittest.mock import AsyncMock
+
+        async_client = AsyncMock()
+        async_client.get.side_effect = Exception("Unexpected error")
+
+        from webhook_server import app as app_module
+
+        with patch.object(app_module, "_lifespan_http_client", async_client):
+            with pytest.raises(Exception):
+                await app_module.get_cloudflare_allowlist()
+
+    @patch("httpx.AsyncClient.get")
+    async def test_get_cloudflare_allowlist_http_error(self, mock_get: Mock) -> None:
+        """Test Cloudflare allowlist fetching with HTTP error."""
+        from unittest.mock import AsyncMock
+        import httpx
+
+        async_client = AsyncMock()
+        mock_response = Mock()
+        req = httpx.Request("GET", "https://api.cloudflare.com/client/v4/ips")
+        resp = httpx.Response(500, request=req)
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError("HTTP Error", request=req, response=resp)
+        mock_response.json = lambda: {"result": {}}
+        async_client.get.return_value = mock_response
+
+        from webhook_server import app as app_module
+
+        with patch.object(app_module, "_lifespan_http_client", async_client):
+            with pytest.raises(httpx.HTTPStatusError):
+                await app_module.get_cloudflare_allowlist()
+
+    @patch("httpx.AsyncClient.get")
+    async def test_get_github_allowlist_http_error(self, mock_get: Mock) -> None:
+        """Test GitHub allowlist fetching with HTTP error."""
+        from unittest.mock import AsyncMock
+        import httpx
+
+        async_client = AsyncMock()
+        mock_response = Mock()
+        req = httpx.Request("GET", "https://api.github.com/meta")
+        resp = httpx.Response(500, request=req)
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError("HTTP Error", request=req, response=resp)
+        mock_response.json = lambda: {"hooks": []}
+        async_client.get.return_value = mock_response
+
+        from webhook_server import app as app_module
+
+        with patch.object(app_module, "_lifespan_http_client", async_client):
+            with pytest.raises(httpx.HTTPStatusError):
+                await app_module.get_github_allowlist()
+
+    @patch("webhook_server.app.get_github_allowlist")
+    @patch("webhook_server.app.get_cloudflare_allowlist")
+    @patch("webhook_server.app.Config")
+    @patch("webhook_server.app.urllib3")
+    async def test_lifespan_success(
+        self, mock_urllib3: Mock, mock_config: Mock, mock_cf_allowlist: Mock, mock_gh_allowlist: Mock
+    ) -> None:
+        """Test successful lifespan function execution."""
+        from webhook_server import app as app_module
+        from unittest.mock import AsyncMock, patch as patcher
+
+        # Mock config
+        mock_config_instance = Mock()
+        mock_config_instance.root_data = {
+            "verify-github-ips": True,
+            "verify-cloudflare-ips": True,
+            "disable-ssl-warnings": False,
+        }
+        mock_config.return_value = mock_config_instance
+        # Mock allowlist responses
+        mock_gh_allowlist.return_value = ["192.30.252.0/22"]
+        mock_cf_allowlist.return_value = ["103.21.244.0/22"]
+        # Mock HTTP client
+        mock_client = AsyncMock()
+        with patcher("httpx.AsyncClient", return_value=mock_client):
+            async with app_module.lifespan(FASTAPI_APP):
+                pass
+            mock_client.aclose.assert_called_once()
+
+    @patch("webhook_server.app.get_github_allowlist")
+    @patch("webhook_server.app.get_cloudflare_allowlist")
+    @patch("webhook_server.app.Config")
+    @patch("webhook_server.app.urllib3")
+    async def test_lifespan_with_ssl_warnings_disabled(
+        self, mock_urllib3: Mock, mock_config: Mock, mock_cf_allowlist: Mock, mock_gh_allowlist: Mock
+    ) -> None:
+        """Test lifespan function with SSL warnings disabled."""
+        from webhook_server import app as app_module
+
+        # Mock config with SSL warnings disabled
+        mock_config_instance = Mock()
+        mock_config_instance.root_data = {
+            "verify-github-ips": False,
+            "verify-cloudflare-ips": False,
+            "disable-ssl-warnings": True,
+        }
+        mock_config.return_value = mock_config_instance
+
+        # Mock HTTP client
+        mock_client = AsyncMock()
+
+        with patch.object(app_module, "_lifespan_http_client", mock_client):
+            async with app_module.lifespan(FASTAPI_APP):
+                pass
+
+            # Verify SSL warnings were disabled
+            mock_urllib3.disable_warnings.assert_called_once()
+
+    @patch("webhook_server.app.get_github_allowlist")
+    @patch("webhook_server.app.get_cloudflare_allowlist")
+    @patch("webhook_server.app.Config")
+    async def test_lifespan_with_invalid_cidr(
+        self, mock_config: Mock, mock_cf_allowlist: Mock, mock_gh_allowlist: Mock
+    ) -> None:
+        """Test lifespan function with invalid CIDR addresses."""
+        from webhook_server import app as app_module
+
+        # Mock config
+        mock_config_instance = Mock()
+        mock_config_instance.root_data = {
+            "verify-github-ips": True,
+            "verify-cloudflare-ips": True,
+            "disable-ssl-warnings": False,
+        }
+        mock_config.return_value = mock_config_instance
+
+        # Mock allowlist responses with invalid CIDR
+        mock_gh_allowlist.return_value = ["invalid-cidr"]
+        mock_cf_allowlist.return_value = ["also-invalid"]
+
+        # Mock HTTP client
+        mock_client = AsyncMock()
+
+        with patch.object(app_module, "_lifespan_http_client", mock_client):
+            async with app_module.lifespan(FASTAPI_APP):
+                pass
+
+            # Should handle invalid CIDR gracefully
+
+    @patch("webhook_server.app.get_github_allowlist")
+    @patch("webhook_server.app.get_cloudflare_allowlist")
+    @patch("webhook_server.app.Config")
+    async def test_lifespan_with_allowlist_errors(
+        self, mock_config: Mock, mock_cf_allowlist: Mock, mock_gh_allowlist: Mock
+    ) -> None:
+        """Test lifespan function when allowlist fetching fails."""
+        from webhook_server import app as app_module
+
+        # Mock config
+        mock_config_instance = Mock()
+        mock_config_instance.root_data = {
+            "verify-github-ips": True,
+            "verify-cloudflare-ips": True,
+            "disable-ssl-warnings": False,
+        }
+        mock_config.return_value = mock_config_instance
+        # Mock allowlist responses to fail
+        mock_gh_allowlist.side_effect = Exception("GitHub API error")
+        mock_cf_allowlist.side_effect = Exception("Cloudflare API error")
+        # Mock HTTP client
+        mock_client = AsyncMock()
+        with patch.object(app_module, "_lifespan_http_client", mock_client):
+            # Should not raise, just log warnings
+            async with app_module.lifespan(FASTAPI_APP):
+                pass
+            # Should handle both allowlist failures gracefully
+            # (You could add log assertion here if desired)
