@@ -107,11 +107,20 @@ class IssueCommentHandler:
             return
 
         self.logger.info(f"{self.log_prefix} Processing label/user command {command} by user {reviewed_user}")
+        self.logger.debug(f"{self.log_prefix} Command {command} is supported.")
 
         if remove := len(command_and_args) > 1 and _args == "cancel":
             self.logger.debug(f"{self.log_prefix} User requested 'cancel' for command {_command}")
 
-        if _command in (COMMAND_RETEST_STR, COMMAND_ASSIGN_REVIEWER_STR, COMMAND_ADD_ALLOWED_USER_STR) and not _args:
+        if (
+            _command
+            in (
+                COMMAND_RETEST_STR,
+                COMMAND_ASSIGN_REVIEWER_STR,
+                COMMAND_ADD_ALLOWED_USER_STR,
+            )
+            and not _args
+        ):
             missing_command_arg_comment_msg: str = f"{_command} requires an argument"
             error_msg: str = f"{self.log_prefix} {missing_command_arg_comment_msg}"
             self.logger.debug(error_msg)
@@ -121,6 +130,7 @@ class IssueCommentHandler:
         await self.create_comment_reaction(
             pull_request=pull_request, issue_comment_id=issue_comment_id, reaction=REACTIONS.ok
         )
+        self.logger.debug(f"{self.log_prefix} Added reaction to comment.")
 
         if _command == COMMAND_ASSIGN_REVIEWER_STR:
             await self._add_reviewer_by_user_comment(pull_request=pull_request, reviewer=_args)
@@ -170,6 +180,9 @@ class IssueCommentHandler:
 
         elif _command == HOLD_LABEL_STR:
             if reviewed_user not in self.owners_file_handler.all_pull_request_approvers:
+                self.logger.debug(
+                    f"{self.log_prefix} {reviewed_user} is not an approver, not adding {HOLD_LABEL_STR} label"
+                )
                 await asyncio.to_thread(
                     pull_request.create_issue_comment,
                     f"{reviewed_user} is not part of the approver, only approvers can mark pull request with hold",
@@ -205,8 +218,10 @@ class IssueCommentHandler:
     async def _add_reviewer_by_user_comment(self, pull_request: PullRequest, reviewer: str) -> None:
         reviewer = reviewer.strip("@")
         self.logger.info(f"{self.log_prefix} Adding reviewer {reviewer} by user comment")
+        repo_contributors = list(await asyncio.to_thread(self.repository.get_contributors))
+        self.logger.debug(f"Repo contributors are: {repo_contributors}")
 
-        for contributer in await asyncio.to_thread(self.repository.get_contributors):
+        for contributer in repo_contributors:
             if contributer.login == reviewer:
                 await asyncio.to_thread(pull_request.create_review_request, [reviewer])
                 return
@@ -221,6 +236,7 @@ class IssueCommentHandler:
         _target_branches: list[str] = command_args.split()
         _exits_target_branches: set[str] = set()
         _non_exits_target_branches_msg: str = ""
+        self.logger.debug(f"{self.log_prefix} Processing cherry pick for branches {_target_branches}")
 
         for _target_branch in _target_branches:
             try:
@@ -228,6 +244,9 @@ class IssueCommentHandler:
                 _exits_target_branches.add(_target_branch)
             except Exception:
                 _non_exits_target_branches_msg += f"Target branch `{_target_branch}` does not exist\n"
+        self.logger.debug(
+            f"{self.log_prefix} Found target branches {_exits_target_branches} and not found {_non_exits_target_branches_msg}"
+        )
 
         if _non_exits_target_branches_msg:
             self.logger.info(f"{self.log_prefix} {_non_exits_target_branches_msg}")
@@ -254,13 +273,16 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                         reviewed_user=reviewed_user,
                     )
 
-    async def process_retest_command(self, pull_request: PullRequest, command_args: str, reviewed_user: str) -> None:
+    async def process_retest_command(
+        self, pull_request: PullRequest, command_args: str, reviewed_user: str, automerge: bool = False
+    ) -> None:
         if not await self.owners_file_handler.is_user_valid_to_run_commands(
             pull_request=pull_request, reviewed_user=reviewed_user
         ):
             return
 
         _target_tests: list[str] = command_args.split()
+        self.logger.debug(f"{self.log_prefix} Target tests for re-test: {_target_tests}")
         _not_supported_retests: list[str] = []
         _supported_retests: list[str] = []
         _retests_to_func_map: dict[str, Callable] = {
@@ -270,6 +292,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             PYTHON_MODULE_INSTALL_STR: self.runner_handler.run_install_python_module,
             CONVENTIONAL_TITLE_STR: self.runner_handler.run_conventional_title_check,
         }
+        self.logger.debug(f"Retest map is {_retests_to_func_map}")
 
         if not _target_tests:
             msg = "No test defined to retest"
@@ -288,6 +311,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
             else:
                 _supported_retests = self.github_webhook.current_pull_request_supported_retest
+                self.logger.debug(f"{self.log_prefix} running all supported retests: {_supported_retests}")
 
         else:
             for _test in _target_tests:
@@ -296,6 +320,8 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
                 else:
                     _not_supported_retests.append(_test)
+        self.logger.debug(f"Supported retests are {_supported_retests}")
+        self.logger.debug(f"Not supported retests are {_not_supported_retests}")
 
         if _not_supported_retests:
             msg = f"No {' '.join(_not_supported_retests)} configured for this repository"
@@ -314,3 +340,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             for result in results:
                 if isinstance(result, Exception):
                     self.logger.error(f"{self.log_prefix} Async task failed: {result}")
+
+        if automerge:
+            await self.labels_handler._add_label(pull_request=pull_request, label="automerge")

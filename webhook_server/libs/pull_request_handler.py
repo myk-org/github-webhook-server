@@ -56,6 +56,7 @@ class PullRequestHandler:
     async def process_pull_request_webhook_data(self, pull_request: PullRequest) -> None:
         hook_action: str = self.hook_data["action"]
         self.logger.info(f"{self.log_prefix} hook_action is: {hook_action}")
+        self.logger.debug(f"{self.log_prefix} pull_request: {pull_request.title} ({pull_request.number})")
 
         pull_request_data: dict[str, Any] = self.hook_data["pull_request"]
 
@@ -126,6 +127,7 @@ class PullRequestHandler:
                 return
 
             self.logger.info(f"{self.log_prefix} PR {pull_request.number} {hook_action} with {labeled}")
+            self.logger.debug(f"PR labels are {pull_request.labels}")
 
             _split_label = labeled.split(LABELS_SEPARATOR, 1)
 
@@ -144,9 +146,11 @@ class PullRequestHandler:
                         + self.owners_file_handler.root_approvers
                     ):
                         _check_for_merge = True
+                        self.logger.debug(f"PR approved by label action, will check for merge. user: {_user}")
 
             if self.github_webhook.verified_job and labeled_lower == VERIFIED_LABEL_STR:
                 _check_for_merge = True
+                self.logger.debug(f"PR verified label action, will check for merge. label: {labeled_lower}")
 
                 if action_labeled:
                     await self.check_run_handler.set_verify_check_success()
@@ -155,6 +159,7 @@ class PullRequestHandler:
 
             if labeled_lower in (WIP_STR, HOLD_LABEL_STR):
                 _check_for_merge = True
+                self.logger.debug(f"PR has {labeled_lower} label, will check for merge.")
 
             if _check_for_merge:
                 await self.check_if_can_be_merged(pull_request=pull_request)
@@ -328,6 +333,7 @@ For more information, please refer to the project documentation or contact the m
             await self.label_pull_request_by_merge_state(pull_request=pull_request)
 
     async def delete_remote_tag_for_merged_or_closed_pr(self, pull_request: PullRequest) -> None:
+        self.logger.debug(f"{self.log_prefix} Checking if need to delete remote tag for {pull_request.number}")
         if not self.github_webhook.build_and_push_container:
             self.logger.info(f"{self.log_prefix} repository do not have container configured")
             return
@@ -462,10 +468,17 @@ For more information, please refer to the project documentation or contact the m
         return f"[Auto generated]\nNumber: [#{pull_request.number}]"
 
     async def set_pull_request_automerge(self, pull_request: PullRequest) -> None:
-        auto_merge = (
-            pull_request.base.ref in self.github_webhook.set_auto_merge_prs
-            or self.github_webhook.parent_committer in self.github_webhook.auto_verified_and_merged_users
+        set_auto_merge_base_branch = pull_request.base.ref in self.github_webhook.set_auto_merge_prs
+        self.logger.debug(f"{self.log_prefix} set auto merge for base branch is {set_auto_merge_base_branch}")
+        parent_committer_in_auto_merge_users = (
+            self.github_webhook.parent_committer in self.github_webhook.auto_verified_and_merged_users
         )
+        self.logger.debug(
+            f"{self.log_prefix} parent committer {self.github_webhook.parent_committer} in auto merge users is "
+            f"{parent_committer_in_auto_merge_users}"
+        )
+
+        auto_merge = set_auto_merge_base_branch or parent_committer_in_auto_merge_users
 
         self.logger.debug(f"{self.log_prefix} auto_merge: {auto_merge}, branch: {pull_request.base.ref}")
 
@@ -583,6 +596,7 @@ For more information, please refer to the project documentation or contact the m
             self.logger.debug(f"{self.log_prefix} check if can be merged. PR labels are: {_labels}")
 
             is_pr_mergable = pull_request.mergeable
+            self.logger.debug(f"{self.log_prefix} PR mergeable is {is_pr_mergable}")
             if not is_pr_mergable:
                 failure_output += f"PR is not mergeable: {is_pr_mergable}\n"
 
@@ -594,10 +608,12 @@ For more information, please refer to the project documentation or contact the m
             )
             if required_check_in_progress_failure_output:
                 failure_output += required_check_in_progress_failure_output
+            self.logger.debug(f"{self.log_prefix} required_check_in_progress_failure_output: {failure_output}")
 
             labels_failure_output = self.labels_handler.wip_or_hold_lables_exists(labels=_labels)
             if labels_failure_output:
                 failure_output += labels_failure_output
+            self.logger.debug(f"{self.log_prefix} wip_or_hold_lables_exists: {failure_output}")
 
             required_check_failed_failure_output = await self.check_run_handler.required_check_failed_or_no_status(
                 pull_request=pull_request,
@@ -606,14 +622,17 @@ For more information, please refer to the project documentation or contact the m
             )
             if required_check_failed_failure_output:
                 failure_output += required_check_failed_failure_output
+            self.logger.debug(f"{self.log_prefix} required_check_failed_or_no_status: {failure_output}")
 
             labels_failure_output = self._check_labels_for_can_be_merged(labels=_labels)
             if labels_failure_output:
                 failure_output += labels_failure_output
+            self.logger.debug(f"{self.log_prefix} _check_labels_for_can_be_merged: {failure_output}")
 
             pr_approvered_failure_output = await self._check_if_pr_approved(labels=_labels)
             if pr_approvered_failure_output:
                 failure_output += pr_approvered_failure_output
+            self.logger.debug(f"{self.log_prefix} _check_if_pr_approved: {failure_output}")
 
             if not failure_output:
                 await self.labels_handler._add_label(pull_request=pull_request, label=CAN_BE_MERGED_STR)
@@ -638,6 +657,7 @@ For more information, please refer to the project documentation or contact the m
 
     async def _check_if_pr_approved(self, labels: list[str]) -> str:
         self.logger.info(f"{self.log_prefix} Check if pull request is approved by pull request labels.")
+        self.logger.debug(f"labels are {labels}")
 
         error: str = ""
         approved_by = []
@@ -648,9 +668,11 @@ For more information, please refer to the project documentation or contact the m
             + self.owners_file_handler.root_approvers.copy()
             + self.owners_file_handler.root_reviewers.copy()
         )
+        self.logger.debug(f"all_reviewers: {all_reviewers}")
         all_reviewers_without_pr_owner = {
             _reviewer for _reviewer in all_reviewers if _reviewer != self.github_webhook.parent_committer
         }
+        self.logger.debug(f"all_reviewers_without_pr_owner: {all_reviewers_without_pr_owner}")
 
         all_reviewers_without_pr_owner_and_lgtmed = all_reviewers_without_pr_owner.copy()
 
@@ -660,13 +682,17 @@ For more information, please refer to the project documentation or contact the m
                 if LGTM_BY_LABEL_PREFIX.lower() in _label.lower() and reviewer in all_reviewers_without_pr_owner:
                     lgtm_count += 1
                     all_reviewers_without_pr_owner_and_lgtmed.remove(reviewer)
+        self.logger.debug(f"lgtm_count: {lgtm_count}")
 
         for _label in labels:
             if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
                 approved_by.append(_label.split(LABELS_SEPARATOR)[-1])
+        self.logger.debug(f"approved_by: {approved_by}")
 
         missing_approvers = list(set(self.owners_file_handler.all_pull_request_approvers.copy()))
+        self.logger.debug(f"missing_approvers: {missing_approvers}")
         owners_data_changed_files = await self.owners_file_handler.owners_data_for_changed_files()
+        self.logger.debug(f"owners_data_changed_files: {owners_data_changed_files}")
 
         # If any of root approvers is in approved_by list, the pull request is approved
         for _approver in approved_by:
@@ -688,6 +714,7 @@ For more information, please refer to the project documentation or contact the m
                         break
 
         missing_approvers = list(set(missing_approvers))
+        self.logger.debug(f"missing_approvers after check: {missing_approvers}")
 
         if missing_approvers:
             error += f"Missing approved from approvers: {', '.join(missing_approvers)}\n"
@@ -714,11 +741,13 @@ For more information, please refer to the project documentation or contact the m
                 change_request_user = _label.split(LABELS_SEPARATOR)[-1]
                 if change_request_user in self.owners_file_handler.all_pull_request_approvers:
                     failure_output += "PR has changed requests from approvers\n"
+                    self.logger.debug(f"Found changed request by {change_request_user}")
 
         missing_required_labels = []
         for _req_label in self.github_webhook.can_be_merged_required_labels:
             if _req_label not in labels:
                 missing_required_labels.append(_req_label)
+                self.logger.debug(f"Missing required label {_req_label}")
 
         if missing_required_labels:
             failure_output += f"Missing required labels: {', '.join(missing_required_labels)}\n"

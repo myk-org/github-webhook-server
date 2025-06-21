@@ -26,6 +26,7 @@ class PushHandler:
         if tag:
             tag_name = tag.group(1)
             self.logger.info(f"{self.log_prefix} Processing push for tag: {tag.group(1)}")
+            self.logger.debug(f"{self.log_prefix} Tag: {tag_name}")
             if self.github_webhook.pypi:
                 self.logger.info(f"{self.log_prefix} Processing upload to pypi for tag: {tag_name}")
                 await self.upload_to_pypi(tag_name=tag_name)
@@ -46,6 +47,7 @@ Publish to PYPI failed: `{_error}`
         clone_repo_dir = f"{self.github_webhook.clone_repo_dir}-{uuid4()}"
         uv_cmd_dir = f"--directory {clone_repo_dir}"
         self.logger.info(f"{self.log_prefix} Start uploading to pypi")
+        self.logger.debug(f"{self.log_prefix} Clone repo dir: {clone_repo_dir}")
         _dist_dir: str = f"{clone_repo_dir}/pypi-dist"
 
         async with self.runner_handler._prepare_cloned_repo_dir(
@@ -73,6 +75,7 @@ Publish to PYPI failed: `{_error}`
                 f"uvx {uv_cmd_dir} twine check {_dist_dir}/{tar_gz_file}",
                 f"uvx {uv_cmd_dir} twine upload --username __token__ --password {self.github_webhook.pypi['token']} {_dist_dir}/{tar_gz_file} --skip-existing",
             ]
+            self.logger.debug(f"Commands to run: {commands}")
 
             for cmd in commands:
                 rc, out, err = await run_command(command=cmd, log_prefix=self.log_prefix)
