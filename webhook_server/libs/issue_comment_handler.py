@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Callable, Any, Coroutine, Union
 from asyncio import Task
+from typing import TYPE_CHECKING, Any, Callable, Coroutine, Union
 
 from github.PullRequest import PullRequest
 
@@ -15,6 +15,7 @@ from webhook_server.utils.constants import (
     BUILD_AND_PUSH_CONTAINER_STR,
     BUILD_CONTAINER_STR,
     CHERRY_PICK_LABEL_PREFIX,
+    COMMAND_ADD_ALLOWED_USER_STR,
     COMMAND_ASSIGN_REVIEWER_STR,
     COMMAND_ASSIGN_REVIEWERS_STR,
     COMMAND_CHECK_CAN_MERGE_STR,
@@ -91,6 +92,7 @@ class IssueCommentHandler:
             COMMAND_CHECK_CAN_MERGE_STR,
             BUILD_AND_PUSH_CONTAINER_STR,
             COMMAND_ASSIGN_REVIEWER_STR,
+            COMMAND_ADD_ALLOWED_USER_STR,
         ]
 
         command_and_args: list[str] = command.split(" ", 1)
@@ -98,7 +100,7 @@ class IssueCommentHandler:
         _args: str = command_and_args[1] if len(command_and_args) > 1 else ""
 
         self.logger.debug(
-            f"{self.log_prefix} User: {reviewed_user}, Command: {_command}, Command args: {_args if _args else 'None'}"
+            f"{self.log_prefix} User: {reviewed_user}, Command: {_command}, Command args: {_args or 'None'}"
         )
         if _command not in available_commands + list(USER_LABELS_DICT.keys()):
             self.logger.debug(f"{self.log_prefix} Command {command} is not supported.")
@@ -109,7 +111,7 @@ class IssueCommentHandler:
         if remove := len(command_and_args) > 1 and _args == "cancel":
             self.logger.debug(f"{self.log_prefix} User requested 'cancel' for command {_command}")
 
-        if _command in (COMMAND_RETEST_STR, COMMAND_ASSIGN_REVIEWER_STR) and not _args:
+        if _command in (COMMAND_RETEST_STR, COMMAND_ASSIGN_REVIEWER_STR, COMMAND_ADD_ALLOWED_USER_STR) and not _args:
             missing_command_arg_comment_msg: str = f"{_command} requires an argument"
             error_msg: str = f"{self.log_prefix} {missing_command_arg_comment_msg}"
             self.logger.debug(error_msg)
@@ -122,6 +124,9 @@ class IssueCommentHandler:
 
         if _command == COMMAND_ASSIGN_REVIEWER_STR:
             await self._add_reviewer_by_user_comment(pull_request=pull_request, reviewer=_args)
+
+        elif _command == COMMAND_ADD_ALLOWED_USER_STR:
+            await asyncio.to_thread(pull_request.create_issue_comment, body=f"{_args} is now allowed to run commands")
 
         elif _command == COMMAND_ASSIGN_REVIEWERS_STR:
             await self.owners_file_handler.assign_reviewers(pull_request=pull_request)

@@ -33,6 +33,7 @@ COMMAND_CHERRY_PICK_STR = "cherry-pick"
 COMMAND_ASSIGN_REVIEWERS_STR = "assign-reviewers"
 COMMAND_CHECK_CAN_MERGE_STR = "check-can-merge"
 COMMAND_ASSIGN_REVIEWER_STR = "assign-reviewer"
+COMMAND_ADD_ALLOWED_USER_STR = "add-allowed-user"
 
 # Gitlab colors require a '#' prefix; e.g: #
 USER_LABELS_DICT: dict[str, str] = {
