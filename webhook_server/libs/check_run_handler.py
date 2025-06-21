@@ -4,7 +4,10 @@ from typing import TYPE_CHECKING, Any
 from github.CheckRun import CheckRun
 from github.PullRequest import PullRequest
 
+from webhook_server.libs.labels_handler import LabelsHandler
+from webhook_server.libs.owners_files_handler import OwnersFileHandler
 from webhook_server.utils.constants import (
+    AUTOMERGE_LABEL_STR,
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
     CHERRY_PICKED_LABEL_PREFIX,
@@ -24,14 +27,19 @@ if TYPE_CHECKING:
 
 
 class CheckRunHandler:
-    def __init__(self, github_webhook: "GithubWebhook"):
+    def __init__(self, github_webhook: "GithubWebhook", owners_file_handler: OwnersFileHandler | None = None):
         self.github_webhook = github_webhook
+        self.owners_file_handler = owners_file_handler
         self.hook_data = self.github_webhook.hook_data
         self.logger = self.github_webhook.logger
         self.log_prefix = self.github_webhook.log_prefix
         self.repository = self.github_webhook.repository
+        if isinstance(self.owners_file_handler, OwnersFileHandler):
+            self.labels_handler = LabelsHandler(
+                github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
+            )
 
-    async def process_pull_request_check_run_webhook_data(self) -> bool:
+    async def process_pull_request_check_run_webhook_data(self, pull_request: PullRequest | None = None) -> bool:
         """Return True if check_if_can_be_merged need to run"""
 
         _check_run: dict[str, Any] = self.hook_data["check_run"]
@@ -50,8 +58,26 @@ class CheckRunHandler:
         )
 
         if check_run_name == CAN_BE_MERGED_STR:
-            self.logger.debug(f"{self.log_prefix} check run is {CAN_BE_MERGED_STR}, skipping")
-            return False
+            if getattr(self, "labels_handler", None) and pull_request and check_run_conclusion == SUCCESS_STR:
+                if await self.labels_handler.label_exists_in_pull_request(
+                    label=AUTOMERGE_LABEL_STR, pull_request=pull_request
+                ):
+                    try:
+                        await asyncio.to_thread(pull_request.merge, merge_method="SQUASH")
+                        self.logger.info(
+                            f"{self.log_prefix} Successfully auto-merged pull request #{pull_request.number}"
+                        )
+                        return False
+                    except Exception as ex:
+                        self.logger.error(
+                            f"{self.log_prefix} Failed to auto-merge pull request #{pull_request.number}: {ex}"
+                        )
+                        # Continue processing to allow manual intervention
+                        return True
+
+            else:
+                self.logger.debug(f"{self.log_prefix} check run is {CAN_BE_MERGED_STR}, skipping")
+                return False
 
         return True
 

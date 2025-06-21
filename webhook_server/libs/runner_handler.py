@@ -27,13 +27,15 @@ if TYPE_CHECKING:
 class RunnerHandler:
     def __init__(self, github_webhook: "GithubWebhook", owners_file_handler: OwnersFileHandler | None = None):
         self.github_webhook = github_webhook
-        self.owners_file_handler = owners_file_handler
+        self.owners_file_handler = owners_file_handler or OwnersFileHandler(github_webhook=self.github_webhook)
         self.hook_data = self.github_webhook.hook_data
         self.logger = self.github_webhook.logger
         self.log_prefix = self.github_webhook.log_prefix
         self.repository = self.github_webhook.repository
 
-        self.check_run_handler = CheckRunHandler(github_webhook=self.github_webhook)
+        self.check_run_handler = CheckRunHandler(
+            github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
+        )
 
     @contextlib.asynccontextmanager
     async def _prepare_cloned_repo_dir(
@@ -185,12 +187,10 @@ class RunnerHandler:
         )
         cmd = f"uvx {python_ver} {TOX_STR} --workdir {clone_repo_dir} --root {clone_repo_dir} -c {clone_repo_dir}"
         _tox_tests = self.github_webhook.tox.get(pull_request.base.ref, "")
-        if not _tox_tests:
-            tests = ""
-        else:
-            tests = f" -e {_tox_tests}"
 
-        cmd += tests
+        if _tox_tests and _tox_tests != "all":
+            tests = _tox_tests.replace(" ", "")
+            cmd += f" -e {tests}"
 
         await self.check_run_handler.set_run_tox_check_in_progress()
         self.logger.debug(f"{self.log_prefix} Tox command to run: {cmd}")

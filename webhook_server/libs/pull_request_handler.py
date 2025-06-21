@@ -11,6 +11,7 @@ from webhook_server.libs.owners_files_handler import OwnersFileHandler
 from webhook_server.libs.runner_handler import RunnerHandler
 from webhook_server.utils.constants import (
     APPROVED_BY_LABEL_PREFIX,
+    AUTOMERGE_LABEL_STR,
     BRANCH_LABEL_PREFIX,
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
@@ -48,7 +49,9 @@ class PullRequestHandler:
         self.labels_handler = LabelsHandler(
             github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
         )
-        self.check_run_handler = CheckRunHandler(github_webhook=self.github_webhook)
+        self.check_run_handler = CheckRunHandler(
+            github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
+        )
         self.runner_handler = RunnerHandler(
             github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
         )
@@ -160,7 +163,7 @@ class PullRequestHandler:
                 else:
                     await self.check_run_handler.set_verify_check_queued()
 
-            if labeled_lower in (WIP_STR, HOLD_LABEL_STR):
+            if labeled_lower in (WIP_STR, HOLD_LABEL_STR, AUTOMERGE_LABEL_STR):
                 _check_for_merge = True
                 self.logger.debug(f"PR has {labeled_lower} label, will check for merge.")
 
@@ -225,6 +228,7 @@ This pull request will be automatically processed with the following features:{a
 #### Review & Approval
 * `/lgtm` - Approve changes (looks good to me)
 * `/approve` - Approve PR (approvers only)
+* `/automerge` - Enable automatic merging when all requirements are met (maintainers and approvers only)
 * `/assign-reviewers` - Assign reviewers based on OWNERS file
 * `/assign-reviewer @username` - Assign specific reviewer
 * `/check-can-merge` - Check if PR meets merge requirements
