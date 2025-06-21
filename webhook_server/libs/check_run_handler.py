@@ -62,9 +62,18 @@ class CheckRunHandler:
                 if await self.labels_handler.label_exists_in_pull_request(
                     label=AUTOMERGE_LABEL_STR, pull_request=pull_request
                 ):
-                    self.logger.debug(f"{self.log_prefix} check run is {CAN_BE_MERGED_STR}, merging pull request")
-                    await asyncio.to_thread(pull_request.merge, merge_method="SQUASH")
-                    return False
+                    try:
+                        await asyncio.to_thread(pull_request.merge, merge_method="SQUASH")
+                        self.logger.info(
+                            f"{self.log_prefix} Successfully auto-merged pull request #{pull_request.number}"
+                        )
+                        return False
+                    except Exception as ex:
+                        self.logger.error(
+                            f"{self.log_prefix} Failed to auto-merge pull request #{pull_request.number}: {ex}"
+                        )
+                        # Continue processing to allow manual intervention
+                        return True
 
             else:
                 self.logger.debug(f"{self.log_prefix} check run is {CAN_BE_MERGED_STR}, skipping")

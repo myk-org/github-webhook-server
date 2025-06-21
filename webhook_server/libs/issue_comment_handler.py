@@ -129,8 +129,8 @@ class IssueCommentHandler:
             return
 
         if _command == AUTOMERGE_LABEL_STR:
-            if (
-                not await self.owners_file_handler.get_all_repository_maintainers()
+            if reviewed_user not in (
+                await self.owners_file_handler.get_all_repository_maintainers()
                 + self.owners_file_handler.all_repository_approvers
             ):
                 msg = "Only maintainers or approvers can set pull request to auto-merge"
