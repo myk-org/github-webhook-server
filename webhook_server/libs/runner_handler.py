@@ -45,6 +45,7 @@ class RunnerHandler:
         tag_name: str = "",
     ) -> AsyncGenerator[tuple[bool, Any, Any], None]:
         git_cmd = f"git --work-tree={clone_repo_dir} --git-dir={clone_repo_dir}/.git"
+        self.logger.debug(f"{self.log_prefix} Preparing cloned repo dir {clone_repo_dir} with git cmd: {git_cmd}")
         result: tuple[bool, str, str] = (True, "", "")
         success = True
 
@@ -184,11 +185,15 @@ class RunnerHandler:
         )
         cmd = f"uvx {python_ver} {TOX_STR} --workdir {clone_repo_dir} --root {clone_repo_dir} -c {clone_repo_dir}"
         _tox_tests = self.github_webhook.tox.get(pull_request.base.ref, "")
-        if _tox_tests and _tox_tests != "all":
-            tests = _tox_tests.replace(" ", "")
-            cmd += f" -e {tests}"
+        if not _tox_tests:
+            tests = ""
+        else:
+            tests = f" -e {_tox_tests}"
+
+        cmd += tests
 
         await self.check_run_handler.set_run_tox_check_in_progress()
+        self.logger.debug(f"{self.log_prefix} Tox command to run: {cmd}")
         async with self._prepare_cloned_repo_dir(clone_repo_dir=clone_repo_dir, pull_request=pull_request) as _res:
             output: dict[str, Any] = {
                 "title": "Tox",
@@ -285,6 +290,7 @@ class RunnerHandler:
             build_cmd = f"{command_args} {build_cmd}"
 
         podman_build_cmd: str = f"podman build {build_cmd}"
+        self.logger.debug(f"{self.log_prefix} Podman build command to run: {podman_build_cmd}")
         async with self._prepare_cloned_repo_dir(
             pull_request=pull_request,
             is_merged=is_merged,
@@ -395,6 +401,7 @@ class RunnerHandler:
         await self.check_run_handler.set_conventional_title_in_progress()
         allowed_names = self.github_webhook.conventional_title.split(",")
         title = pull_request.title
+        self.logger.debug(f"{self.log_prefix} Conventional title check for title: {title}, allowed: {allowed_names}")
         if any([title.startswith(f"{_name}:") for _name in allowed_names]):
             await self.check_run_handler.set_conventional_title_success(output=output)
         else:
@@ -432,6 +439,7 @@ class RunnerHandler:
                 f"{git_cmd} push origin {new_branch_name}",
                 f"bash -c \"{hub_cmd} pull-request -b {target_branch} -h {new_branch_name} -l {CHERRY_PICKED_LABEL_PREFIX} -m '{CHERRY_PICKED_LABEL_PREFIX}: [{target_branch}] {commit_msg_striped}' -m 'cherry-pick {pull_request_url} into {target_branch}' -m 'requested-by {requested_by}'\"",
             ]
+            self.logger.debug(f"{self.log_prefix} Cherry pick commands to run: {commands}")
 
             rc, out, err = None, "", ""
             async with self._prepare_cloned_repo_dir(pull_request=pull_request, clone_repo_dir=clone_repo_dir) as _res:

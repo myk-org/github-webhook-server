@@ -439,7 +439,7 @@ class TestCheckRunHandler:
                 )
                 # Should be called twice - once for the original attempt, once for the fallback
                 assert call_count["count"] == 2
-                mock_debug.assert_called_once()
+                mock_debug.assert_called()
 
     def test_get_check_run_text_normal_length(self, check_run_handler: CheckRunHandler) -> None:
         """Test getting check run text with normal length."""

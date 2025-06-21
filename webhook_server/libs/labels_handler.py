@@ -44,6 +44,7 @@ class LabelsHandler:
         return [lb.name for lb in labels]
 
     async def _remove_label(self, pull_request: PullRequest, label: str) -> bool:
+        self.logger.debug(f"{self.log_prefix} Removing label {label}")
         try:
             if await self.label_exists_in_pull_request(pull_request=pull_request, label=label):
                 self.logger.info(f"{self.log_prefix} Removing label {label}")
@@ -58,6 +59,7 @@ class LabelsHandler:
 
     async def _add_label(self, pull_request: PullRequest, label: str) -> None:
         label = label.strip()
+        self.logger.debug(f"{self.log_prefix} Adding label {label}")
         if len(label) > 49:
             self.logger.debug(f"{label} is too long, not adding.")
             return
@@ -90,6 +92,7 @@ class LabelsHandler:
         await self.wait_for_label(pull_request=pull_request, label=label, exists=True)
 
     async def wait_for_label(self, pull_request: PullRequest, label: str, exists: bool) -> bool:
+        self.logger.debug(f"{self.log_prefix} waiting for label {label} to {'exists' if exists else 'not exists'}")
         while TimeoutWatch(timeout=30).remaining_time() > 0:
             res = await self.label_exists_in_pull_request(pull_request=pull_request, label=label)
             if res == exists:
@@ -107,6 +110,7 @@ class LabelsHandler:
         additions = pull_request.additions if pull_request.additions is not None else 0
         deletions = pull_request.deletions if pull_request.deletions is not None else 0
         size = additions + deletions
+        self.logger.debug(f"{self.log_prefix} PR size is {size} (additions: {additions}, deletions: {deletions})")
 
         # Define label thresholds in a more readable way
         threshold_sizes = [20, 50, 100, 300, 500]
@@ -122,6 +126,7 @@ class LabelsHandler:
     async def add_size_label(self, pull_request: PullRequest) -> None:
         """Add a size label to the pull request based on its additions and deletions."""
         size_label = self.get_size(pull_request=pull_request)
+        self.logger.debug(f"{self.log_prefix} size label is {size_label}")
         if not size_label:
             self.logger.debug(f"{self.log_prefix} Size label not found")
             return
@@ -136,6 +141,7 @@ class LabelsHandler:
         ]
 
         if exists_size_label:
+            self.logger.debug(f"{self.log_prefix} Found existing size label {exists_size_label}, removing it.")
             await self._remove_label(pull_request=pull_request, label=exists_size_label[0])
 
         await self._add_label(pull_request=pull_request, label=size_label)
@@ -174,6 +180,7 @@ class LabelsHandler:
         )
         label_prefix: str = ""
         label_to_remove: str = ""
+        self.logger.debug(f"{self.log_prefix} label_prefix is {label_prefix}, label_to_remove is {label_to_remove}")
 
         if review_state == APPROVE_STR:
             if (
@@ -182,6 +189,10 @@ class LabelsHandler:
             ):
                 label_prefix = APPROVED_BY_LABEL_PREFIX
                 label_to_remove = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{reviewed_user}"
+                self.logger.debug(
+                    f"{self.log_prefix} User {reviewed_user} is approver, setting label prefix to "
+                    f"{label_prefix} and label to remove to {label_to_remove}"
+                )
 
             else:
                 self.logger.debug(f"{self.log_prefix} {reviewed_user} not in approvers list, will not {action} label.")
@@ -197,23 +208,32 @@ class LabelsHandler:
             _remove_label = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{reviewed_user}"
             label_prefix = LGTM_BY_LABEL_PREFIX
             label_to_remove = _remove_label
+            self.logger.debug(
+                f"{self.log_prefix} Setting label prefix to {label_prefix} and label to remove to {label_to_remove}"
+            )
 
         elif review_state == "changes_requested":
             label_prefix = CHANGED_REQUESTED_BY_LABEL_PREFIX
             _remove_label = LGTM_BY_LABEL_PREFIX
             label_to_remove = _remove_label
+            self.logger.debug(
+                f"{self.log_prefix} Setting label prefix to {label_prefix} and label to remove to {label_to_remove}"
+            )
 
         elif review_state == "commented":
             label_prefix = COMMENTED_BY_LABEL_PREFIX
+            self.logger.debug(f"{self.log_prefix} Setting label prefix to {label_prefix}")
 
         if label_prefix:
             reviewer_label = f"{label_prefix}{reviewed_user}"
 
             if action == ADD_STR:
+                self.logger.debug(f"{self.log_prefix} Adding reviewer label {reviewer_label}")
                 await self._add_label(pull_request=pull_request, label=reviewer_label)
                 await self._remove_label(pull_request=pull_request, label=label_to_remove)
 
             if action == DELETE_STR:
+                self.logger.debug(f"{self.log_prefix} Removing reviewer label {reviewer_label}")
                 await self._remove_label(pull_request=pull_request, label=reviewer_label)
         else:
             self.logger.warning(

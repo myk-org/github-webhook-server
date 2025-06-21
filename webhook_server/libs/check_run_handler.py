@@ -63,6 +63,7 @@ class CheckRunHandler:
 
     async def set_run_tox_check_queued(self) -> None:
         if not self.github_webhook.tox:
+            self.logger.debug(f"{self.log_prefix} tox is not configured, skipping.")
             return
 
         return await self.set_check_run_status(check_run=TOX_STR, status=QUEUED_STR)
@@ -78,6 +79,7 @@ class CheckRunHandler:
 
     async def set_run_pre_commit_check_queued(self) -> None:
         if not self.github_webhook.pre_commit:
+            self.logger.debug(f"{self.log_prefix} pre-commit is not configured, skipping.")
             return
 
         return await self.set_check_run_status(check_run=PRE_COMMIT_STR, status=QUEUED_STR)
@@ -105,6 +107,7 @@ class CheckRunHandler:
 
     async def set_container_build_queued(self) -> None:
         if not self.github_webhook.build_and_push_container:
+            self.logger.debug(f"{self.log_prefix} build_and_push_container is not configured, skipping.")
             return
 
         return await self.set_check_run_status(check_run=BUILD_CONTAINER_STR, status=QUEUED_STR)
@@ -120,6 +123,7 @@ class CheckRunHandler:
 
     async def set_python_module_install_queued(self) -> None:
         if not self.github_webhook.pypi:
+            self.logger.debug(f"{self.log_prefix} pypi is not configured, skipping.")
             return
 
         return await self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, status=QUEUED_STR)
@@ -183,6 +187,7 @@ class CheckRunHandler:
         msg: str = f"{self.log_prefix} check run {check_run} status: {status or conclusion}"
 
         try:
+            self.logger.debug(f"{self.log_prefix} Set check run status with {kwargs}")
             await asyncio.to_thread(self.github_webhook.repository_by_github_app.create_check_run, **kwargs)
             if conclusion in (SUCCESS_STR, IN_PROGRESS_STR):
                 self.logger.success(msg)  # type: ignore
@@ -221,14 +226,15 @@ class CheckRunHandler:
         if self.github_webhook.last_commit:
             for run in await asyncio.to_thread(self.github_webhook.last_commit.get_check_runs):
                 if run.name == check_run and run.status == IN_PROGRESS_STR:
+                    self.logger.debug(f"{self.log_prefix} Check run {check_run} is in progress.")
                     return True
         return False
 
     async def required_check_failed_or_no_status(
         self, pull_request: PullRequest, last_commit_check_runs: list[CheckRun], check_runs_in_progress: list[str]
     ) -> str:
-        failed_check_runs = []
-        no_status_check_runs = []
+        failed_check_runs: list[str] = []
+        no_status_check_runs: list[str] = []
 
         for check_run in last_commit_check_runs:
             self.logger.debug(f"{self.log_prefix} Check if {check_run.name} failed or do not have status.")
@@ -237,6 +243,7 @@ class CheckRunHandler:
                 or check_run.conclusion == SUCCESS_STR
                 or check_run.name not in await self.all_required_status_checks(pull_request=pull_request)
             ):
+                self.logger.debug(f"{self.log_prefix} {check_run.name} is success or not required, skipping.")
                 continue
 
             if check_run.conclusion is None:
@@ -254,9 +261,11 @@ class CheckRunHandler:
                 if failed_check_run not in check_runs_in_progress
             ]
             msg += f"Some check runs failed: {', '.join(exclude_in_progress)}\n"
+        self.logger.debug(f"failed_check_runs: {failed_check_runs}")
 
         if no_status_check_runs:
             msg += f"Some check runs not started: {', '.join(no_status_check_runs)}\n"
+        self.logger.debug(f"no_status_check_runs: {no_status_check_runs}")
 
         return msg
 
@@ -292,7 +301,9 @@ class CheckRunHandler:
 
         pull_request_branch = await asyncio.to_thread(self.repository.get_branch, pull_request.base.ref)
         branch_protection = await asyncio.to_thread(pull_request_branch.get_protection)
-        return branch_protection.required_status_checks.contexts
+        branch_required_status_checks = branch_protection.required_status_checks.contexts
+        self.logger.debug(f"branch_required_status_checks: {branch_required_status_checks}")
+        return branch_required_status_checks
 
     async def required_check_in_progress(
         self, pull_request: PullRequest, last_commit_check_runs: list[CheckRun]
