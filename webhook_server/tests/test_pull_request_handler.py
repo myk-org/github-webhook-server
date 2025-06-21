@@ -88,10 +88,25 @@ class TestPullRequestHandler:
     ) -> None:
         """Test processing pull request webhook data when action is edited."""
         pull_request_handler.hook_data["action"] = "edited"
+        pull_request_handler.hook_data["changes"] = {}
 
         with patch.object(pull_request_handler, "set_wip_label_based_on_title") as mock_set_wip:
             await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
             mock_set_wip.assert_called_once_with(pull_request=mock_pull_request)
+
+    @pytest.mark.asyncio
+    async def test_process_pull_request_webhook_data_edited_action_title_changed(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test processing pull request webhook data when action is edited and title is changed."""
+        pull_request_handler.hook_data["action"] = "edited"
+        pull_request_handler.hook_data["changes"] = {"title": {"from": "old title"}}
+
+        with patch.object(
+            pull_request_handler.runner_handler, "run_conventional_title_check"
+        ) as mock_run_conventional_title_check:
+            await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
+            mock_run_conventional_title_check.assert_called_once_with(pull_request=mock_pull_request)
 
     @pytest.mark.asyncio
     async def test_process_pull_request_webhook_data_opened_action(

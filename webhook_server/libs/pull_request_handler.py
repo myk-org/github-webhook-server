@@ -62,6 +62,9 @@ class PullRequestHandler:
 
         if hook_action == "edited":
             await self.set_wip_label_based_on_title(pull_request=pull_request)
+            if self.hook_data["changes"].get("title"):
+                self.logger.info(f"{self.log_prefix} PR title changed, running conventional title check")
+                await self.runner_handler.run_conventional_title_check(pull_request=pull_request)
 
         if hook_action in ("opened", "reopened", "ready_for_review"):
             tasks: list[Coroutine[Any, Any, Any]] = []
