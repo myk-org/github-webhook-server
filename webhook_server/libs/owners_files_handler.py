@@ -10,6 +10,8 @@ from github.NamedUser import NamedUser
 from github.PaginatedList import PaginatedList
 from github.PullRequest import PullRequest
 
+from webhook_server.utils.constants import COMMAND_ADD_ALLOWED_USER_STR
+
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
 
@@ -52,6 +54,14 @@ class OwnersFileHandler:
         _approvers = self.all_repository_approvers_and_reviewers.get(".", {}).get("approvers", [])
         self.logger.debug(f"{self.log_prefix} ROOT Approvers: {_approvers}")
         return _approvers
+
+    @property
+    def allowed_users(self) -> list[str]:
+        self._ensure_initialized()
+
+        _allowed_users = self.all_repository_approvers_and_reviewers.get(".", {}).get("allowed-users", [])
+        self.logger.debug(f"{self.log_prefix} ROOT allowed users: {_allowed_users}")
+        return _allowed_users
 
     async def list_changed_files(self, pull_request: PullRequest) -> list[str]:
         return [_file.filename for _file in await asyncio.to_thread(pull_request.get_files)]
@@ -236,7 +246,7 @@ class OwnersFileHandler:
         self._ensure_initialized()
 
         allowed_user_to_approve = await self.get_all_repository_maintainers() + self.all_repository_approvers
-        allow_user_comment = f"/add-allowed-user @{reviewed_user}"
+        allow_user_comment = f"/{COMMAND_ADD_ALLOWED_USER_STR} @{reviewed_user}"
 
         comment_msg = f"""
 {reviewed_user} is not allowed to run retest commands.
@@ -247,13 +257,15 @@ Maintainers:
         valid_users = await self.valid_users_to_run_commands
 
         if reviewed_user not in valid_users:
-            comments_from_approvers = [
-                comment.body
-                for comment in await asyncio.to_thread(pull_request.get_issue_comments)
-                if comment.user.login in allowed_user_to_approve
-            ]
-            for comment in comments_from_approvers:
-                if allow_user_comment in comment:
+            for comment in [
+                _comment
+                for _comment in await asyncio.to_thread(pull_request.get_issue_comments)
+                if _comment.user.login in allowed_user_to_approve
+            ]:
+                if allow_user_comment in comment.body:
+                    self.logger.debug(
+                        f"{self.log_prefix} {reviewed_user} is approved by {comment.user.login} to run commands"
+                    )
                     return True
 
             self.logger.debug(f"{self.log_prefix} {reviewed_user} is not in {valid_users}")
