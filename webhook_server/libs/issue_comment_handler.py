@@ -355,4 +355,4 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     self.logger.error(f"{self.log_prefix} Async task failed: {result}")
 
         if automerge:
-            await self.labels_handler._add_label(pull_request=pull_request, label="automerge")
+            await self.labels_handler._add_label(pull_request=pull_request, label=AUTOMERGE_LABEL_STR)
