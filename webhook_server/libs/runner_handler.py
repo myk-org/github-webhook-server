@@ -187,12 +187,10 @@ class RunnerHandler:
         )
         cmd = f"uvx {python_ver} {TOX_STR} --workdir {clone_repo_dir} --root {clone_repo_dir} -c {clone_repo_dir}"
         _tox_tests = self.github_webhook.tox.get(pull_request.base.ref, "")
-        if not _tox_tests:
-            tests = ""
-        else:
-            tests = f" -e {_tox_tests}"
 
-        cmd += tests
+        if _tox_tests and _tox_tests != "all":
+            tests = _tox_tests.replace(" ", "")
+            cmd += f" -e {tests}"
 
         await self.check_run_handler.set_run_tox_check_in_progress()
         self.logger.debug(f"{self.log_prefix} Tox command to run: {cmd}")
