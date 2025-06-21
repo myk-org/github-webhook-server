@@ -12,6 +12,7 @@ from webhook_server.libs.owners_files_handler import OwnersFileHandler
 from webhook_server.libs.pull_request_handler import PullRequestHandler
 from webhook_server.libs.runner_handler import RunnerHandler
 from webhook_server.utils.constants import (
+    AUTOMERGE_LABEL_STR,
     BUILD_AND_PUSH_CONTAINER_STR,
     BUILD_CONTAINER_STR,
     CHERRY_PICK_LABEL_PREFIX,
@@ -127,6 +128,18 @@ class IssueCommentHandler:
             await asyncio.to_thread(pull_request.create_issue_comment, body=missing_command_arg_comment_msg)
             return
 
+        if _command == AUTOMERGE_LABEL_STR:
+            if (
+                not await self.owners_file_handler.get_all_repository_maintainers()
+                + self.owners_file_handler.all_repository_approvers
+            ):
+                msg = "Only maintainers or approvers can set pull request to auto-merge"
+                self.logger.debug(f"{self.log_prefix} {msg}")
+                await asyncio.to_thread(pull_request.create_issue_comment, body=msg)
+                return
+
+            await self.labels_handler._add_label(pull_request=pull_request, label=AUTOMERGE_LABEL_STR)
+
         await self.create_comment_reaction(
             pull_request=pull_request, issue_comment_id=issue_comment_id, reaction=REACTIONS.ok
         )
@@ -203,7 +216,7 @@ class IssueCommentHandler:
                 await self.labels_handler._add_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
                 await self.check_run_handler.set_verify_check_success()
 
-        else:
+        elif _command != AUTOMERGE_LABEL_STR:
             await self.labels_handler.label_by_user_comment(
                 pull_request=pull_request,
                 user_requested_label=_command,

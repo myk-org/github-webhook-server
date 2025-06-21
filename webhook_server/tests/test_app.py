@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 import ipaddress
 
-from webhook_server.app import FASTAPI_APP, verify_signature, gate_by_allowlist_ips
+from webhook_server.app import FASTAPI_APP, gate_by_allowlist_ips
 from webhook_server.libs.exceptions import RepositoryNotFoundError
 
 
@@ -140,36 +140,6 @@ class TestWebhookApp:
 
         assert response.status_code == 404
         assert "Repository not found in configuration" in response.json()["detail"]
-
-    def test_verify_signature_success(self) -> None:
-        """Test successful signature verification."""
-        payload = "test payload"
-        secret = "test-secret"  # pragma: allowlist secret
-        signature = self.create_github_signature(payload, secret)
-
-        # Should not raise any exception
-        verify_signature(payload.encode(), secret, signature)
-
-    def test_verify_signature_missing_header(self) -> None:
-        """Test signature verification with missing header."""
-        payload = "test payload"
-        secret = "test-secret"  # pragma: allowlist secret
-
-        with pytest.raises(Exception) as exc_info:
-            verify_signature(payload.encode(), secret, None)
-
-        assert "x-hub-signature-256 header is missing" in str(exc_info.value)
-
-    def test_verify_signature_invalid_signature(self) -> None:
-        """Test signature verification with invalid signature."""
-        payload = "test payload"
-        secret = "test-secret"  # pragma: allowlist secret
-        invalid_signature = "sha256=invalid"
-
-        with pytest.raises(Exception) as exc_info:
-            verify_signature(payload.encode(), secret, invalid_signature)
-
-        assert "Request signatures didn't match" in str(exc_info.value)
 
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     def test_process_webhook_signature_verification_failure(

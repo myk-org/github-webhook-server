@@ -28,12 +28,14 @@ NEEDS_REBASE_LABEL_STR: str = "needs-rebase"
 HAS_CONFLICTS_LABEL_STR: str = "has-conflicts"
 HOLD_LABEL_STR: str = "hold"
 SIZE_LABEL_PREFIX: str = "size/"
-COMMAND_RETEST_STR = "retest"
-COMMAND_CHERRY_PICK_STR = "cherry-pick"
-COMMAND_ASSIGN_REVIEWERS_STR = "assign-reviewers"
-COMMAND_CHECK_CAN_MERGE_STR = "check-can-merge"
-COMMAND_ASSIGN_REVIEWER_STR = "assign-reviewer"
-COMMAND_ADD_ALLOWED_USER_STR = "add-allowed-user"
+COMMAND_RETEST_STR: str = "retest"
+COMMAND_CHERRY_PICK_STR: str = "cherry-pick"
+COMMAND_ASSIGN_REVIEWERS_STR: str = "assign-reviewers"
+COMMAND_CHECK_CAN_MERGE_STR: str = "check-can-merge"
+COMMAND_ASSIGN_REVIEWER_STR: str = "assign-reviewer"
+COMMAND_ADD_ALLOWED_USER_STR: str = "add-allowed-user"
+COMMAND_AUTOMERGE_STR: str = "automerge"
+AUTOMERGE_LABEL_STR: str = "automerge"
 
 # Gitlab colors require a '#' prefix; e.g: #
 USER_LABELS_DICT: dict[str, str] = {
@@ -42,6 +44,7 @@ USER_LABELS_DICT: dict[str, str] = {
     WIP_STR: "B60205",
     LGTM_STR: "0E8A16",
     APPROVE_STR: "0E8A16",
+    AUTOMERGE_LABEL_STR: "0E8A16",
 }
 
 STATIC_LABELS_DICT: dict[str, str] = {

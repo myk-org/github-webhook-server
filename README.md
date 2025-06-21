@@ -623,6 +623,23 @@ Users can interact with the webhook server through GitHub comments on pull reque
 | `/<label>`        | Add label    | `/bug`        |
 | `/<label> cancel` | Remove label | `/bug cancel` |
 
+### Review & Approval
+
+| Command             | Description                                                                 | Example             |
+| ------------------- | ------------------------------------------------------------------------- | ------------------- |
+| `/lgtm`             | Approve changes (looks good to me)                                         | `/lgtm`             |
+| `/approve`          | Approve PR (approvers only)                                                 | `/approve`          |
+| `/automerge`         | Enable automatic merging when all requirements are met (maintainers/approvers only) | `/automerge`         |
+| `/assign-reviewers`  | Assign reviewers based on OWNERS file                                        | `/assign-reviewers`  |
+| `/assign-reviewer`   | Assign specific reviewer                                                   | `/assign-reviewer @username` |
+| `/check-can-merge`   | Checks if the pull request meets all merge requirements                        | `/check-can-merge`   |
+
+### Testing & Validation
+
+| Command             | Description                                                                 | Example             |
+| ------------------- | ------------------------------------------------------------------------- | ------------------- |
+| `/retest <test-name>` | Run specific tests like `tox` or `pre-commit`                              | `/retest <test-name>` |
+
 ## OWNERS File Format
 
 The OWNERS file system provides fine-grained control over code review assignments.

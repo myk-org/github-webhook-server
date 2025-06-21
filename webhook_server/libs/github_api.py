@@ -155,10 +155,11 @@ class GithubWebhook:
                 )
 
             elif self.github_event == "check_run":
-                if await CheckRunHandler(github_webhook=self).process_pull_request_check_run_webhook_data():
-                    owners_file_handler = OwnersFileHandler(github_webhook=self)
-                    owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
-
+                owners_file_handler = OwnersFileHandler(github_webhook=self)
+                owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
+                if await CheckRunHandler(
+                    github_webhook=self, owners_file_handler=owners_file_handler
+                ).process_pull_request_check_run_webhook_data(pull_request=pull_request):
                     return await PullRequestHandler(
                         github_webhook=self, owners_file_handler=owners_file_handler
                     ).check_if_can_be_merged(pull_request=pull_request)
