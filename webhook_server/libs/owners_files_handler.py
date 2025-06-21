@@ -264,7 +264,7 @@ Maintainers:
             ]:
                 if allow_user_comment in comment.body:
                     self.logger.debug(
-                        f"{self.log_prefix} {reviewed_user} is approved to run commands by {comment.user.login}"
+                        f"{self.log_prefix} {reviewed_user} is approved by {comment.user.login} to run commands"
                     )
                     return True
 
