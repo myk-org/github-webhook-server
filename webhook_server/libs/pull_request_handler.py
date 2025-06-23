@@ -289,10 +289,10 @@ For more information, please refer to the project documentation or contact the m
         body_reviewers: str = "**Reviewers:**\n"
 
         for _approver in self.owners_file_handler.all_pull_request_approvers:
-            body_approvers += f" * @{_approver}\n"
+            body_approvers += f" * {_approver}\n"
 
         for _reviewer in self.owners_file_handler.all_pull_request_reviewers:
-            body_reviewers += f" * @{_reviewer}\n"
+            body_reviewers += f" * {_reviewer}\n"
 
         return f"""
 {body_approvers}
