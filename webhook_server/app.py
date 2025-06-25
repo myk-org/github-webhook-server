@@ -242,7 +242,7 @@ async def process_webhook(request: Request, background_tasks: BackgroundTasks) -
     async def process_with_error_handling(_api: GithubWebhook, _logger: logging.Logger) -> None:
         try:
             await _api.process()
-            _logger.info(f"{log_context} Webhook processing completed successfully")
+            _logger.success(f"{log_context} Webhook processing completed successfully")  # type: ignore
         except Exception as e:
             _logger.exception(f"{log_context} Error in background task: {e}")
 
