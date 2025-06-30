@@ -25,6 +25,7 @@ from webhook_server.libs.pull_request_review_handler import PullRequestReviewHan
 from webhook_server.libs.push_handler import PushHandler
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
+    CAN_BE_MERGED_STR,
     CONVENTIONAL_TITLE_STR,
     OTHER_MAIN_BRANCH,
     PRE_COMMIT_STR,
@@ -160,9 +161,10 @@ class GithubWebhook:
                 if await CheckRunHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
                 ).process_pull_request_check_run_webhook_data(pull_request=pull_request):
-                    return await PullRequestHandler(
-                        github_webhook=self, owners_file_handler=owners_file_handler
-                    ).check_if_can_be_merged(pull_request=pull_request)
+                    if self.hook_data["check_run"]["name"] != CAN_BE_MERGED_STR:
+                        return await PullRequestHandler(
+                            github_webhook=self, owners_file_handler=owners_file_handler
+                        ).check_if_can_be_merged(pull_request=pull_request)
 
     @property
     def add_api_users_to_auto_verified_and_merged_users(self) -> None:
