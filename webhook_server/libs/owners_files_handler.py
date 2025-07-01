@@ -258,14 +258,15 @@ class OwnersFileHandler:
     async def is_user_valid_to_run_commands(self, pull_request: PullRequest, reviewed_user: str) -> bool:
         self._ensure_initialized()
 
-        allowed_user_to_approve = await self.get_all_repository_maintainers() + self.all_repository_approvers
+        _allowed_user_to_approve = await self.get_all_repository_maintainers() + self.all_repository_approvers
+        allowed_user_to_approve = list(set(_allowed_user_to_approve))
         allow_user_comment = f"/{COMMAND_ADD_ALLOWED_USER_STR} @{reviewed_user}"
 
         comment_msg = f"""
 {reviewed_user} is not allowed to run retest commands.
 maintainers can allow it by comment `{allow_user_comment}`
 Maintainers:
- - {"\n - @".join(allowed_user_to_approve)}
+ - {"\n - ".join(allowed_user_to_approve)}
 """
         valid_users = await self.valid_users_to_run_commands
         self.logger.debug(f"Valid users to run commands: {valid_users}")
