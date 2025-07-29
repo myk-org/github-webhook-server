@@ -389,6 +389,9 @@ class RunnerHandler:
             return await self.check_run_handler.set_python_module_install_failure(output=output)
 
     async def run_conventional_title_check(self, pull_request: PullRequest) -> None:
+        if not self.github_webhook.conventional_title:
+            return
+
         output: dict[str, str] = {
             "title": "Conventional Title",
             "summary": "",
