@@ -113,7 +113,7 @@ class LabelsHandler:
         self.logger.debug(f"{self.log_prefix} PR size is {size} (additions: {additions}, deletions: {deletions})")
 
         # Define label thresholds in a more readable way
-        threshold_sizes = [20, 50, 100, 300, 500]
+        threshold_sizes = [20, 50, 100, 300, 500, 1000]
         prefixes = ["XS", "S", "M", "L", "XL"]
 
         for i, size_threshold in enumerate(threshold_sizes):
@@ -121,7 +121,7 @@ class LabelsHandler:
                 _label = prefixes[i]
                 return f"{SIZE_LABEL_PREFIX}{_label}"
 
-        return f"{SIZE_LABEL_PREFIX}XXL"
+        return f"{SIZE_LABEL_PREFIX}OMG"
 
     async def add_size_label(self, pull_request: PullRequest) -> None:
         """Add a size label to the pull request based on its additions and deletions."""
