@@ -100,7 +100,6 @@ class TestLabelsHandler:
 
         result = labels_handler.get_size(pull_request=pull_request)
 
-        # Should handle None additions gracefully
         assert result.startswith(SIZE_LABEL_PREFIX)
 
     def test_get_size_none_deletions(self, labels_handler: LabelsHandler) -> None:
@@ -111,7 +110,6 @@ class TestLabelsHandler:
 
         result = labels_handler.get_size(pull_request=pull_request)
 
-        # Should handle None deletions gracefully
         assert result.startswith(SIZE_LABEL_PREFIX)
 
     def test_get_size_both_none(self, labels_handler: LabelsHandler) -> None:
@@ -122,7 +120,6 @@ class TestLabelsHandler:
 
         result = labels_handler.get_size(pull_request=pull_request)
 
-        # Should default to XS when both are None
         assert result == f"{SIZE_LABEL_PREFIX}XS"
 
     @pytest.mark.asyncio

@@ -69,13 +69,11 @@ class LabelsHandler:
             self.logger.debug(f"{self.log_prefix} Label {label} already assign")
             return
 
-        # Handle static labels first (includes default size labels)
         if label in STATIC_LABELS_DICT:
             self.logger.info(f"{self.log_prefix} Adding pull request label {label}")
             await asyncio.to_thread(pull_request.add_to_labels, label)
             return
 
-        # Determine color for the label
         color = self._get_label_color(label)
         _with_color_msg = f"repository label {label} with color {color}"
 
@@ -111,11 +109,9 @@ class LabelsHandler:
         For other dynamic labels, uses the DYNAMIC_LABELS_DICT.
         Falls back to default color if not found.
         """
-        # Check if it's a custom size label
         if label.startswith(SIZE_LABEL_PREFIX):
             size_name = label[len(SIZE_LABEL_PREFIX) :]
 
-            # Get custom thresholds and find the color for this size
             thresholds = self._get_custom_pr_size_thresholds()
             for threshold, label_name, color_hex in thresholds:
                 if label_name == size_name:
@@ -126,12 +122,10 @@ class LabelsHandler:
             if label in STATIC_LABELS_DICT:
                 return STATIC_LABELS_DICT[label]
 
-        # Check dynamic labels dict for other label types
         _color = [DYNAMIC_LABELS_DICT[_label] for _label in DYNAMIC_LABELS_DICT if _label in label]
         if _color:
             return _color[0]
 
-        # Default fallback color
         return "D4C5F9"
 
     def _get_color_hex(self, color_name: str, default_color: str = "lightgray") -> str:
@@ -157,7 +151,6 @@ class LabelsHandler:
         custom_config = self.github_webhook.config.get_value("pr-size-thresholds", return_on_none=None)
 
         if not custom_config:
-            # Return static defaults with their colors
             return [
                 (20, "XS", "ededed"),
                 (50, "S", "0E8A16"),
@@ -167,7 +160,6 @@ class LabelsHandler:
                 (float("inf"), "XXL", "B60205"),
             ]
 
-        # Parse custom configuration
         thresholds = []
         for label_name, config in custom_config.items():
             threshold = config.get("threshold")
