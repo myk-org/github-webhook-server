@@ -73,6 +73,7 @@ dependencies = [
   "uvicorn>=0.31.0",
   "httpx>=0.28.1",
   "asyncstdlib>=3.13.1",
+  "webcolors>=24.11.1",
 ]
 
 [[project.authors]]

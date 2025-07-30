@@ -66,6 +66,7 @@ GitHub Events → Webhook Server → Repository Management
 
 - **Intelligent reviewer assignment** based on OWNERS files
 - **Automated labeling** including size calculation and status tracking
+- **Configurable PR size labels** with custom names, thresholds, and colors
 - **Merge readiness validation** with comprehensive checks
 - **Issue tracking** with automatic creation and lifecycle management
 
@@ -233,6 +234,21 @@ auto-verified-and-merged-users:
   - "renovate[bot]"
   - "dependabot[bot]"
 
+# Global PR Size Labels (optional)
+pr-size-thresholds:
+  Tiny:
+    threshold: 10
+    color: lightgray
+  Small:
+    threshold: 50
+    color: green
+  Medium:
+    threshold: 150
+    color: orange
+  Large:
+    threshold: 300
+    color: red
+
 # Docker Registry Access
 docker:
   username: your-docker-username
@@ -277,6 +293,18 @@ repositories:
     can-be-merged-required-labels:
       - "approved"
 
+    # Repository-specific PR Size Labels (overrides global)
+    pr-size-thresholds:
+      Express:
+        threshold: 25
+        color: lightblue
+      Standard:
+        threshold: 100
+        color: green
+      Premium:
+        threshold: 500
+        color: orange
+
     # Branch Protection
     protected-branches:
       main:
@@ -293,6 +321,65 @@ repositories:
     auto-verified-and-merged-users:
       - "trusted-bot[bot]"
 ```
+
+### Configurable PR Size Labels
+
+The webhook server supports configurable pull request size labels with custom names, thresholds, and colors. This feature allows repository administrators to define their own categorization system.
+
+#### Configuration Options
+
+```yaml
+# Global configuration (applies to all repositories)
+pr-size-thresholds:
+  Tiny:
+    threshold: 10     # Required: positive integer (lines changed)
+    color: lightgray  # Optional: CSS3 color name, defaults to lightgray
+  Small:
+    threshold: 50
+    color: green
+  Medium:
+    threshold: 150
+    color: orange
+  Large:
+    threshold: 300
+    color: red
+
+# Repository-specific configuration (overrides global)
+repositories:
+  my-project:
+    name: my-org/my-project
+    pr-size-thresholds:
+      Express:
+        threshold: 25
+        color: lightblue
+      Standard:
+        threshold: 100
+        color: green
+      Premium:
+        threshold: 500
+        color: orange
+```
+
+#### Configuration Rules
+
+- **threshold**: Required positive integer representing total lines changed (additions + deletions)
+- **color**: Optional CSS3 color name (e.g., `red`, `green`, `orange`, `lightblue`, `darkred`)
+- **Label Names**: Any string (e.g., `Tiny`, `Express`, `Premium`, `Critical`)
+- **Hierarchy**: Repository-level configuration overrides global configuration
+- **Fallback**: If no custom configuration is provided, uses default static labels (XS, S, M, L, XL, XXL)
+
+#### Supported Color Names
+
+Any valid CSS3 color name is supported, including:
+- Basic colors: `red`, `green`, `blue`, `orange`, `yellow`, `purple`
+- Extended colors: `lightgray`, `darkred`, `lightblue`, `darkorange`
+- Grayscale: `black`, `white`, `gray`, `lightgray`, `darkgray`
+
+Invalid color names automatically fall back to `lightgray`.
+
+#### Real-time Updates
+
+Configuration changes take effect immediately without server restart. The webhook server re-reads configuration for each incoming webhook event.
 
 ### Repository-Level Overrides
 
@@ -312,6 +399,18 @@ set-auto-merge-prs:
   - develop
 pre-commit: true
 conventional-title: "feat,fix,docs"
+
+# Custom PR size labels for this repository
+pr-size-thresholds:
+  Quick:
+    threshold: 20
+    color: lightgreen
+  Normal:
+    threshold: 100
+    color: green
+  Complex:
+    threshold: 300
+    color: orange
 ```
 
 For a comprehensive example showing all available options, see [`examples/.github-webhook-server.yaml`](examples/.github-webhook-server.yaml).

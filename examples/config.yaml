@@ -28,6 +28,24 @@ auto-verified-and-merged-users:
 
 create-issue-for-new-pr: true  # Global default: create tracking issues for new PRs
 
+# Global PR size label configuration (optional)
+# Define custom categories based on total lines changed (additions + deletions)
+# threshold: positive integer representing minimum lines changed for this category
+# color: CSS3 color name (e.g., red, green, blue, lightgray, darkorange)
+pr-size-thresholds:
+  Tiny:
+    threshold: 10      # PRs with 0-9 lines changed
+    color: lightgray
+  Small:
+    threshold: 50      # PRs with 10-49 lines changed
+    color: green
+  Medium:
+    threshold: 150     # PRs with 50-149 lines changed
+    color: orange
+  Large:
+    threshold: 300     # PRs with 150-299 lines changed
+    color: red         # PRs with 300+ lines changed get this category
+
 branch-protection:
   strict: True
   require_code_owner_reviews: True
@@ -100,5 +118,18 @@ repositories:
 
     minimum-lgtm: 0 # The minimum PR lgtm required before approve the PR
     create-issue-for-new-pr: true # Override global setting: create tracking issues for new PRs (default: true)
+
+    # Repository-specific PR size labels (overrides global configuration)
+    pr-size-thresholds:
+      Express:
+        threshold: 25      # PRs with 0-24 lines changed
+        color: lightblue
+      Standard:
+        threshold: 100     # PRs with 25-99 lines changed
+        color: green
+      Premium:
+        threshold: 500     # PRs with 100-499 lines changed
+        color: orange      # PRs with 500+ lines changed get this category
+
     set-auto-merge-prs:
       - main

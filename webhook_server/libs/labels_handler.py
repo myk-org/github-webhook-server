@@ -1,6 +1,7 @@
 import asyncio
 from typing import TYPE_CHECKING
 
+import webcolors
 from github.GithubException import UnknownObjectException
 from github.PullRequest import PullRequest
 from timeout_sampler import TimeoutWatch
@@ -68,14 +69,14 @@ class LabelsHandler:
             self.logger.debug(f"{self.log_prefix} Label {label} already assign")
             return
 
+        # Handle static labels first (includes default size labels)
         if label in STATIC_LABELS_DICT:
             self.logger.info(f"{self.log_prefix} Adding pull request label {label}")
             await asyncio.to_thread(pull_request.add_to_labels, label)
             return
 
-        _color = [DYNAMIC_LABELS_DICT[_label] for _label in DYNAMIC_LABELS_DICT if _label in label]
-        self.logger.debug(f"{self.log_prefix} Label {label} was {'found' if _color else 'not found'} in labels dict")
-        color = _color[0] if _color else "D4C5F9"
+        # Determine color for the label
+        color = self._get_label_color(label)
         _with_color_msg = f"repository label {label} with color {color}"
 
         try:
@@ -103,6 +104,91 @@ class LabelsHandler:
         self.logger.debug(f"{self.log_prefix} Label {label} {'not found' if exists else 'found'}")
         return False
 
+    def _get_label_color(self, label: str) -> str:
+        """Get the appropriate color for a label.
+
+        For size labels with custom thresholds, uses the custom color.
+        For other dynamic labels, uses the DYNAMIC_LABELS_DICT.
+        Falls back to default color if not found.
+        """
+        # Check if it's a custom size label
+        if label.startswith(SIZE_LABEL_PREFIX):
+            size_name = label[len(SIZE_LABEL_PREFIX) :]
+
+            # Get custom thresholds and find the color for this size
+            thresholds = self._get_custom_pr_size_thresholds()
+            for threshold, label_name, color_hex in thresholds:
+                if label_name == size_name:
+                    return color_hex
+
+            # If not found in custom thresholds, check static labels dict
+            # (for backward compatibility with static size labels)
+            if label in STATIC_LABELS_DICT:
+                return STATIC_LABELS_DICT[label]
+
+        # Check dynamic labels dict for other label types
+        _color = [DYNAMIC_LABELS_DICT[_label] for _label in DYNAMIC_LABELS_DICT if _label in label]
+        if _color:
+            return _color[0]
+
+        # Default fallback color
+        return "D4C5F9"
+
+    def _get_color_hex(self, color_name: str, default_color: str = "lightgray") -> str:
+        """Convert CSS3 color name to hex value, with fallback to default."""
+        try:
+            # Remove '#' prefix if present and convert to hex
+            return webcolors.name_to_hex(color_name).lstrip("#")
+        except ValueError:
+            # Invalid color name, use default
+            self.logger.debug(f"{self.log_prefix} Invalid color name '{color_name}', using default '{default_color}'")
+            try:
+                return webcolors.name_to_hex(default_color).lstrip("#")
+            except ValueError:
+                # Fallback to hardcoded hex if default color name fails
+                return "d3d3d3"  # lightgray hex
+
+    def _get_custom_pr_size_thresholds(self) -> list[tuple[int | float, str, str]]:
+        """Get custom PR size thresholds from configuration with fallback to static defaults.
+
+        Returns:
+            List of tuples (threshold, label_name, color_hex) sorted by threshold.
+        """
+        custom_config = self.github_webhook.config.get_value("pr-size-thresholds", return_on_none=None)
+
+        if not custom_config:
+            # Return static defaults with their colors
+            return [
+                (20, "XS", "ededed"),
+                (50, "S", "0E8A16"),
+                (100, "M", "F09C74"),
+                (300, "L", "F5621C"),
+                (500, "XL", "D93F0B"),
+                (float("inf"), "XXL", "B60205"),
+            ]
+
+        # Parse custom configuration
+        thresholds = []
+        for label_name, config in custom_config.items():
+            threshold = config.get("threshold")
+            if threshold is None or not isinstance(threshold, int) or threshold <= 0:
+                self.logger.warning(f"{self.log_prefix} Invalid threshold for '{label_name}': {threshold}")
+                continue
+
+            color_name = config.get("color", "lightgray")
+            color_hex = self._get_color_hex(color_name)
+
+            thresholds.append((threshold, label_name, color_hex))
+
+        # Sort by threshold value and ensure we have at least one threshold
+        sorted_thresholds = sorted(thresholds, key=lambda x: x[0])
+
+        if not sorted_thresholds:
+            self.logger.warning(f"{self.log_prefix} No valid custom thresholds found, using static defaults")
+            return self._get_custom_pr_size_thresholds()  # Recursive call will return static defaults
+
+        return sorted_thresholds
+
     def get_size(self, pull_request: PullRequest) -> str:
         """Calculates size label based on additions and deletions."""
 
@@ -112,16 +198,21 @@ class LabelsHandler:
         size = additions + deletions
         self.logger.debug(f"{self.log_prefix} PR size is {size} (additions: {additions}, deletions: {deletions})")
 
-        # Define label thresholds in a more readable way
-        threshold_sizes = [20, 50, 100, 300, 500, 1000]
-        prefixes = ["XS", "S", "M", "L", "XL"]
+        # Get custom or default thresholds
+        thresholds = self._get_custom_pr_size_thresholds()
 
-        for i, size_threshold in enumerate(threshold_sizes):
-            if size < size_threshold:
-                _label = prefixes[i]
-                return f"{SIZE_LABEL_PREFIX}{_label}"
+        # Find the appropriate size category
+        for threshold, label_name, _ in thresholds:
+            if size < threshold:
+                return f"{SIZE_LABEL_PREFIX}{label_name}"
 
-        return f"{SIZE_LABEL_PREFIX}OMG"
+        # If we reach here, PR is larger than all thresholds, use the largest category
+        if thresholds:
+            _, largest_label, _ = thresholds[-1]
+            return f"{SIZE_LABEL_PREFIX}{largest_label}"
+
+        # Fallback (should not happen due to our default handling)
+        return f"{SIZE_LABEL_PREFIX}XL"
 
     async def add_size_label(self, pull_request: PullRequest) -> None:
         """Add a size label to the pull request based on its additions and deletions."""
