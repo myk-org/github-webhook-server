@@ -67,6 +67,23 @@ properties:
     description: Create a tracking issue for new pull requests (global default)
     default: true
 
+  pr-size-thresholds:
+    type: object
+    description: Custom PR size thresholds with label names and colors
+    additionalProperties:
+      type: object
+      properties:
+        threshold:
+          type: integer
+          minimum: 1
+          description: Minimum number of changes (additions + deletions) for this size category
+        color:
+          type: string
+          description: CSS3 color name for the label (e.g., 'green', 'red', 'orange')
+      required:
+        - threshold
+      additionalProperties: false
+
   branch-protection:
     type: object
     properties:
@@ -227,3 +244,19 @@ properties:
           type: boolean
           description: Create a tracking issue for new pull requests
           default: true
+        pr-size-thresholds:
+          type: object
+          description: Custom PR size thresholds with label names and colors (repository-specific override)
+          additionalProperties:
+            type: object
+            properties:
+              threshold:
+                type: integer
+                minimum: 1
+                description: Minimum number of changes (additions + deletions) for this size category
+              color:
+                type: string
+                description: CSS3 color name for the label (e.g., 'green', 'red', 'orange')
+            required:
+              - threshold
+            additionalProperties: false

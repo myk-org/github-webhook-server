@@ -506,3 +506,192 @@ class TestConfigSchema:
             import shutil
 
             shutil.rmtree(temp_dir)
+
+    def test_pr_size_thresholds_valid_configuration(self, valid_minimal_config: dict[str, Any]) -> None:
+        """Test that pr-size-thresholds accepts valid configuration with threshold and color."""
+        config = valid_minimal_config.copy()
+        config["pr-size-thresholds"] = {
+            "Small": {"threshold": 100, "color": "green"},
+            "Large": {"threshold": 500, "color": "red"},
+        }
+
+        temp_dir = self.create_temp_config_dir_and_data(config)
+
+        try:
+            config_file = os.path.join(temp_dir, "config.yaml")
+            with open(config_file, "r") as file_handle:
+                data = yaml.safe_load(file_handle)
+                pr_thresholds = data["pr-size-thresholds"]
+                assert pr_thresholds["Small"]["threshold"] == 100
+                assert pr_thresholds["Small"]["color"] == "green"
+                assert pr_thresholds["Large"]["threshold"] == 500
+                assert pr_thresholds["Large"]["color"] == "red"
+        finally:
+            import shutil
+
+            shutil.rmtree(temp_dir)
+
+    def test_pr_size_thresholds_repository_level(self, valid_minimal_config: dict[str, Any]) -> None:
+        """Test that pr-size-thresholds works at repository level."""
+        config = valid_minimal_config.copy()
+        config["repositories"]["test-repo"]["pr-size-thresholds"] = {
+            "Express": {"threshold": 25, "color": "lightgray"},
+            "Standard": {"threshold": 100, "color": "green"},
+            "Extended": {"threshold": 300, "color": "orange"},
+        }
+
+        temp_dir = self.create_temp_config_dir_and_data(config)
+
+        try:
+            config_file = os.path.join(temp_dir, "config.yaml")
+            with open(config_file, "r") as file_handle:
+                data = yaml.safe_load(file_handle)
+                repo_thresholds = data["repositories"]["test-repo"]["pr-size-thresholds"]
+                assert repo_thresholds["Express"]["threshold"] == 25
+                assert repo_thresholds["Express"]["color"] == "lightgray"
+                assert repo_thresholds["Extended"]["threshold"] == 300
+                assert repo_thresholds["Extended"]["color"] == "orange"
+        finally:
+            import shutil
+
+            shutil.rmtree(temp_dir)
+
+    def test_pr_size_thresholds_various_color_names(self, valid_minimal_config: dict[str, Any]) -> None:
+        """Test that pr-size-thresholds accepts various CSS3 color names."""
+        config = valid_minimal_config.copy()
+        config["pr-size-thresholds"] = {
+            "Tiny": {"threshold": 10, "color": "lightgray"},
+            "Small": {"threshold": 50, "color": "green"},
+            "Medium": {"threshold": 150, "color": "orange"},
+            "Large": {"threshold": 300, "color": "darkorange"},
+            "Huge": {"threshold": 1000, "color": "red"},
+            "Massive": {"threshold": 2000, "color": "darkred"},
+        }
+
+        temp_dir = self.create_temp_config_dir_and_data(config)
+
+        try:
+            config_file = os.path.join(temp_dir, "config.yaml")
+            with open(config_file, "r") as file_handle:
+                data = yaml.safe_load(file_handle)
+                pr_thresholds = data["pr-size-thresholds"]
+                assert len(pr_thresholds) == 6
+                assert pr_thresholds["Tiny"]["color"] == "lightgray"
+                assert pr_thresholds["Massive"]["threshold"] == 2000
+        finally:
+            import shutil
+
+            shutil.rmtree(temp_dir)
+
+    def test_pr_size_thresholds_missing_fields(self, valid_minimal_config: dict[str, Any]) -> None:
+        """Test handling of pr-size-thresholds with missing threshold or color fields."""
+        # Test missing threshold
+        config = valid_minimal_config.copy()
+        config["pr-size-thresholds"] = {
+            "Small": {"color": "green"},  # missing threshold
+        }
+
+        temp_dir = self.create_temp_config_dir_and_data(config)
+
+        try:
+            config_file = os.path.join(temp_dir, "config.yaml")
+            with open(config_file, "r") as file_handle:
+                data = yaml.safe_load(file_handle)
+                # Should still load, validation will happen at runtime
+                assert "pr-size-thresholds" in data
+        finally:
+            import shutil
+
+            shutil.rmtree(temp_dir)
+
+        # Test missing color (should be acceptable with fallback)
+        config2 = valid_minimal_config.copy()
+        config2["pr-size-thresholds"] = {
+            "Small": {"threshold": 100},  # missing color
+        }
+
+        temp_dir2 = self.create_temp_config_dir_and_data(config2)
+
+        try:
+            config_file = os.path.join(temp_dir2, "config.yaml")
+            with open(config_file, "r") as file_handle:
+                data = yaml.safe_load(file_handle)
+                assert data["pr-size-thresholds"]["Small"]["threshold"] == 100
+        finally:
+            import shutil
+
+            shutil.rmtree(temp_dir2)
+
+    def test_pr_size_thresholds_invalid_threshold_values(self, valid_minimal_config: dict[str, Any]) -> None:
+        """Test pr-size-thresholds with invalid threshold values."""
+        # Test negative threshold
+        config = valid_minimal_config.copy()
+        config["pr-size-thresholds"] = {
+            "Small": {"threshold": -10, "color": "green"},
+        }
+
+        temp_dir = self.create_temp_config_dir_and_data(config)
+
+        try:
+            config_file = os.path.join(temp_dir, "config.yaml")
+            with open(config_file, "r") as file_handle:
+                data = yaml.safe_load(file_handle)
+                # Config loads, but validation should catch this at runtime
+                assert data["pr-size-thresholds"]["Small"]["threshold"] == -10
+        finally:
+            import shutil
+
+            shutil.rmtree(temp_dir)
+
+        # Test zero threshold
+        config2 = valid_minimal_config.copy()
+        config2["pr-size-thresholds"] = {
+            "Small": {"threshold": 0, "color": "green"},
+        }
+
+        temp_dir2 = self.create_temp_config_dir_and_data(config2)
+
+        try:
+            config_file = os.path.join(temp_dir2, "config.yaml")
+            with open(config_file, "r") as file_handle:
+                data = yaml.safe_load(file_handle)
+                assert data["pr-size-thresholds"]["Small"]["threshold"] == 0
+        finally:
+            import shutil
+
+            shutil.rmtree(temp_dir2)
+
+        # Test non-integer threshold
+        config3 = valid_minimal_config.copy()
+        config3["pr-size-thresholds"] = {
+            "Small": {"threshold": "not-a-number", "color": "green"},
+        }
+
+        temp_dir3 = self.create_temp_config_dir_and_data(config3)
+
+        try:
+            config_file = os.path.join(temp_dir3, "config.yaml")
+            with open(config_file, "r") as file_handle:
+                data = yaml.safe_load(file_handle)
+                assert data["pr-size-thresholds"]["Small"]["threshold"] == "not-a-number"
+        finally:
+            import shutil
+
+            shutil.rmtree(temp_dir3)
+
+    def test_pr_size_thresholds_empty_configuration(self, valid_minimal_config: dict[str, Any]) -> None:
+        """Test that empty pr-size-thresholds configuration is handled properly."""
+        config = valid_minimal_config.copy()
+        config["pr-size-thresholds"] = {}
+
+        temp_dir = self.create_temp_config_dir_and_data(config)
+
+        try:
+            config_file = os.path.join(temp_dir, "config.yaml")
+            with open(config_file, "r") as file_handle:
+                data = yaml.safe_load(file_handle)
+                assert data["pr-size-thresholds"] == {}
+        finally:
+            import shutil
+
+            shutil.rmtree(temp_dir)

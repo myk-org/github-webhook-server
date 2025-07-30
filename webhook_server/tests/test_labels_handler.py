@@ -46,6 +46,9 @@ class TestLabelsHandler:
         webhook.repository = Mock()
         webhook.log_prefix = "[TEST]"
         webhook.logger = Mock()
+        # Configure config.get_value to return None for pr-size-thresholds by default
+        # This ensures existing tests use static defaults
+        webhook.config.get_value.return_value = None
         return webhook
 
     @pytest.fixture
@@ -724,3 +727,208 @@ class TestLabelsHandler:
         labels = ["other-label1", "other-label2"]
         result = labels_handler.wip_or_hold_lables_exists(labels)
         assert result == ""
+
+    def test_get_custom_pr_size_thresholds_config_available(self, mock_github_webhook: Mock) -> None:
+        """Test parsing custom PR size thresholds from configuration."""
+        # Mock config returning custom thresholds
+        mock_github_webhook.config.get_value.return_value = {
+            "Small": {"threshold": 100, "color": "green"},
+            "Large": {"threshold": 500, "color": "red"},
+        }
+
+        labels_handler = LabelsHandler(github_webhook=mock_github_webhook, owners_file_handler=Mock())
+
+        # Create a method to get custom thresholds (will be implemented)
+        thresholds = labels_handler._get_custom_pr_size_thresholds()
+
+        expected = [
+            (100, "Small", "008000"),  # green hex
+            (500, "Large", "ff0000"),  # red hex
+        ]
+        assert thresholds == expected
+        mock_github_webhook.config.get_value.assert_called_once_with("pr-size-thresholds", return_on_none=None)
+
+    def test_get_custom_pr_size_thresholds_no_config(self, mock_github_webhook: Mock) -> None:
+        """Test fallback to static thresholds when no custom config available."""
+        # Mock config returning None (no custom thresholds)
+        mock_github_webhook.config.get_value.return_value = None
+
+        labels_handler = LabelsHandler(github_webhook=mock_github_webhook, owners_file_handler=Mock())
+
+        thresholds = labels_handler._get_custom_pr_size_thresholds()
+
+        # Should return static defaults
+        expected = [
+            (20, "XS", "ededed"),
+            (50, "S", "0E8A16"),
+            (100, "M", "F09C74"),
+            (300, "L", "F5621C"),
+            (500, "XL", "D93F0B"),
+            (float("inf"), "XXL", "B60205"),
+        ]
+        assert thresholds == expected
+
+    def test_get_custom_pr_size_thresholds_missing_color(self, mock_github_webhook: Mock) -> None:
+        """Test custom thresholds with missing color fallback to default."""
+        # Mock config with missing color
+        mock_github_webhook.config.get_value.return_value = {
+            "Small": {"threshold": 100},  # missing color
+            "Large": {"threshold": 500, "color": "red"},
+        }
+
+        labels_handler = LabelsHandler(github_webhook=mock_github_webhook, owners_file_handler=Mock())
+
+        thresholds = labels_handler._get_custom_pr_size_thresholds()
+
+        expected = [
+            (100, "Small", "d3d3d3"),  # lightgray hex
+            (500, "Large", "ff0000"),  # red hex
+        ]
+        assert thresholds == expected
+
+    def test_get_custom_pr_size_thresholds_invalid_color(self, mock_github_webhook: Mock) -> None:
+        """Test custom thresholds with invalid color fallback to default."""
+        # Mock config with invalid color
+        mock_github_webhook.config.get_value.return_value = {
+            "Small": {"threshold": 100, "color": "invalidcolor"},
+            "Large": {"threshold": 500, "color": "red"},
+        }
+
+        labels_handler = LabelsHandler(github_webhook=mock_github_webhook, owners_file_handler=Mock())
+
+        thresholds = labels_handler._get_custom_pr_size_thresholds()
+
+        expected = [
+            (100, "Small", "d3d3d3"),  # lightgray hex fallback
+            (500, "Large", "ff0000"),  # red hex
+        ]
+        assert thresholds == expected
+
+    def test_get_size_with_custom_thresholds(self, mock_github_webhook: Mock) -> None:
+        """Test get_size using custom thresholds."""
+        # Mock config with custom thresholds
+        mock_github_webhook.config.get_value.return_value = {
+            "Tiny": {"threshold": 10, "color": "lightgray"},
+            "Small": {"threshold": 50, "color": "green"},
+            "Large": {"threshold": 200, "color": "red"},
+        }
+
+        labels_handler = LabelsHandler(github_webhook=mock_github_webhook, owners_file_handler=Mock())
+
+        # Test various PR sizes
+        test_cases = [
+            (5, 0, "size/Tiny"),  # 5 < 10
+            (15, 0, "size/Small"),  # 15 >= 10 but < 50
+            (75, 0, "size/Large"),  # 75 >= 50 but < 200
+            (250, 0, "size/Large"),  # 250 >= 200 (largest category)
+        ]
+
+        for additions, deletions, expected in test_cases:
+            pull_request = Mock(spec=PullRequest)
+            pull_request.additions = additions
+            pull_request.deletions = deletions
+
+            result = labels_handler.get_size(pull_request=pull_request)
+            assert result == expected
+
+    def test_get_size_with_single_custom_threshold(self, mock_github_webhook: Mock) -> None:
+        """Test get_size with only one custom threshold."""
+        # Mock config with single threshold
+        mock_github_webhook.config.get_value.return_value = {
+            "Large": {"threshold": 100, "color": "red"},
+        }
+
+        labels_handler = LabelsHandler(github_webhook=mock_github_webhook, owners_file_handler=Mock())
+
+        # Test PR sizes
+        test_cases = [
+            (50, 0, "size/Large"),  # 50 < 100 but still gets Large (only category)
+            (150, 0, "size/Large"),  # 150 >= 100, gets Large
+        ]
+
+        for additions, deletions, expected in test_cases:
+            pull_request = Mock(spec=PullRequest)
+            pull_request.additions = additions
+            pull_request.deletions = deletions
+
+            result = labels_handler.get_size(pull_request=pull_request)
+            assert result == expected
+
+    def test_custom_threshold_sorting(self, mock_github_webhook: Mock) -> None:
+        """Test that custom thresholds are properly sorted by threshold value."""
+        # Mock config with unsorted thresholds
+        mock_github_webhook.config.get_value.return_value = {
+            "Large": {"threshold": 300, "color": "red"},
+            "Small": {"threshold": 50, "color": "green"},
+            "Medium": {"threshold": 150, "color": "orange"},
+        }
+
+        labels_handler = LabelsHandler(github_webhook=mock_github_webhook, owners_file_handler=Mock())
+
+        thresholds = labels_handler._get_custom_pr_size_thresholds()
+
+        # Should be sorted by threshold value
+        expected = [
+            (50, "Small", "008000"),  # green hex
+            (150, "Medium", "ffa500"),  # orange hex
+            (300, "Large", "ff0000"),  # red hex
+        ]
+        assert thresholds == expected
+
+    def test_get_label_color_custom_size_label(self, mock_github_webhook: Mock) -> None:
+        """Test _get_label_color for custom size labels."""
+        # Mock config with custom thresholds
+        mock_github_webhook.config.get_value.return_value = {
+            "Small": {"threshold": 100, "color": "green"},
+            "Large": {"threshold": 500, "color": "red"},
+        }
+
+        labels_handler = LabelsHandler(github_webhook=mock_github_webhook, owners_file_handler=Mock())
+
+        # Test custom size label colors
+        assert labels_handler._get_label_color("size/Small") == "008000"  # green hex
+        assert labels_handler._get_label_color("size/Large") == "ff0000"  # red hex
+
+    def test_get_label_color_static_size_label(self, mock_github_webhook: Mock) -> None:
+        """Test _get_label_color falls back to static size labels when no custom config."""
+        # Mock config returning None (no custom thresholds)
+        mock_github_webhook.config.get_value.return_value = None
+
+        labels_handler = LabelsHandler(github_webhook=mock_github_webhook, owners_file_handler=Mock())
+
+        # Test static size label colors (should fall back to STATIC_LABELS_DICT)
+        assert labels_handler._get_label_color("size/XS") == "ededed"
+        assert labels_handler._get_label_color("size/S") == "0E8A16"
+        assert labels_handler._get_label_color("size/M") == "F09C74"
+
+    def test_get_label_color_dynamic_label(self, mock_github_webhook: Mock) -> None:
+        """Test _get_label_color for dynamic labels (non-size)."""
+        mock_github_webhook.config.get_value.return_value = None
+
+        labels_handler = LabelsHandler(github_webhook=mock_github_webhook, owners_file_handler=Mock())
+
+        # Test dynamic label colors
+        assert labels_handler._get_label_color("approved-user1") == "0E8A16"  # APPROVED_BY_LABEL_PREFIX
+        assert labels_handler._get_label_color("lgtm-user2") == "DCED6F"  # LGTM_BY_LABEL_PREFIX
+
+    def test_get_label_color_fallback(self, mock_github_webhook: Mock) -> None:
+        """Test _get_label_color fallback to default color."""
+        mock_github_webhook.config.get_value.return_value = None
+
+        labels_handler = LabelsHandler(github_webhook=mock_github_webhook, owners_file_handler=Mock())
+
+        # Test unknown label falls back to default
+        assert labels_handler._get_label_color("unknown-label") == "D4C5F9"
+
+    def test_get_label_color_custom_size_not_found(self, mock_github_webhook: Mock) -> None:
+        """Test _get_label_color when custom size label not found in thresholds."""
+        # Mock config with custom thresholds but missing the requested size
+        mock_github_webhook.config.get_value.return_value = {
+            "Small": {"threshold": 100, "color": "green"},
+        }
+
+        labels_handler = LabelsHandler(github_webhook=mock_github_webhook, owners_file_handler=Mock())
+
+        # Test size label not in custom config - should fall back to static if exists
+        # This would be the case where user has custom config but requests a static size
+        assert labels_handler._get_label_color("size/XL") == "D93F0B"  # Falls back to STATIC_LABELS_DICT
