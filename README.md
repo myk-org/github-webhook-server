@@ -249,6 +249,8 @@ pr-size-thresholds:
     threshold: 300
     color: red
 
+# Threshold rules: PRs with changes ≥ threshold and < next-threshold get that label
+
 # Docker Registry Access
 docker:
   username: your-docker-username
@@ -293,7 +295,7 @@ repositories:
     can-be-merged-required-labels:
       - "approved"
 
-    # Repository-specific PR Size Labels (overrides global)
+    # Repository-specific PR Size Labels (see global example above; values override at repository level)
     pr-size-thresholds:
       Express:
         threshold: 25
@@ -301,9 +303,6 @@ repositories:
       Standard:
         threshold: 100
         color: green
-      Premium:
-        threshold: 500
-        color: orange
 
     # Branch Protection
     protected-branches:
@@ -376,6 +375,7 @@ repositories:
 #### Supported Color Names
 
 Any valid CSS3 color name is supported, including:
+
 - Basic colors: `red`, `green`, `blue`, `orange`, `yellow`, `purple`
 - Extended colors: `lightgray`, `darkred`, `lightblue`, `darkorange`
 - Grayscale: `black`, `white`, `gray`, `lightgray`, `darkgray`
