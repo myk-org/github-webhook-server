@@ -324,7 +324,9 @@ repositories:
 
 ### Configurable PR Size Labels
 
-The webhook server supports configurable pull request size labels with custom names, thresholds, and colors. This feature allows repository administrators to define their own categorization system.
+The webhook server supports configurable pull request size labels with custom names,
+thresholds, and colors. This feature allows repository administrators to define
+their own categorization system.
 
 #### Configuration Options
 
@@ -362,11 +364,14 @@ repositories:
 
 #### Configuration Rules
 
-- **threshold**: Required positive integer representing total lines changed (additions + deletions)
-- **color**: Optional CSS3 color name (e.g., `red`, `green`, `orange`, `lightblue`, `darkred`)
+- **threshold**: Required positive integer representing total lines changed
+  (additions + deletions)
+- **color**: Optional CSS3 color name
+  (e.g., `red`, `green`, `orange`, `lightblue`, `darkred`)
 - **Label Names**: Any string (e.g., `Tiny`, `Express`, `Premium`, `Critical`)
 - **Hierarchy**: Repository-level configuration overrides global configuration
-- **Fallback**: If no custom configuration is provided, uses default static labels (XS, S, M, L, XL, XXL)
+- **Fallback**: If no custom configuration is provided, uses default static labels
+  (XS, S, M, L, XL, XXL)
 
 #### Supported Color Names
 
@@ -379,7 +384,8 @@ Invalid color names automatically fall back to `lightgray`.
 
 #### Real-time Updates
 
-Configuration changes take effect immediately without server restart. The webhook server re-reads configuration for each incoming webhook event.
+Configuration changes take effect immediately without server restart. The webhook
+server re-reads configuration for each incoming webhook event.
 
 ### Repository-Level Overrides
 
