@@ -38,8 +38,8 @@ class LogEntry:
 class LogParser:
     """Parser for webhook server log files."""
 
-    # Regex patterns for parsing
-    LOG_PATTERN = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - (\w+) - (\w+) - (.+)$")
+    # Regex patterns for parsing - matches actual log format: "2025-08-01T00:50:14.055497 main INFO message"
+    LOG_PATTERN = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+) (\w+) (\w+) (.+)$")
     HOOK_CONTEXT_PATTERN = re.compile(r"\[Event: ([^\]]+)\]\[Delivery: ([^\]]+)\]")
     PR_NUMBER_PATTERN = re.compile(r"(?:PR|pull request) #(\d+)")
     REPOSITORY_PATTERN = re.compile(r"(?:repository:|Repository) ([^\s,]+)")
@@ -63,9 +63,10 @@ class LogParser:
 
         timestamp_str, logger_name, level, message = match.groups()
 
-        # Parse timestamp
+        # Parse ISO 8601 timestamp
         try:
-            timestamp = datetime.datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S,%f")
+            # Handle format like "2025-08-01T00:50:14.055497"
+            timestamp = datetime.datetime.fromisoformat(timestamp_str)
         except ValueError:
             return None
 
