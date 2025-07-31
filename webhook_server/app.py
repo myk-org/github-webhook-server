@@ -7,6 +7,7 @@ import os
 import sys
 from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator
+import datetime
 
 import httpx
 import requests
@@ -17,12 +18,15 @@ from fastapi import (
     FastAPI,
     HTTPException,
     Request,
+    WebSocket,
     status,
 )
+from fastapi.responses import HTMLResponse, StreamingResponse
 
 from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import RepositoryNotFoundError
 from webhook_server.libs.github_api import GithubWebhook
+from webhook_server.libs.log_viewer import LogViewerController
 from webhook_server.utils.helpers import get_logger_with_params
 
 # Constants
@@ -276,3 +280,131 @@ async def process_webhook(request: Request, background_tasks: BackgroundTasks) -
         file_name = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1] if exc_tb else "unknown"
         error_details = f"Error type: {exc_type.__name__ if exc_type else ''}, File: {file_name}, Line: {line_no}"
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {error_details}")
+
+
+# Log Viewer Endpoints
+@FASTAPI_APP.get("/logs", response_class=HTMLResponse)
+def get_log_viewer_page() -> HTMLResponse:
+    """Serve the main log viewer HTML page."""
+    controller = LogViewerController(logger=LOGGER)
+    return controller.get_log_page()
+
+
+@FASTAPI_APP.get("/logs/api/entries")
+def get_log_entries(
+    hook_id: str | None = None,
+    pr_number: int | None = None,
+    repository: str | None = None,
+    event_type: str | None = None,
+    level: str | None = None,
+    start_time: str | None = None,
+    end_time: str | None = None,
+    search: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """Retrieve historical log entries with filtering and pagination."""
+    controller = LogViewerController(logger=LOGGER)
+
+    # Parse datetime strings if provided
+    start_datetime = None
+    end_datetime = None
+
+    if start_time:
+        try:
+            start_datetime = datetime.datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid start_time format (use ISO 8601)")
+
+    if end_time:
+        try:
+            end_datetime = datetime.datetime.fromisoformat(end_time.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid end_time format (use ISO 8601)")
+
+    return controller.get_log_entries(
+        hook_id=hook_id,
+        pr_number=pr_number,
+        repository=repository,
+        event_type=event_type,
+        level=level,
+        start_time=start_datetime,
+        end_time=end_datetime,
+        search=search,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@FASTAPI_APP.get("/logs/api/export")
+def export_logs(
+    format: str,
+    hook_id: str | None = None,
+    pr_number: int | None = None,
+    repository: str | None = None,
+    event_type: str | None = None,
+    level: str | None = None,
+    start_time: str | None = None,
+    end_time: str | None = None,
+    search: str | None = None,
+    limit: int = 10000,
+) -> StreamingResponse:
+    """Export filtered logs as CSV or JSON file."""
+    controller = LogViewerController(logger=LOGGER)
+
+    # Parse datetime strings if provided
+    start_datetime = None
+    end_datetime = None
+
+    if start_time:
+        try:
+            start_datetime = datetime.datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid start_time format (use ISO 8601)")
+
+    if end_time:
+        try:
+            end_datetime = datetime.datetime.fromisoformat(end_time.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid end_time format (use ISO 8601)")
+
+    return controller.export_logs(
+        format_type=format,
+        hook_id=hook_id,
+        pr_number=pr_number,
+        repository=repository,
+        event_type=event_type,
+        level=level,
+        start_time=start_datetime,
+        end_time=end_datetime,
+        search=search,
+        limit=limit,
+    )
+
+
+@FASTAPI_APP.get("/logs/api/pr-flow/{identifier}")
+def get_pr_flow_data(identifier: str) -> dict[str, Any]:
+    """Get PR flow visualization data for a specific hook ID or PR number."""
+    controller = LogViewerController(logger=LOGGER)
+    return controller.get_pr_flow_data(identifier)
+
+
+@FASTAPI_APP.websocket("/logs/ws")
+async def websocket_log_stream(
+    websocket: WebSocket,
+    hook_id: str | None = None,
+    pr_number: int | None = None,
+    repository: str | None = None,
+    event_type: str | None = None,
+    level: str | None = None,
+) -> None:
+    """Handle WebSocket connection for real-time log streaming."""
+    controller = LogViewerController(logger=LOGGER)
+    await controller.handle_websocket(
+        websocket=websocket,
+        hook_id=hook_id,
+        pr_number=pr_number,
+        repository=repository,
+        event_type=event_type,
+        level=level,
+    )

@@ -198,16 +198,23 @@ class LogParser:
         if not log_dir.exists() or not log_dir.is_dir():
             return
 
-        # Find all existing log files
-        log_files = list(log_dir.glob(pattern))
+        # Find all existing log files including rotated ones
+        log_files: list[Path] = []
+        log_files.extend(log_dir.glob("*.log"))
+        # Only monitor current log file, not rotated ones for real-time
+        current_log_files = [
+            f for f in log_files if not any(f.name.endswith(ext) for ext in [".1", ".2", ".3", ".4", ".5"])
+        ]
 
-        if not log_files:
+        if not current_log_files:
             return
 
-        # For simplicity, monitor the first log file found
-        # In a full implementation, we would use a more sophisticated approach
-        # to monitor multiple files concurrently
-        async for entry in self.tail_log_file(log_files[0], follow=True):
+        # Monitor the most recent current log file (not rotated)
+        # Sort by modification time to get the most recent file
+        current_log_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+        most_recent_file = current_log_files[0]
+
+        async for entry in self.tail_log_file(most_recent_file, follow=True):
             yield entry
 
 
