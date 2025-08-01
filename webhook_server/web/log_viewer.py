@@ -1255,6 +1255,7 @@ class LogViewerController:
         // Auto-show timeline when hook ID filter is applied
         function checkForTimelineDisplay() {
             const hookId = document.getElementById('hookIdFilter').value.trim();
+            console.log('checkForTimelineDisplay called with hookId:', hookId);
             if (hookId) {
                 showTimeline(hookId);
             } else {
@@ -1262,12 +1263,11 @@ class LogViewerController:
             }
         }
 
-        // Override the existing debounceFilter to also check for timeline
-        const originalDebounceFilter = debounceFilter;
-        debounceFilter = function() {
-            originalDebounceFilter();
-            checkForTimelineDisplay();
-        };
+        // Add timeline check to hook ID filter specifically
+        document.getElementById('hookIdFilter').addEventListener('input', () => {
+            console.log('hookIdFilter input event fired');
+            setTimeout(checkForTimelineDisplay, 300); // Small delay to let the value settle
+        });
 
         // Also check on initial load
         setTimeout(checkForTimelineDisplay, 1000);
