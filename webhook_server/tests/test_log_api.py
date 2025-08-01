@@ -67,7 +67,7 @@ class TestLogAPI:
 
     def test_get_logs_page(self) -> None:
         """Test serving the main log viewer HTML page."""
-        with patch("webhook_server.libs.log_viewer.LogViewerController") as mock_controller:
+        with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
             mock_instance = Mock()
             mock_controller.return_value = mock_instance
             mock_instance.get_log_page.return_value = "<html><body>Log Viewer</body></html>"
@@ -81,7 +81,7 @@ class TestLogAPI:
 
     def test_get_log_entries_no_filters(self, sample_log_entries: list[LogEntry]) -> None:
         """Test retrieving log entries without filters."""
-        with patch("webhook_server.libs.log_viewer.LogViewerController") as mock_controller:
+        with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
             mock_instance = Mock()
             mock_controller.return_value = mock_instance
             mock_instance.get_log_entries.return_value = {
@@ -100,7 +100,7 @@ class TestLogAPI:
 
     def test_get_log_entries_with_hook_id_filter(self, sample_log_entries: list[LogEntry]) -> None:
         """Test retrieving log entries filtered by hook ID."""
-        with patch("webhook_server.libs.log_viewer.LogViewerController") as mock_controller:
+        with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
             mock_instance = Mock()
             mock_controller.return_value = mock_instance
 
@@ -120,7 +120,7 @@ class TestLogAPI:
 
     def test_get_log_entries_with_pr_number_filter(self, sample_log_entries: list[LogEntry]) -> None:
         """Test retrieving log entries filtered by PR number."""
-        with patch("webhook_server.libs.log_viewer.LogViewerController") as mock_controller:
+        with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
             mock_instance = Mock()
             mock_controller.return_value = mock_instance
 
@@ -139,7 +139,7 @@ class TestLogAPI:
 
     def test_get_log_entries_with_pagination(self, sample_log_entries: list[LogEntry]) -> None:
         """Test retrieving log entries with pagination."""
-        with patch("webhook_server.libs.log_viewer.LogViewerController") as mock_controller:
+        with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
             mock_instance = Mock()
             mock_controller.return_value = mock_instance
 
@@ -160,7 +160,7 @@ class TestLogAPI:
 
     def test_get_log_entries_invalid_parameters(self) -> None:
         """Test error handling for invalid parameters."""
-        with patch("webhook_server.libs.log_viewer.LogViewerController") as mock_controller:
+        with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
             mock_instance = Mock()
             mock_controller.return_value = mock_instance
             mock_instance.get_log_entries.side_effect = ValueError("Invalid limit value")
@@ -171,7 +171,7 @@ class TestLogAPI:
 
     def test_get_log_entries_file_access_error(self) -> None:
         """Test error handling for file access errors."""
-        with patch("webhook_server.libs.log_viewer.LogViewerController") as mock_controller:
+        with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
             mock_instance = Mock()
             mock_controller.return_value = mock_instance
             mock_instance.get_log_entries.side_effect = OSError("Permission denied")
@@ -182,7 +182,7 @@ class TestLogAPI:
 
     def test_export_logs_csv_format(self, sample_log_entries: list[LogEntry]) -> None:
         """Test exporting logs in CSV format."""
-        with patch("webhook_server.libs.log_viewer.LogViewerController") as mock_controller:
+        with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
             mock_instance = Mock()
             mock_controller.return_value = mock_instance
 
@@ -197,7 +197,7 @@ class TestLogAPI:
 
     def test_export_logs_json_format(self, sample_log_entries: list[LogEntry]) -> None:
         """Test exporting logs in JSON format."""
-        with patch("webhook_server.libs.log_viewer.LogViewerController") as mock_controller:
+        with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
             mock_instance = Mock()
             mock_controller.return_value = mock_instance
 
@@ -211,7 +211,7 @@ class TestLogAPI:
 
     def test_export_logs_invalid_format(self) -> None:
         """Test error handling for invalid export format."""
-        with patch("webhook_server.libs.log_viewer.LogViewerController") as mock_controller:
+        with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
             mock_instance = Mock()
             mock_controller.return_value = mock_instance
             mock_instance.export_logs.side_effect = ValueError("Invalid format: xml")
@@ -222,7 +222,7 @@ class TestLogAPI:
 
     def test_export_logs_result_too_large(self) -> None:
         """Test error handling when export result is too large."""
-        with patch("webhook_server.libs.log_viewer.LogViewerController") as mock_controller:
+        with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
             mock_instance = Mock()
             mock_controller.return_value = mock_instance
             mock_instance.export_logs.side_effect = ValueError("Result set too large")
@@ -243,7 +243,7 @@ class TestLogWebSocket:
         mock_websocket.send_json = AsyncMock()
         mock_websocket.close = AsyncMock()
 
-        with patch("webhook_server.libs.log_viewer.LogViewerController") as mock_controller:
+        with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
             mock_instance = Mock()
             mock_controller.return_value = mock_instance
 
@@ -274,7 +274,7 @@ class TestLogWebSocket:
             pr_number=None,
         )
 
-        with patch("webhook_server.libs.log_viewer.LogViewerController") as mock_controller:
+        with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
             mock_instance = Mock()
             mock_controller.return_value = mock_instance
 
@@ -296,7 +296,7 @@ class TestLogWebSocket:
         mock_websocket.accept = AsyncMock()
         mock_websocket.query_params = {"hook_id": "test-hook", "level": "INFO"}
 
-        with patch("webhook_server.libs.log_viewer.LogViewerController") as mock_controller:
+        with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
             mock_instance = Mock()
             mock_controller.return_value = mock_instance
 
@@ -316,7 +316,7 @@ class TestLogWebSocket:
         mock_websocket.accept = AsyncMock()
         mock_websocket.send_json = AsyncMock(side_effect=WebSocketDisconnect())
 
-        with patch("webhook_server.libs.log_viewer.LogViewerController") as mock_controller:
+        with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
             mock_instance = Mock()
             mock_controller.return_value = mock_instance
 
@@ -340,7 +340,7 @@ class TestLogWebSocket:
         mock_websocket = AsyncMock()
         mock_websocket.close = AsyncMock()
 
-        with patch("webhook_server.libs.log_viewer.LogViewerController") as mock_controller:
+        with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
             mock_instance = Mock()
             mock_controller.return_value = mock_instance
 
@@ -362,7 +362,7 @@ class TestLogWebSocket:
             ws.accept = AsyncMock()
             ws.send_json = AsyncMock()
 
-        with patch("webhook_server.libs.log_viewer.LogViewerController") as mock_controller:
+        with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
             mock_instance = Mock()
             mock_controller.return_value = mock_instance
 
@@ -385,7 +385,7 @@ class TestLogWebSocket:
         mock_websocket.accept = AsyncMock()
         mock_websocket.close = AsyncMock()
 
-        with patch("webhook_server.libs.log_viewer.LogViewerController") as mock_controller:
+        with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
             mock_instance = Mock()
             mock_controller.return_value = mock_instance
 
@@ -408,7 +408,7 @@ class TestPRFlowAPI:
 
     def test_get_pr_flow_data_by_hook_id(self) -> None:
         """Test retrieving PR flow data by hook ID."""
-        with patch("webhook_server.libs.log_viewer.LogViewerController") as mock_controller:
+        with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
             mock_instance = Mock()
             mock_controller.return_value = mock_instance
 
@@ -446,7 +446,7 @@ class TestPRFlowAPI:
 
     def test_get_pr_flow_data_by_pr_number(self) -> None:
         """Test retrieving PR flow data by PR number."""
-        with patch("webhook_server.libs.log_viewer.LogViewerController") as mock_controller:
+        with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
             mock_instance = Mock()
             mock_controller.return_value = mock_instance
 
@@ -482,7 +482,7 @@ class TestPRFlowAPI:
 
     def test_get_pr_flow_data_not_found(self) -> None:
         """Test error handling when PR flow data is not found."""
-        with patch("webhook_server.libs.log_viewer.LogViewerController") as mock_controller:
+        with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
             mock_instance = Mock()
             mock_controller.return_value = mock_instance
             mock_instance.get_pr_flow_data.side_effect = ValueError("No data found for identifier")
@@ -493,7 +493,7 @@ class TestPRFlowAPI:
 
     def test_get_pr_flow_data_with_errors(self) -> None:
         """Test PR flow data with processing errors."""
-        with patch("webhook_server.libs.log_viewer.LogViewerController") as mock_controller:
+        with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
             mock_instance = Mock()
             mock_controller.return_value = mock_instance
 

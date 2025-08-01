@@ -14,11 +14,10 @@ class TestLogParser:
     """Test cases for LogParser class."""
 
     def test_parse_log_entry_with_hook_context(self) -> None:
-        """Test parsing log entry with GitHub delivery context."""
+        """Test parsing log entry with GitHub delivery context from prepare_log_prefix format."""
         log_line = (
-            "2025-07-31 10:30:00,123 - main - INFO - "
-            "[Event: pull_request][Delivery: abc123-def456] "
-            "Processing webhook for repository: test-repo"
+            "2025-07-31T10:30:00.123000 GithubWebhook INFO "
+            "test-repo [pull_request][abc123-def456][test-user]: Processing webhook"
         )
 
         parser = LogParser()
@@ -27,18 +26,18 @@ class TestLogParser:
         assert entry is not None
         assert entry.timestamp == datetime.datetime(2025, 7, 31, 10, 30, 0, 123000)
         assert entry.level == "INFO"
-        assert entry.logger_name == "main"
+        assert entry.logger_name == "GithubWebhook"
         assert entry.hook_id == "abc123-def456"
         assert entry.event_type == "pull_request"
-        assert entry.message == "Processing webhook for repository: test-repo"
+        assert entry.github_user == "test-user"
         assert entry.repository == "test-repo"
+        assert entry.message == "Processing webhook"
 
     def test_parse_log_entry_with_pr_number(self) -> None:
-        """Test parsing log entry containing PR number."""
+        """Test parsing log entry containing PR number from prepare_log_prefix format."""
         log_line = (
-            "2025-07-31 11:15:30,456 - main - DEBUG - "
-            "[Event: pull_request.opened][Delivery: xyz789] "
-            "Processing webhook for PR #123"
+            "2025-07-31T11:15:30.456000 GithubWebhook DEBUG "
+            "test-repo [pull_request.opened][xyz789][test-user][PR 123]: Processing webhook"
         )
 
         parser = LogParser()
@@ -47,12 +46,14 @@ class TestLogParser:
         assert entry is not None
         assert entry.hook_id == "xyz789"
         assert entry.event_type == "pull_request.opened"
+        assert entry.github_user == "test-user"
+        assert entry.repository == "test-repo"
         assert entry.pr_number == 123
-        assert "PR #123" in entry.message
+        assert entry.message == "Processing webhook"
 
     def test_parse_log_entry_without_hook_context(self) -> None:
         """Test parsing regular log entry without GitHub context."""
-        log_line = "2025-07-31 12:45:00,789 - helpers - WARNING - API rate limit remaining: 1500"
+        log_line = "2025-07-31T12:45:00.789000 helpers WARNING API rate limit remaining: 1500"
 
         parser = LogParser()
         entry = parser.parse_log_entry(log_line)
@@ -65,6 +66,72 @@ class TestLogParser:
         assert entry.event_type is None
         assert entry.pr_number is None
         assert entry.message == "API rate limit remaining: 1500"
+
+    def test_parse_production_log_entry_with_ansi_colors(self) -> None:
+        """Test parsing production log entry with ANSI color codes from prepare_log_prefix format."""
+        log_line = (
+            "2025-07-21T06:05:48.278206 GithubWebhook \x1b[32mINFO\x1b[0m "
+            "\x1b[38;5;160mgithub-webhook-server\x1b[0m [check_run][9948e8d0-65df-11f0-9e82-d8c2969b6368][myakove-bot]: Processing webhook\x1b[0m"
+        )
+
+        parser = LogParser()
+        entry = parser.parse_log_entry(log_line)
+
+        assert entry is not None
+        assert entry.timestamp == datetime.datetime(2025, 7, 21, 6, 5, 48, 278206)
+        assert entry.level == "INFO"
+        assert entry.logger_name == "GithubWebhook"
+        assert entry.hook_id == "9948e8d0-65df-11f0-9e82-d8c2969b6368"
+        assert entry.event_type == "check_run"
+        assert entry.github_user == "myakove-bot"
+        assert entry.repository == "github-webhook-server"
+        # Message should be cleaned of ANSI codes
+        assert entry.message == "Processing webhook"
+
+    def test_parse_production_log_entry_ansi_debug(self) -> None:
+        """Test parsing production DEBUG log entry with ANSI color codes from prepare_log_prefix format."""
+        log_line = (
+            "2025-07-21T06:05:48.290851 GithubWebhook \x1b[36mDEBUG\x1b[0m "
+            "\x1b[38;5;160mgithub-webhook-server\x1b[0m [check_run][9948e8d0-65df-11f0-9e82-d8c2969b6368][myakove-bot]: Signature verification successful\x1b[0m"
+        )
+
+        parser = LogParser()
+        entry = parser.parse_log_entry(log_line)
+
+        assert entry is not None
+        assert entry.timestamp == datetime.datetime(2025, 7, 21, 6, 5, 48, 290851)
+        assert entry.level == "DEBUG"
+        assert entry.logger_name == "GithubWebhook"
+        assert entry.hook_id == "9948e8d0-65df-11f0-9e82-d8c2969b6368"
+        assert entry.event_type == "check_run"
+        assert entry.github_user == "myakove-bot"
+        assert entry.repository == "github-webhook-server"
+        assert entry.message == "Signature verification successful"
+
+    def test_parse_production_log_with_complex_ansi(self) -> None:
+        """Test parsing production log with complex ANSI color codes and PR number from prepare_log_prefix format."""
+        log_line = (
+            "2025-07-21T06:05:53.415209 GithubWebhook \x1b[36mDEBUG\x1b[0m "
+            "\x1b[38;5;160mgithub-webhook-server\x1b[0m [check_run][96d21c70-65df-11f0-89ca-d82effeb540d]"
+            "[myakove-bot][PR 825]: Changed files: ['uv.lock']\x1b[0m"
+        )
+
+        parser = LogParser()
+        entry = parser.parse_log_entry(log_line)
+
+        assert entry is not None
+        assert entry.timestamp == datetime.datetime(2025, 7, 21, 6, 5, 53, 415209)
+        assert entry.level == "DEBUG"
+        assert entry.logger_name == "GithubWebhook"
+        assert entry.hook_id == "96d21c70-65df-11f0-89ca-d82effeb540d"
+        assert entry.event_type == "check_run"
+        assert entry.github_user == "myakove-bot"
+        assert entry.repository == "github-webhook-server"
+        assert entry.pr_number == 825
+        # Message should be cleaned of all ANSI codes
+        assert entry.message == "Changed files: ['uv.lock']"
+        assert "\x1b[36m" not in entry.message  # ANSI codes should be removed
+        assert "\x1b[0m" not in entry.message
 
     def test_parse_malformed_log_entry(self) -> None:
         """Test handling of malformed log entries."""
@@ -80,60 +147,14 @@ class TestLogParser:
             entry = parser.parse_log_entry(line)
             assert entry is None
 
-    def test_extract_hook_id_from_context(self) -> None:
-        """Test hook ID extraction from various context formats."""
-        test_cases = [
-            ("[Event: push][Delivery: abc123]", "abc123"),
-            ("[Event: pull_request.opened][Delivery: def456-ghi789]", "def456-ghi789"),
-            ("[Event: issue_comment][Delivery: 12345]", "12345"),
-            ("No context here", None),
-            ("[Event: push]", None),  # Missing delivery
-            ("[Delivery: xyz]", None),  # Missing event
-        ]
-
-        parser = LogParser()
-        for context, expected in test_cases:
-            result = parser._extract_hook_id(context)
-            assert result == expected
-
-    def test_extract_pr_number_from_message(self) -> None:
-        """Test PR number extraction from log messages."""
-        test_cases = [
-            ("Processing webhook for PR #123", 123),
-            ("Updated labels for pull request #456", 456),
-            ("PR #789 merged successfully", 789),
-            ("No PR number in this message", None),
-            ("PR without number", None),
-            ("Issue #123 created", None),  # Should not match issues
-        ]
-
-        parser = LogParser()
-        for message, expected in test_cases:
-            result = parser._extract_pr_number(message)
-            assert result == expected
-
-    def test_extract_repository_name(self) -> None:
-        """Test repository name extraction from log messages."""
-        test_cases = [
-            ("Processing webhook for repository: myorg/myrepo", "myorg/myrepo"),
-            ("Repository test-repo updated", "test-repo"),
-            ("Processing webhook for repository: single-name", "single-name"),
-            ("No repository mentioned", None),
-        ]
-
-        parser = LogParser()
-        for message, expected in test_cases:
-            result = parser._extract_repository(message)
-            assert result == expected
-
     def test_parse_log_file(self) -> None:
         """Test parsing multiple log entries from a file."""
-        log_content = """2025-07-31 10:00:00,000 - main - INFO - [Event: push][Delivery: delivery1] Start processing
-2025-07-31 10:00:01,000 - main - DEBUG - [Event: push][Delivery: delivery1] Validating signature
-2025-07-31 10:00:02,000 - main - SUCCESS - [Event: push][Delivery: delivery1] Processing complete
-2025-07-31 10:01:00,000 - main - INFO - [Event: pull_request][Delivery: delivery2] Processing webhook for PR #456
+        log_content = """2025-07-31T10:00:00.000000 GithubWebhook INFO test-repo [push][delivery1][user1]: Start processing
+2025-07-31T10:00:01.000000 GithubWebhook DEBUG test-repo [push][delivery1][user1]: Validating signature
+2025-07-31T10:00:02.000000 GithubWebhook INFO test-repo [push][delivery1][user1]: Processing complete
+2025-07-31T10:01:00.000000 GithubWebhook INFO test-repo [pull_request][delivery2][user2][PR 456]: Processing webhook
 Invalid log line
-2025-07-31 10:01:05,000 - main - ERROR - [Event: pull_request][Delivery: delivery2] Processing failed"""
+2025-07-31T10:01:05.000000 GithubWebhook ERROR test-repo [pull_request][delivery2][user2][PR 456]: Processing failed"""
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
             f.write(log_content)
@@ -146,7 +167,10 @@ Invalid log line
         assert len(entries) == 5
         assert entries[0].hook_id == "delivery1"
         assert entries[0].event_type == "push"
+        assert entries[0].github_user == "user1"
+        assert entries[0].repository == "test-repo"
         assert entries[3].pr_number == 456
+        assert entries[3].github_user == "user2"
         assert entries[4].level == "ERROR"
 
     @pytest.mark.asyncio
@@ -170,7 +194,7 @@ Invalid log line
     @pytest.mark.asyncio
     async def test_tail_log_file_with_new_content(self) -> None:
         """Test tailing log file with new content added."""
-        initial_content = """2025-07-31 10:00:00,000 - main - INFO - Initial entry"""
+        initial_content = """2025-07-31T10:00:00.000000 main INFO Initial entry"""
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
             f.write(initial_content)
@@ -189,12 +213,19 @@ Invalid log line
 
             # Add new content to the file
             with open(f.name, "a") as append_f:
-                append_f.write("\n2025-07-31 10:01:00,000 - main - DEBUG - New entry 1")
-                append_f.write("\n2025-07-31 10:02:00,000 - main - ERROR - New entry 2")
+                append_f.write("\n2025-07-31T10:01:00.000000 main DEBUG New entry 1")
+                append_f.write("\n2025-07-31T10:02:00.000000 main ERROR New entry 2")
                 append_f.flush()
 
-            # Wait for the tail to collect entries
-            await tail_task
+            # Wait for the tail to collect entries with timeout
+            try:
+                await asyncio.wait_for(tail_task, timeout=2.0)
+            except asyncio.TimeoutError:
+                tail_task.cancel()
+                try:
+                    await tail_task
+                except asyncio.CancelledError:
+                    pass
 
         # Should have collected the 2 new entries
         assert len(entries) == 2
@@ -254,6 +285,7 @@ class TestLogFilter:
                 event_type="push",
                 repository="org/repo1",
                 pr_number=None,
+                github_user="user1",
             ),
             LogEntry(
                 timestamp=datetime.datetime(2025, 7, 31, 10, 1, 0),
@@ -264,6 +296,7 @@ class TestLogFilter:
                 event_type="pull_request.opened",
                 repository="org/repo1",
                 pr_number=123,
+                github_user="user2",
             ),
             LogEntry(
                 timestamp=datetime.datetime(2025, 7, 31, 10, 2, 0),
@@ -274,6 +307,7 @@ class TestLogFilter:
                 event_type=None,
                 repository=None,
                 pr_number=None,
+                github_user=None,
             ),
             LogEntry(
                 timestamp=datetime.datetime(2025, 7, 31, 11, 0, 0),
@@ -284,6 +318,7 @@ class TestLogFilter:
                 event_type="pull_request.closed",
                 repository="org/repo2",
                 pr_number=456,
+                github_user="user1",
             ),
         ]
 
@@ -330,6 +365,19 @@ class TestLogFilter:
         filtered = log_filter.filter_entries(sample_entries, event_type="pull_request")
         assert len(filtered) == 2
         assert all("pull_request" in str(entry.event_type) for entry in filtered)
+
+    def test_filter_by_github_user(self, sample_entries: list[LogEntry]) -> None:
+        """Test filtering entries by GitHub user."""
+        log_filter = LogFilter()
+
+        # Test exact GitHub user match
+        filtered = log_filter.filter_entries(sample_entries, github_user="user1")
+        assert len(filtered) == 2
+        assert all(entry.github_user == "user1" for entry in filtered)
+
+        # Test non-existent GitHub user
+        filtered = log_filter.filter_entries(sample_entries, github_user="nonexistent")
+        assert len(filtered) == 0
 
     def test_filter_by_log_level(self, sample_entries: list[LogEntry]) -> None:
         """Test filtering entries by log level."""
@@ -447,6 +495,7 @@ class TestLogEntry:
             "event_type": "push",
             "repository": "org/repo",
             "pr_number": None,
+            "github_user": None,
         }
 
         assert result == expected

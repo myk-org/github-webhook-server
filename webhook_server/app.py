@@ -26,7 +26,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import RepositoryNotFoundError
 from webhook_server.libs.github_api import GithubWebhook
-from webhook_server.libs.log_viewer import LogViewerController
+from webhook_server.web.log_viewer import LogViewerController
 from webhook_server.utils.helpers import get_logger_with_params
 
 # Constants
@@ -296,6 +296,7 @@ def get_log_entries(
     pr_number: int | None = None,
     repository: str | None = None,
     event_type: str | None = None,
+    github_user: str | None = None,
     level: str | None = None,
     start_time: str | None = None,
     end_time: str | None = None,
@@ -327,6 +328,7 @@ def get_log_entries(
         pr_number=pr_number,
         repository=repository,
         event_type=event_type,
+        github_user=github_user,
         level=level,
         start_time=start_datetime,
         end_time=end_datetime,
@@ -343,6 +345,7 @@ def export_logs(
     pr_number: int | None = None,
     repository: str | None = None,
     event_type: str | None = None,
+    github_user: str | None = None,
     level: str | None = None,
     start_time: str | None = None,
     end_time: str | None = None,
@@ -374,6 +377,7 @@ def export_logs(
         pr_number=pr_number,
         repository=repository,
         event_type=event_type,
+        github_user=github_user,
         level=level,
         start_time=start_datetime,
         end_time=end_datetime,
@@ -389,6 +393,13 @@ def get_pr_flow_data(identifier: str) -> dict[str, Any]:
     return controller.get_pr_flow_data(identifier)
 
 
+@FASTAPI_APP.get("/logs/api/workflow-steps/{hook_id}")
+def get_workflow_steps(hook_id: str) -> dict[str, Any]:
+    """Get workflow step timeline data for a specific hook ID."""
+    controller = LogViewerController(logger=LOGGER)
+    return controller.get_workflow_steps(hook_id)
+
+
 @FASTAPI_APP.websocket("/logs/ws")
 async def websocket_log_stream(
     websocket: WebSocket,
@@ -396,6 +407,7 @@ async def websocket_log_stream(
     pr_number: int | None = None,
     repository: str | None = None,
     event_type: str | None = None,
+    github_user: str | None = None,
     level: str | None = None,
 ) -> None:
     """Handle WebSocket connection for real-time log streaming."""
@@ -406,5 +418,6 @@ async def websocket_log_stream(
         pr_number=pr_number,
         repository=repository,
         event_type=event_type,
+        github_user=github_user,
         level=level,
     )

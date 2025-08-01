@@ -238,22 +238,33 @@ class OwnersFileHandler:
     async def assign_reviewers(self, pull_request: PullRequest) -> None:
         self._ensure_initialized()
 
+        self.logger.step(f"{self.log_prefix} Starting reviewer assignment based on OWNERS files")  # type: ignore
         self.logger.info(f"{self.log_prefix} Assign reviewers")
 
         _to_add: list[str] = list(set(self.all_pull_request_reviewers))
         self.logger.debug(f"{self.log_prefix} Reviewers to add: {', '.join(_to_add)}")
+
+        if _to_add:
+            self.logger.step(f"{self.log_prefix} Assigning {len(_to_add)} reviewers to PR")  # type: ignore
+        else:
+            self.logger.step(f"{self.log_prefix} No reviewers to assign")  # type: ignore
+            return
 
         for reviewer in _to_add:
             if reviewer != pull_request.user.login:
                 self.logger.debug(f"{self.log_prefix} Adding reviewer {reviewer}")
                 try:
                     await asyncio.to_thread(pull_request.create_review_request, [reviewer])
+                    self.logger.step(f"{self.log_prefix} Successfully assigned reviewer {reviewer}")  # type: ignore
 
                 except GithubException as ex:
+                    self.logger.step(f"{self.log_prefix} Failed to assign reviewer {reviewer}")  # type: ignore
                     self.logger.debug(f"{self.log_prefix} Failed to add reviewer {reviewer}. {ex}")
                     await asyncio.to_thread(
                         pull_request.create_issue_comment, f"{reviewer} can not be added as reviewer. {ex}"
                     )
+
+        self.logger.step(f"{self.log_prefix} Reviewer assignment completed")  # type: ignore
 
     async def is_user_valid_to_run_commands(self, pull_request: PullRequest, reviewed_user: str) -> bool:
         self._ensure_initialized()

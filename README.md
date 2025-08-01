@@ -17,6 +17,7 @@ A comprehensive [FastAPI-based](https://fastapi.tiangolo.com) webhook server for
 - [Deployment](#deployment)
 - [Usage](#usage)
 - [API Reference](#api-reference)
+- [Log Viewer](#log-viewer)
 - [User Commands](#user-commands)
 - [OWNERS File Format](#owners-file-format)
 - [Security](#security)
@@ -677,6 +678,232 @@ POST /webhook_server
   "event_type": "pull_request"
 }
 ```
+
+## Log Viewer
+
+The webhook server includes a comprehensive log viewer web interface for monitoring and analyzing webhook processing in real-time.
+
+### ⚠️ Security Warning
+
+**CRITICAL**: The log viewer endpoints (`/logs/*`) are **NOT PROTECTED** by authentication or authorization. They should **NEVER** be exposed outside your local network or trusted environment.
+
+**Recommendations:**
+- Deploy behind a reverse proxy with authentication (e.g., nginx with basic auth)
+- Use firewall rules to restrict access to trusted IP ranges
+- Consider the log viewer for internal debugging only
+- Monitor access to log endpoints in your infrastructure
+
+### Features
+
+- 🔍 **Real-time log streaming** via WebSocket connections
+- 📊 **Advanced filtering** by hook ID, PR number, repository, user, log level, and text search
+- 🎨 **Dark/light theme support** with automatic preference saving
+- 📈 **PR flow visualization** showing webhook processing stages
+- 📥 **JSON export** functionality for log analysis
+- 🎯 **Color-coded log levels** for quick visual identification
+
+### Accessing the Log Viewer
+
+**Web Interface:**
+```
+http://your-server:5000/logs
+```
+
+### API Endpoints
+
+#### Get Historical Log Entries
+
+```http
+GET /logs/api/entries
+```
+
+**Query Parameters:**
+- `hook_id` (string): Filter by GitHub delivery ID (x-github-delivery)
+- `pr_number` (integer): Filter by pull request number
+- `repository` (string): Filter by repository name (e.g., "org/repo")
+- `event_type` (string): Filter by GitHub event type
+- `github_user` (string): Filter by GitHub username
+- `level` (string): Filter by log level (DEBUG, INFO, WARNING, ERROR)
+- `start_time` (string): Start time filter (ISO 8601 format)
+- `end_time` (string): End time filter (ISO 8601 format)
+- `search` (string): Free text search in log messages
+- `limit` (integer): Maximum entries to return (1-1000, default: 100)
+- `offset` (integer): Pagination offset (default: 0)
+
+**Example:**
+```bash
+curl "http://localhost:5000/logs/api/entries?pr_number=123&level=ERROR&limit=50"
+```
+
+**Response:**
+```json
+{
+  "entries": [
+    {
+      "timestamp": "2025-01-30T10:30:00.123000",
+      "level": "INFO",
+      "logger_name": "GithubWebhook",
+      "message": "Processing webhook for repository: my-org/my-repo",
+      "hook_id": "abc123-def456",
+      "event_type": "pull_request",
+      "repository": "my-org/my-repo",
+      "pr_number": 123,
+      "github_user": "username"
+    }
+  ],
+  "total": 1500,
+  "filtered_total": 25,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+#### Export Logs
+
+```http
+GET /logs/api/export
+```
+
+**Query Parameters:** (Same as `/logs/api/entries` plus)
+- `format` (string): Export format - only "json" is supported
+- `limit` (integer): Maximum entries to export (max 50,000, default: 10,000)
+
+**Example:**
+```bash
+curl "http://localhost:5000/logs/api/export?format=json&pr_number=123" -o logs.json
+```
+
+#### WebSocket Real-time Streaming
+
+```
+ws://your-server:5000/logs/ws
+```
+
+**Query Parameters:** (Same filtering options as API endpoints)
+
+**Example WebSocket Connection:**
+```javascript
+const ws = new WebSocket('ws://localhost:5000/logs/ws?level=ERROR');
+ws.onmessage = function(event) {
+    const logEntry = JSON.parse(event.data);
+    console.log('New error log:', logEntry);
+};
+```
+
+#### PR Flow Visualization
+
+```http
+GET /logs/api/pr-flow/{identifier}
+```
+
+**Parameters:**
+- `identifier`: Hook ID (e.g., "abc123") or PR number (e.g., "123")
+
+**Example:**
+```bash
+curl "http://localhost:5000/logs/api/pr-flow/123"
+```
+
+**Response:**
+```json
+{
+  "identifier": "123",
+  "stages": [
+    {
+      "name": "Webhook Received",
+      "timestamp": "2025-01-30T10:30:00.123000",
+      "duration_ms": null
+    },
+    {
+      "name": "Validation Complete",
+      "timestamp": "2025-01-30T10:30:00.245000",
+      "duration_ms": 122
+    }
+  ],
+  "total_duration_ms": 2500,
+  "success": true
+}
+```
+
+### Log Level Color Coding
+
+The web interface uses intuitive color coding for different log levels:
+
+- 🟢 **INFO (Green)**: Successful operations and informational messages
+- 🟡 **WARNING (Yellow)**: Warning messages that need attention
+- 🔴 **ERROR (Red)**: Error messages requiring immediate action  
+- ⚪ **DEBUG (Gray)**: Technical debug information
+
+### Web Interface Features
+
+#### Filtering Controls
+- **Hook ID**: GitHub delivery ID for tracking specific webhook calls
+- **PR Number**: Filter by pull request number
+- **Repository**: Filter by repository name (org/repo format)
+- **User**: Filter by GitHub username
+- **Log Level**: Filter by severity level
+- **Search**: Free text search across log messages
+
+#### Real-time Features
+- **Live Updates**: WebSocket connection for real-time log streaming
+- **Auto-refresh**: Historical logs refresh when filters change
+- **Connection Status**: Visual indicator for WebSocket connection status
+
+#### Theme Support
+- **Dark/Light Modes**: Toggle between themes with automatic preference saving
+- **Responsive Design**: Works on desktop and mobile devices
+- **Keyboard Shortcuts**: Quick access to common functions
+
+### Usage Examples
+
+#### Monitor Specific PR
+```bash
+# View all logs for PR #123
+curl "http://localhost:5000/logs/api/entries?pr_number=123"
+```
+
+#### Track Webhook Processing
+```bash
+# Follow specific webhook delivery
+curl "http://localhost:5000/logs/api/entries?hook_id=abc123-def456"
+```
+
+#### Debug Error Issues
+```bash
+# Export all error logs for analysis
+curl "http://localhost:5000/logs/api/export?format=json&level=ERROR" -o errors.json
+```
+
+#### Monitor Repository Activity
+```bash
+# Watch real-time activity for specific repository
+# Connect WebSocket to: ws://localhost:5000/logs/ws?repository=my-org/my-repo
+```
+
+### Security Considerations
+
+1. **Network Isolation**: Deploy in isolated network segments
+2. **Access Control**: Implement reverse proxy authentication
+3. **Log Sanitization**: Logs may contain sensitive information
+4. **Monitoring**: Monitor access to log viewer endpoints
+5. **Data Retention**: Consider log rotation and retention policies
+
+### Troubleshooting
+
+#### WebSocket Connection Issues
+- Check firewall rules for WebSocket traffic
+- Verify server is accessible on specified port
+- Ensure WebSocket upgrades are allowed by reverse proxy
+
+#### Missing Log Data
+- Verify log file permissions and paths
+- Check if log directory exists and is writable
+- Ensure log parser patterns match your log format
+
+#### Performance Issues
+- Reduce filter result sets for better performance
+- Use pagination for large datasets
+- Consider log file rotation to manage size
 
 ## User Commands
 

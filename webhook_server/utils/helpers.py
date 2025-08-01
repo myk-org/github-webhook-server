@@ -11,7 +11,7 @@ from typing import Any
 
 import github
 from colorama import Fore
-from github.RateLimit import RateLimit
+from github.RateLimitOverview import RateLimitOverview
 from github.Repository import Repository
 from simple_logger.logger import get_logger
 
@@ -160,7 +160,7 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
     api: github.Github | None = None
     token: str | None = None
     _api_user: str = ""
-    rate_limit: RateLimit | None = None
+    rate_limit: RateLimitOverview | None = None
 
     remaining = 0
 
@@ -186,8 +186,8 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
 
         _rate_limit = _api.get_rate_limit()
 
-        if _rate_limit.core.remaining > remaining:
-            remaining = _rate_limit.core.remaining
+        if _rate_limit.rate.remaining > remaining:
+            remaining = _rate_limit.rate.remaining
             api, token, _api_user, rate_limit = _api, _token, _api_user, _rate_limit
 
     if rate_limit:
@@ -200,25 +200,25 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
     return api, token, _api_user
 
 
-def log_rate_limit(rate_limit: RateLimit, api_user: str) -> None:
+def log_rate_limit(rate_limit: RateLimitOverview, api_user: str) -> None:
     logger = get_logger_with_params(name="helpers")
 
     rate_limit_str: str
-    time_for_limit_reset: int = (rate_limit.core.reset - datetime.datetime.now(tz=datetime.timezone.utc)).seconds
-    below_minimum: bool = rate_limit.core.remaining < 700
+    time_for_limit_reset: int = (rate_limit.rate.reset - datetime.datetime.now(tz=datetime.timezone.utc)).seconds
+    below_minimum: bool = rate_limit.rate.remaining < 700
 
     if below_minimum:
-        rate_limit_str = f"{Fore.RED}{rate_limit.core.remaining}{Fore.RESET}"
+        rate_limit_str = f"{Fore.RED}{rate_limit.rate.remaining}{Fore.RESET}"
 
-    elif rate_limit.core.remaining < 2000:
-        rate_limit_str = f"{Fore.YELLOW}{rate_limit.core.remaining}{Fore.RESET}"
+    elif rate_limit.rate.remaining < 2000:
+        rate_limit_str = f"{Fore.YELLOW}{rate_limit.rate.remaining}{Fore.RESET}"
 
     else:
-        rate_limit_str = f"{Fore.GREEN}{rate_limit.core.remaining}{Fore.RESET}"
+        rate_limit_str = f"{Fore.GREEN}{rate_limit.rate.remaining}{Fore.RESET}"
 
     msg = (
-        f"{Fore.CYAN}[{api_user}] API rate limit:{Fore.RESET} Current {rate_limit_str} of {rate_limit.core.limit}. "
-        f"Reset in {rate_limit.core.reset} [{datetime.timedelta(seconds=time_for_limit_reset)}] "
+        f"{Fore.CYAN}[{api_user}] API rate limit:{Fore.RESET} Current {rate_limit_str} of {rate_limit.rate.limit}. "
+        f"Reset in {rate_limit.rate.reset} [{datetime.timedelta(seconds=time_for_limit_reset)}] "
         f"(UTC time is {datetime.datetime.now(tz=datetime.timezone.utc)})"
     )
     logger.debug(msg)
