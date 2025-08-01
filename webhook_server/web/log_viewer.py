@@ -285,48 +285,48 @@ class LogViewerController:
         finally:
             self._websocket_connections.discard(websocket)
 
-    def get_pr_flow_data(self, identifier: str) -> dict[str, Any]:
+    def get_pr_flow_data(self, hook_id: str) -> dict[str, Any]:
         """Get PR flow visualization data for a specific hook ID or PR number.
 
         Args:
-            identifier: Hook ID (e.g., "hook-abc123") or PR number (e.g., "pr-456")
+            hook_id: Hook ID (e.g., "hook-abc123") or PR number (e.g., "pr-456")
 
         Returns:
             Dictionary with flow stages and timing data
 
         Raises:
-            HTTPException: 404 if no data found for identifier
+            HTTPException: 404 if no data found for hook_id
         """
         try:
-            # Parse identifier to determine if it's a hook ID or PR number
-            if identifier.startswith("hook-"):
-                hook_id = identifier[5:]  # Remove "hook-" prefix
+            # Parse hook_id to determine if it's a hook ID or PR number
+            if hook_id.startswith("hook-"):
+                actual_hook_id = hook_id[5:]  # Remove "hook-" prefix
                 pr_number = None
-            elif identifier.startswith("pr-"):
-                hook_id = None
-                pr_number = int(identifier[3:])  # Remove "pr-" prefix
+            elif hook_id.startswith("pr-"):
+                actual_hook_id = None
+                pr_number = int(hook_id[3:])  # Remove "pr-" prefix
             else:
                 # Try to parse as direct hook ID or PR number
                 try:
-                    pr_number = int(identifier)
-                    hook_id = None
+                    pr_number = int(hook_id)
+                    actual_hook_id = None
                 except ValueError:
-                    hook_id = identifier
+                    actual_hook_id = hook_id
                     pr_number = None
 
-            # Load log entries and filter by identifier
+            # Load log entries and filter by hook_id
             log_entries = self._load_log_entries()
             filtered_entries = self.log_filter.filter_entries(
                 entries=log_entries,
-                hook_id=hook_id,
+                hook_id=actual_hook_id,
                 pr_number=pr_number,
             )
 
             if not filtered_entries:
-                raise ValueError(f"No data found for identifier: {identifier}")
+                raise ValueError(f"No data found for hook_id: {hook_id}")
 
             # Analyze flow stages from log entries
-            flow_data = self._analyze_pr_flow(filtered_entries, identifier)
+            flow_data = self._analyze_pr_flow(filtered_entries, hook_id)
             return flow_data
 
         except ValueError as e:
@@ -334,7 +334,7 @@ class LogViewerController:
                 self.logger.warning(f"PR flow data not found: {e}")
                 raise HTTPException(status_code=404, detail=str(e))
             else:
-                self.logger.warning(f"Invalid PR flow identifier: {e}")
+                self.logger.warning(f"Invalid PR flow hook_id: {e}")
                 raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
             self.logger.error(f"Error getting PR flow data: {e}")
@@ -510,6 +510,7 @@ class LogViewerController:
             --log-error-bg: #ffd6d6;
             --log-warning-bg: #fff3cd;
             --log-debug-bg: #f8f9fa;
+            --log-step-bg: #e3f2fd;
             --tag-bg: #e9ecef;
             --timestamp-color: #666666;
         }
@@ -535,6 +536,7 @@ class LogViewerController:
             --log-error-bg: #5a1e1e;
             --log-warning-bg: #5a4a1e;
             --log-debug-bg: #2a2a2a;
+            --log-step-bg: #1a237e;
             --tag-bg: #4a4a4a;
             --timestamp-color: #888888;
         }
@@ -707,6 +709,7 @@ class LogViewerController:
         .log-entry.ERROR { background-color: var(--log-error-bg); }
         .log-entry.WARNING { background-color: var(--log-warning-bg); }
         .log-entry.DEBUG { background-color: var(--log-debug-bg); }
+        .log-entry.STEP { background-color: var(--log-step-bg); }
         .timestamp { color: var(--timestamp-color); }
         .level { font-weight: bold; }
         .message { margin-left: 10px; }
@@ -1283,12 +1286,12 @@ class LogViewerController:
         """
         return json.dumps([entry.to_dict() for entry in entries], indent=2)
 
-    def _analyze_pr_flow(self, entries: list[LogEntry], identifier: str) -> dict[str, Any]:
+    def _analyze_pr_flow(self, entries: list[LogEntry], hook_id: str) -> dict[str, Any]:
         """Analyze PR workflow stages from log entries.
 
         Args:
             entries: List of log entries for the PR/hook
-            identifier: Original identifier used for the request
+            hook_id: Original hook_id used for the request
 
         Returns:
             Dictionary with flow stages and timing data
@@ -1298,7 +1301,7 @@ class LogViewerController:
 
         if not sorted_entries:
             return {
-                "identifier": identifier,
+                "identifier": hook_id,
                 "stages": [],
                 "total_duration_ms": 0,
                 "success": False,
@@ -1353,7 +1356,7 @@ class LogViewerController:
         total_duration = int((sorted_entries[-1].timestamp - start_time).total_seconds() * 1000)
 
         flow_data = {
-            "identifier": identifier,
+            "identifier": hook_id,
             "stages": stages,
             "total_duration_ms": total_duration,
             "success": success,

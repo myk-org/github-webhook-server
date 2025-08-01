@@ -386,11 +386,11 @@ def export_logs(
     )
 
 
-@FASTAPI_APP.get("/logs/api/pr-flow/{identifier}")
-def get_pr_flow_data(identifier: str) -> dict[str, Any]:
+@FASTAPI_APP.get("/logs/api/pr-flow/{hook_id}")
+def get_pr_flow_data(hook_id: str) -> dict[str, Any]:
     """Get PR flow visualization data for a specific hook ID or PR number."""
     controller = LogViewerController(logger=LOGGER)
-    return controller.get_pr_flow_data(identifier)
+    return controller.get_pr_flow_data(hook_id)
 
 
 @FASTAPI_APP.get("/logs/api/workflow-steps/{hook_id}")

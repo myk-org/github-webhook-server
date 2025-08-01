@@ -169,7 +169,7 @@ class TestLogViewerController:
         with patch.object(controller, "_load_log_entries", return_value=sample_log_entries):
             with patch.object(controller.log_filter, "filter_entries", return_value=sample_log_entries):
                 with patch.object(controller, "_analyze_pr_flow", return_value={"test": "data"}):
-                    result = controller.get_pr_flow_data("test-identifier")
+                    result = controller.get_pr_flow_data("test-hook-id")
                     assert result == {"test": "data"}
 
     def test_get_pr_flow_data_not_found(self, controller):
@@ -895,7 +895,7 @@ class TestPRFlowAPI:
         with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
             mock_instance = Mock()
             mock_controller.return_value = mock_instance
-            mock_instance.get_pr_flow_data.side_effect = ValueError("No data found for identifier")
+            mock_instance.get_pr_flow_data.side_effect = ValueError("No data found for hook_id")
 
             # Test would return 404 Not Found
             with pytest.raises(ValueError, match="No data found for identifier"):
