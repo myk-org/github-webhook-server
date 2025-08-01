@@ -624,7 +624,7 @@ class LogViewerController:
         .timeline-svg {
             width: 100%;
             min-width: 800px;
-            height: 80px;
+            height: 120px;
         }
 
         .timeline-step {
@@ -646,29 +646,35 @@ class LogViewerController:
         }
 
         .step-circle {
-            r: 6;
+            r: 8;
+            stroke: #ffffff;
             stroke-width: 2;
             transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .step-circle:hover {
+            r: 10;
         }
 
         .step-circle.success {
             fill: #28a745;
-            stroke: #1e7e34;
+            stroke: #ffffff;
         }
 
         .step-circle.failure {
             fill: #dc3545;
-            stroke: #c82333;
+            stroke: #ffffff;
         }
 
         .step-circle.info {
             fill: #17a2b8;
-            stroke: #138496;
+            stroke: #ffffff;
         }
 
         .step-circle.progress {
-            fill: #ffc107;
-            stroke: #e0a800;
+            fill: #007bff;
+            stroke: #ffffff;
         }
 
         .step-label {
@@ -1085,14 +1091,12 @@ class LogViewerController:
                 return;
             }
 
-            console.log('Loading timeline for hook ID:', hookId);
 
             // Fetch workflow steps data
             fetch(`/logs/api/workflow-steps/${hookId}`)
                 .then(response => {
                     if (!response.ok) {
                         if (response.status === 404) {
-                            console.log('No workflow steps found for hook ID:', hookId);
                             hideTimeline();
                             return;
                         }
@@ -1106,7 +1110,6 @@ class LogViewerController:
                     document.getElementById('timelineSection').style.display = 'block';
                 })
                 .catch(error => {
-                    console.error('Error loading timeline:', error);
                     hideTimeline();
                 });
         }
@@ -1138,8 +1141,8 @@ class LogViewerController:
 
             // SVG dimensions
             const width = svg.clientWidth || 800;
-            const height = 80;
-            const margin = { left: 50, right: 50, top: 20, bottom: 20 };
+            const height = 120;
+            const margin = { left: 60, right: 60, top: 30, bottom: 40 };
             const timelineWidth = width - margin.left - margin.right;
 
             // Update SVG size
@@ -1177,24 +1180,29 @@ class LogViewerController:
                 circle.setAttribute('cy', height / 2);
                 svg.appendChild(circle);
 
-                // Step label (truncated)
-                const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-                label.setAttribute('class', 'step-label');
-                label.setAttribute('x', x);
-                label.setAttribute('y', height / 2 - 15);
-                label.textContent = truncateText(step.message, 20);
-                svg.appendChild(label);
+                // Step label (wrapped text)
+                const labelLines = wrapText(step.message, 25);
+                labelLines.forEach((line, lineIndex) => {
+                    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    label.setAttribute('class', 'step-label');
+                    label.setAttribute('x', x);
+                    label.setAttribute('y', height / 2 - 25 + (lineIndex * 12));
+                    label.setAttribute('text-anchor', 'middle');
+                    label.textContent = line;
+                    svg.appendChild(label);
+                    group.appendChild(label);
+                });
 
                 // Time label
                 const timeLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
                 timeLabel.setAttribute('class', 'step-time');
                 timeLabel.setAttribute('x', x);
-                timeLabel.setAttribute('y', height / 2 + 25);
+                timeLabel.setAttribute('y', height / 2 + 35);
+                timeLabel.setAttribute('text-anchor', 'middle');
                 timeLabel.textContent = `+${(step.relative_time_ms / 1000).toFixed(1)}s`;
                 svg.appendChild(timeLabel);
 
                 group.appendChild(circle);
-                group.appendChild(label);
                 group.appendChild(timeLabel);
 
                 // Add hover events
@@ -1220,6 +1228,23 @@ class LogViewerController:
 
         function truncateText(text, maxLength) {
             return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+        }
+
+        function wrapText(text, maxLineLength) {
+            const words = text.split(' ');
+            const lines = [];
+            let currentLine = '';
+
+            for (const word of words) {
+                if ((currentLine + word).length <= maxLineLength) {
+                    currentLine += (currentLine ? ' ' : '') + word;
+                } else {
+                    if (currentLine) lines.push(currentLine);
+                    currentLine = word;
+                }
+            }
+            if (currentLine) lines.push(currentLine);
+            return lines.slice(0, 2); // Max 2 lines
         }
 
         function showTooltip(event, step) {
@@ -1255,7 +1280,6 @@ class LogViewerController:
         // Auto-show timeline when hook ID filter is applied
         function checkForTimelineDisplay() {
             const hookId = document.getElementById('hookIdFilter').value.trim();
-            console.log('checkForTimelineDisplay called with hookId:', hookId);
             if (hookId) {
                 showTimeline(hookId);
             } else {
@@ -1265,7 +1289,6 @@ class LogViewerController:
 
         // Add timeline check to hook ID filter specifically
         document.getElementById('hookIdFilter').addEventListener('input', () => {
-            console.log('hookIdFilter input event fired');
             setTimeout(checkForTimelineDisplay, 300); // Small delay to let the value settle
         });
 
