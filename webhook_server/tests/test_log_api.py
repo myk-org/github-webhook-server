@@ -8,10 +8,374 @@ from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from fastapi.websockets import WebSocketDisconnect
 
 from webhook_server.libs.log_parser import LogEntry
+
+
+class TestLogViewerController:
+    """Test cases for LogViewerController class methods."""
+
+    @pytest.fixture
+    def mock_logger(self):
+        """Create a mock logger for testing."""
+        return Mock()
+
+    @pytest.fixture
+    def controller(self, mock_logger):
+        """Create a LogViewerController instance for testing."""
+        from webhook_server.web.log_viewer import LogViewerController
+
+        with patch("webhook_server.web.log_viewer.Config"):
+            return LogViewerController(logger=mock_logger)
+
+    @pytest.fixture
+    def sample_log_entries(self) -> list[LogEntry]:
+        """Create sample log entries for testing."""
+        return [
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 0, 0),
+                level="INFO",
+                logger_name="main",
+                message="Processing webhook",
+                hook_id="hook1",
+                event_type="push",
+                repository="org/repo1",
+                pr_number=None,
+            ),
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 1, 0),
+                level="DEBUG",
+                logger_name="main",
+                message="Processing PR #123",
+                hook_id="hook2",
+                event_type="pull_request.opened",
+                repository="org/repo1",
+                pr_number=123,
+            ),
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 2, 0),
+                level="ERROR",
+                logger_name="helpers",
+                message="API error occurred",
+                hook_id=None,
+                event_type=None,
+                repository=None,
+                pr_number=None,
+            ),
+        ]
+
+    def test_get_log_page_success(self, controller):
+        """Test successful log page generation."""
+        with patch.object(controller, "_get_log_viewer_html", return_value="<html>Test</html>"):
+            response = controller.get_log_page()
+            assert response.status_code == 200
+            assert "Test" in response.body.decode()
+
+    def test_get_log_page_file_not_found(self, controller):
+        """Test log page when template file not found."""
+        with patch.object(controller, "_get_log_viewer_html", side_effect=FileNotFoundError):
+            with pytest.raises(HTTPException) as exc:
+                controller.get_log_page()
+            assert exc.value.status_code == 404
+
+    def test_get_log_page_error(self, controller):
+        """Test log page with generic error."""
+        with patch.object(controller, "_get_log_viewer_html", side_effect=Exception("Test error")):
+            with pytest.raises(HTTPException) as exc:
+                controller.get_log_page()
+            assert exc.value.status_code == 500
+
+    def test_get_log_entries_success(self, controller, sample_log_entries):
+        """Test successful log entries retrieval."""
+        with patch.object(controller, "_load_log_entries", return_value=sample_log_entries):
+            result = controller.get_log_entries()
+            assert "entries" in result
+            assert result["total"] == 3
+            assert len(result["entries"]) == 3
+
+    def test_get_log_entries_with_filters(self, controller, sample_log_entries):
+        """Test log entries with filters applied."""
+        with patch.object(controller, "_load_log_entries", return_value=sample_log_entries):
+            result = controller.get_log_entries(hook_id="hook1", level="INFO")
+            assert "entries" in result
+
+    def test_get_log_entries_with_pagination(self, controller, sample_log_entries):
+        """Test log entries with pagination."""
+        with patch.object(controller, "_load_log_entries", return_value=sample_log_entries):
+            result = controller.get_log_entries(limit=2, offset=1)
+            assert result["limit"] == 2
+            assert result["offset"] == 1
+
+    def test_get_log_entries_invalid_limit(self, controller):
+        """Test log entries with invalid limit."""
+        with pytest.raises(HTTPException) as exc:
+            controller.get_log_entries(limit=0)
+        assert exc.value.status_code == 400
+
+    def test_get_log_entries_file_error(self, controller):
+        """Test log entries with file access error."""
+        with patch.object(controller, "_load_log_entries", side_effect=OSError("Permission denied")):
+            with pytest.raises(HTTPException) as exc:
+                controller.get_log_entries()
+            assert exc.value.status_code == 500
+
+    def test_export_logs_json(self, controller, sample_log_entries):
+        """Test JSON export functionality."""
+        with patch.object(controller, "_load_log_entries", return_value=sample_log_entries):
+            result = controller.export_logs(format_type="json")
+            # This should return a StreamingResponse, not a JSON string
+            assert hasattr(result, "status_code")
+            assert result.status_code == 200
+
+    def test_export_logs_invalid_format(self, controller):
+        """Test export with invalid format."""
+        with patch.object(controller, "_load_log_entries", return_value=[]):
+            with pytest.raises(HTTPException) as exc:
+                controller.export_logs(format_type="xml")
+            assert exc.value.status_code == 400
+
+    def test_export_logs_result_too_large(self, controller):
+        """Test export with result set too large."""
+        with patch.object(controller, "_load_log_entries", return_value=[]):
+            with pytest.raises(HTTPException) as exc:
+                controller.export_logs(format_type="json", limit=60000)
+            assert exc.value.status_code == 413
+
+    def test_export_logs_filtered_entries_too_large(self, controller):
+        """Test export when filtered entries exceed limit."""
+        # Create a large list of entries
+        large_entries = [
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 0, 0),
+                level="INFO",
+                logger_name="main",
+                message=f"Entry {i}",
+                hook_id="hook1",
+            )
+            for i in range(51000)
+        ]
+
+        with patch.object(controller, "_load_log_entries", return_value=large_entries):
+            with patch.object(controller.log_filter, "filter_entries", return_value=large_entries):
+                with pytest.raises(HTTPException) as exc:
+                    controller.export_logs(format_type="json")
+                assert exc.value.status_code == 413
+
+    def test_get_pr_flow_data_success(self, controller, sample_log_entries):
+        """Test PR flow data retrieval."""
+        with patch.object(controller, "_load_log_entries", return_value=sample_log_entries):
+            with patch.object(controller.log_filter, "filter_entries", return_value=sample_log_entries):
+                with patch.object(controller, "_analyze_pr_flow", return_value={"test": "data"}):
+                    result = controller.get_pr_flow_data("test-identifier")
+                    assert result == {"test": "data"}
+
+    def test_get_pr_flow_data_not_found(self, controller):
+        """Test PR flow data when not found."""
+        with patch.object(controller, "_load_log_entries", return_value=[]):
+            with pytest.raises(HTTPException) as exc:
+                controller.get_pr_flow_data("nonexistent")
+            assert exc.value.status_code == 404
+
+    def test_get_pr_flow_data_hook_prefix(self, controller, sample_log_entries):
+        """Test PR flow data with hook- prefix."""
+        with patch.object(controller, "_load_log_entries", return_value=sample_log_entries):
+            with patch.object(controller.log_filter, "filter_entries", return_value=sample_log_entries):
+                with patch.object(controller, "_analyze_pr_flow", return_value={"test": "data"}):
+                    result = controller.get_pr_flow_data("hook-123")
+                    assert result == {"test": "data"}
+
+    def test_get_pr_flow_data_pr_prefix(self, controller, sample_log_entries):
+        """Test PR flow data with pr- prefix."""
+        with patch.object(controller, "_load_log_entries", return_value=sample_log_entries):
+            with patch.object(controller, "_analyze_pr_flow", return_value={"test": "data"}):
+                result = controller.get_pr_flow_data("pr-123")
+                assert result == {"test": "data"}
+
+    def test_get_pr_flow_data_direct_number(self, controller, sample_log_entries):
+        """Test PR flow data with direct PR number."""
+        with patch.object(controller, "_load_log_entries", return_value=sample_log_entries):
+            with patch.object(controller, "_analyze_pr_flow", return_value={"test": "data"}):
+                result = controller.get_pr_flow_data("123")
+                assert result == {"test": "data"}
+
+    def test_get_pr_flow_data_direct_hook_id(self, controller, sample_log_entries):
+        """Test PR flow data with direct hook ID."""
+        with patch.object(controller, "_load_log_entries", return_value=sample_log_entries):
+            with patch.object(controller.log_filter, "filter_entries", return_value=sample_log_entries):
+                with patch.object(controller, "_analyze_pr_flow", return_value={"test": "data"}):
+                    result = controller.get_pr_flow_data("abc123-def456")
+                    assert result == {"test": "data"}
+
+    def test_get_workflow_steps_success(self, controller, sample_log_entries):
+        """Test workflow steps retrieval."""
+        workflow_steps = [
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 0, 0),
+                level="STEP",
+                logger_name="main",
+                message="Step 1",
+                hook_id="hook1",
+            )
+        ]
+
+        with patch.object(controller, "_load_log_entries", return_value=sample_log_entries):
+            with patch.object(controller.log_parser, "extract_workflow_steps", return_value=workflow_steps):
+                with patch.object(controller, "_build_workflow_timeline", return_value={"test": "data"}):
+                    result = controller.get_workflow_steps("hook1")
+                    assert result == {"test": "data"}
+
+    def test_get_workflow_steps_not_found(self, controller):
+        """Test workflow steps when not found."""
+        with patch.object(controller, "_load_log_entries", return_value=[]):
+            with pytest.raises(HTTPException) as exc:
+                controller.get_workflow_steps("nonexistent")
+            assert exc.value.status_code == 404
+
+    def test_load_log_entries_success(self, controller):
+        """Test log entries loading."""
+        mock_config = Mock()
+        mock_config.data_dir = "/test"
+        controller.config = mock_config
+
+        with patch("webhook_server.web.log_viewer.Path") as mock_path:
+            mock_path_instance = Mock()
+            mock_path_instance.exists.return_value = True
+
+            # Mock log file with proper stat() method
+            mock_log_file = Mock()
+            mock_log_file.name = "test.log"
+            mock_stat = Mock()
+            mock_stat.st_mtime = 123456789
+            mock_log_file.stat.return_value = mock_stat
+
+            mock_path_instance.glob.return_value = [mock_log_file]
+            mock_path.return_value = mock_path_instance
+
+            with patch.object(controller.log_parser, "parse_log_file", return_value=[]):
+                result = controller._load_log_entries()
+                assert isinstance(result, list)
+
+    def test_load_log_entries_no_directory(self, controller):
+        """Test log entries loading when directory doesn't exist."""
+        mock_config = Mock()
+        mock_config.data_dir = "/test"
+        controller.config = mock_config
+
+        with patch("webhook_server.web.log_viewer.Path") as mock_path:
+            mock_path_instance = Mock()
+            mock_path_instance.exists.return_value = False
+            mock_path.return_value = mock_path_instance
+
+            result = controller._load_log_entries()
+            assert result == []
+
+    def test_load_log_entries_parse_error(self, controller):
+        """Test log entries loading with parse error."""
+        mock_config = Mock()
+        mock_config.data_dir = "/test"
+        controller.config = mock_config
+
+        with patch("webhook_server.web.log_viewer.Path") as mock_path:
+            mock_path_instance = Mock()
+            mock_path_instance.exists.return_value = True
+            mock_log_file = Mock()
+            mock_log_file.name = "test.log"
+            mock_path_instance.glob.return_value = [mock_log_file]
+            mock_path.return_value = mock_path_instance
+
+            with patch.object(controller.log_parser, "parse_log_file", side_effect=Exception("Parse error")):
+                result = controller._load_log_entries()
+                assert isinstance(result, list)
+
+    def test_get_log_directory(self, controller):
+        """Test log directory path generation."""
+        mock_config = Mock()
+        mock_config.data_dir = "/test"
+        controller.config = mock_config
+
+        result = controller._get_log_directory()
+        assert str(result).endswith("logs")
+
+    def test_generate_json_export(self, controller, sample_log_entries):
+        """Test JSON export generation."""
+        result = controller._generate_json_export(sample_log_entries)
+        assert isinstance(result, str)
+        parsed = json.loads(result)
+        assert len(parsed) == 3
+
+    def test_analyze_pr_flow_empty_entries(self, controller):
+        """Test PR flow analysis with empty entries."""
+        result = controller._analyze_pr_flow([], "test-id")
+        assert result["identifier"] == "test-id"
+        assert result["stages"] == []
+        assert result["success"] is False
+        assert "error" in result
+
+    def test_analyze_pr_flow_with_error_entries(self, controller, sample_log_entries):
+        """Test PR flow analysis with error entries."""
+        error_entry = LogEntry(
+            timestamp=datetime.datetime(2025, 7, 31, 10, 3, 0),
+            level="ERROR",
+            logger_name="main",
+            message="Processing failed",
+            hook_id="hook1",
+        )
+        entries_with_error = sample_log_entries + [error_entry]
+
+        result = controller._analyze_pr_flow(entries_with_error, "test-id")
+        assert result["success"] is False
+        assert "error" in result
+
+    def test_build_workflow_timeline_success(self, controller):
+        """Test workflow timeline building."""
+        workflow_steps = [
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 0, 0),
+                level="STEP",
+                logger_name="main",
+                message="Step 1",
+                hook_id="hook1",
+            )
+        ]
+        result = controller._build_workflow_timeline(workflow_steps, "hook1")
+        assert "hook_id" in result
+        assert "steps" in result
+        assert result["hook_id"] == "hook1"
+        assert result["step_count"] == 1
+
+    def test_build_workflow_timeline_multiple_steps(self, controller):
+        """Test workflow timeline building with multiple steps."""
+        workflow_steps = [
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 0, 0),
+                level="STEP",
+                logger_name="main",
+                message="Step 1",
+                hook_id="hook1",
+            ),
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 0, 5),
+                level="STEP",
+                logger_name="main",
+                message="Step 2",
+                hook_id="hook1",
+            ),
+        ]
+        result = controller._build_workflow_timeline(workflow_steps, "hook1")
+        assert result["step_count"] == 2
+        assert result["total_duration_ms"] == 5000
+        assert len(result["steps"]) == 2
+
+    def test_build_workflow_timeline_empty_steps(self, controller):
+        """Test workflow timeline building with empty steps."""
+        result = controller._build_workflow_timeline([], "hook1")
+        assert result["hook_id"] == "hook1"
+        assert result["step_count"] == 0
+        assert result["steps"] == []
+        assert result["start_time"] is None
 
 
 class TestLogAPI:
@@ -179,21 +543,6 @@ class TestLogAPI:
             # Test would return 500 Internal Server Error for file access issues
             with pytest.raises(OSError, match="Permission denied"):
                 mock_instance.get_log_entries()
-
-    def test_export_logs_csv_format(self, sample_log_entries: list[LogEntry]) -> None:
-        """Test exporting logs in CSV format."""
-        with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
-            mock_instance = Mock()
-            mock_controller.return_value = mock_instance
-
-            csv_content = "timestamp,level,logger_name,message,hook_id,event_type,repository,pr_number\n"
-            csv_content += "2025-07-31T10:00:00,INFO,main,Processing webhook,hook1,push,org/repo1,\n"
-
-            mock_instance.export_logs.return_value = csv_content
-
-            result = mock_instance.export_logs.return_value
-            assert result.startswith("timestamp,level,logger_name")
-            assert "Processing webhook" in result
 
     def test_export_logs_json_format(self, sample_log_entries: list[LogEntry]) -> None:
         """Test exporting logs in JSON format."""
@@ -402,6 +751,67 @@ class TestLogWebSocket:
 
             mock_websocket.accept.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_websocket_handle_real_implementation(self):
+        """Test actual WebSocket handler implementation."""
+        from webhook_server.web.log_viewer import LogViewerController
+        from unittest.mock import Mock
+
+        mock_logger = Mock()
+        controller = LogViewerController(logger=mock_logger)
+
+        mock_websocket = AsyncMock()
+        mock_websocket.accept = AsyncMock()
+        mock_websocket.send_json = AsyncMock()
+
+        # Mock the log directory to not exist
+        with patch.object(controller, "_get_log_directory") as mock_get_dir:
+            mock_dir = Mock()
+            mock_dir.exists.return_value = False
+            mock_get_dir.return_value = mock_dir
+
+            await controller.handle_websocket(mock_websocket)
+
+            mock_websocket.accept.assert_called_once()
+            mock_websocket.send_json.assert_called_once_with({"error": "Log directory not found"})
+
+    @pytest.mark.asyncio
+    async def test_websocket_handle_with_log_monitoring(self):
+        """Test WebSocket handler with log monitoring."""
+        from webhook_server.web.log_viewer import LogViewerController
+
+        mock_logger = Mock()
+        controller = LogViewerController(logger=mock_logger)
+
+        mock_websocket = AsyncMock()
+        mock_websocket.accept = AsyncMock()
+        mock_websocket.send_json = AsyncMock()
+
+        # Mock log directory exists
+        with patch.object(controller, "_get_log_directory") as mock_get_dir:
+            mock_dir = Mock()
+            mock_dir.exists.return_value = True
+            mock_get_dir.return_value = mock_dir
+
+            # Mock monitor_log_directory to yield one entry then stop
+            async def mock_monitor():
+                yield LogEntry(
+                    timestamp=datetime.datetime.now(),
+                    level="INFO",
+                    logger_name="test",
+                    message="Test message",
+                    hook_id="test-hook",
+                )
+                # Simulate WebSocket disconnect to stop the loop
+                raise WebSocketDisconnect()
+
+            with patch.object(controller.log_parser, "monitor_log_directory", return_value=mock_monitor()):
+                await controller.handle_websocket(mock_websocket)
+
+                mock_websocket.accept.assert_called_once()
+                # Should have attempted to send the log entry
+                assert mock_websocket.send_json.call_count >= 1
+
 
 class TestPRFlowAPI:
     """Test cases for PR flow visualization API."""
@@ -523,3 +933,98 @@ class TestPRFlowAPI:
             assert result["success"] is False
             assert "error" in result
             assert "error" in result["stages"][1]
+
+
+class TestWorkflowStepsAPI:
+    """Test class for workflow steps API endpoints."""
+
+    def test_get_workflow_steps_success(self) -> None:
+        """Test successful workflow steps retrieval."""
+        # Import modules before patching to avoid import caching issues
+        from webhook_server.app import FASTAPI_APP
+        from fastapi.testclient import TestClient
+
+        with patch("webhook_server.app.LogViewerController") as mock_controller:
+            client = TestClient(FASTAPI_APP)
+
+            # Mock workflow steps data
+            mock_workflow_data = {
+                "hook_id": "test-hook-123",
+                "steps": [
+                    {
+                        "timestamp": "2025-07-31T12:00:00",
+                        "level": "STEP",
+                        "message": "Starting PR processing workflow",
+                        "step_number": 1,
+                    },
+                    {
+                        "timestamp": "2025-07-31T12:00:01",
+                        "level": "STEP",
+                        "message": "Stage: Initial setup and check queuing",
+                        "step_number": 2,
+                    },
+                    {
+                        "timestamp": "2025-07-31T12:00:05",
+                        "level": "STEP",
+                        "message": "Stage: CI/CD execution",
+                        "step_number": 3,
+                    },
+                ],
+                "total_steps": 3,
+                "timeline_html": "<div class='timeline'>...</div>",
+            }
+
+            # Create a mock instance and configure its return value
+            mock_instance = Mock()
+            mock_instance.get_workflow_steps.return_value = mock_workflow_data
+            mock_controller.return_value = mock_instance
+
+            # Make the request
+            response = client.get("/logs/api/workflow-steps/test-hook-123")
+
+            # Assertions
+            assert response.status_code == 200
+            result = response.json()
+            assert result["hook_id"] == "test-hook-123"
+            assert result["total_steps"] == 3
+            assert len(result["steps"]) == 3
+            assert "timeline_html" in result
+
+            # Verify method was called correctly
+            mock_instance.get_workflow_steps.assert_called_once_with("test-hook-123")
+
+    def test_get_workflow_steps_no_steps_found(self) -> None:
+        """Test workflow steps when no steps are found."""
+        # Import modules before patching to avoid import caching issues
+        from webhook_server.app import FASTAPI_APP
+        from fastapi.testclient import TestClient
+
+        with patch("webhook_server.app.LogViewerController") as mock_controller:
+            client = TestClient(FASTAPI_APP)
+
+            # Mock empty workflow data
+            mock_workflow_data = {
+                "hook_id": "test-hook-456",
+                "steps": [],
+                "total_steps": 0,
+                "timeline_html": "<div class='no-timeline'>No workflow steps found</div>",
+            }
+
+            # Create a mock instance and configure its return value
+            mock_instance = Mock()
+            mock_instance.get_workflow_steps.return_value = mock_workflow_data
+            mock_controller.return_value = mock_instance
+
+            # Make the request
+            response = client.get("/logs/api/workflow-steps/test-hook-456")
+
+            # Assertions
+            assert response.status_code == 200
+            result = response.json()
+            assert result["hook_id"] == "test-hook-456"
+            assert result["total_steps"] == 0
+            assert len(result["steps"]) == 0
+            assert "timeline_html" in result
+
+            # Verify method was called correctly
+            mock_instance.get_workflow_steps.assert_called_once_with("test-hook-456")

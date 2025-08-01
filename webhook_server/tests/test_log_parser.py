@@ -527,3 +527,122 @@ class TestLogEntry:
 
         assert entry1 == entry2
         assert entry1 != entry3
+
+
+class TestWorkflowSteps:
+    """Test class for workflow step related functionality."""
+
+    def test_is_workflow_step_true(self) -> None:
+        """Test is_workflow_step method with STEP level entries."""
+        parser = LogParser()
+
+        step_entry = LogEntry(
+            timestamp="2025-07-31T12:00:00",
+            level="STEP",
+            logger_name="test_logger",
+            message="Starting CI/CD workflow",
+            hook_id="hook-123",
+        )
+
+        assert parser.is_workflow_step(step_entry) is True
+
+    def test_is_workflow_step_false(self) -> None:
+        """Test is_workflow_step method with non-STEP level entries."""
+        parser = LogParser()
+
+        info_entry = LogEntry(
+            timestamp="2025-07-31T12:00:00",
+            level="INFO",
+            logger_name="test_logger",
+            message="Regular info message",
+            hook_id="hook-123",
+        )
+
+        debug_entry = LogEntry(
+            timestamp="2025-07-31T12:00:00",
+            level="DEBUG",
+            logger_name="test_logger",
+            message="Debug message",
+            hook_id="hook-123",
+        )
+
+        assert parser.is_workflow_step(info_entry) is False
+        assert parser.is_workflow_step(debug_entry) is False
+
+    def test_extract_workflow_steps_with_matching_hook_id(self) -> None:
+        """Test extract_workflow_steps with entries matching hook_id."""
+        parser = LogParser()
+        target_hook_id = "hook-123"
+
+        entries = [
+            LogEntry(
+                timestamp="2025-07-31T12:00:00",
+                level="STEP",
+                logger_name="test_logger",
+                message="Starting workflow",
+                hook_id=target_hook_id,
+            ),
+            LogEntry(
+                timestamp="2025-07-31T12:00:01",
+                level="INFO",
+                logger_name="test_logger",
+                message="Regular info message",
+                hook_id=target_hook_id,
+            ),
+            LogEntry(
+                timestamp="2025-07-31T12:00:02",
+                level="STEP",
+                logger_name="test_logger",
+                message="Processing stage",
+                hook_id=target_hook_id,
+            ),
+            LogEntry(
+                timestamp="2025-07-31T12:00:03",
+                level="STEP",
+                logger_name="test_logger",
+                message="Different hook workflow",
+                hook_id="hook-456",
+            ),
+        ]
+
+        workflow_steps = parser.extract_workflow_steps(entries, target_hook_id)
+
+        assert len(workflow_steps) == 2
+        assert all(step.level == "STEP" for step in workflow_steps)
+        assert all(step.hook_id == target_hook_id for step in workflow_steps)
+        assert workflow_steps[0].message == "Starting workflow"
+        assert workflow_steps[1].message == "Processing stage"
+
+    def test_extract_workflow_steps_no_matching_entries(self) -> None:
+        """Test extract_workflow_steps with no matching entries."""
+        parser = LogParser()
+        target_hook_id = "hook-123"
+
+        entries = [
+            LogEntry(
+                timestamp="2025-07-31T12:00:00",
+                level="INFO",
+                logger_name="test_logger",
+                message="Regular info message",
+                hook_id=target_hook_id,
+            ),
+            LogEntry(
+                timestamp="2025-07-31T12:00:01",
+                level="STEP",
+                logger_name="test_logger",
+                message="Different hook workflow",
+                hook_id="hook-456",
+            ),
+        ]
+
+        workflow_steps = parser.extract_workflow_steps(entries, target_hook_id)
+
+        assert len(workflow_steps) == 0
+
+    def test_extract_workflow_steps_empty_entries(self) -> None:
+        """Test extract_workflow_steps with empty entries list."""
+        parser = LogParser()
+
+        workflow_steps = parser.extract_workflow_steps([], "hook-123")
+
+        assert len(workflow_steps) == 0

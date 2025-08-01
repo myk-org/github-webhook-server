@@ -352,7 +352,7 @@ def export_logs(
     search: str | None = None,
     limit: int = 10000,
 ) -> StreamingResponse:
-    """Export filtered logs as CSV or JSON file."""
+    """Export filtered logs as JSON file."""
     controller = LogViewerController(logger=LOGGER)
 
     # Parse datetime strings if provided

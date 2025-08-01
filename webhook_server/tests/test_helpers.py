@@ -102,18 +102,18 @@ class TestHelpers:
         mock_api1.rate_limiting = [100, 5000]  # 100 remaining, 5000 limit
         mock_api1.get_user.return_value.login = "user1"
         mock_rate_limit1 = Mock()
-        mock_rate_limit1.core.remaining = 100
-        mock_rate_limit1.core.reset = Mock()
-        mock_rate_limit1.core.limit = 5000
+        mock_rate_limit1.rate.remaining = 100
+        mock_rate_limit1.rate.reset = Mock()
+        mock_rate_limit1.rate.limit = 5000
         mock_api1.get_rate_limit.return_value = mock_rate_limit1
 
         mock_api2 = Mock()
         mock_api2.rate_limiting = [200, 5000]  # 200 remaining, 5000 limit
         mock_api2.get_user.return_value.login = "user2"
         mock_rate_limit2 = Mock()
-        mock_rate_limit2.core.remaining = 200
-        mock_rate_limit2.core.reset = Mock()
-        mock_rate_limit2.core.limit = 5000
+        mock_rate_limit2.rate.remaining = 200
+        mock_rate_limit2.rate.reset = Mock()
+        mock_rate_limit2.rate.limit = 5000
         mock_api2.get_rate_limit.return_value = mock_rate_limit2
 
         mock_get_apis.return_value = [(mock_api1, "token1"), (mock_api2, "token2")]
@@ -203,9 +203,9 @@ class TestHelpers:
         mock_api2.rate_limiting = [100, 5000]  # Valid token
         mock_api2.get_user.return_value.login = "user2"
         mock_rate_limit2 = Mock()
-        mock_rate_limit2.core.remaining = 100
-        mock_rate_limit2.core.reset = Mock()
-        mock_rate_limit2.core.limit = 5000
+        mock_rate_limit2.rate.remaining = 100
+        mock_rate_limit2.rate.reset = Mock()
+        mock_rate_limit2.rate.limit = 5000
         mock_api2.get_rate_limit.return_value = mock_rate_limit2
 
         mock_get_apis.return_value = [(mock_api1, "invalid_token"), (mock_api2, "valid_token")]
@@ -276,7 +276,7 @@ class TestHelpers:
             rate_core.limit = 5000
             rate_core.reset = now + datetime.timedelta(seconds=1000)
             rate_limit = Mock()
-            rate_limit.core = rate_core
+            rate_limit.rate = rate_core
             log_rate_limit(rate_limit, api_user="user1")
             # YELLOW branch
             rate_core.remaining = 1000
