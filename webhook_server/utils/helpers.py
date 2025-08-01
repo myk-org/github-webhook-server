@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import json
 import os
+import random
 import shlex
 import subprocess
 from concurrent.futures import Future, as_completed
@@ -14,6 +16,7 @@ from colorama import Fore
 from github.RateLimitOverview import RateLimitOverview
 from github.Repository import Repository
 from simple_logger.logger import get_logger
+from stringcolor import cs
 
 from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import NoApiTokenError
@@ -241,3 +244,97 @@ def get_future_results(futures: list["Future"]) -> None:
 
         else:
             _log(_res[1])
+
+
+def get_repository_color_for_log_prefix(repository_name: str, data_dir: str) -> str:
+    """
+    Get a consistent color for repository name in log prefixes.
+
+    Args:
+        repository_name: Repository name to get color for
+        data_dir: Directory to store color mappings
+
+    Returns:
+        Colored repository name string
+    """
+
+    def _get_random_color(_colors: list[str], _json: dict[str, str]) -> str:
+        color = random.choice(_colors)
+        _json[repository_name] = color
+        if _selected := cs(repository_name, color).render():
+            return _selected
+        return repository_name
+
+    _all_colors: list[str] = []
+    color_json: dict[str, str]
+    _colors_to_exclude = ("blue", "white", "black", "grey")
+    color_file: str = os.path.join(data_dir, "log-colors.json")
+
+    for _color_name in cs.colors.values():
+        _cname = _color_name["name"]
+        if _cname.lower() in _colors_to_exclude:
+            continue
+        _all_colors.append(_cname)
+
+    try:
+        with open(color_file) as fd:
+            color_json = json.load(fd)
+    except Exception:
+        color_json = {}
+
+    if color := color_json.get(repository_name, ""):
+        _cs_object = cs(repository_name, color)
+        if cs.find_color(_cs_object):
+            _str_color = _cs_object.render()
+        else:
+            _str_color = _get_random_color(_colors=_all_colors, _json=color_json)
+    else:
+        _str_color = _get_random_color(_colors=_all_colors, _json=color_json)
+
+    with open(color_file, "w") as fd:
+        json.dump(color_json, fd)
+
+    if _str_color:
+        _str_color = _str_color.replace("\x1b", "\033")
+        return _str_color
+    return repository_name
+
+
+def prepare_log_prefix(
+    event_type: str,
+    delivery_id: str,
+    repository_name: str | None = None,
+    api_user: str | None = None,
+    pr_number: int | None = None,
+    data_dir: str | None = None,
+) -> str:
+    """
+    Prepare standardized log prefix for consistent formatting across webhook processing.
+
+    Args:
+        event_type: GitHub event type (e.g., 'pull_request', 'check_run')
+        delivery_id: GitHub delivery ID (x-github-delivery header)
+        repository_name: Repository name for color coding (optional)
+        api_user: API user for the request (optional)
+        pr_number: Pull request number if applicable (optional)
+        data_dir: Directory for storing color mappings (optional, defaults to /tmp)
+
+    Returns:
+        Formatted log prefix string
+    """
+    if repository_name and data_dir:
+        repository_color = get_repository_color_for_log_prefix(repository_name, data_dir)
+    else:
+        repository_color = repository_name or "unknown-repo"
+
+    # Build prefix components
+    components = [event_type, delivery_id]
+    if api_user:
+        components.append(api_user)
+
+    prefix = f"{repository_color} [{']['.join(components)}]"
+
+    if pr_number:
+        prefix += f"[PR {pr_number}]"
+
+    return prefix + ":"

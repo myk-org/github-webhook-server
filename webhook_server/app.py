@@ -27,7 +27,7 @@ from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import RepositoryNotFoundError
 from webhook_server.libs.github_api import GithubWebhook
 from webhook_server.web.log_viewer import LogViewerController
-from webhook_server.utils.helpers import get_logger_with_params
+from webhook_server.utils.helpers import get_logger_with_params, prepare_log_prefix
 
 # Constants
 APP_URL_ROOT_PATH: str = "/webhook_server"
@@ -200,7 +200,9 @@ async def process_webhook(request: Request, background_tasks: BackgroundTasks) -
     # Extract headers early for logging
     delivery_id = request.headers.get("X-GitHub-Delivery", "unknown-delivery")
     event_type = request.headers.get("X-GitHub-Event", "unknown-event")
-    log_context = f"[Event: {event_type}][Delivery: {delivery_id}]"
+
+    # Use standardized log prefix format (will get repository info after parsing payload)
+    log_context = prepare_log_prefix(event_type, delivery_id)
 
     LOGGER.info(f"{log_context} Processing webhook")
 

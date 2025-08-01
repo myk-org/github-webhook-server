@@ -5,7 +5,6 @@ import contextlib
 import json
 import logging
 import os
-import random
 from typing import Any
 
 import requests
@@ -13,7 +12,6 @@ from github import GithubException
 from github.Commit import Commit
 from github.PullRequest import PullRequest
 from starlette.datastructures import Headers
-from stringcolor import cs
 
 from webhook_server.libs.check_run_handler import CheckRunHandler
 from webhook_server.libs.config import Config
@@ -40,6 +38,7 @@ from webhook_server.utils.helpers import (
     get_api_with_highest_rate_limit,
     get_apis_and_tokes_from_config,
     get_github_repo_api,
+    prepare_log_prefix,
 )
 
 
@@ -178,62 +177,14 @@ class GithubWebhook:
 
             self.auto_verified_and_merged_users.append(_api.get_user().login)
 
-    def _get_reposiroty_color_for_log_prefix(self) -> str:
-        def _get_random_color(_colors: list[str], _json: dict[str, str]) -> str:
-            color = random.choice(_colors)
-            _json[self.repository_name] = color
-
-            if _selected := cs(self.repository_name, color).render():
-                return _selected
-
-            return self.repository_name
-
-        _all_colors: list[str] = []
-        color_json: dict[str, str]
-        _colors_to_exclude = ("blue", "white", "black", "grey")
-        color_file: str = os.path.join(self.config.data_dir, "log-colors.json")
-
-        for _color_name in cs.colors.values():
-            _cname = _color_name["name"]
-            if _cname.lower() in _colors_to_exclude:
-                continue
-
-            _all_colors.append(_cname)
-
-        try:
-            with open(color_file) as fd:
-                color_json = json.load(fd)
-
-        except Exception:
-            color_json = {}
-
-        if color := color_json.get(self.repository_name, ""):
-            _cs_object = cs(self.repository_name, color)
-            if cs.find_color(_cs_object):
-                _str_color = _cs_object.render()
-
-            else:
-                _str_color = _get_random_color(_colors=_all_colors, _json=color_json)
-
-        else:
-            _str_color = _get_random_color(_colors=_all_colors, _json=color_json)
-
-        with open(color_file, "w") as fd:
-            json.dump(color_json, fd)
-
-        if _str_color:
-            _str_color = _str_color.replace("\x1b", "\033")
-            return _str_color
-
-        return self.repository_name
-
     def prepare_log_prefix(self, pull_request: PullRequest | None = None) -> str:
-        _repository_color = self._get_reposiroty_color_for_log_prefix()
-
-        return (
-            f"{_repository_color} [{self.github_event}][{self.x_github_delivery}][{self.api_user}][PR {pull_request.number}]:"
-            if pull_request
-            else f"{_repository_color} [{self.github_event}][{self.x_github_delivery}][{self.api_user}]:"
+        return prepare_log_prefix(
+            event_type=self.github_event,
+            delivery_id=self.x_github_delivery,
+            repository_name=self.repository_name,
+            api_user=self.api_user,
+            pr_number=pull_request.number if pull_request else None,
+            data_dir=self.config.data_dir,
         )
 
     def _repo_data_from_config(self, repository_config: dict[str, Any]) -> None:
