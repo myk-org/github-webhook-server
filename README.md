@@ -692,7 +692,9 @@ The webhook server includes a comprehensive log viewer web interface for monitor
 
 ### 🔒 Security Warning
 
-**🚨 CRITICAL SECURITY NOTICE**: The log viewer endpoints (`/logs/*`) are **NOT PROTECTED** by authentication or authorization. They expose potentially sensitive webhook data and should **NEVER** be exposed outside your local network or trusted environment.
+**🚨 CRITICAL SECURITY NOTICE**: The log viewer endpoints (`/logs/*`) are **NOT PROTECTED** by
+authentication or authorization. They expose potentially sensitive webhook data and should **NEVER**
+be exposed outside your local network or trusted environment.
 
 **Required Security Measures:**
 
@@ -720,7 +722,7 @@ The webhook server includes a comprehensive log viewer web interface for monitor
 
 **Streaming-First Design**: The log viewer is built around a streaming architecture that processes logs incrementally:
 
-```
+```text
 Log File → Streaming Parser → Early Filter → Chunked Processing → Client
     ↓            ↓               ↓              ↓              ↓
 Real-time    Line-by-line    Apply filters   Small batches   Progressive UI
@@ -738,7 +740,7 @@ processing   microsecond     before load     (100-1000       updates
 
 **Web Interface:**
 
-```
+```url
 http://your-server:5000/logs
 ```
 
@@ -813,7 +815,7 @@ curl "http://localhost:5000/logs/api/export?format=json&pr_number=123" -o logs.j
 
 #### WebSocket Real-time Streaming
 
-```
+```url
 ws://your-server:5000/logs/ws
 ```
 

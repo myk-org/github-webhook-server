@@ -364,7 +364,7 @@ def get_log_entries(
 
 @FASTAPI_APP.get("/logs/api/export")
 def export_logs(
-    format: str,
+    format_type: str,
     hook_id: str | None = None,
     pr_number: int | None = None,
     repository: str | None = None,
@@ -383,7 +383,7 @@ def export_logs(
     end_datetime = parse_datetime_string(end_time, "end_time")
 
     return controller.export_logs(
-        format_type=format,
+        format_type=format_type,
         hook_id=hook_id,
         pr_number=pr_number,
         repository=repository,

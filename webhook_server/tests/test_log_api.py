@@ -28,7 +28,10 @@ class TestLogViewerController:
         """Create a LogViewerController instance for testing."""
         from webhook_server.web.log_viewer import LogViewerController
 
-        with patch("webhook_server.web.log_viewer.Config"):
+        with patch("webhook_server.web.log_viewer.Config") as mock_config:
+            mock_config_instance = Mock()
+            mock_config_instance.data_dir = "/test/data"
+            mock_config.return_value = mock_config_instance
             return LogViewerController(logger=mock_logger)
 
     @pytest.fixture

@@ -1,0 +1,1145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Webhook Server - Log Viewer</title>
+    <style>
+        :root {
+            /* Light theme variables */
+            --bg-color: #f5f5f5;
+            --container-bg: #ffffff;
+            --text-color: #333333;
+            --border-color: #dddddd;
+            --input-bg: #ffffff;
+            --input-border: #dddddd;
+            --button-bg: #007bff;
+            --button-hover: #0056b3;
+            --status-connected-bg: #d4edda;
+            --status-connected-text: #155724;
+            --status-connected-border: #c3e6cb;
+            --status-disconnected-bg: #f8d7da;
+            --status-disconnected-text: #721c24;
+            --status-disconnected-border: #f5c6cb;
+            --log-entry-border: #eeeeee;
+            --log-info-bg: #d4f8d4;
+            --log-error-bg: #ffd6d6;
+            --log-warning-bg: #fff3cd;
+            --log-debug-bg: #f8f9fa;
+            --log-step-bg: #e3f2fd;
+            --tag-bg: #e9ecef;
+            --timestamp-color: #666666;
+        }
+
+        [data-theme="dark"] {
+            /* Dark theme variables */
+            --bg-color: #1a1a1a;
+            --container-bg: #2d2d2d;
+            --text-color: #e0e0e0;
+            --border-color: #404040;
+            --input-bg: #3d3d3d;
+            --input-border: #555555;
+            --button-bg: #0d6efd;
+            --button-hover: #0b5ed7;
+            --status-connected-bg: #155724;
+            --status-connected-text: #d4edda;
+            --status-connected-border: #c3e6cb;
+            --status-disconnected-bg: #721c24;
+            --status-disconnected-text: #f8d7da;
+            --status-disconnected-border: #f5c6cb;
+            --log-entry-border: #404040;
+            --log-info-bg: #1e4a1e;
+            --log-error-bg: #5a1e1e;
+            --log-warning-bg: #5a4a1e;
+            --log-debug-bg: #2a2a2a;
+            --log-step-bg: #1a237e;
+            --tag-bg: #4a4a4a;
+            --timestamp-color: #888888;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+        .container {
+            max-width: 95vw;
+            margin: 0 auto;
+            background: var(--container-bg);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: background-color 0.3s ease;
+        }
+        .header {
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 20px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 { margin: 0; }
+        .theme-toggle {
+            background: var(--button-bg);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        .theme-toggle:hover { background: var(--button-hover); }
+        .filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 20px; }
+        .filter-group { display: flex; flex-direction: column; }
+        .filter-group label { font-weight: bold; margin-bottom: 3px; font-size: 14px; color: var(--text-color); }
+        .filter-group input, .filter-group select {
+            padding: 8px;
+            border: 1px solid var(--input-border);
+            border-radius: 4px;
+            background: var(--input-bg);
+            color: var(--text-color);
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+        .log-entries { border: 1px solid var(--border-color); border-radius: 4px; max-height: 70vh; overflow-y: auto; }
+
+        /* Loading skeleton styles */
+        .loading-skeleton {
+            padding: 20px;
+        }
+        .skeleton-entry {
+            padding: 10px;
+            border-bottom: 1px solid var(--log-entry-border);
+            animation: pulse 1.5s ease-in-out infinite alternate;
+        }
+        .skeleton-line {
+            height: 14px;
+            margin: 4px 0;
+            border-radius: 3px;
+            background: linear-gradient(90deg, var(--border-color) 25%, var(--input-bg) 50%, var(--border-color) 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+        .skeleton-timestamp { width: 20%; }
+        .skeleton-level { width: 10%; }
+        .skeleton-message { width: 60%; }
+        .skeleton-meta { width: 30%; }
+        .loading-text {
+            text-align: center;
+            color: var(--timestamp-color);
+            font-style: italic;
+            margin-top: 20px;
+        }
+
+        /* Error message styles */
+        .error-message {
+            padding: 20px;
+            text-align: center;
+            color: var(--status-disconnected-text);
+            background: var(--status-disconnected-bg);
+            border: 1px solid var(--status-disconnected-border);
+            border-radius: 4px;
+            margin: 20px;
+        }
+        .error-icon {
+            font-size: 24px;
+            display: block;
+            margin-bottom: 10px;
+        }
+        .retry-btn {
+            background: var(--button-bg);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        .retry-btn:hover {
+            background: var(--button-hover);
+        }
+
+        /* Virtual scrolling performance optimizations */
+        .virtual-scroll-container {
+            contain: layout style paint;
+            will-change: scroll-position;
+        }
+        .virtual-scroll-content {
+            contain: layout style paint;
+            will-change: transform;
+        }
+
+        /* Animations */
+        @keyframes pulse {
+            0% { opacity: 1; }
+            100% { opacity: 0.6; }
+        }
+        @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+
+        /* Timeline styles */
+        .timeline-section {
+            margin: 20px 0;
+            padding: 15px;
+            background: var(--container-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            display: none; /* Hidden by default */
+        }
+
+        .timeline-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .timeline-info {
+            font-size: 14px;
+            color: var(--timestamp-color);
+        }
+
+        .timeline-container {
+            position: relative;
+            overflow-x: auto;
+            padding: 20px 0;
+            min-height: 120px;
+        }
+
+        .timeline-svg {
+            width: 100%;
+            min-width: 800px;
+            height: 120px;
+        }
+
+        .timeline-step {
+            cursor: pointer;
+        }
+
+        .timeline-step:hover .step-circle {
+            r: 8;
+            stroke-width: 3;
+        }
+
+        .timeline-step:hover .step-label {
+            font-weight: bold;
+        }
+
+        .step-line {
+            stroke: var(--border-color);
+            stroke-width: 2;
+        }
+
+        .step-circle {
+            r: 8;
+            stroke: #ffffff;
+            stroke-width: 2;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .step-circle:hover {
+            r: 10;
+        }
+
+        .step-circle.success {
+            fill: #28a745;
+            stroke: #ffffff;
+        }
+
+        .step-circle.failure {
+            fill: #dc3545;
+            stroke: #ffffff;
+        }
+
+        .step-circle.info {
+            fill: #17a2b8;
+            stroke: #ffffff;
+        }
+
+        .step-circle.progress {
+            fill: #007bff;
+            stroke: #ffffff;
+        }
+
+        .step-label {
+            font-size: 12px;
+            text-anchor: middle;
+            fill: var(--text-color);
+            transition: font-weight 0.2s ease;
+        }
+
+        .step-time {
+            font-size: 10px;
+            text-anchor: middle;
+            fill: var(--timestamp-color);
+        }
+
+        .timeline-tooltip {
+            position: absolute;
+            background: var(--container-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 8px;
+            font-size: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            z-index: 1000;
+            pointer-events: none;
+            display: none;
+            max-width: 300px;
+        }
+        .log-entry {
+            padding: 10px;
+            border-bottom: 1px solid var(--log-entry-border);
+            font-family: monospace;
+            font-size: 14px;
+            transition: background-color 0.3s ease;
+        }
+        .log-entry:last-child { border-bottom: none; }
+        .log-entry.INFO { background-color: var(--log-info-bg); }
+        .log-entry.ERROR { background-color: var(--log-error-bg); }
+        .log-entry.WARNING { background-color: var(--log-warning-bg); }
+        .log-entry.DEBUG { background-color: var(--log-debug-bg); }
+        .log-entry.STEP { background-color: var(--log-step-bg); }
+        .timestamp { color: var(--timestamp-color); }
+        .level { font-weight: bold; }
+        .message { margin-left: 10px; }
+        .hook-id, .pr-number, .repository, .user {
+            margin-left: 10px;
+            padding: 2px 6px;
+            background-color: var(--tag-bg);
+            border-radius: 3px;
+            font-size: 12px;
+            transition: background-color 0.3s ease;
+        }
+        .controls { margin-bottom: 20px; }
+        .btn {
+            padding: 10px 20px;
+            background-color: var(--button-bg);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+            transition: background-color 0.3s ease;
+        }
+        .btn:hover { background-color: var(--button-hover); }
+        .status { padding: 10px; margin-bottom: 20px; border-radius: 4px; }
+        .status.connected {
+            background-color: var(--status-connected-bg);
+            color: var(--status-connected-text);
+            border: 1px solid var(--status-connected-border);
+        }
+        .status.disconnected {
+            background-color: var(--status-disconnected-bg);
+            color: var(--status-disconnected-text);
+            border: 1px solid var(--status-disconnected-border);
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .filters { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+            .filter-group label { font-size: 13px; }
+            .filter-group input, .filter-group select { padding: 6px; font-size: 14px; }
+            .controls { display: flex; flex-wrap: wrap; gap: 8px; }
+            .btn { padding: 8px 16px; font-size: 14px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1>GitHub Webhook Server - Log Viewer</h1>
+                <p>Real-time log monitoring and filtering for webhook events</p>
+            </div>
+            <button class="theme-toggle" onclick="toggleTheme()" title="Toggle dark/light theme">
+                🌙
+            </button>
+        </div>
+
+        <div class="status" id="connectionStatus">
+            <span id="statusText">Connecting...</span>
+        </div>
+
+        <div class="controls">
+            <button class="btn" onclick="connectWebSocket()">Start Real-time</button>
+            <button class="btn" onclick="disconnectWebSocket()">Stop Real-time</button>
+            <button class="btn" onclick="loadHistoricalLogs()">Refresh</button>
+            <button class="btn" onclick="clearFilters()">Clear Filters</button>
+            <button class="btn" onclick="clearLogs()">Clear Logs</button>
+            <button class="btn" onclick="exportLogs('json')">Export JSON</button>
+        </div>
+
+        <div class="filters">
+            <div class="filter-group">
+                <label for="hookIdFilter">Hook ID:</label>
+                <input type="text" id="hookIdFilter" placeholder="delivery-id" title="x-github-delivery value">
+            </div>
+            <div class="filter-group">
+                <label for="prNumberFilter">PR #:</label>
+                <input type="number" id="prNumberFilter" placeholder="123">
+            </div>
+            <div class="filter-group">
+                <label for="repositoryFilter">Repository:</label>
+                <input type="text" id="repositoryFilter" placeholder="org/repo">
+            </div>
+            <div class="filter-group">
+                <label for="userFilter">User:</label>
+                <input type="text" id="userFilter" placeholder="username">
+            </div>
+            <div class="filter-group">
+                <label for="levelFilter">Level:</label>
+                <select id="levelFilter">
+                    <option value="">All</option>
+                    <option value="DEBUG">DEBUG</option>
+                    <option value="INFO">INFO</option>
+                    <option value="WARNING">WARNING</option>
+                    <option value="ERROR">ERROR</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="searchFilter">Search:</label>
+                <input type="text" id="searchFilter" placeholder="text in messages...">
+            </div>
+        </div>
+
+        <!-- Hook ID Flow Timeline -->
+        <div class="timeline-section" id="timelineSection">
+            <div class="timeline-header">
+                <h3>Hook ID Flow Timeline</h3>
+                <div class="timeline-info" id="timelineInfo">
+                    <!-- Timeline metadata will be populated here -->
+                </div>
+            </div>
+            <div class="timeline-container">
+                <svg class="timeline-svg" id="timelineSvg">
+                    <!-- Timeline visualization will be generated here -->
+                </svg>
+                <div class="timeline-tooltip" id="timelineTooltip"></div>
+            </div>
+        </div>
+
+        <div class="log-entries" id="logEntries">
+            <!-- Log entries will be populated here -->
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let logEntries = [];
+
+        function updateConnectionStatus(connected) {
+            const status = document.getElementById('connectionStatus');
+            const statusText = document.getElementById('statusText');
+
+            if (connected) {
+                status.className = 'status connected';
+                statusText.textContent = 'Connected - Real-time updates active';
+            } else {
+                status.className = 'status disconnected';
+                statusText.textContent = 'Disconnected - Real-time updates inactive';
+            }
+        }
+
+        function connectWebSocket() {
+            if (ws) {
+                ws.close();
+            }
+
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+
+            // Build WebSocket URL with current filter parameters
+            const filters = new URLSearchParams();
+            const hookId = document.getElementById('hookIdFilter').value.trim();
+            const prNumber = document.getElementById('prNumberFilter').value.trim();
+            const repository = document.getElementById('repositoryFilter').value.trim();
+            const user = document.getElementById('userFilter').value.trim();
+            const level = document.getElementById('levelFilter').value;
+
+            if (hookId) filters.append('hook_id', hookId);
+            if (prNumber) filters.append('pr_number', prNumber);
+            if (repository) filters.append('repository', repository);
+            if (user) filters.append('github_user', user);
+            if (level) filters.append('level', level);
+
+            const wsUrl = `${protocol}//${window.location.host}/logs/ws${filters.toString() ? '?' + filters.toString() : ''}`;
+
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = function() {
+                updateConnectionStatus(true);
+                console.log('WebSocket connected');
+            };
+
+            ws.onmessage = function(event) {
+                const logEntry = JSON.parse(event.data);
+                addLogEntry(logEntry);
+            };
+
+            ws.onclose = function() {
+                updateConnectionStatus(false);
+                console.log('WebSocket disconnected');
+            };
+
+            ws.onerror = function(error) {
+                updateConnectionStatus(false);
+                console.error('WebSocket error:', error);
+            };
+        }
+
+        function disconnectWebSocket() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+            updateConnectionStatus(false);
+        }
+
+        // Virtual scrolling configuration
+        const ITEM_HEIGHT = 60; // Approximate height of each log entry in pixels
+        const BUFFER_SIZE = 5; // Extra items to render outside viewport
+        let virtualScrollData = {
+            filteredEntries: [],
+            containerHeight: 0,
+            scrollTop: 0,
+            startIndex: 0,
+            endIndex: 0,
+            visibleCount: 0
+        };
+
+        function addLogEntry(entry) {
+            logEntries.unshift(entry);
+            clearFilterCache(); // Clear cache when entries change
+            renderLogEntriesOptimized();
+        }
+
+        function renderLogEntriesOptimized() {
+            const container = document.getElementById('logEntries');
+            const filteredEntries = filterLogEntries(logEntries);
+
+            // Update virtual scroll data
+            virtualScrollData.filteredEntries = filteredEntries;
+            virtualScrollData.containerHeight = container.clientHeight || 400;
+            virtualScrollData.visibleCount = Math.ceil(virtualScrollData.containerHeight / ITEM_HEIGHT);
+
+            // For small datasets, use direct rendering for simplicity
+            if (filteredEntries.length <= 100) {
+                renderLogEntriesDirect(container, filteredEntries);
+                return;
+            }
+
+            // Use virtual scrolling for large datasets
+            renderLogEntriesVirtual(container);
+        }
+
+        function renderLogEntriesDirect(container, entries) {
+            // Use DocumentFragment for efficient DOM manipulation
+            const fragment = document.createDocumentFragment();
+
+            // Clear existing content efficiently
+            while (container.firstChild) {
+                container.removeChild(container.firstChild);
+            }
+
+            entries.forEach(entry => {
+                const entryElement = createLogEntryElement(entry);
+                fragment.appendChild(entryElement);
+            });
+
+            container.appendChild(fragment);
+        }
+
+        function renderLogEntriesVirtual(container) {
+            const { filteredEntries } = virtualScrollData;
+
+            // Create virtual scroll container if it doesn't exist
+            let virtualContainer = container.querySelector('.virtual-scroll-container');
+            if (!virtualContainer) {
+                setupVirtualScrollContainer(container);
+                virtualContainer = container.querySelector('.virtual-scroll-container');
+            }
+
+            updateVirtualScrollIndices();
+            renderVisibleItems(virtualContainer);
+        }
+
+        function setupVirtualScrollContainer(container) {
+            const { filteredEntries } = virtualScrollData;
+
+            // Clear existing content
+            container.innerHTML = '';
+
+            // Create virtual scroll structure
+            const totalHeight = filteredEntries.length * ITEM_HEIGHT;
+            container.innerHTML = `
+                <div class="virtual-scroll-container" style="height: ${virtualScrollData.containerHeight}px; overflow-y: auto;">
+                    <div class="virtual-scroll-spacer" style="height: ${totalHeight}px; position: relative;">
+                        <div class="virtual-scroll-content" style="position: absolute; top: 0; left: 0; right: 0;"></div>
+                    </div>
+                </div>
+            `;
+
+            // Add scroll event listener
+            const scrollContainer = container.querySelector('.virtual-scroll-container');
+            scrollContainer.addEventListener('scroll', handleVirtualScroll);
+        }
+
+        function handleVirtualScroll(event) {
+            virtualScrollData.scrollTop = event.target.scrollTop;
+            updateVirtualScrollIndices();
+
+            const content = event.target.querySelector('.virtual-scroll-content');
+            renderVisibleItems(content);
+        }
+
+        function updateVirtualScrollIndices() {
+            const { scrollTop, visibleCount, filteredEntries } = virtualScrollData;
+
+            virtualScrollData.startIndex = Math.max(0, Math.floor(scrollTop / ITEM_HEIGHT) - BUFFER_SIZE);
+            virtualScrollData.endIndex = Math.min(
+                filteredEntries.length - 1,
+                virtualScrollData.startIndex + visibleCount + (BUFFER_SIZE * 2)
+            );
+        }
+
+        function renderVisibleItems(contentContainer) {
+            const { filteredEntries, startIndex, endIndex } = virtualScrollData;
+
+            // Clear existing visible items
+            contentContainer.innerHTML = '';
+
+            // Position the content container
+            contentContainer.style.transform = `translateY(${startIndex * ITEM_HEIGHT}px)`;
+
+            // Create fragment for efficient DOM updates
+            const fragment = document.createDocumentFragment();
+
+            // Render only visible items
+            for (let i = startIndex; i <= endIndex; i++) {
+                if (filteredEntries[i]) {
+                    const entryElement = createLogEntryElement(filteredEntries[i]);
+                    entryElement.style.height = `${ITEM_HEIGHT}px`;
+                    fragment.appendChild(entryElement);
+                }
+            }
+
+            contentContainer.appendChild(fragment);
+        }
+
+        function createLogEntryElement(entry) {
+            const div = document.createElement('div');
+            div.className = `log-entry ${entry.level}`;
+
+            // Use efficient string template
+            div.innerHTML = `
+                <span class="timestamp">${new Date(entry.timestamp).toLocaleString()}</span>
+                <span class="level">[${entry.level}]</span>
+                <span class="message">${escapeHtml(entry.message)}</span>
+                ${entry.hook_id ? `<span class="hook-id">[Hook: ${escapeHtml(entry.hook_id)}]</span>` : ''}
+                ${entry.pr_number ? `<span class="pr-number">[PR: #${entry.pr_number}]</span>` : ''}
+                ${entry.repository ? `<span class="repository">[${escapeHtml(entry.repository)}]</span>` : ''}
+                ${entry.github_user ? `<span class="user">[User: ${escapeHtml(entry.github_user)}]</span>` : ''}
+            `;
+
+            return div;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Alias for backward compatibility
+        function renderLogEntries() {
+            renderLogEntriesOptimized();
+        }
+
+        // Optimized filtering with caching and early exit
+        let lastFilterHash = '';
+        let cachedFilteredEntries = [];
+
+        function filterLogEntries(entries) {
+            const hookId = document.getElementById('hookIdFilter').value.trim();
+            const prNumber = document.getElementById('prNumberFilter').value.trim();
+            const repository = document.getElementById('repositoryFilter').value.trim();
+            const user = document.getElementById('userFilter').value.trim();
+            const level = document.getElementById('levelFilter').value;
+            const search = document.getElementById('searchFilter').value.trim().toLowerCase();
+
+            // Create hash of current filters for caching
+            const filterHash = `${hookId}-${prNumber}-${repository}-${user}-${level}-${search}-${entries.length}`;
+
+            // Return cached result if filters haven't changed
+            if (filterHash === lastFilterHash && cachedFilteredEntries.length > 0) {
+                return cachedFilteredEntries;
+            }
+
+            // Pre-compile search terms for better performance
+            const searchTerms = search ? search.split(' ').filter(term => term.length > 0) : [];
+            const prNumberInt = prNumber ? parseInt(prNumber) : null;
+
+            // Use optimized filtering with early exits
+            const filtered = entries.filter(entry => {
+                // Exact matches first (fastest)
+                if (hookId && entry.hook_id !== hookId) return false;
+                if (prNumberInt && entry.pr_number !== prNumberInt) return false;
+                if (repository && entry.repository !== repository) return false;
+                if (user && entry.github_user !== user) return false;
+                if (level && entry.level !== level) return false;
+
+                // Text search last (slowest)
+                if (searchTerms.length > 0) {
+                    const messageText = entry.message.toLowerCase();
+                    return searchTerms.every(term => messageText.includes(term));
+                }
+
+                return true;
+            });
+
+            // Cache the result
+            lastFilterHash = filterHash;
+            cachedFilteredEntries = filtered;
+
+            return filtered;
+        }
+
+        // Clear filter cache when entries change
+        function clearFilterCache() {
+            lastFilterHash = '';
+            cachedFilteredEntries = [];
+        }
+
+        async function loadHistoricalLogs() {
+            try {
+                // Show loading skeleton
+                showLoadingSkeleton();
+
+                // Build API URL with current filter parameters
+                const filters = new URLSearchParams();
+                const hookId = document.getElementById('hookIdFilter').value.trim();
+                const prNumber = document.getElementById('prNumberFilter').value.trim();
+                const repository = document.getElementById('repositoryFilter').value.trim();
+                const user = document.getElementById('userFilter').value.trim();
+                const level = document.getElementById('levelFilter').value;
+                const search = document.getElementById('searchFilter').value.trim();
+
+                // Increase limit for better performance with chunked loading
+                filters.append('limit', '1000');
+                if (hookId) filters.append('hook_id', hookId);
+                if (prNumber) filters.append('pr_number', prNumber);
+                if (repository) filters.append('repository', repository);
+                if (user) filters.append('github_user', user);
+                if (level) filters.append('level', level);
+                if (search) filters.append('search', search);
+
+                const response = await fetch(`/logs/api/entries?${filters.toString()}`);
+                const data = await response.json();
+
+                // Progressive loading for large datasets
+                if (data.entries.length > 200) {
+                    await loadEntriesProgressively(data.entries);
+                } else {
+                    logEntries = data.entries;
+                    clearFilterCache(); // Clear cache when loading new entries
+                    renderLogEntries();
+                }
+
+                hideLoadingSkeleton();
+            } catch (error) {
+                console.error('Error loading historical logs:', error);
+                hideLoadingSkeleton();
+                showErrorMessage('Failed to load log entries');
+            }
+        }
+
+        async function loadEntriesProgressively(entries) {
+            const chunkSize = 50;
+            logEntries = [];
+            clearFilterCache(); // Clear cache when loading new entries
+
+            for (let i = 0; i < entries.length; i += chunkSize) {
+                const chunk = entries.slice(i, i + chunkSize);
+                logEntries.push(...chunk);
+                clearFilterCache(); // Clear cache for each chunk
+                renderLogEntries();
+
+                // Add small delay to prevent UI blocking
+                if (i + chunkSize < entries.length) {
+                    await new Promise(resolve => setTimeout(resolve, 10));
+                }
+            }
+        }
+
+        function showLoadingSkeleton() {
+            const container = document.getElementById('logEntries');
+            container.innerHTML = `
+                <div class="loading-skeleton">
+                    ${createSkeletonEntry()}
+                    ${createSkeletonEntry()}
+                    ${createSkeletonEntry()}
+                    ${createSkeletonEntry()}
+                    ${createSkeletonEntry()}
+                    <div class="loading-text">Loading log entries...</div>
+                </div>
+            `;
+        }
+
+        function createSkeletonEntry() {
+            return `
+                <div class="skeleton-entry">
+                    <div class="skeleton-line skeleton-timestamp"></div>
+                    <div class="skeleton-line skeleton-level"></div>
+                    <div class="skeleton-line skeleton-message"></div>
+                    <div class="skeleton-line skeleton-meta"></div>
+                </div>
+            `;
+        }
+
+        function hideLoadingSkeleton() {
+            const skeleton = document.querySelector('.loading-skeleton');
+            if (skeleton) {
+                skeleton.remove();
+            }
+        }
+
+        function showErrorMessage(message) {
+            const container = document.getElementById('logEntries');
+            container.innerHTML = `
+                <div class="error-message">
+                    <span class="error-icon">⚠️</span>
+                    <span>${message}</span>
+                    <button onclick="loadHistoricalLogs()" class="retry-btn">Retry</button>
+                </div>
+            `;
+        }
+
+        function clearLogs() {
+            logEntries = [];
+            clearFilterCache(); // Clear cache when clearing entries
+            renderLogEntries();
+        }
+
+        function exportLogs(format) {
+            const filters = new URLSearchParams();
+            const hookId = document.getElementById('hookIdFilter').value.trim();
+            const prNumber = document.getElementById('prNumberFilter').value.trim();
+            const repository = document.getElementById('repositoryFilter').value.trim();
+            const user = document.getElementById('userFilter').value.trim();
+            const level = document.getElementById('levelFilter').value;
+            const search = document.getElementById('searchFilter').value.trim();
+
+            if (hookId) filters.append('hook_id', hookId);
+            if (prNumber) filters.append('pr_number', prNumber);
+            if (repository) filters.append('repository', repository);
+            if (user) filters.append('github_user', user);
+            if (level) filters.append('level', level);
+            if (search) filters.append('search', search);
+            filters.append('format', format);
+
+            const url = `/logs/api/export?${filters.toString()}`;
+            window.open(url, '_blank');
+        }
+
+        function applyFilters() {
+            // Reload historical logs with new filters
+            loadHistoricalLogs();
+
+            // Reconnect WebSocket with new filters if currently connected
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                connectWebSocket();
+            }
+        }
+
+        // Set up filter event handlers with debouncing
+        let filterTimeout;
+        function debounceFilter() {
+            // Clear only filter cache, not entry cache
+            lastFilterHash = '';
+
+            // Immediate client-side filtering for fast feedback
+            renderLogEntries();
+
+            // Debounced server-side filtering for accuracy
+            clearTimeout(filterTimeout);
+            filterTimeout = setTimeout(() => {
+                applyFilters(); // Server-side filter for accurate results
+            }, 300); // Slightly longer delay for better UX
+        }
+
+        function clearFilters() {
+            document.getElementById('hookIdFilter').value = '';
+            document.getElementById('prNumberFilter').value = '';
+            document.getElementById('repositoryFilter').value = '';
+            document.getElementById('userFilter').value = '';
+            document.getElementById('levelFilter').value = '';
+            document.getElementById('searchFilter').value = '';
+
+            // Reload data with cleared filters
+            applyFilters();
+        }
+
+        document.getElementById('hookIdFilter').addEventListener('input', debounceFilter);
+        document.getElementById('prNumberFilter').addEventListener('input', debounceFilter);
+        document.getElementById('repositoryFilter').addEventListener('input', debounceFilter);
+        document.getElementById('userFilter').addEventListener('input', debounceFilter);
+        document.getElementById('levelFilter').addEventListener('change', debounceFilter);
+        document.getElementById('searchFilter').addEventListener('input', debounceFilter);
+
+        // Theme management
+        function toggleTheme() {
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+
+            document.documentElement.setAttribute('data-theme', newTheme);
+
+            // Update theme toggle button icon
+            const themeToggle = document.querySelector('.theme-toggle');
+            themeToggle.textContent = newTheme === 'dark' ? '☀️' : '🌙';
+
+            // Store theme preference in localStorage
+            localStorage.setItem('log-viewer-theme', newTheme);
+        }
+
+        // Initialize theme from localStorage or default to light
+        function initializeTheme() {
+            const savedTheme = localStorage.getItem('log-viewer-theme') || 'light';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+
+            // Update theme toggle button icon
+            const themeToggle = document.querySelector('.theme-toggle');
+            themeToggle.textContent = savedTheme === 'dark' ? '☀️' : '🌙';
+        }
+
+        // Initialize theme on page load
+        initializeTheme();
+
+        // Initialize connection status
+        updateConnectionStatus(false);
+
+        // Load initial data
+        loadHistoricalLogs();
+
+        // Timeline functionality
+        let currentTimelineData = null;
+
+        function showTimeline(hookId) {
+            if (!hookId) {
+                hideTimeline();
+                return;
+            }
+
+
+            // Fetch workflow steps data
+            fetch(`/logs/api/workflow-steps/${hookId}`)
+                .then(response => {
+                    if (!response.ok) {
+                        if (response.status === 404) {
+                            hideTimeline();
+                            return;
+                        }
+                        throw new Error('Failed to fetch workflow steps');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    currentTimelineData = data;
+                    renderTimeline(data);
+                    document.getElementById('timelineSection').style.display = 'block';
+                })
+                .catch(error => {
+                    hideTimeline();
+                });
+        }
+
+        function hideTimeline() {
+            document.getElementById('timelineSection').style.display = 'none';
+            currentTimelineData = null;
+        }
+
+        function renderTimeline(data) {
+            const svg = document.getElementById('timelineSvg');
+            const info = document.getElementById('timelineInfo');
+
+            // Update timeline info
+            const duration = data.total_duration_ms > 0 ? `${(data.total_duration_ms / 1000).toFixed(2)}s` : '< 1s';
+            info.innerHTML = `
+                <div>Hook ID: <strong>${data.hook_id}</strong></div>
+                <div>Steps: <strong>${data.step_count}</strong></div>
+                <div>Duration: <strong>${duration}</strong></div>
+            `;
+
+            if (data.steps.length === 0) {
+                svg.innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="var(--text-color)">No workflow steps found</text>';
+                return;
+            }
+
+            // Clear existing content
+            svg.innerHTML = '';
+
+            // SVG dimensions
+            const width = svg.clientWidth || 800;
+            const height = 120;
+            const margin = { left: 60, right: 60, top: 30, bottom: 40 };
+            const timelineWidth = width - margin.left - margin.right;
+
+            // Update SVG size
+            svg.setAttribute('width', width);
+            svg.setAttribute('height', height);
+
+            // Calculate positions
+            const stepPositions = [];
+            const maxTime = Math.max(data.total_duration_ms, 1000); // Minimum 1 second for visibility
+
+            data.steps.forEach((step, index) => {
+                const x = margin.left + (step.relative_time_ms / maxTime) * timelineWidth;
+                stepPositions.push({ x, step, index });
+            });
+
+            // Draw timeline line
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('class', 'step-line');
+            line.setAttribute('x1', margin.left);
+            line.setAttribute('y1', height / 2);
+            line.setAttribute('x2', margin.left + timelineWidth);
+            line.setAttribute('y2', height / 2);
+            svg.appendChild(line);
+
+            // Draw steps
+            stepPositions.forEach(({ x, step, index }) => {
+                const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                group.setAttribute('class', 'timeline-step');
+                group.setAttribute('data-step-index', index);
+
+                // Step circle
+                const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                circle.setAttribute('class', `step-circle ${getStepType(step.message)}`);
+                circle.setAttribute('cx', x);
+                circle.setAttribute('cy', height / 2);
+                svg.appendChild(circle);
+
+                // Step label (wrapped text)
+                const labelLines = wrapText(step.message, 25);
+                labelLines.forEach((line, lineIndex) => {
+                    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    label.setAttribute('class', 'step-label');
+                    label.setAttribute('x', x);
+                    label.setAttribute('y', height / 2 - 25 + (lineIndex * 12));
+                    label.setAttribute('text-anchor', 'middle');
+                    label.textContent = line;
+                    svg.appendChild(label);
+                    group.appendChild(label);
+                });
+
+                // Time label
+                const timeLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                timeLabel.setAttribute('class', 'step-time');
+                timeLabel.setAttribute('x', x);
+                timeLabel.setAttribute('y', height / 2 + 35);
+                timeLabel.setAttribute('text-anchor', 'middle');
+                timeLabel.textContent = `+${(step.relative_time_ms / 1000).toFixed(1)}s`;
+                svg.appendChild(timeLabel);
+
+                group.appendChild(circle);
+                group.appendChild(timeLabel);
+
+                // Add hover events
+                group.addEventListener('mouseenter', (e) => showTooltip(e, step));
+                group.addEventListener('mouseleave', hideTooltip);
+                group.addEventListener('click', () => filterByStep(step));
+
+                svg.appendChild(group);
+            });
+        }
+
+        function getStepType(message) {
+            if (message.includes('completed successfully') || message.includes('success')) {
+                return 'success';
+            } else if (message.includes('failed') || message.includes('error')) {
+                return 'failure';
+            } else if (message.includes('Starting') || message.includes('Executing')) {
+                return 'progress';
+            } else {
+                return 'info';
+            }
+        }
+
+        function truncateText(text, maxLength) {
+            return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+        }
+
+        function wrapText(text, maxLineLength) {
+            const words = text.split(' ');
+            const lines = [];
+            let currentLine = '';
+
+            for (const word of words) {
+                if ((currentLine + word).length <= maxLineLength) {
+                    currentLine += (currentLine ? ' ' : '') + word;
+                } else {
+                    if (currentLine) lines.push(currentLine);
+                    currentLine = word;
+                }
+            }
+            if (currentLine) lines.push(currentLine);
+            return lines.slice(0, 2); // Max 2 lines
+        }
+
+        function showTooltip(event, step) {
+            const tooltip = document.getElementById('timelineTooltip');
+            const timeFromStart = `+${(step.relative_time_ms / 1000).toFixed(2)}s`;
+
+            tooltip.innerHTML = `
+                <div><strong>Step:</strong> ${step.message}</div>
+                <div><strong>Time:</strong> ${timeFromStart}</div>
+                <div><strong>Timestamp:</strong> ${new Date(step.timestamp).toLocaleTimeString()}</div>
+                ${step.pr_number ? `<div><strong>PR:</strong> #${step.pr_number}</div>` : ''}
+                <div style="margin-top: 5px; font-size: 10px; color: var(--timestamp-color);">Click to filter logs by this step</div>
+            `;
+
+            const rect = event.target.getBoundingClientRect();
+            const containerRect = document.getElementById('timelineSection').getBoundingClientRect();
+
+            tooltip.style.left = (rect.left - containerRect.left + rect.width / 2) + 'px';
+            tooltip.style.top = (rect.top - containerRect.top - tooltip.offsetHeight - 10) + 'px';
+            tooltip.style.display = 'block';
+        }
+
+        function hideTooltip() {
+            document.getElementById('timelineTooltip').style.display = 'none';
+        }
+
+        function filterByStep(step) {
+            // Set search filter to find this specific step message
+            document.getElementById('searchFilter').value = step.message.substring(0, 30);
+            debounceFilter();
+        }
+
+        // Auto-show timeline when hook ID filter is applied
+        function checkForTimelineDisplay() {
+            const hookId = document.getElementById('hookIdFilter').value.trim();
+            if (hookId) {
+                showTimeline(hookId);
+            } else {
+                hideTimeline();
+            }
+        }
+
+        // Add timeline check to hook ID filter specifically
+        document.getElementById('hookIdFilter').addEventListener('input', () => {
+            setTimeout(checkForTimelineDisplay, 300); // Small delay to let the value settle
+        });
+
+        // Also check on initial load
+        setTimeout(checkForTimelineDisplay, 1000);
+    </script>
+</body>
+</html>

@@ -1,6 +1,7 @@
 """Tests for log parsing functionality."""
 
 import asyncio
+import contextlib
 import datetime
 import tempfile
 from pathlib import Path
@@ -221,11 +222,10 @@ Invalid log line
             try:
                 await asyncio.wait_for(tail_task, timeout=2.0)
             except asyncio.TimeoutError:
+                # Cancel the task and wait for it to complete
                 tail_task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await tail_task
-                except asyncio.CancelledError:
-                    pass
 
         # Should have collected the 2 new entries
         assert len(entries) == 2
