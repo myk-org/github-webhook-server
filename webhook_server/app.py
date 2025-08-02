@@ -284,11 +284,46 @@ async def process_webhook(request: Request, background_tasks: BackgroundTasks) -
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {error_details}")
 
 
+# Dependency Injection
+def get_log_viewer_controller() -> LogViewerController:
+    """Dependency to provide a singleton LogViewerController instance."""
+    return LogViewerController(logger=LOGGER)
+
+
+# Create dependency instance to avoid flake8 M511 warnings
+controller_dependency = Depends(get_log_viewer_controller)
+
+
+# Helper Functions
+def parse_datetime_string(datetime_str: str | None, field_name: str) -> datetime.datetime | None:
+    """Parse datetime string to datetime object or raise HTTPException.
+
+    Args:
+        datetime_str: The datetime string to parse (can be None)
+        field_name: Name of the field for error messages
+
+    Returns:
+        Parsed datetime object or None if input is None
+
+    Raises:
+        HTTPException: If datetime string is invalid
+    """
+    if not datetime_str:
+        return None
+
+    try:
+        return datetime.datetime.fromisoformat(datetime_str.replace("Z", "+00:00"))
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid {field_name} format: {datetime_str}. Expected ISO 8601 format. Error: {str(e)}",
+        )
+
+
 # Log Viewer Endpoints
 @FASTAPI_APP.get("/logs", response_class=HTMLResponse)
-def get_log_viewer_page() -> HTMLResponse:
+def get_log_viewer_page(controller: LogViewerController = controller_dependency) -> HTMLResponse:
     """Serve the main log viewer HTML page."""
-    controller = LogViewerController(logger=LOGGER)
     return controller.get_log_page()
 
 
@@ -305,25 +340,12 @@ def get_log_entries(
     search: str | None = None,
     limit: int = 100,
     offset: int = 0,
+    controller: LogViewerController = controller_dependency,
 ) -> dict[str, Any]:
     """Retrieve historical log entries with filtering and pagination."""
-    controller = LogViewerController(logger=LOGGER)
-
-    # Parse datetime strings if provided
-    start_datetime = None
-    end_datetime = None
-
-    if start_time:
-        try:
-            start_datetime = datetime.datetime.fromisoformat(start_time.replace("Z", "+00:00"))
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid start_time format (use ISO 8601)")
-
-    if end_time:
-        try:
-            end_datetime = datetime.datetime.fromisoformat(end_time.replace("Z", "+00:00"))
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid end_time format (use ISO 8601)")
+    # Parse datetime strings using helper function
+    start_datetime = parse_datetime_string(start_time, "start_time")
+    end_datetime = parse_datetime_string(end_time, "end_time")
 
     return controller.get_log_entries(
         hook_id=hook_id,
@@ -353,25 +375,12 @@ def export_logs(
     end_time: str | None = None,
     search: str | None = None,
     limit: int = 10000,
+    controller: LogViewerController = controller_dependency,
 ) -> StreamingResponse:
     """Export filtered logs as JSON file."""
-    controller = LogViewerController(logger=LOGGER)
-
-    # Parse datetime strings if provided
-    start_datetime = None
-    end_datetime = None
-
-    if start_time:
-        try:
-            start_datetime = datetime.datetime.fromisoformat(start_time.replace("Z", "+00:00"))
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid start_time format (use ISO 8601)")
-
-    if end_time:
-        try:
-            end_datetime = datetime.datetime.fromisoformat(end_time.replace("Z", "+00:00"))
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid end_time format (use ISO 8601)")
+    # Parse datetime strings using helper function
+    start_datetime = parse_datetime_string(start_time, "start_time")
+    end_datetime = parse_datetime_string(end_time, "end_time")
 
     return controller.export_logs(
         format_type=format,
@@ -389,16 +398,14 @@ def export_logs(
 
 
 @FASTAPI_APP.get("/logs/api/pr-flow/{hook_id}")
-def get_pr_flow_data(hook_id: str) -> dict[str, Any]:
+def get_pr_flow_data(hook_id: str, controller: LogViewerController = controller_dependency) -> dict[str, Any]:
     """Get PR flow visualization data for a specific hook ID or PR number."""
-    controller = LogViewerController(logger=LOGGER)
     return controller.get_pr_flow_data(hook_id)
 
 
 @FASTAPI_APP.get("/logs/api/workflow-steps/{hook_id}")
-def get_workflow_steps(hook_id: str) -> dict[str, Any]:
+def get_workflow_steps(hook_id: str, controller: LogViewerController = controller_dependency) -> dict[str, Any]:
     """Get workflow step timeline data for a specific hook ID."""
-    controller = LogViewerController(logger=LOGGER)
     return controller.get_workflow_steps(hook_id)
 
 
@@ -413,7 +420,7 @@ async def websocket_log_stream(
     level: str | None = None,
 ) -> None:
     """Handle WebSocket connection for real-time log streaming."""
-    controller = LogViewerController(logger=LOGGER)
+    controller = get_log_viewer_controller()
     await controller.handle_websocket(
         websocket=websocket,
         hook_id=hook_id,

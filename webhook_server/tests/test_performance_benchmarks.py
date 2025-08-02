@@ -3,11 +3,13 @@
 import asyncio
 import datetime
 import json
+import os
 import random
 import tempfile
 import time
 from pathlib import Path
 
+import psutil
 import pytest
 
 from webhook_server.libs.log_parser import LogEntry, LogFilter, LogParser
@@ -185,9 +187,6 @@ class TestMemoryUsageProfiler:
 
     def test_memory_efficiency_large_dataset(self):
         """Test memory efficiency with large datasets."""
-        import psutil
-        import os
-
         process = psutil.Process(os.getpid())
         initial_memory = process.memory_info().rss / 1024 / 1024  # MB
 
@@ -218,8 +217,9 @@ class TestMemoryUsageProfiler:
     def test_memory_cleanup_after_processing(self):
         """Test that memory is properly cleaned up after processing."""
         import gc
-        import psutil
         import os
+
+        import psutil
 
         process = psutil.Process(os.getpid())
         initial_memory = process.memory_info().rss / 1024 / 1024  # MB

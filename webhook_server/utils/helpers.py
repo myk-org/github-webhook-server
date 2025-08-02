@@ -325,7 +325,7 @@ def prepare_log_prefix(
     if repository_name and data_dir:
         repository_color = get_repository_color_for_log_prefix(repository_name, data_dir)
     else:
-        repository_color = repository_name or "unknown-repo"
+        repository_color = repository_name or ""
 
     # Build prefix components
     components = [event_type, delivery_id]
