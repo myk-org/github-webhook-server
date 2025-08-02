@@ -3,8 +3,10 @@
 import tempfile
 import datetime
 import time
+import asyncio
 from pathlib import Path
 from unittest.mock import Mock
+import pytest
 
 
 from webhook_server.web.log_viewer import LogViewerController
@@ -208,24 +210,40 @@ class TestStreamingMemoryOptimization:
             # All entries should be from the later part of the log
             assert len(result["entries"]) > 0
 
-    def test_concurrent_streaming_safety(self):
+    @pytest.mark.asyncio
+    async def test_concurrent_streaming_safety(self):
         """Test that streaming is safe under concurrent access."""
         # Create log file
         log_file = self.log_dir / "concurrent_test.log"
         self.generate_large_log_file(log_file, 3000)
 
-        # Test multiple concurrent streaming operations
-
         async def stream_entries():
             """Async wrapper for streaming entries."""
-            return list(self.controller._stream_log_entries(max_entries=1000))
+            # Run the synchronous streaming operation in a thread to avoid blocking
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, lambda: list(self.controller._stream_log_entries(max_entries=1000)))
 
-        # This test verifies that streaming doesn't crash under concurrent access
-        # In practice, each request would have its own controller instance
-        entries = list(self.controller._stream_log_entries(max_entries=1000))
+        # Test multiple concurrent streaming operations
+        # Simulate concurrent access by running multiple streaming operations simultaneously
+        num_concurrent_operations = 5
+        tasks = [stream_entries() for _ in range(num_concurrent_operations)]
 
-        assert len(entries) <= 1000
-        assert all(isinstance(entry, LogEntry) for entry in entries)
+        # Execute all tasks concurrently
+        results = await asyncio.gather(*tasks)
+
+        # Verify all operations completed successfully
+        assert len(results) == num_concurrent_operations
+
+        for entries in results:
+            assert len(entries) <= 1000
+            assert all(isinstance(entry, LogEntry) for entry in entries)
+
+        # Verify that all concurrent operations returned consistent results
+        # (all should have same number of entries since reading same file)
+        entry_counts = [len(entries) for entries in results]
+        assert all(count == entry_counts[0] for count in entry_counts), (
+            f"Inconsistent entry counts across concurrent operations: {entry_counts}"
+        )
 
     def teardown_method(self):
         """Clean up test environment."""

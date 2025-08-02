@@ -684,11 +684,13 @@ The webhook server includes a comprehensive log viewer web interface for monitor
 
 **Memory-Optimized Streaming**: The log viewer uses advanced streaming and chunked processing techniques that replaced traditional bulk loading:
 
+
 - **Constant Memory Usage**: Handles log files of any size with consistent memory footprint
 - **Early Filtering**: Reduces data transfer by filtering at the source before transmission
 - **Streaming Processing**: Real-time log processing without loading entire files into memory
 - **90% Memory Reduction**: Optimized for enterprise environments with gigabytes of log data
 - **Sub-second Response Times**: Fast query responses even with large datasets
+
 
 ### 🔒 Security Warning
 
@@ -1086,6 +1088,7 @@ reviewers:
 
 1. **VPN Access**: Deploy behind corporate VPN for internal-only access
 2. **Reverse Proxy Authentication**: Use nginx/Apache with HTTP Basic Auth:
+
    ```nginx
    location /logs {
        auth_basic "Webhook Logs";
@@ -1093,6 +1096,7 @@ reviewers:
        proxy_pass http://webhook-server:5000;
    }
    ```
+
 3. **Firewall Rules**: Restrict access to webhook server port to specific IP ranges
 4. **Network Segmentation**: Deploy in isolated network segments
 

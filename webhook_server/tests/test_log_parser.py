@@ -385,10 +385,10 @@ class TestLogFilter:
         """Test filtering entries by event type."""
         log_filter = LogFilter()
 
-        # Test partial event type match
-        filtered = log_filter.filter_entries(sample_entries, event_type="pull_request")
-        assert len(filtered) == 2
-        assert all("pull_request" in str(entry.event_type) for entry in filtered)
+        # Test exact event type match
+        filtered = log_filter.filter_entries(sample_entries, event_type="pull_request.opened")
+        assert len(filtered) == 1
+        assert all(entry.event_type == "pull_request.opened" for entry in filtered)
 
     def test_filter_by_github_user(self, sample_entries: list[LogEntry]) -> None:
         """Test filtering entries by GitHub user."""
@@ -442,7 +442,7 @@ class TestLogFilter:
         log_filter = LogFilter()
 
         # Filter by repository and event type
-        filtered = log_filter.filter_entries(sample_entries, repository="org/repo1", event_type="pull_request")
+        filtered = log_filter.filter_entries(sample_entries, repository="org/repo1", event_type="pull_request.opened")
         assert len(filtered) == 1
         assert filtered[0].pr_number == 123
 

@@ -876,6 +876,99 @@ class TestLogWebSocket:
                 # Should have attempted to send the log entry
                 assert mock_websocket.send_json.call_count >= 1
 
+    @pytest.mark.asyncio
+    async def test_shutdown_websocket_cleanup(self):
+        """Test shutdown method properly closes all WebSocket connections."""
+        from webhook_server.web.log_viewer import LogViewerController
+
+        mock_logger = Mock()
+        controller = LogViewerController(logger=mock_logger)
+
+        # Create mock WebSocket connections
+        mock_ws1 = AsyncMock()
+        mock_ws2 = AsyncMock()
+        mock_ws3 = AsyncMock()
+
+        # Add them to the controller's connections set
+        controller._websocket_connections.add(mock_ws1)
+        controller._websocket_connections.add(mock_ws2)
+        controller._websocket_connections.add(mock_ws3)
+
+        # Verify connections are tracked
+        assert len(controller._websocket_connections) == 3
+
+        # Call shutdown
+        await controller.shutdown()
+
+        # Verify all connections were closed with correct parameters
+        mock_ws1.close.assert_called_once_with(code=1001, reason="Server shutdown")
+        mock_ws2.close.assert_called_once_with(code=1001, reason="Server shutdown")
+        mock_ws3.close.assert_called_once_with(code=1001, reason="Server shutdown")
+
+        # Verify connections set was cleared
+        assert len(controller._websocket_connections) == 0
+
+        # Verify logging
+        assert mock_logger.info.call_count >= 2  # Start and completion messages
+
+    @pytest.mark.asyncio
+    async def test_shutdown_websocket_close_error_handling(self):
+        """Test shutdown method handles WebSocket close errors gracefully."""
+        from webhook_server.web.log_viewer import LogViewerController
+
+        mock_logger = Mock()
+        controller = LogViewerController(logger=mock_logger)
+
+        # Create mock WebSocket connections
+        mock_ws1 = AsyncMock()
+        mock_ws2 = AsyncMock()
+
+        # Make one connection fail to close
+        mock_ws1.close.side_effect = Exception("Connection already closed")
+        mock_ws2.close = AsyncMock()  # This one should succeed
+
+        # Add them to the controller's connections set
+        controller._websocket_connections.add(mock_ws1)
+        controller._websocket_connections.add(mock_ws2)
+
+        # Verify connections are tracked
+        assert len(controller._websocket_connections) == 2
+
+        # Call shutdown - should not raise exception despite ws1 error
+        await controller.shutdown()
+
+        # Verify both close attempts were made
+        mock_ws1.close.assert_called_once_with(code=1001, reason="Server shutdown")
+        mock_ws2.close.assert_called_once_with(code=1001, reason="Server shutdown")
+
+        # Verify connections set was cleared despite error
+        assert len(controller._websocket_connections) == 0
+
+        # Verify error was logged
+        mock_logger.warning.assert_called()
+        warning_call_args = mock_logger.warning.call_args[0][0]
+        assert "Error closing WebSocket connection during shutdown" in warning_call_args
+
+    @pytest.mark.asyncio
+    async def test_shutdown_empty_connections(self):
+        """Test shutdown method works correctly with no active connections."""
+        from webhook_server.web.log_viewer import LogViewerController
+
+        mock_logger = Mock()
+        controller = LogViewerController(logger=mock_logger)
+
+        # Verify no connections initially
+        assert len(controller._websocket_connections) == 0
+
+        # Call shutdown with no connections
+        await controller.shutdown()
+
+        # Verify connections set is still empty
+        assert len(controller._websocket_connections) == 0
+
+        # Verify appropriate logging occurred
+        assert mock_logger.info.call_count >= 2
+
 
 class TestPRFlowAPI:
     """Test cases for PR flow visualization API."""

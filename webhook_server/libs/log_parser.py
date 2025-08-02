@@ -293,7 +293,7 @@ class LogFilter:
             hook_id: Filter by exact hook ID match
             pr_number: Filter by exact PR number match
             repository: Filter by exact repository match
-            event_type: Filter by event type (supports partial matching)
+            event_type: Filter by exact event type match
             github_user: Filter by exact GitHub user match
             level: Filter by exact log level match
             start_time: Filter entries after this timestamp
@@ -318,7 +318,7 @@ class LogFilter:
             filtered = [e for e in filtered if e.repository == repository]
 
         if event_type is not None:
-            filtered = [e for e in filtered if e.event_type and event_type in e.event_type]
+            filtered = [e for e in filtered if e.event_type == event_type]
 
         if github_user is not None:
             filtered = [e for e in filtered if e.github_user == github_user]

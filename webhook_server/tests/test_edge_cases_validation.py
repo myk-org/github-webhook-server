@@ -2,12 +2,21 @@
 
 import asyncio
 import datetime
+import os
 import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
 from fastapi import HTTPException
+
+try:
+    import psutil
+
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    psutil = None
+    PSUTIL_AVAILABLE = False
 
 from webhook_server.libs.log_parser import LogEntry, LogFilter, LogParser
 from webhook_server.web.log_viewer import LogViewerController
@@ -46,13 +55,13 @@ class TestLogParsingEdgeCases:
             # Test that the parser can handle the file efficiently
             # (This validates the large file handling logic without requiring massive data)
 
-            # Memory should be manageable
-            import psutil
-            import os
-
-            process = psutil.Process(os.getpid())
-            memory_mb = process.memory_info().rss / 1024 / 1024
-            assert memory_mb < 2000  # Should not exceed 2GB memory usage
+            # Memory should be manageable (skip if psutil not available)
+            if PSUTIL_AVAILABLE:
+                process = psutil.Process(os.getpid())
+                memory_mb = process.memory_info().rss / 1024 / 1024
+                assert memory_mb < 512  # Should not exceed 512MB memory usage for test environments
+            else:
+                pytest.skip("psutil not available for memory monitoring")
 
     def test_malformed_log_entries_handling(self):
         """Test handling of various malformed log entries."""
@@ -181,8 +190,18 @@ class TestLogParsingEdgeCases:
 
             asyncio.run(run_test())
 
-            # Should handle rotation gracefully (may not catch all entries due to rotation)
-            assert len(monitored_entries) >= 0  # At minimum, shouldn't crash
+            # Should handle rotation gracefully and capture at least some entries
+            # The monitor should capture at least the "Before rotation" entry since it's added after monitoring starts
+            # During rotation, some entries might be missed, but the monitor should capture at least 1 entry
+            assert len(monitored_entries) >= 1, (
+                f"Expected at least 1 monitored entry, got {len(monitored_entries)}. Entries: {[e.message for e in monitored_entries]}"
+            )
+
+            # Verify that captured entries are valid LogEntry objects with expected content
+            for entry in monitored_entries:
+                assert hasattr(entry, "message"), "Monitored entry should have a message attribute"
+                assert hasattr(entry, "timestamp"), "Monitored entry should have a timestamp attribute"
+                assert "test:" in entry.message, f"Expected 'test:' in message, got: {entry.message}"
 
     def test_unicode_and_special_characters(self):
         """Test handling of unicode and special characters in log entries."""

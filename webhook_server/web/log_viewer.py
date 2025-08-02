@@ -4,6 +4,7 @@ import datetime
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, Generator, Iterator
 
@@ -41,6 +42,31 @@ class LogViewerController:
         self.log_parser = LogParser()
         self.log_filter = LogFilter()
         self._websocket_connections: set[WebSocket] = set()
+
+    async def shutdown(self) -> None:
+        """Close all active WebSocket connections during shutdown.
+
+        This method should be called during application shutdown to properly
+        close all WebSocket connections and prevent resource leaks.
+        """
+        self.logger.info(
+            f"Shutting down LogViewerController with {len(self._websocket_connections)} active connections"
+        )
+
+        # Create a copy of the connections set to avoid modification during iteration
+        connections_to_close = list(self._websocket_connections)
+
+        for ws in connections_to_close:
+            try:
+                await ws.close(code=1001, reason="Server shutdown")
+                self.logger.debug("Successfully closed WebSocket connection during shutdown")
+            except Exception as e:
+                # Log the error but continue closing other connections
+                self.logger.warning(f"Error closing WebSocket connection during shutdown: {e}")
+
+        # Clear the connections set
+        self._websocket_connections.clear()
+        self.logger.info("LogViewerController shutdown completed")
 
     def get_log_page(self) -> HTMLResponse:
         """Serve the main log viewer HTML page.
@@ -184,7 +210,7 @@ class LogViewerController:
             return False
         if repository is not None and entry.repository != repository:
             return False
-        if event_type is not None and (not entry.event_type or event_type not in entry.event_type):
+        if event_type is not None and entry.event_type != event_type:
             return False
         if github_user is not None and entry.github_user != github_user:
             return False
@@ -317,13 +343,11 @@ class LogViewerController:
 
             # Start monitoring log files for new entries
             async for entry in self.log_parser.monitor_log_directory(log_dir):
+                should_send = False
+
                 # Apply filters to new entry - if no filters provided, send all entries
                 if not any([hook_id, pr_number, repository, event_type, github_user, level]):
-                    # No filters, send everything
-                    try:
-                        await websocket.send_json(entry.to_dict())
-                    except WebSocketDisconnect:
-                        break
+                    should_send = True
                 else:
                     # Apply filters
                     filtered_entries = self.log_filter.filter_entries(
@@ -335,13 +359,13 @@ class LogViewerController:
                         github_user=github_user,
                         level=level,
                     )
+                    should_send = bool(filtered_entries)
 
-                    # Send entry if it passes filters
-                    if filtered_entries:
-                        try:
-                            await websocket.send_json(entry.to_dict())
-                        except WebSocketDisconnect:
-                            break
+                if should_send:
+                    try:
+                        await websocket.send_json(entry.to_dict())
+                    except WebSocketDisconnect:
+                        break
 
         except WebSocketDisconnect:
             self.logger.info("WebSocket client disconnected")
@@ -529,8 +553,17 @@ class LogViewerController:
         log_files.extend(log_dir.glob("*.log"))
         log_files.extend(log_dir.glob("*.log.*"))
 
-        # Sort log files by recency (newest first) and limit for memory efficiency
-        log_files.sort(key=lambda f: (f.name.count("."), f.stat().st_mtime), reverse=True)
+        # Sort log files to process in correct order (current log first, then rotated by number)
+        def sort_key(f: Path) -> tuple:
+            name_parts = f.name.split(".")
+            if len(name_parts) > 2 and name_parts[-1].isdigit():
+                # Rotated file: extract rotation number
+                return (1, int(name_parts[-1]))
+            else:
+                # Current log file
+                return (0, 0)
+
+        log_files.sort(key=sort_key)
         log_files = log_files[:max_files]
 
         self.logger.info(f"Streaming from {len(log_files)} most recent files: {[f.name for f in log_files]}")
@@ -722,7 +755,7 @@ class LogViewerController:
         for pattern_name, pattern in stage_patterns:
             # Find first entry matching this stage
             for entry in sorted_entries:
-                if any(pattern.lower() in entry.message.lower() for pattern in pattern.split("|")):
+                if any(re.search(p, entry.message, re.IGNORECASE) for p in pattern.split("|")):
                     duration_ms = int((entry.timestamp - previous_time).total_seconds() * 1000)
 
                     stage = {
