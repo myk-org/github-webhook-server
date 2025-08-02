@@ -708,6 +708,82 @@ class LogViewerController:
         }
         .log-entries { border: 1px solid var(--border-color); border-radius: 4px; max-height: 70vh; overflow-y: auto; }
 
+        /* Loading skeleton styles */
+        .loading-skeleton {
+            padding: 20px;
+        }
+        .skeleton-entry {
+            padding: 10px;
+            border-bottom: 1px solid var(--log-entry-border);
+            animation: pulse 1.5s ease-in-out infinite alternate;
+        }
+        .skeleton-line {
+            height: 14px;
+            margin: 4px 0;
+            border-radius: 3px;
+            background: linear-gradient(90deg, var(--border-color) 25%, var(--input-bg) 50%, var(--border-color) 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+        .skeleton-timestamp { width: 20%; }
+        .skeleton-level { width: 10%; }
+        .skeleton-message { width: 60%; }
+        .skeleton-meta { width: 30%; }
+        .loading-text {
+            text-align: center;
+            color: var(--timestamp-color);
+            font-style: italic;
+            margin-top: 20px;
+        }
+
+        /* Error message styles */
+        .error-message {
+            padding: 20px;
+            text-align: center;
+            color: var(--status-disconnected-text);
+            background: var(--status-disconnected-bg);
+            border: 1px solid var(--status-disconnected-border);
+            border-radius: 4px;
+            margin: 20px;
+        }
+        .error-icon {
+            font-size: 24px;
+            display: block;
+            margin-bottom: 10px;
+        }
+        .retry-btn {
+            background: var(--button-bg);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        .retry-btn:hover {
+            background: var(--button-hover);
+        }
+
+        /* Virtual scrolling performance optimizations */
+        .virtual-scroll-container {
+            contain: layout style paint;
+            will-change: scroll-position;
+        }
+        .virtual-scroll-content {
+            contain: layout style paint;
+            will-change: transform;
+        }
+
+        /* Animations */
+        @keyframes pulse {
+            0% { opacity: 1; }
+            100% { opacity: 0.6; }
+        }
+        @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+
         /* Timeline styles */
         .timeline-section {
             margin: 20px 0;
@@ -1029,27 +1105,169 @@ class LogViewerController:
             updateConnectionStatus(false);
         }
 
+        // Virtual scrolling configuration
+        const ITEM_HEIGHT = 60; // Approximate height of each log entry in pixels
+        const BUFFER_SIZE = 5; // Extra items to render outside viewport
+        let virtualScrollData = {
+            filteredEntries: [],
+            containerHeight: 0,
+            scrollTop: 0,
+            startIndex: 0,
+            endIndex: 0,
+            visibleCount: 0
+        };
+
         function addLogEntry(entry) {
             logEntries.unshift(entry);
-            renderLogEntries();
+            clearFilterCache(); // Clear cache when entries change
+            renderLogEntriesOptimized();
         }
 
-        function renderLogEntries() {
+        function renderLogEntriesOptimized() {
             const container = document.getElementById('logEntries');
             const filteredEntries = filterLogEntries(logEntries);
 
-            container.innerHTML = filteredEntries.map(entry => `
-                <div class="log-entry ${entry.level}">
-                    <span class="timestamp">${new Date(entry.timestamp).toLocaleString()}</span>
-                    <span class="level">[${entry.level}]</span>
-                    <span class="message">${entry.message}</span>
-                    ${entry.hook_id ? `<span class="hook-id">[Hook: ${entry.hook_id}]</span>` : ''}
-                    ${entry.pr_number ? `<span class="pr-number">[PR: #${entry.pr_number}]</span>` : ''}
-                    ${entry.repository ? `<span class="repository">[${entry.repository}]</span>` : ''}
-                    ${entry.github_user ? `<span class="user">[User: ${entry.github_user}]</span>` : ''}
-                </div>
-            `).join('');
+            // Update virtual scroll data
+            virtualScrollData.filteredEntries = filteredEntries;
+            virtualScrollData.containerHeight = container.clientHeight || 400;
+            virtualScrollData.visibleCount = Math.ceil(virtualScrollData.containerHeight / ITEM_HEIGHT);
+
+            // For small datasets, use direct rendering for simplicity
+            if (filteredEntries.length <= 100) {
+                renderLogEntriesDirect(container, filteredEntries);
+                return;
+            }
+
+            // Use virtual scrolling for large datasets
+            renderLogEntriesVirtual(container);
         }
+
+        function renderLogEntriesDirect(container, entries) {
+            // Use DocumentFragment for efficient DOM manipulation
+            const fragment = document.createDocumentFragment();
+
+            // Clear existing content efficiently
+            while (container.firstChild) {
+                container.removeChild(container.firstChild);
+            }
+
+            entries.forEach(entry => {
+                const entryElement = createLogEntryElement(entry);
+                fragment.appendChild(entryElement);
+            });
+
+            container.appendChild(fragment);
+        }
+
+        function renderLogEntriesVirtual(container) {
+            const { filteredEntries } = virtualScrollData;
+
+            // Create virtual scroll container if it doesn't exist
+            let virtualContainer = container.querySelector('.virtual-scroll-container');
+            if (!virtualContainer) {
+                setupVirtualScrollContainer(container);
+                virtualContainer = container.querySelector('.virtual-scroll-container');
+            }
+
+            updateVirtualScrollIndices();
+            renderVisibleItems(virtualContainer);
+        }
+
+        function setupVirtualScrollContainer(container) {
+            const { filteredEntries } = virtualScrollData;
+
+            // Clear existing content
+            container.innerHTML = '';
+
+            // Create virtual scroll structure
+            const totalHeight = filteredEntries.length * ITEM_HEIGHT;
+            container.innerHTML = `
+                <div class="virtual-scroll-container" style="height: ${virtualScrollData.containerHeight}px; overflow-y: auto;">
+                    <div class="virtual-scroll-spacer" style="height: ${totalHeight}px; position: relative;">
+                        <div class="virtual-scroll-content" style="position: absolute; top: 0; left: 0; right: 0;"></div>
+                    </div>
+                </div>
+            `;
+
+            // Add scroll event listener
+            const scrollContainer = container.querySelector('.virtual-scroll-container');
+            scrollContainer.addEventListener('scroll', handleVirtualScroll);
+        }
+
+        function handleVirtualScroll(event) {
+            virtualScrollData.scrollTop = event.target.scrollTop;
+            updateVirtualScrollIndices();
+
+            const content = event.target.querySelector('.virtual-scroll-content');
+            renderVisibleItems(content);
+        }
+
+        function updateVirtualScrollIndices() {
+            const { scrollTop, visibleCount, filteredEntries } = virtualScrollData;
+
+            virtualScrollData.startIndex = Math.max(0, Math.floor(scrollTop / ITEM_HEIGHT) - BUFFER_SIZE);
+            virtualScrollData.endIndex = Math.min(
+                filteredEntries.length - 1,
+                virtualScrollData.startIndex + visibleCount + (BUFFER_SIZE * 2)
+            );
+        }
+
+        function renderVisibleItems(contentContainer) {
+            const { filteredEntries, startIndex, endIndex } = virtualScrollData;
+
+            // Clear existing visible items
+            contentContainer.innerHTML = '';
+
+            // Position the content container
+            contentContainer.style.transform = `translateY(${startIndex * ITEM_HEIGHT}px)`;
+
+            // Create fragment for efficient DOM updates
+            const fragment = document.createDocumentFragment();
+
+            // Render only visible items
+            for (let i = startIndex; i <= endIndex; i++) {
+                if (filteredEntries[i]) {
+                    const entryElement = createLogEntryElement(filteredEntries[i]);
+                    entryElement.style.height = `${ITEM_HEIGHT}px`;
+                    fragment.appendChild(entryElement);
+                }
+            }
+
+            contentContainer.appendChild(fragment);
+        }
+
+        function createLogEntryElement(entry) {
+            const div = document.createElement('div');
+            div.className = `log-entry ${entry.level}`;
+
+            // Use efficient string template
+            div.innerHTML = `
+                <span class="timestamp">${new Date(entry.timestamp).toLocaleString()}</span>
+                <span class="level">[${entry.level}]</span>
+                <span class="message">${escapeHtml(entry.message)}</span>
+                ${entry.hook_id ? `<span class="hook-id">[Hook: ${escapeHtml(entry.hook_id)}]</span>` : ''}
+                ${entry.pr_number ? `<span class="pr-number">[PR: #${entry.pr_number}]</span>` : ''}
+                ${entry.repository ? `<span class="repository">[${escapeHtml(entry.repository)}]</span>` : ''}
+                ${entry.github_user ? `<span class="user">[User: ${escapeHtml(entry.github_user)}]</span>` : ''}
+            `;
+
+            return div;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Alias for backward compatibility
+        function renderLogEntries() {
+            renderLogEntriesOptimized();
+        }
+
+        // Optimized filtering with caching and early exit
+        let lastFilterHash = '';
+        let cachedFilteredEntries = [];
 
         function filterLogEntries(entries) {
             const hookId = document.getElementById('hookIdFilter').value.trim();
@@ -1059,19 +1277,54 @@ class LogViewerController:
             const level = document.getElementById('levelFilter').value;
             const search = document.getElementById('searchFilter').value.trim().toLowerCase();
 
-            return entries.filter(entry => {
+            // Create hash of current filters for caching
+            const filterHash = `${hookId}-${prNumber}-${repository}-${user}-${level}-${search}-${entries.length}`;
+
+            // Return cached result if filters haven't changed
+            if (filterHash === lastFilterHash && cachedFilteredEntries.length > 0) {
+                return cachedFilteredEntries;
+            }
+
+            // Pre-compile search terms for better performance
+            const searchTerms = search ? search.split(' ').filter(term => term.length > 0) : [];
+            const prNumberInt = prNumber ? parseInt(prNumber) : null;
+
+            // Use optimized filtering with early exits
+            const filtered = entries.filter(entry => {
+                // Exact matches first (fastest)
                 if (hookId && entry.hook_id !== hookId) return false;
-                if (prNumber && entry.pr_number !== parseInt(prNumber)) return false;
+                if (prNumberInt && entry.pr_number !== prNumberInt) return false;
                 if (repository && entry.repository !== repository) return false;
                 if (user && entry.github_user !== user) return false;
                 if (level && entry.level !== level) return false;
-                if (search && !entry.message.toLowerCase().includes(search)) return false;
+
+                // Text search last (slowest)
+                if (searchTerms.length > 0) {
+                    const messageText = entry.message.toLowerCase();
+                    return searchTerms.every(term => messageText.includes(term));
+                }
+
                 return true;
             });
+
+            // Cache the result
+            lastFilterHash = filterHash;
+            cachedFilteredEntries = filtered;
+
+            return filtered;
+        }
+
+        // Clear filter cache when entries change
+        function clearFilterCache() {
+            lastFilterHash = '';
+            cachedFilteredEntries = [];
         }
 
         async function loadHistoricalLogs() {
             try {
+                // Show loading skeleton
+                showLoadingSkeleton();
+
                 // Build API URL with current filter parameters
                 const filters = new URLSearchParams();
                 const hookId = document.getElementById('hookIdFilter').value.trim();
@@ -1081,7 +1334,8 @@ class LogViewerController:
                 const level = document.getElementById('levelFilter').value;
                 const search = document.getElementById('searchFilter').value.trim();
 
-                filters.append('limit', '500');
+                // Increase limit for better performance with chunked loading
+                filters.append('limit', '1000');
                 if (hookId) filters.append('hook_id', hookId);
                 if (prNumber) filters.append('pr_number', prNumber);
                 if (repository) filters.append('repository', repository);
@@ -1091,15 +1345,88 @@ class LogViewerController:
 
                 const response = await fetch(`/logs/api/entries?${filters.toString()}`);
                 const data = await response.json();
-                logEntries = data.entries;
-                renderLogEntries();
+
+                // Progressive loading for large datasets
+                if (data.entries.length > 200) {
+                    await loadEntriesProgressively(data.entries);
+                } else {
+                    logEntries = data.entries;
+                    clearFilterCache(); // Clear cache when loading new entries
+                    renderLogEntries();
+                }
+
+                hideLoadingSkeleton();
             } catch (error) {
                 console.error('Error loading historical logs:', error);
+                hideLoadingSkeleton();
+                showErrorMessage('Failed to load log entries');
             }
+        }
+
+        async function loadEntriesProgressively(entries) {
+            const chunkSize = 50;
+            logEntries = [];
+            clearFilterCache(); // Clear cache when loading new entries
+
+            for (let i = 0; i < entries.length; i += chunkSize) {
+                const chunk = entries.slice(i, i + chunkSize);
+                logEntries.push(...chunk);
+                clearFilterCache(); // Clear cache for each chunk
+                renderLogEntries();
+
+                // Add small delay to prevent UI blocking
+                if (i + chunkSize < entries.length) {
+                    await new Promise(resolve => setTimeout(resolve, 10));
+                }
+            }
+        }
+
+        function showLoadingSkeleton() {
+            const container = document.getElementById('logEntries');
+            container.innerHTML = `
+                <div class="loading-skeleton">
+                    ${createSkeletonEntry()}
+                    ${createSkeletonEntry()}
+                    ${createSkeletonEntry()}
+                    ${createSkeletonEntry()}
+                    ${createSkeletonEntry()}
+                    <div class="loading-text">Loading log entries...</div>
+                </div>
+            `;
+        }
+
+        function createSkeletonEntry() {
+            return `
+                <div class="skeleton-entry">
+                    <div class="skeleton-line skeleton-timestamp"></div>
+                    <div class="skeleton-line skeleton-level"></div>
+                    <div class="skeleton-line skeleton-message"></div>
+                    <div class="skeleton-line skeleton-meta"></div>
+                </div>
+            `;
+        }
+
+        function hideLoadingSkeleton() {
+            const skeleton = document.querySelector('.loading-skeleton');
+            if (skeleton) {
+                skeleton.remove();
+            }
+        }
+
+        function showErrorMessage(message) {
+            const container = document.getElementById('logEntries');
+            container.innerHTML = `
+                <div class="error-message">
+                    <span class="error-icon">⚠️</span>
+                    <span>${message}</span>
+                    <button onclick="loadHistoricalLogs()" class="retry-btn">Retry</button>
+                </div>
+            `;
         }
 
         function clearLogs() {
             logEntries = [];
+            clearFilterCache(); // Clear cache when clearing entries
             renderLogEntries();
         }
 
@@ -1137,6 +1464,9 @@ class LogViewerController:
         // Set up filter event handlers with debouncing
         let filterTimeout;
         function debounceFilter() {
+            // Clear only filter cache, not entry cache
+            lastFilterHash = '';
+
             // Immediate client-side filtering for fast feedback
             renderLogEntries();
 
@@ -1144,7 +1474,7 @@ class LogViewerController:
             clearTimeout(filterTimeout);
             filterTimeout = setTimeout(() => {
                 applyFilters(); // Server-side filter for accurate results
-            }, 200);
+            }, 300); // Slightly longer delay for better UX
         }
 
         function clearFilters() {
