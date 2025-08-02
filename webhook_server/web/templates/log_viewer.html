@@ -27,6 +27,7 @@
             --log-warning-bg: #fff3cd;
             --log-debug-bg: #f8f9fa;
             --log-step-bg: #e3f2fd;
+            --log-success-bg: #d1f2d1;
             --tag-bg: #e9ecef;
             --timestamp-color: #666666;
         }
@@ -53,6 +54,7 @@
             --log-warning-bg: #5a4a1e;
             --log-debug-bg: #2a2a2a;
             --log-step-bg: #1a237e;
+            --log-success-bg: #1e4a1e;
             --tag-bg: #4a4a4a;
             --timestamp-color: #888888;
         }
@@ -308,6 +310,7 @@
         .log-entry.WARNING { background-color: var(--log-warning-bg); }
         .log-entry.DEBUG { background-color: var(--log-debug-bg); }
         .log-entry.STEP { background-color: var(--log-step-bg); }
+        .log-entry.SUCCESS { background-color: var(--log-success-bg); }
         .timestamp { color: var(--timestamp-color); }
         .level { font-weight: bold; }
         .message { margin-left: 10px; }
@@ -403,6 +406,8 @@
                     <option value="INFO">INFO</option>
                     <option value="WARNING">WARNING</option>
                     <option value="ERROR">ERROR</option>
+                    <option value="STEP">STEP</option>
+                    <option value="SUCCESS">SUCCESS</option>
                 </select>
             </div>
             <div class="filter-group">
