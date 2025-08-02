@@ -8,7 +8,7 @@ commands = [
   [
     "pyutils-unusedcode",
     "--exclude-function-prefixes",
-    "'process_webhook','validate_config_file'",
+    "'process_webhook','validate_config_file', 'get_log_viewer_page'",
   ],
 ]
 

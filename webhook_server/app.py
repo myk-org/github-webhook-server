@@ -7,6 +7,7 @@ import os
 import sys
 from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator
+import datetime
 
 import httpx
 import requests
@@ -17,13 +18,16 @@ from fastapi import (
     FastAPI,
     HTTPException,
     Request,
+    WebSocket,
     status,
 )
+from fastapi.responses import HTMLResponse, StreamingResponse
 
 from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import RepositoryNotFoundError
 from webhook_server.libs.github_api import GithubWebhook
-from webhook_server.utils.helpers import get_logger_with_params
+from webhook_server.web.log_viewer import LogViewerController
+from webhook_server.utils.helpers import get_logger_with_params, prepare_log_prefix
 
 # Constants
 APP_URL_ROOT_PATH: str = "/webhook_server"
@@ -196,7 +200,9 @@ async def process_webhook(request: Request, background_tasks: BackgroundTasks) -
     # Extract headers early for logging
     delivery_id = request.headers.get("X-GitHub-Delivery", "unknown-delivery")
     event_type = request.headers.get("X-GitHub-Event", "unknown-event")
-    log_context = f"[Event: {event_type}][Delivery: {delivery_id}]"
+
+    # Use standardized log prefix format (will get repository info after parsing payload)
+    log_context = prepare_log_prefix(event_type, delivery_id)
 
     LOGGER.info(f"{log_context} Processing webhook")
 
@@ -276,3 +282,151 @@ async def process_webhook(request: Request, background_tasks: BackgroundTasks) -
         file_name = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1] if exc_tb else "unknown"
         error_details = f"Error type: {exc_type.__name__ if exc_type else ''}, File: {file_name}, Line: {line_no}"
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {error_details}")
+
+
+# Dependency Injection
+def get_log_viewer_controller() -> LogViewerController:
+    """Dependency to provide a singleton LogViewerController instance."""
+    return LogViewerController(logger=LOGGER)
+
+
+# Create dependency instance to avoid flake8 M511 warnings
+controller_dependency = Depends(get_log_viewer_controller)
+
+
+# Helper Functions
+def parse_datetime_string(datetime_str: str | None, field_name: str) -> datetime.datetime | None:
+    """Parse datetime string to datetime object or raise HTTPException.
+
+    Args:
+        datetime_str: The datetime string to parse (can be None)
+        field_name: Name of the field for error messages
+
+    Returns:
+        Parsed datetime object or None if input is None
+
+    Raises:
+        HTTPException: If datetime string is invalid
+    """
+    if not datetime_str:
+        return None
+
+    try:
+        return datetime.datetime.fromisoformat(datetime_str.replace("Z", "+00:00"))
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid {field_name} format: {datetime_str}. Expected ISO 8601 format. Error: {str(e)}",
+        )
+
+
+# Log Viewer Endpoints
+@FASTAPI_APP.get("/logs", response_class=HTMLResponse)
+def get_log_viewer_page(controller: LogViewerController = controller_dependency) -> HTMLResponse:
+    """Serve the main log viewer HTML page."""
+    return controller.get_log_page()
+
+
+@FASTAPI_APP.get("/logs/api/entries")
+def get_log_entries(
+    hook_id: str | None = None,
+    pr_number: int | None = None,
+    repository: str | None = None,
+    event_type: str | None = None,
+    github_user: str | None = None,
+    level: str | None = None,
+    start_time: str | None = None,
+    end_time: str | None = None,
+    search: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+    controller: LogViewerController = controller_dependency,
+) -> dict[str, Any]:
+    """Retrieve historical log entries with filtering and pagination."""
+    # Parse datetime strings using helper function
+    start_datetime = parse_datetime_string(start_time, "start_time")
+    end_datetime = parse_datetime_string(end_time, "end_time")
+
+    return controller.get_log_entries(
+        hook_id=hook_id,
+        pr_number=pr_number,
+        repository=repository,
+        event_type=event_type,
+        github_user=github_user,
+        level=level,
+        start_time=start_datetime,
+        end_time=end_datetime,
+        search=search,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@FASTAPI_APP.get("/logs/api/export")
+def export_logs(
+    format_type: str,
+    hook_id: str | None = None,
+    pr_number: int | None = None,
+    repository: str | None = None,
+    event_type: str | None = None,
+    github_user: str | None = None,
+    level: str | None = None,
+    start_time: str | None = None,
+    end_time: str | None = None,
+    search: str | None = None,
+    limit: int = 10000,
+    controller: LogViewerController = controller_dependency,
+) -> StreamingResponse:
+    """Export filtered logs as JSON file."""
+    # Parse datetime strings using helper function
+    start_datetime = parse_datetime_string(start_time, "start_time")
+    end_datetime = parse_datetime_string(end_time, "end_time")
+
+    return controller.export_logs(
+        format_type=format_type,
+        hook_id=hook_id,
+        pr_number=pr_number,
+        repository=repository,
+        event_type=event_type,
+        github_user=github_user,
+        level=level,
+        start_time=start_datetime,
+        end_time=end_datetime,
+        search=search,
+        limit=limit,
+    )
+
+
+@FASTAPI_APP.get("/logs/api/pr-flow/{hook_id}")
+def get_pr_flow_data(hook_id: str, controller: LogViewerController = controller_dependency) -> dict[str, Any]:
+    """Get PR flow visualization data for a specific hook ID or PR number."""
+    return controller.get_pr_flow_data(hook_id)
+
+
+@FASTAPI_APP.get("/logs/api/workflow-steps/{hook_id}")
+def get_workflow_steps(hook_id: str, controller: LogViewerController = controller_dependency) -> dict[str, Any]:
+    """Get workflow step timeline data for a specific hook ID."""
+    return controller.get_workflow_steps(hook_id)
+
+
+@FASTAPI_APP.websocket("/logs/ws")
+async def websocket_log_stream(
+    websocket: WebSocket,
+    hook_id: str | None = None,
+    pr_number: int | None = None,
+    repository: str | None = None,
+    event_type: str | None = None,
+    github_user: str | None = None,
+    level: str | None = None,
+) -> None:
+    """Handle WebSocket connection for real-time log streaming."""
+    controller = get_log_viewer_controller()
+    await controller.handle_websocket(
+        websocket=websocket,
+        hook_id=hook_id,
+        pr_number=pr_number,
+        repository=repository,
+        event_type=event_type,
+        github_user=github_user,
+        level=level,
+    )

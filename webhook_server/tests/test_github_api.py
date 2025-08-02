@@ -77,7 +77,7 @@ class TestGithubWebhook:
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.libs.github_api.get_github_repo_api")
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
-    @patch("webhook_server.libs.github_api.GithubWebhook._get_reposiroty_color_for_log_prefix")
+    @patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix")
     def test_init_success(
         self,
         mock_color,
@@ -110,7 +110,7 @@ class TestGithubWebhook:
 
     @patch("webhook_server.libs.github_api.Config")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
-    @patch("webhook_server.libs.github_api.GithubWebhook._get_reposiroty_color_for_log_prefix")
+    @patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix")
     def test_init_no_api_token(self, mock_color, mock_get_api, mock_config, minimal_hook_data, minimal_headers, logger):
         mock_config.return_value.repository = True
         mock_get_api.return_value = (None, None, None)
@@ -121,7 +121,7 @@ class TestGithubWebhook:
     @patch("webhook_server.libs.github_api.Config")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.libs.github_api.get_github_repo_api")
-    @patch("webhook_server.libs.github_api.GithubWebhook._get_reposiroty_color_for_log_prefix")
+    @patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix")
     def test_init_no_github_app_api(
         self, mock_color, mock_get_repo_api, mock_get_api, mock_config, minimal_hook_data, minimal_headers, logger
     ):
@@ -138,7 +138,7 @@ class TestGithubWebhook:
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.libs.github_api.get_github_repo_api")
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
-    @patch("webhook_server.libs.github_api.GithubWebhook._get_reposiroty_color_for_log_prefix")
+    @patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix")
     def test_init_no_repository_objects(
         self,
         mock_color,
@@ -169,7 +169,7 @@ class TestGithubWebhook:
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.libs.github_api.get_github_repo_api")
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
-    @patch("webhook_server.libs.github_api.GithubWebhook._get_reposiroty_color_for_log_prefix")
+    @patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix")
     def test_process_ping_event(
         self,
         mock_color,
@@ -414,7 +414,7 @@ class TestGithubWebhook:
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.libs.github_api.get_github_repo_api")
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
-    @patch("webhook_server.libs.github_api.GithubWebhook._get_reposiroty_color_for_log_prefix")
+    @patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix")
     @patch("webhook_server.libs.github_api.get_apis_and_tokes_from_config")
     def test_event_filtering_by_configuration(
         self,
@@ -447,7 +447,7 @@ class TestGithubWebhook:
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.libs.github_api.get_github_repo_api")
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
-    @patch("webhook_server.libs.github_api.GithubWebhook._get_reposiroty_color_for_log_prefix")
+    @patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix")
     @patch("webhook_server.libs.github_api.get_apis_and_tokes_from_config")
     def test_webhook_data_extraction(
         self,
@@ -483,7 +483,7 @@ class TestGithubWebhook:
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.libs.github_api.get_github_repo_api")
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
-    @patch("webhook_server.libs.github_api.GithubWebhook._get_reposiroty_color_for_log_prefix")
+    @patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix")
     @patch("webhook_server.libs.github_api.get_apis_and_tokes_from_config")
     def test_api_rate_limit_selection(
         self,
@@ -517,7 +517,7 @@ class TestGithubWebhook:
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.libs.github_api.get_github_repo_api")
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
-    @patch("webhook_server.libs.github_api.GithubWebhook._get_reposiroty_color_for_log_prefix")
+    @patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix")
     @patch("webhook_server.libs.github_api.get_apis_and_tokes_from_config")
     def test_repository_api_initialization(
         self,
@@ -551,7 +551,7 @@ class TestGithubWebhook:
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.libs.github_api.get_github_repo_api")
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
-    @patch("webhook_server.libs.github_api.GithubWebhook._get_reposiroty_color_for_log_prefix")
+    @patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix")
     @patch("webhook_server.libs.github_api.get_apis_and_tokes_from_config")
     def test_init_failed_repository_objects(
         self,
@@ -582,7 +582,7 @@ class TestGithubWebhook:
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.libs.github_api.get_github_repo_api")
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
-    @patch("webhook_server.libs.github_api.GithubWebhook._get_reposiroty_color_for_log_prefix")
+    @patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix")
     @patch("webhook_server.libs.github_api.get_apis_and_tokes_from_config")
     def test_add_api_users_to_auto_verified_and_merged_users(
         self,
@@ -652,7 +652,7 @@ class TestGithubWebhook:
     @patch("webhook_server.libs.github_api.get_github_repo_api")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.libs.github_api.Config")
-    def test_get_reposiroty_color_for_log_prefix_new_color_file(
+    def test_prepare_log_prefix_with_color_file(
         self,
         mock_config,
         mock_get_api,
@@ -663,7 +663,7 @@ class TestGithubWebhook:
         minimal_headers,
         logger,
     ) -> None:
-        """Test _get_reposiroty_color_for_log_prefix with new color file."""
+        """Test prepare_log_prefix with repository color functionality."""
         with tempfile.TemporaryDirectory() as temp_dir:
             mock_config.return_value.repository = True
             mock_config.return_value.repository_local_data.return_value = {}
@@ -685,9 +685,9 @@ class TestGithubWebhook:
             # Use a minimal_hook_data with repo name matching the test
             hook_data = {"repository": {"name": "repo", "full_name": "repo"}}
             webhook = GithubWebhook(hook_data, minimal_headers, logger)
-            result = webhook._get_reposiroty_color_for_log_prefix()
+            result = webhook.prepare_log_prefix()
             # Call again to ensure file is read after being created
-            result2 = webhook._get_reposiroty_color_for_log_prefix()
+            result2 = webhook.prepare_log_prefix()
 
             # Check that a color file was created
             color_file = os.path.join(temp_dir, "log-colors.json")
@@ -780,9 +780,7 @@ class TestGithubWebhook:
                     with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
                         mock_get_app_api.return_value = Mock()
 
-                        with patch(
-                            "webhook_server.libs.github_api.GithubWebhook._get_reposiroty_color_for_log_prefix"
-                        ) as mock_color:
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
                             mock_color.return_value = "repo"
 
                             mock_pr = Mock()
@@ -814,9 +812,7 @@ class TestGithubWebhook:
                     with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
                         mock_get_app_api.return_value = Mock()
 
-                        with patch(
-                            "webhook_server.libs.github_api.GithubWebhook._get_reposiroty_color_for_log_prefix"
-                        ) as mock_color:
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
                             mock_color.return_value = "repo"
 
                             mock_repo.get_pull.side_effect = GithubException(404, "Not found")
@@ -849,9 +845,7 @@ class TestGithubWebhook:
                     with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
                         mock_get_app_api.return_value = Mock()
 
-                        with patch(
-                            "webhook_server.libs.github_api.GithubWebhook._get_reposiroty_color_for_log_prefix"
-                        ) as mock_color:
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
                             mock_color.return_value = "repo"
 
                             mock_commit = Mock()
@@ -881,9 +875,7 @@ class TestGithubWebhook:
                     with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
                         mock_get_app_api.return_value = Mock()
 
-                        with patch(
-                            "webhook_server.libs.github_api.GithubWebhook._get_reposiroty_color_for_log_prefix"
-                        ) as mock_color:
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
                             mock_color.return_value = "repo"
 
                             gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
@@ -909,9 +901,7 @@ class TestGithubWebhook:
                     with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
                         mock_get_app_api.return_value = Mock()
 
-                        with patch(
-                            "webhook_server.libs.github_api.GithubWebhook._get_reposiroty_color_for_log_prefix"
-                        ) as mock_color:
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
                             mock_color.return_value = "repo"
 
                             gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
@@ -940,9 +930,7 @@ class TestGithubWebhook:
                     with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
                         mock_get_app_api.return_value = Mock()
 
-                        with patch(
-                            "webhook_server.libs.github_api.GithubWebhook._get_reposiroty_color_for_log_prefix"
-                        ) as mock_color:
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
                             mock_color.return_value = "repo"
 
                             gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
@@ -972,9 +960,7 @@ class TestGithubWebhook:
                     with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
                         mock_get_app_api.return_value = Mock()
 
-                        with patch(
-                            "webhook_server.libs.github_api.GithubWebhook._get_reposiroty_color_for_log_prefix"
-                        ) as mock_color:
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
                             mock_color.return_value = "repo"
 
                             gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
@@ -1000,9 +986,7 @@ class TestGithubWebhook:
                     with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
                         mock_get_app_api.return_value = Mock()
 
-                        with patch(
-                            "webhook_server.libs.github_api.GithubWebhook._get_reposiroty_color_for_log_prefix"
-                        ) as mock_color:
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
                             mock_color.return_value = "repo"
 
                             mock_response = Mock()
@@ -1035,9 +1019,7 @@ class TestGithubWebhook:
                     with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
                         mock_get_app_api.return_value = Mock()
 
-                        with patch(
-                            "webhook_server.libs.github_api.GithubWebhook._get_reposiroty_color_for_log_prefix"
-                        ) as mock_color:
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
                             mock_color.return_value = "repo"
 
                             mock_response = Mock()
@@ -1067,9 +1049,7 @@ class TestGithubWebhook:
                     with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
                         mock_get_app_api.return_value = Mock()
 
-                        with patch(
-                            "webhook_server.libs.github_api.GithubWebhook._get_reposiroty_color_for_log_prefix"
-                        ) as mock_color:
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
                             mock_color.return_value = "repo"
 
                             gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
@@ -1104,9 +1084,7 @@ class TestGithubWebhook:
                     with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
                         mock_get_app_api.return_value = Mock()
 
-                        with patch(
-                            "webhook_server.libs.github_api.GithubWebhook._get_reposiroty_color_for_log_prefix"
-                        ) as mock_color:
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
                             mock_color.return_value = "repo"
 
                             gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)

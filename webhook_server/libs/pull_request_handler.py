@@ -414,39 +414,61 @@ For more information, please refer to the project documentation or contact the m
                 break
 
     async def process_opened_or_synchronize_pull_request(self, pull_request: PullRequest) -> None:
-        tasks: list[Coroutine[Any, Any, Any]] = []
+        self.logger.step(f"{self.log_prefix} Starting PR processing workflow")  # type: ignore
 
-        tasks.append(self.owners_file_handler.assign_reviewers(pull_request=pull_request))
-        tasks.append(
+        # Stage 1: Initial setup and check queue tasks
+        self.logger.step(f"{self.log_prefix} Stage: Initial setup and check queuing")  # type: ignore
+        setup_tasks: list[Coroutine[Any, Any, Any]] = []
+
+        setup_tasks.append(self.owners_file_handler.assign_reviewers(pull_request=pull_request))
+        setup_tasks.append(
             self.labels_handler._add_label(
                 pull_request=pull_request,
                 label=f"{BRANCH_LABEL_PREFIX}{pull_request.base.ref}",
             )
         )
-        tasks.append(self.label_pull_request_by_merge_state(pull_request=pull_request))
-        tasks.append(self.check_run_handler.set_merge_check_queued())
-        tasks.append(self.check_run_handler.set_run_tox_check_queued())
-        tasks.append(self.check_run_handler.set_run_pre_commit_check_queued())
-        tasks.append(self.check_run_handler.set_python_module_install_queued())
-        tasks.append(self.check_run_handler.set_container_build_queued())
-        tasks.append(self._process_verified_for_update_or_new_pull_request(pull_request=pull_request))
-        tasks.append(self.labels_handler.add_size_label(pull_request=pull_request))
-        tasks.append(self.add_pull_request_owner_as_assingee(pull_request=pull_request))
-
-        tasks.append(self.runner_handler.run_tox(pull_request=pull_request))
-        tasks.append(self.runner_handler.run_pre_commit(pull_request=pull_request))
-        tasks.append(self.runner_handler.run_install_python_module(pull_request=pull_request))
-        tasks.append(self.runner_handler.run_build_container(pull_request=pull_request))
+        setup_tasks.append(self.label_pull_request_by_merge_state(pull_request=pull_request))
+        setup_tasks.append(self.check_run_handler.set_merge_check_queued())
+        setup_tasks.append(self.check_run_handler.set_run_tox_check_queued())
+        setup_tasks.append(self.check_run_handler.set_run_pre_commit_check_queued())
+        setup_tasks.append(self.check_run_handler.set_python_module_install_queued())
+        setup_tasks.append(self.check_run_handler.set_container_build_queued())
+        setup_tasks.append(self._process_verified_for_update_or_new_pull_request(pull_request=pull_request))
+        setup_tasks.append(self.labels_handler.add_size_label(pull_request=pull_request))
+        setup_tasks.append(self.add_pull_request_owner_as_assingee(pull_request=pull_request))
 
         if self.github_webhook.conventional_title:
-            tasks.append(self.check_run_handler.set_conventional_title_queued())
-            tasks.append(self.runner_handler.run_conventional_title_check(pull_request=pull_request))
+            setup_tasks.append(self.check_run_handler.set_conventional_title_queued())
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        self.logger.step(f"{self.log_prefix} Executing setup tasks")  # type: ignore
+        setup_results = await asyncio.gather(*setup_tasks, return_exceptions=True)
 
-        for result in results:
+        for result in setup_results:
             if isinstance(result, Exception):
-                self.logger.error(f"{self.log_prefix} Async task failed: {result}")
+                self.logger.error(f"{self.log_prefix} Setup task failed: {result}")
+
+        self.logger.step(f"{self.log_prefix} Setup tasks completed")  # type: ignore
+
+        # Stage 2: CI/CD execution tasks
+        self.logger.step(f"{self.log_prefix} Stage: CI/CD execution")  # type: ignore
+        ci_tasks: list[Coroutine[Any, Any, Any]] = []
+
+        ci_tasks.append(self.runner_handler.run_tox(pull_request=pull_request))
+        ci_tasks.append(self.runner_handler.run_pre_commit(pull_request=pull_request))
+        ci_tasks.append(self.runner_handler.run_install_python_module(pull_request=pull_request))
+        ci_tasks.append(self.runner_handler.run_build_container(pull_request=pull_request))
+
+        if self.github_webhook.conventional_title:
+            ci_tasks.append(self.runner_handler.run_conventional_title_check(pull_request=pull_request))
+
+        self.logger.step(f"{self.log_prefix} Executing CI/CD tasks")  # type: ignore
+        ci_results = await asyncio.gather(*ci_tasks, return_exceptions=True)
+
+        for result in ci_results:
+            if isinstance(result, Exception):
+                self.logger.error(f"{self.log_prefix} CI/CD task failed: {result}")
+
+        self.logger.step(f"{self.log_prefix} PR processing workflow completed")  # type: ignore
 
     async def create_issue_for_new_pull_request(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.create_issue_for_new_pr:

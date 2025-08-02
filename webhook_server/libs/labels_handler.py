@@ -45,6 +45,7 @@ class LabelsHandler:
         return [lb.name for lb in labels]
 
     async def _remove_label(self, pull_request: PullRequest, label: str) -> bool:
+        self.logger.step(f"{self.log_prefix} Removing label '{label}' from PR")  # type: ignore
         self.logger.debug(f"{self.log_prefix} Removing label {label}")
         try:
             if await self.label_exists_in_pull_request(pull_request=pull_request, label=label):
@@ -60,6 +61,7 @@ class LabelsHandler:
 
     async def _add_label(self, pull_request: PullRequest, label: str) -> None:
         label = label.strip()
+        self.logger.step(f"{self.log_prefix} Adding label '{label}' to PR")  # type: ignore
         self.logger.debug(f"{self.log_prefix} Adding label {label}")
         if len(label) > 49:
             self.logger.debug(f"{label} is too long, not adding.")
@@ -208,6 +210,7 @@ class LabelsHandler:
 
     async def add_size_label(self, pull_request: PullRequest) -> None:
         """Add a size label to the pull request based on its additions and deletions."""
+        self.logger.step(f"{self.log_prefix} Calculating and applying PR size label")  # type: ignore
         size_label = self.get_size(pull_request=pull_request)
         self.logger.debug(f"{self.log_prefix} size label is {size_label}")
         if not size_label:
@@ -228,6 +231,7 @@ class LabelsHandler:
             await self._remove_label(pull_request=pull_request, label=exists_size_label[0])
 
         await self._add_label(pull_request=pull_request, label=size_label)
+        self.logger.step(f"{self.log_prefix} Applied size label '{size_label}' to PR")  # type: ignore
 
     async def label_by_user_comment(
         self,
