@@ -1,4 +1,5 @@
 import os
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -140,3 +141,75 @@ def process_github_webhook(github_webhook):
 @pytest.fixture(scope="function")
 def owners_file_handler(github_webhook):
     return github_webhook[1]
+
+
+# === Performance Optimization Fixtures ===
+
+
+@pytest.fixture
+def mock_environment():
+    """Shared environment configuration for tests."""
+    env_vars = {
+        "WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests",
+    }
+    with patch.dict(os.environ, env_vars):
+        yield env_vars
+
+
+@pytest.fixture
+def sample_log_entries():
+    """Pre-generated sample log entries for performance tests."""
+    from webhook_server.libs.log_parser import LogEntry
+    from datetime import datetime, timedelta
+
+    entries = []
+    base_time = datetime(2025, 7, 31, 10, 0, 0)
+
+    for i in range(100):
+        entries.append(
+            LogEntry(
+                timestamp=base_time + timedelta(seconds=i),
+                level="INFO",
+                logger_name="GithubWebhook",
+                message=f"Test log entry {i}",
+                hook_id=f"test-hook-{i}",
+                repository=f"test-repo-{i % 10}",
+                event_type="push" if i % 2 == 0 else "pull_request",
+                github_user="test-user",
+                pr_number=i if i % 3 == 0 else None,
+            )
+        )
+
+    return entries
+
+
+@pytest.fixture
+def temporary_log_file(tmp_path):
+    """Create a temporary log file with sample content."""
+    log_file = tmp_path / "test.log"
+    content = "\n".join([
+        "2025-07-31T10:00:00.000000 GithubWebhook INFO test-repo [push][hook-1][user]: Sample entry 1",
+        "2025-07-31T10:00:01.000000 GithubWebhook INFO test-repo [pull_request][hook-2][user]: Sample entry 2",
+        "2025-07-31T10:00:02.000000 GithubWebhook ERROR test-repo [push][hook-3][user]: Error entry",
+    ])
+    log_file.write_text(content)
+    return log_file
+
+
+@pytest.fixture(autouse=True)
+def optimize_test_environment():
+    """Auto-applied fixture to optimize test environment."""
+    import logging as python_logging
+
+    # Disable unnecessary logging during tests
+    python_logging.getLogger("httpx").setLevel(python_logging.WARNING)
+    python_logging.getLogger("asyncio").setLevel(python_logging.WARNING)
+
+    # Set optimal test timeouts
+    original_timeout = os.environ.get("PYTEST_TIMEOUT", "60")
+    os.environ["PYTEST_TIMEOUT"] = "30"
+
+    yield
+
+    # Restore original timeout
+    os.environ["PYTEST_TIMEOUT"] = original_timeout

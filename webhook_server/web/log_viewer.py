@@ -5,7 +5,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Generator
+from typing import Any, Generator, Iterator
 
 from fastapi import HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -62,7 +62,7 @@ class LogViewerController:
         limit: int = 100,
         offset: int = 0,
     ) -> dict[str, Any]:
-        """Retrieve historical log entries with filtering and pagination.
+        """Retrieve historical log entries with filtering and pagination using memory-efficient streaming.
 
         Args:
             hook_id: Filter by specific hook ID
@@ -90,31 +90,45 @@ class LogViewerController:
             if offset < 0:
                 raise ValueError("Offset must be non-negative")
 
-            # Load log entries from files
-            log_entries = self._load_log_entries()
+            # Use memory-efficient streaming with filtering applied during iteration
+            filtered_entries: list[LogEntry] = []
+            total_processed = 0
+            skipped = 0
 
-            # Apply filters
-            filtered_entries = self.log_filter.filter_entries(
-                entries=log_entries,
-                hook_id=hook_id,
-                pr_number=pr_number,
-                repository=repository,
-                event_type=event_type,
-                github_user=github_user,
-                level=level,
-                start_time=start_time,
-                end_time=end_time,
-                search_text=search,
-                limit=limit,
-                offset=offset,
-            )
+            # Stream entries and apply filters incrementally
+            for entry in self._stream_log_entries(max_files=15, max_entries=20000):
+                total_processed += 1
+
+                # Apply filters early to reduce memory usage
+                if not self._entry_matches_filters(
+                    entry, hook_id, pr_number, repository, event_type, github_user, level, start_time, end_time, search
+                ):
+                    continue
+
+                # Handle pagination - skip entries until we reach the offset
+                if skipped < offset:
+                    skipped += 1
+                    continue
+
+                # Add to results if we haven't reached the limit
+                if len(filtered_entries) < limit:
+                    filtered_entries.append(entry)
+                else:
+                    # We have enough entries, can stop processing
+                    break
+
+            # Get approximate total count by processing a sample if needed
+            estimated_total: int | str = total_processed
+            if total_processed >= 20000:  # Hit our streaming limit
+                estimated_total = f"{total_processed}+"  # Indicate there are more
 
             return {
                 "entries": [entry.to_dict() for entry in filtered_entries],
-                "total": len(log_entries),  # Total before filtering
-                "filtered_total": len(filtered_entries),
+                "total": estimated_total,  # Estimated total in system
+                "filtered_total": len(filtered_entries) + offset,  # Filtered count (minimum)
                 "limit": limit,
                 "offset": offset,
+                "is_estimate": total_processed >= 20000,  # Flag for UI to show estimation
             }
 
         except ValueError as e:
@@ -126,6 +140,51 @@ class LogViewerController:
         except Exception as e:
             self.logger.error(f"Unexpected error getting log entries: {e}")
             raise HTTPException(status_code=500, detail="Internal server error")
+
+    def _entry_matches_filters(
+        self,
+        entry: LogEntry,
+        hook_id: str | None = None,
+        pr_number: int | None = None,
+        repository: str | None = None,
+        event_type: str | None = None,
+        github_user: str | None = None,
+        level: str | None = None,
+        start_time: datetime.datetime | None = None,
+        end_time: datetime.datetime | None = None,
+        search: str | None = None,
+    ) -> bool:
+        """Check if a single entry matches the given filters.
+
+        This allows for early filtering during streaming to reduce memory usage.
+
+        Args:
+            entry: LogEntry to check
+            **filters: Filter parameters (same as get_log_entries)
+
+        Returns:
+            True if entry matches all filters, False otherwise
+        """
+        if hook_id is not None and entry.hook_id != hook_id:
+            return False
+        if pr_number is not None and entry.pr_number != pr_number:
+            return False
+        if repository is not None and entry.repository != repository:
+            return False
+        if event_type is not None and (not entry.event_type or event_type not in entry.event_type):
+            return False
+        if github_user is not None and entry.github_user != github_user:
+            return False
+        if level is not None and entry.level != level:
+            return False
+        if start_time is not None and entry.timestamp < start_time:
+            return False
+        if end_time is not None and entry.timestamp > end_time:
+            return False
+        if search is not None and search.lower() not in entry.message.lower():
+            return False
+
+        return True
 
     def export_logs(
         self,
@@ -169,21 +228,21 @@ class LogViewerController:
             if limit > 50000:
                 raise ValueError("Result set too large (max 50000 entries)")
 
-            # Load and filter log entries
-            log_entries = self._load_log_entries()
-            filtered_entries = self.log_filter.filter_entries(
-                entries=log_entries,
-                hook_id=hook_id,
-                pr_number=pr_number,
-                repository=repository,
-                event_type=event_type,
-                github_user=github_user,
-                level=level,
-                start_time=start_time,
-                end_time=end_time,
-                search_text=search,
-                limit=limit,
-            )
+            # Use memory-efficient streaming for large exports
+            filtered_entries: list[LogEntry] = []
+
+            # Stream entries and apply filters incrementally for better memory usage
+            for entry in self._stream_log_entries(max_files=20, max_entries=limit + 1000):
+                if not self._entry_matches_filters(
+                    entry, hook_id, pr_number, repository, event_type, github_user, level, start_time, end_time, search
+                ):
+                    continue
+
+                filtered_entries.append(entry)
+
+                # Stop when we reach the export limit
+                if len(filtered_entries) >= limit:
+                    break
 
             if len(filtered_entries) > 50000:
                 raise ValueError("Result set too large")
@@ -314,13 +373,14 @@ class LogViewerController:
                     actual_hook_id = hook_id
                     pr_number = None
 
-            # Load log entries and filter by hook_id
-            log_entries = self._load_log_entries()
-            filtered_entries = self.log_filter.filter_entries(
-                entries=log_entries,
-                hook_id=actual_hook_id,
-                pr_number=pr_number,
-            )
+            # Use streaming approach for memory efficiency
+            filtered_entries: list[LogEntry] = []
+
+            # Stream entries and filter by hook_id/pr_number
+            for entry in self._stream_log_entries(max_files=15, max_entries=10000):
+                if not self._entry_matches_filters(entry, hook_id=actual_hook_id, pr_number=pr_number):
+                    continue
+                filtered_entries.append(entry)
 
             if not filtered_entries:
                 raise ValueError(f"No data found for hook_id: {hook_id}")
@@ -353,12 +413,14 @@ class LogViewerController:
             HTTPException: 404 if no steps found for hook ID
         """
         try:
-            # Load log entries and filter by hook ID
-            log_entries = self._load_log_entries()
-            filtered_entries = self.log_filter.filter_entries(
-                entries=log_entries,
-                hook_id=hook_id,
-            )
+            # Use streaming approach for memory efficiency
+            filtered_entries: list[LogEntry] = []
+
+            # Stream entries and filter by hook ID
+            for entry in self._stream_log_entries(max_files=15, max_entries=10000):
+                if not self._entry_matches_filters(entry, hook_id=hook_id):
+                    continue
+                filtered_entries.append(entry)
 
             if not filtered_entries:
                 raise ValueError(f"No data found for hook ID: {hook_id}")
@@ -430,41 +492,97 @@ class LogViewerController:
             "steps": timeline_steps,
         }
 
-    def _load_log_entries(self) -> list[LogEntry]:
-        """Load all log entries from configured log files.
+    def _stream_log_entries(
+        self, max_files: int = 10, chunk_size: int = 1000, max_entries: int = 50000
+    ) -> Iterator[LogEntry]:
+        """Stream log entries from configured log files in chunks to reduce memory usage.
 
-        Returns:
-            List of parsed log entries
+        This replaces _load_log_entries() to prevent memory exhaustion from loading
+        all log files simultaneously. Uses lazy evaluation and chunked processing.
+
+        Args:
+            max_files: Maximum number of log files to process (newest first)
+            chunk_size: Number of entries to yield per chunk from each file
+            max_entries: Maximum total entries to yield (safety limit)
+
+        Yields:
+            LogEntry objects in timestamp order (newest first)
         """
-        log_entries: list[LogEntry] = []
         log_dir = self._get_log_directory()
 
         if not log_dir.exists():
             self.logger.warning(f"Log directory not found: {log_dir}")
-            return log_entries
+            return
 
         # Find all log files including rotated ones (*.log, *.log.1, *.log.2, etc.)
         log_files: list[Path] = []
         log_files.extend(log_dir.glob("*.log"))
         log_files.extend(log_dir.glob("*.log.*"))
 
-        # Sort log files to process in correct order (current log first, then rotated)
-        # This ensures newer entries come first in the final sorted list
-        log_files.sort(key=lambda f: (f.name.count("."), f.stat().st_mtime))
+        # Sort log files by recency (newest first) and limit for memory efficiency
+        log_files.sort(key=lambda f: (f.name.count("."), f.stat().st_mtime), reverse=True)
+        log_files = log_files[:max_files]
 
-        self.logger.info(f"Loading historical logs from {len(log_files)} files: {[f.name for f in log_files]}")
+        self.logger.info(f"Streaming from {len(log_files)} most recent files: {[f.name for f in log_files]}")
 
+        total_yielded = 0
+
+        # Stream from newest files first
         for log_file in log_files:
-            try:
-                file_entries = self.log_parser.parse_log_file(log_file)
-                self.logger.info(f"Parsed {len(file_entries)} entries from {log_file.name}")
-                log_entries.extend(file_entries)
-            except Exception as e:
-                self.logger.warning(f"Error parsing log file {log_file}: {e}")
+            if total_yielded >= max_entries:
+                break
 
-        # Sort by timestamp (newest first)
-        log_entries.sort(key=lambda x: x.timestamp, reverse=True)
-        return log_entries
+            try:
+                file_entries: list[LogEntry] = []
+
+                # Parse file in one go (files are typically reasonable size individually)
+                with open(log_file, "r", encoding="utf-8") as f:
+                    for line_num, line in enumerate(f, 1):
+                        if total_yielded >= max_entries:
+                            break
+
+                        entry = self.log_parser.parse_log_entry(line)
+                        if entry:
+                            file_entries.append(entry)
+
+                        # Process in chunks to avoid memory buildup for large files
+                        if len(file_entries) >= chunk_size:
+                            # Sort chunk by timestamp (newest first) and yield
+                            file_entries.sort(key=lambda x: x.timestamp, reverse=True)
+                            for entry in file_entries:
+                                yield entry
+                                total_yielded += 1
+                                if total_yielded >= max_entries:
+                                    break
+                            file_entries.clear()  # Free memory
+
+                # Yield remaining entries from this file
+                if file_entries and total_yielded < max_entries:
+                    file_entries.sort(key=lambda x: x.timestamp, reverse=True)
+                    for entry in file_entries:
+                        if total_yielded >= max_entries:
+                            break
+                        yield entry
+                        total_yielded += 1
+
+                self.logger.debug(f"Streamed entries from {log_file.name}, total so far: {total_yielded}")
+
+            except Exception as e:
+                self.logger.warning(f"Error streaming log file {log_file}: {e}")
+
+    def _load_log_entries(self) -> list[LogEntry]:
+        """Load log entries using streaming approach for memory efficiency.
+
+        This method now uses the streaming approach internally but returns a list
+        for backward compatibility. For new code, prefer _stream_log_entries().
+
+        Returns:
+            List of parsed log entries (limited to prevent memory exhaustion)
+        """
+        # Use streaming with reasonable limits to prevent memory issues
+        entries = list(self._stream_log_entries(max_files=10, max_entries=10000))
+        self.logger.info(f"Loaded {len(entries)} entries using streaming approach")
+        return entries
 
     def _get_log_directory(self) -> Path:
         """Get the log directory path from configuration.

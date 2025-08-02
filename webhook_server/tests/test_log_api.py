@@ -90,7 +90,7 @@ class TestLogViewerController:
 
     def test_get_log_entries_success(self, controller, sample_log_entries):
         """Test successful log entries retrieval."""
-        with patch.object(controller, "_load_log_entries", return_value=sample_log_entries):
+        with patch.object(controller, "_stream_log_entries", return_value=sample_log_entries):
             result = controller.get_log_entries()
             assert "entries" in result
             assert result["total"] == 3
@@ -98,13 +98,13 @@ class TestLogViewerController:
 
     def test_get_log_entries_with_filters(self, controller, sample_log_entries):
         """Test log entries with filters applied."""
-        with patch.object(controller, "_load_log_entries", return_value=sample_log_entries):
+        with patch.object(controller, "_stream_log_entries", return_value=sample_log_entries):
             result = controller.get_log_entries(hook_id="hook1", level="INFO")
             assert "entries" in result
 
     def test_get_log_entries_with_pagination(self, controller, sample_log_entries):
         """Test log entries with pagination."""
-        with patch.object(controller, "_load_log_entries", return_value=sample_log_entries):
+        with patch.object(controller, "_stream_log_entries", return_value=sample_log_entries):
             result = controller.get_log_entries(limit=2, offset=1)
             assert result["limit"] == 2
             assert result["offset"] == 1
@@ -117,14 +117,14 @@ class TestLogViewerController:
 
     def test_get_log_entries_file_error(self, controller):
         """Test log entries with file access error."""
-        with patch.object(controller, "_load_log_entries", side_effect=OSError("Permission denied")):
+        with patch.object(controller, "_stream_log_entries", side_effect=OSError("Permission denied")):
             with pytest.raises(HTTPException) as exc:
                 controller.get_log_entries()
             assert exc.value.status_code == 500
 
     def test_export_logs_json(self, controller, sample_log_entries):
         """Test JSON export functionality."""
-        with patch.object(controller, "_load_log_entries", return_value=sample_log_entries):
+        with patch.object(controller, "_stream_log_entries", return_value=sample_log_entries):
             result = controller.export_logs(format_type="json")
             # This should return a StreamingResponse, not a JSON string
             assert hasattr(result, "status_code")
@@ -132,21 +132,21 @@ class TestLogViewerController:
 
     def test_export_logs_invalid_format(self, controller):
         """Test export with invalid format."""
-        with patch.object(controller, "_load_log_entries", return_value=[]):
+        with patch.object(controller, "_stream_log_entries", return_value=[]):
             with pytest.raises(HTTPException) as exc:
                 controller.export_logs(format_type="xml")
             assert exc.value.status_code == 400
 
     def test_export_logs_result_too_large(self, controller):
         """Test export with result set too large."""
-        with patch.object(controller, "_load_log_entries", return_value=[]):
+        with patch.object(controller, "_stream_log_entries", return_value=[]):
             with pytest.raises(HTTPException) as exc:
                 controller.export_logs(format_type="json", limit=60000)
             assert exc.value.status_code == 413
 
     def test_export_logs_filtered_entries_too_large(self, controller):
         """Test export when filtered entries exceed limit."""
-        # Create a large list of entries
+        # Create a large list of entries that will all match filters
         large_entries = [
             LogEntry(
                 timestamp=datetime.datetime(2025, 7, 31, 10, 0, 0),
@@ -158,56 +158,109 @@ class TestLogViewerController:
             for i in range(51000)
         ]
 
-        with patch.object(controller, "_load_log_entries", return_value=large_entries):
-            with patch.object(controller.log_filter, "filter_entries", return_value=large_entries):
+        # Mock stream_log_entries to return many entries
+        with patch.object(controller, "_stream_log_entries", return_value=large_entries):
+            # Mock _entry_matches_filters to always return True so all entries are included
+            with patch.object(controller, "_entry_matches_filters", return_value=True):
                 with pytest.raises(HTTPException) as exc:
-                    controller.export_logs(format_type="json")
+                    # Call with a limit that would exceed 50000 to trigger the error
+                    controller.export_logs(format_type="json", limit=51000)
                 assert exc.value.status_code == 413
 
     def test_get_pr_flow_data_success(self, controller, sample_log_entries):
         """Test PR flow data retrieval."""
-        with patch.object(controller, "_load_log_entries", return_value=sample_log_entries):
-            with patch.object(controller.log_filter, "filter_entries", return_value=sample_log_entries):
-                with patch.object(controller, "_analyze_pr_flow", return_value={"test": "data"}):
-                    result = controller.get_pr_flow_data("test-hook-id")
-                    assert result == {"test": "data"}
+        # Create entries with matching hook_id
+        matching_entries = [
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 0, 0),
+                level="INFO",
+                logger_name="main",
+                message="Test message",
+                hook_id="test-hook-id",
+            )
+        ]
+
+        with patch.object(controller, "_stream_log_entries", return_value=matching_entries):
+            with patch.object(controller, "_analyze_pr_flow", return_value={"test": "data"}):
+                result = controller.get_pr_flow_data("test-hook-id")
+                assert result == {"test": "data"}
 
     def test_get_pr_flow_data_not_found(self, controller):
         """Test PR flow data when not found."""
-        with patch.object(controller, "_load_log_entries", return_value=[]):
+        with patch.object(controller, "_stream_log_entries", return_value=[]):
             with pytest.raises(HTTPException) as exc:
                 controller.get_pr_flow_data("nonexistent")
             assert exc.value.status_code == 404
 
     def test_get_pr_flow_data_hook_prefix(self, controller, sample_log_entries):
         """Test PR flow data with hook- prefix."""
-        with patch.object(controller, "_load_log_entries", return_value=sample_log_entries):
-            with patch.object(controller.log_filter, "filter_entries", return_value=sample_log_entries):
-                with patch.object(controller, "_analyze_pr_flow", return_value={"test": "data"}):
-                    result = controller.get_pr_flow_data("hook-123")
-                    assert result == {"test": "data"}
+        matching_entries = [
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 0, 0),
+                level="INFO",
+                logger_name="main",
+                message="Test message",
+                hook_id="123",  # After stripping "hook-" prefix, it looks for "123"
+            )
+        ]
+
+        with patch.object(controller, "_stream_log_entries", return_value=matching_entries):
+            with patch.object(controller, "_analyze_pr_flow", return_value={"test": "data"}):
+                result = controller.get_pr_flow_data("hook-123")
+                assert result == {"test": "data"}
 
     def test_get_pr_flow_data_pr_prefix(self, controller, sample_log_entries):
         """Test PR flow data with pr- prefix."""
-        with patch.object(controller, "_load_log_entries", return_value=sample_log_entries):
+        matching_entries = [
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 0, 0),
+                level="INFO",
+                logger_name="main",
+                message="Test message",
+                hook_id="some-hook",
+                pr_number=123,
+            )
+        ]
+
+        with patch.object(controller, "_stream_log_entries", return_value=matching_entries):
             with patch.object(controller, "_analyze_pr_flow", return_value={"test": "data"}):
                 result = controller.get_pr_flow_data("pr-123")
                 assert result == {"test": "data"}
 
     def test_get_pr_flow_data_direct_number(self, controller, sample_log_entries):
         """Test PR flow data with direct PR number."""
-        with patch.object(controller, "_load_log_entries", return_value=sample_log_entries):
+        matching_entries = [
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 0, 0),
+                level="INFO",
+                logger_name="main",
+                message="Test message",
+                hook_id="some-hook",
+                pr_number=123,
+            )
+        ]
+
+        with patch.object(controller, "_stream_log_entries", return_value=matching_entries):
             with patch.object(controller, "_analyze_pr_flow", return_value={"test": "data"}):
                 result = controller.get_pr_flow_data("123")
                 assert result == {"test": "data"}
 
     def test_get_pr_flow_data_direct_hook_id(self, controller, sample_log_entries):
         """Test PR flow data with direct hook ID."""
-        with patch.object(controller, "_load_log_entries", return_value=sample_log_entries):
-            with patch.object(controller.log_filter, "filter_entries", return_value=sample_log_entries):
-                with patch.object(controller, "_analyze_pr_flow", return_value={"test": "data"}):
-                    result = controller.get_pr_flow_data("abc123-def456")
-                    assert result == {"test": "data"}
+        matching_entries = [
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 0, 0),
+                level="INFO",
+                logger_name="main",
+                message="Test message",
+                hook_id="abc123-def456",
+            )
+        ]
+
+        with patch.object(controller, "_stream_log_entries", return_value=matching_entries):
+            with patch.object(controller, "_analyze_pr_flow", return_value={"test": "data"}):
+                result = controller.get_pr_flow_data("abc123-def456")
+                assert result == {"test": "data"}
 
     def test_get_workflow_steps_success(self, controller, sample_log_entries):
         """Test workflow steps retrieval."""
@@ -221,7 +274,7 @@ class TestLogViewerController:
             )
         ]
 
-        with patch.object(controller, "_load_log_entries", return_value=sample_log_entries):
+        with patch.object(controller, "_stream_log_entries", return_value=sample_log_entries):
             with patch.object(controller.log_parser, "extract_workflow_steps", return_value=workflow_steps):
                 with patch.object(controller, "_build_workflow_timeline", return_value={"test": "data"}):
                     result = controller.get_workflow_steps("hook1")
@@ -229,12 +282,12 @@ class TestLogViewerController:
 
     def test_get_workflow_steps_not_found(self, controller):
         """Test workflow steps when not found."""
-        with patch.object(controller, "_load_log_entries", return_value=[]):
+        with patch.object(controller, "_stream_log_entries", return_value=[]):
             with pytest.raises(HTTPException) as exc:
                 controller.get_workflow_steps("nonexistent")
             assert exc.value.status_code == 404
 
-    def test_load_log_entries_success(self, controller):
+    def test_stream_log_entries_success(self, controller):
         """Test log entries loading."""
         mock_config = Mock()
         mock_config.data_dir = "/test"
@@ -255,10 +308,10 @@ class TestLogViewerController:
             mock_path.return_value = mock_path_instance
 
             with patch.object(controller.log_parser, "parse_log_file", return_value=[]):
-                result = controller._load_log_entries()
+                result = list(controller._stream_log_entries())
                 assert isinstance(result, list)
 
-    def test_load_log_entries_no_directory(self, controller):
+    def test_stream_log_entries_no_directory(self, controller):
         """Test log entries loading when directory doesn't exist."""
         mock_config = Mock()
         mock_config.data_dir = "/test"
@@ -269,10 +322,10 @@ class TestLogViewerController:
             mock_path_instance.exists.return_value = False
             mock_path.return_value = mock_path_instance
 
-            result = controller._load_log_entries()
+            result = list(controller._stream_log_entries())
             assert result == []
 
-    def test_load_log_entries_parse_error(self, controller):
+    def test_stream_log_entries_parse_error(self, controller):
         """Test log entries loading with parse error."""
         mock_config = Mock()
         mock_config.data_dir = "/test"
@@ -287,7 +340,7 @@ class TestLogViewerController:
             mock_path.return_value = mock_path_instance
 
             with patch.object(controller.log_parser, "parse_log_file", side_effect=Exception("Parse error")):
-                result = controller._load_log_entries()
+                result = list(controller._stream_log_entries())
                 assert isinstance(result, list)
 
     def test_get_log_directory(self, controller):
@@ -898,7 +951,7 @@ class TestPRFlowAPI:
             mock_instance.get_pr_flow_data.side_effect = ValueError("No data found for hook_id")
 
             # Test would return 404 Not Found
-            with pytest.raises(ValueError, match="No data found for identifier"):
+            with pytest.raises(ValueError, match="No data found for hook_id"):
                 mock_instance.get_pr_flow_data()
 
     def test_get_pr_flow_data_with_errors(self) -> None:

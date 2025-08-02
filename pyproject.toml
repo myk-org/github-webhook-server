@@ -74,6 +74,8 @@ dependencies = [
   "httpx>=0.28.1",
   "asyncstdlib>=3.13.1",
   "webcolors>=24.11.1",
+  "pyjwt>=2.8.0",
+  "pydantic>=2.5.0",
 ]
 
 [[project.authors]]
@@ -87,18 +89,16 @@ email = "ruth.netser@gmail.com"
 [project.urls]
 homepage = "https://github.com/myakove/github-webhook-server"
 repository = "https://github.com/myakove/github-webhook-server"
-Download = "https://quay.io/repository/myakove/github-webhook-server"
 "Bug Tracker" = "https://github.com/myakove/github-webhook-server/issues"
 
 [project.optional-dependencies]
-tests = [
-    "pytest-asyncio>=0.26.0",
-    "pytest-xdist>=3.7.0",
-]
+tests = ["pytest-asyncio>=0.26.0", "pytest-xdist>=3.7.0"]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [dependency-groups]
-tests = []
+tests = [
+    "psutil>=7.0.0",
+]
