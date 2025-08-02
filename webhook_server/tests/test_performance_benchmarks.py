@@ -9,8 +9,15 @@ import tempfile
 import time
 from pathlib import Path
 
-import psutil
 import pytest
+
+try:
+    import psutil
+
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    psutil = None
+    PSUTIL_AVAILABLE = False
 
 from webhook_server.libs.log_parser import LogEntry, LogFilter, LogParser
 
@@ -187,6 +194,9 @@ class TestMemoryUsageProfiler:
 
     def test_memory_efficiency_large_dataset(self):
         """Test memory efficiency with large datasets."""
+        if not PSUTIL_AVAILABLE:
+            pytest.skip("psutil not available for memory monitoring")
+
         process = psutil.Process(os.getpid())
         initial_memory = process.memory_info().rss / 1024 / 1024  # MB
 
@@ -216,10 +226,11 @@ class TestMemoryUsageProfiler:
 
     def test_memory_cleanup_after_processing(self):
         """Test that memory is properly cleaned up after processing."""
+        if not PSUTIL_AVAILABLE:
+            pytest.skip("psutil not available for memory monitoring")
+
         import gc
         import os
-
-        import psutil
 
         process = psutil.Process(os.getpid())
         initial_memory = process.memory_info().rss / 1024 / 1024  # MB

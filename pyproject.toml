@@ -76,6 +76,7 @@ dependencies = [
   "webcolors>=24.11.1",
   "pyjwt>=2.8.0",
   "pydantic>=2.5.0",
+  "psutil>=7.0.0",
 ]
 
 [[project.authors]]
