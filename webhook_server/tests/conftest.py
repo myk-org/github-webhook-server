@@ -1,5 +1,4 @@
 import os
-from unittest.mock import patch
 
 import pytest
 import yaml
@@ -147,20 +146,11 @@ def owners_file_handler(github_webhook):
 
 
 @pytest.fixture
-def mock_environment():
-    """Shared environment configuration for tests."""
-    env_vars = {
-        "WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests",
-    }
-    with patch.dict(os.environ, env_vars):
-        yield env_vars
-
-
-@pytest.fixture
 def sample_log_entries():
     """Pre-generated sample log entries for performance tests."""
-    from webhook_server.libs.log_parser import LogEntry
     from datetime import datetime, timedelta
+
+    from webhook_server.libs.log_parser import LogEntry
 
     entries = []
     base_time = datetime(2025, 7, 31, 10, 0, 0)
@@ -181,19 +171,6 @@ def sample_log_entries():
         )
 
     return entries
-
-
-@pytest.fixture
-def temporary_log_file(tmp_path):
-    """Create a temporary log file with sample content."""
-    log_file = tmp_path / "test.log"
-    content = "\n".join([
-        "2025-07-31T10:00:00.000000 GithubWebhook INFO test-repo [push][hook-1][user]: Sample entry 1",
-        "2025-07-31T10:00:01.000000 GithubWebhook INFO test-repo [pull_request][hook-2][user]: Sample entry 2",
-        "2025-07-31T10:00:02.000000 GithubWebhook ERROR test-repo [push][hook-3][user]: Error entry",
-    ])
-    log_file.write_text(content)
-    return log_file
 
 
 @pytest.fixture(autouse=True)
