@@ -17,6 +17,19 @@ from webhook_server.libs.log_parser import LogEntry, LogFilter, LogParser
 class LogViewerController:
     """Controller for log viewer functionality."""
 
+    # Workflow stage patterns for PR flow analysis
+    # These patterns match log messages to identify workflow stages and can be updated
+    # when log message formats change without modifying the analysis logic
+    WORKFLOW_STAGE_PATTERNS = [
+        ("Webhook Received", r"Processing webhook"),
+        ("Validation Complete", r"Signature verification successful|Processing webhook for"),
+        ("Reviewers Assigned", r"Added reviewer|OWNERS file|reviewer assignment"),
+        ("Labels Applied", r"label|tag"),
+        ("Checks Started", r"check|test|build"),
+        ("Checks Complete", r"check.*complete|test.*pass|build.*success"),
+        ("Processing Complete", r"completed successfully|processing complete"),
+    ]
+
     def __init__(self, logger: logging.Logger) -> None:
         """Initialize the log viewer controller.
 
@@ -702,16 +715,8 @@ class LogViewerController:
         success = True
         error_message = None
 
-        # Define common workflow stages based on log messages
-        stage_patterns = [
-            ("Webhook Received", r"Processing webhook"),
-            ("Validation Complete", r"Signature verification successful|Processing webhook for"),
-            ("Reviewers Assigned", r"Added reviewer|OWNERS file|reviewer assignment"),
-            ("Labels Applied", r"label|tag"),
-            ("Checks Started", r"check|test|build"),
-            ("Checks Complete", r"check.*complete|test.*pass|build.*success"),
-            ("Processing Complete", r"completed successfully|processing complete"),
-        ]
+        # Use class-level workflow stage patterns for analysis
+        stage_patterns = self.WORKFLOW_STAGE_PATTERNS
 
         previous_time = start_time
         for pattern_name, pattern in stage_patterns:
