@@ -693,7 +693,7 @@ class TestAPIEndpointEdgeCases:
             # Test with default limit - the controller will process available entries and apply pagination
             result = controller.get_log_entries()
             assert "entries" in result
-            assert "total" in result
+            assert "entries_processed" in result
             assert len(result["entries"]) <= 100  # Default limit applied
 
             # Test with large limit to get more entries
@@ -821,7 +821,7 @@ class TestConcurrentUserScenarios:
         # All requests should succeed
         assert len(results) == 5
         assert all("entries" in result for result in results)
-        assert all("total" in result for result in results)
+        assert all("entries_processed" in result for result in results)
 
         # Results should be different based on filters
         entry_counts = [len(result["entries"]) for result in results]

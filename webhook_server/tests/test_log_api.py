@@ -96,7 +96,7 @@ class TestLogViewerController:
         with patch.object(controller, "_stream_log_entries", return_value=sample_log_entries):
             result = controller.get_log_entries()
             assert "entries" in result
-            assert result["total"] == 3
+            assert result["entries_processed"] == 3
             assert len(result["entries"]) == 3
 
     def test_get_log_entries_with_filters(self, controller, sample_log_entries):
@@ -490,14 +490,16 @@ class TestLogAPI:
         with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
             mock_instance = Mock()
             mock_controller.return_value = mock_instance
-            mock_instance.get_log_page.return_value = "<html><body>Log Viewer</body></html>"
+            from fastapi.responses import HTMLResponse
+
+            mock_instance.get_log_page.return_value = HTMLResponse(content="<html><body>Log Viewer</body></html>")
 
             from webhook_server.app import FASTAPI_APP
 
-            with TestClient(FASTAPI_APP):
-                # This test assumes the log viewer endpoints will be added to the app
-                # For now, we'll test the structure
-                pass
+            with TestClient(FASTAPI_APP) as client:
+                response = client.get("/logs")
+                assert response.status_code == 200
+                assert "Log Viewer" in response.text
 
     def test_get_log_entries_no_filters(self, sample_log_entries: list[LogEntry]) -> None:
         """Test retrieving log entries without filters."""
@@ -506,9 +508,11 @@ class TestLogAPI:
             mock_controller.return_value = mock_instance
             mock_instance.get_log_entries.return_value = {
                 "entries": [entry.to_dict() for entry in sample_log_entries],
-                "total": len(sample_log_entries),
+                "entries_processed": len(sample_log_entries),
+                "filtered_count_min": len(sample_log_entries),
                 "limit": 100,
                 "offset": 0,
+                "is_partial_scan": False,
             }
 
             # Test would call GET /logs/api/entries
@@ -516,7 +520,7 @@ class TestLogAPI:
             result = mock_instance.get_log_entries.return_value
             assert "entries" in result
             assert len(result["entries"]) == 3
-            assert result["total"] == 3
+            assert result["entries_processed"] == 3
 
     def test_get_log_entries_with_hook_id_filter(self, sample_log_entries: list[LogEntry]) -> None:
         """Test retrieving log entries filtered by hook ID."""
@@ -528,9 +532,11 @@ class TestLogAPI:
             filtered_entries = [entry for entry in sample_log_entries if entry.hook_id == "hook1"]
             mock_instance.get_log_entries.return_value = {
                 "entries": [entry.to_dict() for entry in filtered_entries],
-                "total": len(filtered_entries),
+                "entries_processed": len(filtered_entries),
+                "filtered_count_min": len(filtered_entries),
                 "limit": 100,
                 "offset": 0,
+                "is_partial_scan": False,
             }
 
             # Test would call GET /logs/api/entries?hook_id=hook1
@@ -548,9 +554,11 @@ class TestLogAPI:
             filtered_entries = [entry for entry in sample_log_entries if entry.pr_number == 123]
             mock_instance.get_log_entries.return_value = {
                 "entries": [entry.to_dict() for entry in filtered_entries],
-                "total": len(filtered_entries),
+                "entries_processed": len(filtered_entries),
+                "filtered_count_min": len(filtered_entries),
                 "limit": 100,
                 "offset": 0,
+                "is_partial_scan": False,
             }
 
             result = mock_instance.get_log_entries.return_value
@@ -567,14 +575,14 @@ class TestLogAPI:
             paginated_entries = sample_log_entries[1:3]  # Skip first, take 2
             mock_instance.get_log_entries.return_value = {
                 "entries": [entry.to_dict() for entry in paginated_entries],
-                "total": len(sample_log_entries),
+                "entries_processed": len(sample_log_entries),
                 "limit": 2,
                 "offset": 1,
             }
 
             result = mock_instance.get_log_entries.return_value
             assert len(result["entries"]) == 2
-            assert result["total"] == 3
+            assert result["entries_processed"] == 3
             assert result["limit"] == 2
             assert result["offset"] == 1
 

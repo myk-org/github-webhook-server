@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, AsyncGenerator
 
+from simple_logger.logger import get_logger
+
 
 @dataclass
 class LogEntry:
@@ -45,6 +47,10 @@ class LogParser:
 
     Log files are typically stored in the configured data directory under a 'logs' subdirectory.
     """
+
+    def __init__(self) -> None:
+        """Initialize LogParser with logger."""
+        self.logger = get_logger(name="log_parser")
 
     # Regex pattern for parsing production logs from prepare_log_prefix() in github_api.py
     # Format from prepare_log_prefix():
@@ -188,8 +194,10 @@ class LogParser:
                     else:
                         failed_lines += 1
 
-        except (OSError, UnicodeDecodeError):
-            pass
+        except OSError as e:
+            self.logger.error(f"Failed to read log file {file_path}: {e}")
+        except UnicodeDecodeError as e:
+            self.logger.error(f"Failed to decode log file {file_path}: {e}")
 
         return entries
 

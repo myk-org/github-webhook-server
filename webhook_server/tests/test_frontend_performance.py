@@ -174,8 +174,8 @@ class TestFrontendPerformanceOptimizations:
 
             # Should still work efficiently
             assert "entries" in result
-            assert "total" in result
-            assert "filtered_total" in result
+            assert "entries_processed" in result
+            assert "filtered_count_min" in result
             assert "limit" in result
             assert "offset" in result
 

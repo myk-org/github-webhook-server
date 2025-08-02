@@ -1,5 +1,5 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Container](https://img.shields.io/badge/Container-quay.io-red)](https://ghcr.io/myk-org/github-webhook-server)
+[![Container](https://img.shields.io/badge/Container-ghcr.io-red)](https://ghcr.io/myk-org/github-webhook-server)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Python](https://img.shields.io/badge/Python-3.12+-3776ab?logo=python&logoColor=white)](https://python.org)
 
@@ -789,8 +789,8 @@ curl "http://localhost:5000/logs/api/entries?pr_number=123&level=ERROR&limit=50"
       "github_user": "username"
     }
   ],
-  "total": 1500,
-  "filtered_total": 25,
+  "entries_processed": 1500,
+  "filtered_count_min": 25,
   "limit": 50,
   "offset": 0
 }

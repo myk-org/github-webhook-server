@@ -137,11 +137,11 @@ class LogViewerController:
 
             return {
                 "entries": [entry.to_dict() for entry in filtered_entries],
-                "total": estimated_total,  # Estimated total in system
-                "filtered_total": len(filtered_entries) + offset,  # Filtered count (minimum)
+                "entries_processed": estimated_total,  # Number of entries examined
+                "filtered_count_min": len(filtered_entries) + offset,  # Minimum filtered count
                 "limit": limit,
                 "offset": offset,
-                "is_estimate": total_processed >= 20000,  # Flag for UI to show estimation
+                "is_partial_scan": total_processed >= 20000,  # Indicates not all logs were scanned
             }
 
         except ValueError as e:

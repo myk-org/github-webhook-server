@@ -286,5 +286,5 @@ class TestMemoryRegressionPrevention:
             # Test that get_log_entries works with streaming
             result = controller.get_log_entries(limit=100)
             assert len(result["entries"]) == 100
-            assert "total" in result
-            assert "is_estimate" in result
+            assert "entries_processed" in result
+            assert "is_partial_scan" in result
