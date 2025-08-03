@@ -978,79 +978,88 @@
             // Clear existing content
             svg.innerHTML = '';
 
-            // SVG dimensions - make it taller for many steps
-            const width = svg.clientWidth || 800;
-            const baseHeight = 120;
-            const extraHeight = Math.min(data.steps.length * 2, 60); // Add up to 60px for many steps
-            const height = baseHeight + extraHeight;
-            const margin = { left: 60, right: 60, top: 30, bottom: 40 };
-            const timelineWidth = width - margin.left - margin.right;
+            // Calculate layout for multi-line timeline
+            const layout = calculateMultiLineLayout(data.steps, data.total_duration_ms);
+
+            // SVG dimensions - much larger and adaptive
+            const width = Math.max(1200, layout.totalWidth + 100);
+            const height = layout.totalHeight + 100;
+            const margin = { left: 50, right: 50, top: 50, bottom: 50 };
 
             // Update SVG size
             svg.setAttribute('width', width);
             svg.setAttribute('height', height);
 
-            // Group steps by time ranges to avoid overlap
-            const timeRanges = groupStepsByTimeRange(data.steps, data.total_duration_ms);
+            // Draw timeline lines and steps
+            layout.lines.forEach((line, lineIndex) => {
+                const lineY = margin.top + (lineIndex * layout.lineHeight) + layout.lineHeight / 2;
 
-            // Calculate positions with collision detection
-            const stepPositions = calculateStepPositions(timeRanges, timelineWidth, margin, data.total_duration_ms);
+                // Draw horizontal timeline line for this row
+                if (line.steps.length > 0) {
+                    const lineElement = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    lineElement.setAttribute('class', 'step-line');
+                    lineElement.setAttribute('x1', margin.left);
+                    lineElement.setAttribute('y1', lineY);
+                    lineElement.setAttribute('x2', margin.left + layout.lineWidth);
+                    lineElement.setAttribute('y2', lineY);
+                    svg.appendChild(lineElement);
+                }
 
-            // Draw timeline line
-            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-            line.setAttribute('class', 'step-line');
-            line.setAttribute('x1', margin.left);
-            line.setAttribute('y1', height / 2);
-            line.setAttribute('x2', margin.left + timelineWidth);
-            line.setAttribute('y2', height / 2);
-            svg.appendChild(line);
+                // Draw steps for this line
+                line.steps.forEach((step, stepIndex) => {
+                    const stepX = margin.left + (stepIndex * layout.stepSpacing) + layout.stepSpacing / 2;
 
-            // Draw steps with better spacing
-            stepPositions.forEach(({ x, y, step, index, shouldShowLabel }) => {
-                const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-                group.setAttribute('class', 'timeline-step');
-                group.setAttribute('data-step-index', index);
+                    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                    group.setAttribute('class', 'timeline-step');
+                    group.setAttribute('data-step-index', step.originalIndex);
 
-                // Step circle
-                const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-                circle.setAttribute('class', `step-circle ${getStepType(step.message)}`);
-                circle.setAttribute('cx', x);
-                circle.setAttribute('cy', y);
-                svg.appendChild(circle);
-                group.appendChild(circle);
+                    // Step circle
+                    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    circle.setAttribute('class', `step-circle ${getStepType(step.message)}`);
+                    circle.setAttribute('cx', stepX);
+                    circle.setAttribute('cy', lineY);
+                    circle.setAttribute('r', 8);
+                    svg.appendChild(circle);
+                    group.appendChild(circle);
 
-                // Only show labels for key steps to avoid overcrowding
-                if (shouldShowLabel) {
-                    // Truncated label
-                    const labelText = truncateText(step.message, 15);
+                    // Step label - always show for multi-line layout
+                    const labelText = truncateText(step.message, 20);
                     const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
                     label.setAttribute('class', 'step-label');
-                    label.setAttribute('x', x);
-                    label.setAttribute('y', y - 15);
+                    label.setAttribute('x', stepX);
+                    label.setAttribute('y', lineY - 20);
                     label.setAttribute('text-anchor', 'middle');
                     label.textContent = labelText;
                     svg.appendChild(label);
                     group.appendChild(label);
-                }
 
-                // Time label (only for milestone steps)
-                if (shouldShowLabel && step.relative_time_ms > 1000) {
+                    // Time label
                     const timeLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
                     timeLabel.setAttribute('class', 'step-time');
-                    timeLabel.setAttribute('x', x);
-                    timeLabel.setAttribute('y', y + 25);
+                    timeLabel.setAttribute('x', stepX);
+                    timeLabel.setAttribute('y', lineY + 25);
                     timeLabel.setAttribute('text-anchor', 'middle');
                     timeLabel.textContent = `+${(step.relative_time_ms / 1000).toFixed(1)}s`;
                     svg.appendChild(timeLabel);
                     group.appendChild(timeLabel);
-                }
 
-                // Add hover events
-                group.addEventListener('mouseenter', (e) => showTooltip(e, step));
-                group.addEventListener('mouseleave', hideTooltip);
-                group.addEventListener('click', () => filterByStep(step));
+                    // Step index number
+                    const indexLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    indexLabel.setAttribute('class', 'step-index');
+                    indexLabel.setAttribute('x', stepX);
+                    indexLabel.setAttribute('y', lineY + 4);
+                    indexLabel.setAttribute('text-anchor', 'middle');
+                    indexLabel.textContent = (step.originalIndex + 1).toString();
+                    svg.appendChild(indexLabel);
+                    group.appendChild(indexLabel);
 
-                svg.appendChild(group);
+                    // Add hover events
+                    group.addEventListener('mouseenter', (e) => showTooltip(e, step));
+                    group.addEventListener('mouseleave', hideTooltip);
+                    group.addEventListener('click', () => filterByStep(step));
+
+                    svg.appendChild(group);
+                });
             });
         }
 
@@ -1070,81 +1079,31 @@
             return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
         }
 
-        function groupStepsByTimeRange(steps, totalDuration) {
-            // Group steps into time ranges to avoid overlap
-            const ranges = [];
-            const rangeSize = Math.max(totalDuration / 20, 1000); // At least 1 second per range
+        function calculateMultiLineLayout(steps, totalDuration) {
+            // Layout configuration
+            const stepsPerLine = 8; // Maximum steps per line for readability
+            const stepSpacing = 140; // Horizontal space between steps
+            const lineHeight = 80; // Vertical space between lines
+            const lineWidth = stepsPerLine * stepSpacing;
 
-            for (let i = 0; i < steps.length; i++) {
-                const step = steps[i];
-                const rangeIndex = Math.floor(step.relative_time_ms / rangeSize);
-
-                if (!ranges[rangeIndex]) {
-                    ranges[rangeIndex] = [];
-                }
-                ranges[rangeIndex].push({ step, originalIndex: i });
+            // Organize steps into lines
+            const lines = [];
+            for (let i = 0; i < steps.length; i += stepsPerLine) {
+                const lineSteps = steps.slice(i, i + stepsPerLine).map((step, index) => ({
+                    ...step,
+                    originalIndex: i + index
+                }));
+                lines.push({ steps: lineSteps });
             }
 
-            return ranges.filter(range => range && range.length > 0);
-        }
-
-        function calculateStepPositions(timeRanges, timelineWidth, margin, totalDuration) {
-            const positions = [];
-            const baseY = 60; // Center line position
-            const verticalSpacing = 25;
-
-            timeRanges.forEach((range, rangeIndex) => {
-                // Calculate average time for this range
-                const avgTime = range.reduce((sum, item) => sum + item.step.relative_time_ms, 0) / range.length;
-                const x = margin.left + (avgTime / Math.max(totalDuration, 1000)) * timelineWidth;
-
-                range.forEach((item, itemIndex) => {
-                    const { step, originalIndex } = item;
-
-                    // Vertical positioning to avoid overlap
-                    let y = baseY;
-                    if (range.length > 1) {
-                        // Spread steps in range vertically
-                        const offset = (itemIndex - (range.length - 1) / 2) * 12;
-                        y = baseY + offset;
-                    }
-
-                    // Only show labels for important steps to reduce clutter
-                    const shouldShowLabel = isImportantStep(step, originalIndex, timeRanges.length);
-
-                    positions.push({
-                        x: x + (itemIndex - (range.length - 1) / 2) * 3, // Small horizontal offset
-                        y,
-                        step,
-                        index: originalIndex,
-                        shouldShowLabel
-                    });
-                });
-            });
-
-            return positions;
-        }
-
-        function isImportantStep(step, index, totalRanges) {
-            const message = step.message.toLowerCase();
-
-            // Always show first and last steps
-            if (index === 0 || index === totalRanges - 1) return true;
-
-            // Show milestone steps
-            if (message.includes('completed') || message.includes('success') ||
-                message.includes('failed') || message.includes('stage:') ||
-                message.includes('workflow completed') || message.includes('starting')) {
-                return true;
-            }
-
-            // Show every 10th step if we have many steps
-            if (totalRanges > 20 && index % 10 === 0) return true;
-
-            // Show every 5th step if moderate number
-            if (totalRanges > 10 && totalRanges <= 20 && index % 5 === 0) return true;
-
-            return false;
+            return {
+                lines,
+                lineHeight,
+                lineWidth,
+                stepSpacing,
+                totalWidth: lineWidth,
+                totalHeight: lines.length * lineHeight
+            };
         }
 
         function wrapText(text, maxLineLength) {
