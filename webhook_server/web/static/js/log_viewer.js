@@ -28,12 +28,14 @@ function connectWebSocket() {
   const repository = document.getElementById('repositoryFilter').value.trim();
   const user = document.getElementById('userFilter').value.trim();
   const level = document.getElementById('levelFilter').value;
+  const search = document.getElementById('searchFilter').value.trim();
 
   if (hookId) filters.append('hook_id', hookId);
   if (prNumber) filters.append('pr_number', prNumber);
   if (repository) filters.append('repository', repository);
   if (user) filters.append('github_user', user);
   if (level) filters.append('level', level);
+  if (search) filters.append('search', search);
 
   const wsUrl = `${protocol}//${window.location.host}/logs/ws${filters.toString() ? '?' + filters.toString() : ''}`;
 
@@ -73,6 +75,14 @@ function disconnectWebSocket() {
 
 function addLogEntry(entry) {
   logEntries.unshift(entry);
+
+  // Implement maximum size limit based on user-selected Results Limit
+  const maxEntries = parseInt(document.getElementById('limitFilter').value);
+  if (logEntries.length > maxEntries) {
+    // Remove oldest entries to keep array size bounded
+    logEntries = logEntries.slice(0, maxEntries);
+  }
+
   clearFilterCache(); // Clear cache when entries change
   renderLogEntriesOptimized();
 
@@ -117,7 +127,12 @@ function renderLogEntriesDirect(container, entries) {
 
 function createLogEntryElement(entry) {
   const div = document.createElement('div');
-  div.className = `log-entry ${entry.level}`;
+
+  // Whitelist of allowed log levels to prevent class-name injection
+  const allowedLevels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'STEP', 'SUCCESS'];
+  const safeLevel = allowedLevels.includes(entry.level) ? entry.level : 'INFO'; // Default fallback
+
+  div.className = `log-entry ${safeLevel}`;
 
   // Use efficient string template
   div.innerHTML = `
@@ -231,6 +246,22 @@ async function loadHistoricalLogs() {
     if (search) filters.append('search', search);
 
     const response = await fetch(`/logs/api/entries?${filters.toString()}`);
+
+    // Check HTTP status before parsing JSON
+    if (!response.ok) {
+      let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+      try {
+        // Try to parse error message from response body
+        const errorData = await response.json();
+        if (errorData.detail || errorData.message || errorData.error) {
+          errorMessage = errorData.detail || errorData.message || errorData.error;
+        }
+      } catch (parseError) {
+        // If JSON parsing fails, use the status text
+      }
+      throw new Error(errorMessage);
+    }
+
     const data = await response.json();
 
     // Update statistics
