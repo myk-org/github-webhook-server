@@ -42,21 +42,15 @@ class TestFrontendPerformanceOptimizations:
 
         return entries
 
-    def test_html_template_contains_virtual_scrolling_code(self, controller):
-        """Test that the HTML template includes virtual scrolling optimizations."""
+    def test_html_template_contains_optimized_rendering(self, controller):
+        """Test that the HTML template includes optimized rendering functions."""
         html_content = controller._get_log_viewer_html()
 
-        # Check for virtual scrolling constants
-        assert "ITEM_HEIGHT = 60" in html_content
-        assert "BUFFER_SIZE = 5" in html_content
-
-        # Check for optimized rendering functions
+        # Check for optimized rendering functions (non-virtual scrolling)
         assert "renderLogEntriesOptimized" in html_content
         assert "renderLogEntriesDirect" in html_content
-        assert "renderLogEntriesVirtual" in html_content
 
         # Check for performance optimization features
-        assert "virtualScrollData" in html_content
         assert "createLogEntryElement" in html_content
         assert "DocumentFragment" in html_content
 
@@ -97,8 +91,6 @@ class TestFrontendPerformanceOptimizations:
 
         # Check for CSS performance optimizations
         assert "contain: layout style paint" in html_content
-        assert "will-change: scroll-position" in html_content
-        assert "will-change: transform" in html_content
 
         # Check for loading animations
         assert "@keyframes pulse" in html_content
@@ -121,14 +113,13 @@ class TestFrontendPerformanceOptimizations:
         assert "escapeHtml(entry.message)" in html_content
         assert "escapeHtml(entry.hook_id)" in html_content
 
-    def test_virtual_scrolling_threshold(self, controller):
-        """Test that virtual scrolling activates for datasets > 100 entries."""
+    def test_rendering_functions_present(self, controller):
+        """Test that rendering functions are present in the template."""
         html_content = controller._get_log_viewer_html()
 
-        # Check for the threshold logic
-        assert "if (filteredEntries.length <= 100)" in html_content
+        # Check for the rendering functions
         assert "renderLogEntriesDirect" in html_content
-        assert "renderLogEntriesVirtual" in html_content
+        assert "renderLogEntriesOptimized" in html_content
 
     def test_progressive_loading_threshold(self, controller):
         """Test that progressive loading activates for datasets > 200 entries."""
@@ -145,7 +136,6 @@ class TestFrontendPerformanceOptimizations:
         # Check for chunk configuration
         assert "chunkSize = 50" in html_content
         assert "setTimeout(resolve, 10)" in html_content
-        assert "filters.append('limit', '1000')" in html_content
 
     def test_debounced_filtering_optimization(self, controller):
         """Test that debounced filtering is optimized."""
