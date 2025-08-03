@@ -45,6 +45,8 @@ class CheckRunHandler:
         _check_run: dict[str, Any] = self.hook_data["check_run"]
         check_run_name: str = _check_run["name"]
 
+        self.logger.step(f"{self.log_prefix} Processing check run: {check_run_name}")  # type: ignore
+
         if self.hook_data.get("action", "") != "completed":
             self.logger.debug(
                 f"{self.log_prefix} check run {check_run_name} action is {self.hook_data.get('action', 'N/A')} and not completed, skipping"

@@ -58,6 +58,7 @@ class PullRequestHandler:
 
     async def process_pull_request_webhook_data(self, pull_request: PullRequest) -> None:
         hook_action: str = self.hook_data["action"]
+        self.logger.step(f"{self.log_prefix} Starting pull request processing: action={hook_action}")  # type: ignore
         self.logger.info(f"{self.log_prefix} hook_action is: {hook_action}")
         self.logger.debug(f"{self.log_prefix} pull_request: {pull_request.title} ({pull_request.number})")
 
@@ -70,6 +71,7 @@ class PullRequestHandler:
                 await self.runner_handler.run_conventional_title_check(pull_request=pull_request)
 
         if hook_action in ("opened", "reopened", "ready_for_review"):
+            self.logger.step(f"{self.log_prefix} Processing PR {hook_action} event: initializing new pull request")  # type: ignore
             tasks: list[Coroutine[Any, Any, Any]] = []
 
             if hook_action in ("opened", "ready_for_review"):
@@ -89,6 +91,7 @@ class PullRequestHandler:
             await self.set_pull_request_automerge(pull_request=pull_request)
 
         if hook_action == "synchronize":
+            self.logger.step(f"{self.log_prefix} Processing PR synchronize event: handling new commits")  # type: ignore
             sync_tasks: list[Coroutine[Any, Any, Any]] = []
 
             sync_tasks.append(self.process_opened_or_synchronize_pull_request(pull_request=pull_request))
@@ -101,9 +104,11 @@ class PullRequestHandler:
                     self.logger.error(f"{self.log_prefix} Async task failed: {result}")
 
         if hook_action == "closed":
+            self.logger.step(f"{self.log_prefix} Processing PR closed event: cleaning up resources")  # type: ignore
             await self.close_issue_for_merged_or_closed_pr(pull_request=pull_request, hook_action=hook_action)
             await self.delete_remote_tag_for_merged_or_closed_pr(pull_request=pull_request)
             if is_merged := pull_request_data.get("merged", False):
+                self.logger.step(f"{self.log_prefix} PR was merged: processing post-merge tasks")  # type: ignore
                 self.logger.info(f"{self.log_prefix} PR is merged")
 
                 for _label in pull_request.labels:
@@ -128,6 +133,8 @@ class PullRequestHandler:
             action_labeled = hook_action == "labeled"
             labeled = self.hook_data["label"]["name"]
             labeled_lower = labeled.lower()
+
+            self.logger.step(f"{self.log_prefix} Processing label {hook_action} event: {labeled}")  # type: ignore
 
             if labeled_lower == CAN_BE_MERGED_STR:
                 return
@@ -605,6 +612,7 @@ For more information, please refer to the project documentation or contact the m
             PR status is not 'dirty'.
             PR has no changed requests from approvers.
         """
+        self.logger.step(f"{self.log_prefix} Starting merge eligibility check")  # type: ignore
         if self.skip_if_pull_request_already_merged(pull_request=pull_request):
             self.logger.debug(f"{self.log_prefix} Pull request already merged")
             return
