@@ -103,6 +103,9 @@ class LogViewerController:
     ) -> dict[str, Any]:
         """Retrieve historical log entries with filtering and pagination using memory-efficient streaming.
 
+        This method implements memory-efficient log processing by streaming through log files
+        and applying filters incrementally to avoid loading large datasets into memory.
+
         Args:
             hook_id: Filter by specific hook ID
             pr_number: Filter by PR number
@@ -117,7 +120,25 @@ class LogViewerController:
             offset: Pagination offset
 
         Returns:
-            Dictionary with entries, total count, and pagination info
+            Dictionary containing filtered log entries and comprehensive metadata:
+
+            - **entries**: List of log entry dictionaries matching the applied filters
+            - **entries_processed**: Number of log entries examined during this request.
+              May be an integer or string with "+" suffix (e.g., "50000+") indicating
+              the streaming process reached its maximum processing limit and more entries
+              exist. This helps API consumers understand data completeness.
+            - **filtered_count_min**: Minimum number of entries matching the current filters.
+              Calculated as len(entries) + offset, representing the definitive lower bound
+              of matching entries. This is useful for pagination calculations and showing
+              "showing X of at least Y results" messages.
+            - **total_log_count_estimate**: Statistical estimate of total log entries across
+              all log files (including rotated logs). Provides context about the overall
+              dataset size for UI statistics and capacity planning. Based on sampling
+              the first 10 log files to balance accuracy with performance.
+            - **limit**: Echo of the requested limit parameter
+            - **offset**: Echo of the requested offset parameter
+            - **is_partial_scan**: Boolean indicating whether the streaming process examined
+              all available logs (false) or stopped at the processing limit (true)
 
         Raises:
             HTTPException: 400 for invalid parameters, 500 for file access errors

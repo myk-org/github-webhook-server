@@ -1055,28 +1055,26 @@
             }
         }
 
-        function renderTimeline(data) {
-            const svg = document.getElementById('timelineSvg');
+        function updateTimelineInfo(data) {
             const info = document.getElementById('timelineInfo');
-
-            // Update timeline info
             const duration = data.total_duration_ms > 0 ? `${(data.total_duration_ms / 1000).toFixed(2)}s` : '< 1s';
             info.innerHTML = `
                 <div>Hook ID: <strong>${data.hook_id}</strong></div>
                 <div>Steps: <strong>${data.step_count}</strong></div>
                 <div>Duration: <strong>${duration}</strong></div>
             `;
+        }
 
-            if (data.steps.length === 0) {
-                svg.innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="var(--text-color)">No workflow steps found</text>';
-                return;
-            }
+        function renderEmptyTimeline() {
+            const svg = document.getElementById('timelineSvg');
+            svg.innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="var(--text-color)">No workflow steps found</text>';
+        }
 
+        function renderTimelineVisualization(layout, data) {
+            const svg = document.getElementById('timelineSvg');
+            
             // Clear existing content
             svg.innerHTML = '';
-
-            // Calculate layout for multi-line timeline
-            const layout = calculateMultiLineLayout(data.steps, data.total_duration_ms);
 
             // SVG dimensions - much larger and adaptive
             const width = Math.max(1400, layout.totalWidth + 200);
@@ -1165,6 +1163,23 @@
                     svg.appendChild(group);
                 });
             });
+        }
+
+        function renderTimeline(data) {
+            // Update timeline information
+            updateTimelineInfo(data);
+
+            // Handle empty state
+            if (data.steps.length === 0) {
+                renderEmptyTimeline();
+                return;
+            }
+
+            // Calculate layout for multi-line timeline
+            const layout = calculateMultiLineLayout(data.steps, data.total_duration_ms);
+
+            // Render the timeline visualization
+            renderTimelineVisualization(layout, data);
         }
 
         function getStepType(message) {
