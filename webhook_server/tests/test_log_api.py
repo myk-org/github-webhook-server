@@ -1,6 +1,7 @@
 """Tests for log viewer API endpoints and WebSocket functionality."""
 
 import asyncio
+import os
 import datetime
 import json
 import tempfile
@@ -1095,93 +1096,105 @@ class TestPRFlowAPI:
 class TestWorkflowStepsAPI:
     """Test class for workflow steps API endpoints."""
 
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     def test_get_workflow_steps_success(self) -> None:
         """Test successful workflow steps retrieval."""
-        # Import modules before patching to avoid import caching issues
-        from webhook_server.app import FASTAPI_APP
-        from fastapi.testclient import TestClient
+        # Import modules and patch before creating test client
+        from unittest.mock import Mock, AsyncMock
 
-        with patch("webhook_server.app.LogViewerController") as mock_controller:
-            client = TestClient(FASTAPI_APP)
+        # Mock workflow steps data
+        mock_workflow_data = {
+            "hook_id": "test-hook-123",
+            "steps": [
+                {
+                    "timestamp": "2025-07-31T12:00:00",
+                    "level": "STEP",
+                    "message": "Starting PR processing workflow",
+                    "step_number": 1,
+                },
+                {
+                    "timestamp": "2025-07-31T12:00:01",
+                    "level": "STEP",
+                    "message": "Stage: Initial setup and check queuing",
+                    "step_number": 2,
+                },
+                {
+                    "timestamp": "2025-07-31T12:00:05",
+                    "level": "STEP",
+                    "message": "Stage: CI/CD execution",
+                    "step_number": 3,
+                },
+            ],
+            "total_steps": 3,
+            "timeline_html": "<div class='timeline'>...</div>",
+        }
 
-            # Mock workflow steps data
-            mock_workflow_data = {
-                "hook_id": "test-hook-123",
-                "steps": [
-                    {
-                        "timestamp": "2025-07-31T12:00:00",
-                        "level": "STEP",
-                        "message": "Starting PR processing workflow",
-                        "step_number": 1,
-                    },
-                    {
-                        "timestamp": "2025-07-31T12:00:01",
-                        "level": "STEP",
-                        "message": "Stage: Initial setup and check queuing",
-                        "step_number": 2,
-                    },
-                    {
-                        "timestamp": "2025-07-31T12:00:05",
-                        "level": "STEP",
-                        "message": "Stage: CI/CD execution",
-                        "step_number": 3,
-                    },
-                ],
-                "total_steps": 3,
-                "timeline_html": "<div class='timeline'>...</div>",
-            }
+        # Create a mock instance and configure its return value
+        mock_instance = Mock()
+        mock_instance.get_workflow_steps.return_value = mock_workflow_data
+        mock_instance.shutdown = AsyncMock()  # Add async shutdown method
 
-            # Create a mock instance and configure its return value
-            mock_instance = Mock()
-            mock_instance.get_workflow_steps.return_value = mock_workflow_data
-            mock_controller.return_value = mock_instance
+        # Patch using setattr to directly set the singleton instance
+        with patch("webhook_server.app.get_log_viewer_controller", return_value=mock_instance):
+            # Also patch the singleton variable itself
+            with patch("webhook_server.app._log_viewer_controller_singleton", mock_instance):
+                from webhook_server.app import FASTAPI_APP
+                from fastapi.testclient import TestClient
 
-            # Make the request
-            response = client.get("/logs/api/workflow-steps/test-hook-123")
+                client = TestClient(FASTAPI_APP)
 
-            # Assertions
-            assert response.status_code == 200
-            result = response.json()
-            assert result["hook_id"] == "test-hook-123"
-            assert result["total_steps"] == 3
-            assert len(result["steps"]) == 3
-            assert "timeline_html" in result
+                # Make the request
+                response = client.get("/logs/api/workflow-steps/test-hook-123")
 
-            # Verify method was called correctly
-            mock_instance.get_workflow_steps.assert_called_once_with("test-hook-123")
+                # Assertions
+                assert response.status_code == 200
+                result = response.json()
+                assert result["hook_id"] == "test-hook-123"
+                assert result["total_steps"] == 3
+                assert len(result["steps"]) == 3
+                assert "timeline_html" in result
 
+                # Verify method was called correctly
+                mock_instance.get_workflow_steps.assert_called_once_with("test-hook-123")
+
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     def test_get_workflow_steps_no_steps_found(self) -> None:
         """Test workflow steps when no steps are found."""
-        # Import modules before patching to avoid import caching issues
-        from webhook_server.app import FASTAPI_APP
-        from fastapi.testclient import TestClient
+        # Import modules and patch before creating test client
+        from unittest.mock import Mock, AsyncMock
 
-        with patch("webhook_server.app.LogViewerController") as mock_controller:
-            client = TestClient(FASTAPI_APP)
+        # Mock empty workflow data
+        mock_workflow_data = {
+            "hook_id": "test-hook-456",
+            "steps": [],
+            "total_steps": 0,
+            "timeline_html": "<div class='no-timeline'>No workflow steps found</div>",
+        }
 
-            # Mock empty workflow data
-            mock_workflow_data = {
-                "hook_id": "test-hook-456",
-                "steps": [],
-                "total_steps": 0,
-                "timeline_html": "<div class='no-timeline'>No workflow steps found</div>",
-            }
+        # Create a mock instance and configure its return value
+        mock_instance = Mock()
+        mock_instance.get_workflow_steps.return_value = mock_workflow_data
+        mock_instance.shutdown = AsyncMock()  # Add async shutdown method
 
-            # Create a mock instance and configure its return value
-            mock_instance = Mock()
-            mock_instance.get_workflow_steps.return_value = mock_workflow_data
-            mock_controller.return_value = mock_instance
+        # Patch using setattr to directly set the singleton instance
+        with patch("webhook_server.app.get_log_viewer_controller", return_value=mock_instance):
+            # Also patch the singleton variable itself
+            with patch("webhook_server.app._log_viewer_controller_singleton", mock_instance):
+                from webhook_server.app import FASTAPI_APP
+                from fastapi.testclient import TestClient
 
-            # Make the request
-            response = client.get("/logs/api/workflow-steps/test-hook-456")
+                client = TestClient(FASTAPI_APP)
 
-            # Assertions
-            assert response.status_code == 200
-            result = response.json()
-            assert result["hook_id"] == "test-hook-456"
-            assert result["total_steps"] == 0
-            assert len(result["steps"]) == 0
-            assert "timeline_html" in result
+                # Make the request
+                response = client.get("/logs/api/workflow-steps/test-hook-456")
 
-            # Verify method was called correctly
-            mock_instance.get_workflow_steps.assert_called_once_with("test-hook-456")
+                # Assertions
+                assert response.status_code == 200
+                result = response.json()
+                assert result["hook_id"] == "test-hook-456"
+                assert result["total_steps"] == 0
+                assert len(result["steps"]) == 0
+                assert "timeline_html" in result
+
+                # Verify method was called correctly
+                mock_instance.get_workflow_steps.assert_called_once_with("test-hook-456")

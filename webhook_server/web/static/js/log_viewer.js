@@ -73,15 +73,20 @@ function disconnectWebSocket() {
 // Removed virtual scrolling to prevent scrollbar flashing
 // All rendering now uses direct DOM manipulation for stable UI
 
-function addLogEntry(entry) {
-  logEntries.unshift(entry);
-
-  // Implement maximum size limit based on user-selected Results Limit
+// Helper function to apply memory bounding to logEntries array
+function applyMemoryBounding() {
   const maxEntries = parseInt(document.getElementById('limitFilter').value);
   if (logEntries.length > maxEntries) {
     // Remove oldest entries to keep array size bounded
     logEntries = logEntries.slice(0, maxEntries);
   }
+}
+
+function addLogEntry(entry) {
+  logEntries.unshift(entry);
+
+  // Apply memory bounding using centralized helper
+  applyMemoryBounding();
 
   clearFilterCache(); // Clear cache when entries change
   renderLogEntriesOptimized();
@@ -272,6 +277,8 @@ async function loadHistoricalLogs() {
       await loadEntriesProgressivelyDirect(data.entries);
     } else {
       logEntries = data.entries;
+      // Apply memory bounding after loading entries
+      applyMemoryBounding();
       clearFilterCache(); // Clear cache when loading new entries
       // Data is already filtered by the backend, render directly without frontend filtering
       renderLogEntriesDirectly(logEntries);
@@ -293,6 +300,8 @@ async function loadEntriesProgressively(entries) {
   for (let i = 0; i < entries.length; i += chunkSize) {
     const chunk = entries.slice(i, i + chunkSize);
     logEntries.push(...chunk);
+    // Apply memory bounding after each chunk to prevent unbounded growth
+    applyMemoryBounding();
     clearFilterCache(); // Clear cache for each chunk
     renderLogEntries();
 
@@ -307,6 +316,8 @@ async function loadEntriesProgressivelyDirect(entries) {
   // For backend-filtered data, just render all entries at once
   // Progressive loading isn't needed since data is already filtered and limited
   logEntries = entries;
+  // Apply memory bounding after direct assignment
+  applyMemoryBounding();
   renderLogEntriesDirectly(logEntries);
   console.log(`Loaded ${entries.length} backend-filtered entries`);
 }
@@ -349,9 +360,15 @@ function showErrorMessage(message) {
     <div class="error-message">
       <span class="error-icon">⚠️</span>
       <span>${message}</span>
-      <button onclick="loadHistoricalLogs()" class="retry-btn">Retry</button>
+      <button id="retryBtn" class="retry-btn">Retry</button>
     </div>
   `;
+
+  // Add event listener to the dynamically created retry button
+  const retryBtn = document.getElementById('retryBtn');
+  if (retryBtn) {
+    retryBtn.addEventListener('click', loadHistoricalLogs);
+  }
 }
 
 function updateLogStatistics(data) {
@@ -495,6 +512,63 @@ initializeTimelineState();
 
 // Initialize connection status
 updateConnectionStatus(false);
+
+// Initialize event listeners when DOM is ready
+function initializeEventListeners() {
+  // Theme toggle button
+  const themeToggleBtn = document.getElementById('themeToggleBtn');
+  if (themeToggleBtn) {
+    themeToggleBtn.addEventListener('click', toggleTheme);
+  }
+
+  // Control buttons
+  const connectBtn = document.getElementById('connectBtn');
+  if (connectBtn) {
+    connectBtn.addEventListener('click', connectWebSocket);
+  }
+
+  const disconnectBtn = document.getElementById('disconnectBtn');
+  if (disconnectBtn) {
+    disconnectBtn.addEventListener('click', disconnectWebSocket);
+  }
+
+  const refreshBtn = document.getElementById('refreshBtn');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', loadHistoricalLogs);
+  }
+
+  const clearFiltersBtn = document.getElementById('clearFiltersBtn');
+  if (clearFiltersBtn) {
+    clearFiltersBtn.addEventListener('click', clearFilters);
+  }
+
+  const clearLogsBtn = document.getElementById('clearLogsBtn');
+  if (clearLogsBtn) {
+    clearLogsBtn.addEventListener('click', clearLogs);
+  }
+
+  const exportBtn = document.getElementById('exportBtn');
+  if (exportBtn) {
+    exportBtn.addEventListener('click', () => exportLogs('json'));
+  }
+
+  // Timeline header and toggle button
+  const timelineHeader = document.getElementById('timelineHeader');
+  if (timelineHeader) {
+    timelineHeader.addEventListener('click', toggleTimeline);
+  }
+
+  const timelineToggle = document.getElementById('timelineToggle');
+  if (timelineToggle) {
+    timelineToggle.addEventListener('click', (event) => {
+      event.stopPropagation();
+      toggleTimeline();
+    });
+  }
+}
+
+// Initialize event listeners
+initializeEventListeners();
 
 // Load initial data
 loadHistoricalLogs();

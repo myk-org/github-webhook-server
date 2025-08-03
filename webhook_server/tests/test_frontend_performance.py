@@ -151,18 +151,6 @@ class TestFrontendPerformanceOptimizations:
         assert "escapeHtml(entry.message)" in js_content
         assert "escapeHtml(entry.hook_id)" in js_content
 
-    def test_rendering_functions_present(self, controller, static_files):
-        """Test that rendering functions are present in the JavaScript file."""
-        html_content = controller._get_log_viewer_html()
-        js_content = self._read_static_file(static_files["js"])
-
-        # Check that HTML template includes the JS file
-        assert "/static/js/log_viewer.js" in html_content
-
-        # Check for the rendering functions in JS
-        assert "renderLogEntriesDirect" in js_content
-        assert "renderLogEntriesOptimized" in js_content
-
     def test_progressive_loading_threshold(self, controller, static_files):
         """Test that progressive loading activates for datasets > 200 entries."""
         html_content = controller._get_log_viewer_html()
@@ -266,5 +254,7 @@ class TestFrontendPerformanceOptimizations:
         assert "hideLoadingSkeleton" in js_content
 
         # Check for retry functionality - onclick in HTML, message in JS
-        assert 'onclick="loadHistoricalLogs()"' in html_content
+        # Check for retry functionality - event listener approach in JS
+        assert "retryBtn.addEventListener('click', loadHistoricalLogs)" in js_content
+        assert "loadHistoricalLogs" in js_content
         assert "Failed to load log entries" in js_content

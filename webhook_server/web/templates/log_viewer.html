@@ -13,7 +13,7 @@
                 <h1>GitHub Webhook Server - Log Viewer</h1>
                 <p>Real-time log monitoring and filtering for webhook events</p>
             </div>
-            <button class="theme-toggle" onclick="toggleTheme()" title="Toggle between light and dark theme" aria-label="Toggle light or dark theme">
+            <button id="themeToggleBtn" class="theme-toggle" title="Toggle between light and dark theme" aria-label="Toggle light or dark theme">
                 🌙
             </button>
         </div>
@@ -22,8 +22,8 @@
             <span id="statusText">Connecting...</span>
         </div>
 
-        <div class="log-stats" id="logStats" style="background: var(--container-bg); border: 1px solid var(--border-color); border-radius: 4px; padding: 10px; margin-bottom: 20px; font-size: 14px; color: var(--text-color); display: none;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div class="log-stats" id="logStats">
+            <div>
                 <span><strong>Displayed:</strong> <span id="displayedCount">0</span> entries</span>
                 <span><strong>Total Available:</strong> <span id="totalCount">0</span> entries</span>
                 <span><strong>Processed:</strong> <span id="processedCount">0</span> entries</span>
@@ -31,12 +31,12 @@
         </div>
 
         <div class="controls">
-            <button class="btn" onclick="connectWebSocket()">Start Real-time</button>
-            <button class="btn" onclick="disconnectWebSocket()">Stop Real-time</button>
-            <button class="btn" onclick="loadHistoricalLogs()">Refresh</button>
-            <button class="btn" onclick="clearFilters()">Clear Filters</button>
-            <button class="btn" onclick="clearLogs()">Clear Logs</button>
-            <button class="btn" onclick="exportLogs('json')">Export JSON</button>
+            <button id="connectBtn" class="btn">Start Real-time</button>
+            <button id="disconnectBtn" class="btn">Stop Real-time</button>
+            <button id="refreshBtn" class="btn">Refresh</button>
+            <button id="clearFiltersBtn" class="btn">Clear Filters</button>
+            <button id="clearLogsBtn" class="btn">Clear Logs</button>
+            <button id="exportBtn" class="btn">Export JSON</button>
         </div>
 
         <div class="filters">
@@ -86,10 +86,10 @@
 
         <!-- Hook ID Flow Timeline -->
         <div class="timeline-section" id="timelineSection">
-            <div class="timeline-header" onclick="toggleTimeline()">
+            <div id="timelineHeader" class="timeline-header">
                 <div style="display: flex; align-items: center; gap: 10px;">
                     <h3>Hook ID Flow Timeline</h3>
-                    <button class="timeline-toggle" id="timelineToggle" onclick="event.stopPropagation(); toggleTimeline();">
+                    <button class="timeline-toggle" id="timelineToggle">
                         ▶ Expand
                     </button>
                 </div>

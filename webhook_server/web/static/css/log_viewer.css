@@ -384,6 +384,23 @@ body {
   border: 1px solid var(--status-disconnected-border);
 }
 
+.log-stats {
+  background: var(--container-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 10px;
+  margin-bottom: 20px;
+  font-size: 14px;
+  color: var(--text-color);
+  display: none;
+}
+
+.log-stats > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
   .filters { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }

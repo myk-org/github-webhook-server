@@ -181,6 +181,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         raise
 
     finally:
+        # Shutdown LogViewerController singleton and close WebSocket connections
+        global _log_viewer_controller_singleton
+        if _log_viewer_controller_singleton is not None:
+            await _log_viewer_controller_singleton.shutdown()
+            LOGGER.debug("LogViewerController singleton shutdown complete")
+
         if _lifespan_http_client:
             await _lifespan_http_client.aclose()
             LOGGER.debug("HTTP client closed")
@@ -289,10 +295,23 @@ async def process_webhook(request: Request, background_tasks: BackgroundTasks) -
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {error_details}")
 
 
-# Dependency Injection
+# Module-level singleton instance
+_log_viewer_controller_singleton: LogViewerController | None = None
+
+
 def get_log_viewer_controller() -> LogViewerController:
-    """Dependency to provide a singleton LogViewerController instance."""
-    return LogViewerController(logger=LOGGER)
+    """Dependency to provide a singleton LogViewerController instance.
+
+    Returns the same LogViewerController instance across all requests to ensure
+    proper WebSocket connection tracking and shared state management.
+
+    Returns:
+        LogViewerController: The singleton instance
+    """
+    global _log_viewer_controller_singleton
+    if _log_viewer_controller_singleton is None:
+        _log_viewer_controller_singleton = LogViewerController(logger=LOGGER)
+    return _log_viewer_controller_singleton
 
 
 # Create dependency instance to avoid flake8 M511 warnings
