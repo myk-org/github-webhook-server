@@ -106,7 +106,7 @@
             color: var(--text-color);
             transition: background-color 0.3s ease, border-color 0.3s ease;
         }
-        .log-entries { border: 1px solid var(--border-color); border-radius: 4px; max-height: 70vh; overflow-y: auto; }
+        .log-entries { border: 1px solid var(--border-color); border-radius: 4px; min-height: 200px; }
 
         /* Loading skeleton styles */
         .loading-skeleton {
@@ -164,14 +164,9 @@
             background: var(--button-hover);
         }
 
-        /* Virtual scrolling performance optimizations */
-        .virtual-scroll-container {
+        /* Direct rendering optimizations - no virtual scrolling */
+        .log-entries {
             contain: layout style paint;
-            will-change: scroll-position;
-        }
-        .virtual-scroll-content {
-            contain: layout style paint;
-            will-change: transform;
         }
 
         /* Animations */
@@ -372,6 +367,14 @@
             <span id="statusText">Connecting...</span>
         </div>
 
+        <div class="log-stats" id="logStats" style="background: var(--container-bg); border: 1px solid var(--border-color); border-radius: 4px; padding: 10px; margin-bottom: 20px; font-size: 14px; color: var(--text-color); display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span><strong>Displayed:</strong> <span id="displayedCount">0</span> entries</span>
+                <span><strong>Total Available:</strong> <span id="totalCount">0</span> entries</span>
+                <span><strong>Processed:</strong> <span id="processedCount">0</span> entries</span>
+            </div>
+        </div>
+
         <div class="controls">
             <button class="btn" onclick="connectWebSocket()">Start Real-time</button>
             <button class="btn" onclick="disconnectWebSocket()">Stop Real-time</button>
@@ -518,136 +521,52 @@
             updateConnectionStatus(false);
         }
 
-        // Virtual scrolling configuration
-        const ITEM_HEIGHT = 60; // Approximate height of each log entry in pixels
-        const BUFFER_SIZE = 5; // Extra items to render outside viewport
-        let virtualScrollData = {
-            filteredEntries: [],
-            containerHeight: 0,
-            scrollTop: 0,
-            startIndex: 0,
-            endIndex: 0,
-            visibleCount: 0
-        };
+        // Removed virtual scrolling to prevent scrollbar flashing
+        // All rendering now uses direct DOM manipulation for stable UI
 
         function addLogEntry(entry) {
             logEntries.unshift(entry);
             clearFilterCache(); // Clear cache when entries change
             renderLogEntriesOptimized();
+
+            // Update displayed count for real-time entries
+            updateDisplayedCount();
+        }
+
+        function updateDisplayedCount() {
+            const displayedCount = document.getElementById('displayedCount');
+            const filteredEntries = filterLogEntries(logEntries);
+            displayedCount.textContent = filteredEntries.length;
         }
 
         function renderLogEntriesOptimized() {
             const container = document.getElementById('logEntries');
             const filteredEntries = filterLogEntries(logEntries);
 
-            // Update virtual scroll data
-            virtualScrollData.filteredEntries = filteredEntries;
-            virtualScrollData.containerHeight = container.clientHeight || 400;
-            virtualScrollData.visibleCount = Math.ceil(virtualScrollData.containerHeight / ITEM_HEIGHT);
-
-            // For small datasets, use direct rendering for simplicity
-            if (filteredEntries.length <= 100) {
-                renderLogEntriesDirect(container, filteredEntries);
-                return;
-            }
-
-            // Use virtual scrolling for large datasets
-            renderLogEntriesVirtual(container);
+            // Always use direct rendering to prevent any scrollbar flashing
+            // Completely disabled virtual scrolling to ensure stable UI
+            renderLogEntriesDirect(container, filteredEntries);
         }
 
         function renderLogEntriesDirect(container, entries) {
-            // Use DocumentFragment for efficient DOM manipulation
+            // Use DocumentFragment for efficient DOM manipulation to minimize reflows
             const fragment = document.createDocumentFragment();
-
-            // Clear existing content efficiently
-            while (container.firstChild) {
-                container.removeChild(container.firstChild);
-            }
 
             entries.forEach(entry => {
                 const entryElement = createLogEntryElement(entry);
                 fragment.appendChild(entryElement);
             });
 
-            container.appendChild(fragment);
+            // Clear and append in one operation to minimize visual flashing
+            // Use replaceChildren for better performance and less flashing
+            container.replaceChildren(fragment);
+
+            // Debug: Log how many entries were actually rendered
+            console.log(`Rendered ${entries.length} entries directly to DOM`);
         }
 
-        function renderLogEntriesVirtual(container) {
-            const { filteredEntries } = virtualScrollData;
-
-            // Create virtual scroll container if it doesn't exist
-            let virtualContainer = container.querySelector('.virtual-scroll-container');
-            if (!virtualContainer) {
-                setupVirtualScrollContainer(container);
-                virtualContainer = container.querySelector('.virtual-scroll-container');
-            }
-
-            updateVirtualScrollIndices();
-            renderVisibleItems(virtualContainer);
-        }
-
-        function setupVirtualScrollContainer(container) {
-            const { filteredEntries } = virtualScrollData;
-
-            // Clear existing content
-            container.innerHTML = '';
-
-            // Create virtual scroll structure
-            const totalHeight = filteredEntries.length * ITEM_HEIGHT;
-            container.innerHTML = `
-                <div class="virtual-scroll-container" style="height: ${virtualScrollData.containerHeight}px; overflow-y: auto;">
-                    <div class="virtual-scroll-spacer" style="height: ${totalHeight}px; position: relative;">
-                        <div class="virtual-scroll-content" style="position: absolute; top: 0; left: 0; right: 0;"></div>
-                    </div>
-                </div>
-            `;
-
-            // Add scroll event listener
-            const scrollContainer = container.querySelector('.virtual-scroll-container');
-            scrollContainer.addEventListener('scroll', handleVirtualScroll);
-        }
-
-        function handleVirtualScroll(event) {
-            virtualScrollData.scrollTop = event.target.scrollTop;
-            updateVirtualScrollIndices();
-
-            const content = event.target.querySelector('.virtual-scroll-content');
-            renderVisibleItems(content);
-        }
-
-        function updateVirtualScrollIndices() {
-            const { scrollTop, visibleCount, filteredEntries } = virtualScrollData;
-
-            virtualScrollData.startIndex = Math.max(0, Math.floor(scrollTop / ITEM_HEIGHT) - BUFFER_SIZE);
-            virtualScrollData.endIndex = Math.min(
-                filteredEntries.length - 1,
-                virtualScrollData.startIndex + visibleCount + (BUFFER_SIZE * 2)
-            );
-        }
-
-        function renderVisibleItems(contentContainer) {
-            const { filteredEntries, startIndex, endIndex } = virtualScrollData;
-
-            // Clear existing visible items
-            contentContainer.innerHTML = '';
-
-            // Position the content container
-            contentContainer.style.transform = `translateY(${startIndex * ITEM_HEIGHT}px)`;
-
-            // Create fragment for efficient DOM updates
-            const fragment = document.createDocumentFragment();
-
-            // Render only visible items
-            for (let i = startIndex; i <= endIndex; i++) {
-                if (filteredEntries[i]) {
-                    const entryElement = createLogEntryElement(filteredEntries[i]);
-                    entryElement.style.height = `${ITEM_HEIGHT}px`;
-                    fragment.appendChild(entryElement);
-                }
-            }
-
-            contentContainer.appendChild(fragment);
-        }
+        // Virtual scrolling removed to prevent scrollbar flashing
+        // All rendering now uses direct DOM manipulation only
 
         function createLogEntryElement(entry) {
             const div = document.createElement('div');
@@ -676,6 +595,13 @@
         // Alias for backward compatibility
         function renderLogEntries() {
             renderLogEntriesOptimized();
+        }
+
+        function renderLogEntriesDirectly(entries) {
+            const container = document.getElementById('logEntries');
+
+            // Always use direct rendering for backend-filtered data to ensure all entries show
+            renderLogEntriesDirect(container, entries);
         }
 
         // Optimized filtering with caching and early exit
@@ -760,13 +686,17 @@
                 const response = await fetch(`/logs/api/entries?${filters.toString()}`);
                 const data = await response.json();
 
+                // Update statistics
+                updateLogStatistics(data);
+
                 // Progressive loading for large datasets
                 if (data.entries.length > 200) {
-                    await loadEntriesProgressively(data.entries);
+                    await loadEntriesProgressivelyDirect(data.entries);
                 } else {
                     logEntries = data.entries;
                     clearFilterCache(); // Clear cache when loading new entries
-                    renderLogEntries();
+                    // Data is already filtered by the backend, render directly without frontend filtering
+                    renderLogEntriesDirectly(logEntries);
                 }
 
                 hideLoadingSkeleton();
@@ -793,6 +723,14 @@
                     await new Promise(resolve => setTimeout(resolve, 10));
                 }
             }
+        }
+
+        async function loadEntriesProgressivelyDirect(entries) {
+            // For backend-filtered data, just render all entries at once
+            // Progressive loading isn't needed since data is already filtered and limited
+            logEntries = entries;
+            renderLogEntriesDirectly(logEntries);
+            console.log(`Loaded ${entries.length} backend-filtered entries`);
         }
 
         function showLoadingSkeleton() {
@@ -838,10 +776,38 @@
             `;
         }
 
+        function updateLogStatistics(data) {
+            const statsPanel = document.getElementById('logStats');
+            const displayedCount = document.getElementById('displayedCount');
+            const totalCount = document.getElementById('totalCount');
+            const processedCount = document.getElementById('processedCount');
+
+            // Update counts from API response
+            displayedCount.textContent = data.entries ? data.entries.length : 0;
+            processedCount.textContent = data.entries_processed || '0';
+
+            // Use the total log count estimate for better user information
+            totalCount.textContent = data.total_log_count_estimate || 'Unknown';
+
+            // Show the statistics panel
+            statsPanel.style.display = 'block';
+
+            // Add indicator for partial scans
+            if (data.is_partial_scan) {
+                processedCount.innerHTML = `${data.entries_processed} <small style="color: var(--timestamp-color);">(partial scan)</small>`;
+            }
+        }
+
         function clearLogs() {
             logEntries = [];
             clearFilterCache(); // Clear cache when clearing entries
-            renderLogEntries();
+
+            // Clear the container directly to avoid any scrollbar flashing
+            const container = document.getElementById('logEntries');
+            container.replaceChildren(); // More efficient than innerHTML = ''
+
+            // Hide stats panel when no entries
+            document.getElementById('logStats').style.display = 'none';
         }
 
         function exportLogs(format) {

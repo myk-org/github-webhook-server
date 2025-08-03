@@ -124,8 +124,8 @@ class LogViewerController:
         """
         try:
             # Validate parameters
-            if limit < 1 or limit > 1000:
-                raise ValueError("Limit must be between 1 and 1000")
+            if limit < 1 or limit > 10000:
+                raise ValueError("Limit must be between 1 and 10000")
             if offset < 0:
                 raise ValueError("Offset must be non-negative")
 
@@ -175,10 +175,14 @@ class LogViewerController:
             if total_processed >= max_entries_to_process:  # Hit our streaming limit
                 estimated_total = f"{total_processed}+"  # Indicate there are more
 
+            # Estimate total log count across all files for better UI statistics
+            total_log_count_estimate = self._estimate_total_log_count()
+
             return {
                 "entries": [entry.to_dict() for entry in filtered_entries],
                 "entries_processed": estimated_total,  # Number of entries examined
                 "filtered_count_min": len(filtered_entries) + offset,  # Minimum filtered count
+                "total_log_count_estimate": total_log_count_estimate,  # Estimated total logs in all files
                 "limit": limit,
                 "offset": offset,
                 "is_partial_scan": total_processed >= max_entries_to_process,  # Indicates not all logs were scanned
@@ -821,3 +825,57 @@ class LogViewerController:
             flow_data["error"] = error_message
 
         return flow_data
+
+    def _estimate_total_log_count(self) -> str:
+        """Estimate total log count across all available log files.
+
+        Returns:
+            String representing estimated total log count
+        """
+        try:
+            log_dir = self._get_log_directory()
+            if not log_dir.exists():
+                return "0"
+
+            # Find all log files including rotated ones
+            log_files: list[Path] = []
+            log_files.extend(log_dir.glob("*.log"))
+            log_files.extend(log_dir.glob("*.log.*"))
+
+            if not log_files:
+                return "0"
+
+            # Quick estimation based on file sizes and line counts from a sample
+            total_estimate = 0
+            for log_file in log_files[:10]:  # Sample first 10 files to avoid performance impact
+                try:
+                    # Quick line count estimation
+                    with open(log_file, "rb") as f:
+                        line_count = sum(1 for _ in f)
+                    total_estimate += line_count
+                except Exception:
+                    # If we can't read a file, estimate based on file size
+                    try:
+                        file_size = log_file.stat().st_size
+                        # Rough estimate: average log line is ~200 bytes
+                        estimated_lines = file_size // 200
+                        total_estimate += estimated_lines
+                    except Exception:
+                        continue
+
+            # If we processed fewer than all files, extrapolate
+            if len(log_files) > 10:
+                extrapolation_factor = len(log_files) / 10
+                total_estimate = int(total_estimate * extrapolation_factor)
+
+            # Return formatted string
+            if total_estimate > 1000000:
+                return f"{total_estimate // 1000000:.1f}M"
+            elif total_estimate > 1000:
+                return f"{total_estimate // 1000:.1f}K"
+            else:
+                return str(total_estimate)
+
+        except Exception as e:
+            self.logger.warning(f"Error estimating total log count: {e}")
+            return "Unknown"
