@@ -414,6 +414,16 @@
                 <label for="searchFilter">Search:</label>
                 <input type="text" id="searchFilter" placeholder="text in messages...">
             </div>
+            <div class="filter-group">
+                <label for="limitFilter">Results Limit:</label>
+                <select id="limitFilter">
+                    <option value="100">100</option>
+                    <option value="500">500</option>
+                    <option value="1000" selected>1000</option>
+                    <option value="5000">5000</option>
+                    <option value="10000">10000</option>
+                </select>
+            </div>
         </div>
 
         <!-- Hook ID Flow Timeline -->
@@ -736,9 +746,10 @@
                 const user = document.getElementById('userFilter').value.trim();
                 const level = document.getElementById('levelFilter').value;
                 const search = document.getElementById('searchFilter').value.trim();
+                const limit = document.getElementById('limitFilter').value;
 
-                // Increase limit for better performance with chunked loading
-                filters.append('limit', '1000');
+                // Use user-configured limit
+                filters.append('limit', limit);
                 if (hookId) filters.append('hook_id', hookId);
                 if (prNumber) filters.append('pr_number', prNumber);
                 if (repository) filters.append('repository', repository);
@@ -841,6 +852,7 @@
             const user = document.getElementById('userFilter').value.trim();
             const level = document.getElementById('levelFilter').value;
             const search = document.getElementById('searchFilter').value.trim();
+            const limit = document.getElementById('limitFilter').value;
 
             if (hookId) filters.append('hook_id', hookId);
             if (prNumber) filters.append('pr_number', prNumber);
@@ -848,6 +860,7 @@
             if (user) filters.append('github_user', user);
             if (level) filters.append('level', level);
             if (search) filters.append('search', search);
+            filters.append('limit', limit);
             filters.append('format', format);
 
             const url = `/logs/api/export?${filters.toString()}`;
@@ -887,6 +900,7 @@
             document.getElementById('userFilter').value = '';
             document.getElementById('levelFilter').value = '';
             document.getElementById('searchFilter').value = '';
+            document.getElementById('limitFilter').value = '1000'; // Reset to default
 
             // Reload data with cleared filters
             applyFilters();
@@ -898,6 +912,7 @@
         document.getElementById('userFilter').addEventListener('input', debounceFilter);
         document.getElementById('levelFilter').addEventListener('change', debounceFilter);
         document.getElementById('searchFilter').addEventListener('input', debounceFilter);
+        document.getElementById('limitFilter').addEventListener('change', debounceFilter);
 
         // Theme management
         function toggleTheme() {

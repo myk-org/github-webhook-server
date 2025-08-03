@@ -135,7 +135,21 @@ class LogViewerController:
             skipped = 0
 
             # Stream entries and apply filters incrementally
-            for entry in self._stream_log_entries(max_files=15, max_entries=20000):
+            # For any filtering, we need to process more entries to find all matches
+            has_filters = any([
+                hook_id,
+                pr_number,
+                repository,
+                event_type,
+                github_user,
+                level,
+                start_time,
+                end_time,
+                search,
+            ])
+            max_entries_to_process = 50000 if has_filters else 20000
+
+            for entry in self._stream_log_entries(max_files=25, max_entries=max_entries_to_process):
                 total_processed += 1
 
                 # Apply filters early to reduce memory usage
@@ -158,7 +172,7 @@ class LogViewerController:
 
             # Get approximate total count by processing a sample if needed
             estimated_total: int | str = total_processed
-            if total_processed >= 20000:  # Hit our streaming limit
+            if total_processed >= max_entries_to_process:  # Hit our streaming limit
                 estimated_total = f"{total_processed}+"  # Indicate there are more
 
             return {
@@ -167,7 +181,7 @@ class LogViewerController:
                 "filtered_count_min": len(filtered_entries) + offset,  # Minimum filtered count
                 "limit": limit,
                 "offset": offset,
-                "is_partial_scan": total_processed >= 20000,  # Indicates not all logs were scanned
+                "is_partial_scan": total_processed >= max_entries_to_process,  # Indicates not all logs were scanned
             }
 
         except ValueError as e:
@@ -271,7 +285,21 @@ class LogViewerController:
             filtered_entries: list[LogEntry] = []
 
             # Stream entries and apply filters incrementally for better memory usage
-            for entry in self._stream_log_entries(max_files=20, max_entries=limit + 1000):
+            # For any filtering, increase processing limit to find all matches
+            has_filters = any([
+                hook_id,
+                pr_number,
+                repository,
+                event_type,
+                github_user,
+                level,
+                start_time,
+                end_time,
+                search,
+            ])
+            max_entries_to_process = min(limit + 20000, 50000) if has_filters else limit + 1000
+
+            for entry in self._stream_log_entries(max_files=25, max_entries=max_entries_to_process):
                 if not self._entry_matches_filters(
                     entry, hook_id, pr_number, repository, event_type, github_user, level, start_time, end_time, search
                 ):
