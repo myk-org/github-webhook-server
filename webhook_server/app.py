@@ -22,6 +22,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import RepositoryNotFoundError
@@ -188,6 +189,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 FASTAPI_APP: FastAPI = FastAPI(title="webhook-server", lifespan=lifespan)
+
+# Mount static files
+static_files_path = os.path.join(os.path.dirname(__file__), "web", "static")
+FASTAPI_APP.mount("/static", StaticFiles(directory=static_files_path), name="static")
 
 
 @FASTAPI_APP.get(f"{APP_URL_ROOT_PATH}/healthcheck")
