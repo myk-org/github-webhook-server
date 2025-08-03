@@ -2,6 +2,7 @@
 
 import datetime
 import logging
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -18,6 +19,21 @@ class TestFrontendPerformanceOptimizations:
         """Create a LogViewerController instance for testing."""
         logger = logging.getLogger("test")
         return LogViewerController(logger=logger)
+
+    @pytest.fixture
+    def static_files(self):
+        """Get paths to static files for testing."""
+        base_path = Path(__file__).parent.parent / "web" / "static"
+        return {"css": base_path / "css" / "log_viewer.css", "js": base_path / "js" / "log_viewer.js"}
+
+    def _read_static_file(self, file_path):
+        """Read content from a static file."""
+        try:
+            return file_path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            pytest.fail(f"Static file not found: {file_path}")
+        except Exception as e:
+            pytest.fail(f"Error reading static file {file_path}: {e}")
 
     @pytest.fixture
     def large_log_entries(self):
@@ -42,112 +58,150 @@ class TestFrontendPerformanceOptimizations:
 
         return entries
 
-    def test_html_template_contains_optimized_rendering(self, controller):
-        """Test that the HTML template includes optimized rendering functions."""
+    def test_html_template_contains_optimized_rendering(self, controller, static_files):
+        """Test that the JavaScript file includes optimized rendering functions."""
         html_content = controller._get_log_viewer_html()
+        js_content = self._read_static_file(static_files["js"])
 
-        # Check for optimized rendering functions (non-virtual scrolling)
-        assert "renderLogEntriesOptimized" in html_content
-        assert "renderLogEntriesDirect" in html_content
+        # Check that HTML template includes the JS file
+        assert "/static/js/log_viewer.js" in html_content
 
-        # Check for performance optimization features
-        assert "createLogEntryElement" in html_content
-        assert "DocumentFragment" in html_content
+        # Check for optimized rendering functions (non-virtual scrolling) in JS file
+        assert "renderLogEntriesOptimized" in js_content
+        assert "renderLogEntriesDirect" in js_content
 
-    def test_html_template_contains_progressive_loading(self, controller):
-        """Test that the HTML template includes progressive loading features."""
+        # Check for performance optimization features in JS file
+        assert "createLogEntryElement" in js_content
+        assert "DocumentFragment" in js_content
+
+    def test_html_template_contains_progressive_loading(self, controller, static_files):
+        """Test that the JavaScript and CSS files include progressive loading features."""
         html_content = controller._get_log_viewer_html()
+        js_content = self._read_static_file(static_files["js"])
+        css_content = self._read_static_file(static_files["css"])
 
-        # Check for progressive loading functions
-        assert "loadEntriesProgressively" in html_content
-        assert "showLoadingSkeleton" in html_content
-        assert "hideLoadingSkeleton" in html_content
+        # Check that HTML template includes the external files
+        assert "/static/js/log_viewer.js" in html_content
+        assert "/static/css/log_viewer.css" in html_content
 
-        # Check for skeleton loading styles
-        assert "loading-skeleton" in html_content
-        assert "skeleton-entry" in html_content
-        assert "skeleton-line" in html_content
+        # Check for progressive loading functions in JS
+        assert "loadEntriesProgressively" in js_content
+        assert "showLoadingSkeleton" in js_content
+        assert "hideLoadingSkeleton" in js_content
 
-        # Check for error handling
-        assert "showErrorMessage" in html_content
-        assert "retry-btn" in html_content
+        # Check for skeleton loading styles in CSS
+        assert "loading-skeleton" in css_content
+        assert "skeleton-entry" in css_content
+        assert "skeleton-line" in css_content
 
-    def test_html_template_contains_optimized_filtering(self, controller):
-        """Test that the HTML template includes optimized filtering."""
+        # Check for error handling in JS
+        assert "showErrorMessage" in js_content
+        assert "retry-btn" in css_content  # CSS class in CSS file
+
+    def test_html_template_contains_optimized_filtering(self, controller, static_files):
+        """Test that the JavaScript file includes optimized filtering."""
         html_content = controller._get_log_viewer_html()
+        js_content = self._read_static_file(static_files["js"])
 
-        # Check for filter caching
-        assert "lastFilterHash" in html_content
-        assert "cachedFilteredEntries" in html_content
-        assert "clearFilterCache" in html_content
+        # Check that HTML template includes the JS file
+        assert "/static/js/log_viewer.js" in html_content
 
-        # Check for optimized filter function
-        assert "searchTerms" in html_content
-        assert "every(term =>" in html_content
+        # Check for filter caching in JS
+        assert "lastFilterHash" in js_content
+        assert "cachedFilteredEntries" in js_content
+        assert "clearFilterCache" in js_content
 
-    def test_html_template_contains_performance_css(self, controller):
-        """Test that the HTML template includes performance-optimized CSS."""
+        # Check for optimized filter function in JS
+        assert "searchTerms" in js_content
+        assert "every(term =>" in js_content
+
+    def test_html_template_contains_performance_css(self, controller, static_files):
+        """Test that the CSS file includes performance-optimized CSS."""
         html_content = controller._get_log_viewer_html()
+        css_content = self._read_static_file(static_files["css"])
 
-        # Check for CSS performance optimizations
-        assert "contain: layout style paint" in html_content
+        # Check that HTML template includes the CSS file
+        assert "/static/css/log_viewer.css" in html_content
 
-        # Check for loading animations
-        assert "@keyframes pulse" in html_content
-        assert "@keyframes shimmer" in html_content
+        # Check for CSS performance optimizations in CSS file
+        assert "contain: layout style paint" in css_content
 
-        # Check for skeleton styles
-        assert ".skeleton-entry" in html_content
-        assert ".loading-skeleton" in html_content
+        # Check for loading animations in CSS file
+        assert "@keyframes pulse" in css_content
+        assert "@keyframes shimmer" in css_content
 
-    def test_escaping_function_included(self, controller):
+        # Check for skeleton styles in CSS file
+        assert ".skeleton-entry" in css_content
+        assert ".loading-skeleton" in css_content
+
+    def test_escaping_function_included(self, controller, static_files):
         """Test that HTML escaping function is included for security."""
         html_content = controller._get_log_viewer_html()
+        js_content = self._read_static_file(static_files["js"])
 
-        # Check for HTML escaping function
-        assert "function escapeHtml(text)" in html_content
-        assert "div.textContent = text" in html_content
-        assert "div.innerHTML" in html_content
+        # Check that HTML template includes the JS file
+        assert "/static/js/log_viewer.js" in html_content
 
-        # Check that escaping is used in log entry creation
-        assert "escapeHtml(entry.message)" in html_content
-        assert "escapeHtml(entry.hook_id)" in html_content
+        # Check for HTML escaping function in JS
+        assert "function escapeHtml(text)" in js_content
+        assert "div.textContent = text" in js_content
+        assert "div.innerHTML" in js_content
 
-    def test_rendering_functions_present(self, controller):
-        """Test that rendering functions are present in the template."""
+        # Check that escaping is used in log entry creation in JS
+        assert "escapeHtml(entry.message)" in js_content
+        assert "escapeHtml(entry.hook_id)" in js_content
+
+    def test_rendering_functions_present(self, controller, static_files):
+        """Test that rendering functions are present in the JavaScript file."""
         html_content = controller._get_log_viewer_html()
+        js_content = self._read_static_file(static_files["js"])
 
-        # Check for the rendering functions
-        assert "renderLogEntriesDirect" in html_content
-        assert "renderLogEntriesOptimized" in html_content
+        # Check that HTML template includes the JS file
+        assert "/static/js/log_viewer.js" in html_content
 
-    def test_progressive_loading_threshold(self, controller):
+        # Check for the rendering functions in JS
+        assert "renderLogEntriesDirect" in js_content
+        assert "renderLogEntriesOptimized" in js_content
+
+    def test_progressive_loading_threshold(self, controller, static_files):
         """Test that progressive loading activates for datasets > 200 entries."""
         html_content = controller._get_log_viewer_html()
+        js_content = self._read_static_file(static_files["js"])
 
-        # Check for progressive loading threshold
-        assert "if (data.entries.length > 200)" in html_content
-        assert "loadEntriesProgressively" in html_content
+        # Check that HTML template includes the JS file
+        assert "/static/js/log_viewer.js" in html_content
 
-    def test_chunked_loading_configuration(self, controller):
+        # Check for progressive loading threshold in JS
+        assert "if (data.entries.length > 200)" in js_content
+        assert "loadEntriesProgressively" in js_content
+
+    def test_chunked_loading_configuration(self, controller, static_files):
         """Test that chunked loading is properly configured."""
         html_content = controller._get_log_viewer_html()
+        js_content = self._read_static_file(static_files["js"])
 
-        # Check for chunk configuration
-        assert "chunkSize = 50" in html_content
-        assert "setTimeout(resolve, 10)" in html_content
+        # Check that HTML template includes the JS file
+        assert "/static/js/log_viewer.js" in html_content
 
-    def test_debounced_filtering_optimization(self, controller):
+        # Check for chunk configuration in JS
+        assert "chunkSize = 50" in js_content
+        assert "setTimeout(resolve, 10)" in js_content
+
+    def test_debounced_filtering_optimization(self, controller, static_files):
         """Test that debounced filtering is optimized."""
         html_content = controller._get_log_viewer_html()
+        js_content = self._read_static_file(static_files["js"])
 
-        # Check for optimized debouncing
-        assert "setTimeout(() => {" in html_content
-        assert "300)" in html_content  # Debounce delay
-        assert "lastFilterHash = ''" in html_content
+        # Check that HTML template includes the JS file
+        assert "/static/js/log_viewer.js" in html_content
 
-        # Check that immediate filtering still works
-        assert "renderLogEntries();" in html_content
+        # Check for optimized debouncing in JS
+        assert "setTimeout(() => {" in js_content
+        assert "300)" in js_content  # Debounce delay
+        assert "lastFilterHash = ''" in js_content
+
+        # Check that immediate filtering still works in JS
+        assert "renderLogEntries();" in js_content
 
     @patch("pathlib.Path.exists")
     @patch("pathlib.Path.iterdir")
@@ -182,27 +236,35 @@ class TestFrontendPerformanceOptimizations:
             # Should return streaming response
             assert hasattr(result, "body_iterator")
 
-    def test_filter_performance_with_search_terms(self, controller):
+    def test_filter_performance_with_search_terms(self, controller, static_files):
         """Test that search term optimization is implemented."""
         html_content = controller._get_log_viewer_html()
+        js_content = self._read_static_file(static_files["js"])
 
-        # Check for search term preprocessing
-        assert "search.split(' ')" in html_content
-        assert "filter(term => term.length > 0)" in html_content
-        assert "searchTerms.every(term =>" in html_content
+        # Check that HTML template includes the JS file
+        assert "/static/js/log_viewer.js" in html_content
 
-        # Check for case-insensitive search
-        assert "toLowerCase()" in html_content
+        # Check for search term preprocessing in JS
+        assert "search.split(' ')" in js_content
+        assert "filter(term => term.length > 0)" in js_content
+        assert "searchTerms.every(term =>" in js_content
 
-    def test_error_handling_and_retry_mechanism(self, controller):
+        # Check for case-insensitive search in JS
+        assert "toLowerCase()" in js_content
+
+    def test_error_handling_and_retry_mechanism(self, controller, static_files):
         """Test that error handling and retry mechanisms are in place."""
         html_content = controller._get_log_viewer_html()
+        js_content = self._read_static_file(static_files["js"])
 
-        # Check for error handling
-        assert "catch (error)" in html_content
-        assert "showErrorMessage" in html_content
-        assert "hideLoadingSkeleton" in html_content
+        # Check that HTML template includes the JS file
+        assert "/static/js/log_viewer.js" in html_content
 
-        # Check for retry functionality
+        # Check for error handling in JS
+        assert "catch (error)" in js_content
+        assert "showErrorMessage" in js_content
+        assert "hideLoadingSkeleton" in js_content
+
+        # Check for retry functionality - onclick in HTML, message in JS
         assert 'onclick="loadHistoricalLogs()"' in html_content
-        assert "Failed to load log entries" in html_content
+        assert "Failed to load log entries" in js_content
