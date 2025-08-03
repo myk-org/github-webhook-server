@@ -206,17 +206,17 @@
         .timeline-container {
             position: relative;
             overflow-x: auto;
-            padding: 20px 0;
-            min-height: 120px;
-            max-height: 250px;
+            padding: 30px 0;
+            min-height: 200px;
+            max-height: 600px; /* Much larger container */
         }
 
         .timeline-svg {
             width: 100%;
-            min-width: 800px;
+            min-width: 1200px; /* Larger minimum width */
             height: auto;
-            min-height: 120px;
-            max-height: 220px;
+            min-height: 200px;
+            max-height: 550px; /* Much larger maximum height */
         }
 
         .timeline-step {
@@ -224,31 +224,31 @@
         }
 
         .timeline-step:hover .step-circle {
-            r: 8;
-            stroke-width: 3;
+            r: 16; /* Larger hover size */
+            stroke-width: 4;
         }
 
         .timeline-step:hover .step-label {
             font-weight: bold;
-            font-size: 11px;
+            font-size: 13px; /* Larger hover font */
         }
 
         .step-line {
             stroke: var(--border-color);
-            stroke-width: 2;
+            stroke-width: 3; /* Thicker lines */
         }
 
         .step-circle {
-            r: 6;
+            r: 12; /* Larger default radius */
             stroke: #ffffff;
-            stroke-width: 2;
+            stroke-width: 3; /* Thicker stroke */
             transition: all 0.2s ease;
             cursor: pointer;
         }
 
         .step-circle:hover {
-            r: 8;
-            stroke-width: 3;
+            r: 16; /* Larger hover size */
+            stroke-width: 4;
         }
 
         .step-circle.success {
@@ -272,18 +272,20 @@
         }
 
         .step-label {
-            font-size: 10px;
+            font-size: 12px; /* Larger labels */
             text-anchor: middle;
             fill: var(--text-color);
             transition: font-weight 0.2s ease;
             pointer-events: none;
+            font-weight: 500; /* Semi-bold for better readability */
         }
 
         .step-time {
-            font-size: 9px;
+            font-size: 11px; /* Larger time labels */
             text-anchor: middle;
             fill: var(--timestamp-color);
             pointer-events: none;
+            font-weight: 500; /* Semi-bold for better readability */
         }
 
         .timeline-tooltip {
@@ -982,9 +984,9 @@
             const layout = calculateMultiLineLayout(data.steps, data.total_duration_ms);
 
             // SVG dimensions - much larger and adaptive
-            const width = Math.max(1200, layout.totalWidth + 100);
-            const height = layout.totalHeight + 100;
-            const margin = { left: 50, right: 50, top: 50, bottom: 50 };
+            const width = Math.max(1400, layout.totalWidth + 200);
+            const height = layout.totalHeight + 150;
+            const margin = { left: 75, right: 75, top: 75, bottom: 75 };
 
             // Update SVG size
             svg.setAttribute('width', width);
@@ -1013,42 +1015,49 @@
                     group.setAttribute('class', 'timeline-step');
                     group.setAttribute('data-step-index', step.originalIndex);
 
-                    // Step circle
+                    // Step circle - larger
                     const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
                     circle.setAttribute('class', `step-circle ${getStepType(step.message)}`);
                     circle.setAttribute('cx', stepX);
                     circle.setAttribute('cy', lineY);
-                    circle.setAttribute('r', 8);
+                    circle.setAttribute('r', 12); // Larger circle
                     svg.appendChild(circle);
                     group.appendChild(circle);
 
-                    // Step label - always show for multi-line layout
-                    const labelText = truncateText(step.message, 20);
-                    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-                    label.setAttribute('class', 'step-label');
-                    label.setAttribute('x', stepX);
-                    label.setAttribute('y', lineY - 20);
-                    label.setAttribute('text-anchor', 'middle');
-                    label.textContent = labelText;
-                    svg.appendChild(label);
-                    group.appendChild(label);
+                    // Step label - with multi-line text wrapping
+                    const labelLines = wrapTextToLines(step.message, 25); // Longer text allowed
+                    labelLines.forEach((line, lineIndex) => {
+                        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        label.setAttribute('class', 'step-label');
+                        label.setAttribute('x', stepX);
+                        label.setAttribute('y', lineY - 35 + (lineIndex * 14)); // Multi-line spacing
+                        label.setAttribute('text-anchor', 'middle');
+                        label.setAttribute('font-size', '12'); // Larger font
+                        label.textContent = line;
+                        svg.appendChild(label);
+                        group.appendChild(label);
+                    });
 
-                    // Time label
+                    // Time label - larger and positioned better
                     const timeLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
                     timeLabel.setAttribute('class', 'step-time');
                     timeLabel.setAttribute('x', stepX);
-                    timeLabel.setAttribute('y', lineY + 25);
+                    timeLabel.setAttribute('y', lineY + 35);
                     timeLabel.setAttribute('text-anchor', 'middle');
+                    timeLabel.setAttribute('font-size', '11'); // Larger time font
                     timeLabel.textContent = `+${(step.relative_time_ms / 1000).toFixed(1)}s`;
                     svg.appendChild(timeLabel);
                     group.appendChild(timeLabel);
 
-                    // Step index number
+                    // Step index number - larger and better positioned
                     const indexLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
                     indexLabel.setAttribute('class', 'step-index');
                     indexLabel.setAttribute('x', stepX);
-                    indexLabel.setAttribute('y', lineY + 4);
+                    indexLabel.setAttribute('y', lineY + 5);
                     indexLabel.setAttribute('text-anchor', 'middle');
+                    indexLabel.setAttribute('font-size', '13'); // Larger index font
+                    indexLabel.setAttribute('font-weight', 'bold');
+                    indexLabel.setAttribute('fill', 'white'); // White text for better contrast
                     indexLabel.textContent = (step.originalIndex + 1).toString();
                     svg.appendChild(indexLabel);
                     group.appendChild(indexLabel);
@@ -1080,10 +1089,10 @@
         }
 
         function calculateMultiLineLayout(steps, totalDuration) {
-            // Layout configuration
-            const stepsPerLine = 8; // Maximum steps per line for readability
-            const stepSpacing = 140; // Horizontal space between steps
-            const lineHeight = 80; // Vertical space between lines
+            // Layout configuration - much larger for better readability
+            const stepsPerLine = 6; // Fewer steps per line for more space
+            const stepSpacing = 200; // Much larger horizontal space between steps
+            const lineHeight = 120; // Much larger vertical space between lines
             const lineWidth = stepsPerLine * stepSpacing;
 
             // Organize steps into lines
@@ -1121,6 +1130,36 @@
             }
             if (currentLine) lines.push(currentLine);
             return lines.slice(0, 2); // Max 2 lines
+        }
+
+        function wrapTextToLines(text, maxCharacters) {
+            // Smart text wrapping for timeline labels
+            const words = text.split(' ');
+            const lines = [];
+            let currentLine = '';
+
+            for (const word of words) {
+                const testLine = currentLine ? `${currentLine} ${word}` : word;
+                if (testLine.length <= maxCharacters) {
+                    currentLine = testLine;
+                } else {
+                    if (currentLine) {
+                        lines.push(currentLine);
+                        currentLine = word;
+                    } else {
+                        // Single word is too long, truncate it
+                        lines.push(word.substring(0, maxCharacters - 3) + '...');
+                        currentLine = '';
+                    }
+                }
+            }
+
+            if (currentLine) {
+                lines.push(currentLine);
+            }
+
+            // Return max 2 lines to prevent overcrowding
+            return lines.slice(0, 2);
         }
 
         function showTooltip(event, step) {
