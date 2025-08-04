@@ -5,6 +5,7 @@ import datetime
 import os
 import tempfile
 from pathlib import Path
+from typing import Generator
 from unittest.mock import Mock, patch
 
 import pytest
@@ -23,10 +24,76 @@ from webhook_server.libs.log_parser import LogEntry, LogFilter, LogParser
 from webhook_server.web.log_viewer import LogViewerController
 
 
+@pytest.fixture
+def temp_log_file() -> Generator[callable, None, None]:
+    """Fixture that provides a helper function to create temporary log files with content.
+
+    Returns a function that takes log content and optional encoding,
+    creates a temporary file, writes the content, and returns the file path.
+    The file is automatically cleaned up after the test.
+    """
+    created_files = []
+
+    def create_temp_log_file(content: str, encoding: str = "utf-8") -> Path:
+        """Create a temporary log file with the given content.
+
+        Args:
+            content: The log content to write to the file
+            encoding: File encoding (default: utf-8)
+
+        Returns:
+            Path to the created temporary file
+        """
+        temp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False, encoding=encoding)
+        temp_file.write(content)
+        temp_file.flush()
+        temp_file.close()
+
+        file_path = Path(temp_file.name)
+        created_files.append(file_path)
+        return file_path
+
+    yield create_temp_log_file
+
+    # Cleanup: remove all created temporary files
+    for file_path in created_files:
+        try:
+            if file_path.exists():
+                file_path.unlink()
+        except OSError:
+            pass  # Ignore cleanup errors
+
+
+def parse_log_content_helper(content: str, encoding: str = "utf-8") -> list[LogEntry]:
+    """Helper function to parse log content using a temporary file.
+
+    Args:
+        content: The log content to parse
+        encoding: File encoding (default: utf-8)
+
+    Returns:
+        List of parsed LogEntry objects
+    """
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False, encoding=encoding) as f:
+        f.write(content)
+        f.flush()
+
+        parser = LogParser()
+        entries = parser.parse_log_file(Path(f.name))
+
+        # Clean up the temporary file
+        try:
+            Path(f.name).unlink()
+        except OSError:
+            pass  # Ignore cleanup errors
+
+        return entries
+
+
 class TestLogParsingEdgeCases:
     """Test edge cases in log parsing functionality."""
 
-    def test_extremely_large_log_files(self):
+    def test_extremely_large_log_files(self, temp_log_file):
         """Test handling of large log files with optimized test data."""
         # Use a more reasonable test size (10K entries) to test large file handling
         # while keeping test execution time reasonable
@@ -39,30 +106,26 @@ class TestLogParsingEdgeCases:
             lines.append(f"{timestamp_str} GithubWebhook INFO repo-{i % 100} [push][hook-{i}][user]: Entry {i}")
 
         large_content = "\n".join(lines)
+        log_file_path = temp_log_file(large_content)
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
-            f.write(large_content)
-            f.flush()
+        parser = LogParser()
+        # Should handle large files without crashing
+        entries = parser.parse_log_file(log_file_path)
 
-            parser = LogParser()
+        # Verify parsing worked
+        assert len(entries) > 9500  # Allow for some parsing failures
+        assert entries[0].timestamp < entries[-1].timestamp  # Chronological order
 
-            # Should handle large files without crashing
-            entries = parser.parse_log_file(Path(f.name))
+        # Test that the parser can handle the file efficiently
+        # (This validates the large file handling logic without requiring massive data)
 
-            # Verify parsing worked
-            assert len(entries) > 9500  # Allow for some parsing failures
-            assert entries[0].timestamp < entries[-1].timestamp  # Chronological order
-
-            # Test that the parser can handle the file efficiently
-            # (This validates the large file handling logic without requiring massive data)
-
-            # Memory should be manageable (skip if psutil not available)
-            if PSUTIL_AVAILABLE:
-                process = psutil.Process(os.getpid())
-                memory_mb = process.memory_info().rss / 1024 / 1024
-                assert memory_mb < 512  # Should not exceed 512MB memory usage for test environments
-            else:
-                pytest.skip("psutil not available for memory monitoring")
+        # Memory should be manageable (skip if psutil not available)
+        if PSUTIL_AVAILABLE:
+            process = psutil.Process(os.getpid())
+            memory_mb = process.memory_info().rss / 1024 / 1024
+            assert memory_mb < 512  # Should not exceed 512MB memory usage for test environments
+        else:
+            pytest.skip("psutil not available for memory monitoring")
 
     def test_malformed_log_entries_handling(self):
         """Test handling of various malformed log entries."""
@@ -84,50 +147,41 @@ class TestLogParsingEdgeCases:
         2025-07-31T10:00:02.000000 GithubWebhook ERROR Final valid entry
         """
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
-            f.write(malformed_content)
-            f.flush()
+        entries = parse_log_content_helper(malformed_content)
 
-            parser = LogParser()
-            entries = parser.parse_log_file(Path(f.name))
+        # Should parse entries that match the basic log format
+        # The parser is tolerant and will parse entries that have valid timestamp/logger/level format
+        # even if the content isn't in GitHub webhook format
+        assert len(entries) == 5  # Valid timestamp format entries get parsed
+        assert entries[-1].level == "ERROR"
+        assert entries[-1].message == "Final valid entry"
 
-            # Should parse entries that match the basic log format
-            # The parser is tolerant and will parse entries that have valid timestamp/logger/level format
-            # even if the content isn't in GitHub webhook format
-            assert len(entries) == 5  # Valid timestamp format entries get parsed
-            assert entries[-1].level == "ERROR"
-            assert entries[-1].message == "Final valid entry"
+        # Verify that malformed timestamps and completely invalid lines are skipped
+        # The parser should skip lines without proper timestamp format
 
-            # Verify that malformed timestamps and completely invalid lines are skipped
-            # The parser should skip lines without proper timestamp format
-
-    def test_concurrent_file_access(self):
+    def test_concurrent_file_access(self, temp_log_file):
         """Test concurrent access to the same log file."""
         content = """2025-07-31T10:00:00.000000 GithubWebhook INFO repo [push][hook-1][user]: Entry 1
 2025-07-31T10:00:01.000000 GithubWebhook INFO repo [push][hook-2][user]: Entry 2
 2025-07-31T10:00:02.000000 GithubWebhook INFO repo [push][hook-3][user]: Entry 3"""
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
-            f.write(content)
-            f.flush()
-            log_path = Path(f.name)
+        log_path = temp_log_file(content)
+        parser = LogParser()
 
-            parser = LogParser()
+        # Simulate concurrent access
+        def parse_file():
+            return parser.parse_log_file(log_path)
 
-            # Simulate concurrent access
-            def parse_file():
-                return parser.parse_log_file(log_path)
+        import concurrent.futures
 
-            import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [executor.submit(parse_file) for _ in range(10)]
+            results = [future.result() for future in futures]
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-                futures = [executor.submit(parse_file) for _ in range(10)]
-                results = [future.result() for future in futures]
-
-            # All concurrent reads should succeed
-            assert len(results) == 10
-            assert all(len(entries) == 3 for entries in results)
-            assert all(entries[0].message == "Entry 1" for entries in results)
+        # All concurrent reads should succeed
+        assert len(results) == 10
+        assert all(len(entries) == 3 for entries in results)
+        assert all(entries[0].message == "Entry 1" for entries in results)
 
     def test_file_rotation_during_monitoring(self):
         """Test log monitoring behavior during file rotation."""
@@ -215,26 +269,21 @@ class TestLogParsingEdgeCases:
 2025-07-31T10:00:05.000000 GithubWebhook INFO test-repo [push][hook-6][user]: Newlines and tabs: Message\\nwith\\ttabs
 2025-07-31T10:00:06.000000 GithubWebhook INFO test-repo [push][hook-7][user]: Quote handling: 'single' "double" `backtick`"""
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False, encoding="utf-8") as f:
-            f.write(unicode_content)
-            f.flush()
+        entries = parse_log_content_helper(unicode_content, encoding="utf-8")
 
-            parser = LogParser()
-            entries = parser.parse_log_file(Path(f.name))
+        # Should parse all unicode entries correctly
+        assert len(entries) == 7
+        assert "🚀" in entries[0].message
+        assert "café" in entries[1].message
+        assert "你好世界" in entries[2].message
+        assert "مرحبا بالعالم" in entries[3].message
+        assert "@#$%^&*()" in entries[4].message
 
-            # Should parse all unicode entries correctly
-            assert len(entries) == 7
-            assert "🚀" in entries[0].message
-            assert "café" in entries[1].message
-            assert "你好世界" in entries[2].message
-            assert "مرحبا بالعالم" in entries[3].message
-            assert "@#$%^&*()" in entries[4].message
-
-            # Test filtering with unicode
-            log_filter = LogFilter()
-            unicode_filtered = log_filter.filter_entries(entries, search_text="🚀")
-            assert len(unicode_filtered) == 1
-            assert "🚀" in unicode_filtered[0].message
+        # Test filtering with unicode
+        log_filter = LogFilter()
+        unicode_filtered = log_filter.filter_entries(entries, search_text="🚀")
+        assert len(unicode_filtered) == 1
+        assert "🚀" in unicode_filtered[0].message
 
     def test_empty_and_whitespace_only_files(self):
         """Test handling of empty or whitespace-only files."""
@@ -246,18 +295,12 @@ class TestLogParsingEdgeCases:
             "   \n  \t  \n  ",  # Mixed whitespace
         ]
 
-        parser = LogParser()
-
         for i, content in enumerate(test_cases):
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
-                f.write(content)
-                f.flush()
+            entries = parse_log_content_helper(content)
 
-                entries = parser.parse_log_file(Path(f.name))
-
-                # Should handle gracefully without errors
-                assert entries == []  # No valid entries
-                assert isinstance(entries, list)
+            # Should handle gracefully without errors
+            assert entries == []  # No valid entries
+            assert isinstance(entries, list)
 
     def test_very_long_individual_log_lines(self):
         """Test handling of extremely long individual log lines."""
@@ -268,18 +311,13 @@ class TestLogParsingEdgeCases:
 2025-07-31T10:00:01.000000 GithubWebhook INFO test-repo [push][hook-2][user]: {long_message}
 2025-07-31T10:00:02.000000 GithubWebhook INFO test-repo [push][hook-3][user]: Another normal message"""
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
-            f.write(long_line_content)
-            f.flush()
+        entries = parse_log_content_helper(long_line_content)
 
-            parser = LogParser()
-            entries = parser.parse_log_file(Path(f.name))
-
-            # Should handle very long lines
-            assert len(entries) == 3
-            assert "Normal message" in entries[0].message
-            assert len(entries[1].message) > 100000  # Very long message
-            assert "Another normal message" in entries[2].message
+        # Should handle very long lines
+        assert len(entries) == 3
+        assert "Normal message" in entries[0].message
+        assert len(entries[1].message) > 100000  # Very long message
+        assert "Another normal message" in entries[2].message
 
 
 class TestFilteringEdgeCases:
