@@ -30,6 +30,9 @@ from webhook_server.libs.github_api import GithubWebhook
 from webhook_server.web.log_viewer import LogViewerController
 from webhook_server.utils.helpers import get_logger_with_params, prepare_log_prefix
 
+# Import for MCP integration
+from fastapi_mcp import FastApiMCP
+
 # Constants
 APP_URL_ROOT_PATH: str = "/webhook_server"
 HTTP_TIMEOUT_SECONDS: float = 10.0
@@ -216,6 +219,33 @@ FASTAPI_APP: FastAPI = FastAPI(title="webhook-server", lifespan=lifespan)
 # Mount static files
 static_files_path = os.path.join(os.path.dirname(__file__), "web", "static")
 FASTAPI_APP.mount("/static", StaticFiles(directory=static_files_path), name="static")
+
+# Create MCP integration if available
+_mcp_instance: FastApiMCP | None = None
+
+
+def create_mcp_safe_app() -> FastAPI:
+    """Create a separate FastAPI app with only API endpoints for MCP exposure.
+
+    This app excludes:
+    - Webhook processing endpoint (for security)
+    - Static files (not needed by AI agents)
+    - HTML pages (AI agents only need API endpoints)
+
+    Returns:
+        FastAPI: App instance with only API endpoints useful for AI agents
+    """
+    # Create a new FastAPI app with minimal config - no lifespan to avoid conflicts
+    mcp_app = FastAPI(
+        title="webhook-server-mcp",
+        description="API endpoints for MCP (excludes webhook processing, static files, and HTML pages)",
+        version="1.0.0",
+    )
+
+    # Note: Static files are NOT mounted to MCP app for security and cleaner API
+    # Static files remain available only on the main app for browser access
+
+    return mcp_app
 
 
 @FASTAPI_APP.get(f"{APP_URL_ROOT_PATH}/healthcheck")
@@ -471,3 +501,121 @@ async def websocket_log_stream(
         github_user=github_user,
         level=level,
     )
+
+
+def setup_mcp_safe_endpoints(mcp_app: FastAPI) -> None:
+    """Add only API endpoints to the MCP app for AI agent consumption.
+
+    Excludes:
+    - Webhook processing endpoint (security)
+    - HTML pages (not needed by AI agents)
+    - WebSocket endpoints (not suitable for MCP)
+    - Static files (not needed by AI agents)
+
+    Args:
+        mcp_app: FastAPI app instance to add endpoints to
+    """
+
+    # Add healthcheck endpoint
+    @mcp_app.get(f"{APP_URL_ROOT_PATH}/healthcheck")
+    def mcp_healthcheck() -> dict[str, Any]:
+        """Health check endpoint for MCP."""
+        return {"status": requests.codes.ok, "message": "Alive (MCP)"}
+
+    # Add log viewer API endpoints (excluding HTML page)
+    @mcp_app.get("/logs/api/entries")
+    def mcp_get_log_entries(
+        hook_id: str | None = None,
+        pr_number: int | None = None,
+        repository: str | None = None,
+        event_type: str | None = None,
+        github_user: str | None = None,
+        level: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        search: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+        controller: LogViewerController = controller_dependency,
+    ) -> dict[str, Any]:
+        """Retrieve historical log entries with filtering and pagination via MCP."""
+        start_datetime = parse_datetime_string(start_time, "start_time")
+        end_datetime = parse_datetime_string(end_time, "end_time")
+
+        return controller.get_log_entries(
+            hook_id=hook_id,
+            pr_number=pr_number,
+            repository=repository,
+            event_type=event_type,
+            github_user=github_user,
+            level=level,
+            start_time=start_datetime,
+            end_time=end_datetime,
+            search=search,
+            limit=limit,
+            offset=offset,
+        )
+
+    @mcp_app.get("/logs/api/export")
+    def mcp_export_logs(
+        format_type: str,
+        hook_id: str | None = None,
+        pr_number: int | None = None,
+        repository: str | None = None,
+        event_type: str | None = None,
+        github_user: str | None = None,
+        level: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        search: str | None = None,
+        limit: int = 10000,
+        controller: LogViewerController = controller_dependency,
+    ) -> StreamingResponse:
+        """Export filtered logs as JSON file via MCP."""
+        start_datetime = parse_datetime_string(start_time, "start_time")
+        end_datetime = parse_datetime_string(end_time, "end_time")
+
+        return controller.export_logs(
+            format_type=format_type,
+            hook_id=hook_id,
+            pr_number=pr_number,
+            repository=repository,
+            event_type=event_type,
+            github_user=github_user,
+            level=level,
+            start_time=start_datetime,
+            end_time=end_datetime,
+            search=search,
+            limit=limit,
+        )
+
+    @mcp_app.get("/logs/api/pr-flow/{hook_id}")
+    def mcp_get_pr_flow_data(hook_id: str, controller: LogViewerController = controller_dependency) -> dict[str, Any]:
+        """Get PR flow visualization data for a specific hook ID via MCP."""
+        return controller.get_pr_flow_data(hook_id)
+
+    @mcp_app.get("/logs/api/workflow-steps/{hook_id}")
+    def mcp_get_workflow_steps(hook_id: str, controller: LogViewerController = controller_dependency) -> dict[str, Any]:
+        """Get workflow step timeline data for a specific hook ID via MCP."""
+        return controller.get_workflow_steps(hook_id)
+
+    # Note: HTML pages, WebSocket endpoints, and static files are excluded from MCP
+
+
+# Initialize MCP integration
+try:
+    # Create the safe MCP app
+    mcp_safe_app = create_mcp_safe_app()
+    setup_mcp_safe_endpoints(mcp_safe_app)
+
+    # Initialize MCP with the safe app
+    _mcp_instance = FastApiMCP(mcp_safe_app)
+    _mcp_instance.mount()
+
+    # Mount the MCP-enabled safe app to the main app
+    FASTAPI_APP.mount("/mcp", mcp_safe_app, name="mcp")
+
+    LOGGER.info("MCP integration initialized successfully (webhook endpoint excluded)")
+except Exception as e:
+    LOGGER.error(f"Failed to initialize MCP integration: {e}")
+    _mcp_instance = None

@@ -973,6 +973,125 @@ The memory optimization work has achieved:
 - **Constant memory footprint** regardless of log file size
 - **Real-time streaming** with <100ms latency for new log entries
 
+## AI Agent Integration (MCP)
+
+The webhook server includes **Model Context Protocol (MCP)** integration, enabling AI agents to interact with webhook logs and monitoring data programmatically. This feature allows intelligent automation and analysis of your GitHub webhook processing workflows.
+
+### 🤖 MCP Features
+
+- **Real-time Log Analysis**: AI agents can query, filter, and analyze webhook processing logs
+- **System Monitoring**: Access to health status and system metrics  
+- **Workflow Analysis**: Programmatic access to PR flow visualization and timing data
+- **Secure Architecture**: Only safe, read-only endpoints exposed to AI agents
+- **Intelligent Troubleshooting**: AI-powered error pattern recognition and debugging assistance
+
+### 🔒 Security Design
+
+The MCP integration follows a **security-first approach** with strict endpoint isolation:
+
+- ✅ **Webhook Processing Protected**: The core `/webhook_server` endpoint is **NOT** exposed to AI agents
+- ✅ **Read-Only Access**: Only monitoring and log analysis endpoints are available
+- ✅ **No Static Files**: CSS/JS assets excluded from MCP interface for security
+- ✅ **API-Only**: Clean, focused interface designed specifically for AI operations
+- ✅ **Dual-App Architecture**: MCP runs on a separate FastAPI app instance for isolation
+
+### 📡 Available MCP Endpoints
+
+| Endpoint | Description | Use Case |
+|----------|-------------|----------|
+| `/webhook_server/healthcheck` | Server health status | System monitoring and uptime checks |
+| `/logs/api/entries` | Historical log data with filtering | Log analysis and debugging |
+| `/logs/api/export` | Log export functionality | Data analysis and reporting |
+| `/logs/api/pr-flow/{identifier}` | PR flow visualization data | Workflow analysis and timing |
+| `/logs/api/workflow-steps/{identifier}` | Workflow timeline data | Performance analysis |
+
+### 🚀 AI Agent Capabilities
+
+With MCP integration, AI agents can:
+
+- **Monitor webhook health** and processing status in real-time
+- **Analyze error patterns** and provide intelligent troubleshooting recommendations
+- **Track PR workflows** and identify performance bottlenecks
+- **Generate comprehensive reports** on repository automation performance
+- **Provide intelligent alerts** for system anomalies and failures
+- **Query logs naturally** using plain English questions
+- **Export filtered data** for further analysis and reporting
+
+### 🔧 MCP Server Configuration
+
+The MCP server is automatically available at:
+
+```url
+http://your-server:5000/mcp
+```
+
+**For Claude Desktop Integration**, add to your MCP settings:
+
+```json
+{
+  "mcpServers": {
+    "github-webhook-server": {
+      "command": "uvx",
+      "args": ["mcp-server-fetch", "--proxy-url", "http://your-server:5000/mcp"]
+    }
+  }
+}
+```
+
+**Alternative Configuration** (if using local mcp-server-fetch):
+
+```json
+{
+  "mcpServers": {
+    "github-webhook-server-logs": {
+      "command": "mcp-server-fetch",
+      "args": ["--proxy-url", "http://192.168.10.44:5003/mcp"],
+      "env": {
+        "MCP_FETCH_TIMEOUT": "30"
+      }
+    }
+  }
+}
+```
+
+### 💡 Example AI Queries
+
+Once configured, you can ask AI agents natural language questions:
+
+- *"Show me recent webhook errors from the last hour"*
+- *"What's the current health status of my webhook server?"*
+- *"Analyze the processing time for PR #123 and identify bottlenecks"*
+- *"Find all webhook failures for repository myorg/myrepo today"*
+- *"Export error logs from the last 24 hours for analysis"*
+- *"Compare processing times between successful and failed webhooks"*
+- *"Show me memory usage patterns in recent webhook processing"*
+
+### 🎯 Use Cases
+
+**Development Teams:**
+- **Automated troubleshooting** with AI-powered error analysis and recommendations
+- **Performance monitoring** with intelligent pattern recognition
+- **Proactive alerting** for webhook processing issues before they impact workflows
+
+**DevOps Engineers:**
+- **Infrastructure monitoring** with real-time health checks and status reporting
+- **Automated incident response** with AI-driven root cause analysis
+- **Capacity planning** through historical performance data analysis
+
+**Repository Maintainers:**
+- **PR workflow optimization** by identifying and resolving processing bottlenecks
+- **Community contribution monitoring** with automated quality metrics
+- **Automated quality assurance** reporting and trend analysis
+
+### 🔧 Technical Implementation
+
+The MCP integration is built using the `fastapi-mcp` library and provides:
+
+- **Automatic endpoint discovery**: AI agents can explore available endpoints
+- **Structured responses**: All data returned in consistent, parseable formats
+- **Error handling**: Graceful error responses with helpful debugging information
+- **Performance optimization**: Efficient data access patterns for AI processing
+
 ## User Commands
 
 Users can interact with the webhook server through GitHub comments on pull requests and issues.
@@ -1220,6 +1339,16 @@ scrape_configs:
 1. **Verify Podman/Docker availability** in container
 2. **Check registry credentials** and permissions
 3. **Review build logs** in check run output
+
+#### Podman Runtime Issues
+
+**Boot ID Mismatch Errors** (after system reboots):
+
+1. **Automatic cleanup** - Built-in cleanup runs on container start
+2. **Manual fix** - `sudo rm -rf /tmp/storage-run-1000/*`
+3. **Prevention** - See [Podman Troubleshooting Guide](docs/PODMAN_TROUBLESHOOTING.md)
+
+The webhook server includes automatic Podman runtime directory cleanup to prevent these issues.
 
 ### Debug Mode
 
