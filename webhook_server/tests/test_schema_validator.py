@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Union
 
 import yaml  # type: ignore
+from simple_logger.logger import get_logger
 
 
 class ConfigValidator:
@@ -246,18 +247,20 @@ def validate_config_file(config_path: Union[str, Path]) -> bool:
         with open(config_path, "r") as file_handle:
             config_data = yaml.safe_load(file_handle)
     except Exception as exception:
-        print(f"Error loading config file: {exception}")
+        logger = get_logger(name="test_schema_validator")
+        logger.error(f"Error loading config file: {exception}")
         return False
 
     validator = ConfigValidator()
     is_valid = validator.validate_config(config_data)
 
+    logger = get_logger(name="test_schema_validator")
     if not is_valid:
-        print("Configuration validation failed:")
+        logger.error("Configuration validation failed:")
         for error in validator.errors:
-            print(f"  - {error}")
+            logger.error(f"  - {error}")
     else:
-        print("Configuration is valid!")
+        logger.info("Configuration is valid!")
 
     return is_valid
 
@@ -265,13 +268,15 @@ def validate_config_file(config_path: Union[str, Path]) -> bool:
 def main() -> int:
     """Main entry point for command-line usage."""
     if len(sys.argv) != 2:
-        print("Usage: python test_schema_validator.py <config_file_path>")
+        logger = get_logger(name="test_schema_validator")
+        logger.error("Usage: python test_schema_validator.py <config_file_path>")
         return 1
 
     config_path = sys.argv[1]
 
     if not Path(config_path).exists():
-        print(f"Error: Config file '{config_path}' does not exist")
+        logger = get_logger(name="test_schema_validator")
+        logger.error(f"Error: Config file '{config_path}' does not exist")
         return 1
 
     is_valid = validate_config_file(config_path)

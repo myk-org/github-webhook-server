@@ -1,11 +1,11 @@
 """Tests for frontend performance optimizations in log viewer."""
 
 import datetime
-import logging
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from simple_logger.logger import get_logger
 
 from webhook_server.libs.log_parser import LogEntry
 from webhook_server.web.log_viewer import LogViewerController
@@ -17,7 +17,7 @@ class TestFrontendPerformanceOptimizations:
     @pytest.fixture
     def controller(self):
         """Create a LogViewerController instance for testing."""
-        logger = logging.getLogger("test")
+        logger = get_logger(name="test")
         return LogViewerController(logger=logger)
 
     @pytest.fixture

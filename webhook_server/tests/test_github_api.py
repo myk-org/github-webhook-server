@@ -1,11 +1,11 @@
 import asyncio
-import logging
 import os
 import tempfile
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from simple_logger.logger import get_logger
 from starlette.datastructures import Headers
 
 from webhook_server.libs.exceptions import RepositoryNotFoundError
@@ -70,8 +70,8 @@ class TestGithubWebhook:
         return {"X-GitHub-Event": "pull_request", "X-GitHub-Delivery": "abc"}
 
     @pytest.fixture
-    def logger(self) -> logging.Logger:
-        return logging.getLogger("test")
+    def logger(self):
+        return get_logger(name="test")
 
     @patch("webhook_server.libs.github_api.Config")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")

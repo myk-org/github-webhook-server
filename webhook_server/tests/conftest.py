@@ -2,7 +2,6 @@ import os
 
 import pytest
 import yaml
-from simple_logger.logger import logging
 from starlette.datastructures import Headers
 
 from webhook_server.libs.owners_files_handler import OwnersFileHandler
@@ -122,10 +121,16 @@ def github_webhook(mocker, request):
     mocker.patch(f"{base_import_path}.get_github_repo_api", return_value=Repository())
     mocker.patch(f"{base_import_path}.GithubWebhook.add_api_users_to_auto_verified_and_merged_users", return_value=None)
 
+    # Use standard Python logger for caplog compatibility
+    import logging as python_logging
+
+    test_logger = python_logging.getLogger("GithubWebhook")
+    test_logger.setLevel(python_logging.DEBUG)
+
     process_github_webhook = GithubWebhook(
         hook_data={"repository": {"name": Repository().name, "full_name": Repository().full_name}},
         headers=Headers({"X-GitHub-Event": "test-event"}),
-        logger=logging.getLogger(),
+        logger=test_logger,
     )
     owners_file_handler = OwnersFileHandler(github_webhook=process_github_webhook)
 

@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 from fastapi import HTTPException
+from simple_logger.logger import get_logger
 
 try:
     import psutil
@@ -149,7 +150,8 @@ class TestLogParsingEdgeCases:
                             break
                 except Exception as e:
                     # Handle file rotation gracefully
-                    print(f"Monitoring exception (expected): {e}")
+                    logger = get_logger(name="test")
+                    logger.debug(f"Monitoring exception (expected): {e}")
 
             async def simulate_rotation():
                 await asyncio.sleep(0.01)  # Reduced from 0.1 to 0.01

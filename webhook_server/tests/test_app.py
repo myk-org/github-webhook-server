@@ -597,16 +597,20 @@ class TestWebhookApp:
         from webhook_server import app as app_module
 
         # The static_files_path should point to webhook_server/web/static
-        expected_components = ["webhook_server", "web", "static"]
+        expected_suffix = os.path.join("webhook_server", "web", "static")
         actual_path = app_module.static_files_path
 
-        # Check that the path ends with the expected components
-        for component in reversed(expected_components):
-            assert actual_path.endswith(component) or component in actual_path.split(os.sep)
+        # Check that the path contains the expected directory structure
+        # Convert to string and normalize path separators for comparison
+        actual_path_str = str(actual_path)
+        assert actual_path_str.endswith(expected_suffix) or expected_suffix.replace(
+            os.sep, "/"
+        ) in actual_path_str.replace(os.sep, "/")
 
-        # In a normal setup, this path should exist
-        # (We won't assert this since it could be missing in some test environments)
-        print(f"Static files path: {actual_path}")
+        # Verify path structure makes sense
+        assert "webhook_server" in actual_path_str
+        assert "web" in actual_path_str
+        assert "static" in actual_path_str
 
     @patch("webhook_server.app.os.path.exists")
     @patch("webhook_server.app.os.path.isdir")
