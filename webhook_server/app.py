@@ -398,8 +398,8 @@ def get_log_viewer_page(controller: LogViewerController = controller_dependency)
     return controller.get_log_page()
 
 
-@FASTAPI_APP.get("/logs/api/entries")
-def get_log_entries(
+async def _get_log_entries_core(
+    controller: LogViewerController,
     hook_id: str | None = None,
     pr_number: int | None = None,
     repository: str | None = None,
@@ -411,9 +411,8 @@ def get_log_entries(
     search: str | None = None,
     limit: int = 100,
     offset: int = 0,
-    controller: LogViewerController = controller_dependency,
 ) -> dict[str, Any]:
-    """Retrieve historical log entries with filtering and pagination."""
+    """Core logic for retrieving historical log entries with filtering and pagination."""
     # Parse datetime strings using helper function
     start_datetime = parse_datetime_string(start_time, "start_time")
     end_datetime = parse_datetime_string(end_time, "end_time")
@@ -433,8 +432,40 @@ def get_log_entries(
     )
 
 
-@FASTAPI_APP.get("/logs/api/export")
-def export_logs(
+@FASTAPI_APP.get("/logs/api/entries")
+async def get_log_entries(
+    hook_id: str | None = None,
+    pr_number: int | None = None,
+    repository: str | None = None,
+    event_type: str | None = None,
+    github_user: str | None = None,
+    level: str | None = None,
+    start_time: str | None = None,
+    end_time: str | None = None,
+    search: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+    controller: LogViewerController = controller_dependency,
+) -> dict[str, Any]:
+    """Retrieve historical log entries with filtering and pagination."""
+    return await _get_log_entries_core(
+        controller=controller,
+        hook_id=hook_id,
+        pr_number=pr_number,
+        repository=repository,
+        event_type=event_type,
+        github_user=github_user,
+        level=level,
+        start_time=start_time,
+        end_time=end_time,
+        search=search,
+        limit=limit,
+        offset=offset,
+    )
+
+
+async def _export_logs_core(
+    controller: LogViewerController,
     format_type: str,
     hook_id: str | None = None,
     pr_number: int | None = None,
@@ -446,9 +477,8 @@ def export_logs(
     end_time: str | None = None,
     search: str | None = None,
     limit: int = 10000,
-    controller: LogViewerController = controller_dependency,
 ) -> StreamingResponse:
-    """Export filtered logs as JSON file."""
+    """Core logic for exporting filtered logs as file."""
     # Parse datetime strings using helper function
     start_datetime = parse_datetime_string(start_time, "start_time")
     end_datetime = parse_datetime_string(end_time, "end_time")
@@ -468,16 +498,64 @@ def export_logs(
     )
 
 
-@FASTAPI_APP.get("/logs/api/pr-flow/{hook_id}")
-def get_pr_flow_data(hook_id: str, controller: LogViewerController = controller_dependency) -> dict[str, Any]:
-    """Get PR flow visualization data for a specific hook ID or PR number."""
+@FASTAPI_APP.get("/logs/api/export")
+async def export_logs(
+    format_type: str,
+    hook_id: str | None = None,
+    pr_number: int | None = None,
+    repository: str | None = None,
+    event_type: str | None = None,
+    github_user: str | None = None,
+    level: str | None = None,
+    start_time: str | None = None,
+    end_time: str | None = None,
+    search: str | None = None,
+    limit: int = 10000,
+    controller: LogViewerController = controller_dependency,
+) -> StreamingResponse:
+    """Export filtered logs as JSON file."""
+    return await _export_logs_core(
+        controller=controller,
+        format_type=format_type,
+        hook_id=hook_id,
+        pr_number=pr_number,
+        repository=repository,
+        event_type=event_type,
+        github_user=github_user,
+        level=level,
+        start_time=start_time,
+        end_time=end_time,
+        search=search,
+        limit=limit,
+    )
+
+
+async def _get_pr_flow_data_core(
+    controller: LogViewerController,
+    hook_id: str,
+) -> dict[str, Any]:
+    """Core logic for getting PR flow visualization data for a specific hook ID."""
     return controller.get_pr_flow_data(hook_id)
 
 
-@FASTAPI_APP.get("/logs/api/workflow-steps/{hook_id}")
-def get_workflow_steps(hook_id: str, controller: LogViewerController = controller_dependency) -> dict[str, Any]:
-    """Get workflow step timeline data for a specific hook ID."""
+@FASTAPI_APP.get("/logs/api/pr-flow/{hook_id}")
+async def get_pr_flow_data(hook_id: str, controller: LogViewerController = controller_dependency) -> dict[str, Any]:
+    """Get PR flow visualization data for a specific hook ID or PR number."""
+    return await _get_pr_flow_data_core(controller=controller, hook_id=hook_id)
+
+
+async def _get_workflow_steps_core(
+    controller: LogViewerController,
+    hook_id: str,
+) -> dict[str, Any]:
+    """Core logic for getting workflow step timeline data for a specific hook ID."""
     return controller.get_workflow_steps(hook_id)
+
+
+@FASTAPI_APP.get("/logs/api/workflow-steps/{hook_id}")
+async def get_workflow_steps(hook_id: str, controller: LogViewerController = controller_dependency) -> dict[str, Any]:
+    """Get workflow step timeline data for a specific hook ID."""
+    return await _get_workflow_steps_core(controller=controller, hook_id=hook_id)
 
 
 @FASTAPI_APP.websocket("/logs/ws")
@@ -524,7 +602,7 @@ def setup_mcp_safe_endpoints(mcp_app: FastAPI) -> None:
 
     # Add log viewer API endpoints (excluding HTML page)
     @mcp_app.get("/logs/api/entries")
-    def mcp_get_log_entries(
+    async def mcp_get_log_entries(
         hook_id: str | None = None,
         pr_number: int | None = None,
         repository: str | None = None,
@@ -539,25 +617,23 @@ def setup_mcp_safe_endpoints(mcp_app: FastAPI) -> None:
         controller: LogViewerController = controller_dependency,
     ) -> dict[str, Any]:
         """Retrieve historical log entries with filtering and pagination via MCP."""
-        start_datetime = parse_datetime_string(start_time, "start_time")
-        end_datetime = parse_datetime_string(end_time, "end_time")
-
-        return controller.get_log_entries(
+        return await _get_log_entries_core(
+            controller=controller,
             hook_id=hook_id,
             pr_number=pr_number,
             repository=repository,
             event_type=event_type,
             github_user=github_user,
             level=level,
-            start_time=start_datetime,
-            end_time=end_datetime,
+            start_time=start_time,
+            end_time=end_time,
             search=search,
             limit=limit,
             offset=offset,
         )
 
     @mcp_app.get("/logs/api/export")
-    def mcp_export_logs(
+    async def mcp_export_logs(
         format_type: str,
         hook_id: str | None = None,
         pr_number: int | None = None,
@@ -572,10 +648,8 @@ def setup_mcp_safe_endpoints(mcp_app: FastAPI) -> None:
         controller: LogViewerController = controller_dependency,
     ) -> StreamingResponse:
         """Export filtered logs as JSON file via MCP."""
-        start_datetime = parse_datetime_string(start_time, "start_time")
-        end_datetime = parse_datetime_string(end_time, "end_time")
-
-        return controller.export_logs(
+        return await _export_logs_core(
+            controller=controller,
             format_type=format_type,
             hook_id=hook_id,
             pr_number=pr_number,
@@ -583,21 +657,25 @@ def setup_mcp_safe_endpoints(mcp_app: FastAPI) -> None:
             event_type=event_type,
             github_user=github_user,
             level=level,
-            start_time=start_datetime,
-            end_time=end_datetime,
+            start_time=start_time,
+            end_time=end_time,
             search=search,
             limit=limit,
         )
 
     @mcp_app.get("/logs/api/pr-flow/{hook_id}")
-    def mcp_get_pr_flow_data(hook_id: str, controller: LogViewerController = controller_dependency) -> dict[str, Any]:
+    async def mcp_get_pr_flow_data(
+        hook_id: str, controller: LogViewerController = controller_dependency
+    ) -> dict[str, Any]:
         """Get PR flow visualization data for a specific hook ID via MCP."""
-        return controller.get_pr_flow_data(hook_id)
+        return await _get_pr_flow_data_core(controller=controller, hook_id=hook_id)
 
     @mcp_app.get("/logs/api/workflow-steps/{hook_id}")
-    def mcp_get_workflow_steps(hook_id: str, controller: LogViewerController = controller_dependency) -> dict[str, Any]:
+    async def mcp_get_workflow_steps(
+        hook_id: str, controller: LogViewerController = controller_dependency
+    ) -> dict[str, Any]:
         """Get workflow step timeline data for a specific hook ID via MCP."""
-        return controller.get_workflow_steps(hook_id)
+        return await _get_workflow_steps_core(controller=controller, hook_id=hook_id)
 
     # Note: HTML pages, WebSocket endpoints, and static files are excluded from MCP
 

@@ -5,10 +5,11 @@ This document provides solutions for common Podman runtime directory issues, par
 ## 🚨 Problem Description
 
 **Error Symptoms:**
+
 - Registry authentication failing after system reboot
 - "Boot ID mismatch" errors in Podman logs
 - Container startup failures related to runtime directories
-- Need to manually delete `/tmp/storage-run-1000/containers` and `/tmp/storage-run-1000/libpod/tmp`
+- Need to manually delete `/tmp/storage-run-${UID}/containers` and `/tmp/storage-run-${UID}/libpod/tmp`
 
 **Root Cause:**
 Podman creates runtime directories in `/tmp/storage-run-*` that reference the system's boot session. After a reboot, these directories become stale because they still reference the old boot ID, causing authentication and runtime failures.
@@ -25,8 +26,9 @@ The webhook server now includes automatic Podman runtime cleanup that runs on ev
 ```
 
 **What it does:**
+
 - ✅ Detects stale runtime directories
-- ✅ Safely removes `/tmp/storage-run-1000/*` paths
+- ✅ Safely removes `/tmp/storage-run-${UID}/*` paths
 - ✅ Reinitializes Podman storage
 - ✅ Provides detailed logging of cleanup actions
 
@@ -39,8 +41,8 @@ services:
   github-webhook-server:
     # ... other config ...
     volumes:
-      - "/tmp/podman-storage-${USER:-1000}:/tmp/storage-run-1000"
-    command: sh -c 'rm -rf /tmp/storage-run-1000/* 2>/dev/null || true && exec uv run entrypoint.py'
+      - "/tmp/podman-storage-${USER:-1000}:/tmp/storage-run-${USER:-1000}"
+    command: sh -c 'rm -rf /tmp/storage-run-${USER:-1000}/* 2>/dev/null || true && exec uv run entrypoint.py'
 ```
 
 ## 🛠️ Manual Solutions
@@ -53,11 +55,12 @@ If you encounter the issue right now:
 # Stop the container
 docker-compose down
 
-# Clean up stale directories
-sudo rm -rf /tmp/storage-run-1000/containers
-sudo rm -rf /tmp/storage-run-1000/libpod/tmp
-sudo rm -rf /tmp/storage-run-1000/libpod
-sudo rm -rf /tmp/storage-run-1000
+# Clean up stale directories (replace 1000 with your actual UID)
+export PODMAN_UID=${UID:-1000}
+sudo rm -rf /tmp/storage-run-${PODMAN_UID}/containers
+sudo rm -rf /tmp/storage-run-${PODMAN_UID}/libpod/tmp
+sudo rm -rf /tmp/storage-run-${PODMAN_UID}/libpod
+sudo rm -rf /tmp/storage-run-${PODMAN_UID}
 
 # Restart the container
 docker-compose up -d
@@ -145,7 +148,7 @@ Mount Podman storage to a persistent location:
 ```yaml
 volumes:
   - "./podman-storage:/home/podman/.local/share/containers"
-  - "./podman-tmp:/tmp/storage-run-1000"
+  - "./podman-tmp:/tmp/storage-run-${USER:-1000}"
 ```
 
 ### 2. Init Container Pattern
@@ -158,7 +161,7 @@ services:
     image: alpine:latest
     command: sh -c 'rm -rf /tmp/cleanup/* && echo "Cleanup completed"'
     volumes:
-      - "/tmp/storage-run-1000:/tmp/cleanup"
+      - "/tmp/storage-run-${USER:-1000}:/tmp/cleanup"
 
   github-webhook-server:
     depends_on:
@@ -219,11 +222,12 @@ chmod +x scripts/podman-cleanup.sh
 ### Permission Issues
 
 ```bash
-# Fix ownership if needed
-sudo chown -R 1000:1000 /tmp/storage-run-1000
+# Fix ownership if needed (replace 1000 with your actual UID)
+export PODMAN_UID=${UID:-1000}
+sudo chown -R ${PODMAN_UID}:${PODMAN_UID} /tmp/storage-run-${PODMAN_UID}
 
 # Check SELinux context (if applicable)
-ls -Z /tmp/storage-run-1000
+ls -Z /tmp/storage-run-${PODMAN_UID}
 ```
 
 ### Container Won't Start

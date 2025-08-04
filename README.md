@@ -3,7 +3,8 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Python](https://img.shields.io/badge/Python-3.12+-3776ab?logo=python&logoColor=white)](https://python.org)
 
-A comprehensive [FastAPI-based](https://fastapi.tiangolo.com) webhook server for automating GitHub repository management and pull request workflows.
+A comprehensive [FastAPI-based](https://fastapi.tiangolo.com) webhook server for automating GitHub repository
+management and pull request workflows.
 
 ## Table of Contents
 
@@ -28,7 +29,9 @@ A comprehensive [FastAPI-based](https://fastapi.tiangolo.com) webhook server for
 
 ## Overview
 
-GitHub Webhook Server is an enterprise-grade automation platform that streamlines GitHub repository management through intelligent webhook processing. It provides comprehensive pull request workflow automation, branch protection management, and seamless CI/CD integration.
+GitHub Webhook Server is an enterprise-grade automation platform that streamlines GitHub repository management
+through intelligent webhook processing. It provides comprehensive pull request workflow automation,
+branch protection management, and seamless CI/CD integration.
 
 ### Architecture
 
@@ -388,7 +391,8 @@ server re-reads configuration for each incoming webhook event.
 
 ### Repository-Level Overrides
 
-Create `.github-webhook-server.yaml` in your repository root to override or extend the global configuration for that specific repository. This file supports all repository-level configuration options.
+Create `.github-webhook-server.yaml` in your repository root to override or extend the global configuration
+for that specific repository. This file supports all repository-level configuration options.
 
 **Simple Example:**
 
@@ -418,7 +422,8 @@ pr-size-thresholds:
     color: orange
 ```
 
-For a comprehensive example showing all available options, see [`examples/.github-webhook-server.yaml`](examples/.github-webhook-server.yaml).
+For a comprehensive example showing all available options, see
+[`examples/.github-webhook-server.yaml`](examples/.github-webhook-server.yaml).
 
 **Key Benefits:**
 
@@ -975,7 +980,9 @@ The memory optimization work has achieved:
 
 ## AI Agent Integration (MCP)
 
-The webhook server includes **Model Context Protocol (MCP)** integration, enabling AI agents to interact with webhook logs and monitoring data programmatically. This feature allows intelligent automation and analysis of your GitHub webhook processing workflows.
+The webhook server includes **Model Context Protocol (MCP)** integration, enabling AI agents to interact with
+webhook logs and monitoring data programmatically. This feature allows intelligent automation and analysis
+of your GitHub webhook processing workflows.
 
 ### 🤖 MCP Features
 
@@ -999,11 +1006,13 @@ The MCP integration follows a **security-first approach** with strict endpoint i
 
 | Endpoint | Description | Use Case |
 |----------|-------------|----------|
-| `/webhook_server/healthcheck` | Server health status | System monitoring and uptime checks |
-| `/logs/api/entries` | Historical log data with filtering | Log analysis and debugging |
-| `/logs/api/export` | Log export functionality | Data analysis and reporting |
-| `/logs/api/pr-flow/{identifier}` | PR flow visualization data | Workflow analysis and timing |
-| `/logs/api/workflow-steps/{identifier}` | Workflow timeline data | Performance analysis |
+| `/mcp/webhook_server/healthcheck` | Server health status | System monitoring and uptime checks |
+| `/mcp/logs/api/entries` | Historical log data with filtering | Log analysis and debugging |
+| `/mcp/logs/api/export` | Log export functionality | Data analysis and reporting |
+| `/mcp/logs/api/pr-flow/{identifier}` | PR flow visualization data | Workflow analysis and timing |
+| `/mcp/logs/api/workflow-steps/{identifier}` | Workflow timeline data | Performance analysis |
+
+**Note:** All MCP endpoints are proxied under the `/mcp` mount point. The MCP server creates a separate FastAPI app instance that duplicates the core API endpoints while excluding webhook processing, static files, and HTML pages for security.
 
 ### 🚀 AI Agent Capabilities
 
@@ -1345,7 +1354,7 @@ scrape_configs:
 **Boot ID Mismatch Errors** (after system reboots):
 
 1. **Automatic cleanup** - Built-in cleanup runs on container start
-2. **Manual fix** - `sudo rm -rf /tmp/storage-run-1000/*`
+2. **Manual fix** - `sudo rm -rf /tmp/storage-run-${UID:-1000}/*`
 3. **Prevention** - See [Podman Troubleshooting Guide](docs/PODMAN_TROUBLESHOOTING.md)
 
 The webhook server includes automatic Podman runtime directory cleanup to prevent these issues.

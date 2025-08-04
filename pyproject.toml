@@ -77,7 +77,7 @@ dependencies = [
   "pyjwt>=2.8.0",
   "pydantic>=2.5.0",
   "psutil>=7.0.0",
-  "fastapi-mcp>=0.3.0",
+  "fastapi-mcp>=0.4.0",
 ]
 
 [[project.authors]]

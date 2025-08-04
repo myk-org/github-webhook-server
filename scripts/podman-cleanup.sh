@@ -28,7 +28,7 @@ if [[ "$cleanup_needed" = true ]]; then
     for path in "${CLEANUP_PATHS[@]}"; do
         if [[ -d "$path" ]]; then
             echo "   Removing: $path"
-            rm -rf "$path" 2>/dev/null || {
+            rm -rf "$path" || {
                 echo "   ⚠️  Warning: Could not remove $path (may not exist or permission issue)"
             }
         fi
@@ -38,9 +38,19 @@ else
     echo "✅ No cleanup needed - runtime directories are clean"
 fi
 
-# Ensure Podman storage is properly initialized
-echo "🔧 Initializing Podman storage..."
-podman system reset --force 2>/dev/null || true
+# Clean up stale Podman resources without destroying everything
+echo "🔧 Cleaning stale Podman resources..."
+# Remove stopped containers
+podman container prune --force 2>/dev/null || true
+# Remove dangling images (untagged images not used by any container)
+podman image prune --force 2>/dev/null || true
+# Remove unused volumes not attached to any container
+podman volume prune --force 2>/dev/null || true
+# Remove unused networks (excluding default networks)
+podman network prune --force 2>/dev/null || true
+
+# Verify Podman storage is accessible
+echo "🔍 Verifying Podman storage accessibility..."
 podman info --format='{{.Store.GraphRoot}}' > /dev/null 2>&1 || true
 
 echo "🚀 Podman runtime is ready"

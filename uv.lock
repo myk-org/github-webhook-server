@@ -456,7 +456,7 @@ requires-dist = [
     { name = "colorama", specifier = ">=0.4.6" },
     { name = "colorlog", specifier = ">=6.8.2" },
     { name = "fastapi", specifier = ">=0.115.0" },
-    { name = "fastapi-mcp", specifier = ">=0.3.0" },
+    { name = "fastapi-mcp", specifier = ">=0.4.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "psutil", specifier = ">=7.0.0" },
     { name = "pydantic", specifier = ">=2.5.0" },
