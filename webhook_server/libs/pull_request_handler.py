@@ -58,6 +58,7 @@ class PullRequestHandler:
 
     async def process_pull_request_webhook_data(self, pull_request: PullRequest) -> None:
         hook_action: str = self.hook_data["action"]
+        self.logger.step(f"{self.log_prefix} Starting pull request processing: action={hook_action}")  # type: ignore
         self.logger.info(f"{self.log_prefix} hook_action is: {hook_action}")
         self.logger.debug(f"{self.log_prefix} pull_request: {pull_request.title} ({pull_request.number})")
 
@@ -70,6 +71,7 @@ class PullRequestHandler:
                 await self.runner_handler.run_conventional_title_check(pull_request=pull_request)
 
         if hook_action in ("opened", "reopened", "ready_for_review"):
+            self.logger.step(f"{self.log_prefix} Processing PR {hook_action} event: initializing new pull request")  # type: ignore
             tasks: list[Coroutine[Any, Any, Any]] = []
 
             if hook_action in ("opened", "ready_for_review"):
@@ -89,6 +91,7 @@ class PullRequestHandler:
             await self.set_pull_request_automerge(pull_request=pull_request)
 
         if hook_action == "synchronize":
+            self.logger.step(f"{self.log_prefix} Processing PR synchronize event: handling new commits")  # type: ignore
             sync_tasks: list[Coroutine[Any, Any, Any]] = []
 
             sync_tasks.append(self.process_opened_or_synchronize_pull_request(pull_request=pull_request))
@@ -101,9 +104,11 @@ class PullRequestHandler:
                     self.logger.error(f"{self.log_prefix} Async task failed: {result}")
 
         if hook_action == "closed":
+            self.logger.step(f"{self.log_prefix} Processing PR closed event: cleaning up resources")  # type: ignore
             await self.close_issue_for_merged_or_closed_pr(pull_request=pull_request, hook_action=hook_action)
             await self.delete_remote_tag_for_merged_or_closed_pr(pull_request=pull_request)
             if is_merged := pull_request_data.get("merged", False):
+                self.logger.step(f"{self.log_prefix} PR was merged: processing post-merge tasks")  # type: ignore
                 self.logger.info(f"{self.log_prefix} PR is merged")
 
                 for _label in pull_request.labels:
@@ -128,6 +133,8 @@ class PullRequestHandler:
             action_labeled = hook_action == "labeled"
             labeled = self.hook_data["label"]["name"]
             labeled_lower = labeled.lower()
+
+            self.logger.step(f"{self.log_prefix} Processing label {hook_action} event: {labeled}")  # type: ignore
 
             if labeled_lower == CAN_BE_MERGED_STR:
                 return
@@ -414,39 +421,61 @@ For more information, please refer to the project documentation or contact the m
                 break
 
     async def process_opened_or_synchronize_pull_request(self, pull_request: PullRequest) -> None:
-        tasks: list[Coroutine[Any, Any, Any]] = []
+        self.logger.step(f"{self.log_prefix} Starting PR processing workflow")  # type: ignore
 
-        tasks.append(self.owners_file_handler.assign_reviewers(pull_request=pull_request))
-        tasks.append(
+        # Stage 1: Initial setup and check queue tasks
+        self.logger.step(f"{self.log_prefix} Stage: Initial setup and check queuing")  # type: ignore
+        setup_tasks: list[Coroutine[Any, Any, Any]] = []
+
+        setup_tasks.append(self.owners_file_handler.assign_reviewers(pull_request=pull_request))
+        setup_tasks.append(
             self.labels_handler._add_label(
                 pull_request=pull_request,
                 label=f"{BRANCH_LABEL_PREFIX}{pull_request.base.ref}",
             )
         )
-        tasks.append(self.label_pull_request_by_merge_state(pull_request=pull_request))
-        tasks.append(self.check_run_handler.set_merge_check_queued())
-        tasks.append(self.check_run_handler.set_run_tox_check_queued())
-        tasks.append(self.check_run_handler.set_run_pre_commit_check_queued())
-        tasks.append(self.check_run_handler.set_python_module_install_queued())
-        tasks.append(self.check_run_handler.set_container_build_queued())
-        tasks.append(self._process_verified_for_update_or_new_pull_request(pull_request=pull_request))
-        tasks.append(self.labels_handler.add_size_label(pull_request=pull_request))
-        tasks.append(self.add_pull_request_owner_as_assingee(pull_request=pull_request))
-
-        tasks.append(self.runner_handler.run_tox(pull_request=pull_request))
-        tasks.append(self.runner_handler.run_pre_commit(pull_request=pull_request))
-        tasks.append(self.runner_handler.run_install_python_module(pull_request=pull_request))
-        tasks.append(self.runner_handler.run_build_container(pull_request=pull_request))
+        setup_tasks.append(self.label_pull_request_by_merge_state(pull_request=pull_request))
+        setup_tasks.append(self.check_run_handler.set_merge_check_queued())
+        setup_tasks.append(self.check_run_handler.set_run_tox_check_queued())
+        setup_tasks.append(self.check_run_handler.set_run_pre_commit_check_queued())
+        setup_tasks.append(self.check_run_handler.set_python_module_install_queued())
+        setup_tasks.append(self.check_run_handler.set_container_build_queued())
+        setup_tasks.append(self._process_verified_for_update_or_new_pull_request(pull_request=pull_request))
+        setup_tasks.append(self.labels_handler.add_size_label(pull_request=pull_request))
+        setup_tasks.append(self.add_pull_request_owner_as_assingee(pull_request=pull_request))
 
         if self.github_webhook.conventional_title:
-            tasks.append(self.check_run_handler.set_conventional_title_queued())
-            tasks.append(self.runner_handler.run_conventional_title_check(pull_request=pull_request))
+            setup_tasks.append(self.check_run_handler.set_conventional_title_queued())
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        self.logger.step(f"{self.log_prefix} Executing setup tasks")  # type: ignore
+        setup_results = await asyncio.gather(*setup_tasks, return_exceptions=True)
 
-        for result in results:
+        for result in setup_results:
             if isinstance(result, Exception):
-                self.logger.error(f"{self.log_prefix} Async task failed: {result}")
+                self.logger.error(f"{self.log_prefix} Setup task failed: {result}")
+
+        self.logger.step(f"{self.log_prefix} Setup tasks completed")  # type: ignore
+
+        # Stage 2: CI/CD execution tasks
+        self.logger.step(f"{self.log_prefix} Stage: CI/CD execution")  # type: ignore
+        ci_tasks: list[Coroutine[Any, Any, Any]] = []
+
+        ci_tasks.append(self.runner_handler.run_tox(pull_request=pull_request))
+        ci_tasks.append(self.runner_handler.run_pre_commit(pull_request=pull_request))
+        ci_tasks.append(self.runner_handler.run_install_python_module(pull_request=pull_request))
+        ci_tasks.append(self.runner_handler.run_build_container(pull_request=pull_request))
+
+        if self.github_webhook.conventional_title:
+            ci_tasks.append(self.runner_handler.run_conventional_title_check(pull_request=pull_request))
+
+        self.logger.step(f"{self.log_prefix} Executing CI/CD tasks")  # type: ignore
+        ci_results = await asyncio.gather(*ci_tasks, return_exceptions=True)
+
+        for result in ci_results:
+            if isinstance(result, Exception):
+                self.logger.error(f"{self.log_prefix} CI/CD task failed: {result}")
+
+        self.logger.step(f"{self.log_prefix} PR processing workflow completed")  # type: ignore
 
     async def create_issue_for_new_pull_request(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.create_issue_for_new_pr:
@@ -583,6 +612,7 @@ For more information, please refer to the project documentation or contact the m
             PR status is not 'dirty'.
             PR has no changed requests from approvers.
         """
+        self.logger.step(f"{self.log_prefix} Starting merge eligibility check")  # type: ignore
         if self.skip_if_pull_request_already_merged(pull_request=pull_request):
             self.logger.debug(f"{self.log_prefix} Pull request already merged")
             return

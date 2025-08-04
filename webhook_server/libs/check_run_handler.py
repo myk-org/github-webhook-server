@@ -45,6 +45,8 @@ class CheckRunHandler:
         _check_run: dict[str, Any] = self.hook_data["check_run"]
         check_run_name: str = _check_run["name"]
 
+        self.logger.step(f"{self.log_prefix} Processing check run: {check_run_name}")  # type: ignore
+
         if self.hook_data.get("action", "") != "completed":
             self.logger.debug(
                 f"{self.log_prefix} check run {check_run_name} action is {self.hook_data.get('action', 'N/A')} and not completed, skipping"
@@ -63,7 +65,9 @@ class CheckRunHandler:
                     label=AUTOMERGE_LABEL_STR, pull_request=pull_request
                 ):
                     try:
+                        self.logger.step(f"{self.log_prefix} Executing auto-merge for PR #{pull_request.number}")  # type: ignore
                         await asyncio.to_thread(pull_request.merge, merge_method="SQUASH")
+                        self.logger.step(f"{self.log_prefix} Auto-merge completed successfully")  # type: ignore
                         self.logger.info(
                             f"{self.log_prefix} Successfully auto-merged pull request #{pull_request.number}"
                         )
@@ -211,6 +215,16 @@ class CheckRunHandler:
             kwargs["output"] = output
 
         msg: str = f"{self.log_prefix} check run {check_run} status: {status or conclusion}"
+
+        # Log workflow steps for check run status changes
+        if status == QUEUED_STR:
+            self.logger.step(f"{self.log_prefix} Setting {check_run} check to queued")  # type: ignore
+        elif status == IN_PROGRESS_STR:
+            self.logger.step(f"{self.log_prefix} Setting {check_run} check to in-progress")  # type: ignore
+        elif conclusion == SUCCESS_STR:
+            self.logger.step(f"{self.log_prefix} Setting {check_run} check to success")  # type: ignore
+        elif conclusion == FAILURE_STR:
+            self.logger.step(f"{self.log_prefix} Setting {check_run} check to failure")  # type: ignore
 
         try:
             self.logger.debug(f"{self.log_prefix} Set check run status with {kwargs}")

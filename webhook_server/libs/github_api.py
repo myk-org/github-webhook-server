@@ -5,7 +5,6 @@ import contextlib
 import json
 import logging
 import os
-import random
 from typing import Any
 
 import requests
@@ -13,7 +12,6 @@ from github import GithubException
 from github.Commit import Commit
 from github.PullRequest import PullRequest
 from starlette.datastructures import Headers
-from stringcolor import cs
 
 from webhook_server.libs.check_run_handler import CheckRunHandler
 from webhook_server.libs.config import Config
@@ -40,6 +38,7 @@ from webhook_server.utils.helpers import (
     get_api_with_highest_rate_limit,
     get_apis_and_tokes_from_config,
     get_github_repo_api,
+    prepare_log_prefix,
 )
 
 
@@ -108,47 +107,59 @@ class GithubWebhook:
 
     async def process(self) -> Any:
         event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
+        self.logger.step(f"{self.log_prefix} Starting webhook processing: {event_log}")  # type: ignore
 
         if self.github_event == "ping":
+            self.logger.step(f"{self.log_prefix} Processing ping event")  # type: ignore
             self.logger.debug(f"{self.log_prefix} {event_log}")
             return {"status": requests.codes.ok, "message": "pong"}
 
         if self.github_event == "push":
+            self.logger.step(f"{self.log_prefix} Processing push event")  # type: ignore
             self.logger.debug(f"{self.log_prefix} {event_log}")
             return await PushHandler(github_webhook=self).process_push_webhook_data()
 
         if pull_request := await self.get_pull_request():
             self.log_prefix = self.prepare_log_prefix(pull_request=pull_request)
+            self.logger.step(f"{self.log_prefix} Processing pull request event: {event_log}")  # type: ignore
             self.logger.debug(f"{self.log_prefix} {event_log}")
 
             if pull_request.draft:
+                self.logger.step(f"{self.log_prefix} Pull request is draft, skipping processing")  # type: ignore
                 self.logger.debug(f"{self.log_prefix} Pull request is draft, doing nothing")
                 return None
 
+            self.logger.step(f"{self.log_prefix} Initializing pull request data")  # type: ignore
             self.last_commit = await self._get_last_commit(pull_request=pull_request)
             self.parent_committer = pull_request.user.login
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
 
             if self.github_event == "issue_comment":
+                self.logger.step(f"{self.log_prefix} Initializing OWNERS file handler for issue comment")  # type: ignore
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
                 owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
 
+                self.logger.step(f"{self.log_prefix} Processing issue comment with IssueCommentHandler")  # type: ignore
                 return await IssueCommentHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
                 ).process_comment_webhook_data(pull_request=pull_request)
 
             elif self.github_event == "pull_request":
+                self.logger.step(f"{self.log_prefix} Initializing OWNERS file handler for pull request")  # type: ignore
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
                 owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
 
+                self.logger.step(f"{self.log_prefix} Processing pull request with PullRequestHandler")  # type: ignore
                 return await PullRequestHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
                 ).process_pull_request_webhook_data(pull_request=pull_request)
 
             elif self.github_event == "pull_request_review":
+                self.logger.step(f"{self.log_prefix} Initializing OWNERS file handler for pull request review")  # type: ignore
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
                 owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
 
+                self.logger.step(f"{self.log_prefix} Processing pull request review with PullRequestReviewHandler")  # type: ignore
                 return await PullRequestReviewHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
                 ).process_pull_request_review_webhook_data(
@@ -156,12 +167,15 @@ class GithubWebhook:
                 )
 
             elif self.github_event == "check_run":
+                self.logger.step(f"{self.log_prefix} Initializing OWNERS file handler for check run")  # type: ignore
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
                 owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
+                self.logger.step(f"{self.log_prefix} Processing check run with CheckRunHandler")  # type: ignore
                 if await CheckRunHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
                 ).process_pull_request_check_run_webhook_data(pull_request=pull_request):
                     if self.hook_data["check_run"]["name"] != CAN_BE_MERGED_STR:
+                        self.logger.step(f"{self.log_prefix} Checking if pull request can be merged after check run")  # type: ignore
                         return await PullRequestHandler(
                             github_webhook=self, owners_file_handler=owners_file_handler
                         ).check_if_can_be_merged(pull_request=pull_request)
@@ -178,62 +192,14 @@ class GithubWebhook:
 
             self.auto_verified_and_merged_users.append(_api.get_user().login)
 
-    def _get_reposiroty_color_for_log_prefix(self) -> str:
-        def _get_random_color(_colors: list[str], _json: dict[str, str]) -> str:
-            color = random.choice(_colors)
-            _json[self.repository_name] = color
-
-            if _selected := cs(self.repository_name, color).render():
-                return _selected
-
-            return self.repository_name
-
-        _all_colors: list[str] = []
-        color_json: dict[str, str]
-        _colors_to_exclude = ("blue", "white", "black", "grey")
-        color_file: str = os.path.join(self.config.data_dir, "log-colors.json")
-
-        for _color_name in cs.colors.values():
-            _cname = _color_name["name"]
-            if _cname.lower() in _colors_to_exclude:
-                continue
-
-            _all_colors.append(_cname)
-
-        try:
-            with open(color_file) as fd:
-                color_json = json.load(fd)
-
-        except Exception:
-            color_json = {}
-
-        if color := color_json.get(self.repository_name, ""):
-            _cs_object = cs(self.repository_name, color)
-            if cs.find_color(_cs_object):
-                _str_color = _cs_object.render()
-
-            else:
-                _str_color = _get_random_color(_colors=_all_colors, _json=color_json)
-
-        else:
-            _str_color = _get_random_color(_colors=_all_colors, _json=color_json)
-
-        with open(color_file, "w") as fd:
-            json.dump(color_json, fd)
-
-        if _str_color:
-            _str_color = _str_color.replace("\x1b", "\033")
-            return _str_color
-
-        return self.repository_name
-
     def prepare_log_prefix(self, pull_request: PullRequest | None = None) -> str:
-        _repository_color = self._get_reposiroty_color_for_log_prefix()
-
-        return (
-            f"{_repository_color} [{self.github_event}][{self.x_github_delivery}][{self.api_user}][PR {pull_request.number}]:"
-            if pull_request
-            else f"{_repository_color} [{self.github_event}][{self.x_github_delivery}][{self.api_user}]:"
+        return prepare_log_prefix(
+            event_type=self.github_event,
+            delivery_id=self.x_github_delivery,
+            repository_name=self.repository_name,
+            api_user=self.api_user,
+            pr_number=pull_request.number if pull_request else None,
+            data_dir=self.config.data_dir,
         )
 
     def _repo_data_from_config(self, repository_config: dict[str, Any]) -> None:
