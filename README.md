@@ -391,8 +391,7 @@ server re-reads configuration for each incoming webhook event.
 
 ### Repository-Level Overrides
 
-Create `.github-webhook-server.yaml` in your repository root to override or extend the global configuration
-for that specific repository. This file supports all repository-level configuration options.
+Create `.github-webhook-server.yaml` in your repository root to override or extend the global configuration for that specific repository. This file supports all repository-level configuration options.
 
 **Simple Example:**
 
@@ -1016,6 +1015,24 @@ The MCP integration follows a **security-first approach** with strict endpoint i
 FastAPI app instance that duplicates the core API endpoints while excluding webhook processing, static files,
 and HTML pages for security.
 
+### 🚨 Critical Security Warning - Sensitive Log Data
+
+**IMPORTANT**: The `/mcp/logs/*` endpoints expose potentially **highly sensitive data** including:
+
+- 🔑 **GitHub Personal Access Tokens** and API credentials  
+- 👤 **User information and GitHub usernames**
+- 📋 **Repository details and webhook payloads**
+- 🔒 **Internal system information and error details**
+
+**Required Security Measures** (see [Security](#security) section for complete guidance):
+- ✅ Deploy **only on trusted networks** (VPN, internal network)
+- ✅ **Never expose MCP endpoints** directly to the internet
+- ✅ Implement **reverse proxy authentication** for any external access  
+- ✅ Use **firewall rules** to restrict access to authorized IP ranges only
+- ✅ Monitor and **audit access** to these endpoints
+
+Despite being read-only, these endpoints require the **same security considerations** as the main log viewer due to the sensitive nature of webhook and system data.
+
 ### 🚀 AI Agent Capabilities
 
 With MCP integration, AI agents can:
@@ -1359,7 +1376,22 @@ scrape_configs:
 **Boot ID Mismatch Errors** (after system reboots):
 
 1. **Automatic cleanup** - Built-in cleanup runs on container start
-2. **Manual fix** - `sudo rm -rf /tmp/storage-run-${UID:-1000}/*`
+2. **Manual fix** - Follow these safety steps:
+   ```bash
+   # ⚠️  CAUTION: This command will delete files permanently!
+   # Verify the directory path before proceeding
+   STORAGE_DIR="/tmp/storage-run-${UID:-1000}"
+   echo "About to delete contents of: ${STORAGE_DIR:?UID not set or empty}"
+   echo "This will permanently remove Podman runtime files."
+   read -p "Are you sure you want to continue? (type 'yes' to confirm): " confirm
+
+   if [ "$confirm" = "yes" ]; then
+       sudo rm -rf "${STORAGE_DIR:?}/"*
+       echo "Cleanup completed successfully"
+   else
+       echo "Operation cancelled"
+   fi
+   ```
 3. **Prevention** - See [Podman Troubleshooting Guide](docs/PODMAN_TROUBLESHOOTING.md)
 
 The webhook server includes automatic Podman runtime directory cleanup to prevent these issues.
