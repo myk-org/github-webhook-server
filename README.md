@@ -1012,7 +1012,9 @@ The MCP integration follows a **security-first approach** with strict endpoint i
 | `/mcp/logs/api/pr-flow/{identifier}` | PR flow visualization data | Workflow analysis and timing |
 | `/mcp/logs/api/workflow-steps/{identifier}` | Workflow timeline data | Performance analysis |
 
-**Note:** All MCP endpoints are proxied under the `/mcp` mount point. The MCP server creates a separate FastAPI app instance that duplicates the core API endpoints while excluding webhook processing, static files, and HTML pages for security.
+**Note:** All MCP endpoints are proxied under the `/mcp` mount point. The MCP server creates a separate
+FastAPI app instance that duplicates the core API endpoints while excluding webhook processing, static files,
+and HTML pages for security.
 
 ### 🚀 AI Agent Capabilities
 
@@ -1078,16 +1080,19 @@ Once configured, you can ask AI agents natural language questions:
 ### 🎯 Use Cases
 
 **Development Teams:**
+
 - **Automated troubleshooting** with AI-powered error analysis and recommendations
 - **Performance monitoring** with intelligent pattern recognition
 - **Proactive alerting** for webhook processing issues before they impact workflows
 
 **DevOps Engineers:**
+
 - **Infrastructure monitoring** with real-time health checks and status reporting
 - **Automated incident response** with AI-driven root cause analysis
 - **Capacity planning** through historical performance data analysis
 
 **Repository Maintainers:**
+
 - **PR workflow optimization** by identifying and resolving processing bottlenecks
 - **Community contribution monitoring** with automated quality metrics
 - **Automated quality assurance** reporting and trend analysis
