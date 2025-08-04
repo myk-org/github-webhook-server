@@ -126,6 +126,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     try:
         LOGGER.info("Application starting up...")
+
+        # Validate static files directory exists
+        if not os.path.exists(static_files_path):
+            raise FileNotFoundError(
+                f"Static files directory not found: {static_files_path}. "
+                f"This directory is required for serving web assets (CSS/JS). "
+                f"Expected structure: webhook_server/web/static/ with css/ and js/ subdirectories."
+            )
+
+        if not os.path.isdir(static_files_path):
+            raise NotADirectoryError(
+                f"Static files path exists but is not a directory: {static_files_path}. "
+                f"Expected a directory containing css/ and js/ subdirectories."
+            )
+
+        LOGGER.info(f"Static files directory validated: {static_files_path}")
+
         config = Config(logger=LOGGER)
         root_config = config.root_data
         verify_github_ips = root_config.get("verify-github-ips")

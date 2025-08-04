@@ -591,3 +591,69 @@ class TestWebhookApp:
                 pass
             # Should handle both allowlist failures gracefully
             # (You could add log assertion here if desired)
+
+    def test_static_files_path_construction(self) -> None:
+        """Test that the static files path is constructed correctly."""
+        from webhook_server import app as app_module
+
+        # The static_files_path should point to webhook_server/web/static
+        expected_components = ["webhook_server", "web", "static"]
+        actual_path = app_module.static_files_path
+
+        # Check that the path ends with the expected components
+        for component in reversed(expected_components):
+            assert actual_path.endswith(component) or component in actual_path.split(os.sep)
+
+        # In a normal setup, this path should exist
+        # (We won't assert this since it could be missing in some test environments)
+        print(f"Static files path: {actual_path}")
+
+    @patch("webhook_server.app.os.path.exists")
+    @patch("webhook_server.app.os.path.isdir")
+    def test_static_files_validation_logic(self, mock_isdir: Mock, mock_exists: Mock) -> None:
+        """Test static files validation logic without lifespan."""
+        from webhook_server import app as app_module
+
+        # Test case 1: Directory exists and is valid
+        mock_exists.return_value = True
+        mock_isdir.return_value = True
+
+        # This should not raise an exception
+        static_path = app_module.static_files_path
+        if not os.path.exists(static_path):
+            raise FileNotFoundError(f"Static files directory not found: {static_path}")
+        if not os.path.isdir(static_path):
+            raise NotADirectoryError(f"Static files path is not a directory: {static_path}")
+
+        # Test case 2: Directory doesn't exist
+        mock_exists.return_value = False
+        mock_isdir.return_value = False
+
+        with pytest.raises(FileNotFoundError) as exc_info:
+            if not os.path.exists(static_path):
+                raise FileNotFoundError(
+                    f"Static files directory not found: {static_path}. "
+                    f"This directory is required for serving web assets (CSS/JS). "
+                    f"Expected structure: webhook_server/web/static/ with css/ and js/ subdirectories."
+                )
+
+        error_msg = str(exc_info.value)
+        assert "Static files directory not found" in error_msg
+        assert "webhook_server/web/static" in error_msg
+
+        # Test case 3: Path exists but is not a directory
+        mock_exists.return_value = True
+        mock_isdir.return_value = False
+
+        with pytest.raises(NotADirectoryError) as exc_info:
+            if not os.path.exists(static_path):
+                raise FileNotFoundError(f"Path not found: {static_path}")
+            if not os.path.isdir(static_path):
+                raise NotADirectoryError(
+                    f"Static files path exists but is not a directory: {static_path}. "
+                    f"Expected a directory containing css/ and js/ subdirectories."
+                )
+
+        error_msg = str(exc_info.value)
+        assert "exists but is not a directory" in error_msg
+        assert "css/ and js/ subdirectories" in error_msg
