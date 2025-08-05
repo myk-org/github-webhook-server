@@ -615,160 +615,33 @@ async def _get_pr_flow_data_core(
 
 @FASTAPI_APP.get("/logs/api/pr-flow/{hook_id}", operation_id="get_pr_flow_data")
 async def get_pr_flow_data(hook_id: str, controller: LogViewerController = controller_dependency) -> dict[str, Any]:
-    """Retrieve comprehensive pull request workflow visualization data for process analysis and debugging.
+    """Get PR workflow visualization data for process analysis and debugging.
 
-    This endpoint provides detailed flow analysis of pull request processing workflows, tracking
-    the complete lifecycle from webhook receipt through completion. Essential for debugging PR
-    automation issues, identifying bottlenecks, and optimizing workflow performance.
+    Provides detailed flow analysis of pull request processing workflows, tracking the complete
+    lifecycle from webhook receipt through completion. Essential for debugging PR automation
+    issues, identifying bottlenecks, and optimizing workflow performance.
 
-    **Primary Use Cases:**
-    - Visualize complete PR processing workflow from start to finish
-    - Debug stuck or failed PR automation workflows
-    - Analyze PR processing performance and identify bottlenecks
-    - Monitor automated reviewer assignment and approval processes
-    - Track container builds, tests, and deployment status for PRs
-    - Generate PR workflow analytics and performance reports
-    - Investigate webhook delivery and processing issues
+    Args:
+        hook_id: GitHub webhook delivery ID that initiated the PR workflow.
+                Example: "f4b3c2d1-a9b8-4c5d-9e8f-1a2b3c4d5e6f"
 
-    **Parameters:**
-    - `hook_id` (str, required): GitHub webhook delivery ID that initiated the PR workflow.
-      Example: "f4b3c2d1-a9b8-4c5d-9e8f-1a2b3c4d5e6f"
-      This is typically found in GitHub webhook logs or the X-GitHub-Delivery header.
-      The hook_id links all related workflow steps and events together.
+    Returns:
+        dict: Comprehensive workflow data including:
+            - hook_id: The webhook delivery ID
+            - pr_metadata: PR details (number, repository, title, author, state, timestamps)
+            - workflow_stages: Array of processing stages with timestamps, status, and details
+            - performance_metrics: Processing time, completion status, health indicators
+            - integration_status: GitHub API usage and external service call results
 
-    **Return Structure:**
-    ```json
-    {
-      "hook_id": "f4b3c2d1-a9b8-4c5d-9e8f-1a2b3c4d5e6f",
-      "pr_metadata": {
-        "pr_number": 42,
-        "repository": "myakove/github-webhook-server",
-        "title": "Add memory optimization for log processing",
-        "author": "contributor123",
-        "state": "open",
-        "created_at": "2024-01-15T10:00:00Z",
-        "updated_at": "2024-01-15T14:30:00Z"
-      },
-      "workflow_stages": [
-        {
-          "stage": "webhook_received",
-          "timestamp": "2024-01-15T10:00:00.123456",
-          "status": "completed",
-          "duration_ms": 45,
-          "details": {
-            "event_type": "pull_request",
-            "action": "opened",
-            "delivery_id": "f4b3c2d1-a9b8-4c5d-9e8f-1a2b3c4d5e6f"
-          }
-        },
-        {
-          "stage": "pr_analysis",
-          "timestamp": "2024-01-15T10:00:01.234567",
-          "status": "completed",
-          "duration_ms": 1200,
-          "details": {
-            "size_classification": "large",
-            "files_changed": 15,
-            "lines_added": 450,
-            "lines_deleted": 120,
-            "complexity_score": 7.5
-          }
-        },
-        {
-          "stage": "reviewer_assignment",
-          "timestamp": "2024-01-15T10:00:02.345678",
-          "status": "completed",
-          "duration_ms": 800,
-          "details": {
-            "owners_file_processed": true,
-            "reviewers_assigned": ["senior-dev", "team-lead"],
-            "auto_assignment_rules": ["code_owners", "expertise_matching"]
-          }
-        },
-        {
-          "stage": "container_build",
-          "timestamp": "2024-01-15T10:05:00.456789",
-          "status": "in_progress",
-          "duration_ms": null,
-          "details": {
-            "build_type": "docker",
-            "registry": "quay.io",
-            "build_context": "containerfiles/Dockerfile"
-          }
-        }
-      ],
-      "performance_metrics": {
-        "total_processing_time_ms": 2045,
-        "stages_completed": 3,
-        "stages_pending": 1,
-        "stages_failed": 0,
-        "workflow_health": "healthy",
-        "bottlenecks_detected": []
-      },
-      "integration_status": {
-        "github_api_calls": 15,
-        "rate_limit_remaining": 4985,
-        "external_service_calls": {
-          "slack": {"status": "success", "notifications_sent": 2},
-          "jira": {"status": "pending", "tickets_created": 0}
-        }
-      }
-    }
-    ```
+    Raises:
+        400: Invalid hook_id format
+        404: No PR workflow found for hook_id
+        500: Log parsing errors or internal processing errors
 
-    **Workflow Stages (Common Examples):**
-    - `webhook_received`: Initial webhook processing and validation
-    - `pr_analysis`: PR size, complexity, and impact analysis
-    - `reviewer_assignment`: Automatic reviewer assignment based on OWNERS files
-    - `label_assignment`: Automatic labeling based on changed files and PR content
-    - `container_build`: Docker/Podman container building and publishing
-    - `test_execution`: Automated test suite execution
-    - `security_scan`: Security vulnerability scanning
-    - `compliance_check`: Policy and compliance validation
-    - `notification_dispatch`: Slack, email, or other notification delivery
-    - `deployment_trigger`: Automated deployment initiation
-
-    **Status Values:**
-    - `pending`: Stage is queued but not yet started
-    - `in_progress`: Stage is currently executing
-    - `completed`: Stage finished successfully
-    - `failed`: Stage encountered an error
-    - `skipped`: Stage was bypassed due to conditions or configuration
-    - `timeout`: Stage exceeded maximum execution time
-
-    **Common Analysis Scenarios:**
-    - Debug why PR reviewer assignment failed or took too long
-    - Identify which stage is causing PR processing delays
-    - Monitor container build success rates and failure patterns
-    - Analyze reviewer assignment accuracy and OWNERS file effectiveness
-    - Track external service integration health (Slack, JIRA, etc.)
-    - Generate PR processing performance reports and SLA monitoring
-
-    **Error Conditions:**
-    - 400: Invalid hook_id format (not a valid UUID or delivery ID)
-    - 404: No PR workflow found for the specified hook_id
-    - 404: Hook_id exists but no PR-related events in the workflow
-    - 500: Log parsing errors or corrupted workflow data
-    - 500: Internal errors during workflow data aggregation
-
-    **AI Agent Usage Examples:**
-    - "Analyze PR workflow for delivery abc123 to debug why reviewer assignment failed"
-    - "Get PR flow data for hook xyz789 to identify container build bottlenecks"
-    - "Show me the complete workflow timeline for delivery def456 to optimize performance"
-    - "Debug why PR notifications aren't being sent using hook ghi789 flow data"
-    - "Generate workflow analysis report for hook jkl012 to identify process improvements"
-
-    **Performance Notes:**
-    - Response time depends on the complexity and duration of the workflow
-    - Large workflows with many stages may take 1-3 seconds to aggregate
-    - Data is computed on-demand; no caching for real-time accuracy
-    - Hook IDs from very old workflows (>30 days) may have limited data availability
-
-    **Data Sources:**
-    - Structured log parsing from webhook-server.log
-    - GitHub API response caching and metadata
-    - External service integration logs (Slack, JIRA, etc.)
-    - Performance timing data from internal instrumentation
+    Note:
+        For detailed documentation including complete JSON examples, workflow stages,
+        analysis scenarios, and usage patterns, see:
+        webhook_server/docs/pr-flow-api.md
     """
     return await _get_pr_flow_data_core(controller=controller, hook_id=hook_id)
 
