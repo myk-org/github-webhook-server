@@ -28,12 +28,12 @@ from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import RepositoryNotFoundError
 from webhook_server.libs.github_api import GithubWebhook
 from webhook_server.utils.app_utils import (
-    get_github_allowlist,
-    get_cloudflare_allowlist,
-    verify_signature,
-    gate_by_allowlist_ips,
-    parse_datetime_string,
     HTTP_TIMEOUT_SECONDS,
+    gate_by_allowlist_ips,
+    get_cloudflare_allowlist,
+    get_github_allowlist,
+    parse_datetime_string,
+    verify_signature,
 )
 from webhook_server.utils.helpers import get_logger_with_params, prepare_log_prefix
 from webhook_server.web.log_viewer import LogViewerController
@@ -153,12 +153,17 @@ static_files_path = os.path.join(os.path.dirname(__file__), "web", "static")
 FASTAPI_APP.mount("/static", StaticFiles(directory=static_files_path), name="static")
 
 
-@FASTAPI_APP.get(f"{APP_URL_ROOT_PATH}/healthcheck")
+@FASTAPI_APP.get(f"{APP_URL_ROOT_PATH}/healthcheck", operation_id="healthcheck")
 def healthcheck() -> dict[str, Any]:
     return {"status": requests.codes.ok, "message": "Alive"}
 
 
-@FASTAPI_APP.post(APP_URL_ROOT_PATH, dependencies=[Depends(gate_by_allowlist_ips_dependency)])
+@FASTAPI_APP.post(
+    APP_URL_ROOT_PATH,
+    operation_id="process_webhook",
+    dependencies=[Depends(gate_by_allowlist_ips_dependency)],
+    tags=["mcp_exclude"],
+)
 async def process_webhook(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
     # Extract headers early for logging
     delivery_id = request.headers.get("X-GitHub-Delivery", "unknown-delivery")
@@ -271,7 +276,7 @@ controller_dependency = Depends(get_log_viewer_controller)
 
 
 # Log Viewer Endpoints
-@FASTAPI_APP.get("/logs", response_class=HTMLResponse)
+@FASTAPI_APP.get("/logs", operation_id="get_log_viewer_page", response_class=HTMLResponse)
 def get_log_viewer_page(controller: LogViewerController = controller_dependency) -> HTMLResponse:
     """Serve the main log viewer HTML page."""
     return controller.get_log_page()
@@ -311,7 +316,7 @@ async def _get_log_entries_core(
     )
 
 
-@FASTAPI_APP.get("/logs/api/entries")
+@FASTAPI_APP.get("/logs/api/entries", operation_id="get_log_entries")
 async def get_log_entries(
     hook_id: str | None = None,
     pr_number: int | None = None,
@@ -377,7 +382,7 @@ async def _export_logs_core(
     )
 
 
-@FASTAPI_APP.get("/logs/api/export")
+@FASTAPI_APP.get("/logs/api/export", operation_id="export_logs")
 async def export_logs(
     format_type: str,
     hook_id: str | None = None,
@@ -417,7 +422,7 @@ async def _get_pr_flow_data_core(
     return controller.get_pr_flow_data(hook_id)
 
 
-@FASTAPI_APP.get("/logs/api/pr-flow/{hook_id}")
+@FASTAPI_APP.get("/logs/api/pr-flow/{hook_id}", operation_id="get_pr_flow_data")
 async def get_pr_flow_data(hook_id: str, controller: LogViewerController = controller_dependency) -> dict[str, Any]:
     """Get PR flow visualization data for a specific hook ID or PR number."""
     return await _get_pr_flow_data_core(controller=controller, hook_id=hook_id)
@@ -431,7 +436,7 @@ async def _get_workflow_steps_core(
     return controller.get_workflow_steps(hook_id)
 
 
-@FASTAPI_APP.get("/logs/api/workflow-steps/{hook_id}")
+@FASTAPI_APP.get("/logs/api/workflow-steps/{hook_id}", operation_id="get_workflow_steps")
 async def get_workflow_steps(hook_id: str, controller: LogViewerController = controller_dependency) -> dict[str, Any]:
     """Get workflow step timeline data for a specific hook ID."""
     return await _get_workflow_steps_core(controller=controller, hook_id=hook_id)
@@ -460,12 +465,8 @@ async def websocket_log_stream(
     )
 
 
-# Initialize MCP integration with simple approach
-# Define which endpoints to include (exclude webhook processing for security)
-include_operations = ["healthcheck", "get_log_entries", "export_logs", "get_pr_flow_data", "get_workflow_steps"]
-
 # Create MCP instance with the main app
-_mcp_instance = FastApiMCP(FASTAPI_APP, include_operations=include_operations)
-_mcp_instance.mount_http()
+mcp = FastApiMCP(FASTAPI_APP, exclude_tags=["mcp_exclude"])
+mcp.mount_http()
 
 LOGGER.info("MCP integration initialized successfully")
