@@ -158,23 +158,23 @@ The PR Flow API (`/logs/api/pr-flow/{hook_id}`) provides comprehensive pull requ
 
 ### Common Queries
 
-```
+```text
 "Analyze PR workflow for delivery abc123 to debug why reviewer assignment failed"
 ```
 
-```
+```text
 "Get PR flow data for hook xyz789 to identify container build bottlenecks"
 ```
 
-```
+```text
 "Show me the complete workflow timeline for delivery def456 to optimize performance"
 ```
 
-```
+```text
 "Debug why PR notifications aren't being sent using hook ghi789 flow data"
 ```
 
-```
+```text
 "Generate workflow analysis report for hook jkl012 to identify process improvements"
 ```
 
@@ -185,7 +185,7 @@ The PR Flow API (`/logs/api/pr-flow/{hook_id}`) provides comprehensive pull requ
 - Response time depends on the complexity and duration of the workflow
 - Large workflows with many stages may take 1-3 seconds to aggregate
 - Data is computed on-demand with no caching for real-time accuracy
-- Hook IDs from very old workflows (>30 days) may have limited data availability
+- Hook IDs from workflows older than 30 days may have limited data availability
 
 ### Data Sources
 
