@@ -1,5 +1,3 @@
-import hashlib
-import hmac
 import ipaddress
 import json
 import logging
@@ -7,7 +5,6 @@ import os
 import sys
 from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator
-import datetime
 
 import httpx
 import requests
@@ -24,20 +21,25 @@ from fastapi import (
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from webhook_server.libs.config import Config
-from webhook_server.libs.exceptions import RepositoryNotFoundError
-from webhook_server.libs.github_api import GithubWebhook
-from webhook_server.web.log_viewer import LogViewerController
-from webhook_server.utils.helpers import get_logger_with_params, prepare_log_prefix
-
 # Import for MCP integration
 from fastapi_mcp import FastApiMCP
 
+from webhook_server.libs.config import Config
+from webhook_server.libs.exceptions import RepositoryNotFoundError
+from webhook_server.libs.github_api import GithubWebhook
+from webhook_server.utils.app_utils import (
+    get_github_allowlist,
+    get_cloudflare_allowlist,
+    verify_signature,
+    gate_by_allowlist_ips,
+    parse_datetime_string,
+    HTTP_TIMEOUT_SECONDS,
+)
+from webhook_server.utils.helpers import get_logger_with_params, prepare_log_prefix
+from webhook_server.web.log_viewer import LogViewerController
+
 # Constants
 APP_URL_ROOT_PATH: str = "/webhook_server"
-HTTP_TIMEOUT_SECONDS: float = 10.0
-GITHUB_META_URL: str = "https://api.github.com/meta"
-CLOUDFLARE_IPS_URL: str = "https://api.cloudflare.com/client/v4/ips"
 
 # Global variables
 ALLOWED_IPS: tuple[ipaddress._BaseNetwork, ...] = ()
@@ -46,80 +48,10 @@ LOGGER = get_logger_with_params(name="main")
 _lifespan_http_client: httpx.AsyncClient | None = None
 
 
-async def get_github_allowlist() -> list[str]:
-    """Fetch and cache GitHub IP allowlist asynchronously."""
-    try:
-        assert _lifespan_http_client is not None
-        response = await _lifespan_http_client.get(GITHUB_META_URL)
-        response.raise_for_status()  # Check for HTTP errors
-        data = response.json()
-        return data.get("hooks", [])
-
-    except httpx.RequestError as e:
-        LOGGER.error(f"Error fetching GitHub allowlist: {e}")
-        raise
-
-    except Exception as e:
-        LOGGER.error(f"Unexpected error fetching GitHub allowlist: {e}")
-        raise
-
-
-async def get_cloudflare_allowlist() -> list[str]:
-    """Fetch and cache Cloudflare IP allowlist asynchronously."""
-    try:
-        assert _lifespan_http_client is not None
-        response = await _lifespan_http_client.get(CLOUDFLARE_IPS_URL)
-        response.raise_for_status()
-        result = response.json().get("result", {})
-        return result.get("ipv4_cidrs", []) + result.get("ipv6_cidrs", [])
-
-    except httpx.RequestError as e:
-        LOGGER.error(f"Error fetching Cloudflare allowlist: {e}")
-        raise
-
-    except Exception as e:
-        LOGGER.error(f"Unexpected error fetching Cloudflare allowlist: {e}")
-        raise
-
-
-def verify_signature(payload_body: bytes, secret_token: str, signature_header: str | None = None) -> None:
-    """Verify that the payload was sent from GitHub by validating SHA256.
-
-    Raise and return 403 if not authorized.
-
-    Args:
-        payload_body: original request body to verify (request.body())
-        secret_token: GitHub app webhook token (WEBHOOK_SECRET)
-        signature_header: header received from GitHub (x-hub-signature-256)
-    """
-    if not signature_header:
-        raise HTTPException(status_code=403, detail="x-hub-signature-256 header is missing!")
-
-    hash_object = hmac.new(secret_token.encode("utf-8"), msg=payload_body, digestmod=hashlib.sha256)
-    expected_signature = "sha256=" + hash_object.hexdigest()
-
-    if not hmac.compare_digest(expected_signature, signature_header):
-        raise HTTPException(status_code=403, detail="Request signatures didn't match!")
-
-
-async def gate_by_allowlist_ips(request: Request) -> None:
-    if ALLOWED_IPS:
-        if not request.client or not request.client.host:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Could not determine client IP address")
-
-        try:
-            src_ip = ipaddress.ip_address(request.client.host)
-        except ValueError:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Could not parse client IP address")
-
-        for valid_ip_range in ALLOWED_IPS:
-            if src_ip in valid_ip_range:
-                return
-        else:
-            raise HTTPException(
-                status.HTTP_403_FORBIDDEN,
-                f"{src_ip} IP is not a valid ip in allowlist IPs",
-            )
+# Helper function to wrap the imported gate_by_allowlist_ips with ALLOWED_IPS
+async def gate_by_allowlist_ips_dependency(request: Request) -> None:
+    """Dependency wrapper for IP allowlist gating."""
+    await gate_by_allowlist_ips(request, ALLOWED_IPS)
 
 
 @asynccontextmanager
@@ -164,7 +96,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         if verify_cloudflare_ips:
             try:
-                cf_ips = await get_cloudflare_allowlist()
+                cf_ips = await get_cloudflare_allowlist(_lifespan_http_client)
                 for cidr in cf_ips:
                     try:
                         networks.add(ipaddress.ip_network(cidr))
@@ -177,7 +109,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         if verify_github_ips:
             try:
-                gh_ips = await get_github_allowlist()
+                gh_ips = await get_github_allowlist(_lifespan_http_client)
                 for cidr in gh_ips:
                     try:
                         networks.add(ipaddress.ip_network(cidr))
@@ -220,40 +152,13 @@ FASTAPI_APP: FastAPI = FastAPI(title="webhook-server", lifespan=lifespan)
 static_files_path = os.path.join(os.path.dirname(__file__), "web", "static")
 FASTAPI_APP.mount("/static", StaticFiles(directory=static_files_path), name="static")
 
-# Create MCP integration if available
-_mcp_instance: FastApiMCP | None = None
-
-
-def create_mcp_safe_app() -> FastAPI:
-    """Create a separate FastAPI app with only API endpoints for MCP exposure.
-
-    This app excludes:
-    - Webhook processing endpoint (for security)
-    - Static files (not needed by AI agents)
-    - HTML pages (AI agents only need API endpoints)
-
-    Returns:
-        FastAPI: App instance with only API endpoints useful for AI agents
-    """
-    # Create a new FastAPI app with minimal config - no lifespan to avoid conflicts
-    mcp_app = FastAPI(
-        title="webhook-server-mcp",
-        description="API endpoints for MCP (excludes webhook processing, static files, and HTML pages)",
-        version="1.0.0",
-    )
-
-    # Note: Static files are NOT mounted to MCP app for security and cleaner API
-    # Static files remain available only on the main app for browser access
-
-    return mcp_app
-
 
 @FASTAPI_APP.get(f"{APP_URL_ROOT_PATH}/healthcheck")
 def healthcheck() -> dict[str, Any]:
     return {"status": requests.codes.ok, "message": "Alive"}
 
 
-@FASTAPI_APP.post(APP_URL_ROOT_PATH, dependencies=[Depends(gate_by_allowlist_ips)])
+@FASTAPI_APP.post(APP_URL_ROOT_PATH, dependencies=[Depends(gate_by_allowlist_ips_dependency)])
 async def process_webhook(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
     # Extract headers early for logging
     delivery_id = request.headers.get("X-GitHub-Delivery", "unknown-delivery")
@@ -363,32 +268,6 @@ def get_log_viewer_controller() -> LogViewerController:
 
 # Create dependency instance to avoid flake8 M511 warnings
 controller_dependency = Depends(get_log_viewer_controller)
-
-
-# Helper Functions
-def parse_datetime_string(datetime_str: str | None, field_name: str) -> datetime.datetime | None:
-    """Parse datetime string to datetime object or raise HTTPException.
-
-    Args:
-        datetime_str: The datetime string to parse (can be None)
-        field_name: Name of the field for error messages
-
-    Returns:
-        Parsed datetime object or None if input is None
-
-    Raises:
-        HTTPException: If datetime string is invalid
-    """
-    if not datetime_str:
-        return None
-
-    try:
-        return datetime.datetime.fromisoformat(datetime_str.replace("Z", "+00:00"))
-    except ValueError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid {field_name} format: {datetime_str}. Expected ISO 8601 format. Error: {str(e)}",
-        )
 
 
 # Log Viewer Endpoints
@@ -581,119 +460,12 @@ async def websocket_log_stream(
     )
 
 
-def setup_mcp_safe_endpoints(mcp_app: FastAPI) -> None:
-    """Add only API endpoints to the MCP app for AI agent consumption.
+# Initialize MCP integration with simple approach
+# Define which endpoints to include (exclude webhook processing for security)
+include_operations = ["healthcheck", "get_log_entries", "export_logs", "get_pr_flow_data", "get_workflow_steps"]
 
-    Excludes:
-    - Webhook processing endpoint (security)
-    - HTML pages (not needed by AI agents)
-    - WebSocket endpoints (not suitable for MCP)
-    - Static files (not needed by AI agents)
+# Create MCP instance with the main app
+_mcp_instance = FastApiMCP(FASTAPI_APP, include_operations=include_operations)
+_mcp_instance.mount_http()
 
-    Args:
-        mcp_app: FastAPI app instance to add endpoints to
-    """
-
-    # Add healthcheck endpoint
-    @mcp_app.get(f"{APP_URL_ROOT_PATH}/healthcheck")
-    def mcp_healthcheck() -> dict[str, Any]:
-        """Health check endpoint for MCP."""
-        return {"status": requests.codes.ok, "message": "Alive (MCP)"}
-
-    # Add log viewer API endpoints (excluding HTML page)
-    @mcp_app.get("/logs/api/entries")
-    async def mcp_get_log_entries(
-        hook_id: str | None = None,
-        pr_number: int | None = None,
-        repository: str | None = None,
-        event_type: str | None = None,
-        github_user: str | None = None,
-        level: str | None = None,
-        start_time: str | None = None,
-        end_time: str | None = None,
-        search: str | None = None,
-        limit: int = 100,
-        offset: int = 0,
-        controller: LogViewerController = controller_dependency,
-    ) -> dict[str, Any]:
-        """Retrieve historical log entries with filtering and pagination via MCP."""
-        return await _get_log_entries_core(
-            controller=controller,
-            hook_id=hook_id,
-            pr_number=pr_number,
-            repository=repository,
-            event_type=event_type,
-            github_user=github_user,
-            level=level,
-            start_time=start_time,
-            end_time=end_time,
-            search=search,
-            limit=limit,
-            offset=offset,
-        )
-
-    @mcp_app.get("/logs/api/export")
-    async def mcp_export_logs(
-        format_type: str,
-        hook_id: str | None = None,
-        pr_number: int | None = None,
-        repository: str | None = None,
-        event_type: str | None = None,
-        github_user: str | None = None,
-        level: str | None = None,
-        start_time: str | None = None,
-        end_time: str | None = None,
-        search: str | None = None,
-        limit: int = 10000,
-        controller: LogViewerController = controller_dependency,
-    ) -> StreamingResponse:
-        """Export filtered logs as JSON file via MCP."""
-        return await _export_logs_core(
-            controller=controller,
-            format_type=format_type,
-            hook_id=hook_id,
-            pr_number=pr_number,
-            repository=repository,
-            event_type=event_type,
-            github_user=github_user,
-            level=level,
-            start_time=start_time,
-            end_time=end_time,
-            search=search,
-            limit=limit,
-        )
-
-    @mcp_app.get("/logs/api/pr-flow/{hook_id}")
-    async def mcp_get_pr_flow_data(
-        hook_id: str, controller: LogViewerController = controller_dependency
-    ) -> dict[str, Any]:
-        """Get PR flow visualization data for a specific hook ID via MCP."""
-        return await _get_pr_flow_data_core(controller=controller, hook_id=hook_id)
-
-    @mcp_app.get("/logs/api/workflow-steps/{hook_id}")
-    async def mcp_get_workflow_steps(
-        hook_id: str, controller: LogViewerController = controller_dependency
-    ) -> dict[str, Any]:
-        """Get workflow step timeline data for a specific hook ID via MCP."""
-        return await _get_workflow_steps_core(controller=controller, hook_id=hook_id)
-
-    # Note: HTML pages, WebSocket endpoints, and static files are excluded from MCP
-
-
-# Initialize MCP integration
-try:
-    # Create the safe MCP app
-    mcp_safe_app = create_mcp_safe_app()
-    setup_mcp_safe_endpoints(mcp_safe_app)
-
-    # Initialize MCP with the safe app
-    _mcp_instance = FastApiMCP(mcp_safe_app)
-    _mcp_instance.mount()
-
-    # Mount the MCP-enabled safe app to the main app
-    FASTAPI_APP.mount("/mcp", mcp_safe_app, name="mcp")
-
-    LOGGER.info("MCP integration initialized successfully (webhook endpoint excluded)")
-except Exception as e:
-    LOGGER.error(f"Failed to initialize MCP integration: {e}")
-    _mcp_instance = None
+LOGGER.info("MCP integration initialized successfully")

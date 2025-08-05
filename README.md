@@ -1058,25 +1058,13 @@ http://your-server:5000/mcp
 ```json
 {
   "mcpServers": {
-    "github-webhook-server": {
-      "command": "uvx",
-      "args": ["mcp-server-fetch", "--proxy-url", "http://your-server:5000/mcp"]
-    }
-  }
-}
-```
-
-**Alternative Configuration** (if using local mcp-server-fetch):
-
-```json
-{
-  "mcpServers": {
     "github-webhook-server-logs": {
-      "command": "mcp-server-fetch",
-      "args": ["--proxy-url", "http://192.168.10.44:5003/mcp"],
-      "env": {
-        "MCP_FETCH_TIMEOUT": "30"
-      }
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "http://your-server:port/mcp",
+        "--allow-http"
+      ]
     }
   }
 }
