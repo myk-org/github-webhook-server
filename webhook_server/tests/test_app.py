@@ -10,7 +10,12 @@ import pytest
 from fastapi.testclient import TestClient
 import ipaddress
 
-from webhook_server.app import FASTAPI_APP, gate_by_allowlist_ips
+from webhook_server.app import FASTAPI_APP
+from webhook_server.utils.app_utils import (
+    get_github_allowlist,
+    get_cloudflare_allowlist,
+    gate_by_allowlist_ips,
+)
 from webhook_server.libs.exceptions import RepositoryNotFoundError
 
 
@@ -236,12 +241,9 @@ class TestWebhookApp:
         async_client = AsyncMock()
         async_client.get.return_value = mock_response
 
-        from webhook_server import app as app_module
-
-        with patch.object(app_module, "_lifespan_http_client", async_client):
-            result = await app_module.get_github_allowlist()
-            assert result == ["192.30.252.0/22", "185.199.108.0/22"]
-            async_client.get.assert_called_once()
+        result = await get_github_allowlist(async_client)
+        assert result == ["192.30.252.0/22", "185.199.108.0/22"]
+        async_client.get.assert_called_once()
 
     @patch("httpx.AsyncClient.get")
     async def test_get_github_allowlist_error(self, mock_get: Mock) -> None:
@@ -251,11 +253,8 @@ class TestWebhookApp:
         async_client = AsyncMock()
         async_client.get.side_effect = httpx.RequestError("Network error")
 
-        from webhook_server import app as app_module
-
-        with patch.object(app_module, "_lifespan_http_client", async_client):
-            with pytest.raises(httpx.RequestError):
-                await app_module.get_github_allowlist()
+        with pytest.raises(httpx.RequestError):
+            await get_github_allowlist(async_client)
 
     @patch("httpx.AsyncClient.get")
     async def test_get_cloudflare_allowlist_success(self, mock_get: Mock) -> None:
@@ -270,77 +269,67 @@ class TestWebhookApp:
         async_client = AsyncMock()
         async_client.get.return_value = mock_response
 
-        from webhook_server import app as app_module
-
-        with patch.object(app_module, "_lifespan_http_client", async_client):
-            result = await app_module.get_cloudflare_allowlist()
-            assert result == ["103.21.244.0/22", "2400:cb00::/32"]
-            async_client.get.assert_called_once()
+        result = await get_cloudflare_allowlist(async_client)
+        assert result == ["103.21.244.0/22", "2400:cb00::/32"]
+        async_client.get.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_gate_by_allowlist_ips_allowed(self, monkeypatch: Any) -> None:
+    async def test_gate_by_allowlist_ips_allowed(self) -> None:
         """Test gate_by_allowlist_ips with allowed IP."""
-        # Patch ALLOWED_IPS to allow 127.0.0.1
-        monkeypatch.setattr("webhook_server.app.ALLOWED_IPS", (ipaddress.ip_network("127.0.0.1/32"),))
+        allowed_ips = (ipaddress.ip_network("127.0.0.1/32"),)
 
         class DummyRequest:
             client = type("client", (), {"host": "127.0.0.1"})()
 
-        await gate_by_allowlist_ips(DummyRequest())  # type: ignore
+        await gate_by_allowlist_ips(DummyRequest(), allowed_ips)  # type: ignore
 
     @pytest.mark.asyncio
-    async def test_gate_by_allowlist_ips_forbidden(self, monkeypatch: Any) -> None:
+    async def test_gate_by_allowlist_ips_forbidden(self) -> None:
         """Test gate_by_allowlist_ips with forbidden IP."""
-        monkeypatch.setattr("webhook_server.app.ALLOWED_IPS", (ipaddress.ip_network("10.0.0.0/8"),))
+        allowed_ips = (ipaddress.ip_network("10.0.0.0/8"),)
 
         class DummyRequest:
             client = type("client", (), {"host": "127.0.0.1"})()
 
         with pytest.raises(Exception) as exc:
-            await gate_by_allowlist_ips(DummyRequest())  # type: ignore
+            await gate_by_allowlist_ips(DummyRequest(), allowed_ips)  # type: ignore
         assert "not a valid ip in allowlist" in str(exc.value)
 
     @pytest.mark.asyncio
     async def test_gate_by_allowlist_ips_no_client(self) -> None:
         """Test gate_by_allowlist_ips with no client."""
-        from webhook_server import app as app_module
-
-        app_module.ALLOWED_IPS = (ipaddress.ip_network("127.0.0.1/32"),)
+        allowed_ips = (ipaddress.ip_network("127.0.0.1/32"),)
 
         class DummyRequest:
             client = None
 
         with pytest.raises(Exception) as exc:
-            await gate_by_allowlist_ips(DummyRequest())  # type: ignore
+            await gate_by_allowlist_ips(DummyRequest(), allowed_ips)  # type: ignore
         assert "Could not determine client IP address" in str(exc.value)
 
     @pytest.mark.asyncio
     async def test_gate_by_allowlist_ips_bad_ip(self) -> None:
         """Test gate_by_allowlist_ips with bad IP."""
-        from webhook_server import app as app_module
-
-        app_module.ALLOWED_IPS = (ipaddress.ip_network("127.0.0.1/32"),)
+        allowed_ips = (ipaddress.ip_network("127.0.0.1/32"),)
 
         class DummyRequest:
             class client:
                 host = "not-an-ip"
 
         with pytest.raises(Exception) as exc:
-            await gate_by_allowlist_ips(DummyRequest())  # type: ignore
+            await gate_by_allowlist_ips(DummyRequest(), allowed_ips)  # type: ignore
         assert "Could not parse client IP address" in str(exc.value)
 
     @pytest.mark.asyncio
     async def test_gate_by_allowlist_ips_empty_allowlist(self) -> None:
         """Test gate_by_allowlist_ips with empty allowlist."""
-        from webhook_server import app as app_module
-
-        app_module.ALLOWED_IPS = ()
+        allowed_ips = ()
 
         class DummyRequest:
             client = type("client", (), {"host": "127.0.0.1"})()
 
-        # Should not raise when ALLOWED_IPS is empty
-        await gate_by_allowlist_ips(DummyRequest())  # type: ignore
+        # Should not raise when allowed_ips is empty
+        await gate_by_allowlist_ips(DummyRequest(), allowed_ips)  # type: ignore
 
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     def test_process_webhook_request_body_error(self, client: TestClient) -> None:
@@ -400,25 +389,18 @@ class TestWebhookApp:
         async_client = AsyncMock()
         async_client.get.side_effect = Exception("Unexpected error")
 
-        from webhook_server import app as app_module
+        with pytest.raises(Exception):
+            await get_github_allowlist(async_client)
 
-        with patch.object(app_module, "_lifespan_http_client", async_client):
-            with pytest.raises(Exception):
-                await app_module.get_github_allowlist()
-
-    @patch("httpx.AsyncClient.get")
-    async def test_get_cloudflare_allowlist_request_error(self, mock_get: Mock) -> None:
+    async def test_get_cloudflare_allowlist_request_error(self) -> None:
         """Test Cloudflare allowlist fetching with request error."""
         from unittest.mock import AsyncMock
 
         async_client = AsyncMock()
         async_client.get.side_effect = httpx.RequestError("Network error")
 
-        from webhook_server import app as app_module
-
-        with patch.object(app_module, "_lifespan_http_client", async_client):
-            with pytest.raises(httpx.RequestError):
-                await app_module.get_cloudflare_allowlist()
+        with pytest.raises(httpx.RequestError):
+            await get_cloudflare_allowlist(async_client)
 
     @patch("httpx.AsyncClient.get")
     async def test_get_cloudflare_allowlist_unexpected_error(self, mock_get: Mock) -> None:
@@ -428,11 +410,8 @@ class TestWebhookApp:
         async_client = AsyncMock()
         async_client.get.side_effect = Exception("Unexpected error")
 
-        from webhook_server import app as app_module
-
-        with patch.object(app_module, "_lifespan_http_client", async_client):
-            with pytest.raises(Exception):
-                await app_module.get_cloudflare_allowlist()
+        with pytest.raises(Exception):
+            await get_cloudflare_allowlist(async_client)
 
     @patch("httpx.AsyncClient.get")
     async def test_get_cloudflare_allowlist_http_error(self, mock_get: Mock) -> None:
@@ -448,11 +427,8 @@ class TestWebhookApp:
         mock_response.json = lambda: {"result": {}}
         async_client.get.return_value = mock_response
 
-        from webhook_server import app as app_module
-
-        with patch.object(app_module, "_lifespan_http_client", async_client):
-            with pytest.raises(httpx.HTTPStatusError):
-                await app_module.get_cloudflare_allowlist()
+        with pytest.raises(httpx.HTTPStatusError):
+            await get_cloudflare_allowlist(async_client)
 
     @patch("httpx.AsyncClient.get")
     async def test_get_github_allowlist_http_error(self, mock_get: Mock) -> None:
@@ -468,11 +444,8 @@ class TestWebhookApp:
         mock_response.json = lambda: {"hooks": []}
         async_client.get.return_value = mock_response
 
-        from webhook_server import app as app_module
-
-        with patch.object(app_module, "_lifespan_http_client", async_client):
-            with pytest.raises(httpx.HTTPStatusError):
-                await app_module.get_github_allowlist()
+        with pytest.raises(httpx.HTTPStatusError):
+            await get_github_allowlist(async_client)
 
     @patch("webhook_server.app.get_github_allowlist")
     @patch("webhook_server.app.get_cloudflare_allowlist")
