@@ -1025,13 +1025,15 @@ and HTML pages for security.
 - 🔒 **Internal system information and error details**
 
 **Required Security Measures** (see [Security](#security) section for complete guidance):
+
 - ✅ Deploy **only on trusted networks** (VPN, internal network)
 - ✅ **Never expose MCP endpoints** directly to the internet
 - ✅ Implement **reverse proxy authentication** for any external access  
 - ✅ Use **firewall rules** to restrict access to authorized IP ranges only
 - ✅ Monitor and **audit access** to these endpoints
 
-Despite being read-only, these endpoints require the **same security considerations** as the main log viewer due to the sensitive nature of webhook and system data.
+Despite being read-only, these endpoints require the **same security considerations** as the main log viewer
+due to the sensitive nature of webhook and system data.
 
 ### 🚀 AI Agent Capabilities
 
@@ -1365,6 +1367,7 @@ scrape_configs:
 
 1. **Automatic cleanup** - Built-in cleanup runs on container start
 2. **Manual fix** - Follow these safety steps:
+
    ```bash
    # ⚠️  CAUTION: This command will delete files permanently!
    # Verify the directory path before proceeding
@@ -1380,6 +1383,7 @@ scrape_configs:
        echo "Operation cancelled"
    fi
    ```
+
 3. **Prevention** - See [Podman Troubleshooting Guide](docs/PODMAN_TROUBLESHOOTING.md)
 
 The webhook server includes automatic Podman runtime directory cleanup to prevent these issues.
