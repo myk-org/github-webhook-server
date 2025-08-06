@@ -331,7 +331,92 @@ async def get_log_entries(
     offset: int = 0,
     controller: LogViewerController = controller_dependency,
 ) -> dict[str, Any]:
-    """Retrieve historical log entries with filtering and pagination."""
+    """Retrieve and filter webhook processing logs with advanced pagination and search capabilities.
+
+    This endpoint provides comprehensive access to webhook server logs for monitoring, debugging,
+    and analysis. It supports multiple filtering dimensions and is optimized for memory-efficient
+    streaming of large datasets.
+
+    **Primary Use Cases:**
+    - Debug webhook processing issues by filtering specific events or time ranges
+    - Monitor PR processing workflows and identify bottlenecks
+    - Audit user activity and GitHub interactions across repositories
+    - Generate reports on webhook processing performance and errors
+    - Investigate specific GitHub delivery failures or API rate limiting
+
+    **Parameters:**
+    - `hook_id` (str, optional): GitHub webhook delivery ID (X-GitHub-Delivery header).
+      Example: "f4b3c2d1-a9b8-4c5d-9e8f-1a2b3c4d5e6f"
+    - `pr_number` (int, optional): Pull request number to filter PR-related events.
+      Example: 42 (will match logs for PR #42)
+    - `repository` (str, optional): Repository name in "owner/repo" format.
+      Example: "myakove/github-webhook-server"
+    - `event_type` (str, optional): GitHub webhook event type.
+      Common values: "pull_request", "push", "issues", "issue_comment", "pull_request_review"
+    - `github_user` (str, optional): GitHub username who triggered the webhook.
+      Example: "myakove" (filters events by user activity)
+    - `level` (str, optional): Log level filter.
+      Values: "DEBUG", "INFO", "WARNING", "ERROR", "SUCCESS"
+    - `start_time` (str, optional): Start of time range in ISO format.
+      Example: "2024-01-15T10:00:00Z" or "2024-01-15T10:00:00.123456"
+    - `end_time` (str, optional): End of time range in ISO format.
+      Example: "2024-01-15T18:00:00Z"
+    - `search` (str, optional): Text search across log messages (case-insensitive).
+      Example: "rate limit" or "container build failed"
+    - `limit` (int, default=100): Maximum entries to return (1-10000).
+      Larger values may increase response time and memory usage.
+    - `offset` (int, default=0): Number of entries to skip for pagination.
+      Use with limit for paginated access to large result sets.
+
+    **Return Structure:**
+    ```json
+    {
+      "entries": [
+        {
+          "timestamp": "2024-01-15T14:30:25.123456",
+          "level": "INFO",
+          "message": "Processing webhook for repository: myakove/test-repo",
+          "hook_id": "f4b3c2d1-a9b8-4c5d-9e8f-1a2b3c4d5e6f",
+          "repository": "myakove/test-repo",
+          "event_type": "pull_request",
+          "github_user": "contributor123",
+          "pr_number": 42,
+          "additional_data": {...}
+        }
+      ],
+      "total_count": 1542,
+      "has_more": true,
+      "next_offset": 100
+    }
+    ```
+
+    **Common Filtering Scenarios:**
+    - Recent errors: `level=ERROR&start_time=2024-01-15T00:00:00Z`
+    - Specific PR workflow: `pr_number=42&repository=owner/repo`
+    - User activity audit: `github_user=username&start_time=2024-01-01T00:00:00Z`
+    - Event type analysis: `event_type=pull_request&level=ERROR`
+    - Webhook delivery debugging: `hook_id=specific-delivery-id`
+    - Performance monitoring: `search=rate limit&level=WARNING`
+
+    **Error Conditions:**
+    - 400: Invalid datetime format in start_time/end_time parameters
+    - 400: Invalid limit value (must be 1-10000)
+    - 500: Log file access errors or disk I/O issues
+    - 500: Memory exhaustion with very large result sets
+
+    **AI Agent Usage Examples:**
+    - "Get all ERROR level logs from the last 24 hours to identify system issues"
+    - "Find all pull_request events for repository X to analyze PR processing workflow"
+    - "Search for 'container build' failures in the last week to debug CI issues"
+    - "Get logs for specific webhook delivery ID to debug why a webhook failed"
+    - "Monitor specific user's activity across all repositories for security audit"
+
+    **Performance Notes:**
+    - Response times increase with larger date ranges and broader search terms
+    - Memory usage is optimized through streaming; large limits may still impact performance
+    - Use specific filters (hook_id, repository) for fastest queries
+    - Avoid very broad searches without time constraints on production systems
+    """
     return await _get_log_entries_core(
         controller=controller,
         hook_id=hook_id,
@@ -397,7 +482,113 @@ async def export_logs(
     limit: int = 10000,
     controller: LogViewerController = controller_dependency,
 ) -> StreamingResponse:
-    """Export filtered logs as JSON file."""
+    """Export filtered webhook logs to downloadable files for offline analysis and reporting.
+
+    This endpoint generates downloadable files containing filtered log data, supporting various
+    export formats for integration with external analysis tools, compliance reporting, and
+    long-term log archival. Uses memory-efficient streaming to handle large datasets.
+
+    **Primary Use Cases:**
+    - Generate compliance reports for security audits and regulatory requirements
+    - Export error logs for offline analysis and debugging sessions
+    - Create data backups of critical webhook processing events
+    - Feed log data into external monitoring and analytics platforms
+    - Generate historical reports for performance analysis and trend identification
+    - Archive logs for long-term storage and compliance requirements
+
+    **Parameters:**
+    - `format_type` (str, required): Export file format.
+      Currently supported: "json" (additional formats may be added in future versions)
+    - `hook_id` (str, optional): GitHub webhook delivery ID for specific event export.
+      Example: "f4b3c2d1-a9b8-4c5d-9e8f-1a2b3c4d5e6f"
+    - `pr_number` (int, optional): Pull request number to export PR-related logs.
+      Example: 42 (exports all logs related to PR #42)
+    - `repository` (str, optional): Repository name filter in "owner/repo" format.
+      Example: "myakove/github-webhook-server"
+    - `event_type` (str, optional): GitHub webhook event type filter.
+      Common values: "pull_request", "push", "issues", "issue_comment", "release"
+    - `github_user` (str, optional): GitHub username filter for user activity exports.
+      Example: "myakove" (exports all events triggered by this user)
+    - `level` (str, optional): Log level filter for severity-based exports.
+      Values: "DEBUG", "INFO", "WARNING", "ERROR", "SUCCESS"
+    - `start_time` (str, optional): Export start time in ISO format.
+      Example: "2024-01-01T00:00:00Z" (exports logs from this time forward)
+    - `end_time` (str, optional): Export end time in ISO format.
+      Example: "2024-01-31T23:59:59Z" (exports logs up to this time)
+    - `search` (str, optional): Text search filter across log messages.
+      Example: "container build" or "rate limit exceeded"
+    - `limit` (int, default=10000): Maximum number of log entries to export.
+      Higher limits increase export time and file size. Max recommended: 50000.
+
+    **Return Structure:**
+    Returns a StreamingResponse with appropriate headers for file download:
+    - Content-Type: application/json (for JSON exports)
+    - Content-Disposition: attachment; filename="logs_export_YYYY-MM-DD_HH-MM-SS.json"
+    - Transfer-Encoding: chunked (for memory-efficient streaming)
+
+    **JSON Export Format:**
+    ```json
+    {
+      "export_metadata": {
+        "generated_at": "2024-01-15T14:30:25.123456Z",
+        "filters_applied": {
+          "repository": "myakove/test-repo",
+          "level": "ERROR",
+          "start_time": "2024-01-01T00:00:00Z"
+        },
+        "total_entries": 156,
+        "export_format": "json"
+      },
+      "log_entries": [
+        {
+          "timestamp": "2024-01-15T14:30:25.123456",
+          "level": "ERROR",
+          "message": "Container build failed for PR #42",
+          "hook_id": "delivery-id-123",
+          "repository": "myakove/test-repo",
+          "event_type": "pull_request",
+          "github_user": "contributor",
+          "pr_number": 42,
+          "additional_data": {...}
+        }
+      ]
+    }
+    ```
+
+    **Common Export Scenarios:**
+    - Monthly audit reports: `start_time=2024-01-01&end_time=2024-01-31&format_type=json`
+    - Error analysis export: `level=ERROR&start_time=2024-01-15&format_type=json`
+    - Repository-specific backup: `repository=owner/repo&limit=50000&format_type=json`
+    - User activity report: `github_user=username&start_time=2024-01-01&format_type=json`
+    - PR workflow analysis: `event_type=pull_request&search=container build&format_type=json`
+    - Security incident investigation: `hook_id=specific-delivery&format_type=json`
+
+    **Error Conditions:**
+    - 400: Unsupported format_type (only "json" currently supported)
+    - 400: Invalid datetime format in start_time/end_time parameters
+    - 400: Limit exceeds maximum allowed value (typically 100000)
+    - 500: File system errors during export generation
+    - 500: Memory exhaustion with extremely large datasets
+    - 503: Temporary service unavailability during heavy system load
+
+    **AI Agent Usage Examples:**
+    - "Export all ERROR logs from last month for analysis: format_type=json&level=ERROR&start_time=2024-01-01"
+    - "Generate security audit report: format_type=json&github_user=suspicious_user&start_time=2024-01-01"
+    - "Create backup of repository logs: format_type=json&repository=critical/repo&limit=50000"
+    - "Export webhook delivery investigation data: format_type=json&hook_id=failed-delivery-id"
+    - "Generate performance analysis dataset: format_type=json&search=rate limit&start_time=2024-01-01"
+
+    **Performance and Limitations:**
+    - Large exports (>10000 entries) may take several minutes to complete
+    - Memory usage is optimized through streaming; file size limited by disk space
+    - Concurrent exports may be throttled to prevent system overload
+    - Export files are generated on-demand; no caching for repeated requests
+    - Recommended to use specific filters to reduce export size and improve performance
+
+    **File Naming Convention:**
+    Exported files follow the pattern: `logs_export_YYYY-MM-DD_HH-MM-SS.{format}`
+    Example: `logs_export_2024-01-15_14-30-25.json`
+    """
     return await _export_logs_core(
         controller=controller,
         format_type=format_type,
@@ -424,7 +615,34 @@ async def _get_pr_flow_data_core(
 
 @FASTAPI_APP.get("/logs/api/pr-flow/{hook_id}", operation_id="get_pr_flow_data")
 async def get_pr_flow_data(hook_id: str, controller: LogViewerController = controller_dependency) -> dict[str, Any]:
-    """Get PR flow visualization data for a specific hook ID or PR number."""
+    """Get PR workflow visualization data for process analysis and debugging.
+
+    Provides detailed flow analysis of pull request processing workflows, tracking the complete
+    lifecycle from webhook receipt through completion. Essential for debugging PR automation
+    issues, identifying bottlenecks, and optimizing workflow performance.
+
+    Args:
+        hook_id: GitHub webhook delivery ID that initiated the PR workflow.
+                Example: "f4b3c2d1-a9b8-4c5d-9e8f-1a2b3c4d5e6f"
+
+    Returns:
+        dict: Comprehensive workflow data including:
+            - hook_id: The webhook delivery ID
+            - pr_metadata: PR details (number, repository, title, author, state, timestamps)
+            - workflow_stages: Array of processing stages with timestamps, status, and details
+            - performance_metrics: Processing time, completion status, health indicators
+            - integration_status: GitHub API usage and external service call results
+
+    Raises:
+        400: Invalid hook_id format
+        404: No PR workflow found for hook_id
+        500: Log parsing errors or internal processing errors
+
+    Note:
+        For detailed documentation including complete JSON examples, workflow stages,
+        analysis scenarios, and usage patterns, see:
+        webhook_server/docs/pr-flow-api.md
+    """
     return await _get_pr_flow_data_core(controller=controller, hook_id=hook_id)
 
 
@@ -438,7 +656,235 @@ async def _get_workflow_steps_core(
 
 @FASTAPI_APP.get("/logs/api/workflow-steps/{hook_id}", operation_id="get_workflow_steps")
 async def get_workflow_steps(hook_id: str, controller: LogViewerController = controller_dependency) -> dict[str, Any]:
-    """Get workflow step timeline data for a specific hook ID."""
+    """Retrieve detailed timeline and execution data for individual workflow steps within a webhook processing flow.
+
+    This endpoint provides granular, step-by-step analysis of webhook processing workflows, offering
+    detailed timing, execution status, and diagnostic information for each operation. Essential for
+    performance optimization, debugging specific step failures, and understanding workflow execution patterns.
+
+    **Primary Use Cases:**
+    - Debug specific workflow step failures with detailed error information
+    - Analyze step-by-step performance timing for workflow optimization
+    - Monitor individual operation success rates and failure patterns
+    - Generate detailed audit trails for compliance and monitoring
+    - Identify resource bottlenecks in specific workflow operations
+    - Track GitHub API usage and rate limiting per workflow step
+    - Investigate external service integration issues at the step level
+
+    **Parameters:**
+    - `hook_id` (str, required): GitHub webhook delivery ID for the workflow to analyze.
+      Example: "f4b3c2d1-a9b8-4c5d-9e8f-1a2b3c4d5e6f"
+      This corresponds to the X-GitHub-Delivery header value from the original webhook.
+      Must be a valid delivery ID that exists in the webhook processing logs.
+
+    **Return Structure:**
+    ```json
+    {
+      "hook_id": "f4b3c2d1-a9b8-4c5d-9e8f-1a2b3c4d5e6f",
+      "workflow_metadata": {
+        "repository": "myakove/github-webhook-server",
+        "event_type": "pull_request",
+        "initiated_at": "2024-01-15T10:00:00.123456Z",
+        "total_duration_ms": 45230,
+        "total_steps": 12,
+        "steps_completed": 10,
+        "steps_failed": 1,
+        "steps_skipped": 1
+      },
+      "execution_timeline": [
+        {
+          "step_id": "webhook_validation",
+          "step_name": "Webhook Signature Validation",
+          "sequence": 1,
+          "started_at": "2024-01-15T10:00:00.123456Z",
+          "completed_at": "2024-01-15T10:00:00.156789Z",
+          "duration_ms": 33,
+          "status": "completed",
+          "operation_type": "security",
+          "details": {
+            "signature_valid": true,
+            "payload_size_bytes": 2048,
+            "validation_method": "sha256"
+          }
+        },
+        {
+          "step_id": "payload_parsing",
+          "step_name": "JSON Payload Parsing",
+          "sequence": 2,
+          "started_at": "2024-01-15T10:00:00.156789Z",
+          "completed_at": "2024-01-15T10:00:00.189012Z",
+          "duration_ms": 32,
+          "status": "completed",
+          "operation_type": "data_processing",
+          "details": {
+            "payload_size_bytes": 2048,
+            "fields_extracted": 15,
+            "pr_number": 42,
+            "repository": "myakove/github-webhook-server"
+          }
+        },
+        {
+          "step_id": "github_api_fetch_pr",
+          "step_name": "Fetch PR Details from GitHub API",
+          "sequence": 3,
+          "started_at": "2024-01-15T10:00:00.189012Z",
+          "completed_at": "2024-01-15T10:00:01.234567Z",
+          "duration_ms": 1045,
+          "status": "completed",
+          "operation_type": "api_call",
+          "details": {
+            "api_endpoint": "GET /repos/myakove/github-webhook-server/pulls/42",
+            "response_status": 200,
+            "rate_limit_used": 1,
+            "rate_limit_remaining": 4999,
+            "response_size_bytes": 8192,
+            "retry_attempts": 0
+          }
+        },
+        {
+          "step_id": "pr_size_analysis",
+          "step_name": "Analyze PR Size and Complexity",
+          "sequence": 4,
+          "started_at": "2024-01-15T10:00:01.234567Z",
+          "completed_at": "2024-01-15T10:00:01.789012Z",
+          "duration_ms": 554,
+          "status": "completed",
+          "operation_type": "analysis",
+          "details": {
+            "files_changed": 15,
+            "lines_added": 450,
+            "lines_deleted": 120,
+            "size_classification": "large",
+            "complexity_score": 7.5,
+            "analysis_rules_applied": ["line_count", "file_count", "complexity_heuristics"]
+          }
+        },
+        {
+          "step_id": "container_build_trigger",
+          "step_name": "Trigger Container Build",
+          "sequence": 8,
+          "started_at": "2024-01-15T10:00:05.123456Z",
+          "completed_at": "2024-01-15T10:00:05.234567Z",
+          "duration_ms": 111,
+          "status": "failed",
+          "operation_type": "build_system",
+          "error_details": {
+            "error_code": "BUILD_TRIGGER_FAILED",
+            "error_message": "Failed to trigger container build: Registry authentication failed",
+            "retry_attempts": 3,
+            "last_error": "401 Unauthorized: Invalid registry credentials",
+            "recovery_action": "Check registry authentication configuration"
+          },
+          "details": {
+            "build_system": "podman",
+            "registry": "quay.io/myakove/test-repo",
+            "dockerfile_path": "containerfiles/Dockerfile",
+            "build_context": "."
+          }
+        }
+      ],
+      "performance_analysis": {
+        "slowest_steps": [
+          {
+            "step_id": "github_api_fetch_pr",
+            "duration_ms": 1045,
+            "performance_category": "external_api"
+          }
+        ],
+        "step_categories": {
+          "security": {"total_duration_ms": 33, "step_count": 1},
+          "data_processing": {"total_duration_ms": 586, "step_count": 2},
+          "api_call": {"total_duration_ms": 2340, "step_count": 4},
+          "analysis": {"total_duration_ms": 554, "step_count": 1},
+          "build_system": {"total_duration_ms": 111, "step_count": 1}
+        },
+        "bottlenecks": [
+          {
+            "category": "api_call",
+            "percentage_of_total": 51.8,
+            "recommendation": "Consider API response caching for repeated requests"
+          }
+        ]
+      },
+      "error_summary": {
+        "total_errors": 1,
+        "error_categories": {
+          "build_system": 1
+        },
+        "critical_errors": [],
+        "recoverable_errors": [
+          {
+            "step_id": "container_build_trigger",
+            "error_type": "authentication_failure",
+            "recovery_suggestion": "Verify registry credentials in configuration"
+          }
+        ]
+      }
+    }
+    ```
+
+    **Step Operation Types:**
+    - `security`: Authentication, signature validation, authorization checks
+    - `data_processing`: Payload parsing, data transformation, validation
+    - `api_call`: GitHub API requests, external service calls
+    - `analysis`: PR analysis, file processing, complexity calculation
+    - `build_system`: Container builds, compilation, asset generation
+    - `notification`: Slack, email, webhook notifications
+    - `storage`: Database operations, file I/O, caching
+    - `integration`: JIRA, external system integration
+
+    **Step Status Values:**
+    - `pending`: Step is queued but not yet started
+    - `in_progress`: Step is currently executing
+    - `completed`: Step finished successfully
+    - `failed`: Step encountered an error
+    - `skipped`: Step was bypassed due to conditions
+    - `timeout`: Step exceeded maximum execution time
+    - `retrying`: Step is being retried after failure
+
+    **Common Analysis Scenarios:**
+    - Identify which specific step is causing workflow delays
+    - Debug authentication or API failures in external service integrations
+    - Analyze GitHub API usage patterns and rate limiting impact
+    - Monitor container build failure rates and error patterns
+    - Optimize workflow performance by identifying slow operations
+    - Generate detailed audit logs for compliance requirements
+    - Troubleshoot configuration issues in specific workflow operations
+
+    **Error Conditions:**
+    - 400: Invalid hook_id format or malformed request
+    - 404: No workflow steps found for the specified hook_id
+    - 404: Hook_id exists but workflow data is incomplete or corrupted
+    - 500: Log parsing errors or step data aggregation failures
+    - 500: Internal errors during performance analysis calculation
+
+    **AI Agent Usage Examples:**
+    - "Show detailed steps for hook abc123 to debug why container builds are failing"
+    - "Analyze step timing for hook xyz789 to optimize PR processing performance"
+    - "Get failure details for hook def456 to troubleshoot GitHub API issues"
+    - "Review security steps for hook ghi789 to audit authentication processes"
+    - "Generate performance report from hook jkl012 steps to identify bottlenecks"
+
+    **Performance Analysis Features:**
+    - Automatic identification of slowest steps and bottlenecks
+    - Categorization of steps by operation type for pattern analysis
+    - Performance recommendations based on step timing patterns
+    - Error categorization and recovery suggestions
+    - Resource usage tracking (API calls, rate limits, etc.)
+
+    **Data Granularity:**
+    - Microsecond-precision timing for all step operations
+    - Detailed error information including retry attempts and recovery actions
+    - Complete API request/response metadata including rate limiting
+    - Resource usage metrics (memory, CPU, network) where available
+    - Integration status for all external services (Slack, JIRA, registries)
+
+    **Retention and Availability:**
+    - Step data is retained for 30 days by default
+    - Very recent workflows (<1 hour) may have incomplete step data
+    - Historical analysis is available for completed workflows
+    - Real-time step data for in-progress workflows
+    """
     return await _get_workflow_steps_core(controller=controller, hook_id=hook_id)
 
 
