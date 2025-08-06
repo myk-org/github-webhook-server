@@ -2,8 +2,8 @@
 
 ## Overview
 
-The PR Flow API (`/logs/api/pr-flow/{hook_id}`) provides comprehensive pull request workflow visualization data
-for process analysis and debugging. This endpoint tracks the complete lifecycle of PR processing workflows from webhook receipt through completion.
+The PR Flow API (`/logs/api/pr-flow/{hook_id}`) provides comprehensive pull-request workflow visualization data for process analysis and debugging.
+It tracks the complete lifecycle of PR processing workflows from webhook receipt through completion.
 
 ## Primary Use Cases
 
@@ -17,7 +17,8 @@ for process analysis and debugging. This endpoint tracks the complete lifecycle 
 
 ## Security Model
 
-The PR Flow API endpoints (`/logs/api/pr-flow/*`) are **unauthenticated by design** for simplicity and ease of integration. This endpoint relies on network-level security controls and should only be deployed in trusted environments.
+The PR Flow API endpoints (`/logs/api/pr-flow/*`) are **unauthenticated by design** for simplicity and ease of integration.
+They rely on network-level security controls and should only be deployed in trusted environments.
 
 ### Security Considerations
 
@@ -36,6 +37,7 @@ The PR Flow API endpoints (`/logs/api/pr-flow/*`) are **unauthenticated by desig
 ### Security Expectations for API Consumers
 
 API consumers should ensure:
+
 - Access is restricted to authorized personnel only
 - Network traffic is encrypted in transit (HTTPS)
 - Logs containing sensitive data are handled according to data governance policies
@@ -237,10 +239,10 @@ The PR Flow API integrates seamlessly with the log viewer system to provide:
 ```python
 import httpx
 
-async def analyze_pr_workflow(hook_id: str) -> dict:
+async def analyze_pr_workflow(hook_id: str, base_url: str = "http://192.168.10.44:5003") -> dict:
     async with httpx.AsyncClient() as client:
-        # Replace with your webhook server URL
-        response = await client.get(f"http://webhook-server.local/logs/api/pr-flow/{hook_id}")
+        # Example using production webhook server
+        response = await client.get(f"{base_url}/logs/api/pr-flow/{hook_id}")
         return response.json()
 
 # Usage
