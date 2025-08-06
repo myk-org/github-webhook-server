@@ -2,7 +2,8 @@
 
 ## Overview
 
-The PR Flow API (`/logs/api/pr-flow/{hook_id}`) provides comprehensive pull request workflow visualization data for process analysis and debugging. This endpoint tracks the complete lifecycle of PR processing workflows from webhook receipt through completion.
+The PR Flow API (`/logs/api/pr-flow/{hook_id}`) provides comprehensive pull request workflow visualization data
+for process analysis and debugging. This endpoint tracks the complete lifecycle of PR processing workflows from webhook receipt through completion.
 
 ## Primary Use Cases
 
@@ -13,6 +14,32 @@ The PR Flow API (`/logs/api/pr-flow/{hook_id}`) provides comprehensive pull requ
 - **Build Tracking**: Monitor container builds, tests, and deployment status for PRs
 - **Analytics**: Generate PR workflow analytics and performance reports
 - **Issue Investigation**: Debug webhook delivery and processing issues
+
+## Security Model
+
+The PR Flow API endpoints (`/logs/api/pr-flow/*`) are **unauthenticated by design** for simplicity and ease of integration. This endpoint relies on network-level security controls and should only be deployed in trusted environments.
+
+### Security Considerations
+
+- **No Built-in Authentication**: The API does not implement authentication or authorization mechanisms
+- **Network-Level Security Required**: Security must be implemented at the network infrastructure level
+- **Trusted Networks Only**: Deploy behind VPN, on internal networks, or with proper network isolation
+
+### Recommended Security Controls
+
+- **VPN Access**: Deploy behind corporate VPN for remote access
+- **Internal Networks**: Restrict access to internal/private networks only
+- **Reverse Proxy Authentication**: Use nginx, Apache, or cloud load balancer authentication
+- **Firewall Rules**: Implement IP allowlists and port restrictions
+- **Network Segmentation**: Isolate webhook server in dedicated network segments
+
+### Security Expectations for API Consumers
+
+API consumers should ensure:
+- Access is restricted to authorized personnel only
+- Network traffic is encrypted in transit (HTTPS)
+- Logs containing sensitive data are handled according to data governance policies
+- Integration systems implement proper access controls and audit logging
 
 ## Parameters
 
@@ -212,7 +239,8 @@ import httpx
 
 async def analyze_pr_workflow(hook_id: str) -> dict:
     async with httpx.AsyncClient() as client:
-        response = await client.get(f"/logs/api/pr-flow/{hook_id}")
+        # Replace with your webhook server URL
+        response = await client.get(f"http://webhook-server.local/logs/api/pr-flow/{hook_id}")
         return response.json()
 
 # Usage
