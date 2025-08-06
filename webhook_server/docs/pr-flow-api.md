@@ -2,7 +2,8 @@
 
 ## Overview
 
-The PR Flow API (`/logs/api/pr-flow/{hook_id}`) provides comprehensive pull-request workflow visualization data for process analysis and debugging.
+The PR Flow API (`/logs/api/pr-flow/{hook_id}`) provides comprehensive pull-request workflow
+visualization data for process analysis and debugging.
 It tracks the complete lifecycle of PR processing workflows from webhook receipt through completion.
 
 ## Primary Use Cases
@@ -44,6 +45,9 @@ API consumers should ensure:
 - Integration systems implement proper access controls and audit logging
 
 ## Parameters
+
+**Method**: `GET`  
+**Response Content-Type**: `application/json`
 
 ### hook_id (required)
 
