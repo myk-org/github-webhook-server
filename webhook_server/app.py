@@ -275,11 +275,13 @@ def get_log_viewer_controller() -> LogViewerController:
 controller_dependency = Depends(get_log_viewer_controller)
 
 
-# Log Viewer Endpoints
-@FASTAPI_APP.get("/logs", operation_id="get_log_viewer_page", response_class=HTMLResponse)
-def get_log_viewer_page(controller: LogViewerController = controller_dependency) -> HTMLResponse:
-    """Serve the main log viewer HTML page."""
-    return controller.get_log_page()
+# Log Viewer Endpoints - Only register if ENABLE_LOG_SERVER=true
+if os.environ.get("ENABLE_LOG_SERVER") == "true":
+
+    @FASTAPI_APP.get("/logs", operation_id="get_log_viewer_page", response_class=HTMLResponse)
+    def get_log_viewer_page(controller: LogViewerController = controller_dependency) -> HTMLResponse:
+        """Serve the main log viewer HTML page."""
+        return controller.get_log_page()
 
 
 async def _get_log_entries_core(
