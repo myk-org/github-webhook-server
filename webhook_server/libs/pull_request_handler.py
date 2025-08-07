@@ -66,7 +66,7 @@ class PullRequestHandler:
 
         if hook_action == "edited":
             await self.set_wip_label_based_on_title(pull_request=pull_request)
-            if self.hook_data["changes"].get("title"):
+            if self.github_webhook.conventional_title and self.hook_data["changes"].get("title"):
                 self.logger.info(f"{self.log_prefix} PR title changed, running conventional title check")
                 await self.runner_handler.run_conventional_title_check(pull_request=pull_request)
 
