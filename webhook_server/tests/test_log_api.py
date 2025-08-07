@@ -494,6 +494,7 @@ class TestLogAPI:
             from fastapi.responses import HTMLResponse
 
             mock_instance.get_log_page.return_value = HTMLResponse(content="<html><body>Log Viewer</body></html>")
+            mock_instance.shutdown = AsyncMock()  # Add async shutdown method
 
             from webhook_server.app import FASTAPI_APP
 

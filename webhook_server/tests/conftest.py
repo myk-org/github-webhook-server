@@ -7,6 +7,7 @@ from starlette.datastructures import Headers
 from webhook_server.libs.owners_files_handler import OwnersFileHandler
 
 os.environ["WEBHOOK_SERVER_DATA_DIR"] = "webhook_server/tests/manifests"
+os.environ["ENABLE_LOG_SERVER"] = "true"
 from webhook_server.libs.github_api import GithubWebhook
 
 
