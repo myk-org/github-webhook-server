@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import re
 import shutil
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 from uuid import uuid4
@@ -444,8 +445,9 @@ class RunnerHandler:
         await self.check_run_handler.set_conventional_title_in_progress()
         allowed_names = self.github_webhook.conventional_title.split(",")
         title = pull_request.title
+
         self.logger.debug(f"{self.log_prefix} Conventional title check for title: {title}, allowed: {allowed_names}")
-        if any([title.startswith(f"{_name}:") for _name in allowed_names]):
+        if any([re.search(rf"{_name}(.*):", title) for _name in allowed_names]):
             self.logger.step(f"{self.log_prefix} Conventional title check completed successfully")  # type: ignore
             await self.check_run_handler.set_conventional_title_success(output=output)
         else:
