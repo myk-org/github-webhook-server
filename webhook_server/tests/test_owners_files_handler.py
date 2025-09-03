@@ -1,6 +1,7 @@
+from unittest.mock import AsyncMock, Mock, call, patch
+
 import pytest
 import yaml
-from unittest.mock import AsyncMock, Mock, patch, call
 
 from webhook_server.libs.owners_files_handler import OwnersFileHandler
 from webhook_server.tests.conftest import ContentFile

@@ -1,9 +1,9 @@
 """Tests for log viewer API endpoints and WebSocket functionality."""
 
 import asyncio
-import os
 import datetime
 import json
+import os
 import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
@@ -496,12 +496,27 @@ class TestLogAPI:
             mock_instance.get_log_page.return_value = HTMLResponse(content="<html><body>Log Viewer</body></html>")
             mock_instance.shutdown = AsyncMock()  # Add async shutdown method
 
-            from webhook_server.app import FASTAPI_APP
+            # Mock httpx.AsyncClient to prevent SSL errors during lifespan startup
+            mock_http_client = AsyncMock()
+            mock_http_client.aclose = AsyncMock()
 
-            with TestClient(FASTAPI_APP) as client:
-                response = client.get("/logs")
-                assert response.status_code == 200
-                assert "Log Viewer" in response.text
+            with patch("webhook_server.app.httpx.AsyncClient", return_value=mock_http_client):
+                # Mock external HTTP dependencies
+                with patch(
+                    "webhook_server.utils.app_utils.get_github_allowlist", new_callable=AsyncMock
+                ) as mock_github:
+                    with patch(
+                        "webhook_server.utils.app_utils.get_cloudflare_allowlist", new_callable=AsyncMock
+                    ) as mock_cloudflare:
+                        mock_github.return_value = []
+                        mock_cloudflare.return_value = []
+
+                        from webhook_server.app import FASTAPI_APP
+
+                        with TestClient(FASTAPI_APP) as client:
+                            response = client.get("/logs")
+                            assert response.status_code == 200
+                            assert "Log Viewer" in response.text
 
     def test_get_log_entries_no_filters(self, sample_log_entries: list[LogEntry]) -> None:
         """Test retrieving log entries without filters."""
@@ -820,8 +835,9 @@ class TestLogWebSocket:
     @pytest.mark.asyncio
     async def test_websocket_handle_real_implementation(self):
         """Test actual WebSocket handler implementation."""
-        from webhook_server.web.log_viewer import LogViewerController
         from unittest.mock import Mock
+
+        from webhook_server.web.log_viewer import LogViewerController
 
         mock_logger = Mock()
         controller = LogViewerController(logger=mock_logger)
@@ -1101,7 +1117,7 @@ class TestWorkflowStepsAPI:
     def test_get_workflow_steps_success(self) -> None:
         """Test successful workflow steps retrieval."""
         # Import modules and patch before creating test client
-        from unittest.mock import Mock, AsyncMock
+        from unittest.mock import AsyncMock, Mock
 
         # Mock workflow steps data
         mock_workflow_data = {
@@ -1135,17 +1151,23 @@ class TestWorkflowStepsAPI:
         mock_instance.get_workflow_steps.return_value = mock_workflow_data
         mock_instance.shutdown = AsyncMock()  # Add async shutdown method
 
+        # Mock httpx.AsyncClient to prevent SSL errors during lifespan startup
+        mock_http_client = AsyncMock()
+        mock_http_client.aclose = AsyncMock()
+
         # Patch using setattr to directly set the singleton instance
-        with patch("webhook_server.app.get_log_viewer_controller", return_value=mock_instance):
-            # Also patch the singleton variable itself
-            with patch("webhook_server.app._log_viewer_controller_singleton", mock_instance):
-                from webhook_server.app import FASTAPI_APP
-                from fastapi.testclient import TestClient
+        with patch("webhook_server.app.httpx.AsyncClient", return_value=mock_http_client):
+            with patch("webhook_server.app.get_log_viewer_controller", return_value=mock_instance):
+                # Also patch the singleton variable itself
+                with patch("webhook_server.app._log_viewer_controller_singleton", mock_instance):
+                    from fastapi.testclient import TestClient
 
-                client = TestClient(FASTAPI_APP)
+                    from webhook_server.app import FASTAPI_APP
 
-                # Make the request
-                response = client.get("/logs/api/workflow-steps/test-hook-123")
+                    client = TestClient(FASTAPI_APP)
+
+                    # Make the request
+                    response = client.get("/logs/api/workflow-steps/test-hook-123")
 
                 # Assertions
                 assert response.status_code == 200
@@ -1162,7 +1184,7 @@ class TestWorkflowStepsAPI:
     def test_get_workflow_steps_no_steps_found(self) -> None:
         """Test workflow steps when no steps are found."""
         # Import modules and patch before creating test client
-        from unittest.mock import Mock, AsyncMock
+        from unittest.mock import AsyncMock, Mock
 
         # Mock empty workflow data
         mock_workflow_data = {
@@ -1177,17 +1199,23 @@ class TestWorkflowStepsAPI:
         mock_instance.get_workflow_steps.return_value = mock_workflow_data
         mock_instance.shutdown = AsyncMock()  # Add async shutdown method
 
+        # Mock httpx.AsyncClient to prevent SSL errors during lifespan startup
+        mock_http_client = AsyncMock()
+        mock_http_client.aclose = AsyncMock()
+
         # Patch using setattr to directly set the singleton instance
-        with patch("webhook_server.app.get_log_viewer_controller", return_value=mock_instance):
-            # Also patch the singleton variable itself
-            with patch("webhook_server.app._log_viewer_controller_singleton", mock_instance):
-                from webhook_server.app import FASTAPI_APP
-                from fastapi.testclient import TestClient
+        with patch("webhook_server.app.httpx.AsyncClient", return_value=mock_http_client):
+            with patch("webhook_server.app.get_log_viewer_controller", return_value=mock_instance):
+                # Also patch the singleton variable itself
+                with patch("webhook_server.app._log_viewer_controller_singleton", mock_instance):
+                    from fastapi.testclient import TestClient
 
-                client = TestClient(FASTAPI_APP)
+                    from webhook_server.app import FASTAPI_APP
 
-                # Make the request
-                response = client.get("/logs/api/workflow-steps/test-hook-456")
+                    client = TestClient(FASTAPI_APP)
+
+                    # Make the request
+                    response = client.get("/logs/api/workflow-steps/test-hook-456")
 
                 # Assertions
                 assert response.status_code == 200

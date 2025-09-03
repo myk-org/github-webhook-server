@@ -174,6 +174,7 @@ class OwnersFileHandler:
             for _approver in list_of_approvers.get("approvers", []):
                 _approvers.append(_approver)
 
+        _approvers = list(set(_approvers))
         _approvers.sort()
         self.logger.debug(f"{self.log_prefix} All pull request approvers: {_approvers}")
         return _approvers
@@ -186,6 +187,7 @@ class OwnersFileHandler:
             for _reviewer in list_of_reviewers.get("reviewers", []):
                 _reviewers.append(_reviewer)
 
+        _reviewers = list(set(_reviewers))
         _reviewers.sort()
         self.logger.debug(f"Pull request reviewers are: {_reviewers}")
         return _reviewers
