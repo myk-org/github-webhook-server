@@ -174,9 +174,10 @@ class OwnersFileHandler:
             for _approver in list_of_approvers.get("approvers", []):
                 _approvers.append(_approver)
 
+        _approvers = list(set(_approvers))
         _approvers.sort()
         self.logger.debug(f"{self.log_prefix} All pull request approvers: {_approvers}")
-        return list(set(_approvers))
+        return _approvers
 
     async def get_all_pull_request_reviewers(self) -> list[str]:
         _reviewers: list[str] = []
@@ -186,9 +187,10 @@ class OwnersFileHandler:
             for _reviewer in list_of_reviewers.get("reviewers", []):
                 _reviewers.append(_reviewer)
 
+        _reviewers = list(set(_reviewers))
         _reviewers.sort()
         self.logger.debug(f"Pull request reviewers are: {_reviewers}")
-        return list(set(_reviewers))
+        return _reviewers
 
     async def owners_data_for_changed_files(self) -> dict[str, dict[str, Any]]:
         self._ensure_initialized()
