@@ -62,7 +62,7 @@ class GithubWebhook:
         self.api_user: str
         self.current_pull_request_supported_retest: list[str] = []
 
-        if not self.config.repository_exists:
+        if not self.config.repository_data:
             raise RepositoryNotFoundInConfigError(f"Repository {self.repository_name} not found in config file")
 
         # Get config without .github-webhook-server.yaml data

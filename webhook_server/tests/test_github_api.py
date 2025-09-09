@@ -61,7 +61,7 @@ class TestGithubWebhook:
     @pytest.fixture
     def minimal_hook_data(self) -> dict[str, Any]:
         return {
-            "repository": {"name": "repo", "full_name": "org/repo"},
+            "repository": {"name": "test-repo", "full_name": "org/test-repo"},
             "number": 1,
         }
 
@@ -94,17 +94,18 @@ class TestGithubWebhook:
         mock_get_api.return_value = (Mock(), "token", "apiuser")
         mock_get_repo_api.return_value = Mock(name="repo_api")
         mock_get_app_api.return_value = Mock()
-        mock_color.return_value = "repo"
+        mock_color.return_value = "test-repo"
         gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
-        assert gh.repository_name == "repo"
-        assert gh.repository_full_name == "org/repo"
+        assert gh.repository_name == "test-repo"
+        assert gh.repository_full_name == "org/test-repo"
         assert hasattr(gh, "repository")
         assert hasattr(gh, "repository_by_github_app")
         assert gh.log_prefix
 
     @patch("webhook_server.libs.github_api.Config")
     def test_init_missing_repo(self, mock_config, minimal_hook_data, minimal_headers, logger):
-        mock_config.return_value.repository = False
+        mock_config.return_value.repository = "repo"
+        mock_config.return_value.repository_data = {}
         with pytest.raises(RepositoryNotFoundInConfigError):
             GithubWebhook(minimal_hook_data, minimal_headers, logger)
 
@@ -114,7 +115,7 @@ class TestGithubWebhook:
     def test_init_no_api_token(self, mock_color, mock_get_api, mock_config, minimal_hook_data, minimal_headers, logger):
         mock_config.return_value.repository = True
         mock_get_api.return_value = (None, None, None)
-        mock_color.return_value = "repo"
+        mock_color.return_value = "test-repo"
         gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
         assert not hasattr(gh, "repository")
 
@@ -128,7 +129,7 @@ class TestGithubWebhook:
         mock_config.return_value.repository = True
         mock_get_api.return_value = (Mock(), "token", "apiuser")
         mock_get_repo_api.return_value = Mock()
-        mock_color.return_value = "repo"
+        mock_color.return_value = "test-repo"
         with patch("webhook_server.libs.github_api.get_repository_github_app_api", return_value=None):
             gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
             assert hasattr(gh, "repository")
@@ -154,7 +155,7 @@ class TestGithubWebhook:
         mock_get_api.return_value = (Mock(), "token", "apiuser")
         mock_get_repo_api.return_value = None
         mock_get_app_api.return_value = None
-        mock_color.return_value = "repo"
+        mock_color.return_value = "test-repo"
         gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
         assert not hasattr(gh, "repository_by_github_app")
 
@@ -192,7 +193,7 @@ class TestGithubWebhook:
         mock_get_api.return_value = (Mock(), "token", "apiuser")
         mock_get_repo_api.return_value = Mock()
         mock_get_app_api.return_value = Mock()
-        mock_color.return_value = "repo"
+        mock_color.return_value = "test-repo"
         headers = minimal_headers.copy()
         headers["X-GitHub-Event"] = "ping"
         gh = GithubWebhook(minimal_hook_data, headers, logger)
@@ -435,13 +436,13 @@ class TestGithubWebhook:
         mock_get_api.return_value = (Mock(), "token", "apiuser")
         mock_get_repo_api.return_value = Mock()
         mock_get_app_api.return_value = Mock()
-        mock_color.return_value = "repo"
+        mock_color.return_value = "test-repo"
         mock_get_apis.return_value = []  # Return empty list to skip the problematic property code
 
         webhook = GithubWebhook(hook_data=minimal_hook_data, headers=minimal_headers, logger=Mock())
 
         # The test config includes pull_request in events list, so should be processed
-        assert webhook.repository_name == "repo"
+        assert webhook.repository_name == "test-repo"
 
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
@@ -468,14 +469,14 @@ class TestGithubWebhook:
         mock_get_api.return_value = (Mock(), "token", "apiuser")
         mock_get_repo_api.return_value = Mock()
         mock_get_app_api.return_value = Mock()
-        mock_color.return_value = "repo"
+        mock_color.return_value = "test-repo"
         mock_get_apis.return_value = []  # Return empty list to skip the problematic property code
 
         webhook = GithubWebhook(hook_data=minimal_hook_data, headers=minimal_headers, logger=Mock())
 
         # Verify data extraction
-        assert webhook.repository_name == "repo"
-        assert webhook.repository_full_name == "org/repo"
+        assert webhook.repository_name == "test-repo"
+        assert webhook.repository_full_name == "org/test-repo"
         assert webhook.github_event == "pull_request"
         assert webhook.x_github_delivery == "abc"
 
@@ -504,7 +505,7 @@ class TestGithubWebhook:
         mock_get_api.return_value = (Mock(), "token", "apiuser")
         mock_get_repo_api.return_value = Mock()
         mock_get_app_api.return_value = Mock()
-        mock_color.return_value = "repo"
+        mock_color.return_value = "test-repo"
         mock_get_apis.return_value = []  # Return empty list to skip the problematic property code
 
         webhook = GithubWebhook(hook_data=minimal_hook_data, headers=minimal_headers, logger=Mock())
@@ -538,7 +539,7 @@ class TestGithubWebhook:
         mock_get_api.return_value = (Mock(), "token", "apiuser")
         mock_get_repo_api.return_value = Mock()
         mock_get_app_api.return_value = Mock()
-        mock_color.return_value = "repo"
+        mock_color.return_value = "test-repo"
         mock_get_apis.return_value = []  # Return empty list to skip the problematic property code
 
         webhook = GithubWebhook(hook_data=minimal_hook_data, headers=minimal_headers, logger=Mock())
@@ -571,7 +572,7 @@ class TestGithubWebhook:
         mock_get_api.return_value = (Mock(), "token", "apiuser")
         mock_get_repo_api.return_value = None
         mock_get_app_api.return_value = None
-        mock_color.return_value = "repo"
+        mock_color.return_value = "test-repo"
         mock_get_apis.return_value = []  # Return empty list to skip the problematic property code
         gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
         # Should have repository attribute but not repository_by_github_app
@@ -602,7 +603,7 @@ class TestGithubWebhook:
         mock_get_api.return_value = (Mock(), "token", "apiuser")
         mock_get_repo_api.return_value = Mock()
         mock_get_app_api.return_value = Mock()
-        mock_color.return_value = "repo"
+        mock_color.return_value = "test-repo"
 
         def get_value_side_effect(value, *args, **kwargs):
             if value == "auto-verified-and-merged-users":
@@ -683,7 +684,7 @@ class TestGithubWebhook:
             mock_get_apis.return_value = [(mock_api1, "token1"), (mock_api2, "token2")]
 
             # Use a minimal_hook_data with repo name matching the test
-            hook_data = {"repository": {"name": "repo", "full_name": "repo"}}
+            hook_data = {"repository": {"name": "test-repo", "full_name": "test-repo"}}
             webhook = GithubWebhook(hook_data, minimal_headers, logger)
             result = webhook.prepare_log_prefix()
             # Call again to ensure file is read after being created
@@ -699,7 +700,7 @@ class TestGithubWebhook:
     async def test_process_check_run_event(self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock) -> None:
         """Test processing check run event."""
         check_run_data = {
-            "repository": {"name": "repo", "full_name": "org/repo"},
+            "repository": {"name": "test-repo", "full_name": "org/test-repo"},
             "check_run": {"name": "test-check", "head_sha": "abc123", "status": "completed", "conclusion": "success"},
         }
         headers = minimal_headers.copy()
@@ -781,7 +782,7 @@ class TestGithubWebhook:
                         mock_get_app_api.return_value = Mock()
 
                         with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
-                            mock_color.return_value = "repo"
+                            mock_color.return_value = "test-repo"
 
                             mock_pr = Mock()
                             mock_repo.get_pull.return_value = mock_pr
@@ -813,7 +814,7 @@ class TestGithubWebhook:
                         mock_get_app_api.return_value = Mock()
 
                         with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
-                            mock_color.return_value = "repo"
+                            mock_color.return_value = "test-repo"
 
                             mock_repo.get_pull.side_effect = GithubException(404, "Not found")
 
@@ -846,7 +847,7 @@ class TestGithubWebhook:
                         mock_get_app_api.return_value = Mock()
 
                         with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
-                            mock_color.return_value = "repo"
+                            mock_color.return_value = "test-repo"
 
                             mock_commit = Mock()
                             mock_repo.get_commit.return_value = mock_commit
@@ -876,7 +877,7 @@ class TestGithubWebhook:
                         mock_get_app_api.return_value = Mock()
 
                         with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
-                            mock_color.return_value = "repo"
+                            mock_color.return_value = "test-repo"
 
                             gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
                             gh.container_repository = "test-repo"
@@ -902,7 +903,7 @@ class TestGithubWebhook:
                         mock_get_app_api.return_value = Mock()
 
                         with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
-                            mock_color.return_value = "repo"
+                            mock_color.return_value = "test-repo"
 
                             gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
                             gh.container_repository = "test-repo"
@@ -931,7 +932,7 @@ class TestGithubWebhook:
                         mock_get_app_api.return_value = Mock()
 
                         with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
-                            mock_color.return_value = "repo"
+                            mock_color.return_value = "test-repo"
 
                             gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
                             gh.container_repository = "test-repo"
@@ -961,7 +962,7 @@ class TestGithubWebhook:
                         mock_get_app_api.return_value = Mock()
 
                         with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
-                            mock_color.return_value = "repo"
+                            mock_color.return_value = "test-repo"
 
                             gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
 
@@ -987,7 +988,7 @@ class TestGithubWebhook:
                         mock_get_app_api.return_value = Mock()
 
                         with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
-                            mock_color.return_value = "repo"
+                            mock_color.return_value = "test-repo"
 
                             mock_response = Mock()
                             mock_response.status_code = 200
@@ -1020,7 +1021,7 @@ class TestGithubWebhook:
                         mock_get_app_api.return_value = Mock()
 
                         with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
-                            mock_color.return_value = "repo"
+                            mock_color.return_value = "test-repo"
 
                             mock_response = Mock()
                             mock_response.status_code = 400
@@ -1050,7 +1051,7 @@ class TestGithubWebhook:
                         mock_get_app_api.return_value = Mock()
 
                         with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
-                            mock_color.return_value = "repo"
+                            mock_color.return_value = "test-repo"
 
                             gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
 
@@ -1085,7 +1086,7 @@ class TestGithubWebhook:
                         mock_get_app_api.return_value = Mock()
 
                         with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
-                            mock_color.return_value = "repo"
+                            mock_color.return_value = "test-repo"
 
                             gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
 
