@@ -11,11 +11,12 @@ import requests
 from github import GithubException
 from github.Commit import Commit
 from github.PullRequest import PullRequest
+from github.Repository import Repository
 from starlette.datastructures import Headers
 
 from webhook_server.libs.check_run_handler import CheckRunHandler
 from webhook_server.libs.config import Config
-from webhook_server.libs.exceptions import RepositoryNotFoundError
+from webhook_server.libs.exceptions import RepositoryNotFoundInConfigError
 from webhook_server.libs.issue_comment_handler import IssueCommentHandler
 from webhook_server.libs.owners_files_handler import OwnersFileHandler
 from webhook_server.libs.pull_request_handler import PullRequestHandler
@@ -54,8 +55,15 @@ class GithubWebhook:
         self.github_event: str = headers["X-GitHub-Event"]
         self.config = Config(repository=self.repository_name, logger=self.logger)
 
-        if not self.config.repository:
-            raise RepositoryNotFoundError(f"Repository {self.repository_name} not found in config file")
+        # Type annotations for conditionally assigned attributes
+        self.repository: Repository
+        self.repository_by_github_app: Repository
+        self.token: str
+        self.api_user: str
+        self.current_pull_request_supported_retest: list[str] = []
+
+        if not self.config.repository_data:
+            raise RepositoryNotFoundInConfigError(f"Repository {self.repository_name} not found in config file")
 
         # Get config without .github-webhook-server.yaml data
         self._repo_data_from_config(repository_config={})
@@ -76,7 +84,7 @@ class GithubWebhook:
             self.logger.error(f"Failed to get GitHub API and token for repository {self.repository_name}.")
             return
 
-        self.log_prefix = self.prepare_log_prefix()
+        self.log_prefix: str = self.prepare_log_prefix()
 
         github_app_api = get_repository_github_app_api(config_=self.config, repository_name=self.repository_full_name)
 

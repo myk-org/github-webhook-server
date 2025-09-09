@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Any
 
 from github.CheckRun import CheckRun
 from github.PullRequest import PullRequest
+from github.Repository import Repository
 
 from webhook_server.libs.labels_handler import LabelsHandler
 from webhook_server.libs.owners_files_handler import OwnersFileHandler
@@ -32,8 +33,8 @@ class CheckRunHandler:
         self.owners_file_handler = owners_file_handler
         self.hook_data = self.github_webhook.hook_data
         self.logger = self.github_webhook.logger
-        self.log_prefix = self.github_webhook.log_prefix
-        self.repository = self.github_webhook.repository
+        self.log_prefix: str = self.github_webhook.log_prefix
+        self.repository: Repository = self.github_webhook.repository
         if isinstance(self.owners_file_handler, OwnersFileHandler):
             self.labels_handler = LabelsHandler(
                 github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler

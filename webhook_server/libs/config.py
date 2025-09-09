@@ -44,6 +44,7 @@ class Config:
 
     def repository_local_data(self, github_api: github.Github, repository_full_name: str) -> dict[str, Any]:
         if self.repository and repository_full_name:
+            # Import here to avoid cyclic imports
             from webhook_server.utils.helpers import get_github_repo_api
 
             try:

@@ -4,6 +4,7 @@ import asyncio
 from typing import TYPE_CHECKING, Any, Coroutine
 
 from github.PullRequest import PullRequest
+from github.Repository import Repository
 
 from webhook_server.libs.check_run_handler import CheckRunHandler
 from webhook_server.libs.labels_handler import LabelsHandler
@@ -44,8 +45,8 @@ class PullRequestHandler:
 
         self.hook_data = self.github_webhook.hook_data
         self.logger = self.github_webhook.logger
-        self.log_prefix = self.github_webhook.log_prefix
-        self.repository = self.github_webhook.repository
+        self.log_prefix: str = self.github_webhook.log_prefix
+        self.repository: Repository = self.github_webhook.repository
         self.labels_handler = LabelsHandler(
             github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
         )

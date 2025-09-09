@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 import webcolors
 from github.GithubException import UnknownObjectException
 from github.PullRequest import PullRequest
+from github.Repository import Repository
 from timeout_sampler import TimeoutWatch
 
 from webhook_server.libs.owners_files_handler import OwnersFileHandler
@@ -34,8 +35,8 @@ class LabelsHandler:
 
         self.hook_data = self.github_webhook.hook_data
         self.logger = self.github_webhook.logger
-        self.log_prefix = self.github_webhook.log_prefix
-        self.repository = self.github_webhook.repository
+        self.log_prefix: str = self.github_webhook.log_prefix
+        self.repository: Repository = self.github_webhook.repository
 
     async def label_exists_in_pull_request(self, pull_request: PullRequest, label: str) -> bool:
         return label in await self.pull_request_labels_names(pull_request=pull_request)
