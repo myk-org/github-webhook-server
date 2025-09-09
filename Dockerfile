@@ -27,6 +27,7 @@ RUN dnf -y install dnf-plugins-core \
   libxml2-devel \
   nodejs \
   npm \
+  which \
   && dnf clean all \
   && rm -rf /var/cache /var/log/dnf* /var/log/yum.*
 
