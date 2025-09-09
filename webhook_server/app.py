@@ -25,7 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi_mcp import FastApiMCP
 
 from webhook_server.libs.config import Config
-from webhook_server.libs.exceptions import RepositoryNotFoundError
+from webhook_server.libs.exceptions import RepositoryNotFoundInConfigError
 from webhook_server.libs.github_api import GithubWebhook
 from webhook_server.utils.app_utils import (
     HTTP_TIMEOUT_SECONDS,
@@ -232,7 +232,7 @@ async def process_webhook(request: Request, background_tasks: BackgroundTasks) -
             "event_type": event_type,
         }
 
-    except RepositoryNotFoundError as e:
+    except RepositoryNotFoundInConfigError as e:
         logger.error(f"{log_context} Repository not found: {e}")
         raise HTTPException(status_code=404, detail=str(e))
 

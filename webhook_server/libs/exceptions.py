@@ -1,4 +1,4 @@
-class RepositoryNotFoundError(Exception):
+class RepositoryNotFoundInConfigError(Exception):
     pass
 
 

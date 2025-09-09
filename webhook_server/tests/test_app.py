@@ -1,22 +1,22 @@
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 from typing import Any
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-import ipaddress
 
 from webhook_server.app import FASTAPI_APP
+from webhook_server.libs.exceptions import RepositoryNotFoundInConfigError
 from webhook_server.utils.app_utils import (
-    get_github_allowlist,
-    get_cloudflare_allowlist,
     gate_by_allowlist_ips,
+    get_cloudflare_allowlist,
+    get_github_allowlist,
 )
-from webhook_server.libs.exceptions import RepositoryNotFoundError
 
 
 class TestWebhookApp:
@@ -129,7 +129,7 @@ class TestWebhookApp:
     ) -> None:
         """Test webhook processing when repository is not found in config."""
         # Mock GithubWebhook to raise RepositoryNotFoundError
-        mock_github_webhook.side_effect = RepositoryNotFoundError("Repository not found in configuration")
+        mock_github_webhook.side_effect = RepositoryNotFoundInConfigError("Repository not found in configuration")
 
         payload_json = json.dumps(valid_webhook_payload)
         signature = self.create_github_signature(payload_json, webhook_secret)
@@ -417,6 +417,7 @@ class TestWebhookApp:
     async def test_get_cloudflare_allowlist_http_error(self, mock_get: Mock) -> None:
         """Test Cloudflare allowlist fetching with HTTP error."""
         from unittest.mock import AsyncMock
+
         import httpx
 
         async_client = AsyncMock()
@@ -434,6 +435,7 @@ class TestWebhookApp:
     async def test_get_github_allowlist_http_error(self, mock_get: Mock) -> None:
         """Test GitHub allowlist fetching with HTTP error."""
         from unittest.mock import AsyncMock
+
         import httpx
 
         async_client = AsyncMock()
@@ -455,8 +457,10 @@ class TestWebhookApp:
         self, mock_urllib3: Mock, mock_config: Mock, mock_cf_allowlist: Mock, mock_gh_allowlist: Mock
     ) -> None:
         """Test successful lifespan function execution."""
+        from unittest.mock import AsyncMock
+        from unittest.mock import patch as patcher
+
         from webhook_server import app as app_module
-        from unittest.mock import AsyncMock, patch as patcher
 
         # Mock config
         mock_config_instance = Mock()

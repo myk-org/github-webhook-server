@@ -8,7 +8,7 @@ import pytest
 from simple_logger.logger import get_logger
 from starlette.datastructures import Headers
 
-from webhook_server.libs.exceptions import RepositoryNotFoundError
+from webhook_server.libs.exceptions import RepositoryNotFoundInConfigError
 from webhook_server.libs.github_api import GithubWebhook
 
 
@@ -105,7 +105,7 @@ class TestGithubWebhook:
     @patch("webhook_server.libs.github_api.Config")
     def test_init_missing_repo(self, mock_config, minimal_hook_data, minimal_headers, logger):
         mock_config.return_value.repository = False
-        with pytest.raises(RepositoryNotFoundError):
+        with pytest.raises(RepositoryNotFoundInConfigError):
             GithubWebhook(minimal_hook_data, minimal_headers, logger)
 
     @patch("webhook_server.libs.github_api.Config")

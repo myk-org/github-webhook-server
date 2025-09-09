@@ -7,6 +7,8 @@ import yaml
 from github.GithubException import UnknownObjectException
 from simple_logger.logger import get_logger
 
+from webhook_server.libs.exceptions import RepositoryNotFoundInConfigError
+
 
 class Config:
     def __init__(
@@ -30,6 +32,11 @@ class Config:
             raise ValueError(f"Config {self.config_path} does not have `repositories`")
 
     @property
+    def repository_exists(self) -> None:
+        if not self.repository_data:
+            raise RepositoryNotFoundInConfigError(f"Repository {self.repository} not found in config file")
+
+    @property
     def root_data(self) -> dict[str, Any]:
         try:
             with open(self.config_path) as fd:
@@ -44,6 +51,7 @@ class Config:
 
     def repository_local_data(self, github_api: github.Github, repository_full_name: str) -> dict[str, Any]:
         if self.repository and repository_full_name:
+            # Import here to avoid cyclic imports
             from webhook_server.utils.helpers import get_github_repo_api
 
             try:

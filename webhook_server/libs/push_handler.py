@@ -2,6 +2,8 @@ import re
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+from github.Repository import Repository
+
 from webhook_server.libs.check_run_handler import CheckRunHandler
 from webhook_server.libs.runner_handler import RunnerHandler
 from webhook_server.utils.helpers import run_command
@@ -16,8 +18,8 @@ class PushHandler:
 
         self.hook_data = self.github_webhook.hook_data
         self.logger = self.github_webhook.logger
-        self.log_prefix = self.github_webhook.log_prefix
-        self.repository = self.github_webhook.repository
+        self.log_prefix: str = self.github_webhook.log_prefix
+        self.repository: Repository = self.github_webhook.repository
         self.check_run_handler = CheckRunHandler(github_webhook=self.github_webhook)
         self.runner_handler = RunnerHandler(github_webhook=self.github_webhook)
 

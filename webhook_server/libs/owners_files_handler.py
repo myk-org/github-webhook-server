@@ -9,6 +9,7 @@ from github.GithubException import GithubException
 from github.NamedUser import NamedUser
 from github.PaginatedList import PaginatedList
 from github.PullRequest import PullRequest
+from github.Repository import Repository
 
 from webhook_server.utils.constants import COMMAND_ADD_ALLOWED_USER_STR
 
@@ -20,8 +21,8 @@ class OwnersFileHandler:
     def __init__(self, github_webhook: "GithubWebhook") -> None:
         self.github_webhook = github_webhook
         self.logger = self.github_webhook.logger
-        self.log_prefix = self.github_webhook.log_prefix
-        self.repository = self.github_webhook.repository
+        self.log_prefix: str = self.github_webhook.log_prefix
+        self.repository: Repository = self.github_webhook.repository
 
     async def initialize(self, pull_request: PullRequest) -> "OwnersFileHandler":
         self.changed_files = await self.list_changed_files(pull_request=pull_request)
