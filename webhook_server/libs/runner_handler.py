@@ -16,6 +16,7 @@ from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CHERRY_PICKED_LABEL_PREFIX,
     CONVENTIONAL_TITLE_STR,
+    GREK_STR,
     PRE_COMMIT_STR,
     PYTHON_MODULE_INSTALL_STR,
     TOX_STR,
@@ -236,7 +237,7 @@ class RunnerHandler:
             self.logger.debug(f"{self.log_prefix} Check run is in progress, re-running {PRE_COMMIT_STR}.")
 
         clone_repo_dir = f"{self.github_webhook.clone_repo_dir}-{uuid4()}"
-        cmd = f" uvx --directory {clone_repo_dir} {PRE_COMMIT_STR} run --all-files"
+        cmd = f" uvx --directory {clone_repo_dir} {GREK_STR} run --all-files"
 
         self.logger.step(f"{self.log_prefix} Setting pre-commit check status to in-progress")  # type: ignore
         await self.check_run_handler.set_run_pre_commit_check_in_progress()
