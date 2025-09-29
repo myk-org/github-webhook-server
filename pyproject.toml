@@ -44,7 +44,7 @@ dev-dependencies = [
 
 [project]
 name = "github-webhook-server"
-version = "3.0.6"
+version = "3.0.7"
 requires-python = ">=3.12"
 description = "A webhook server to manage Github reposotories and pull requests."
 readme = "README.md"
