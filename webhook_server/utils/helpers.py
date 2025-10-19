@@ -27,12 +27,36 @@ def get_logger_with_params(
     mask_sensitive: bool = True,
 ) -> Logger:
     mask_sensitive_patterns: list[str] = [
+        # Passwords and secrets
         "container_repository_password",
-        "-p",
         "password",
+        "secret",
+        # Tokens and API keys
         "token",
         "apikey",
-        "secret",
+        "api_key",
+        "github_token",
+        "GITHUB_TOKEN",
+        "pypi",
+        # Authentication credentials
+        "username",
+        "login",
+        "-u",
+        "-p",
+        "--username",
+        "--password",
+        "--creds",
+        # Private keys and sensitive IDs
+        "private_key",
+        "private-key",
+        "webhook_secret",
+        "webhook-secret",
+        "github-app-id",
+        # Slack webhooks (contain sensitive URLs)
+        "slack-webhook-url",
+        "slack_webhook_url",
+        "webhook-url",
+        "webhook_url",
     ]
 
     _config = Config(repository=repository_name)
