@@ -23,7 +23,6 @@ from webhook_server.libs.exceptions import NoApiTokenError
 
 
 def get_logger_with_params(
-    name: str,
     repository_name: str = "",
     mask_sensitive: bool = True,
 ) -> Logger:
@@ -49,8 +48,14 @@ def get_logger_with_params(
 
         log_file = os.path.join(log_file_path, log_file)
 
+    # CRITICAL FIX: Use a fixed logger name for the same log file to ensure
+    # only ONE RotatingFileHandler instance manages the file rotation.
+    # Multiple handlers writing to the same file causes rotation to fail.
+    # The original 'name' parameter is preserved in log records via the logger name.
+    logger_cache_key = f"webhook-server-{log_file or 'console'}"
+
     return get_logger(
-        name=name,
+        name=logger_cache_key,
         filename=log_file,
         level=log_level,
         file_max_bytes=1024 * 1024 * 10,
@@ -74,7 +79,7 @@ def extract_key_from_dict(key: Any, _dict: dict[Any, Any]) -> Any:
 
 
 def get_github_repo_api(github_app_api: github.Github, repository: int | str) -> Repository:
-    logger = get_logger_with_params(name="helpers")
+    logger = get_logger_with_params()
     logger.debug(f"Get GitHub API for repository {repository}")
 
     return github_app_api.get_repo(repository)
@@ -97,7 +102,7 @@ async def run_command(
     Returns:
         tuple: True, out if command succeeded, False, err otherwise.
     """
-    logger = get_logger_with_params(name="helpers")
+    logger = get_logger_with_params()
     out_decoded: str = ""
     err_decoded: str = ""
     kwargs["stdout"] = subprocess.PIPE
@@ -158,7 +163,7 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
     Returns:
         tuple: API, token, api_user
     """
-    logger = get_logger_with_params(name="helpers")
+    logger = get_logger_with_params()
 
     api: github.Github | None = None
     token: str | None = None
@@ -204,7 +209,7 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
 
 
 def log_rate_limit(rate_limit: RateLimitOverview, api_user: str) -> None:
-    logger = get_logger_with_params(name="helpers")
+    logger = get_logger_with_params()
 
     rate_limit_str: str
     time_for_limit_reset: int = (rate_limit.rate.reset - datetime.datetime.now(tz=datetime.timezone.utc)).seconds

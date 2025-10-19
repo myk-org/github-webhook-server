@@ -63,14 +63,14 @@ class TestHelpers:
 
     def test_get_logger_with_params_default(self) -> None:
         """Test logger creation with default parameters."""
-        unique_name = "test_helpers_logger"
-        logger = get_logger_with_params(name=unique_name)
+        logger = get_logger_with_params()
         assert isinstance(logger, logging.Logger)
-        assert logger.name == unique_name
+        # Logger name is now based on log file path to ensure single handler instance
+        assert logger.name.startswith("webhook-server-")
 
     def test_get_logger_with_params_with_repository(self) -> None:
         """Test logger creation with repository name."""
-        logger = get_logger_with_params(name="test", repository_name="test-repo")
+        logger = get_logger_with_params(repository_name="test-repo")
         assert isinstance(logger, logging.Logger)
         # The logger should have repository-specific formatting
 
@@ -226,7 +226,7 @@ class TestHelpers:
             mock_config = MockConfig.return_value
             mock_config.get_value.side_effect = lambda value, **kwargs: "test.log" if value == "log-file" else "INFO"
             mock_config.data_dir = str(tmp_path)
-            logger = get_logger_with_params(name="test_logger", repository_name="repo")
+            logger = get_logger_with_params(repository_name="repo")
             assert isinstance(logger, logging.Logger)
             log_dir = tmp_path / "logs"
             assert log_dir.exists()

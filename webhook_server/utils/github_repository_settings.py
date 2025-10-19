@@ -42,7 +42,7 @@ DEFAULT_BRANCH_PROTECTION = {
     "required_conversation_resolution": True,
 }
 
-LOGGER = get_logger_with_params(name="github-repository-settings")
+LOGGER = get_logger_with_params()
 
 
 def _get_github_repo_api(github_api: github.Github, repository: int | str) -> Repository | None:

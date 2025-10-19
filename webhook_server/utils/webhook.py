@@ -10,7 +10,7 @@ from webhook_server.utils.helpers import (
     get_logger_with_params,
 )
 
-LOGGER = get_logger_with_params(name="webhook")
+LOGGER = get_logger_with_params()
 
 
 def process_github_webhook(
