@@ -10,6 +10,10 @@ properties:
   log-file:
     type: string
     description: File path for the log file
+  mask-sensitive-data:
+    type: boolean
+    description: Mask sensitive data in logs (tokens, passwords, secrets, etc.). Default is true for security.
+    default: true
   github-app-id:
     type: integer
     description: The `webhook server` GitHub app ID
@@ -116,6 +120,10 @@ properties:
         log-file:
           type: string
           description: Override global log-file for repository
+        mask-sensitive-data:
+          type: boolean
+          description: Override global mask-sensitive-data setting for this repository
+          default: true
         slack-webhook-url:
           type: string
           description: Slack webhook URL

@@ -67,7 +67,7 @@ class ConfigValidator:
                 self.errors.append(f"Field '{field}' must be an integer")
 
         # Boolean fields
-        boolean_fields = ["verify-github-ips", "verify-cloudflare-ips", "disable-ssl-warnings"]
+        boolean_fields = ["verify-github-ips", "verify-cloudflare-ips", "disable-ssl-warnings", "mask-sensitive-data"]
         for field in boolean_fields:
             if field in config and not isinstance(config[field], bool):
                 self.errors.append(f"Field '{field}' must be a boolean")
@@ -160,7 +160,7 @@ class ConfigValidator:
                 self.errors.append(f"Repository '{repo_name}' field '{field}' must be a string")
 
         # Boolean fields
-        boolean_fields = ["verified-job", "pre-commit"]
+        boolean_fields = ["verified-job", "pre-commit", "mask-sensitive-data"]
         for field in boolean_fields:
             if field in repo_config and not isinstance(repo_config[field], bool):
                 self.errors.append(f"Repository '{repo_name}' field '{field}' must be a boolean")

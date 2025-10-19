@@ -1,5 +1,6 @@
 log-level: INFO # Set global log level, change take effect immediately without server restart
 log-file: webhook-server.log # Set global log file, change take effect immediately without server restart
+mask-sensitive-data: true # Mask sensitive data in logs (default: true)
 
 github-app-id: 123456 # GitHub app id
 github-tokens:

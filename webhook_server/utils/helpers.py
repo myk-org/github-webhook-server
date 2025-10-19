@@ -24,7 +24,6 @@ from webhook_server.libs.exceptions import NoApiTokenError
 
 def get_logger_with_params(
     repository_name: str = "",
-    mask_sensitive: bool = True,
 ) -> Logger:
     mask_sensitive_patterns: list[str] = [
         # Passwords and secrets
@@ -63,6 +62,8 @@ def get_logger_with_params(
 
     log_level: str = _config.get_value(value="log-level", return_on_none="INFO")
     log_file: str = _config.get_value(value="log-file")
+    # Get mask-sensitive-data config (default: True to hide sensitive data)
+    mask_sensitive: bool = _config.get_value(value="mask-sensitive-data", return_on_none=True)
 
     if log_file and not log_file.startswith("/"):
         log_file_path = os.path.join(_config.data_dir, "logs")

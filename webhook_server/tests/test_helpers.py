@@ -232,6 +232,75 @@ class TestHelpers:
             assert log_dir.exists()
             assert (log_dir / "test.log").exists() or True  # File may not be created until logging
 
+    def test_get_logger_with_params_mask_sensitive_default(self, tmp_path):
+        """Test get_logger_with_params masks sensitive data by default."""
+        with patch("webhook_server.utils.helpers.Config") as mock_config:
+            # Set up config to return default values (mask_sensitive not set)
+            def get_value_side_effect(value, **kwargs):
+                if value == "log-file":
+                    return "test.log"
+                if value == "log-level":
+                    return "INFO"
+                if value == "mask-sensitive-data":
+                    return kwargs.get("return_on_none", True)
+                return kwargs.get("return_on_none")
+
+            mock_config.return_value.get_value.side_effect = get_value_side_effect
+            mock_config.return_value.data_dir = str(tmp_path)
+
+            with patch("webhook_server.utils.helpers.get_logger") as mock_get_logger:
+                get_logger_with_params()
+                # Verify mask_sensitive=True was passed
+                mock_get_logger.assert_called_once()
+                call_kwargs = mock_get_logger.call_args[1]
+                assert call_kwargs["mask_sensitive"] is True
+
+    def test_get_logger_with_params_mask_sensitive_disabled(self, tmp_path):
+        """Test get_logger_with_params respects mask-sensitive-data=false config."""
+        with patch("webhook_server.utils.helpers.Config") as mock_config:
+            # Set up config to explicitly disable masking
+            def get_value_side_effect(value, **kwargs):
+                if value == "log-file":
+                    return "test.log"
+                if value == "log-level":
+                    return "INFO"
+                if value == "mask-sensitive-data":
+                    return False  # Explicitly disabled
+                return kwargs.get("return_on_none")
+
+            mock_config.return_value.get_value.side_effect = get_value_side_effect
+            mock_config.return_value.data_dir = str(tmp_path)
+
+            with patch("webhook_server.utils.helpers.get_logger") as mock_get_logger:
+                get_logger_with_params()
+                # Verify mask_sensitive=False was passed
+                mock_get_logger.assert_called_once()
+                call_kwargs = mock_get_logger.call_args[1]
+                assert call_kwargs["mask_sensitive"] is False
+
+    def test_get_logger_with_params_mask_sensitive_enabled_explicit(self, tmp_path):
+        """Test get_logger_with_params respects mask-sensitive-data=true config."""
+        with patch("webhook_server.utils.helpers.Config") as mock_config:
+            # Set up config to explicitly enable masking
+            def get_value_side_effect(value, **kwargs):
+                if value == "log-file":
+                    return "test.log"
+                if value == "log-level":
+                    return "INFO"
+                if value == "mask-sensitive-data":
+                    return True  # Explicitly enabled
+                return kwargs.get("return_on_none")
+
+            mock_config.return_value.get_value.side_effect = get_value_side_effect
+            mock_config.return_value.data_dir = str(tmp_path)
+
+            with patch("webhook_server.utils.helpers.get_logger") as mock_get_logger:
+                get_logger_with_params()
+                # Verify mask_sensitive=True was passed
+                mock_get_logger.assert_called_once()
+                call_kwargs = mock_get_logger.call_args[1]
+                assert call_kwargs["mask_sensitive"] is True
+
     @pytest.mark.asyncio
     async def test_run_command_success(self):
         """Test run_command with a successful command."""
