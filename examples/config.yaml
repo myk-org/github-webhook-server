@@ -2,6 +2,7 @@
 
 log-level: INFO # Set global log level, change take effect immediately without server restart
 log-file: webhook-server.log # Set global log file, change take effect immediately without server restart
+mask-sensitive-data: true # Mask sensitive data in logs (default: true). Set to false for debugging (NOT recommended in production)
 
 # Server configuration
 disable-ssl-warnings: true # Disable SSL warnings (useful in production to reduce log noise from SSL certificate issues)
@@ -59,6 +60,7 @@ repositories:
     name: my-org/my-repository
     log-level: DEBUG # Override global log-level for repository
     log-file: my-repository.log # Override global log-file for repository
+    mask-sensitive-data: false # Override global setting - disable masking for debugging this specific repo (NOT recommended in production)
     slack-webhook-url: <Slack webhook url> # Send notification to slack on several operations
     verified-job: true
     pypi:

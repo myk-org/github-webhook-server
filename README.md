@@ -1310,7 +1310,10 @@ Configure comprehensive logging:
 ```yaml
 log-level: INFO # DEBUG, INFO, WARNING, ERROR
 log-file: /path/to/webhook-server.log
+mask-sensitive-data: true # Mask sensitive data (tokens, passwords) in logs (default: true)
 ```
+
+**Security Note**: Set `mask-sensitive-data: false` only for debugging purposes in development. In production environments, always keep it `true` to prevent exposure of sensitive credentials in logs.
 
 ### Metrics and Observability
 
@@ -1394,7 +1397,10 @@ Enable detailed logging:
 
 ```yaml
 log-level: DEBUG
+mask-sensitive-data: false # Only for debugging - NOT recommended in production
 ```
+
+**⚠️ Warning**: Disabling sensitive data masking will expose tokens, passwords, and API keys in logs. Use only in development environments.
 
 ### Log Analysis
 

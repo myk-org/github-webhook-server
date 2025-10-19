@@ -5,6 +5,7 @@
 # Logging configuration (overrides global settings)
 log-level: DEBUG # Options: INFO, DEBUG
 log-file: /path/to/repository-specific.log
+mask-sensitive-data: false # Disable masking for debugging (NOT recommended in production)
 
 # Slack integration
 slack-webhook-url: https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK
