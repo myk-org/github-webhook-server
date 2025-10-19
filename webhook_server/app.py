@@ -43,7 +43,7 @@ APP_URL_ROOT_PATH: str = "/webhook_server"
 
 # Global variables
 ALLOWED_IPS: tuple[ipaddress._BaseNetwork, ...] = ()
-LOGGER = get_logger_with_params(name="main")
+LOGGER = get_logger_with_params()
 
 _lifespan_http_client: httpx.AsyncClient | None = None
 
@@ -210,7 +210,7 @@ async def process_webhook(request: Request, background_tasks: BackgroundTasks) -
 
     # Create repository-specific logger
     repository_name = hook_data["repository"]["name"]
-    logger = get_logger_with_params(name="main", repository_name=repository_name)
+    logger = get_logger_with_params(repository_name=repository_name)
     logger.info(f"{log_context} Processing webhook for repository: {repository_name}")
 
     async def process_with_error_handling(_api: GithubWebhook, _logger: logging.Logger) -> None:

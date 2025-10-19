@@ -16,7 +16,7 @@ GITHUB_META_URL: str = "https://api.github.com/meta"
 CLOUDFLARE_IPS_URL: str = "https://api.cloudflare.com/client/v4/ips"
 
 # Logger for utilities
-LOGGER = get_logger_with_params(name="app_utils")
+LOGGER = get_logger_with_params()
 
 
 async def get_github_allowlist(http_client: httpx.AsyncClient) -> list[str]:

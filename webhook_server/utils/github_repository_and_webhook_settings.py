@@ -11,7 +11,7 @@ from webhook_server.utils.github_repository_settings import (
 from webhook_server.utils.helpers import get_api_with_highest_rate_limit, get_logger_with_params
 from webhook_server.utils.webhook import create_webhook
 
-LOGGER = get_logger_with_params(name="repository-and-webhook-settings")
+LOGGER = get_logger_with_params()
 
 
 def get_repository_api(repository: str) -> tuple[str, github.Github | None, str]:
