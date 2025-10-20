@@ -37,6 +37,13 @@ class TestRunnerHandler:
         mock_webhook.dockerfile = "Dockerfile"
         mock_webhook.container_build_args = []
         mock_webhook.container_command_args = []
+        mock_webhook.last_commit = Mock()
+        mock_webhook.last_commit.sha = "abc123def456"  # pragma: allowlist secret
+        mock_webhook.repository_by_github_app = Mock()
+        # Add unified_api mock with async methods
+        mock_webhook.unified_api = Mock()
+        mock_webhook.unified_api.create_check_run = AsyncMock()
+        mock_webhook.unified_api.create_issue_comment = AsyncMock()
         return mock_webhook
 
     @pytest.fixture

@@ -144,12 +144,16 @@ async def test_close_when_not_initialized(mock_logger):
 
 @pytest.mark.asyncio
 async def test_ensure_client_idempotent(mock_logger):
-    """Test _ensure_client can be called multiple times."""
+    """Test _ensure_client creates NEW client on each call."""
     client = GraphQLClient(token="test_token", logger=mock_logger)
+
+    # Create different mock instances for each call
+    mock_client_1 = MagicMock()
+    mock_client_2 = MagicMock()
 
     with (
         patch("webhook_server.libs.graphql.graphql_client.AIOHTTPTransport"),
-        patch("webhook_server.libs.graphql.graphql_client.Client"),
+        patch("webhook_server.libs.graphql.graphql_client.Client", side_effect=[mock_client_1, mock_client_2]),
     ):
         await client._ensure_client()
         first_client = client._client
@@ -157,5 +161,5 @@ async def test_ensure_client_idempotent(mock_logger):
         await client._ensure_client()
         second_client = client._client
 
-        # Should be the same client instance
-        assert first_client is second_client
+        # Should create a NEW client instance (not reuse)
+        assert first_client is not second_client

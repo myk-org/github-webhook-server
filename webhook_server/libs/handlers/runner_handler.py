@@ -154,7 +154,7 @@ class RunnerHandler:
         finally:
             yield result
             self.logger.debug(f"{self.log_prefix} Deleting {clone_repo_dir}")
-            shutil.rmtree(clone_repo_dir)
+            shutil.rmtree(clone_repo_dir, ignore_errors=True)
 
     def is_podman_bug(self, err: str) -> bool:
         _err = "Error: current system boot ID differs from cached boot ID; an unhandled reboot has occurred"

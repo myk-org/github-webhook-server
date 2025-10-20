@@ -60,7 +60,15 @@ class LabelsHandler:
                 if label_id:
                     await self.unified_api.remove_labels(pr_id, [label_id])
 
-                return await self.wait_for_label(pull_request=pull_request, label=label, exists=False)
+                # Re-fetch PR labels after mutation to avoid stale wrapper data
+                refreshed_pr_data = await self.unified_api.get_pull_request(
+                    owner, repo_name, pull_request.number, include_labels=True
+                )
+                from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+
+                refreshed_pr = PullRequestWrapper(refreshed_pr_data)
+
+                return await self.wait_for_label(pull_request=refreshed_pr, label=label, exists=False)
         except Exception as exp:
             self.logger.debug(f"{self.log_prefix} Failed to remove {label} label. Exception: {exp}")
             return False
@@ -88,6 +96,18 @@ class LabelsHandler:
             label_id = await self.unified_api.get_label_id(owner, repo_name, label)
             if label_id:
                 await self.unified_api.add_labels(pr_id, [label_id])
+
+            # Re-fetch PR labels after mutation to avoid stale wrapper data
+            refreshed_pr_data = await self.unified_api.get_pull_request(
+                owner, repo_name, pull_request.number, include_labels=True
+            )
+            from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+
+            refreshed_pr = PullRequestWrapper(refreshed_pr_data)
+            try:
+                await self.wait_for_label(pull_request=refreshed_pr, label=label, exists=True)
+            except Exception as ex:
+                self.logger.warning(f"{self.log_prefix} Wait for label failed: {ex}")
             return
 
         color = self._get_label_color(label)
@@ -106,7 +126,9 @@ class LabelsHandler:
                 await self.unified_api.create_label(repo_data["id"], label, color)
                 self.logger.debug(f"{self.log_prefix} Add {_with_color_msg}")
 
-        except (UnknownObjectException, Exception):
+        except UnknownObjectException:
+            # Label not found, create it
+            self.logger.exception(f"{self.log_prefix} Label {label} not found, creating it")
             repo_data = await self.unified_api.get_repository(owner, repo_name)
             await self.unified_api.create_label(repo_data["id"], label, color)
             self.logger.debug(f"{self.log_prefix} Add {_with_color_msg}")
@@ -116,7 +138,15 @@ class LabelsHandler:
         label_id = await self.unified_api.get_label_id(owner, repo_name, label)
         if label_id:
             await self.unified_api.add_labels(pr_id, [label_id])
-        await self.wait_for_label(pull_request=pull_request, label=label, exists=True)
+
+        # Re-fetch PR labels after mutation to avoid stale wrapper data
+        refreshed_pr_data = await self.unified_api.get_pull_request(
+            owner, repo_name, pull_request.number, include_labels=True
+        )
+        from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+
+        refreshed_pr = PullRequestWrapper(refreshed_pr_data)
+        await self.wait_for_label(pull_request=refreshed_pr, label=label, exists=True)
 
     async def wait_for_label(self, pull_request: PullRequestWrapper, label: str, exists: bool) -> bool:
         self.logger.debug(f"{self.log_prefix} waiting for label {label} to {'exists' if exists else 'not exists'}")

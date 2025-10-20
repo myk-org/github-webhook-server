@@ -234,14 +234,14 @@ class CheckRunHandler:
         try:
             self.logger.debug(f"{self.log_prefix} Set check run status with {kwargs}")
             await self.unified_api.create_check_run(self.github_webhook.repository_by_github_app, **kwargs)
-            if conclusion in (SUCCESS_STR, IN_PROGRESS_STR):
-                self.logger.success(msg)  # type: ignore
-            return
-
         except Exception as ex:
             self.logger.debug(f"{self.log_prefix} Failed to set {check_run} check to {status or conclusion}, {ex}")
             kwargs["conclusion"] = FAILURE_STR
             await self.unified_api.create_check_run(self.github_webhook.repository_by_github_app, **kwargs)
+        else:
+            # Success log only after successful check run creation
+            if conclusion in (SUCCESS_STR, IN_PROGRESS_STR):
+                self.logger.success(msg)  # type: ignore
 
     def get_check_run_text(self, err: str, out: str) -> str:
         total_len: int = len(err) + len(out)

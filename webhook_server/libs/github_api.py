@@ -267,7 +267,7 @@ class GithubWebhook:
             value="create-issue-for-new-pr", return_on_none=global_create_issue_for_new_pr, extra_dict=repository_config
         )
 
-    async def get_pull_request(self, number: int | None = None) -> PullRequestWrapper | None:
+    async def get_pull_request(self, number: int | None = None) -> PullRequest | PullRequestWrapper | None:
         """Get pull request using GraphQL."""
         if not self.unified_api:
             self.logger.error(f"{self.log_prefix} UnifiedAPI not initialized")
@@ -349,20 +349,39 @@ class GithubWebhook:
         pr_id = pull_request.id
         reviewer_ids = []
         for reviewer in reviewers:
+            # Normalize reviewer to username string
+            username = None
+            if isinstance(reviewer, str):
+                username = reviewer
+            elif hasattr(reviewer, "login"):
+                username = reviewer.login
+            elif hasattr(reviewer, "user") and hasattr(reviewer.user, "login"):
+                username = reviewer.user.login
+            elif isinstance(reviewer, dict):
+                username = reviewer.get("login") or (reviewer.get("user") or {}).get("login")
+
+            if not username:
+                self.logger.warning(f"{self.log_prefix} Could not resolve username from reviewer: {reviewer}")
+                continue
+
             try:
-                user_id = await self.unified_api.get_user_id(reviewer)
+                user_id = await self.unified_api.get_user_id(username)
                 reviewer_ids.append(user_id)
             except Exception as ex:
-                self.logger.warning(f"{self.log_prefix} Failed to get ID for {reviewer}: {ex}")
+                self.logger.warning(f"{self.log_prefix} Failed to get ID for {username}: {ex}")
         if reviewer_ids:
             await self.unified_api.request_reviews(pr_id, reviewer_ids)
 
-    async def add_pr_assignee(self, pull_request: PullRequestWrapper, assignee: str) -> None:
+    async def add_pr_assignee(self, pull_request: PullRequest | PullRequestWrapper, assignee: str) -> None:
         """Add assignee to PR via unified_api."""
-        pr_id = pull_request.id
         try:
-            user_id = await self.unified_api.get_user_id(assignee)
-            await self.unified_api.add_assignees(pr_id, [user_id])
+            if isinstance(pull_request, PullRequestWrapper):
+                pr_id = pull_request.id
+                user_id = await self.unified_api.get_user_id(assignee)
+                await self.unified_api.add_assignees(pr_id, [user_id])
+            else:
+                owner, repo_name = self.repository.full_name.split("/")
+                await self.unified_api.add_assignees_by_login(owner, repo_name, pull_request.number, [assignee])
         except Exception as ex:
             self.logger.warning(f"{self.log_prefix} Failed to add assignee {assignee}: {ex}")
 

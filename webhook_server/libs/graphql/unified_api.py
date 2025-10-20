@@ -66,20 +66,22 @@ class UnifiedGitHubAPI:
         # REST client (sync) - kept for fallback operations
         self.rest_client: Github | None = None
         self._initialized = False
+        self._init_lock = asyncio.Lock()  # Protect against concurrent initialization
 
     async def initialize(self) -> None:
         """Initialize both GraphQL and REST clients."""
-        if self._initialized:
-            return
+        async with self._init_lock:
+            if self._initialized:
+                return
 
-        # Initialize GraphQL client
-        self.graphql_client = GraphQLClient(token=self.token, logger=self.logger)
+            # Initialize GraphQL client
+            self.graphql_client = GraphQLClient(token=self.token, logger=self.logger)
 
-        # Initialize REST client (PyGithub)
-        self.rest_client = Github(self.token)
+            # Initialize REST client (PyGithub)
+            self.rest_client = Github(self.token)
 
-        self._initialized = True
-        self.logger.info("Unified GitHub API initialized (GraphQL + REST)")
+            self._initialized = True
+            self.logger.info("Unified GitHub API initialized (GraphQL + REST)")
 
     async def close(self) -> None:
         """Close and cleanup API clients."""
@@ -269,7 +271,15 @@ class UnifiedGitHubAPI:
         expression = f"{ref}:{path}"
         query = QueryBuilder.get_file_contents(owner, name, expression)
         result = await self.graphql_client.execute(query)  # type: ignore[union-attr]
-        return result["repository"]["object"]["text"]
+        blob = result["repository"]["object"]
+
+        # Handle binary files - text will be null for binary files
+        if blob.get("isBinary") or blob.get("text") is None:
+            # Fall back to REST API for binary files
+            contents = await self.get_contents(owner, name, path, ref)
+            return contents.decoded_content.decode("utf-8")
+
+        return blob["text"]
 
     # ===== Mutation Operations (GraphQL Primary) =====
 
@@ -287,27 +297,32 @@ class UnifiedGitHubAPI:
         Returns:
             Created comment data
         """
-        try:
-            if not self.graphql_client:
-                self.logger.debug("Initializing GraphQL client for add_comment")
-                await self.initialize()
+        if not self.graphql_client:
+            self.logger.debug("Initializing GraphQL client for add_comment")
+            await self.initialize()
 
-            self.logger.debug(f"Adding comment to subject_id={subject_id}, body length={len(body)}")
-            mutation, variables = MutationBuilder.add_comment(subject_id, body)
-            self.logger.debug("Calling graphql_client.execute for addComment mutation")
+        self.logger.debug(f"Adding comment to subject_id={subject_id}, body length={len(body)}")
+        mutation, variables = MutationBuilder.add_comment(subject_id, body)
+        self.logger.debug("Calling graphql_client.execute for addComment mutation")
+
+        try:
             result = await self.graphql_client.execute(mutation, variables)  # type: ignore[union-attr]
-            self.logger.debug("GraphQL execute returned, extracting comment node")
-            comment_node = result["addComment"]["commentEdge"]["node"]
-            self.logger.info(f"SUCCESS: Comment added to {subject_id}, comment_id={comment_node.get('id')}")
-            return comment_node
-        except KeyError as ex:
-            self.logger.error(
-                f"Failed to extract comment from GraphQL result for {subject_id}: {ex}. Result: {result}", exc_info=True
-            )
-            raise
         except Exception as ex:
             self.logger.error(f"Failed to add comment to {subject_id}: {ex}", exc_info=True)
             raise
+        else:
+            self.logger.debug("GraphQL execute returned, extracting comment node")
+            try:
+                comment_node = result["addComment"]["commentEdge"]["node"]
+            except KeyError as ex:
+                self.logger.error(
+                    f"Failed to extract comment from GraphQL result for {subject_id}: {ex}. Result: {result}",
+                    exc_info=True,
+                )
+                raise
+            else:
+                self.logger.info(f"SUCCESS: Comment added to {subject_id}, comment_id={comment_node.get('id')}")
+                return comment_node
 
     async def add_labels(self, labelable_id: str, label_ids: list[str]) -> None:
         """
@@ -465,14 +480,15 @@ class UnifiedGitHubAPI:
         if not self.graphql_client:
             await self.initialize()
 
-        query = f"""
-            query {{
-                user(login: "{login}") {{
+        query = """
+            query($login: String!) {
+                user(login: $login) {
                     id
-                }}
-            }}
+                }
+            }
         """
-        result = await self.graphql_client.execute(query)  # type: ignore[union-attr]
+        variables = {"login": login}
+        result = await self.graphql_client.execute(query, variables)  # type: ignore[union-attr]
         return result["user"]["id"]
 
     async def get_label_id(self, owner: str, name: str, label_name: str) -> str | None:
@@ -493,16 +509,17 @@ class UnifiedGitHubAPI:
         if not self.graphql_client:
             await self.initialize()
 
-        query = f"""
-            query {{
-                repository(owner: "{owner}", name: "{name}") {{
-                    label(name: "{label_name}") {{
+        query = """
+            query($owner: String!, $name: String!, $labelName: String!) {
+                repository(owner: $owner, name: $name) {
+                    label(name: $labelName) {
                         id
-                    }}
-                }}
-            }}
+                    }
+                }
+            }
         """
-        result = await self.graphql_client.execute(query)  # type: ignore[union-attr]
+        variables = {"owner": owner, "name": name, "labelName": label_name}
+        result = await self.graphql_client.execute(query, variables)  # type: ignore[union-attr]
         label = result["repository"].get("label")
         return label["id"] if label else None
 
@@ -597,10 +614,11 @@ class UnifiedGitHubAPI:
         Note: Only use when operation is NOT available in GraphQL.
               For most operations, use the GraphQL methods instead.
         """
+        # Lazy-initialize REST client for parity with GraphQL
         if not self.rest_client:
-            raise RuntimeError("REST client not initialized. Call initialize() first.")
+            await self.initialize()
 
-        return await asyncio.to_thread(self.rest_client.get_repo, f"{owner}/{name}")
+        return await asyncio.to_thread(self.rest_client.get_repo, f"{owner}/{name}")  # type: ignore[union-attr]
 
     async def get_pr_for_check_runs(self, owner: str, name: str, number: int) -> RestPullRequest:
         """
@@ -624,7 +642,7 @@ class UnifiedGitHubAPI:
             >>> # CORRECT: Use GraphQL for PR data
             >>> pr_data = await api.get_pull_request("owner", "repo", 123)
             >>>
-            >>> # INCORRECT: Use REST ONLY for check runs
+            >>> # CORRECT: Use REST ONLY for check runs
             >>> rest_pr = await api.get_pr_for_check_runs("owner", "repo", 123)
             >>> commits = await asyncio.to_thread(rest_pr.get_commits)
             >>> check_runs = await asyncio.to_thread(commits[0].get_check_runs)
@@ -648,7 +666,7 @@ class UnifiedGitHubAPI:
         """
         repo = await self.get_repository_for_rest_operations(owner, name)
         pr = await asyncio.to_thread(repo.get_pull, number)
-        return await asyncio.to_thread(pr.get_files)
+        return list(await asyncio.to_thread(pr.get_files))
 
     async def create_issue_comment(self, owner: str, name: str, number: int, body: str) -> None:
         """
@@ -802,12 +820,12 @@ class UnifiedGitHubAPI:
 
     async def get_pulls_from_commit(self, commit: Any) -> list[Any]:
         """Get pull requests associated with a commit."""
-        return await asyncio.to_thread(commit.get_pulls)
+        return list(await asyncio.to_thread(commit.get_pulls))
 
     async def get_open_pull_requests(self, owner: str, name: str) -> list[Any]:
         """Get all open pull requests."""
         repo = await self.get_repository_for_rest_operations(owner, name)
-        return await asyncio.to_thread(repo.get_pulls, state="open")
+        return list(await asyncio.to_thread(repo.get_pulls, state="open"))
 
     # ===== Helper Methods =====
 
@@ -846,7 +864,7 @@ class UnifiedGitHubAPI:
             "get_issues",
             "create_issue",
             "get_rate_limit",
-            "get_user",
+            "get_user_id",  # Aligned with actual method name
         }
 
         if operation in rest_only:

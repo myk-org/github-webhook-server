@@ -19,6 +19,8 @@ fragment PullRequestFields on PullRequest {
     mergedAt
     merged
     mergeable
+    mergeStateStatus
+    isDraft
     permalink
     additions
     deletions
@@ -36,6 +38,9 @@ fragment PullRequestFields on PullRequest {
         target {
             oid
         }
+    }
+    mergeCommit {
+        oid
     }
 }
 """
@@ -309,6 +314,7 @@ class QueryBuilder:
                         ... on Blob {{
                             text
                             byteSize
+                            isBinary
                         }}
                     }}
                 }}

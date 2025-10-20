@@ -21,7 +21,11 @@ class TestOwnersFileHandler:
         mock_webhook.repository_full_name = "test-org/test-repo"
         mock_webhook.add_pr_comment = AsyncMock()
         mock_webhook.request_pr_reviews = AsyncMock()
-        mock_webhook.unified_api = AsyncMock()
+        # unified_api needs to be a Mock with async methods, not an AsyncMock itself
+        mock_webhook.unified_api = Mock()
+        mock_webhook.unified_api.request_reviews = AsyncMock()
+        mock_webhook.unified_api.get_user_id = AsyncMock()
+        mock_webhook.unified_api.add_assignees_by_login = AsyncMock()
         return mock_webhook
 
     @pytest.fixture
@@ -255,10 +259,10 @@ class TestOwnersFileHandler:
         mock_tree.tree = [Mock(type="blob", path=f"file{i}/OWNERS") for i in range(1001)]
         owners_file_handler.repository.full_name = "test/repo"
         owners_file_handler.github_webhook.unified_api.get_git_tree = AsyncMock(return_value=mock_tree)
-        owners_file_handler.logger.error = Mock()
-        owners_file_handler.repository.get_contents = Mock(
+        owners_file_handler.github_webhook.unified_api.get_contents = AsyncMock(
             return_value=ContentFile(yaml.dump({"approvers": [], "reviewers": []}))
         )
+        owners_file_handler.logger.error = Mock()
         result = await owners_file_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
         assert len(result) == 1000
         owners_file_handler.logger.error.assert_called_once()
@@ -425,11 +429,12 @@ class TestOwnersFileHandler:
             owners_file_handler.github_webhook, "request_pr_reviews", new_callable=AsyncMock
         ) as mock_request:
             await owners_file_handler.assign_reviewers(mock_pull_request)
-            # Should be called twice (once for each reviewer, excluding PR author)
-            assert mock_request.call_count == 2
-            # Verify each call has the right reviewer
-            calls = mock_request.call_args_list
-            reviewers_added = [call[0][1][0] for call in calls]
+            # Should be called once with all reviewers (batch assignment), excluding PR author
+            assert mock_request.call_count == 1
+            # Verify the call has both reviewers
+            call_args = mock_request.call_args
+            assert call_args[0][0] == mock_pull_request
+            reviewers_added = call_args[0][1]
             assert set(reviewers_added) == {"reviewer1", "reviewer2"}
 
     @pytest.mark.asyncio
@@ -454,9 +459,12 @@ class TestOwnersFileHandler:
             await owners_file_handler.assign_reviewers(mock_pull_request)
             # Verify create_issue_comment was called for the error
             owners_file_handler.github_webhook.unified_api.create_issue_comment.assert_called_once()
-            # Check the error message was included
+            # Check the error message was included - call_args is (args, kwargs)
             call_args = owners_file_handler.github_webhook.unified_api.create_issue_comment.call_args
-            assert "reviewer1 can not be added as reviewer" in call_args[0][2]
+            # The body is call_args.args[3] or call_args[0][3]
+            # New format: "Failed to assign reviewers reviewer1: 404 'Not found'"
+            assert "Failed to assign reviewers reviewer1" in call_args.args[3]
+            assert "404" in call_args.args[3]
 
     @pytest.mark.asyncio
     async def test_is_user_valid_to_run_commands_valid_user(

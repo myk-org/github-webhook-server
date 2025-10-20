@@ -51,6 +51,15 @@ class TestPullRequestHandler:
         mock_webhook.enable_pr_automerge = AsyncMock()
         mock_webhook.request_pr_reviews = AsyncMock()
         mock_webhook.add_pr_assignee = AsyncMock()
+        # Add unified_api mock with async methods
+        mock_webhook.unified_api = Mock()
+        mock_webhook.unified_api.get_issues = AsyncMock(return_value=[])
+        mock_webhook.unified_api.create_issue_comment = AsyncMock()
+        mock_webhook.unified_api.create_issue_comment_on_issue = AsyncMock()
+        mock_webhook.unified_api.edit_issue = AsyncMock()
+        mock_webhook.unified_api.add_assignees_by_login = AsyncMock()
+        mock_webhook.unified_api.get_commit_check_runs = AsyncMock(return_value=[])
+        mock_webhook.unified_api.create_check_run = AsyncMock()
         return mock_webhook
 
     @pytest.fixture
@@ -376,17 +385,20 @@ class TestPullRequestHandler:
     ) -> None:
         mock_pull_request.title = "Test PR"
         mock_pull_request.number = 123
-        with patch.object(pull_request_handler.repository, "get_issues", return_value=[]) as mock_get_issues:
-            mock_issue = Mock()
-            mock_issue.title = "PR #123: Test PR"
-            mock_issue.number = 456
-            mock_issue.body = "[Auto generated]\nNumber: [#123]"
-            mock_issue.edit = Mock()
-            mock_get_issues.return_value = [mock_issue]
-            await pull_request_handler.close_issue_for_merged_or_closed_pr(
-                pull_request=mock_pull_request, hook_action="closed"
-            )
-            mock_issue.edit.assert_called_once_with(state="closed")
+        mock_issue = Mock()
+        mock_issue.title = "Test PR - 123"
+        mock_issue.number = 456
+        mock_issue.body = "[Auto generated]\nNumber: [#123]"
+
+        # Mock unified_api methods
+        pull_request_handler.github_webhook.unified_api.get_issues = AsyncMock(return_value=[mock_issue])
+        pull_request_handler.github_webhook.unified_api.create_issue_comment_on_issue = AsyncMock()
+        pull_request_handler.github_webhook.unified_api.edit_issue = AsyncMock()
+
+        await pull_request_handler.close_issue_for_merged_or_closed_pr(
+            pull_request=mock_pull_request, hook_action="closed"
+        )
+        pull_request_handler.github_webhook.unified_api.edit_issue.assert_called_once_with(mock_issue, state="closed")
 
     @pytest.mark.asyncio
     async def test_process_opened_or_synchronize_pull_request(
@@ -565,10 +577,13 @@ class TestPullRequestHandler:
     ) -> None:
         """Test adding pull request owner as assignee."""
         mock_pull_request.user.login = "owner1"
+        mock_pull_request.number = 123
 
-        with patch.object(mock_pull_request, "add_to_assignees") as mock_add_assignee:
-            await pull_request_handler.add_pull_request_owner_as_assingee(pull_request=mock_pull_request)
-            mock_add_assignee.assert_called_once_with("owner1")
+        # Now it uses unified_api.add_assignees_by_login, not pr.add_to_assignees
+        await pull_request_handler.add_pull_request_owner_as_assingee(pull_request=mock_pull_request)
+        pull_request_handler.github_webhook.unified_api.add_assignees_by_login.assert_called_once_with(
+            "test-owner", "test-repo", 123, ["owner1"]
+        )
 
     @pytest.mark.asyncio
     async def test_check_if_can_be_merged_already_merged(

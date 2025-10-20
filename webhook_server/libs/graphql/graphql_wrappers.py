@@ -77,11 +77,24 @@ class CommitWrapper:
     @property
     def committer(self) -> UserWrapper:
         """Get committer information."""
+        # Prefer commit->author for GraphQL responses
         commit_data = self._data.get("commit", {})
+        author_data = commit_data.get("author", {})
+
+        # Map author.user to UserWrapper if available
+        if "user" in author_data:
+            return UserWrapper(author_data["user"])
+
+        # If author has name but no user, use name as login
+        if "name" in author_data:
+            return UserWrapper({"login": author_data.get("name", "")})
+
+        # Fall back to committer if no author data
         committer_data = commit_data.get("committer", {})
-        # GraphQL returns author info differently
         if "user" in committer_data:
             return UserWrapper(committer_data["user"])
+
+        # Final fallback: use committer name as login
         return UserWrapper({"login": committer_data.get("name", "")})
 
 
@@ -255,4 +268,7 @@ class PullRequestWrapper:
         return self.merged
 
     def __repr__(self) -> str:
-        return f"PullRequestWrapper(number={self.number}, title='{self.title}')"
+        # Use getattr with fallback to handle mock objects safely
+        number = getattr(self, "_data", {}).get("number", "?")
+        title = getattr(self, "_data", {}).get("title", "?")
+        return f"PullRequestWrapper(number={number}, title='{title}')"

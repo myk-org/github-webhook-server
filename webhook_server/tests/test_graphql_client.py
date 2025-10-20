@@ -34,8 +34,9 @@ async def test_graphql_client_initialization(graphql_client, mock_logger):
     assert graphql_client.token == "test_token"
     assert graphql_client.logger == mock_logger
     assert graphql_client.retry_count == 3
-    assert graphql_client.timeout == 30
+    assert graphql_client.timeout == 90
     assert graphql_client._client is None
+    assert graphql_client._client_lock is not None
 
 
 @pytest.mark.asyncio
@@ -182,7 +183,9 @@ async def test_close(graphql_client, mock_logger):
 
         await graphql_client._ensure_client()
         assert graphql_client._client is not None
+        assert graphql_client._transport is not None
 
         await graphql_client.close()
         assert graphql_client._client is None
+        assert graphql_client._transport is None
         mock_client.close_async.assert_called_once()

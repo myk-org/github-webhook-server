@@ -163,6 +163,16 @@ class OwnersFileHandler:
         return _approvers
 
     async def get_all_repository_reviewers(self) -> list[str]:
+        """
+        Get all reviewers from repository OWNERS files.
+
+        Note: GraphQL queries in get_all_repository_approvers_and_reviewers() use first:100
+        for commits/labels/reviews. If you have >100 items, implement pagination or
+        document the limitation.
+
+        Returns:
+            List of reviewer usernames
+        """
         self._ensure_initialized()
 
         _reviewers: list[str] = []
@@ -176,6 +186,16 @@ class OwnersFileHandler:
         return _reviewers
 
     async def get_all_pull_request_approvers(self) -> list[str]:
+        """
+        Get all approvers required for the current pull request based on changed files.
+
+        Note: This method relies on GraphQL queries with first:100 pagination limits.
+        If you have >100 commits, labels, or reviews, some data may be truncated.
+        Consider implementing cursor-based pagination if needed.
+
+        Returns:
+            Sorted list of unique approver usernames
+        """
         _approvers: list[str] = []
         changed_files = await self.owners_data_for_changed_files()
 
@@ -189,6 +209,16 @@ class OwnersFileHandler:
         return _approvers
 
     async def get_all_pull_request_reviewers(self) -> list[str]:
+        """
+        Get all reviewers required for the current pull request based on changed files.
+
+        Note: This method relies on GraphQL queries with first:100 pagination limits.
+        If you have >100 commits, labels, or reviews, some data may be truncated.
+        Consider implementing cursor-based pagination if needed.
+
+        Returns:
+            Sorted list of unique reviewer usernames
+        """
         _reviewers: list[str] = []
         changed_files = await self.owners_data_for_changed_files()
 
@@ -261,21 +291,30 @@ class OwnersFileHandler:
             self.logger.step(f"{self.log_prefix} No reviewers to assign")  # type: ignore
             return
 
-        for reviewer in _to_add:
-            if reviewer != pull_request.user.login:
-                self.logger.debug(f"{self.log_prefix} Adding reviewer {reviewer}")
-                try:
-                    await self.github_webhook.request_pr_reviews(pull_request, [reviewer])
-                    self.logger.step(f"{self.log_prefix} Successfully assigned reviewer {reviewer}")  # type: ignore
+        # Filter out PR author from reviewers list
+        reviewers_to_request = [r for r in _to_add if r != pull_request.user.login]
 
-                except GithubException as ex:
-                    self.logger.step(f"{self.log_prefix} Failed to assign reviewer {reviewer}")  # type: ignore
-                    self.logger.debug(f"{self.log_prefix} Failed to add reviewer {reviewer}. {ex}")
-                    # Use unified_api for create_issue_comment
-                    owner, repo_name = self.repository.full_name.split("/")
-                    await self.unified_api.create_issue_comment(
-                        owner, repo_name, pull_request.number, f"{reviewer} can not be added as reviewer. {ex}"
-                    )
+        if not reviewers_to_request:
+            self.logger.step(f"{self.log_prefix} No reviewers to assign (all were PR author)")  # type: ignore
+            return
+
+        # Batch review request in one mutation instead of looping
+        try:
+            self.logger.debug(f"{self.log_prefix} Batch requesting reviews from: {', '.join(reviewers_to_request)}")
+            await self.github_webhook.request_pr_reviews(pull_request, reviewers_to_request)
+            self.logger.step(f"{self.log_prefix} Successfully assigned {len(reviewers_to_request)} reviewers")  # type: ignore
+
+        except GithubException as ex:
+            self.logger.step(f"{self.log_prefix} Failed to assign reviewers in batch")  # type: ignore
+            self.logger.debug(f"{self.log_prefix} Batch review request failed: {ex}")
+            # Use unified_api for create_issue_comment
+            owner, repo_name = self.repository.full_name.split("/")
+            await self.unified_api.create_issue_comment(
+                owner,
+                repo_name,
+                pull_request.number,
+                f"Failed to assign reviewers {', '.join(reviewers_to_request)}: {ex}",
+            )
 
         self.logger.step(f"{self.log_prefix} Reviewer assignment completed")  # type: ignore
 

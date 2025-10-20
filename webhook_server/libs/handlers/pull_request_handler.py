@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, Any, Coroutine
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
-from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.libs.handlers.labels_handler import LabelsHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.libs.handlers.runner_handler import RunnerHandler
@@ -75,16 +75,16 @@ class PullRequestHandler:
 
         if hook_action in ("opened", "reopened", "ready_for_review"):
             self.logger.step(f"{self.log_prefix} Processing PR {hook_action} event: initializing new pull request")  # type: ignore
-            tasks: list[Coroutine[Any, Any, Any]] = []
-            task_names: list[str] = []
 
             if hook_action in ("opened", "ready_for_review"):
                 self.logger.info(f"{self.log_prefix} WELCOME: Triggering welcome message for action={hook_action}")
                 welcome_msg = self._prepare_welcome_comment()
-                tasks.append(self.github_webhook.add_pr_comment(pull_request, welcome_msg))
-                task_names.append("add_welcome_comment")
+                await self.github_webhook.add_pr_comment(pull_request, welcome_msg)
             else:
                 self.logger.debug(f"{self.log_prefix} WELCOME: Skipping welcome message for action={hook_action}")
+
+            tasks: list[Coroutine[Any, Any, Any]] = []
+            task_names: list[str] = []
 
             tasks.append(self.create_issue_for_new_pull_request(pull_request=pull_request))
             task_names.append("create_issue")

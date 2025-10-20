@@ -81,6 +81,7 @@ class GraphQLClient:
         self.timeout = timeout
         self._client: Client | None = None
         self._transport: AIOHTTPTransport | None = None
+        self._client_lock = asyncio.Lock()  # Protect against concurrent client recreation
 
     async def __aenter__(self) -> GraphQLClient:
         """Async context manager entry."""
@@ -93,39 +94,40 @@ class GraphQLClient:
 
     async def _ensure_client(self) -> None:
         """Ensure the GraphQL client is initialized with fresh transport for each query."""
-        # ALWAYS recreate transport and client for each query to avoid connection reuse
-        # Close existing client first if it exists
-        if self._client:
-            try:
-                await self._client.close_async()
-            except Exception:
-                pass  # Ignore cleanup errors
+        async with self._client_lock:
+            # ALWAYS recreate transport and client for each query to avoid connection reuse
+            # Close existing client first if it exists
+            if self._client:
+                try:
+                    await self._client.close_async()
+                except Exception as ex:
+                    self.logger.debug(f"Ignoring error during client cleanup: {ex}")
 
-        # Create fresh transport with new connection for this query
-        # Set explicit timeout on transport to handle network-level hangs
-        self._transport = AIOHTTPTransport(
-            url=self.GITHUB_GRAPHQL_URL,
-            headers={
-                "Authorization": f"Bearer {self.token}",
-                "Accept": "application/vnd.github.v4+json",
-            },
-            timeout=self.timeout,
-        )
+            # Create fresh transport with new connection for this query
+            # Set explicit timeout on transport to handle network-level hangs
+            self._transport = AIOHTTPTransport(
+                url=self.GITHUB_GRAPHQL_URL,
+                headers={
+                    "Authorization": f"Bearer {self.token}",
+                    "Accept": "application/vnd.github.v4+json",
+                },
+                timeout=self.timeout,
+            )
 
-        self._client = Client(
-            transport=self._transport,
-            fetch_schema_from_transport=False,  # Don't fetch schema on every request
-        )
+            self._client = Client(
+                transport=self._transport,
+                fetch_schema_from_transport=False,  # Don't fetch schema on every request
+            )
 
-        self.logger.debug("GraphQL client recreated with fresh transport")
+            self.logger.debug("GraphQL client recreated with fresh transport")
 
     async def close(self) -> None:
         """Close the GraphQL client and cleanup resources."""
         if self._client:
             try:
                 await self._client.close_async()
-            except Exception:
-                pass  # Ignore cleanup errors
+            except Exception as ex:
+                self.logger.debug(f"Ignoring error during client close: {ex}")
             self._client = None
             self._transport = None
             self.logger.debug("GraphQL client closed")
@@ -164,6 +166,7 @@ class GraphQLClient:
                 # to prevent hangs during connection setup or query execution
                 async def _execute_with_session() -> dict[str, Any]:
                     async with self._client as session:  # type: ignore[union-attr]
+                        # Use gql 4.x style: pass variables to execute() as keyword argument
                         return await session.execute(query, variable_values=variables)
 
                 result = await asyncio.wait_for(_execute_with_session(), timeout=self.timeout)
@@ -215,10 +218,24 @@ class GraphQLClient:
                 raise GraphQLError(f"GraphQL query failed: {error_msg}") from error
 
             except TransportServerError as error:
-                # Handle server errors (5xx)
+                # Handle server errors (5xx) with exponential backoff
                 error_msg = str(error)
-                self.logger.error(f"SERVER ERROR: GraphQL server error: {error_msg}", exc_info=True)
-                raise GraphQLError(f"GraphQL server error: {error_msg}") from error
+                if attempt < self.retry_count - 1:
+                    wait_seconds = 2**attempt
+                    self.logger.warning(
+                        f"SERVER ERROR: GraphQL server error (attempt {attempt + 1}/{self.retry_count}): {error_msg}. "
+                        f"Retrying in {wait_seconds}s...",
+                        exc_info=True,
+                    )
+                    await asyncio.sleep(wait_seconds)
+                    continue  # Retry with exponential backoff
+                else:
+                    # Final attempt failed
+                    self.logger.error(
+                        f"SERVER ERROR: GraphQL server error after {self.retry_count} attempts: {error_msg}",
+                        exc_info=True,
+                    )
+                    raise GraphQLError(f"GraphQL server error: {error_msg}") from error
 
             except asyncio.TimeoutError as error:
                 # Explicit timeout handling - NEVER silent!
@@ -229,8 +246,8 @@ class GraphQLClient:
                         await self._client.close_async()
                         self._client = None
                         self._transport = None
-                    except Exception:
-                        pass
+                    except Exception as ex:
+                        self.logger.exception(f"Error during timeout cleanup: {ex}")
                 raise GraphQLError(f"GraphQL query timeout after {self.timeout}s") from error
 
             except Exception as error:
