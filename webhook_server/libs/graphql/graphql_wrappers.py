@@ -84,20 +84,6 @@ class CommitWrapper:
             return UserWrapper(committer_data["user"])
         return UserWrapper({"login": committer_data.get("name", "")})
 
-    def get_check_runs(self) -> list:
-        """
-        Get check runs for this commit.
-        
-        IMPORTANT: CommitWrapper from GraphQL doesn't have check runs data.
-        Callers MUST use unified_api.get_commit_check_runs(commit) instead.
-        
-        Raises:
-            NotImplementedError: Always raised to force proper usage
-        """
-        raise NotImplementedError(
-            "CommitWrapper.get_check_runs() not supported. "
-            "Use unified_api.get_commit_check_runs(commit) instead."
-        )
 
 
 class PullRequestWrapper:
