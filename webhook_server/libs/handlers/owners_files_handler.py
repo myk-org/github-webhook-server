@@ -7,11 +7,10 @@ from asyncstdlib import functools
 from github.ContentFile import ContentFile
 from github.GithubException import GithubException
 from github.NamedUser import NamedUser
-from github.PaginatedList import PaginatedList
 from github.PullRequest import PullRequest
-from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
 from github.Repository import Repository
 
+from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
 from webhook_server.utils.constants import COMMAND_ADD_ALLOWED_USER_STR
 
 if TYPE_CHECKING:
@@ -24,6 +23,7 @@ class OwnersFileHandler:
         self.logger = self.github_webhook.logger
         self.log_prefix: str = self.github_webhook.log_prefix
         self.repository: Repository = self.github_webhook.repository
+        self.unified_api = self.github_webhook.unified_api
 
     async def initialize(self, pull_request: PullRequestWrapper) -> "OwnersFileHandler":
         self.changed_files = await self.list_changed_files(pull_request=pull_request)
@@ -68,7 +68,7 @@ class OwnersFileHandler:
     async def list_changed_files(self, pull_request: PullRequestWrapper) -> list[str]:
         # Use unified_api for get_files
         owner, repo_name = self.repository.full_name.split("/")
-        files = await self.github_webhook.unified_api.get_pull_request_files(owner, repo_name, pull_request.number)
+        files = await self.unified_api.get_pull_request_files(owner, repo_name, pull_request.number)
         changed_files = [_file.filename for _file in files]
         self.logger.debug(f"{self.log_prefix} Changed files: {changed_files}")
         return changed_files
@@ -97,7 +97,7 @@ class OwnersFileHandler:
         self.logger.debug(f"{self.log_prefix} Get OWNERS file from {content_path}")
 
         owner, repo_name = self.repository.full_name.split("/")
-        _path = await self.github_webhook.unified_api.get_contents(owner, repo_name, content_path, pull_request.base.ref)
+        _path = await self.unified_api.get_contents(owner, repo_name, content_path, pull_request.base.ref)
 
         if isinstance(_path, list):
             _path = _path[0]
@@ -117,7 +117,7 @@ class OwnersFileHandler:
 
         self.logger.debug(f"{self.log_prefix} Get git tree")
         owner, repo_name = self.repository.full_name.split("/")
-        tree = await self.github_webhook.unified_api.get_git_tree(owner, repo_name, pull_request.base.ref, recursive=True)
+        tree = await self.unified_api.get_git_tree(owner, repo_name, pull_request.base.ref, recursive=True)
 
         for element in tree.tree:
             if element.type == "blob" and element.path.endswith("OWNERS"):
@@ -273,7 +273,7 @@ class OwnersFileHandler:
                     self.logger.debug(f"{self.log_prefix} Failed to add reviewer {reviewer}. {ex}")
                     # Use unified_api for create_issue_comment
                     owner, repo_name = self.repository.full_name.split("/")
-                    await self.github_webhook.unified_api.create_issue_comment(
+                    await self.unified_api.create_issue_comment(
                         owner, repo_name, pull_request.number, f"{reviewer} can not be added as reviewer. {ex}"
                     )
 
@@ -298,12 +298,8 @@ Maintainers:
         if reviewed_user not in valid_users:
             # Use unified_api for get_issue_comments
             owner, repo_name = self.repository.full_name.split("/")
-            comments = await self.github_webhook.unified_api.get_issue_comments(owner, repo_name, pull_request.number)
-            for comment in [
-                _comment
-                for _comment in comments
-                if _comment.user.login in allowed_user_to_approve
-            ]:
+            comments = await self.unified_api.get_issue_comments(owner, repo_name, pull_request.number)
+            for comment in [_comment for _comment in comments if _comment.user.login in allowed_user_to_approve]:
                 if allow_user_comment in comment.body:
                     self.logger.debug(
                         f"{self.log_prefix} {reviewed_user} is approved by {comment.user.login} to run commands"
@@ -354,9 +350,9 @@ Maintainers:
     @functools.cached_property
     async def repository_collaborators(self) -> list[NamedUser]:
         owner, repo_name = self.repository.full_name.split("/")
-        return await self.github_webhook.unified_api.get_collaborators(owner, repo_name)
+        return await self.unified_api.get_collaborators(owner, repo_name)
 
     @functools.cached_property
     async def repository_contributors(self) -> list[NamedUser]:
         owner, repo_name = self.repository.full_name.split("/")
-        return await self.github_webhook.unified_api.get_contributors(owner, repo_name)
+        return await self.unified_api.get_contributors(owner, repo_name)

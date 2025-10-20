@@ -294,14 +294,16 @@ class UnifiedGitHubAPI:
 
             self.logger.debug(f"Adding comment to subject_id={subject_id}, body length={len(body)}")
             mutation, variables = MutationBuilder.add_comment(subject_id, body)
-            self.logger.debug(f"Calling graphql_client.execute for addComment mutation")
+            self.logger.debug("Calling graphql_client.execute for addComment mutation")
             result = await self.graphql_client.execute(mutation, variables)  # type: ignore[union-attr]
-            self.logger.debug(f"GraphQL execute returned, extracting comment node")
+            self.logger.debug("GraphQL execute returned, extracting comment node")
             comment_node = result["addComment"]["commentEdge"]["node"]
             self.logger.info(f"SUCCESS: Comment added to {subject_id}, comment_id={comment_node.get('id')}")
             return comment_node
         except KeyError as ex:
-            self.logger.error(f"Failed to extract comment from GraphQL result for {subject_id}: {ex}. Result: {result}", exc_info=True)
+            self.logger.error(
+                f"Failed to extract comment from GraphQL result for {subject_id}: {ex}. Result: {result}", exc_info=True
+            )
             raise
         except Exception as ex:
             self.logger.error(f"Failed to add comment to {subject_id}: {ex}", exc_info=True)
@@ -633,27 +635,27 @@ class UnifiedGitHubAPI:
     async def get_pull_request_files(self, owner: str, name: str, number: int) -> list[Any]:
         """
         Get list of files changed in a pull request.
-        
+
         Uses: REST (not yet in GraphQL)
-        
+
         Args:
             owner: Repository owner
             name: Repository name
             number: Pull request number
-            
+
         Returns:
             List of file objects
         """
         repo = await self.get_repository_for_rest_operations(owner, name)
         pr = await asyncio.to_thread(repo.get_pull, number)
         return await asyncio.to_thread(pr.get_files)
-    
+
     async def create_issue_comment(self, owner: str, name: str, number: int, body: str) -> None:
         """
         Create a comment on a pull request or issue.
-        
+
         Uses: REST (helper method)
-        
+
         Args:
             owner: Repository owner
             name: Repository name
@@ -663,31 +665,31 @@ class UnifiedGitHubAPI:
         repo = await self.get_repository_for_rest_operations(owner, name)
         pr = await asyncio.to_thread(repo.get_pull, number)
         await asyncio.to_thread(pr.create_issue_comment, body)
-    
+
     async def get_issue_comments(self, owner: str, name: str, number: int) -> list[Any]:
         """
         Get all comments on a pull request or issue.
-        
+
         Uses: REST (not yet in GraphQL)
-        
+
         Args:
             owner: Repository owner
             name: Repository name
             number: PR or issue number
-            
+
         Returns:
             List of comment objects
         """
         repo = await self.get_repository_for_rest_operations(owner, name)
         pr = await asyncio.to_thread(repo.get_pull, number)
         return await asyncio.to_thread(pr.get_issue_comments)
-    
+
     async def add_assignees_by_login(self, owner: str, name: str, number: int, assignees: list[str]) -> None:
         """
         Add assignees to a pull request by login name.
-        
+
         Uses: REST (helper method)
-        
+
         Args:
             owner: Repository owner
             name: Repository name
@@ -697,124 +699,111 @@ class UnifiedGitHubAPI:
         repo = await self.get_repository_for_rest_operations(owner, name)
         pr = await asyncio.to_thread(repo.get_pull, number)
         await asyncio.to_thread(pr.add_to_assignees, *assignees)
-    
+
     async def get_issue_comment(self, owner: str, name: str, number: int, comment_id: int) -> Any:
         """Get a specific issue comment."""
         repo = await self.get_repository_for_rest_operations(owner, name)
         pr = await asyncio.to_thread(repo.get_pull, number)
         return await asyncio.to_thread(pr.get_issue_comment, comment_id)
-    
+
     async def create_reaction(self, comment: Any, reaction: str) -> None:
         """Create a reaction on a comment."""
         await asyncio.to_thread(comment.create_reaction, reaction)
-    
+
     async def get_contributors(self, owner: str, name: str) -> list[Any]:
         """Get repository contributors."""
         repo = await self.get_repository_for_rest_operations(owner, name)
         return list(await asyncio.to_thread(repo.get_contributors))
-    
+
     async def get_collaborators(self, owner: str, name: str) -> list[Any]:
         """Get repository collaborators."""
         repo = await self.get_repository_for_rest_operations(owner, name)
         return list(await asyncio.to_thread(repo.get_collaborators))
-    
+
     async def get_branch(self, owner: str, name: str, branch: str) -> Any:
         """Get branch information."""
         repo = await self.get_repository_for_rest_operations(owner, name)
         return await asyncio.to_thread(repo.get_branch, branch)
-    
+
     async def get_branch_protection(self, owner: str, name: str, branch: str) -> Any:
         """Get branch protection rules."""
         repo = await self.get_repository_for_rest_operations(owner, name)
         branch_obj = await asyncio.to_thread(repo.get_branch, branch)
         return await asyncio.to_thread(branch_obj.get_protection)
-    
+
     async def get_issues(self, owner: str, name: str) -> list[Any]:
         """Get repository issues."""
         repo = await self.get_repository_for_rest_operations(owner, name)
         return list(await asyncio.to_thread(repo.get_issues))
-    
-    async def create_issue(self, owner: str, name: str, title: str, body: str, assignee: str | None = None) -> None:
-        """Create an issue with optional assignee."""
-        repo = await self.get_repository_for_rest_operations(owner, name)
-        kwargs = {"title": title, "body": body}
-        if assignee:
-            kwargs["assignee"] = assignee
-        await asyncio.to_thread(repo.create_issue, **kwargs)
-    
+
     async def edit_issue(self, issue: Any, state: str) -> None:
         """Edit issue state."""
         await asyncio.to_thread(issue.edit, state=state)
-    
+
     async def create_issue_comment_on_issue(self, issue: Any, body: str) -> None:
         """Create a comment on an issue object."""
         await asyncio.to_thread(issue.create_comment, body)
-    
+
     async def get_contents(self, owner: str, name: str, path: str, ref: str) -> Any:
         """Get file contents from repository."""
         repo = await self.get_repository_for_rest_operations(owner, name)
         return await asyncio.to_thread(repo.get_contents, path, ref)
-    
+
     async def get_git_tree(self, owner: str, name: str, ref: str, recursive: bool = True) -> Any:
         """Get git tree."""
         repo = await self.get_repository_for_rest_operations(owner, name)
         return await asyncio.to_thread(repo.get_git_tree, ref, recursive=recursive)
-    
+
     async def get_commit_check_runs(self, commit: Any, owner: str | None = None, name: str | None = None) -> list[Any]:
         """
         Get check runs for a commit.
-        
+
         Works with both REST API Commit objects and CommitWrapper.
         If commit is CommitWrapper, fetches check runs via REST API using commit SHA.
-        
+
         Args:
             commit: REST Commit object or CommitWrapper
             owner: Repository owner (required if commit is CommitWrapper)
             name: Repository name (required if commit is CommitWrapper)
         """
         # Check if this is a REST commit object (has get_check_runs method)
-        if hasattr(commit, 'get_check_runs') and callable(commit.get_check_runs):
+        if hasattr(commit, "get_check_runs") and callable(commit.get_check_runs):
             return list(await asyncio.to_thread(commit.get_check_runs))
-        
+
         # CommitWrapper from GraphQL - fetch check runs via REST API
-        if hasattr(commit, 'sha') and owner and name:
+        if hasattr(commit, "sha") and owner and name:
             repo = await self.get_repository_for_rest_operations(owner, name)
             rest_commit = await asyncio.to_thread(repo.get_commit, commit.sha)
             return list(await asyncio.to_thread(rest_commit.get_check_runs))
-        
+
         # Fallback - return empty list
         return []
-    
+
     async def create_check_run(self, repo_by_app: Any, **kwargs: Any) -> None:
         """Create a check run using GitHub App repository."""
         await asyncio.to_thread(repo_by_app.create_check_run, **kwargs)
-    
+
     async def merge_pull_request(self, owner: str, name: str, number: int, merge_method: str = "SQUASH") -> None:
         """Merge a pull request."""
         repo = await self.get_repository_for_rest_operations(owner, name)
         pr = await asyncio.to_thread(repo.get_pull, number)
         await asyncio.to_thread(pr.merge, merge_method=merge_method)
-    
+
     async def is_pull_request_merged(self, owner: str, name: str, number: int) -> bool:
         """Check if pull request is merged."""
         repo = await self.get_repository_for_rest_operations(owner, name)
         pr = await asyncio.to_thread(repo.get_pull, number)
         return await asyncio.to_thread(pr.is_merged)
-    
+
     async def get_pr_commits(self, owner: str, name: str, number: int) -> list[Any]:
         """Get all commits from a pull request."""
         pr = await self.get_pr_for_check_runs(owner, name, number)
         return list(await asyncio.to_thread(pr.get_commits))
-    
-    async def get_commit(self, owner: str, name: str, sha: str) -> Any:
-        """Get a commit by SHA."""
-        repo = await self.get_repository_for_rest_operations(owner, name)
-        return await asyncio.to_thread(repo.get_commit, sha)
-    
+
     async def get_pulls_from_commit(self, commit: Any) -> list[Any]:
         """Get pull requests associated with a commit."""
         return await asyncio.to_thread(commit.get_pulls)
-    
+
     async def get_open_pull_requests(self, owner: str, name: str) -> list[Any]:
         """Get all open pull requests."""
         repo = await self.get_repository_for_rest_operations(owner, name)

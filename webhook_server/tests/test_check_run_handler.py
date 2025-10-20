@@ -434,7 +434,9 @@ class TestCheckRunHandler:
             call_count["count"] += 1
             return None
 
-        check_run_handler.github_webhook.unified_api.create_check_run = AsyncMock(side_effect=create_check_run_side_effect)
+        check_run_handler.github_webhook.unified_api.create_check_run = AsyncMock(
+            side_effect=create_check_run_side_effect
+        )
         with patch.object(check_run_handler.github_webhook.logger, "debug") as mock_debug:
             await check_run_handler.set_check_run_status(
                 check_run="test-check", status="queued", conclusion="", output=None
@@ -566,7 +568,9 @@ class TestCheckRunHandler:
         mock_branch_protection.required_status_checks.contexts = ["branch-check-1", "branch-check-2"]
         with patch.object(check_run_handler.repository, "private", False):
             check_run_handler.repository.full_name = "test/repo"
-            check_run_handler.github_webhook.unified_api.get_branch_protection = AsyncMock(return_value=mock_branch_protection)
+            check_run_handler.github_webhook.unified_api.get_branch_protection = AsyncMock(
+                return_value=mock_branch_protection
+            )
             result = await check_run_handler.get_branch_required_status_checks(mock_pull_request)
             assert result == ["branch-check-1", "branch-check-2"]
 

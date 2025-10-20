@@ -405,7 +405,10 @@ For more information, please refer to the project documentation or contact the m
                         # Use unified_api for create_issue_comment
                         owner, repo_name = self.repository.full_name.split("/")
                         await self.github_webhook.unified_api.create_issue_comment(
-                            owner, repo_name, pull_request.number, f"Successfully removed PR tag: {repository_full_tag}."
+                            owner,
+                            repo_name,
+                            pull_request.number,
+                            f"Successfully removed PR tag: {repository_full_tag}.",
                         )
                     else:
                         self.logger.error(
@@ -423,7 +426,10 @@ For more information, please refer to the project documentation or contact the m
             # Use unified_api for create_issue_comment
             owner, repo_name = self.repository.full_name.split("/")
             await self.github_webhook.unified_api.create_issue_comment(
-                owner, repo_name, pull_request.number, f"Failed to delete tag: {repository_full_tag}. Please delete it manually."
+                owner,
+                repo_name,
+                pull_request.number,
+                f"Failed to delete tag: {repository_full_tag}. Please delete it manually.",
             )
             self.logger.error(f"{self.log_prefix} Failed to delete tag: {repository_full_tag}. OUT:{out}. ERR:{err}")
 
@@ -515,7 +521,7 @@ For more information, please refer to the project documentation or contact the m
         self.logger.debug(f"{self.log_prefix} Checking if issue already exists for PR #{pull_request.number}")
         try:
             existing_issues = await self.github_webhook.unified_api.get_issues(owner, repo_name)
-            
+
             for issue in existing_issues:
                 if issue.title == issue_title:
                     self.logger.info(
@@ -527,12 +533,18 @@ For more information, please refer to the project documentation or contact the m
 
         # Issue doesn't exist, create it
         self.logger.info(f"{self.log_prefix} Creating issue for new PR: {pull_request.title}")
+
+        # Get repository ID and assignee ID for GraphQL mutation
+        repo_data = await self.github_webhook.unified_api.get_repository(owner, repo_name)
+        repository_id = repo_data["id"]
+
+        assignee_id = await self.github_webhook.unified_api.get_user_id(pull_request.user.login)
+
         await self.github_webhook.unified_api.create_issue(
-            owner,
-            repo_name,
+            repository_id=repository_id,
             title=issue_title,
             body=self._generate_issue_body(pull_request=pull_request),
-            assignee=pull_request.user.login,
+            assignee_ids=[assignee_id],
         )
 
     def _generate_issue_title(self, pull_request: PullRequestWrapper) -> str:

@@ -85,7 +85,6 @@ class CommitWrapper:
         return UserWrapper({"login": committer_data.get("name", "")})
 
 
-
 class PullRequestWrapper:
     """
     Wrapper for GitHub pull request data from GraphQL responses.

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import json
 import logging
@@ -64,8 +63,6 @@ class GithubWebhook:
         self.token: str
         self.api_user: str
         self.current_pull_request_supported_retest: list[str] = []
-        self.unified_api: UnifiedGitHubAPI | None = None
-
         if not self.config.repository_data:
             raise RepositoryNotFoundInConfigError(f"Repository {self.repository_name} not found in config file")
 
@@ -78,7 +75,7 @@ class GithubWebhook:
         if github_api and self.token:
             self.repository = get_github_repo_api(github_app_api=github_api, repository=self.repository_full_name)
             # Initialize UnifiedGitHubAPI for GraphQL operations
-            self.unified_api = UnifiedGitHubAPI(token=self.token, logger=self.logger)
+            self.unified_api: UnifiedGitHubAPI = UnifiedGitHubAPI(token=self.token, logger=self.logger)
             # Once we have a repository, we can get the config from .github-webhook-server.yaml
             local_repository_config = self.config.repository_local_data(
                 github_api=github_api, repository_full_name=self.repository_full_name
