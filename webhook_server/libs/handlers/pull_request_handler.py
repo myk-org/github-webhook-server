@@ -496,12 +496,29 @@ For more information, please refer to the project documentation or contact the m
             )
             return
 
-        self.logger.info(f"{self.log_prefix} Creating issue for new PR: {pull_request.title}")
         owner, repo_name = self.repository.full_name.split("/")
+        issue_title = self._generate_issue_title(pull_request=pull_request)
+
+        # Check if issue already exists
+        self.logger.debug(f"{self.log_prefix} Checking if issue already exists for PR #{pull_request.number}")
+        try:
+            existing_issues = await self.github_webhook.unified_api.get_issues(owner, repo_name)
+            
+            for issue in existing_issues:
+                if issue.title == issue_title:
+                    self.logger.info(
+                        f"{self.log_prefix} Issue already exists for PR #{pull_request.number}: {issue.html_url}"
+                    )
+                    return
+        except Exception as ex:
+            self.logger.warning(f"{self.log_prefix} Failed to check existing issues, proceeding with creation: {ex}")
+
+        # Issue doesn't exist, create it
+        self.logger.info(f"{self.log_prefix} Creating issue for new PR: {pull_request.title}")
         await self.github_webhook.unified_api.create_issue(
             owner,
             repo_name,
-            title=self._generate_issue_title(pull_request=pull_request),
+            title=issue_title,
             body=self._generate_issue_body(pull_request=pull_request),
             assignee=pull_request.user.login,
         )
