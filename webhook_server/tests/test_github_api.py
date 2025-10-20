@@ -270,6 +270,12 @@ class TestGithubWebhook:
         mock_process_pr.return_value = None
 
         webhook = GithubWebhook(hook_data=pull_request_payload, headers=webhook_headers, logger=Mock())
+        webhook.repository.full_name = "my-org/test-repo"
+        webhook.unified_api = AsyncMock()
+        webhook.unified_api.get_pull_request_files = AsyncMock(return_value=[Mock(filename="test.py")])
+        webhook.unified_api.get_git_tree = AsyncMock(return_value=Mock(tree=[Mock(path="OWNERS", type="blob")]))
+        webhook.unified_api.get_contents = AsyncMock(return_value=Mock(decoded_content=b"approvers:\\n  - user1\\nreviewers:\\n  - user2"))
+        webhook.unified_api.add_assignees_by_login = AsyncMock()
 
         # Mock get_pull_request to return a valid pull request object
         mock_pr = Mock()
