@@ -92,8 +92,9 @@ class GraphQLClient:
         await self.close()
 
     async def _ensure_client(self) -> None:
-        """Ensure the GraphQL client is initialized."""
+        """Ensure the GraphQL client is initialized with fresh transport for each webhook."""
         if self._client is None:
+            # Create fresh transport with new connection for this webhook request
             self._transport = AIOHTTPTransport(
                 url=self.GITHUB_GRAPHQL_URL,
                 headers={
@@ -106,9 +107,10 @@ class GraphQLClient:
             self._client = Client(
                 transport=self._transport,
                 fetch_schema_from_transport=False,  # Don't fetch schema on every request
+                # Don't execute_timeout here - handle in retry logic
             )
 
-            self.logger.debug("GraphQL client initialized")
+            self.logger.debug("GraphQL client initialized with fresh transport")
 
     async def close(self) -> None:
         """Close the GraphQL client and cleanup resources."""
@@ -154,15 +156,7 @@ class GraphQLClient:
                     extra={"variables": variables},
                 )
 
-                # Close any existing connection before creating new one
-                if self._client:
-                    try:
-                        await self._client.close_async()
-                    except Exception:
-                        pass
-                    # Recreate client with fresh transport
-                    await self._ensure_client()
-
+                # Use session context manager for each query to ensure clean connection state
                 async with self._client as session:  # type: ignore[union-attr]
                     result = await session.execute(query, variable_values=variables)
 
