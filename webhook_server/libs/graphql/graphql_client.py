@@ -157,14 +157,15 @@ class GraphQLClient:
         result = None
         for attempt in range(self.retry_count):
             try:
-                self.logger.debug(
-                    f"Executing GraphQL query (attempt {attempt + 1}/{self.retry_count})",
-                    extra={"variables": variables},
-                )
+                self.logger.debug(f"Executing GraphQL query with {self.timeout}s timeout")
 
                 # Use session context manager for each query to ensure clean connection state
                 async with self._client as session:  # type: ignore[union-attr]
-                    result = await session.execute(query, variable_values=variables)
+                    # Force timeout with asyncio.wait_for to prevent silent hangs
+                    result = await asyncio.wait_for(
+                        session.execute(query, variable_values=variables),
+                        timeout=self.timeout
+                    )
 
                 self.logger.debug("GraphQL query executed successfully")
                 return result
@@ -180,52 +181,22 @@ class GraphQLClient:
 
                 # Check for rate limit errors
                 if "rate limit" in error_msg.lower() or "RATE_LIMITED" in error_msg:
-                    self.logger.warning(f"RATE LIMIT: GraphQL rate limit exceeded: {error_msg}", exc_info=True)
-
-                    # If not the last attempt, wait before retrying
-                    if attempt < self.retry_count - 1:
-                        wait_time = 2**attempt  # Exponential backoff: 1s, 2s, 4s
-                        self.logger.info(f"Waiting {wait_time}s before retry...")
-                        await asyncio.sleep(wait_time)
-                        continue
-
+                    self.logger.error(f"RATE LIMIT: GraphQL rate limit exceeded: {error_msg}", exc_info=True)
                     raise GraphQLRateLimitError(f"Rate limit exceeded: {error_msg}") from error
 
-                # For other query errors, retry with exponential backoff
-                self.logger.warning(f"GraphQL query error (attempt {attempt + 1}): {error_msg}")
-
-                if attempt < self.retry_count - 1:
-                    wait_time = 2**attempt
-                    await asyncio.sleep(wait_time)
-                    continue
-
+                # For other query errors, fail immediately
+                self.logger.error(f"GraphQL query error: {error_msg}", exc_info=True)
                 raise GraphQLError(f"GraphQL query failed: {error_msg}") from error
 
             except TransportServerError as error:
                 # Handle server errors (5xx)
                 error_msg = str(error)
-                self.logger.warning(f"SERVER ERROR: GraphQL server error (attempt {attempt + 1}): {error_msg}", exc_info=True)
-
-                if attempt < self.retry_count - 1:
-                    wait_time = 2**attempt
-                    self.logger.info(f"Server error, waiting {wait_time}s before retry...")
-                    await asyncio.sleep(wait_time)
-                    continue
-
+                self.logger.error(f"SERVER ERROR: GraphQL server error: {error_msg}", exc_info=True)
                 raise GraphQLError(f"GraphQL server error: {error_msg}") from error
 
             except asyncio.TimeoutError as error:
                 # Explicit timeout handling - NEVER silent!
-                self.logger.error(
-                    f"TIMEOUT: GraphQL query timeout after {self.timeout}s (attempt {attempt + 1}/{self.retry_count})",
-                    exc_info=True
-                )
-                if attempt < self.retry_count - 1:
-                    wait_time = 2**attempt
-                    self.logger.warning(f"Retrying after timeout in {wait_time}s...")
-                    await asyncio.sleep(wait_time)
-                    continue
-                
+                self.logger.error(f"TIMEOUT: GraphQL query timeout after {self.timeout}s", exc_info=True)
                 raise GraphQLError(f"GraphQL query timeout after {self.timeout}s") from error
 
             except Exception as error:
@@ -233,19 +204,8 @@ class GraphQLClient:
                 error_msg = str(error)
                 error_type = type(error).__name__
                 
-                # Log ALL exceptions with full context
-                self.logger.error(
-                    f"ERROR: GraphQL unexpected error [{error_type}]: {error_msg} (attempt {attempt + 1}/{self.retry_count})",
-                    exc_info=True
-                )
-
-                if attempt < self.retry_count - 1:
-                    wait_time = 2**attempt
-                    await asyncio.sleep(wait_time)
-                    continue
-
-                # NEVER silent - always re-raise with context
-                self.logger.error(f"FATAL: GraphQL error [{error_type}]: {error_msg}")
+                # Log ALL exceptions with full context and re-raise immediately
+                self.logger.error(f"FATAL: GraphQL error [{error_type}]: {error_msg}", exc_info=True)
                 raise GraphQLError(f"Unexpected error [{error_type}]: {error_msg}") from error
 
         # Should never reach here, but just in case
