@@ -102,6 +102,17 @@ minimum-lgtm: 2
 # Issue creation for new pull requests
 create-issue-for-new-pr: true  # Create tracking issues for new PRs
 
+# GraphQL Query Optimization (optional)
+# Customize pagination limits for repository data fetching
+# Defaults to 100 for all if not specified
+# Maximum: 100 (GitHub GraphQL API limit)
+graphql:
+  query-limits:
+    collaborators: 100      # Max collaborators to fetch
+    contributors: 100       # Max contributors (mentionableUsers)
+    issues: 100             # Max open issues to fetch
+    pull-requests: 100      # Max open pull requests to fetch
+
 # Custom PR size labels for this repository (overrides global configuration)
 # Define custom categories based on total lines changed (additions + deletions)
 # threshold: positive integer representing minimum lines changed for this category

@@ -51,6 +51,8 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
+coverage.json
+
 
 # Translations
 *.mo
@@ -150,6 +152,7 @@ webhook-server.private-key.pem
 log-colors.json
 webhook_server/tests/manifests/logs
 .coverage_report.txt
+webhook-examples
 
 # AI
 .cursor/

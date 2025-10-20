@@ -1,9 +1,8 @@
 from typing import TYPE_CHECKING
 
-from github.PullRequest import PullRequest
-
-from webhook_server.libs.labels_handler import LabelsHandler
-from webhook_server.libs.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+from webhook_server.libs.handlers.labels_handler import LabelsHandler
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.utils.constants import ADD_STR, APPROVE_STR
 
 if TYPE_CHECKING:
@@ -21,7 +20,7 @@ class PullRequestReviewHandler:
         )
         self.github_webhook.logger.debug(f"{self.github_webhook.log_prefix} Initialized PullRequestReviewHandler")
 
-    async def process_pull_request_review_webhook_data(self, pull_request: PullRequest) -> None:
+    async def process_pull_request_review_webhook_data(self, pull_request: PullRequestWrapper) -> None:
         if self.hook_data["action"] == "submitted":
             """
             Available actions:

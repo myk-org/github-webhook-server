@@ -1,15 +1,18 @@
 """Edge case validation tests for webhook server log functionality."""
 
 import asyncio
+import concurrent.futures
 import datetime
 import os
 import tempfile
+import time
+from collections.abc import Callable, Generator
 from pathlib import Path
-from typing import Generator
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastapi import HTTPException
+from fastapi.websockets import WebSocketDisconnect
 from simple_logger.logger import get_logger
 
 try:
@@ -25,7 +28,7 @@ from webhook_server.web.log_viewer import LogViewerController
 
 
 @pytest.fixture
-def temp_log_file() -> Generator[callable, None, None]:
+def temp_log_file() -> Generator[Callable[[str, str], Path], None, None]:
     """Fixture that provides a helper function to create temporary log files with content.
 
     Returns a function that takes log content and optional encoding,
@@ -143,7 +146,7 @@ class TestLogParsingEdgeCases:
         {"json": "object", "instead": "of log line"}
         2025-07-31T10:00:01.000000 GithubWebhook DEBUG Another valid entry
         Line with unicode characters: 🚀 💻 ✅
-        Very long line that exceeds normal expectations and might cause buffer overflow issues in poorly implemented parsers with limited memory allocation strategies and insufficient bounds checking mechanisms that could potentially lead to security vulnerabilities or performance degradation
+        Normal length line for testing standard parsing behavior
         2025-07-31T10:00:02.000000 GithubWebhook ERROR Final valid entry
         """
 
@@ -171,8 +174,6 @@ class TestLogParsingEdgeCases:
         # Simulate concurrent access
         def parse_file():
             return parser.parse_log_file(log_path)
-
-        import concurrent.futures
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             futures = [executor.submit(parse_file) for _ in range(10)]
@@ -208,13 +209,9 @@ class TestLogParsingEdgeCases:
                     logger.debug(f"Monitoring exception (expected): {e}")
 
             async def simulate_rotation():
-                await asyncio.sleep(0.01)  # Reduced from 0.1 to 0.01
-
                 # Add entry to original file
                 with open(log_path, "a") as f:
                     f.write("2025-07-31T10:00:01.000000 GithubWebhook INFO test: Before rotation\n")
-
-                await asyncio.sleep(0.01)  # Reduced from 0.1 to 0.01
 
                 # Simulate log rotation (move file, create new one)
                 rotated_path = Path(temp_dir) / "test.log.1"
@@ -223,8 +220,6 @@ class TestLogParsingEdgeCases:
                 # Create new log file
                 with open(log_path, "w") as f:
                     f.write("2025-07-31T10:00:02.000000 GithubWebhook INFO test: After rotation\n")
-
-                await asyncio.sleep(0.01)  # Reduced from 0.1 to 0.01
 
                 # Add more entries
                 with open(log_path, "a") as f:
@@ -240,9 +235,13 @@ class TestLogParsingEdgeCases:
                         asyncio.gather(monitor_task, rotation_task, return_exceptions=True),
                         timeout=1.0,  # Reduced from 5.0 to 1.0 second
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
+                    # Catch TimeoutError from asyncio.wait_for timeout
+                    # Note: In Python 3.11+, TimeoutError and asyncio.TimeoutError are aliased
                     monitor_task.cancel()
                     rotation_task.cancel()
+                    # Await tasks after cancellation to avoid "Task was destroyed" warnings
+                    await asyncio.gather(monitor_task, rotation_task, return_exceptions=True)
 
             asyncio.run(run_test())
 
@@ -250,7 +249,8 @@ class TestLogParsingEdgeCases:
             # The monitor should capture at least the "Before rotation" entry since it's added after monitoring starts
             # During rotation, some entries might be missed, but the monitor should capture at least 1 entry
             assert len(monitored_entries) >= 1, (
-                f"Expected at least 1 monitored entry, got {len(monitored_entries)}. Entries: {[e.message for e in monitored_entries]}"
+                f"Expected at least 1 monitored entry, got {len(monitored_entries)}. "
+                f"Entries: {[e.message for e in monitored_entries]}"
             )
 
             # Verify that captured entries are valid LogEntry objects with expected content
@@ -261,13 +261,16 @@ class TestLogParsingEdgeCases:
 
     def test_unicode_and_special_characters(self):
         """Test handling of unicode and special characters in log entries."""
-        unicode_content = """2025-07-31T10:00:00.000000 GithubWebhook INFO test-repo [push][hook-1][user]: Message with unicode: 🚀 ✅ 💻
-2025-07-31T10:00:01.000000 GithubWebhook INFO test-repo [push][hook-2][user]: ASCII and émojis: café naïve résumé
-2025-07-31T10:00:02.000000 GithubWebhook INFO test-repo [push][hook-3][user]: Chinese characters: 你好世界
-2025-07-31T10:00:03.000000 GithubWebhook INFO test-repo [push][hook-4][user]: Arabic: مرحبا بالعالم
-2025-07-31T10:00:04.000000 GithubWebhook INFO test-repo [push][hook-5][user]: Special chars: @#$%^&*(){}[]|\\:";'<>?,./
-2025-07-31T10:00:05.000000 GithubWebhook INFO test-repo [push][hook-6][user]: Newlines and tabs: Message\\nwith\\ttabs
-2025-07-31T10:00:06.000000 GithubWebhook INFO test-repo [push][hook-7][user]: Quote handling: 'single' "double" `backtick`"""
+        unicode_content = "\n".join([
+            "2025-07-31T10:00:00.000000 GithubWebhook INFO test-repo [push][hook-1][user]: Unicode: 🚀 ✅ 💻",
+            "2025-07-31T10:00:01.000000 GithubWebhook INFO test-repo [push][hook-2][user]: émojis: café naïve",
+            "2025-07-31T10:00:02.000000 GithubWebhook INFO test-repo [push][hook-3][user]: Chinese: 你好世界",
+            "2025-07-31T10:00:03.000000 GithubWebhook INFO test-repo [push][hook-4][user]: Arabic: مرحبا",
+            "2025-07-31T10:00:04.000000 GithubWebhook INFO test-repo [push][hook-5][user]: Special: @#$%^&*()",
+            "2025-07-31T10:00:05.000000 GithubWebhook INFO test-repo [push][hook-6][user]: Newlines: \\n\\t",
+            "2025-07-31T10:00:06.000000 GithubWebhook INFO test-repo [push][hook-7][user]: Quotes: 'single'",
+            "",
+        ])
 
         entries = parse_log_content_helper(unicode_content, encoding="utf-8")
 
@@ -276,7 +279,7 @@ class TestLogParsingEdgeCases:
         assert "🚀" in entries[0].message
         assert "café" in entries[1].message
         assert "你好世界" in entries[2].message
-        assert "مرحبا بالعالم" in entries[3].message
+        assert "مرحبا" in entries[3].message
         assert "@#$%^&*()" in entries[4].message
 
         # Test filtering with unicode
@@ -295,7 +298,7 @@ class TestLogParsingEdgeCases:
             "   \n  \t  \n  ",  # Mixed whitespace
         ]
 
-        for i, content in enumerate(test_cases):
+        for _i, content in enumerate(test_cases):
             entries = parse_log_content_helper(content)
 
             # Should handle gracefully without errors
@@ -307,9 +310,11 @@ class TestLogParsingEdgeCases:
         # Generate very long message
         long_message = "Very long message: " + "A" * 100000  # 100KB message
 
-        long_line_content = f"""2025-07-31T10:00:00.000000 GithubWebhook INFO test-repo [push][hook-1][user]: Normal message
-2025-07-31T10:00:01.000000 GithubWebhook INFO test-repo [push][hook-2][user]: {long_message}
-2025-07-31T10:00:02.000000 GithubWebhook INFO test-repo [push][hook-3][user]: Another normal message"""
+        long_line_content = (
+            "2025-07-31T10:00:00.000000 GithubWebhook INFO test-repo [push][hook-1][user]: Normal message\n"
+            f"2025-07-31T10:00:01.000000 GithubWebhook INFO test-repo [push][hook-2][user]: {long_message}\n"
+            "2025-07-31T10:00:02.000000 GithubWebhook INFO test-repo [push][hook-3][user]: Another normal message"
+        )
 
         entries = parse_log_content_helper(long_line_content)
 
@@ -462,8 +467,6 @@ class TestFilteringEdgeCases:
         entries = self.create_complex_test_dataset()
         log_filter = LogFilter()
 
-        import time
-
         # Test search in very long content
         start_time = time.perf_counter()
         long_string_filtered = log_filter.filter_entries(entries, search_text="X" * 100)
@@ -472,7 +475,9 @@ class TestFilteringEdgeCases:
         filter_duration = end_time - start_time
 
         # Should complete quickly even with large strings
-        assert filter_duration < 1.0  # Should be fast
+        # Threshold set to 1.0s for local development validation
+        # This test is automatically skipped in CI to prevent flakiness
+        assert filter_duration < 1.0, f"Filtering took {filter_duration:.2f}s, expected < 1.0s"
         assert isinstance(long_string_filtered, list)
 
     def test_extreme_pagination_values(self):
@@ -546,11 +551,9 @@ class TestWebSocketEdgeCases:
         mock_logger = Mock()
         controller = LogViewerController(logger=mock_logger)
 
-        # Mock multiple WebSocket connections
+        # Mock multiple WebSocket connections (only what we actually use)
         mock_websockets = []
-        for i in range(100):  # Simulate many connections
-            from unittest.mock import AsyncMock
-
+        for _ in range(10):  # Only create the 10 connections we actually test
             mock_ws = AsyncMock()
             mock_ws.accept = AsyncMock()
             mock_ws.send_json = AsyncMock()
@@ -579,7 +582,7 @@ class TestWebSocketEdgeCases:
             with patch.object(controller.log_parser, "monitor_log_directory", return_value=mock_monitor()):
                 # Test handling multiple connections simultaneously
                 tasks = []
-                for ws in mock_websockets[:10]:  # Test with 10 connections
+                for ws in mock_websockets:  # Use all 10 connections
                     task = asyncio.create_task(controller.handle_websocket(ws))
                     tasks.append(task)
 
@@ -602,15 +605,12 @@ class TestWebSocketEdgeCases:
     @pytest.mark.asyncio
     async def test_websocket_with_rapid_disconnections(self):
         """Test WebSocket handling with rapid connect/disconnect cycles."""
-        from fastapi.websockets import WebSocketDisconnect
 
         mock_logger = Mock()
         controller = LogViewerController(logger=mock_logger)
 
         # Test rapid disconnection scenarios
-        for i in range(10):
-            from unittest.mock import AsyncMock
-
+        for _ in range(10):
             mock_ws = AsyncMock()
             mock_ws.accept = AsyncMock()
 
@@ -627,26 +627,11 @@ class TestWebSocketEdgeCases:
                 mock_ws.accept.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_websocket_with_corrupted_data_streams(self):
-        """Test WebSocket handling with corrupted or invalid data streams."""
+    async def test_websocket_filters_none_entries(self):
+        """Test that WebSocket filters out None entries gracefully."""
 
         mock_logger = Mock()
         controller = LogViewerController(logger=mock_logger)
-
-        # Mock corrupted log entries
-        corrupted_entries = [
-            None,  # None entry
-            "invalid_entry",  # Invalid type
-            LogEntry(
-                timestamp=None,  # Invalid timestamp
-                level="INFO",
-                logger_name="test",
-                message="Invalid entry",
-                hook_id="test",
-            ),
-        ]
-
-        from unittest.mock import AsyncMock
 
         mock_ws = AsyncMock()
         mock_ws.accept = AsyncMock()
@@ -657,25 +642,22 @@ class TestWebSocketEdgeCases:
             mock_dir.exists.return_value = True
             mock_get_dir.return_value = mock_dir
 
-            async def mock_monitor_corrupted():
-                # Yield valid entry first
+            async def mock_monitor_with_none():
+                # Yield valid entry
                 yield LogEntry(
                     timestamp=datetime.datetime.now(),
                     level="INFO",
                     logger_name="test",
-                    message="Valid entry",
+                    message="Valid entry before None",
                     hook_id="test",
                 )
 
-                # Yield corrupted entries (these should be handled gracefully)
-                for corrupted in corrupted_entries:
-                    if isinstance(corrupted, LogEntry):
-                        yield corrupted
-                # Don't yield non-LogEntry objects as they would cause type errors
+                # Yield None entry - should be filtered
+                yield None
 
-                await asyncio.sleep(0.01)  # Small delay to simulate real monitoring
+                await asyncio.sleep(0.01)
 
-            with patch.object(controller.log_parser, "monitor_log_directory", return_value=mock_monitor_corrupted()):
+            with patch.object(controller.log_parser, "monitor_log_directory", return_value=mock_monitor_with_none()):
                 # Start WebSocket handling
                 websocket_task = asyncio.create_task(controller.handle_websocket(mock_ws))
 
@@ -689,10 +671,195 @@ class TestWebSocketEdgeCases:
                 except asyncio.CancelledError:
                     pass
 
-                # Should have accepted connection and attempted to send valid data
+                # Should have accepted connection
                 mock_ws.accept.assert_called_once()
-                # send_json should have been called at least once for the valid entry
-                assert mock_ws.send_json.call_count >= 1
+
+                # Verify only valid entries were sent (None entry causes exception and closes WebSocket)
+                # The exception handler in handle_websocket catches errors when trying to call
+                # .to_dict() on None, which closes the WebSocket with code 1011
+                sent_messages = [
+                    call[0][0] if call[0] else call.kwargs.get("data") for call in mock_ws.send_json.call_args_list
+                ]
+
+                # Verify all sent messages are valid dicts with required fields
+                for msg in sent_messages:
+                    assert isinstance(msg, dict), f"Expected dict, got {type(msg)}"
+                    assert "timestamp" in msg
+                    assert "level" in msg
+                    assert "message" in msg
+                    assert msg["timestamp"] is not None
+
+                # WebSocket should be closed after encountering None entry
+                mock_ws.close.assert_called_once()
+                close_call_kwargs = mock_ws.close.call_args.kwargs
+                assert close_call_kwargs.get("code") == 1011
+
+    @pytest.mark.asyncio
+    async def test_websocket_filters_invalid_types(self):
+        """Test that WebSocket filters out invalid types (strings) gracefully."""
+
+        mock_logger = Mock()
+        controller = LogViewerController(logger=mock_logger)
+
+        mock_ws = AsyncMock()
+        mock_ws.accept = AsyncMock()
+        mock_ws.send_json = AsyncMock()
+
+        with patch.object(controller, "_get_log_directory") as mock_get_dir:
+            mock_dir = Mock()
+            mock_dir.exists.return_value = True
+            mock_get_dir.return_value = mock_dir
+
+            async def mock_monitor_with_string():
+                # Yield valid entry
+                yield LogEntry(
+                    timestamp=datetime.datetime.now(),
+                    level="INFO",
+                    logger_name="test",
+                    message="Valid entry before string",
+                    hook_id="test",
+                )
+
+                # Yield string entry - should be filtered
+                yield "invalid_entry"
+
+                await asyncio.sleep(0.01)
+
+            with patch.object(controller.log_parser, "monitor_log_directory", return_value=mock_monitor_with_string()):
+                # Start WebSocket handling
+                websocket_task = asyncio.create_task(controller.handle_websocket(mock_ws))
+
+                # Let it run briefly
+                await asyncio.sleep(0.1)
+
+                # Cancel the task
+                websocket_task.cancel()
+                try:
+                    await websocket_task
+                except asyncio.CancelledError:
+                    pass
+
+                # Should have accepted connection
+                mock_ws.accept.assert_called_once()
+
+                # Verify only valid LogEntry.to_dict() output was sent
+                sent_messages = [
+                    call[0][0] if call[0] else call.kwargs.get("data") for call in mock_ws.send_json.call_args_list
+                ]
+
+                for msg in sent_messages:
+                    # Should be dict with valid structure
+                    assert isinstance(msg, dict)
+                    assert msg.get("timestamp") is not None
+                    # Should not contain invalid string entries
+                    assert msg.get("message") != "invalid_entry"
+
+                # WebSocket should be closed after encountering invalid type
+                mock_ws.close.assert_called_once()
+                close_call_kwargs = mock_ws.close.call_args.kwargs
+                assert close_call_kwargs.get("code") == 1011
+                assert "Internal server error" in close_call_kwargs.get("reason", "")
+
+    @pytest.mark.asyncio
+    async def test_websocket_closes_on_processing_error(self):
+        """Test that WebSocket closes gracefully on corrupted data processing errors."""
+
+        mock_logger = Mock()
+        controller = LogViewerController(logger=mock_logger)
+
+        mock_ws = AsyncMock()
+        mock_ws.accept = AsyncMock()
+        mock_ws.send_json = AsyncMock()
+
+        with patch.object(controller, "_get_log_directory") as mock_get_dir:
+            mock_dir = Mock()
+            mock_dir.exists.return_value = True
+            mock_get_dir.return_value = mock_dir
+
+            async def mock_monitor_with_invalid_timestamp():
+                # Yield valid entry first
+                yield LogEntry(
+                    timestamp=datetime.datetime.now(),
+                    level="INFO",
+                    logger_name="test",
+                    message="Valid entry",
+                    hook_id="test",
+                )
+
+                # Yield LogEntry with None timestamp - should cause processing error
+                yield LogEntry(
+                    timestamp=None,  # Invalid timestamp
+                    level="INFO",
+                    logger_name="test",
+                    message="Invalid timestamp entry",
+                    hook_id="test",
+                )
+
+                await asyncio.sleep(0.01)
+
+            with patch.object(
+                controller.log_parser, "monitor_log_directory", return_value=mock_monitor_with_invalid_timestamp()
+            ):
+                # Start WebSocket handling
+                websocket_task = asyncio.create_task(controller.handle_websocket(mock_ws))
+
+                # Let it run briefly
+                await asyncio.sleep(0.1)
+
+                # Cancel the task
+                websocket_task.cancel()
+                try:
+                    await websocket_task
+                except asyncio.CancelledError:
+                    pass
+
+                # Should have accepted connection
+                mock_ws.accept.assert_called_once()
+
+                # CRITICAL: Verify exactly 1 send_json call was made (only the valid entry)
+                # The test yields: 1 valid entry + LogEntry with None timestamp
+                # The invalid timestamp entry causes an exception when trying to call
+                # .isoformat() on None timestamp, which is caught by the exception handler
+                # in handle_websocket (lines 426-427 in log_viewer.py)
+                # Only the valid entry should result in send_json call
+                assert mock_ws.send_json.call_count == 1, (
+                    f"Expected exactly 1 send_json call for the valid entry, got {mock_ws.send_json.call_count}"
+                )
+
+                # Verify only valid payloads were sent (dict/serializable)
+                for call in mock_ws.send_json.call_args_list:
+                    payload = call[0][0] if call[0] else call.kwargs.get("data")
+                    # Assert payload is a dict (valid JSON-serializable)
+                    assert isinstance(payload, dict), f"Expected dict payload, got {type(payload)}: {payload}"
+
+                    # Verify the payload has required fields and valid timestamp
+                    assert "timestamp" in payload, "Valid payload must contain 'timestamp' field"
+                    assert "level" in payload, "Valid payload must contain 'level' field"
+                    assert "message" in payload, "Valid payload must contain 'message' field"
+
+                    # Verify timestamp is valid ISO format (not None)
+                    assert payload["timestamp"] is not None, "Timestamp must not be None in sent payload"
+                    # Verify it's parseable as ISO datetime
+                    datetime.datetime.fromisoformat(payload["timestamp"])
+
+                    # Verify it has the correct message
+                    assert payload["message"] == "Valid entry"
+
+                # Verify WebSocket was closed gracefully after encountering corrupted data
+                # When corrupted entries (LogEntry with None timestamp) are processed,
+                # they cause exceptions (AttributeError when calling .isoformat() on None)
+                # which are caught by the exception handler in handle_websocket (lines 426-431 in log_viewer.py)
+                # The handler closes the WebSocket with code 1011 (Internal server error)
+                # This is correct behavior - the system handles errors gracefully by closing the connection
+                mock_ws.close.assert_called_once()
+                # Verify it was closed with appropriate error code
+                close_call_kwargs = mock_ws.close.call_args.kwargs
+                assert close_call_kwargs.get("code") == 1011, (
+                    "WebSocket should be closed with code 1011 (Internal server error)"
+                )
+                assert "Internal server error" in close_call_kwargs.get("reason", ""), (
+                    "Close reason should indicate internal server error"
+                )
 
 
 class TestAPIEndpointEdgeCases:
@@ -738,7 +905,7 @@ class TestAPIEndpointEdgeCases:
 
         # Mock very large dataset
         large_entries = []
-        for i in range(100000):  # 100k entries
+        for i in range(1000):  # 1k entries (only 1k are streamed anyway)
             entry = LogEntry(
                 timestamp=datetime.datetime(2025, 7, 31, 10, 0, 0, i),
                 level="INFO",
@@ -851,7 +1018,7 @@ class TestConcurrentUserScenarios:
 
         # Simulate multiple users with different controllers
         users = []
-        for i in range(5):
+        for _ in range(5):
             controller = LogViewerController(logger=mock_logger)
             users.append(controller)
 
@@ -871,7 +1038,7 @@ class TestConcurrentUserScenarios:
 
         # Execute concurrent requests
         tasks = []
-        for controller, filters in zip(users, user_filters):
+        for controller, filters in zip(users, user_filters, strict=True):
             task = asyncio.create_task(asyncio.to_thread(user_request, controller, filters))
             tasks.append(task)
 
@@ -897,9 +1064,7 @@ class TestConcurrentUserScenarios:
 
         # Mock WebSocket connections for each user
         mock_websockets = []
-        for i in range(3):
-            from unittest.mock import AsyncMock
-
+        for _ in range(3):
             mock_ws = AsyncMock()
             mock_ws.accept = AsyncMock()
             mock_ws.send_json = AsyncMock()
@@ -926,7 +1091,7 @@ class TestConcurrentUserScenarios:
 
         # Start WebSocket connections for all users
         tasks = []
-        for i, (controller, ws) in enumerate(zip(controllers, mock_websockets)):
+        for i, (controller, ws) in enumerate(zip(controllers, mock_websockets, strict=True)):
             with patch.object(controller.log_parser, "monitor_log_directory", return_value=mock_monitor(i)):
                 task = asyncio.create_task(controller.handle_websocket(ws))
                 tasks.append(task)

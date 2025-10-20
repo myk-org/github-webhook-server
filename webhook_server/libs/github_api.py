@@ -1,32 +1,32 @@
 from __future__ import annotations
 
-import asyncio
-import contextlib
-import json
 import logging
 import os
+import shutil
+import tempfile
 from typing import Any
 
 import requests
-from github import GithubException
 from github.Commit import Commit
-from github.PullRequest import PullRequest
 from github.Repository import Repository
+
+# GraphQL wrappers provide PyGithub-compatible interface
 from starlette.datastructures import Headers
 
-from webhook_server.libs.check_run_handler import CheckRunHandler
 from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import RepositoryNotFoundInConfigError
-from webhook_server.libs.issue_comment_handler import IssueCommentHandler
-from webhook_server.libs.owners_files_handler import OwnersFileHandler
-from webhook_server.libs.pull_request_handler import PullRequestHandler
-from webhook_server.libs.pull_request_review_handler import PullRequestReviewHandler
-from webhook_server.libs.push_handler import PushHandler
+from webhook_server.libs.graphql.graphql_wrappers import CommitWrapper, PullRequestWrapper
+from webhook_server.libs.graphql.unified_api import UnifiedGitHubAPI
+from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
+from webhook_server.libs.handlers.issue_comment_handler import IssueCommentHandler
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
+from webhook_server.libs.handlers.pull_request_review_handler import PullRequestReviewHandler
+from webhook_server.libs.handlers.push_handler import PushHandler
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
     CONVENTIONAL_TITLE_STR,
-    OTHER_MAIN_BRANCH,
     PRE_COMMIT_STR,
     PYTHON_MODULE_INSTALL_STR,
     TOX_STR,
@@ -35,7 +35,7 @@ from webhook_server.utils.github_repository_settings import (
     get_repository_github_app_api,
 )
 from webhook_server.utils.helpers import (
-    extract_key_from_dict,
+    format_task_fields,
     get_api_with_highest_rate_limit,
     get_apis_and_tokes_from_config,
     get_github_repo_api,
@@ -60,8 +60,9 @@ class GithubWebhook:
         self.repository_by_github_app: Repository
         self.token: str
         self.api_user: str
+        self.last_commit: Commit | CommitWrapper
+        self.last_committer: str
         self.current_pull_request_supported_retest: list[str] = []
-
         if not self.config.repository_data:
             raise RepositoryNotFoundInConfigError(f"Repository {self.repository_name} not found in config file")
 
@@ -73,6 +74,8 @@ class GithubWebhook:
 
         if github_api and self.token:
             self.repository = get_github_repo_api(github_app_api=github_api, repository=self.repository_full_name)
+            # Initialize UnifiedGitHubAPI for GraphQL operations
+            self.unified_api: UnifiedGitHubAPI = UnifiedGitHubAPI(token=self.token, logger=self.logger)
             # Once we have a repository, we can get the config from .github-webhook-server.yaml
             local_repository_config = self.config.repository_local_data(
                 github_api=github_api, repository_full_name=self.repository_full_name
@@ -105,8 +108,12 @@ class GithubWebhook:
             self.logger.error(f"{self.log_prefix} Failed to get repository.")
             return
 
-        self.clone_repo_dir: str = os.path.join("/tmp", f"{self.repository.name}")
-        self.add_api_users_to_auto_verified_and_merged_users
+        # Create unique temp directory to avoid collisions and security issues
+        # Format: /tmp/tmp{random}/github-webhook-{repo_name}
+        # This prevents predictable paths and ensures isolation between concurrent webhook handlers
+        self.clone_repo_dir: str = tempfile.mkdtemp(prefix=f"github-webhook-{self.repository.name}-")
+        # Populate auto-verified and auto-merged users from API users
+        self.add_api_users_to_auto_verified_and_merged_users()
 
         self.current_pull_request_supported_retest = self._current_pull_request_supported_retest
         self.issue_url_for_welcome_msg: str = (
@@ -115,80 +122,250 @@ class GithubWebhook:
 
     async def process(self) -> Any:
         event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
-        self.logger.step(f"{self.log_prefix} Starting webhook processing: {event_log}")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'started')} "
+            f"Starting webhook processing: {event_log}",
+        )
 
         if self.github_event == "ping":
-            self.logger.step(f"{self.log_prefix} Processing ping event")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
+                f"Processing ping event",
+            )
             self.logger.debug(f"{self.log_prefix} {event_log}")
+            self.logger.success(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
+                f"Webhook processing completed successfully: ping event",
+            )
             return {"status": requests.codes.ok, "message": "pong"}
 
         if self.github_event == "push":
-            self.logger.step(f"{self.log_prefix} Processing push event")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
+                f"Processing push event",
+            )
             self.logger.debug(f"{self.log_prefix} {event_log}")
-            return await PushHandler(github_webhook=self).process_push_webhook_data()
+            await PushHandler(github_webhook=self).process_push_webhook_data()
+            self.logger.success(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
+                f"Webhook processing completed successfully: push event",
+            )
+            return None
 
-        if pull_request := await self.get_pull_request():
+        owner, repo = self.repository_full_name.split("/")
+
+        # Optimization: For pull_request events, construct PullRequestWrapper directly from webhook data
+        # This eliminates redundant API calls since webhook already contains complete PR data
+        pull_request: PullRequestWrapper | None
+        if self.github_event == "pull_request" and "pull_request" in self.hook_data:
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
+                f"Initializing pull request from webhook payload",
+            )
+            pr_data = self.hook_data["pull_request"]
+
+            # Construct PullRequestWrapper directly from webhook payload
+            pull_request = PullRequestWrapper(
+                data=pr_data,  # GraphQL-style data from webhook
+                owner=owner,
+                repo_name=repo,
+                webhook_data=pr_data,  # Ensures accurate user.login for bots
+            )
+
+            # Extract last commit from webhook data (eliminates second API call)
+            head_sha = pr_data["head"]["sha"]
+            # GitHub webhook provides commit data in head object
+            # CommitWrapper expects committer.user structure, so wrap the user data properly
+            head_user = pr_data["head"].get("user", {})
+            self.last_commit = CommitWrapper({
+                "oid": head_sha,
+                # Webhook doesn't provide full commit metadata, but we have enough for most operations
+                # If more commit details are needed, they can be fetched later lazily
+                "committer": {"user": head_user} if head_user else {},
+                "author": {"user": head_user} if head_user else {},
+            })
+
+            self.logger.debug(
+                f"{self.log_prefix} Initialized pull request #{pull_request.number} from webhook payload "
+                f"(commit {head_sha[:7]})"
+            )
+        else:
+            # For other events (check_run, issue_comment, etc.), use API calls as before
+            pull_request = await self.unified_api.get_pull_request(
+                owner,
+                repo,
+                self.hook_data,
+                self.github_event,
+                self.logger,
+                self.x_github_delivery,
+            )
+            if not pull_request:
+                return None
+
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
+                f"Fetched pull request data via API (event: {self.github_event})",
+            )
+            self.last_commit = await self.unified_api.get_last_commit(owner, repo, pull_request, pull_request.number)
+
+        # Fetch comprehensive repository data once per webhook (static data)
+        # This eliminates N+1 query pattern - reduces 10+ API calls to 1 GraphQL query
+        # If fetch fails, exception propagates and webhook processing aborts (fail-fast)
+        try:
+            self.repository_data: dict[str, Any] = await self.unified_api.get_comprehensive_repository_data(owner, repo)
+            self.logger.info(
+                f"{self.log_prefix} Fetched repository data: "
+                f"{len(self.repository_data['collaborators']['edges'])} collaborators, "
+                f"{len(self.repository_data['mentionableUsers']['nodes'])} contributors, "
+                f"{len(self.repository_data['issues']['nodes'])} open issues, "
+                f"{len(self.repository_data['pullRequests']['nodes'])} open PRs"
+            )
+        except Exception:
+            self.logger.exception(f"{self.log_prefix} Failed to fetch repository data - aborting webhook processing")
+            raise
+
+        if pull_request:
             self.log_prefix = self.prepare_log_prefix(pull_request=pull_request)
-            self.logger.step(f"{self.log_prefix} Processing pull request event: {event_log}")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
+                f"Processing pull request event: {event_log}",
+            )
             self.logger.debug(f"{self.log_prefix} {event_log}")
 
             if pull_request.draft:
-                self.logger.step(f"{self.log_prefix} Pull request is draft, skipping processing")  # type: ignore
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
+                    f"Pull request is draft, skipping processing",
+                )
                 self.logger.debug(f"{self.log_prefix} Pull request is draft, doing nothing")
                 return None
 
-            self.logger.step(f"{self.log_prefix} Initializing pull request data")  # type: ignore
-            self.last_commit = await self._get_last_commit(pull_request=pull_request)
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
+                f"Initializing pull request data",
+            )
             self.parent_committer = pull_request.user.login
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
 
             if self.github_event == "issue_comment":
-                self.logger.step(f"{self.log_prefix} Initializing OWNERS file handler for issue comment")  # type: ignore
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
+                    f"Initializing OWNERS file handler for issue comment",
+                )
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
                 owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
 
-                self.logger.step(f"{self.log_prefix} Processing issue comment with IssueCommentHandler")  # type: ignore
-                return await IssueCommentHandler(
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
+                    f"Processing issue comment with IssueCommentHandler",
+                )
+                await IssueCommentHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
                 ).process_comment_webhook_data(pull_request=pull_request)
+                self.logger.success(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
+                    f"Webhook processing completed successfully: issue_comment event",
+                )
+                return None
 
-            elif self.github_event == "pull_request":
-                self.logger.step(f"{self.log_prefix} Initializing OWNERS file handler for pull request")  # type: ignore
+            if self.github_event == "pull_request":
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
+                    f"Initializing OWNERS file handler for pull request",
+                )
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
                 owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
 
-                self.logger.step(f"{self.log_prefix} Processing pull request with PullRequestHandler")  # type: ignore
-                return await PullRequestHandler(
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
+                    f"Processing pull request with PullRequestHandler",
+                )
+                await PullRequestHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
                 ).process_pull_request_webhook_data(pull_request=pull_request)
+                self.logger.success(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
+                    f"Webhook processing completed successfully: pull_request event",
+                )
+                return None
 
-            elif self.github_event == "pull_request_review":
-                self.logger.step(f"{self.log_prefix} Initializing OWNERS file handler for pull request review")  # type: ignore
+            if self.github_event == "pull_request_review":
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
+                    f"Initializing OWNERS file handler for pull request review",
+                )
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
                 owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
 
-                self.logger.step(f"{self.log_prefix} Processing pull request review with PullRequestReviewHandler")  # type: ignore
-                return await PullRequestReviewHandler(
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
+                    f"Processing pull request review with PullRequestReviewHandler",
+                )
+                await PullRequestReviewHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
                 ).process_pull_request_review_webhook_data(
                     pull_request=pull_request,
                 )
+                self.logger.success(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
+                    f"Webhook processing completed successfully: pull_request_review event",
+                )
+                return None
 
-            elif self.github_event == "check_run":
-                self.logger.step(f"{self.log_prefix} Initializing OWNERS file handler for check run")  # type: ignore
+            if self.github_event == "check_run":
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
+                    f"Initializing OWNERS file handler for check run",
+                )
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
                 owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
-                self.logger.step(f"{self.log_prefix} Processing check run with CheckRunHandler")  # type: ignore
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
+                    f"Processing check run with CheckRunHandler",
+                )
                 if await CheckRunHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
                 ).process_pull_request_check_run_webhook_data(pull_request=pull_request):
                     if self.hook_data["check_run"]["name"] != CAN_BE_MERGED_STR:
-                        self.logger.step(f"{self.log_prefix} Checking if pull request can be merged after check run")  # type: ignore
-                        return await PullRequestHandler(
+                        self.logger.step(  # type: ignore[attr-defined]
+                            f"{self.log_prefix} "
+                            f"{format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
+                            f"Checking if pull request can be merged after check run",
+                        )
+                        await PullRequestHandler(
                             github_webhook=self, owners_file_handler=owners_file_handler
                         ).check_if_can_be_merged(pull_request=pull_request)
+                        self.logger.success(  # type: ignore[attr-defined]
+                            f"{self.log_prefix} "
+                            f"{format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
+                            f"Webhook processing completed successfully: check_run event",
+                        )
+                        return None
+                self.logger.success(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
+                    f"Webhook processing completed successfully: check_run event",
+                )
+                return None
 
-    @property
+        return None
+
+    def __del__(self) -> None:
+        """Cleanup temporary clone directory on object destruction.
+
+        This ensures the base temp directory created by tempfile.mkdtemp() is removed
+        when the webhook handler is destroyed, preventing temp directory leaks.
+        The subdirectories (created with -uuid4() suffix) are cleaned up by
+        _prepare_cloned_repo_dir context manager in handlers.
+        """
+        if hasattr(self, "clone_repo_dir") and os.path.exists(self.clone_repo_dir):
+            try:
+                shutil.rmtree(self.clone_repo_dir, ignore_errors=True)
+                if hasattr(self, "logger"):
+                    self.logger.debug(f"Cleaned up temp directory: {self.clone_repo_dir}")
+            except Exception:
+                # Silently ignore cleanup errors in destructor to avoid issues during shutdown
+                pass
+
     def add_api_users_to_auto_verified_and_merged_users(self) -> None:
         apis_and_tokens = get_apis_and_tokes_from_config(config=self.config)
         for _api, _ in apis_and_tokens:
@@ -200,7 +377,59 @@ class GithubWebhook:
 
             self.auto_verified_and_merged_users.append(_api.get_user().login)
 
-    def prepare_log_prefix(self, pull_request: PullRequest | None = None) -> str:
+    @property
+    def repository_id(self) -> str:
+        """Get repository GraphQL node ID from webhook payload.
+
+        Returns:
+            GraphQL node ID for the repository (e.g., "MDEwOlJlcG9zaXRvcnk...")
+
+        Note:
+            Avoids unnecessary API call to get_repository() when only ID is needed.
+            Webhook always provides this data in repository.node_id field.
+        """
+        return self.hook_data["repository"]["node_id"]
+
+    @property
+    def repository_numeric_id(self) -> int:
+        """Get repository numeric ID from webhook payload.
+
+        Returns:
+            Numeric repository ID (e.g., 123456789)
+
+        Note:
+            Avoids unnecessary API call to get_repository() when only numeric ID is needed.
+            Webhook always provides this data in repository.id field.
+        """
+        return self.hook_data["repository"]["id"]
+
+    def _normalize_container_args(self, args: str | list[str] | dict[str, str] | None) -> list[str]:
+        """
+        Normalize container build args to list format.
+
+        Supports:
+        - str: Single string (legacy format) or space-separated args
+        - list[str]: Already in correct format
+        - dict[str, str]: Key-value pairs converted to KEY=VALUE format
+        - None: Returns empty list
+
+        Returns:
+            List of argument strings
+        """
+        if not args:
+            return []
+
+        if isinstance(args, list):
+            return args
+
+        if isinstance(args, dict):
+            return [f"{key}={value}" for key, value in args.items()]
+
+        # String - split on whitespace for backward compatibility
+        # (schema says array, but legacy configs may have strings)
+        return args.split()
+
+    def prepare_log_prefix(self, pull_request: PullRequestWrapper | None = None) -> str:
         return prepare_log_prefix(
             event_type=self.github_event,
             delivery_id=self.x_github_delivery,
@@ -231,8 +460,13 @@ class GithubWebhook:
             self.container_repository: str = self.build_and_push_container["repository"]
             self.dockerfile: str = self.build_and_push_container.get("dockerfile", "Dockerfile")
             self.container_tag: str = self.build_and_push_container.get("tag", "latest")
-            self.container_build_args: str = self.build_and_push_container.get("build-args", "")
-            self.container_command_args: str = self.build_and_push_container.get("args", "")
+            # Support str | list[str] for build-args (schema says array, but may be string in legacy configs)
+            self.container_build_args: list[str] = self._normalize_container_args(
+                self.build_and_push_container.get("build-args", [])
+            )
+            self.container_command_args: list[str] = self._normalize_container_args(
+                self.build_and_push_container.get("args", [])
+            )
             self.container_release: bool = self.build_and_push_container.get("release", False)
 
         self.pre_commit: bool = self.config.get_value(
@@ -263,83 +497,6 @@ class GithubWebhook:
         self.create_issue_for_new_pr: bool = self.config.get_value(
             value="create-issue-for-new-pr", return_on_none=global_create_issue_for_new_pr, extra_dict=repository_config
         )
-
-    async def get_pull_request(self, number: int | None = None) -> PullRequest | None:
-        if number:
-            return await asyncio.to_thread(self.repository.get_pull, number)
-
-        for _number in extract_key_from_dict(key="number", _dict=self.hook_data):
-            try:
-                return await asyncio.to_thread(self.repository.get_pull, _number)
-            except GithubException:
-                continue
-
-        commit: dict[str, Any] = self.hook_data.get("commit", {})
-        if commit:
-            commit_obj = await asyncio.to_thread(self.repository.get_commit, commit["sha"])
-            with contextlib.suppress(Exception):
-                _pulls = await asyncio.to_thread(commit_obj.get_pulls)
-                return _pulls[0]
-
-        if self.github_event == "check_run":
-            for _pull_request in await asyncio.to_thread(self.repository.get_pulls, state="open"):
-                if _pull_request.head.sha == self.hook_data["check_run"]["head_sha"]:
-                    self.logger.debug(
-                        f"{self.log_prefix} Found pull request {_pull_request.title} [{_pull_request.number}] for check run {self.hook_data['check_run']['name']}"
-                    )
-                    return _pull_request
-
-        return None
-
-    async def _get_last_commit(self, pull_request: PullRequest) -> Commit:
-        _commits = await asyncio.to_thread(pull_request.get_commits)
-        return list(_commits)[-1]
-
-    @staticmethod
-    def _comment_with_details(title: str, body: str) -> str:
-        return f"""
-<details>
-<summary>{title}</summary>
-    {body}
-</details>
-        """
-
-    def container_repository_and_tag(
-        self, is_merged: bool = False, tag: str = "", pull_request: PullRequest | None = None
-    ) -> str | None:
-        if not tag:
-            if not pull_request:
-                return None
-
-            if is_merged:
-                pull_request_branch = pull_request.base.ref
-                tag = (
-                    pull_request_branch
-                    if pull_request_branch not in (OTHER_MAIN_BRANCH, "main")
-                    else self.container_tag
-                )
-            else:
-                tag = f"pr-{pull_request.number}"
-
-        if tag:
-            self.logger.debug(f"{self.log_prefix} container tag is: {tag}")
-            return f"{self.container_repository}:{tag}"
-
-        self.logger.error(f"{self.log_prefix} container tag not found")
-        return None
-
-    def send_slack_message(self, message: str, webhook_url: str) -> None:
-        slack_data: dict[str, str] = {"text": message}
-        self.logger.info(f"{self.log_prefix} Sending message to slack: {message}")
-        response: requests.Response = requests.post(
-            webhook_url,
-            data=json.dumps(slack_data),
-            headers={"Content-Type": "application/json"},
-        )
-        if response.status_code != 200:
-            raise ValueError(
-                f"Request to slack returned an error {response.status_code} with the following message: {response.text}"
-            )
 
     @property
     def _current_pull_request_supported_retest(self) -> list[str]:

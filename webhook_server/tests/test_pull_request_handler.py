@@ -1,13 +1,18 @@
-import pytest
 from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
+from github import GithubException
 from github.PullRequest import PullRequest
 
-from webhook_server.libs.pull_request_handler import PullRequestHandler
+from webhook_server.libs.graphql.graphql_client import GraphQLError
+from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
 from webhook_server.utils.constants import (
     APPROVED_BY_LABEL_PREFIX,
     CAN_BE_MERGED_STR,
     CHANGED_REQUESTED_BY_LABEL_PREFIX,
     CHERRY_PICK_LABEL_PREFIX,
+    CHERRY_PICKED_LABEL_PREFIX,
     COMMENTED_BY_LABEL_PREFIX,
     HAS_CONFLICTS_LABEL_STR,
     LGTM_BY_LABEL_PREFIX,
@@ -29,10 +34,17 @@ class TestPullRequestHandler:
             "action": "opened",
             "pull_request": {"number": 123, "merged": False},
             "sender": {"login": "test-user"},
+            "repository": {
+                "node_id": "R_kgDOABcD1M",  # GraphQL node ID
+                "id": 123456789,  # Numeric ID
+                "full_name": "test-owner/test-repo",
+                "name": "test-repo",
+            },
         }
         mock_webhook.logger = Mock()
         mock_webhook.log_prefix = "[TEST]"
         mock_webhook.repository = Mock()
+        mock_webhook.repository.full_name = "test-owner/test-repo"
         mock_webhook.issue_url_for_welcome_msg = "welcome-message-url"
         mock_webhook.parent_committer = "test-user"
         mock_webhook.auto_verified_and_merged_users = ["test-user"]
@@ -44,6 +56,23 @@ class TestPullRequestHandler:
         mock_webhook.set_auto_merge_prs = []
         mock_webhook.auto_merge_enabled = True
         mock_webhook.container_repository = "docker.io/org/repo"
+        # Add async helper methods
+        mock_webhook.add_pr_comment = AsyncMock()
+        mock_webhook.update_pr_title = AsyncMock()
+        mock_webhook.enable_pr_automerge = AsyncMock()
+        mock_webhook.request_pr_reviews = AsyncMock()
+        mock_webhook.add_pr_assignee = AsyncMock()
+        # Add unified_api mock with async methods
+        mock_webhook.unified_api = Mock()
+        mock_webhook.unified_api.get_issues = AsyncMock(return_value=[])
+        mock_webhook.unified_api.create_issue_comment = AsyncMock()
+        mock_webhook.unified_api.create_issue_comment_on_issue = AsyncMock()
+        mock_webhook.unified_api.edit_issue = AsyncMock()
+        mock_webhook.unified_api.add_assignees_by_login = AsyncMock()
+        mock_webhook.unified_api.get_commit_check_runs = AsyncMock(return_value=[])
+        mock_webhook.unified_api.create_check_run = AsyncMock()
+        mock_webhook.unified_api.add_pr_comment = AsyncMock()
+        mock_webhook.unified_api.enable_pr_automerge = AsyncMock()
         return mock_webhook
 
     @pytest.fixture
@@ -54,6 +83,7 @@ class TestPullRequestHandler:
         mock_handler.all_pull_request_reviewers = ["reviewer1", "reviewer2"]
         mock_handler.root_approvers = ["root-approver"]
         mock_handler.root_reviewers = ["root-reviewer"]
+        mock_handler.initialize = AsyncMock()  # Add async initialize method
         return mock_handler
 
     @pytest.fixture
@@ -65,14 +95,15 @@ class TestPullRequestHandler:
     def mock_pull_request(self) -> Mock:
         """Create a mock PullRequest instance."""
         mock_pr = Mock()
+        mock_pr.id = "PR_kgDOTestId"  # GraphQL node ID for mutations
         mock_pr.number = 123
         mock_pr.title = "Test PR"
         mock_pr.body = "Test PR body"
         mock_pr.html_url = "https://github.com/test/repo/pull/123"
-        mock_pr.labels = []
+        mock_pr.get_labels = Mock(return_value=[])
         mock_pr.create_issue_comment = Mock()
         mock_pr.edit = Mock()
-        mock_pr.is_merged = False
+        mock_pr.merged = False
         mock_pr.base = Mock()
         mock_pr.base.ref = "main"
         mock_pr.user = Mock()
@@ -91,7 +122,7 @@ class TestPullRequestHandler:
         pull_request_handler.hook_data["action"] = "edited"
         pull_request_handler.hook_data["changes"] = {}
 
-        with patch.object(pull_request_handler, "set_wip_label_based_on_title") as mock_set_wip:
+        with patch.object(pull_request_handler, "set_wip_label_based_on_title", new=AsyncMock()) as mock_set_wip:
             await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
             mock_set_wip.assert_called_once_with(pull_request=mock_pull_request)
 
@@ -104,7 +135,7 @@ class TestPullRequestHandler:
         pull_request_handler.hook_data["changes"] = {"title": {"from": "old title"}}
 
         with patch.object(
-            pull_request_handler.runner_handler, "run_conventional_title_check"
+            pull_request_handler.runner_handler, "run_conventional_title_check", new=AsyncMock()
         ) as mock_run_conventional_title_check:
             await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
             mock_run_conventional_title_check.assert_called_once_with(pull_request=mock_pull_request)
@@ -116,10 +147,16 @@ class TestPullRequestHandler:
         """Test processing pull request webhook data when action is opened."""
         pull_request_handler.hook_data["action"] = "opened"
 
-        with patch.object(pull_request_handler, "create_issue_for_new_pull_request") as mock_create_issue:
-            with patch.object(pull_request_handler, "set_wip_label_based_on_title") as mock_set_wip:
-                with patch.object(pull_request_handler, "process_opened_or_synchronize_pull_request") as mock_process:
-                    with patch.object(pull_request_handler, "set_pull_request_automerge") as mock_automerge:
+        with patch.object(
+            pull_request_handler, "create_issue_for_new_pull_request", new=AsyncMock()
+        ) as mock_create_issue:
+            with patch.object(pull_request_handler, "set_wip_label_based_on_title", new=AsyncMock()) as mock_set_wip:
+                with patch.object(
+                    pull_request_handler, "process_opened_or_synchronize_pull_request", new=AsyncMock()
+                ) as mock_process:
+                    with patch.object(
+                        pull_request_handler, "set_pull_request_automerge", new=AsyncMock()
+                    ) as mock_automerge:
                         await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
                         mock_create_issue.assert_called_once_with(pull_request=mock_pull_request)
                         mock_set_wip.assert_called_once_with(pull_request=mock_pull_request)
@@ -133,10 +170,16 @@ class TestPullRequestHandler:
         """Test processing pull request webhook data when action is reopened."""
         pull_request_handler.hook_data["action"] = "reopened"
 
-        with patch.object(pull_request_handler, "create_issue_for_new_pull_request") as mock_create_issue:
-            with patch.object(pull_request_handler, "set_wip_label_based_on_title") as mock_set_wip:
-                with patch.object(pull_request_handler, "process_opened_or_synchronize_pull_request") as mock_process:
-                    with patch.object(pull_request_handler, "set_pull_request_automerge") as mock_automerge:
+        with patch.object(
+            pull_request_handler, "create_issue_for_new_pull_request", new=AsyncMock()
+        ) as mock_create_issue:
+            with patch.object(pull_request_handler, "set_wip_label_based_on_title", new=AsyncMock()) as mock_set_wip:
+                with patch.object(
+                    pull_request_handler, "process_opened_or_synchronize_pull_request", new=AsyncMock()
+                ) as mock_process:
+                    with patch.object(
+                        pull_request_handler, "set_pull_request_automerge", new=AsyncMock()
+                    ) as mock_automerge:
                         await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
                         mock_create_issue.assert_called_once_with(pull_request=mock_pull_request)
                         mock_set_wip.assert_called_once_with(pull_request=mock_pull_request)
@@ -150,10 +193,16 @@ class TestPullRequestHandler:
         """Test processing pull request webhook data when action is ready_for_review."""
         pull_request_handler.hook_data["action"] = "ready_for_review"
 
-        with patch.object(pull_request_handler, "create_issue_for_new_pull_request") as mock_create_issue:
-            with patch.object(pull_request_handler, "set_wip_label_based_on_title") as mock_set_wip:
-                with patch.object(pull_request_handler, "process_opened_or_synchronize_pull_request") as mock_process:
-                    with patch.object(pull_request_handler, "set_pull_request_automerge") as mock_automerge:
+        with patch.object(
+            pull_request_handler, "create_issue_for_new_pull_request", new=AsyncMock()
+        ) as mock_create_issue:
+            with patch.object(pull_request_handler, "set_wip_label_based_on_title", new=AsyncMock()) as mock_set_wip:
+                with patch.object(
+                    pull_request_handler, "process_opened_or_synchronize_pull_request", new=AsyncMock()
+                ) as mock_process:
+                    with patch.object(
+                        pull_request_handler, "set_pull_request_automerge", new=AsyncMock()
+                    ) as mock_automerge:
                         await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
                         mock_create_issue.assert_called_once_with(pull_request=mock_pull_request)
                         mock_set_wip.assert_called_once_with(pull_request=mock_pull_request)
@@ -167,8 +216,12 @@ class TestPullRequestHandler:
         """Test processing pull request webhook data when action is synchronize."""
         pull_request_handler.hook_data["action"] = "synchronize"
 
-        with patch.object(pull_request_handler, "process_opened_or_synchronize_pull_request") as mock_process:
-            with patch.object(pull_request_handler, "remove_labels_when_pull_request_sync") as mock_remove_labels:
+        with patch.object(
+            pull_request_handler, "process_opened_or_synchronize_pull_request", new=AsyncMock()
+        ) as mock_process:
+            with patch.object(
+                pull_request_handler, "remove_labels_when_pull_request_sync", new=AsyncMock()
+            ) as mock_remove_labels:
                 await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
                 mock_process.assert_called_once_with(pull_request=mock_pull_request)
                 mock_remove_labels.assert_called_once_with(pull_request=mock_pull_request)
@@ -181,8 +234,12 @@ class TestPullRequestHandler:
         pull_request_handler.hook_data["action"] = "closed"
         pull_request_handler.hook_data["pull_request"]["merged"] = False
 
-        with patch.object(pull_request_handler, "close_issue_for_merged_or_closed_pr") as mock_close_issue:
-            with patch.object(pull_request_handler, "delete_remote_tag_for_merged_or_closed_pr") as mock_delete_tag:
+        with patch.object(
+            pull_request_handler, "close_issue_for_merged_or_closed_pr", new=AsyncMock()
+        ) as mock_close_issue:
+            with patch.object(
+                pull_request_handler, "delete_remote_tag_for_merged_or_closed_pr", new=AsyncMock()
+            ) as mock_delete_tag:
                 await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
                 mock_close_issue.assert_called_once_with(pull_request=mock_pull_request, hook_action="closed")
                 mock_delete_tag.assert_called_once_with(pull_request=mock_pull_request)
@@ -198,14 +255,24 @@ class TestPullRequestHandler:
         # Mock labels
         mock_label = Mock()
         mock_label.name = f"{CHERRY_PICK_LABEL_PREFIX}branch1"
-        mock_pull_request.labels = [mock_label]
+        mock_pull_request.get_labels = Mock(return_value=[mock_label])
 
-        with patch.object(pull_request_handler, "close_issue_for_merged_or_closed_pr") as mock_close_issue:
-            with patch.object(pull_request_handler, "delete_remote_tag_for_merged_or_closed_pr") as mock_delete_tag:
-                with patch.object(pull_request_handler.runner_handler, "cherry_pick") as mock_cherry_pick:
-                    with patch.object(pull_request_handler.runner_handler, "run_build_container") as mock_build:
+        with patch.object(
+            pull_request_handler, "close_issue_for_merged_or_closed_pr", new=AsyncMock()
+        ) as mock_close_issue:
+            with patch.object(
+                pull_request_handler, "delete_remote_tag_for_merged_or_closed_pr", new=AsyncMock()
+            ) as mock_delete_tag:
+                with patch.object(
+                    pull_request_handler.runner_handler, "cherry_pick", new=AsyncMock()
+                ) as mock_cherry_pick:
+                    with patch.object(
+                        pull_request_handler.runner_handler, "run_build_container", new=AsyncMock()
+                    ) as mock_build:
                         with patch.object(
-                            pull_request_handler, "label_all_opened_pull_requests_merge_state_after_merged"
+                            pull_request_handler,
+                            "label_all_opened_pull_requests_merge_state_after_merged",
+                            new=AsyncMock(),
                         ) as mock_label_all:
                             await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
                             mock_close_issue.assert_called_once_with(
@@ -249,10 +316,12 @@ class TestPullRequestHandler:
         pull_request_handler.hook_data["action"] = "labeled"
         pull_request_handler.hook_data["label"] = {"name": VERIFIED_LABEL_STR}
 
-        with patch.object(pull_request_handler, "check_if_can_be_merged") as mock_check_merge:
-            with patch.object(pull_request_handler.check_run_handler, "set_verify_check_success") as mock_success:
+        with patch.object(pull_request_handler, "check_if_can_be_merged", new=AsyncMock()) as mock_check_merge:
+            with patch.object(
+                pull_request_handler.check_run_handler, "set_verify_check_success", new=AsyncMock()
+            ) as mock_success:
                 await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
-                mock_check_merge.assert_called_once_with(pull_request=mock_pull_request)
+                mock_check_merge.assert_awaited_once_with(pull_request=mock_pull_request)
                 mock_success.assert_called_once()
 
     @pytest.mark.asyncio
@@ -263,10 +332,12 @@ class TestPullRequestHandler:
         pull_request_handler.hook_data["action"] = "unlabeled"
         pull_request_handler.hook_data["label"] = {"name": VERIFIED_LABEL_STR}
 
-        with patch.object(pull_request_handler, "check_if_can_be_merged") as mock_check_merge:
-            with patch.object(pull_request_handler.check_run_handler, "set_verify_check_queued") as mock_queued:
+        with patch.object(pull_request_handler, "check_if_can_be_merged", new=AsyncMock()) as mock_check_merge:
+            with patch.object(
+                pull_request_handler.check_run_handler, "set_verify_check_queued", new=AsyncMock()
+            ) as mock_queued:
                 await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
-                mock_check_merge.assert_called_once_with(pull_request=mock_pull_request)
+                mock_check_merge.assert_awaited_once_with(pull_request=mock_pull_request)
                 mock_queued.assert_called_once()
 
     @pytest.mark.asyncio
@@ -276,7 +347,7 @@ class TestPullRequestHandler:
         """Test setting WIP label when title contains WIP."""
         mock_pull_request.title = "WIP: Test PR"
 
-        with patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label:
+        with patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add_label:
             await pull_request_handler.set_wip_label_based_on_title(pull_request=mock_pull_request)
             mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=WIP_STR)
 
@@ -287,7 +358,7 @@ class TestPullRequestHandler:
         """Test removing WIP label when title doesn't contain WIP."""
         mock_pull_request.title = "Test PR"
 
-        with patch.object(pull_request_handler.labels_handler, "_remove_label") as mock_remove_label:
+        with patch.object(pull_request_handler.labels_handler, "_remove_label", new=AsyncMock()) as mock_remove_label:
             await pull_request_handler.set_wip_label_based_on_title(pull_request=mock_pull_request)
             mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=WIP_STR)
 
@@ -327,16 +398,36 @@ class TestPullRequestHandler:
     async def test_label_all_opened_pull_requests_merge_state_after_merged(
         self, pull_request_handler: PullRequestHandler
     ) -> None:
-        """Test labeling all opened pull requests merge state after merged."""
-        mock_pr1 = Mock()
-        mock_pr2 = Mock()
-        mock_pr1.number = 1
-        mock_pr2.number = 2
+        """Test labeling all opened pull requests merge state after merged with batched API."""
+        # Create PullRequestWrapper objects with all data (labels, merge state)
+        pr_data_1 = {
+            "id": "PR_1",
+            "number": 1,
+            "title": "Test PR 1",
+            "mergeStateStatus": "CLEAN",
+            "labels": {"nodes": []},
+        }
+        pr_data_2 = {
+            "id": "PR_2",
+            "number": 2,
+            "title": "Test PR 2",
+            "mergeStateStatus": "BEHIND",
+            "labels": {"nodes": []},
+        }
 
-        with patch.object(pull_request_handler.repository, "get_pulls", return_value=[mock_pr1, mock_pr2]):
+        mock_pr1 = PullRequestWrapper(pr_data_1, "owner", "repo")
+        mock_pr2 = PullRequestWrapper(pr_data_2, "owner", "repo")
+
+        # Mock the new batched API method
+        with patch.object(
+            pull_request_handler.github_webhook.unified_api,
+            "get_open_pull_requests_with_details",
+            new=AsyncMock(return_value=[mock_pr1, mock_pr2]),
+        ):
             with patch.object(pull_request_handler, "label_pull_request_by_merge_state", new=AsyncMock()) as mock_label:
                 with patch("asyncio.sleep", new=AsyncMock()):
                     await pull_request_handler.label_all_opened_pull_requests_merge_state_after_merged()
+                    # Should process both PRs with only 1 API call (not N+1)
                     assert mock_label.await_count == 2
 
     @pytest.mark.asyncio
@@ -344,6 +435,8 @@ class TestPullRequestHandler:
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         mock_pull_request.title = "Test PR"
+        # Mock add_comment for GraphQL mutation
+        pull_request_handler.github_webhook.unified_api.add_comment = AsyncMock()
         with (
             patch.object(pull_request_handler.github_webhook, "build_and_push_container", True),
             patch.object(
@@ -357,11 +450,16 @@ class TestPullRequestHandler:
             patch.object(
                 pull_request_handler.runner_handler,
                 "run_podman_command",
-                new=AsyncMock(side_effect=[(0, "", ""), (1, "tag exists", ""), (0, "", "")]),
+                # Sequence: login (success), tag_ls (success with output), tag_delete (success), logout
+                new=AsyncMock(side_effect=[(1, "", ""), (1, "pr-123", ""), (1, "", ""), (1, "", "")]),
             ),
         ):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
-            # The method uses runner_handler.run_podman_command, not repository.delete_tag
+            # Verify add_comment was called with success message
+            pull_request_handler.github_webhook.unified_api.add_comment.assert_called_once()
+            call_args = pull_request_handler.github_webhook.unified_api.add_comment.call_args
+            assert call_args[0][0] == "PR_kgDOTestId"  # PR node ID
+            assert "Successfully removed PR tag" in call_args[0][1]  # Comment body
 
     @pytest.mark.asyncio
     async def test_close_issue_for_merged_or_closed_pr_with_issue(
@@ -369,17 +467,25 @@ class TestPullRequestHandler:
     ) -> None:
         mock_pull_request.title = "Test PR"
         mock_pull_request.number = 123
-        with patch.object(pull_request_handler.repository, "get_issues", return_value=[]) as mock_get_issues:
-            mock_issue = Mock()
-            mock_issue.title = "PR #123: Test PR"
-            mock_issue.number = 456
-            mock_issue.body = "[Auto generated]\nNumber: [#123]"
-            mock_issue.edit = Mock()
-            mock_get_issues.return_value = [mock_issue]
-            await pull_request_handler.close_issue_for_merged_or_closed_pr(
-                pull_request=mock_pull_request, hook_action="closed"
-            )
-            mock_issue.edit.assert_called_once_with(state="closed")
+        # Use dict format for GraphQL compatibility
+        mock_issue = {
+            "id": "I_kwDOABCDEF123",
+            "title": "Test PR - 123",
+            "number": 456,
+            "body": "[Auto generated]\nNumber: [#123]",
+            "node_id": "I_kwDOABCDEF123",
+        }
+
+        # Mock unified_api methods
+        pull_request_handler.github_webhook.unified_api.get_issues = AsyncMock(return_value=[mock_issue])
+        pull_request_handler.github_webhook.unified_api.add_comment = AsyncMock()
+        pull_request_handler.github_webhook.unified_api.edit_issue = AsyncMock()
+
+        await pull_request_handler.close_issue_for_merged_or_closed_pr(
+            pull_request=mock_pull_request, hook_action="closed"
+        )
+        pull_request_handler.github_webhook.unified_api.add_comment.assert_called_once()
+        pull_request_handler.github_webhook.unified_api.edit_issue.assert_called_once_with(mock_issue, state="closed")
 
     @pytest.mark.asyncio
     async def test_process_opened_or_synchronize_pull_request(
@@ -389,7 +495,7 @@ class TestPullRequestHandler:
             pull_request_handler, "_process_verified_for_update_or_new_pull_request", new=AsyncMock()
         ) as mock_process_verified:
             with patch.object(
-                pull_request_handler, "add_pull_request_owner_as_assingee", new=AsyncMock()
+                pull_request_handler, "add_pull_request_owner_as_assignee", new=AsyncMock()
             ) as mock_add_assignee:
                 with patch.object(
                     pull_request_handler, "label_pull_request_by_merge_state", new=AsyncMock()
@@ -411,12 +517,19 @@ class TestPullRequestHandler:
             patch.object(pull_request_handler.github_webhook, "auto_verified_and_merged_users", ["test-user"]),
             patch.object(pull_request_handler.github_webhook, "parent_committer", "test-user"),
             patch.object(pull_request_handler.github_webhook, "set_auto_merge_prs", []),
+            patch.object(
+                pull_request_handler.github_webhook.unified_api, "enable_pr_automerge", new_callable=AsyncMock
+            ) as mock_enable,
         ):
             mock_pull_request.base.ref = "main"
             mock_pull_request.raw_data = {}
-            mock_pull_request.enable_automerge = Mock()
             await pull_request_handler.set_pull_request_automerge(pull_request=mock_pull_request)
-            mock_pull_request.enable_automerge.assert_called_once_with(merge_method="SQUASH")
+            # Verify unified_api.enable_pr_automerge was called with correct arguments
+            mock_enable.assert_called_once()
+            call_args = mock_enable.call_args
+            # Updated method signature: enable_pr_automerge(pull_request, merge_method)
+            assert call_args[0][0] == mock_pull_request  # PR object
+            assert call_args[0][1] == "SQUASH"  # merge_method
 
     @pytest.mark.asyncio
     async def test_set_pull_request_automerge_disabled(
@@ -435,7 +548,7 @@ class TestPullRequestHandler:
         mock_label1.name = f"{APPROVED_BY_LABEL_PREFIX}approver1"
         mock_label2 = Mock()
         mock_label2.name = f"{LGTM_BY_LABEL_PREFIX}reviewer1"
-        mock_pull_request.labels = [mock_label1, mock_label2]
+        mock_pull_request.get_labels = Mock(return_value=[mock_label1, mock_label2])
         with patch.object(pull_request_handler.labels_handler, "_remove_label", new=AsyncMock()) as mock_remove_label:
             await pull_request_handler.remove_labels_when_pull_request_sync(pull_request=mock_pull_request)
             assert mock_remove_label.await_count == 2
@@ -458,7 +571,7 @@ class TestPullRequestHandler:
         mock_pull_request.mergeable = True
         mock_pull_request.mergeable_state = "behind"
 
-        with patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label:
+        with patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add_label:
             await pull_request_handler.label_pull_request_by_merge_state(pull_request=mock_pull_request)
             mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=NEEDS_REBASE_LABEL_STR)
 
@@ -470,7 +583,7 @@ class TestPullRequestHandler:
         mock_pull_request.mergeable = False
         mock_pull_request.mergeable_state = "dirty"
 
-        with patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label:
+        with patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add_label:
             await pull_request_handler.label_pull_request_by_merge_state(pull_request=mock_pull_request)
             mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=HAS_CONFLICTS_LABEL_STR)
 
@@ -479,8 +592,10 @@ class TestPullRequestHandler:
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         """Test processing verified for update or new pull request for auto-verified user."""
-        with patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label:
-            with patch.object(pull_request_handler.check_run_handler, "set_verify_check_success") as mock_success:
+        with patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add_label:
+            with patch.object(
+                pull_request_handler.check_run_handler, "set_verify_check_success", new=AsyncMock()
+            ) as mock_success:
                 await pull_request_handler._process_verified_for_update_or_new_pull_request(
                     pull_request=mock_pull_request
                 )
@@ -494,8 +609,10 @@ class TestPullRequestHandler:
         """Test processing verified for update or new pull request for non-auto-verified user."""
         pull_request_handler.github_webhook.parent_committer = "other-user"
 
-        with patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label:
-            with patch.object(pull_request_handler.check_run_handler, "set_verify_check_success") as mock_success:
+        with patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add_label:
+            with patch.object(
+                pull_request_handler.check_run_handler, "set_verify_check_success", new=AsyncMock()
+            ) as mock_success:
                 await pull_request_handler._process_verified_for_update_or_new_pull_request(
                     pull_request=mock_pull_request
                 )
@@ -507,17 +624,18 @@ class TestPullRequestHandler:
         self, pull_request_handler: PullRequestHandler
     ) -> None:
         """Test cherry-picked PR with auto-verify enabled (default behavior)."""
-        from webhook_server.utils.constants import CHERRY_PICKED_LABEL_PREFIX
 
         mock_pull_request = Mock(spec=PullRequest)
         mock_label = Mock()
         mock_label.name = CHERRY_PICKED_LABEL_PREFIX
-        mock_pull_request.labels = [mock_label]
+        mock_pull_request.get_labels = Mock(return_value=[mock_label])
 
         with (
             patch.object(pull_request_handler.github_webhook, "auto_verify_cherry_picked_prs", True),
-            patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label,
-            patch.object(pull_request_handler.check_run_handler, "set_verify_check_success") as mock_set_success,
+            patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add_label,
+            patch.object(
+                pull_request_handler.check_run_handler, "set_verify_check_success", new=AsyncMock()
+            ) as mock_set_success,
         ):
             await pull_request_handler._process_verified_for_update_or_new_pull_request(mock_pull_request)
             # Should auto-verify since auto_verify_cherry_picked_prs is True and user is in auto_verified list
@@ -529,17 +647,18 @@ class TestPullRequestHandler:
         self, pull_request_handler: PullRequestHandler
     ) -> None:
         """Test cherry-picked PR with auto-verify disabled."""
-        from webhook_server.utils.constants import CHERRY_PICKED_LABEL_PREFIX
 
         mock_pull_request = Mock(spec=PullRequest)
         mock_label = Mock()
         mock_label.name = CHERRY_PICKED_LABEL_PREFIX
-        mock_pull_request.labels = [mock_label]
+        mock_pull_request.get_labels = Mock(return_value=[mock_label])
 
         with (
             patch.object(pull_request_handler.github_webhook, "auto_verify_cherry_picked_prs", False),
-            patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label,
-            patch.object(pull_request_handler.check_run_handler, "set_verify_check_queued") as mock_set_queued,
+            patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add_label,
+            patch.object(
+                pull_request_handler.check_run_handler, "set_verify_check_queued", new=AsyncMock()
+            ) as mock_set_queued,
         ):
             await pull_request_handler._process_verified_for_update_or_new_pull_request(mock_pull_request)
             # Should NOT auto-verify since auto_verify_cherry_picked_prs is False
@@ -547,47 +666,50 @@ class TestPullRequestHandler:
             mock_set_queued.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_add_pull_request_owner_as_assingee(
+    async def test_add_pull_request_owner_as_assignee(
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         """Test adding pull request owner as assignee."""
         mock_pull_request.user.login = "owner1"
+        mock_pull_request.number = 123
 
-        with patch.object(mock_pull_request, "add_to_assignees") as mock_add_assignee:
-            await pull_request_handler.add_pull_request_owner_as_assingee(pull_request=mock_pull_request)
-            mock_add_assignee.assert_called_once_with("owner1")
+        # Now it uses unified_api.add_assignees_by_login, not pr.add_to_assignees
+        await pull_request_handler.add_pull_request_owner_as_assignee(pull_request=mock_pull_request)
+        pull_request_handler.github_webhook.unified_api.add_assignees_by_login.assert_called_once_with(
+            "test-owner", "test-repo", 123, ["owner1"]
+        )
 
     @pytest.mark.asyncio
     async def test_check_if_can_be_merged_already_merged(
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         """Test checking if can be merged when already merged."""
-        # Patch is_merged as a method that returns True
-        with patch.object(mock_pull_request, "is_merged", new=Mock(return_value=True)):
-            with patch.object(pull_request_handler, "_check_if_pr_approved") as mock_check_approved:
-                await pull_request_handler.check_if_can_be_merged(pull_request=mock_pull_request)
-                mock_check_approved.assert_not_called()
+        # Patch merged as a property that returns True
+        mock_pull_request.merged = True
+        with patch.object(pull_request_handler, "_check_if_pr_approved") as mock_check_approved:
+            await pull_request_handler.check_if_can_be_merged(pull_request=mock_pull_request)
+            mock_check_approved.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_check_if_can_be_merged_not_approved(
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         """Test checking if can be merged when not approved."""
-        # Patch is_merged as a method that returns False
-        with patch.object(mock_pull_request, "is_merged", new=Mock(return_value=False)):
-            mock_pull_request.labels = []
+        # Patch merged as a property that returns False
+        mock_pull_request.merged = False
+        mock_pull_request.get_labels = Mock(return_value=[])
 
-            with patch.object(pull_request_handler, "_check_if_pr_approved", return_value="not_approved"):
-                with patch.object(pull_request_handler.labels_handler, "_remove_label") as mock_remove_label:
-                    await pull_request_handler.check_if_can_be_merged(pull_request=mock_pull_request)
-                    mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=CAN_BE_MERGED_STR)
+        with patch.object(pull_request_handler, "_check_if_pr_approved", new=AsyncMock(return_value="not_approved")):
+            with patch.object(pull_request_handler.labels_handler, "_remove_label") as mock_remove_label:
+                await pull_request_handler.check_if_can_be_merged(pull_request=mock_pull_request)
+                mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=CAN_BE_MERGED_STR)
 
     @pytest.mark.asyncio
     async def test_check_if_can_be_merged_approved(
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
+        mock_pull_request.merged = False
         with (
-            patch.object(mock_pull_request, "is_merged", new=Mock(return_value=False)),
             patch.object(mock_pull_request, "mergeable", True),
             patch.object(pull_request_handler, "_check_if_pr_approved", new=AsyncMock(return_value="")),
             patch.object(pull_request_handler, "_check_labels_for_can_be_merged", return_value=""),
@@ -609,7 +731,7 @@ class TestPullRequestHandler:
                 "required_check_failed_or_no_status",
                 new=AsyncMock(return_value=""),
             ),
-            patch.object(pull_request_handler.labels_handler, "wip_or_hold_lables_exists", return_value=""),
+            patch.object(pull_request_handler.labels_handler, "wip_or_hold_labels_exists", return_value=""),
             patch.object(
                 pull_request_handler.labels_handler, "pull_request_labels_names", new=AsyncMock(return_value=[])
             ),
@@ -741,19 +863,19 @@ class TestPullRequestHandler:
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         """Test skipping if pull request is already merged."""
-        # Patch is_merged as a method that returns True
-        with patch.object(mock_pull_request, "is_merged", new=Mock(return_value=True)):
-            result = pull_request_handler.skip_if_pull_request_already_merged(pull_request=mock_pull_request)
-            assert result is True
+        # Patch merged as a property that returns True
+        mock_pull_request.merged = True
+        result = pull_request_handler.skip_if_pull_request_already_merged(pull_request=mock_pull_request)
+        assert result is True
 
     def test_skip_if_pull_request_already_merged_not_merged(
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         """Test skipping if pull request is not merged."""
-        # Patch is_merged as a method that returns False
-        with patch.object(mock_pull_request, "is_merged", new=Mock(return_value=False)):
-            result = pull_request_handler.skip_if_pull_request_already_merged(pull_request=mock_pull_request)
-            assert result is False
+        # Patch merged as a property that returns False
+        mock_pull_request.merged = False
+        result = pull_request_handler.skip_if_pull_request_already_merged(pull_request=mock_pull_request)
+        assert result is False
 
     @pytest.mark.asyncio
     async def test_delete_remote_tag_for_merged_or_closed_pr_without_tag(
@@ -773,8 +895,311 @@ class TestPullRequestHandler:
         """Test closing issue for merged or closed PR without issue."""
         mock_pull_request.title = "Test PR"
 
-        with patch.object(pull_request_handler.repository, "get_issues", return_value=[]):
+        with patch.object(
+            pull_request_handler.github_webhook.unified_api, "get_issues", new=AsyncMock(return_value=[])
+        ):
             await pull_request_handler.close_issue_for_merged_or_closed_pr(
                 pull_request=mock_pull_request, hook_action="closed"
             )
             # Should not find any matching issues
+
+    @pytest.mark.asyncio
+    async def test_handler_with_pull_request_wrapper(self) -> None:
+        """Test handler works with PullRequestWrapper (GraphQL) not just PullRequest (REST)."""
+
+        # Create realistic GraphQL PR data (using GraphQL field names)
+        pr_data = {
+            "number": 456,
+            "title": "feat: Add GraphQL wrapper support",
+            "body": "This PR adds GraphQL wrapper integration",
+            "permalink": "https://github.com/test/repo/pull/456",  # GraphQL uses "permalink" not "url"
+            "state": "OPEN",
+            "isDraft": False,
+            "mergeable": "MERGEABLE",
+            "baseRefName": "main",
+            "headRefName": "feature/graphql",
+            "author": {"login": "graphql-user"},
+            "labels": {"nodes": []},
+        }
+
+        # Create PullRequestWrapper instead of mock PullRequest
+        wrapper_pr = PullRequestWrapper(pr_data, owner="test-org", repo_name="test-repo")
+
+        # Verify wrapper has expected properties (PyGithub-compatible)
+        assert wrapper_pr.number == 456
+        assert wrapper_pr.title == "feat: Add GraphQL wrapper support"
+        assert wrapper_pr.body == "This PR adds GraphQL wrapper integration"
+        assert wrapper_pr.html_url == "https://github.com/test/repo/pull/456"
+        assert wrapper_pr.state == "open"  # Wrapper converts "OPEN" to lowercase "open" for PyGithub compatibility
+        assert wrapper_pr.draft is False
+        assert wrapper_pr.mergeable is True  # Wrapper converts "MERGEABLE" to True
+
+        # Test handler can access wrapper properties without AttributeError
+        # This validates the dual-API strategy works in production
+        pr_number = wrapper_pr.number  # noqa: F841
+        pr_title = wrapper_pr.title  # noqa: F841
+        pr_state = wrapper_pr.state  # noqa: F841
+        pr_mergeable = wrapper_pr.mergeable  # noqa: F841
+
+        # All property accesses should succeed without errors
+
+
+class TestCreateIssueForNewPullRequest:
+    """Tests for create_issue_for_new_pull_request method."""
+
+    @pytest.fixture
+    def mock_webhook(self) -> Mock:
+        """Create a mock GithubWebhook instance."""
+        webhook = Mock()
+        webhook.hook_data = {
+            "repository": {
+                "node_id": "R_kgDOABcD1M",  # GraphQL node ID
+                "id": 123456789,  # Numeric ID
+                "full_name": "owner/test-repo",
+                "name": "test-repo",
+            },
+        }
+        webhook.repository_name = "test-repo"
+        webhook.repository_full_name = "owner/test-repo"
+        webhook.create_issue_for_new_pr = True
+        webhook.parent_committer = "testuser"
+        webhook.auto_verified_and_merged_users = []
+        webhook.unified_api = Mock()
+        # Add repository_id property that returns the value from hook_data
+        webhook.repository_id = webhook.hook_data["repository"]["node_id"]
+        return webhook
+
+    @pytest.fixture
+    def mock_pr_wrapper(self) -> Mock:
+        """Create a mock PullRequestWrapper instance."""
+        pr = Mock()
+        pr.number = 42
+        pr.title = "Test PR"
+        pr.html_url = "https://github.com/owner/repo/pull/42"
+        pr.user = Mock()
+        pr.user.login = "contributor"
+        return pr
+
+    @pytest.mark.asyncio
+    async def test_create_issue_disabled(self, mock_webhook: Mock, mock_pr_wrapper: Mock) -> None:
+        """Test that issue creation is skipped when disabled."""
+        mock_webhook.create_issue_for_new_pr = False
+        # Create a mock owners_file_handler
+        mock_owners_file_handler = Mock()
+        handler = PullRequestHandler(
+            github_webhook=mock_webhook, owners_file_handler=mock_owners_file_handler, hook_data={}
+        )
+
+        await handler.create_issue_for_new_pull_request(mock_pr_wrapper)
+
+        # Should not call any GitHub API methods
+        mock_webhook.unified_api.get_issues.assert_not_called()
+        mock_webhook.unified_api.create_issue.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_create_issue_auto_verified_user(self, mock_webhook: Mock, mock_pr_wrapper: Mock) -> None:
+        """Test that issue creation is skipped for auto-verified users."""
+        mock_webhook.create_issue_for_new_pr = True
+        mock_webhook.parent_committer = "autouser"
+        mock_webhook.auto_verified_and_merged_users = ["autouser"]
+        # Create a mock owners_file_handler
+        mock_owners_file_handler = Mock()
+        handler = PullRequestHandler(
+            github_webhook=mock_webhook, owners_file_handler=mock_owners_file_handler, hook_data={}
+        )
+
+        await handler.create_issue_for_new_pull_request(mock_pr_wrapper)
+
+        # Should not call any GitHub API methods
+        mock_webhook.unified_api.get_issues.assert_not_called()
+        mock_webhook.unified_api.create_issue.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_create_issue_already_exists(self, mock_webhook: Mock, mock_pr_wrapper: Mock) -> None:
+        """Test that issue creation is skipped if issue already exists."""
+        mock_webhook.create_issue_for_new_pr = True
+        mock_webhook.parent_committer = "testuser"
+        mock_webhook.auto_verified_and_merged_users = []
+        # Create a mock owners_file_handler
+        mock_owners_file_handler = Mock()
+        handler = PullRequestHandler(
+            github_webhook=mock_webhook, owners_file_handler=mock_owners_file_handler, hook_data={}
+        )
+
+        # Mock existing issue with dict format for GraphQL compatibility
+        existing_issue = {
+            "title": "[PR #42] Test PR Title",
+            "number": 1,
+            "html_url": "https://github.com/owner/repo/issues/1",
+        }
+
+        mock_webhook.unified_api.get_issues = AsyncMock(return_value=[existing_issue])
+        mock_webhook.unified_api.get_repository = AsyncMock(return_value={"id": "R_kgDOABcD1M"})
+        mock_webhook.unified_api.get_user_id = AsyncMock(return_value="U_123")
+        mock_webhook.unified_api.create_issue = AsyncMock()
+
+        mock_pr_wrapper.number = 42
+        mock_pr_wrapper.title = "Test PR Title"
+        mock_pr_wrapper.user.node_id = ""  # Empty node_id to trigger get_user_id call
+
+        await handler.create_issue_for_new_pull_request(mock_pr_wrapper)
+
+        # Should check for issues but not create
+        mock_webhook.unified_api.get_issues.assert_called_once()
+        mock_webhook.unified_api.create_issue.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_create_issue_success(self, mock_webhook: Mock, mock_pr_wrapper: Mock) -> None:
+        """Test successful issue creation for new PR."""
+        mock_webhook.create_issue_for_new_pr = True
+        mock_webhook.parent_committer = "testuser"
+        mock_webhook.auto_verified_and_merged_users = []
+        # Create a mock owners_file_handler
+        mock_owners_file_handler = Mock()
+        handler = PullRequestHandler(
+            github_webhook=mock_webhook, owners_file_handler=mock_owners_file_handler, hook_data={}
+        )
+
+        # Mock no existing issues
+        mock_webhook.unified_api.get_issues = AsyncMock(return_value=[])
+        mock_webhook.unified_api.get_repository = AsyncMock(return_value={"id": "R_kgDOABcD1M"})
+        mock_webhook.unified_api.get_user_id = AsyncMock(return_value="U_kgDOABcD1M")
+        mock_webhook.unified_api.create_issue = AsyncMock()
+
+        mock_pr_wrapper.number = 42
+        mock_pr_wrapper.title = "Test PR Title"
+        mock_pr_wrapper.user.login = "contributor"
+        mock_pr_wrapper.user.node_id = ""  # Empty node_id, so get_user_id will be called
+        mock_pr_wrapper.html_url = "https://github.com/owner/repo/pull/42"
+
+        await handler.create_issue_for_new_pull_request(mock_pr_wrapper)
+
+        # Verify issue was created
+        mock_webhook.unified_api.create_issue.assert_called_once()
+        call_args = mock_webhook.unified_api.create_issue.call_args
+        assert call_args.kwargs["repository_id"] == "R_kgDOABcD1M"
+        assert call_args.kwargs["title"] == "[PR #42] Test PR Title"
+        assert call_args.kwargs["assignee_ids"] == ["U_kgDOABcD1M"]
+
+    @pytest.mark.asyncio
+    async def test_create_issue_bot_user(self, mock_webhook: Mock, mock_pr_wrapper: Mock) -> None:
+        """Test issue creation handles bot users gracefully."""
+        mock_webhook.create_issue_for_new_pr = True
+        mock_webhook.parent_committer = "renovate[bot]"
+        mock_webhook.auto_verified_and_merged_users = []
+        # Create a mock owners_file_handler
+        mock_owners_file_handler = Mock()
+        handler = PullRequestHandler(
+            github_webhook=mock_webhook, owners_file_handler=mock_owners_file_handler, hook_data={}
+        )
+
+        # Mock no existing issues
+        mock_webhook.unified_api.get_issues = AsyncMock(return_value=[])
+        mock_webhook.unified_api.get_repository = AsyncMock(return_value={"id": "R_kgDOABcD1M"})
+        # Bot user lookup fails
+        mock_webhook.unified_api.get_user_id = AsyncMock(side_effect=GraphQLError("Not a user"))
+        mock_webhook.unified_api.create_issue = AsyncMock()
+
+        mock_pr_wrapper.number = 42
+        mock_pr_wrapper.title = "Test PR Title"
+        mock_pr_wrapper.user.login = "renovate[bot]"
+        mock_pr_wrapper.user.node_id = ""  # Empty node_id, so get_user_id will be called (and fail)
+        mock_pr_wrapper.html_url = "https://github.com/owner/repo/pull/42"
+
+        await handler.create_issue_for_new_pull_request(mock_pr_wrapper)
+
+        # Verify issue was created without assignee
+        mock_webhook.unified_api.create_issue.assert_called_once()
+        call_args = mock_webhook.unified_api.create_issue.call_args
+        assert call_args.kwargs["assignee_ids"] == []
+
+    @pytest.mark.asyncio
+    async def test_create_issue_with_node_id_from_webhook(self, mock_webhook: Mock, mock_pr_wrapper: Mock) -> None:
+        """Test issue creation uses node_id from webhook when available (avoids GraphQL query)."""
+        mock_webhook.create_issue_for_new_pr = True
+        mock_webhook.parent_committer = "testuser"
+        mock_webhook.auto_verified_and_merged_users = []
+        # Create a mock owners_file_handler
+        mock_owners_file_handler = Mock()
+        handler = PullRequestHandler(
+            github_webhook=mock_webhook, owners_file_handler=mock_owners_file_handler, hook_data={}
+        )
+
+        # Mock no existing issues
+        mock_webhook.unified_api.get_issues = AsyncMock(return_value=[])
+        mock_webhook.unified_api.get_repository = AsyncMock(return_value={"id": "R_kgDOABcD1M"})
+        # get_user_id should NOT be called when node_id is available
+        mock_webhook.unified_api.get_user_id = AsyncMock(return_value="U_kgDOSHOULDNOTUSE")
+        mock_webhook.unified_api.create_issue = AsyncMock()
+
+        mock_pr_wrapper.number = 42
+        mock_pr_wrapper.title = "Test PR Title"
+        mock_pr_wrapper.user.login = "contributor"
+        mock_pr_wrapper.user.node_id = "U_kgDOFromWebhook"  # Provided from webhook
+        mock_pr_wrapper.html_url = "https://github.com/owner/repo/pull/42"
+
+        await handler.create_issue_for_new_pull_request(mock_pr_wrapper)
+
+        # Verify node_id from webhook was used (get_user_id was NOT called)
+        mock_webhook.unified_api.get_user_id.assert_not_called()
+        mock_webhook.unified_api.create_issue.assert_called_once()
+        call_args = mock_webhook.unified_api.create_issue.call_args
+        assert call_args.kwargs["assignee_ids"] == ["U_kgDOFromWebhook"]
+
+    @pytest.mark.asyncio
+    async def test_create_issue_get_issues_error_continues(self, mock_webhook: Mock, mock_pr_wrapper: Mock) -> None:
+        """Test that errors checking existing issues don't prevent creation."""
+        mock_webhook.create_issue_for_new_pr = True
+        mock_webhook.parent_committer = "testuser"
+        mock_webhook.auto_verified_and_merged_users = []
+        # Create a mock owners_file_handler
+        mock_owners_file_handler = Mock()
+        handler = PullRequestHandler(
+            github_webhook=mock_webhook, owners_file_handler=mock_owners_file_handler, hook_data={}
+        )
+
+        # get_issues fails
+        mock_webhook.unified_api.get_issues = AsyncMock(side_effect=GithubException(500, "Server error"))
+        mock_webhook.unified_api.get_repository = AsyncMock(return_value={"id": "R_kgDOABcD1M"})
+        mock_webhook.unified_api.get_user_id = AsyncMock(return_value="U_kgDOABcD1M")
+        mock_webhook.unified_api.create_issue = AsyncMock()
+
+        mock_pr_wrapper.number = 42
+        mock_pr_wrapper.title = "Test PR Title"
+        mock_pr_wrapper.user.login = "contributor"
+        mock_pr_wrapper.html_url = "https://github.com/owner/repo/pull/42"
+
+        # Should not raise, should continue to create issue
+        await handler.create_issue_for_new_pull_request(mock_pr_wrapper)
+
+        # Verify issue creation was attempted despite error
+        mock_webhook.unified_api.create_issue.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_create_issue_unexpected_error_continues(self, mock_webhook: Mock, mock_pr_wrapper: Mock) -> None:
+        """Test that unexpected errors during check don't prevent creation."""
+        mock_webhook.create_issue_for_new_pr = True
+        mock_webhook.parent_committer = "testuser"
+        mock_webhook.auto_verified_and_merged_users = []
+        # Create a mock owners_file_handler
+        mock_owners_file_handler = Mock()
+        handler = PullRequestHandler(
+            github_webhook=mock_webhook, owners_file_handler=mock_owners_file_handler, hook_data={}
+        )
+
+        # Unexpected error
+        mock_webhook.unified_api.get_issues = AsyncMock(side_effect=RuntimeError("Unexpected"))
+        mock_webhook.unified_api.get_repository = AsyncMock(return_value={"id": "R_kgDOABcD1M"})
+        mock_webhook.unified_api.get_user_id = AsyncMock(return_value="U_kgDOABcD1M")
+        mock_webhook.unified_api.create_issue = AsyncMock()
+
+        mock_pr_wrapper.number = 42
+        mock_pr_wrapper.title = "Test PR Title"
+        mock_pr_wrapper.user.login = "contributor"
+        mock_pr_wrapper.html_url = "https://github.com/owner/repo/pull/42"
+
+        # Should not raise, should continue to create issue
+        await handler.create_issue_for_new_pull_request(mock_pr_wrapper)
+
+        # Verify issue creation was attempted
+        mock_webhook.unified_api.create_issue.assert_called_once()

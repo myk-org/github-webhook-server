@@ -1,16 +1,16 @@
-import contextlib
 import copy
 import os
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from copy import deepcopy
-from typing import Any, Callable
+from typing import Any
 
 import github
 from github import Auth, Github, GithubIntegration
 from github.Auth import AppAuth
 from github.Branch import Branch
 from github.Commit import Commit
-from github.GithubException import UnknownObjectException
+from github.GithubException import GithubException, UnknownObjectException
 from github.Label import Label
 from github.PullRequest import PullRequest
 from github.Repository import Repository
@@ -42,6 +42,7 @@ DEFAULT_BRANCH_PROTECTION = {
     "required_conversation_resolution": True,
 }
 
+# Use LOGGER consistently throughout the module
 LOGGER = get_logger_with_params()
 
 
@@ -70,7 +71,8 @@ def set_branch_protection(
     api_user: str,
 ) -> bool:
     LOGGER.info(
-        f"[API user {api_user}] - Set branch {branch} setting for {repository.name}. enabled checks: {required_status_checks}"
+        f"[API user {api_user}] - Set branch {branch} setting for {repository.name}. "
+        f"enabled checks: {required_status_checks}"
     )
     branch.edit_protection(
         strict=strict,
@@ -139,15 +141,20 @@ def get_required_status_checks(
     if data.get(CONVENTIONAL_TITLE_STR):
         default_status_checks.append(CONVENTIONAL_TITLE_STR)
 
-    with contextlib.suppress(Exception):
+    try:
         repo.get_contents(".pre-commit-config.yaml")
+    except UnknownObjectException:
+        # 404 is expected if file doesn't exist
+        pass
+    except GithubException as ex:
+        # Handle other GitHub API errors (rate limits, permissions, etc.)
+        LOGGER.warning(f"Failed to check for .pre-commit-config.yaml in {repo.full_name}: {ex}")
+    else:
+        # Only append if no exception occurred (file exists)
         default_status_checks.append("pre-commit.ci - pr")
 
-    for status_check in exclude_status_checks:
-        while status_check in default_status_checks:
-            default_status_checks.remove(status_check)
-
-    return default_status_checks
+    # Remove excluded checks and deduplicate while preserving order using dict comprehension
+    return list(dict.fromkeys([check for check in default_status_checks if check not in exclude_status_checks]))
 
 
 def get_user_configures_status_checks(status_checks: dict[str, Any]) -> tuple[list[str], list[str]]:
@@ -201,7 +208,12 @@ async def set_repositories_settings(config: Config, apis_dict: dict[str, dict[st
         LOGGER.info("Login in to docker.io")
         docker_username: str = docker["username"]
         docker_password: str = docker["password"]
-        await run_command(log_prefix="", command=f"podman login -u {docker_username} -p {docker_password} docker.io")
+        await run_command(
+            log_prefix="docker-login",
+            command=f"podman login -u {docker_username} --password-stdin docker.io",
+            stdin_input=docker_password,
+            redact_secrets=[docker_username, docker_password],
+        )
 
     futures = []
     with ThreadPoolExecutor() as executor:
@@ -255,7 +267,7 @@ def set_repository(
                 LOGGER.warning,
             )
 
-        futures: list["Future"] = []
+        futures: list[Future] = []
 
         with ThreadPoolExecutor() as executor:
             for branch_name, status_checks in protected_branches.items():
@@ -318,7 +330,7 @@ def set_all_in_progress_check_runs_to_queued(repo_config: Config, apis_dict: dic
         BUILD_CONTAINER_STR,
         PRE_COMMIT_STR,
     )
-    futures: list["Future"] = []
+    futures: list[Future] = []
 
     with ThreadPoolExecutor() as executor:
         for repo, data in repo_config.root_data["repositories"].items():
@@ -347,11 +359,20 @@ def set_repository_check_runs_to_queued(
     api_user: str,
 ) -> tuple[bool, str, Callable]:
     def _set_checkrun_queued(_api: Repository, _pull_request: PullRequest) -> None:
-        last_commit: Commit = list(_pull_request.get_commits())[-1]
+        # Avoid materializing all commits - use single-pass iteration to find last commit
+        # This is O(1) memory instead of O(N) for large PRs
+        last_commit: Commit | None = None
+        for commit in _pull_request.get_commits():
+            last_commit = commit  # Assign on each iteration to get final value
+        if last_commit is None:
+            LOGGER.error(f"[API user {api_user}] - {repository}: [PR:{_pull_request.number}] No commits found")
+            return
+        # Use REST API method directly (this is REST-only code)
         for check_run in last_commit.get_check_runs():
             if check_run.name in check_runs and check_run.status == IN_PROGRESS_STR:
                 LOGGER.warning(
-                    f"[API user {api_user}] - {repository}: [PR:{pull_request.number}] {check_run.name} status is {IN_PROGRESS_STR}, "
+                    f"[API user {api_user}] - {repository}: [PR:{_pull_request.number}] "
+                    f"{check_run.name} status is {IN_PROGRESS_STR}, "
                     f"Setting check run {check_run.name} to {QUEUED_STR}"
                 )
                 _api.create_check_run(name=check_run.name, head_sha=last_commit.sha, status=QUEUED_STR)

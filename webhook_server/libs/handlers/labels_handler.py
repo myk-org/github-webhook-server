@@ -3,11 +3,12 @@ from typing import TYPE_CHECKING
 
 import webcolors
 from github.GithubException import UnknownObjectException
-from github.PullRequest import PullRequest
 from github.Repository import Repository
 from timeout_sampler import TimeoutWatch
 
-from webhook_server.libs.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.graphql.graphql_client import GraphQLError
+from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.utils.constants import (
     ADD_STR,
     APPROVE_STR,
@@ -23,6 +24,7 @@ from webhook_server.utils.constants import (
     STATIC_LABELS_DICT,
     WIP_STR,
 )
+from webhook_server.utils.helpers import format_task_fields
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
@@ -37,70 +39,229 @@ class LabelsHandler:
         self.logger = self.github_webhook.logger
         self.log_prefix: str = self.github_webhook.log_prefix
         self.repository: Repository = self.github_webhook.repository
+        self.unified_api = self.github_webhook.unified_api
 
-    async def label_exists_in_pull_request(self, pull_request: PullRequest, label: str) -> bool:
+    async def label_exists_in_pull_request(self, pull_request: PullRequestWrapper, label: str) -> bool:
         return label in await self.pull_request_labels_names(pull_request=pull_request)
 
-    async def pull_request_labels_names(self, pull_request: PullRequest) -> list[str]:
-        labels = await asyncio.to_thread(pull_request.get_labels)
+    async def pull_request_labels_names(self, pull_request: PullRequestWrapper) -> list[str]:
+        labels = pull_request.get_labels()
         return [lb.name for lb in labels]
 
-    async def _remove_label(self, pull_request: PullRequest, label: str) -> bool:
-        self.logger.step(f"{self.log_prefix} Removing label '{label}' from PR")  # type: ignore
+    async def _remove_label(self, pull_request: PullRequestWrapper, label: str) -> bool:
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('labels', 'pr_management', 'processing')} "
+            f"Removing label '{label}' from PR",
+        )
         self.logger.debug(f"{self.log_prefix} Removing label {label}")
         try:
             if await self.label_exists_in_pull_request(pull_request=pull_request, label=label):
                 self.logger.info(f"{self.log_prefix} Removing label {label}")
-                await asyncio.to_thread(pull_request.remove_from_labels, label)
+
+                # unified_api handles GraphQL vs REST
+                pr_id = pull_request.id
+                owner, repo_name = self.repository.full_name.split("/")
+                label_id = await self.unified_api.get_label_id(owner, repo_name, label)
+                if not label_id:
+                    self.logger.info(
+                        f"{self.log_prefix} Label '{label}' does not exist at repository level, skipping removal"
+                    )
+                    return True
+
+                # Remove labels and use mutation response to update wrapper
+                # Pass owner/repo/number for automatic retry on stale PR node ID
+                result = await self.unified_api.remove_labels(
+                    pr_id, [label_id], owner=owner, repo=repo_name, number=pull_request.number
+                )
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('labels', 'pr_management', 'completed')} "
+                    f"Label '{label}' removed successfully"
+                )
+
+                # Extract updated labels from mutation response (avoids refetch)
+                if result and "removeLabelsFromLabelable" in result:
+                    updated_labels = result["removeLabelsFromLabelable"]["labelable"]["labels"]["nodes"]
+                    pull_request.update_labels(updated_labels)
+                    self.logger.debug(f"{self.log_prefix} Updated labels in-place from mutation response")
+
                 return await self.wait_for_label(pull_request=pull_request, label=label, exists=False)
-        except Exception as exp:
-            self.logger.debug(f"{self.log_prefix} Failed to remove {label} label. Exception: {exp}")
+        except GraphQLError as ex:
+            # Check if error is critical (auth/permission/rate-limit)
+            error_str = str(ex).lower()
+            if any(keyword in error_str for keyword in ["auth", "permission", "forbidden", "rate limit", "401", "403"]):
+                self.logger.exception(f"{self.log_prefix} Critical error removing {label} label")
+                raise  # Don't hide auth/permission/rate-limit errors
+            else:
+                # Transient error or label doesn't exist - log with full traceback for debugging
+                self.logger.exception(f"{self.log_prefix} Failed to remove {label} label (may not exist)")
+                return False
+        except Exception:
+            # Handle non-GraphQL errors with full traceback
+            self.logger.exception(f"{self.log_prefix} Unexpected error removing {label} label")
             return False
 
         self.logger.debug(f"{self.log_prefix} Label {label} not found and cannot be removed")
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('labels', 'pr_management', 'completed')} "
+            f"Label removal skipped - label '{label}' not found"
+        )
         return False
 
-    async def _add_label(self, pull_request: PullRequest, label: str) -> None:
+    async def _add_label(self, pull_request: PullRequestWrapper, label: str) -> None:
         label = label.strip()
-        self.logger.step(f"{self.log_prefix} Adding label '{label}' to PR")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('labels', 'pr_management', 'processing')} "
+            f"Adding label '{label}' to PR",
+        )
         self.logger.debug(f"{self.log_prefix} Adding label {label}")
         if len(label) > 49:
             self.logger.debug(f"{label} is too long, not adding.")
             return
 
         if await self.label_exists_in_pull_request(pull_request=pull_request, label=label):
-            self.logger.debug(f"{self.log_prefix} Label {label} already assign")
+            self.logger.debug(f"{self.log_prefix} Label {label} already assigned")
             return
+
+        owner, repo_name = self.repository.full_name.split("/")
 
         if label in STATIC_LABELS_DICT:
             self.logger.info(f"{self.log_prefix} Adding pull request label {label}")
-            await asyncio.to_thread(pull_request.add_to_labels, label)
+            pr_id = pull_request.id
+            label_id = await self.unified_api.get_label_id(owner, repo_name, label)
+
+            # If label doesn't exist, create it first
+            if not label_id:
+                try:
+                    color = STATIC_LABELS_DICT[label]
+                    # Optimization: Use webhook data instead of API call
+                    repository_id = self.github_webhook.repository_id
+                    created_label = await self.unified_api.create_label(repository_id, label, color)
+                    label_id = created_label["id"]
+                    self.logger.debug(f"{self.log_prefix} Created static label {label} with ID {label_id}")
+                except Exception:
+                    # Log error but check for critical errors
+                    self.logger.exception(f"{self.log_prefix} Failed to create static label {label}")
+                    # Still raise on critical errors (auth/permission/rate-limit)
+                    raise
+
+            if label_id:
+                # Add labels and use mutation response to update wrapper
+                result = await self.unified_api.add_labels(pr_id, [label_id])
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('labels', 'pr_management', 'completed')} "
+                    f"Label '{label}' added successfully"
+                )
+
+                # Extract updated labels from mutation response (avoids refetch)
+                if result and "addLabelsToLabelable" in result:
+                    updated_labels = result["addLabelsToLabelable"]["labelable"]["labels"]["nodes"]
+                    pull_request.update_labels(updated_labels)
+                    self.logger.debug(f"{self.log_prefix} Updated labels in-place from mutation response")
+
+            try:
+                await self.wait_for_label(pull_request=pull_request, label=label, exists=True)
+            except GraphQLError as ex:
+                # Check if error is critical (auth/permission/rate-limit)
+                error_str = str(ex).lower()
+                if any(
+                    keyword in error_str for keyword in ["auth", "permission", "forbidden", "rate limit", "401", "403"]
+                ):
+                    self.logger.exception(f"{self.log_prefix} Critical error waiting for {label} label")
+                    raise  # Don't hide auth/permission/rate-limit errors
+                else:
+                    # Transient error or timeout - log with full traceback for debugging
+                    self.logger.exception(f"{self.log_prefix} Wait for {label} label timed out or failed")
+            except Exception:
+                # Handle non-GraphQL errors with full traceback
+                self.logger.exception(f"{self.log_prefix} Unexpected error waiting for {label} label")
             return
 
         color = self._get_label_color(label)
         _with_color_msg = f"repository label {label} with color {color}"
 
         try:
-            _repo_label = await asyncio.to_thread(self.repository.get_label, label)
-            await asyncio.to_thread(_repo_label.edit, name=_repo_label.name, color=color)
-            self.logger.debug(f"{self.log_prefix} Edit {_with_color_msg}")
+            # Try to get label via GraphQL
+            label_id = await self.unified_api.get_label_id(owner, repo_name, label)
+            if label_id:
+                # Label exists, update color
+                await self.unified_api.update_label(label_id, color)
+                self.logger.debug(f"{self.log_prefix} Edit {_with_color_msg}")
+            else:
+                # Label doesn't exist, create it
+                # Optimization: Use webhook data instead of API call
+                await self.unified_api.create_label(self.github_webhook.repository_id, label, color)
+                self.logger.debug(f"{self.log_prefix} Add {_with_color_msg}")
 
+        except GraphQLError as ex:
+            # Check if error is critical (auth/permission/rate-limit)
+            error_str = str(ex).lower()
+            if any(keyword in error_str for keyword in ["auth", "permission", "forbidden", "rate limit", "401", "403"]):
+                self.logger.exception(f"{self.log_prefix} Critical error managing {label} label")
+                raise  # Don't hide auth/permission/rate-limit errors
+            else:
+                # Transient error or label doesn't exist - log with full traceback for debugging
+                self.logger.exception(f"{self.log_prefix} Failed to manage {label} label (may be transient)")
         except UnknownObjectException:
+            # Label not found, create it (expected condition, not an error)
+            self.logger.debug(f"{self.log_prefix} Label {label} not found, creating it")
+            # Optimization: Use webhook data instead of API call
+            await self.unified_api.create_label(self.github_webhook.repository_id, label, color)
             self.logger.debug(f"{self.log_prefix} Add {_with_color_msg}")
-            await asyncio.to_thread(self.repository.create_label, name=label, color=color)
+        except Exception:
+            # Handle non-GraphQL errors with full traceback
+            self.logger.exception(f"{self.log_prefix} Unexpected error managing {label} label")
+            raise
 
         self.logger.info(f"{self.log_prefix} Adding pull request label {label}")
-        await asyncio.to_thread(pull_request.add_to_labels, label)
+        pr_id = pull_request.id
+        label_id = await self.unified_api.get_label_id(owner, repo_name, label)
+        if label_id:
+            # Add labels and use mutation response to update wrapper
+            result = await self.unified_api.add_labels(pr_id, [label_id])
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('labels', 'pr_management', 'completed')} "
+                f"Label '{label}' added successfully"
+            )
+
+            # Extract updated labels from mutation response (avoids refetch)
+            if result and "addLabelsToLabelable" in result:
+                updated_labels = result["addLabelsToLabelable"]["labelable"]["labels"]["nodes"]
+                pull_request.update_labels(updated_labels)
+                self.logger.debug(f"{self.log_prefix} Updated labels in-place from mutation response")
+
         await self.wait_for_label(pull_request=pull_request, label=label, exists=True)
 
-    async def wait_for_label(self, pull_request: PullRequest, label: str, exists: bool) -> bool:
-        self.logger.debug(f"{self.log_prefix} waiting for label {label} to {'exists' if exists else 'not exists'}")
-        while TimeoutWatch(timeout=30).remaining_time() > 0:
+    async def wait_for_label(self, pull_request: PullRequestWrapper, label: str, exists: bool) -> bool:
+        self.logger.debug(f"{self.log_prefix} waiting for label {label} to {'exist' if exists else 'not exist'}")
+        owner, repo_name = self.repository.full_name.split("/")
+
+        # Create TimeoutWatch once outside the loop to track total elapsed time
+        watch = TimeoutWatch(timeout=30)
+        backoff_seconds = 0.5  # Start with 500ms
+        max_backoff = 5  # Cap at 5 seconds
+
+        while watch.remaining_time() > 0:
+            # First check current labels (might already be updated from mutation response)
             res = await self.label_exists_in_pull_request(pull_request=pull_request, label=label)
             if res == exists:
                 return True
 
-            await asyncio.sleep(5)
+            # Only refetch if label not found and we have time remaining
+            if watch.remaining_time() > 0:
+                # Re-fetch labels to check for eventual consistency
+                refreshed_pr_data = await self.unified_api.get_pull_request_data(
+                    owner, repo_name, pull_request.number, include_labels=True
+                )
+                refreshed_pr = PullRequestWrapper(refreshed_pr_data, owner, repo_name)
+                res = await self.label_exists_in_pull_request(pull_request=refreshed_pr, label=label)
+                if res == exists:
+                    return True
+
+                # Exponential backoff with cap
+                sleep_time = min(backoff_seconds, max_backoff, watch.remaining_time())
+                if sleep_time > 0:
+                    await asyncio.sleep(sleep_time)
+                    backoff_seconds = min(backoff_seconds * 2, max_backoff)
 
         self.logger.debug(f"{self.log_prefix} Label {label} {'not found' if exists else 'found'}")
         return False
@@ -116,7 +277,7 @@ class LabelsHandler:
             size_name = label[len(SIZE_LABEL_PREFIX) :]
 
             thresholds = self._get_custom_pr_size_thresholds()
-            for threshold, label_name, color_hex in thresholds:
+            for _, label_name, color_hex in thresholds:
                 if label_name == size_name:
                     return color_hex
 
@@ -143,7 +304,7 @@ class LabelsHandler:
                 return webcolors.name_to_hex(default_color).lstrip("#")
             except ValueError:
                 # Fallback to hardcoded hex if default color name fails
-                return "d3d3d3"  # lightgray hex
+                return "d3d3d3"  # lightgray hex #d3d3d3
 
     def _get_custom_pr_size_thresholds(self) -> list[tuple[int | float, str, str]]:
         """Get custom PR size thresholds from configuration with fallback to static defaults.
@@ -180,11 +341,19 @@ class LabelsHandler:
 
         if not sorted_thresholds:
             self.logger.warning(f"{self.log_prefix} No valid custom thresholds found, using static defaults")
-            return self._get_custom_pr_size_thresholds()  # Recursive call will return static defaults
+            # Return static defaults directly to avoid infinite recursion
+            return [
+                (20, "XS", "ededed"),
+                (50, "S", "0E8A16"),
+                (100, "M", "F09C74"),
+                (300, "L", "F5621C"),
+                (500, "XL", "D93F0B"),
+                (float("inf"), "XXL", "B60205"),
+            ]
 
         return sorted_thresholds
 
-    def get_size(self, pull_request: PullRequest) -> str:
+    def get_size(self, pull_request: PullRequestWrapper) -> str:
         """Calculates size label based on additions and deletions."""
 
         # Handle None values by defaulting to 0
@@ -209,9 +378,12 @@ class LabelsHandler:
         # Fallback (should not happen due to our default handling)
         return f"{SIZE_LABEL_PREFIX}XL"
 
-    async def add_size_label(self, pull_request: PullRequest) -> None:
+    async def add_size_label(self, pull_request: PullRequestWrapper) -> None:
         """Add a size label to the pull request based on its additions and deletions."""
-        self.logger.step(f"{self.log_prefix} Calculating and applying PR size label")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('labels', 'pr_management', 'processing')} "
+            f"Calculating and applying PR size label",
+        )
         size_label = self.get_size(pull_request=pull_request)
         self.logger.debug(f"{self.log_prefix} size label is {size_label}")
         if not size_label:
@@ -232,11 +404,14 @@ class LabelsHandler:
             await self._remove_label(pull_request=pull_request, label=exists_size_label[0])
 
         await self._add_label(pull_request=pull_request, label=size_label)
-        self.logger.step(f"{self.log_prefix} Applied size label '{size_label}' to PR")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('labels', 'pr_management', 'processing')} "
+            f"Applied size label '{size_label}' to PR",
+        )
 
     async def label_by_user_comment(
         self,
-        pull_request: PullRequest,
+        pull_request: PullRequestWrapper,
         user_requested_label: str,
         remove: bool,
         reviewed_user: str,
@@ -259,7 +434,7 @@ class LabelsHandler:
             await label_func(pull_request=pull_request, label=user_requested_label)
 
     async def manage_reviewed_by_label(
-        self, pull_request: PullRequest, review_state: str, action: str, reviewed_user: str
+        self, pull_request: PullRequestWrapper, review_state: str, action: str, reviewed_user: str
     ) -> None:
         self.logger.info(
             f"{self.log_prefix} "
@@ -328,7 +503,7 @@ class LabelsHandler:
                 f"{self.log_prefix} PR {pull_request.number} got unsupported review state: {review_state}"
             )
 
-    def wip_or_hold_lables_exists(self, labels: list[str]) -> str:
+    def wip_or_hold_labels_exists(self, labels: list[str]) -> str:
         failure_output = ""
 
         if HOLD_LABEL_STR in labels:

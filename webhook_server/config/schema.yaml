@@ -74,6 +74,48 @@ properties:
     type: boolean
     description: Create a tracking issue for new pull requests (global default)
     default: true
+  max-owners-files:
+    type: integer
+    description: Maximum number of OWNERS files to process in a repository (default is 1000)
+    default: 1000
+    minimum: 1
+  batch-concurrency-limit:
+    type: integer
+    description: Maximum number of concurrent GraphQL batch operations (default is 10 to protect rate/connection limits, 0 for unlimited)
+    default: 10
+    minimum: 0
+
+  graphql:
+    type: object
+    properties:
+      query-limits:
+        type: object
+        description: "GraphQL query pagination limits (first: N). Maximum: 100 (GitHub API limit)"
+        properties:
+          collaborators:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 100
+            description: "Max collaborators to fetch per query"
+          contributors:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 100
+            description: "Max contributors (mentionableUsers) to fetch"
+          issues:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 100
+            description: "Max open issues to fetch"
+          pull-requests:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 100
+            description: "Max open pull requests to fetch"
 
   pr-size-thresholds:
     type: object
@@ -260,6 +302,47 @@ properties:
           type: boolean
           description: Create a tracking issue for new pull requests
           default: true
+        max-owners-files:
+          type: integer
+          description: Maximum number of OWNERS files to process in this repository (default is 1000)
+          default: 1000
+          minimum: 1
+        batch-concurrency-limit:
+          type: integer
+          description: Maximum number of concurrent GraphQL batch operations for this repository (default is 10, 0 for unlimited)
+          default: 10
+          minimum: 0
+        graphql:
+          type: object
+          properties:
+            query-limits:
+              type: object
+              description: "GraphQL query pagination limits (first: N). Maximum: 100 (GitHub API limit)"
+              properties:
+                collaborators:
+                  type: integer
+                  default: 100
+                  minimum: 1
+                  maximum: 100
+                  description: "Max collaborators to fetch per query"
+                contributors:
+                  type: integer
+                  default: 100
+                  minimum: 1
+                  maximum: 100
+                  description: "Max contributors (mentionableUsers) to fetch"
+                issues:
+                  type: integer
+                  default: 100
+                  minimum: 1
+                  maximum: 100
+                  description: "Max open issues to fetch"
+                pull-requests:
+                  type: integer
+                  default: 100
+                  minimum: 1
+                  maximum: 100
+                  description: "Max open pull requests to fetch"
         pr-size-thresholds:
           type: object
           description: Custom PR size thresholds with label names and colors (repository-specific override)

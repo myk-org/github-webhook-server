@@ -14,6 +14,9 @@ line-length = 120
 fix = true
 output-format = "grouped"
 
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "PLC0415"]
+
 [tool.ruff.format]
 exclude = [".git", ".venv", ".mypy_cache", ".tox", "__pycache__"]
 
@@ -33,20 +36,30 @@ warn_redundant_casts = true
 [tool.hatch.build.targets.wheel]
 packages = ["webhook_server"]
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
   "ipdb>=0.13.13",
   "ipython>=8.12.3",
   "types-colorama>=0.4.15.20240311",
   "types-pyyaml>=6.0.12.20250516",
   "types-requests>=2.32.4.20250611",
+  "ruff>=0.6.9",
+  "mypy>=1.18.2",
+]
+tests = [
+  "pytest>=8.3.3",
+  "pytest-cov>=6.0.0",
+  "pytest-mock>=3.14.0",
+  "pytest-asyncio>=0.24.0",
+  "pytest-xdist>=3.7.0",
+  "psutil>=7.0.0",
 ]
 
 [project]
 name = "github-webhook-server"
 version = "3.0.7"
 requires-python = ">=3.12"
-description = "A webhook server to manage Github reposotories and pull requests."
+description = "A webhook server to manage Github repositories and pull requests."
 readme = "README.md"
 license = "Apache-2.0"
 classifiers = [
@@ -58,15 +71,12 @@ dependencies = [
   "colorama>=0.4.6",
   "colorlog>=6.8.2",
   "fastapi>=0.115.0",
+  "gql[aiohttp]>=3.5.0",
   "pygithub>=2.4.0",
   "pyhelper-utils>=0.0.42",
-  "pytest-cov>=6.0.0",
-  "pytest-mock>=3.14.0",
-  "pytest>=8.3.3",
-  "python-simple-logger>=1.0.40",
+  "python-simple-logger>=2.0.18",
   "pyyaml>=6.0.2",
   "requests>=2.32.3",
-  "ruff>=0.6.9",
   "shortuuid>=1.0.13",
   "string-color>=1.2.3",
   "timeout-sampler>=0.0.46",
@@ -76,7 +86,6 @@ dependencies = [
   "webcolors>=24.11.1",
   "pyjwt>=2.8.0",
   "pydantic>=2.5.0",
-  "psutil>=7.0.0",
   "fastapi-mcp>=0.4.0",
 ]
 
@@ -93,14 +102,6 @@ homepage = "https://github.com/myakove/github-webhook-server"
 repository = "https://github.com/myakove/github-webhook-server"
 "Bug Tracker" = "https://github.com/myakove/github-webhook-server/issues"
 
-[project.optional-dependencies]
-tests = ["pytest-asyncio>=0.26.0", "pytest-xdist>=3.7.0"]
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
-[dependency-groups]
-tests = [
-    "psutil>=7.0.0",
-]

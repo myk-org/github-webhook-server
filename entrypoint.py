@@ -46,6 +46,9 @@ if __name__ == "__main__":
     run_podman_cleanup()
 
     result = asyncio.run(repository_and_webhook_settings(webhook_secret=_webhook_secret))
+
+    # Uvicorn will use default logging which respects FORCE_COLOR environment variable
+    # Application logs use simple-logger with console=True for colored output
     uvicorn.run(
         "webhook_server.app:FASTAPI_APP",
         host=_ip_bind,

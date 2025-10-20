@@ -8,7 +8,7 @@ the expected schema structure without requiring external JSON schema libraries.
 
 import sys
 from pathlib import Path
-from typing import Any, Union
+from typing import Any
 
 import yaml  # type: ignore
 from simple_logger.logger import get_logger
@@ -239,7 +239,7 @@ class ConfigValidator:
                 self.errors.append(f"Repository '{repo_name}' tox branch '{branch}' must be a string or array")
 
 
-def validate_config_file(config_path: Union[str, Path]) -> bool:
+def validate_config_file(config_path: str | Path) -> bool:
     """
     Validate a configuration file.
 
@@ -250,11 +250,16 @@ def validate_config_file(config_path: Union[str, Path]) -> bool:
         True if valid, False otherwise
     """
     try:
-        with open(config_path, "r") as file_handle:
+        with open(config_path, encoding="utf-8") as file_handle:
             config_data = yaml.safe_load(file_handle)
-    except Exception as exception:
+    except (yaml.YAMLError, OSError):
         logger = get_logger(name="test_schema_validator")
-        logger.error(f"Error loading config file: {exception}")
+        logger.exception("Error loading config file")
+        return False
+
+    if not isinstance(config_data, dict):
+        logger = get_logger(name="test_schema_validator")
+        logger.error("Config file does not contain a valid mapping (dictionary)")
         return False
 
     validator = ConfigValidator()

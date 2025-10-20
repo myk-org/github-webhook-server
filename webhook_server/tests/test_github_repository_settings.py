@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from github.GithubException import UnknownObjectException
 
+from webhook_server.tests.conftest import create_mock_pull_request
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CONVENTIONAL_TITLE_STR,
@@ -144,13 +145,16 @@ class TestGetRequiredStatusChecks:
     def test_get_required_status_checks_basic(self) -> None:
         """Test getting required status checks with basic configuration."""
         mock_repo = Mock()
-        # Patch get_contents to raise exception so 'pre-commit.ci - pr' is not added
-        mock_repo.get_contents.side_effect = Exception()
+        # Patch get_contents to raise UnknownObjectException so 'pre-commit.ci - pr' is not added
+        mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
         data: dict = {}
         default_status_checks: list[str] = ["basic-check"]
         exclude_status_checks: list[str] = []
 
-        result = get_required_status_checks(mock_repo, data, default_status_checks, exclude_status_checks)
+        result = get_required_status_checks(mock_repo, data, default_status_checks.copy(), exclude_status_checks.copy())
+
+        # Verify get_contents(".pre-commit-config.yaml") is called to check for pre-commit config
+        mock_repo.get_contents.assert_called_once_with(".pre-commit-config.yaml")
 
         # Should contain at least 'basic-check' and 'verified' (default)
         assert "basic-check" in result
@@ -158,6 +162,10 @@ class TestGetRequiredStatusChecks:
         # Should not contain duplicates
         assert result.count("basic-check") == 1
         assert result.count("verified") == 1
+
+    # NOTE: Tests below (tox, container, pypi, pre-commit, conventional-title) could be
+    # parametrized, but current structure is clearer as each tests a distinct feature
+    # with different configuration keys. Parametrizing would reduce readability.
 
     def test_get_required_status_checks_with_tox(self) -> None:
         """Test getting required status checks with tox enabled."""
@@ -230,13 +238,13 @@ class TestGetRequiredStatusChecks:
     def test_get_required_status_checks_with_exclusions(self) -> None:
         """Test getting required status checks with exclusions."""
         mock_repo = Mock()
-        # Patch get_contents to raise exception so 'pre-commit.ci - pr' is not added
-        mock_repo.get_contents.side_effect = Exception()
+        # Patch get_contents to raise UnknownObjectException so 'pre-commit.ci - pr' is not added
+        mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
         data: dict = {"tox": True}
         default_status_checks: list[str] = ["tox", "verified"]
         exclude_status_checks: list[str] = ["tox"]
 
-        result = get_required_status_checks(mock_repo, data, default_status_checks, exclude_status_checks)
+        result = get_required_status_checks(mock_repo, data, default_status_checks.copy(), exclude_status_checks.copy())
 
         assert result.count("tox") == 0
         assert "verified" in result
@@ -251,6 +259,69 @@ class TestGetRequiredStatusChecks:
         result = get_required_status_checks(mock_repo, data, default_status_checks, exclude_status_checks)
 
         assert "verified" not in result
+
+    def test_get_required_status_checks_deduplication_with_pre_existing_values(self) -> None:
+        """Test that deduplication works when default_status_checks already contains values that will be appended."""
+
+        mock_repo = Mock()
+        # Simulate .pre-commit-config.yaml exists
+        mock_repo.get_contents.return_value = Mock()
+
+        # Enable multiple checks
+        data: dict = {
+            "tox": True,
+            "container": True,
+            "pypi": True,
+            "pre-commit": True,
+            "conventional-title": True,
+            "verified-job": True,
+        }
+
+        # Pre-populate with values that will also be added by the function
+        default_status_checks: list[str] = [
+            "can-be-merged",
+            "verified",
+            "tox",  # Will be added again by data["tox"]
+            PRE_COMMIT_STR,  # Will be added again by data["pre-commit"]
+        ]
+        exclude_status_checks: list[str] = []
+
+        result = get_required_status_checks(mock_repo, data, default_status_checks, exclude_status_checks)
+
+        # Verify deduplication works
+        assert len(result) == len(set(result)), f"Duplicates found in result: {result}"
+
+        # Verify expected values are present (once each)
+        assert result.count("can-be-merged") == 1
+        assert result.count("verified") == 1
+        assert result.count("tox") == 1
+        assert result.count(PRE_COMMIT_STR) == 1
+        assert result.count(BUILD_CONTAINER_STR) == 1
+        assert result.count(PYTHON_MODULE_INSTALL_STR) == 1
+        assert result.count(CONVENTIONAL_TITLE_STR) == 1
+        assert result.count("pre-commit.ci - pr") == 1
+
+    def test_get_required_status_checks_preserves_order_while_deduplicating(self) -> None:
+        """Test that deduplication preserves the order of first occurrence."""
+        mock_repo = Mock()
+        mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
+
+        data: dict = {}
+
+        # Create list with intentional duplicates in specific order
+        default_status_checks: list[str] = ["check1", "check2", "check1", "check3", "check2"]
+        exclude_status_checks: list[str] = []
+
+        result = get_required_status_checks(mock_repo, data, default_status_checks, exclude_status_checks)
+
+        # Should preserve first occurrence order: check1, check2, check3, verified
+        expected_order_prefix = ["check1", "check2", "check3"]
+        assert result[:3] == expected_order_prefix, f"Order not preserved: {result}"
+        assert len(result) == len(set(result)), f"Duplicates found: {result}"
+
+        # Verify "verified" lands after user items to lock the contract
+        verified_index = result.index("verified")
+        assert verified_index >= len(expected_order_prefix), "verified should appear after all user-provided items"
 
 
 class TestGetUserConfiguresStatusChecks:
@@ -410,7 +481,21 @@ class TestSetRepositoriesSettings:
 
         await set_repositories_settings(mock_config, mock_apis_dict)
 
+        # Verify run_command was called with proper security parameters
         mock_run_command.assert_called_once()
+        call_kwargs = mock_run_command.call_args[1]
+        assert "stdin_input" in call_kwargs, "Should pass stdin_input for docker login"
+        assert "redact_secrets" in call_kwargs, "Should pass redact_secrets to protect credentials"
+        # Verify exact password is in redact_secrets list for proper masking
+        assert "test-pass" in call_kwargs["redact_secrets"], "Should include exact password in redact_secrets"
+
+        # Verify docker command shape to prevent password leaks via args
+        command = call_kwargs.get("command", "")
+        assert isinstance(command, str), "Command should be a string"
+        assert "login" in command, "Command should contain login"
+        assert "test-pass" not in command, "Password should NOT be in command args (should use stdin)"
+        assert "--password-stdin" in command, "Should use --password-stdin to read password from stdin"
+
         mock_executor.submit.assert_called_once()
         mock_get_futures.assert_called_once()
 
@@ -616,9 +701,8 @@ class TestSetRepositoryCheckRunsToQueued:
         mock_get_app_api.return_value = mock_app_api
         mock_get_repo.side_effect = [mock_app_repo, mock_repo]
 
-        # Mock pull request and commits
-        mock_pull_request = Mock()
-        mock_pull_request.number = 123
+        # Mock pull request and commits using shared helper
+        mock_pull_request = create_mock_pull_request()
         mock_repo.get_pulls.return_value = [mock_pull_request]
 
         mock_commit = Mock()

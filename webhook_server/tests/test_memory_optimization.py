@@ -1,16 +1,17 @@
 """Memory optimization tests for log viewer streaming functionality."""
 
-import tempfile
-import datetime
-import time
 import asyncio
+import datetime
+import shutil
+import tempfile
+import time
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+
 import pytest
 
-
-from webhook_server.web.log_viewer import LogViewerController
 from webhook_server.libs.log_parser import LogEntry
+from webhook_server.web.log_viewer import LogViewerController
 
 
 class TestStreamingMemoryOptimization:
@@ -18,7 +19,6 @@ class TestStreamingMemoryOptimization:
 
     def setup_method(self):
         """Set up test environment."""
-        from unittest.mock import patch
 
         self.mock_logger = Mock()
 
@@ -96,7 +96,7 @@ class TestStreamingMemoryOptimization:
         start_time = time.perf_counter()
 
         entries_processed = 0
-        for entry in self.controller._stream_log_entries(chunk_size=500, max_entries=5000):
+        for _ in self.controller._stream_log_entries(chunk_size=500, max_entries=5000):
             entries_processed += 1
             if entries_processed >= 2000:  # Stop after processing 2000 entries
                 break
@@ -247,8 +247,6 @@ class TestStreamingMemoryOptimization:
 
     def teardown_method(self):
         """Clean up test environment."""
-        import shutil
-
         if Path(self.temp_dir).exists():
             shutil.rmtree(self.temp_dir)
 
@@ -258,7 +256,6 @@ class TestMemoryRegressionPrevention:
 
     def test_streaming_functionality_baseline(self):
         """Establish baseline functionality for regression testing."""
-        from unittest.mock import patch
 
         mock_logger = Mock()
 
@@ -287,7 +284,8 @@ class TestMemoryRegressionPrevention:
                     microseconds = 1000 + (i * 1000) % 999000
                     timestamp = base_time + datetime.timedelta(seconds=i, microseconds=microseconds)
                     f.write(
-                        f"{timestamp.isoformat()} GithubWebhook INFO test-repo [push][hook-{i:04d}][user]: Message {i}\n"
+                        f"{timestamp.isoformat()} GithubWebhook INFO test-repo "
+                        f"[push][hook-{i:04d}][user]: Message {i}\n"
                     )
 
             # Test streaming functionality

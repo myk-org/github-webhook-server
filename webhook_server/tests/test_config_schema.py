@@ -1,4 +1,5 @@
 import os
+import shutil
 import tempfile
 from typing import Any
 
@@ -106,8 +107,6 @@ class TestConfigSchema:
             assert "test-repo" in config.root_data["repositories"]
         finally:
             # Clean up
-            import shutil
-
             shutil.rmtree(temp_dir)
 
     def test_valid_full_config_loads(self, valid_full_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
@@ -132,8 +131,6 @@ class TestConfigSchema:
             assert repo_data["minimum-lgtm"] == 2
             assert repo_data["conventional-title"] == "feat,fix,docs"
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir)
 
     def test_log_level_enum_validation(self, valid_minimal_config: dict[str, Any]) -> None:
@@ -146,12 +143,10 @@ class TestConfigSchema:
 
             try:
                 config_file = os.path.join(temp_dir, "config.yaml")
-                with open(config_file, "r") as file_handle:
+                with open(config_file) as file_handle:
                     data = yaml.safe_load(file_handle)
                     assert data["log-level"] == level
             finally:
-                import shutil
-
                 shutil.rmtree(temp_dir)
 
     def test_required_fields_validation(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -171,8 +166,6 @@ class TestConfigSchema:
             with pytest.raises(ValueError, match="does not have `repositories`"):
                 Config()
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir)
 
     def test_array_fields_validation(self, valid_minimal_config: dict[str, Any]) -> None:
@@ -186,14 +179,12 @@ class TestConfigSchema:
 
         try:
             config_file = os.path.join(temp_dir, "config.yaml")
-            with open(config_file, "r") as file_handle:
+            with open(config_file) as file_handle:
                 data = yaml.safe_load(file_handle)
                 assert len(data["github-tokens"]) == 3
                 assert len(data["default-status-checks"]) == 3
                 assert len(data["auto-verified-and-merged-users"]) == 2
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir)
 
     def test_docker_object_validation(self, valid_minimal_config: dict[str, Any]) -> None:
@@ -205,13 +196,11 @@ class TestConfigSchema:
 
         try:
             config_file = os.path.join(temp_dir, "config.yaml")
-            with open(config_file, "r") as file_handle:
+            with open(config_file) as file_handle:
                 data = yaml.safe_load(file_handle)
                 assert data["docker"]["username"] == "testuser"
                 assert data["docker"]["password"] == "testpass"  # pragma: allowlist secret
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir)
 
     def test_branch_protection_object_validation(self, valid_minimal_config: dict[str, Any]) -> None:
@@ -230,15 +219,13 @@ class TestConfigSchema:
 
         try:
             config_file = os.path.join(temp_dir, "config.yaml")
-            with open(config_file, "r") as file_handle:
+            with open(config_file) as file_handle:
                 data = yaml.safe_load(file_handle)
                 branch_protection = data["branch-protection"]
                 assert branch_protection["strict"] is True
                 assert branch_protection["require_code_owner_reviews"] is False
                 assert branch_protection["required_approving_review_count"] == 2
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir)
 
     def test_repository_structure_validation(self, valid_minimal_config: dict[str, Any]) -> None:
@@ -253,14 +240,12 @@ class TestConfigSchema:
 
         try:
             config_file = os.path.join(temp_dir, "config.yaml")
-            with open(config_file, "r") as file_handle:
+            with open(config_file) as file_handle:
                 data = yaml.safe_load(file_handle)
                 assert "repo1" in data["repositories"]
                 assert "repo2" in data["repositories"]
                 assert data["repositories"]["repo2"]["minimum-lgtm"] == 1
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir)
 
     def test_tox_configuration_flexibility(self, valid_minimal_config: dict[str, Any]) -> None:
@@ -276,15 +261,13 @@ class TestConfigSchema:
 
         try:
             config_file = os.path.join(temp_dir, "config.yaml")
-            with open(config_file, "r") as file_handle:
+            with open(config_file) as file_handle:
                 data = yaml.safe_load(file_handle)
                 tox_config = data["repositories"]["test-repo"]["tox"]
                 assert tox_config["main"] == "all"
                 assert tox_config["dev"] == ["test1", "test2"]
                 assert tox_config["feature"] == "specific-test"
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir)
 
     def test_protected_branches_flexibility(self, valid_minimal_config: dict[str, Any]) -> None:
@@ -300,15 +283,13 @@ class TestConfigSchema:
 
         try:
             config_file = os.path.join(temp_dir, "config.yaml")
-            with open(config_file, "r") as file_handle:
+            with open(config_file) as file_handle:
                 data = yaml.safe_load(file_handle)
                 protected_branches = data["repositories"]["test-repo"]["protected-branches"]
                 assert "include-runs" in protected_branches["main"]
                 assert protected_branches["dev"] == []
                 assert protected_branches["feature"] == ["simple-array"]
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir)
 
     def test_container_configuration_complete(self, valid_minimal_config: dict[str, Any]) -> None:
@@ -328,7 +309,7 @@ class TestConfigSchema:
 
         try:
             config_file = os.path.join(temp_dir, "config.yaml")
-            with open(config_file, "r") as file_handle:
+            with open(config_file) as file_handle:
                 data = yaml.safe_load(file_handle)
                 container = data["repositories"]["test-repo"]["container"]
                 assert container["username"] == "reguser"
@@ -336,8 +317,6 @@ class TestConfigSchema:
                 assert len(container["build-args"]) == 2
                 assert len(container["args"]) == 2
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir)
 
     def test_boolean_fields_validation(self, valid_minimal_config: dict[str, Any]) -> None:
@@ -350,7 +329,7 @@ class TestConfigSchema:
 
         try:
             config_file = os.path.join(temp_dir, "config.yaml")
-            with open(config_file, "r") as file_handle:
+            with open(config_file) as file_handle:
                 data = yaml.safe_load(file_handle)
                 assert data["verify-github-ips"] is True
                 assert data["verify-cloudflare-ips"] is False
@@ -358,8 +337,6 @@ class TestConfigSchema:
                 assert data["repositories"]["test-repo"]["verified-job"] is False
                 assert data["repositories"]["test-repo"]["pre-commit"] is True
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir)
 
     def test_integer_fields_validation(self, valid_minimal_config: dict[str, Any]) -> None:
@@ -372,14 +349,12 @@ class TestConfigSchema:
 
         try:
             config_file = os.path.join(temp_dir, "config.yaml")
-            with open(config_file, "r") as file_handle:
+            with open(config_file) as file_handle:
                 data = yaml.safe_load(file_handle)
                 assert data["port"] == 8080
                 assert data["max-workers"] == 20
                 assert data["repositories"]["test-repo"]["minimum-lgtm"] == 3
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir)
 
     def test_disable_ssl_warnings_configuration(self, valid_minimal_config: dict[str, Any]) -> None:
@@ -391,12 +366,10 @@ class TestConfigSchema:
 
         try:
             config_file = os.path.join(temp_dir, "config.yaml")
-            with open(config_file, "r") as file_handle:
+            with open(config_file) as file_handle:
                 data = yaml.safe_load(file_handle)
                 assert data["disable-ssl-warnings"] is True
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir)
 
     def test_empty_configuration_handling(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -410,8 +383,6 @@ class TestConfigSchema:
             with pytest.raises(ValueError):
                 Config()
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir)
 
     def test_malformed_yaml_handling(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -426,12 +397,10 @@ class TestConfigSchema:
         try:
             monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
 
-            # Malformed YAML should result in empty config and fail repositories validation
-            with pytest.raises(ValueError, match="does not have `repositories`"):
+            # Malformed YAML should raise exception immediately, not continue with empty config
+            with pytest.raises(yaml.YAMLError):
                 Config()
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir)
 
     def test_default_values_behavior(
@@ -452,8 +421,6 @@ class TestConfigSchema:
             assert "verify-github-ips" not in config_obj.root_data
             assert "minimum-lgtm" not in config_obj.root_data["repositories"]["test-repo"]
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir)
 
     def test_create_issue_for_new_pr_configuration(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -478,8 +445,6 @@ class TestConfigSchema:
             config = Config()
             assert config.root_data["create-issue-for-new-pr"] is False
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir)
 
         # Test repository-specific override
@@ -503,8 +468,6 @@ class TestConfigSchema:
             assert config.root_data["create-issue-for-new-pr"] is False
             assert config.root_data["repositories"]["test-repo"]["create-issue-for-new-pr"] is True
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir)
 
     def test_pr_size_thresholds_valid_configuration(self, valid_minimal_config: dict[str, Any]) -> None:
@@ -519,7 +482,7 @@ class TestConfigSchema:
 
         try:
             config_file = os.path.join(temp_dir, "config.yaml")
-            with open(config_file, "r") as file_handle:
+            with open(config_file) as file_handle:
                 data = yaml.safe_load(file_handle)
                 pr_thresholds = data["pr-size-thresholds"]
                 assert pr_thresholds["Small"]["threshold"] == 100
@@ -527,8 +490,6 @@ class TestConfigSchema:
                 assert pr_thresholds["Large"]["threshold"] == 500
                 assert pr_thresholds["Large"]["color"] == "red"
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir)
 
     def test_pr_size_thresholds_repository_level(self, valid_minimal_config: dict[str, Any]) -> None:
@@ -544,7 +505,7 @@ class TestConfigSchema:
 
         try:
             config_file = os.path.join(temp_dir, "config.yaml")
-            with open(config_file, "r") as file_handle:
+            with open(config_file) as file_handle:
                 data = yaml.safe_load(file_handle)
                 repo_thresholds = data["repositories"]["test-repo"]["pr-size-thresholds"]
                 assert repo_thresholds["Express"]["threshold"] == 25
@@ -552,8 +513,6 @@ class TestConfigSchema:
                 assert repo_thresholds["Extended"]["threshold"] == 300
                 assert repo_thresholds["Extended"]["color"] == "orange"
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir)
 
     def test_pr_size_thresholds_various_color_names(self, valid_minimal_config: dict[str, Any]) -> None:
@@ -572,15 +531,13 @@ class TestConfigSchema:
 
         try:
             config_file = os.path.join(temp_dir, "config.yaml")
-            with open(config_file, "r") as file_handle:
+            with open(config_file) as file_handle:
                 data = yaml.safe_load(file_handle)
                 pr_thresholds = data["pr-size-thresholds"]
                 assert len(pr_thresholds) == 6
                 assert pr_thresholds["Tiny"]["color"] == "lightgray"
                 assert pr_thresholds["Massive"]["threshold"] == 2000
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir)
 
     def test_pr_size_thresholds_missing_fields(self, valid_minimal_config: dict[str, Any]) -> None:
@@ -595,13 +552,11 @@ class TestConfigSchema:
 
         try:
             config_file = os.path.join(temp_dir, "config.yaml")
-            with open(config_file, "r") as file_handle:
+            with open(config_file) as file_handle:
                 data = yaml.safe_load(file_handle)
                 # Should still load, validation will happen at runtime
                 assert "pr-size-thresholds" in data
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir)
 
         # Test missing color (should be acceptable with fallback)
@@ -614,12 +569,10 @@ class TestConfigSchema:
 
         try:
             config_file = os.path.join(temp_dir2, "config.yaml")
-            with open(config_file, "r") as file_handle:
+            with open(config_file) as file_handle:
                 data = yaml.safe_load(file_handle)
                 assert data["pr-size-thresholds"]["Small"]["threshold"] == 100
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir2)
 
     def test_pr_size_thresholds_invalid_threshold_values(self, valid_minimal_config: dict[str, Any]) -> None:
@@ -634,13 +587,11 @@ class TestConfigSchema:
 
         try:
             config_file = os.path.join(temp_dir, "config.yaml")
-            with open(config_file, "r") as file_handle:
+            with open(config_file) as file_handle:
                 data = yaml.safe_load(file_handle)
                 # Config loads, but validation should catch this at runtime
                 assert data["pr-size-thresholds"]["Small"]["threshold"] == -10
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir)
 
         # Test zero threshold
@@ -653,12 +604,10 @@ class TestConfigSchema:
 
         try:
             config_file = os.path.join(temp_dir2, "config.yaml")
-            with open(config_file, "r") as file_handle:
+            with open(config_file) as file_handle:
                 data = yaml.safe_load(file_handle)
                 assert data["pr-size-thresholds"]["Small"]["threshold"] == 0
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir2)
 
         # Test non-integer threshold
@@ -671,12 +620,10 @@ class TestConfigSchema:
 
         try:
             config_file = os.path.join(temp_dir3, "config.yaml")
-            with open(config_file, "r") as file_handle:
+            with open(config_file) as file_handle:
                 data = yaml.safe_load(file_handle)
                 assert data["pr-size-thresholds"]["Small"]["threshold"] == "not-a-number"
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir3)
 
     def test_pr_size_thresholds_empty_configuration(self, valid_minimal_config: dict[str, Any]) -> None:
@@ -688,10 +635,8 @@ class TestConfigSchema:
 
         try:
             config_file = os.path.join(temp_dir, "config.yaml")
-            with open(config_file, "r") as file_handle:
+            with open(config_file) as file_handle:
                 data = yaml.safe_load(file_handle)
                 assert data["pr-size-thresholds"] == {}
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir)

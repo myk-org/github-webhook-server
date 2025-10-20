@@ -1,10 +1,11 @@
-"""Tests for webhook_server.libs.pull_request_review_handler module."""
+"""Tests for webhook_server.libs.handlers.pull_request_review_handler module."""
+
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from unittest.mock import AsyncMock, Mock, patch
-from github.PullRequest import PullRequest
 
-from webhook_server.libs.pull_request_review_handler import PullRequestReviewHandler
+from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+from webhook_server.libs.handlers.pull_request_review_handler import PullRequestReviewHandler
 from webhook_server.utils.constants import ADD_STR, APPROVE_STR
 
 
@@ -43,7 +44,7 @@ class TestPullRequestReviewHandler:
         self, pull_request_review_handler: PullRequestReviewHandler
     ) -> None:
         """Test processing pull request review webhook data with submitted action."""
-        mock_pull_request = Mock(spec=PullRequest)
+        mock_pull_request = Mock(spec=PullRequestWrapper)
 
         with patch.object(pull_request_review_handler.labels_handler, "manage_reviewed_by_label") as mock_manage_label:
             with patch.object(
@@ -69,7 +70,7 @@ class TestPullRequestReviewHandler:
         self, pull_request_review_handler: PullRequestReviewHandler
     ) -> None:
         """Test processing pull request review webhook data with non-submitted action."""
-        mock_pull_request = Mock(spec=PullRequest)
+        mock_pull_request = Mock(spec=PullRequestWrapper)
         pull_request_review_handler.hook_data["action"] = "edited"
 
         with patch.object(pull_request_review_handler.labels_handler, "manage_reviewed_by_label") as mock_manage_label:
@@ -86,7 +87,7 @@ class TestPullRequestReviewHandler:
         self, pull_request_review_handler: PullRequestReviewHandler
     ) -> None:
         """Test processing pull request review webhook data with no review body."""
-        mock_pull_request = Mock(spec=PullRequest)
+        mock_pull_request = Mock(spec=PullRequestWrapper)
         pull_request_review_handler.hook_data["review"]["body"] = None
 
         with patch.object(pull_request_review_handler.labels_handler, "manage_reviewed_by_label") as mock_manage_label:
@@ -108,7 +109,7 @@ class TestPullRequestReviewHandler:
         self, pull_request_review_handler: PullRequestReviewHandler
     ) -> None:
         """Test processing pull request review webhook data with empty review body."""
-        mock_pull_request = Mock(spec=PullRequest)
+        mock_pull_request = Mock(spec=PullRequestWrapper)
         pull_request_review_handler.hook_data["review"]["body"] = ""
 
         with patch.object(pull_request_review_handler.labels_handler, "manage_reviewed_by_label") as mock_manage_label:
@@ -130,7 +131,7 @@ class TestPullRequestReviewHandler:
         self, pull_request_review_handler: PullRequestReviewHandler
     ) -> None:
         """Test processing pull request review webhook data with body that doesn't contain /approve."""
-        mock_pull_request = Mock(spec=PullRequest)
+        mock_pull_request = Mock(spec=PullRequestWrapper)
         pull_request_review_handler.hook_data["review"]["body"] = "Good work, but needs some changes"
 
         with patch.object(pull_request_review_handler.labels_handler, "manage_reviewed_by_label") as mock_manage_label:
@@ -152,7 +153,7 @@ class TestPullRequestReviewHandler:
         self, pull_request_review_handler: PullRequestReviewHandler
     ) -> None:
         """Test processing pull request review webhook data with different review states."""
-        mock_pull_request = Mock(spec=PullRequest)
+        mock_pull_request = Mock(spec=PullRequestWrapper)
 
         test_states = ["commented", "changes_requested", "dismissed"]
 
@@ -189,7 +190,7 @@ class TestPullRequestReviewHandler:
         self, pull_request_review_handler: PullRequestReviewHandler
     ) -> None:
         """Test processing pull request review webhook data with different users."""
-        mock_pull_request = Mock(spec=PullRequest)
+        mock_pull_request = Mock(spec=PullRequestWrapper)
 
         test_users = ["user1", "user2", "maintainer", "contributor"]
 
@@ -223,7 +224,7 @@ class TestPullRequestReviewHandler:
         self, pull_request_review_handler: PullRequestReviewHandler
     ) -> None:
         """Test processing pull request review webhook data with exact /approve match."""
-        mock_pull_request = Mock(spec=PullRequest)
+        mock_pull_request = Mock(spec=PullRequestWrapper)
 
         test_bodies = ["/approve", "Great work! /approve", "LGTM /approve thanks", "/approve this looks good"]
 

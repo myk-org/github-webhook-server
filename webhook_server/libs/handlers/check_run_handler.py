@@ -1,12 +1,13 @@
-import asyncio
 from typing import TYPE_CHECKING, Any
 
 from github.CheckRun import CheckRun
-from github.PullRequest import PullRequest
+from github.GithubException import GithubException
 from github.Repository import Repository
 
-from webhook_server.libs.labels_handler import LabelsHandler
-from webhook_server.libs.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.graphql.graphql_client import GraphQLError
+from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+from webhook_server.libs.handlers.labels_handler import LabelsHandler
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.utils.constants import (
     AUTOMERGE_LABEL_STR,
     BUILD_CONTAINER_STR,
@@ -22,6 +23,7 @@ from webhook_server.utils.constants import (
     TOX_STR,
     VERIFIED_LABEL_STR,
 )
+from webhook_server.utils.helpers import format_task_fields
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
@@ -35,30 +37,60 @@ class CheckRunHandler:
         self.logger = self.github_webhook.logger
         self.log_prefix: str = self.github_webhook.log_prefix
         self.repository: Repository = self.github_webhook.repository
+        self.unified_api = self.github_webhook.unified_api
         if isinstance(self.owners_file_handler, OwnersFileHandler):
             self.labels_handler = LabelsHandler(
                 github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
             )
 
-    async def process_pull_request_check_run_webhook_data(self, pull_request: PullRequest | None = None) -> bool:
+    @property
+    def _owner_and_repo(self) -> tuple[str, str]:
+        """Split repository full name into owner and repo name.
+
+        Returns:
+            Tuple of (owner, repo_name)
+        """
+        owner, repo_name = self.repository.full_name.split("/")
+        return owner, repo_name
+
+    async def process_pull_request_check_run_webhook_data(self, pull_request: PullRequestWrapper | None = None) -> bool:
         """Return True if check_if_can_be_merged need to run"""
 
         _check_run: dict[str, Any] = self.hook_data["check_run"]
         check_run_name: str = _check_run["name"]
 
-        self.logger.step(f"{self.log_prefix} Processing check run: {check_run_name}")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'processing')} "
+            f"Processing check run: {check_run_name}",
+        )
 
         if self.hook_data.get("action", "") != "completed":
             self.logger.debug(
-                f"{self.log_prefix} check run {check_run_name} action is {self.hook_data.get('action', 'N/A')} and not completed, skipping"
+                f"{self.log_prefix} check run {check_run_name} action is "
+                f"{self.hook_data.get('action', 'N/A')} and not completed, skipping"
             )
             return False
 
         check_run_status: str = _check_run["status"]
         check_run_conclusion: str = _check_run["conclusion"]
         self.logger.debug(
-            f"{self.log_prefix} processing check_run - Name: {check_run_name} Status: {check_run_status} Conclusion: {check_run_conclusion}"
+            f"{self.log_prefix} processing check_run - Name: {check_run_name} "
+            f"Status: {check_run_status} Conclusion: {check_run_conclusion}"
         )
+
+        # Log completion at appropriate level based on conclusion
+        if check_run_conclusion == SUCCESS_STR:
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'completed')} "
+                f"Check run {check_run_name} completed with SUCCESS",
+            )
+        elif check_run_conclusion == FAILURE_STR:
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'failed')} "
+                f"Check run {check_run_name} completed with FAILURE",
+            )
+        elif check_run_conclusion:  # Other conclusions (cancelled, skipped, etc.)
+            self.logger.info(f"{self.log_prefix} Check run {check_run_name} completed with {check_run_conclusion}")
 
         if check_run_name == CAN_BE_MERGED_STR:
             if getattr(self, "labels_handler", None) and pull_request and check_run_conclusion == SUCCESS_STR:
@@ -66,19 +98,37 @@ class CheckRunHandler:
                     label=AUTOMERGE_LABEL_STR, pull_request=pull_request
                 ):
                     try:
-                        self.logger.step(f"{self.log_prefix} Executing auto-merge for PR #{pull_request.number}")  # type: ignore
-                        await asyncio.to_thread(pull_request.merge, merge_method="SQUASH")
-                        self.logger.step(f"{self.log_prefix} Auto-merge completed successfully")  # type: ignore
+                        self.logger.step(  # type: ignore[attr-defined]
+                            f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'processing')} "
+                            f"Executing auto-merge for PR #{pull_request.number}",
+                        )
+                        owner, repo_name = self._owner_and_repo
+                        await self.unified_api.merge_pull_request(
+                            owner, repo_name, pull_request.number, merge_method="SQUASH"
+                        )
+                        self.logger.step(  # type: ignore[attr-defined]
+                            f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'completed')} "
+                            f"Auto-merge completed successfully",
+                        )
                         self.logger.info(
                             f"{self.log_prefix} Successfully auto-merged pull request #{pull_request.number}"
                         )
                         return False
-                    except Exception as ex:
-                        self.logger.error(
-                            f"{self.log_prefix} Failed to auto-merge pull request #{pull_request.number}: {ex}"
+                    except (GraphQLError, GithubException):
+                        # Log full exception with traceback for debugging
+                        self.logger.exception(
+                            f"{self.log_prefix} Failed to auto-merge pull request #{pull_request.number}"
                         )
-                        # Continue processing to allow manual intervention
-                        return True
+                        # Send sanitized message to PR (no sensitive exception details)
+                        failure_msg = (
+                            f"⚠️ **Auto-merge failed**\n\n"
+                            f"The PR has the `{AUTOMERGE_LABEL_STR}` label and all checks passed, "
+                            f"but auto-merge encountered an error.\n\n"
+                            f"Please merge manually or contact the repository maintainers for assistance."
+                        )
+                        owner, repo = self._owner_and_repo
+                        await self.github_webhook.unified_api.add_pr_comment(owner, repo, pull_request, failure_msg)
+                        return False
 
             else:
                 self.logger.debug(f"{self.log_prefix} check run is {CAN_BE_MERGED_STR}, skipping")
@@ -219,25 +269,60 @@ class CheckRunHandler:
 
         # Log workflow steps for check run status changes
         if status == QUEUED_STR:
-            self.logger.step(f"{self.log_prefix} Setting {check_run} check to queued")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'processing')} "
+                f"Setting {check_run} check to queued",
+            )
         elif status == IN_PROGRESS_STR:
-            self.logger.step(f"{self.log_prefix} Setting {check_run} check to in-progress")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'processing')} "
+                f"Setting {check_run} check to in-progress",
+            )
         elif conclusion == SUCCESS_STR:
-            self.logger.step(f"{self.log_prefix} Setting {check_run} check to success")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'processing')} "
+                f"Setting {check_run} check to success",
+            )
         elif conclusion == FAILURE_STR:
-            self.logger.step(f"{self.log_prefix} Setting {check_run} check to failure")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'processing')} "
+                f"Setting {check_run} check to failure",
+            )
 
         try:
             self.logger.debug(f"{self.log_prefix} Set check run status with {kwargs}")
-            await asyncio.to_thread(self.github_webhook.repository_by_github_app.create_check_run, **kwargs)
-            if conclusion in (SUCCESS_STR, IN_PROGRESS_STR):
-                self.logger.success(msg)  # type: ignore
-            return
+            await self.unified_api.create_check_run(self.github_webhook.repository_by_github_app, **kwargs)
+        except (GraphQLError, GithubException) as ex:
+            # Check if error is auth/permission/rate-limit (don't retry these)
+            error_str = str(ex).lower()
+            is_critical_error = any(
+                keyword in error_str
+                for keyword in ["auth", "permission", "forbidden", "rate limit", "unauthorized", "401", "403"]
+            )
 
-        except Exception as ex:
-            self.logger.debug(f"{self.log_prefix} Failed to set {check_run} check to {status or conclusion}, {ex}")
-            kwargs["conclusion"] = FAILURE_STR
-            await asyncio.to_thread(self.github_webhook.repository_by_github_app.create_check_run, **kwargs)
+            if is_critical_error:
+                self.logger.exception(
+                    f"{self.log_prefix} Failed to set {check_run} check to {status or conclusion}. "
+                    "Not retrying due to auth/permission/rate-limit error."
+                )
+                raise  # Don't hide auth/permission/rate-limit errors
+            else:
+                # For transient errors, log the failure without attempting retry
+                # Retrying here could cause cascading failures if the same error occurs again
+                self.logger.exception(
+                    f"{self.log_prefix} Failed to set {check_run} check to {status or conclusion}. "
+                    "Check run may be in inconsistent state."
+                )
+        except Exception:
+            # Handle non-GraphQL errors (e.g., network issues, PyGithub errors)
+            self.logger.exception(f"{self.log_prefix} Failed to set {check_run} check to {status or conclusion}")
+            # Don't retry for unknown errors to prevent cascading failures
+        else:
+            # Success log only after successful check run creation
+            if conclusion == SUCCESS_STR:
+                self.logger.success(msg)  # type: ignore[attr-defined]
+            elif status in (IN_PROGRESS_STR, QUEUED_STR):
+                self.logger.info(msg)
 
     def get_check_run_text(self, err: str, out: str) -> str:
         total_len: int = len(err) + len(out)
@@ -265,24 +350,31 @@ class CheckRunHandler:
 
     async def is_check_run_in_progress(self, check_run: str) -> bool:
         if self.github_webhook.last_commit:
-            for run in await asyncio.to_thread(self.github_webhook.last_commit.get_check_runs):
+            owner, repo_name = self._owner_and_repo
+            for run in await self.unified_api.get_commit_check_runs(self.github_webhook.last_commit, owner, repo_name):
                 if run.name == check_run and run.status == IN_PROGRESS_STR:
                     self.logger.debug(f"{self.log_prefix} Check run {check_run} is in progress.")
                     return True
         return False
 
     async def required_check_failed_or_no_status(
-        self, pull_request: PullRequest, last_commit_check_runs: list[CheckRun], check_runs_in_progress: list[str]
+        self,
+        pull_request: PullRequestWrapper,
+        last_commit_check_runs: list[CheckRun],
+        check_runs_in_progress: list[str],
     ) -> str:
         failed_check_runs: list[str] = []
         no_status_check_runs: list[str] = []
+
+        # Cache required status checks to reduce API calls
+        required_checks = await self.all_required_status_checks(pull_request=pull_request)
 
         for check_run in last_commit_check_runs:
             self.logger.debug(f"{self.log_prefix} Check if {check_run.name} failed or do not have status.")
             if (
                 check_run.name == CAN_BE_MERGED_STR
                 or check_run.conclusion == SUCCESS_STR
-                or check_run.name not in await self.all_required_status_checks(pull_request=pull_request)
+                or check_run.name not in required_checks
             ):
                 self.logger.debug(f"{self.log_prefix} {check_run.name} is success or not required, skipping.")
                 continue
@@ -310,7 +402,7 @@ class CheckRunHandler:
 
         return msg
 
-    async def all_required_status_checks(self, pull_request: PullRequest) -> list[str]:
+    async def all_required_status_checks(self, pull_request: PullRequestWrapper) -> list[str]:
         all_required_status_checks: list[str] = []
         branch_required_status_checks = await self.get_branch_required_status_checks(pull_request=pull_request)
 
@@ -333,30 +425,51 @@ class CheckRunHandler:
         self.logger.debug(f"{self.log_prefix} All required status checks: {_all_required_status_checks}")
         return _all_required_status_checks
 
-    async def get_branch_required_status_checks(self, pull_request: PullRequest) -> list[str]:
+    async def get_branch_required_status_checks(self, pull_request: PullRequestWrapper) -> list[str]:
         if self.repository.private:
             self.logger.info(
                 f"{self.log_prefix} Repository is private, skipping getting branch protection required status checks"
             )
             return []
 
-        pull_request_branch = await asyncio.to_thread(self.repository.get_branch, pull_request.base.ref)
-        branch_protection = await asyncio.to_thread(pull_request_branch.get_protection)
-        branch_required_status_checks = branch_protection.required_status_checks.contexts
+        owner, repo_name = self.repository.full_name.split("/")
+
+        try:
+            branch_protection = await self.unified_api.get_branch_protection(owner, repo_name, pull_request.base.ref)
+        except GithubException as ex:
+            if ex.status == 404:
+                # Branch protection not configured
+                self.logger.debug(
+                    f"{self.log_prefix} No branch protection configured for branch {pull_request.base.ref}"
+                )
+                return []
+            # Re-raise other GithubException errors (auth, permission, rate-limit, etc.)
+            raise
+
+        # Guard against None - PyGithub may return None for required_status_checks if not configured
+        if branch_protection.required_status_checks is None:
+            self.logger.debug(
+                f"{self.log_prefix} No required status checks configured for branch {pull_request.base.ref}"
+            )
+            return []
+
+        # Guard against None contexts - may be None even when required_status_checks exists
+        branch_required_status_checks = branch_protection.required_status_checks.contexts or []
         self.logger.debug(f"branch_required_status_checks: {branch_required_status_checks}")
         return branch_required_status_checks
 
     async def required_check_in_progress(
-        self, pull_request: PullRequest, last_commit_check_runs: list[CheckRun]
+        self, pull_request: PullRequestWrapper, last_commit_check_runs: list[CheckRun]
     ) -> tuple[str, list[str]]:
         self.logger.debug(f"{self.log_prefix} Check if any required check runs in progress.")
 
+        required_checks = await self.all_required_status_checks(pull_request=pull_request)
         check_runs_in_progress = [
             check_run.name
             for check_run in last_commit_check_runs
             if check_run.status == IN_PROGRESS_STR
             and check_run.name != CAN_BE_MERGED_STR
-            and check_run.name in await self.all_required_status_checks(pull_request=pull_request)
+            and check_run.name in required_checks
         ]
         if check_runs_in_progress:
             self.logger.debug(

@@ -11,6 +11,11 @@ from starlette.datastructures import Headers
 from webhook_server.libs.exceptions import RepositoryNotFoundInConfigError
 from webhook_server.libs.github_api import GithubWebhook
 
+# Test token constant to avoid S106 security warnings
+TEST_GITHUB_TOKEN = (
+    "ghp_test1234567890abcdefghijklmnopqrstuvwxyz"  # pragma: allowlist secret  # noqa: S105  # gitleaks:allow
+)
+
 
 class TestGithubWebhook:
     """Test suite for GitHub webhook processing and API integration."""
@@ -159,7 +164,6 @@ class TestGithubWebhook:
         gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
         assert not hasattr(gh, "repository_by_github_app")
 
-    @patch("webhook_server.libs.github_api.PullRequest")
     @patch("webhook_server.libs.github_api.PushHandler")
     @patch("webhook_server.libs.github_api.IssueCommentHandler")
     @patch("webhook_server.libs.github_api.PullRequestHandler")
@@ -184,7 +188,6 @@ class TestGithubWebhook:
         mock_pr_handler,
         mock_issue,
         mock_push,
-        mock_pr,
         minimal_hook_data,
         minimal_headers,
         logger,
@@ -203,16 +206,16 @@ class TestGithubWebhook:
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
-    @patch("webhook_server.libs.pull_request_handler.PullRequestHandler.process_pull_request_webhook_data")
+    @patch("webhook_server.libs.handlers.pull_request_handler.PullRequestHandler.process_pull_request_webhook_data")
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.libs.config.Config.repository_local_data")
     @patch(
         "webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users",
-        new_callable=lambda: property(lambda self: None),
+        return_value=None,
     )
     async def test_process_pull_request_event(
         self,
-        mock_auto_verified_prop: Mock,
+        _mock_auto_verified_method: Mock,
         mock_repo_local_data: Mock,
         mock_get_apis: Mock,
         mock_process_pr: Mock,
@@ -236,6 +239,15 @@ class TestGithubWebhook:
         mock_process_pr.return_value = None
 
         webhook = GithubWebhook(hook_data=pull_request_payload, headers=webhook_headers, logger=Mock())
+        webhook.repository.full_name = "my-org/test-repo"
+        webhook.unified_api = AsyncMock()
+        webhook.unified_api.get_pull_request_files = AsyncMock(return_value=[Mock(filename="test.py")])
+        # Return dict format for GraphQL compatibility
+        webhook.unified_api.get_git_tree = AsyncMock(return_value={"tree": [{"path": "OWNERS", "type": "blob"}]})
+        webhook.unified_api.get_contents = AsyncMock(
+            return_value=Mock(decoded_content=b"approvers:\\n  - user1\\nreviewers:\\n  - user2")
+        )
+        webhook.unified_api.add_assignees_by_login = AsyncMock()
 
         # Mock get_pull_request to return a valid pull request object
         mock_pr = Mock()
@@ -255,8 +267,11 @@ class TestGithubWebhook:
         mock_tree_element.type = "blob"
         mock_tree.tree = [mock_tree_element]  # Make tree.tree iterable
 
+        # Mock unified_api.get_pull_request and get_last_commit directly
+        webhook.unified_api.get_pull_request = AsyncMock(return_value=mock_pr)
+        webhook.unified_api.get_last_commit = AsyncMock(return_value=mock_commit)
+
         with (
-            patch.object(webhook, "get_pull_request", return_value=mock_pr),
             patch.object(webhook.repository, "get_git_tree", return_value=mock_tree),
             patch.object(
                 webhook.repository,
@@ -270,16 +285,16 @@ class TestGithubWebhook:
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
-    @patch("webhook_server.libs.push_handler.PushHandler.process_push_webhook_data")
+    @patch("webhook_server.libs.handlers.push_handler.PushHandler.process_push_webhook_data")
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.libs.config.Config.repository_local_data")
     @patch(
         "webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users",
-        new_callable=lambda: property(lambda self: None),
+        return_value=None,
     )
     async def test_process_push_event(
         self,
-        mock_auto_verified_prop: Mock,
+        _mock_auto_verified_method: Mock,
         mock_repo_local_data: Mock,
         mock_get_apis: Mock,
         mock_process_push: Mock,
@@ -310,16 +325,16 @@ class TestGithubWebhook:
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
-    @patch("webhook_server.libs.issue_comment_handler.IssueCommentHandler.process_comment_webhook_data")
+    @patch("webhook_server.libs.handlers.issue_comment_handler.IssueCommentHandler.process_comment_webhook_data")
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.libs.config.Config.repository_local_data")
     @patch(
         "webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users",
-        new_callable=lambda: property(lambda self: None),
+        return_value=None,
     )
     async def test_process_issue_comment_event(
         self,
-        mock_auto_verified_prop: Mock,
+        _mock_auto_verified_method: Mock,
         mock_repo_local_data: Mock,
         mock_get_apis: Mock,
         mock_process_comment: Mock,
@@ -343,6 +358,14 @@ class TestGithubWebhook:
 
         headers = Headers({"X-GitHub-Event": "issue_comment"})
         webhook = GithubWebhook(hook_data=issue_comment_payload, headers=headers, logger=Mock())
+        webhook.repository.full_name = "my-org/test-repo"
+        webhook.unified_api = AsyncMock()
+        webhook.unified_api.get_pull_request_files = AsyncMock(return_value=[Mock(filename="test.py")])
+        # Return dict format for GraphQL compatibility
+        webhook.unified_api.get_git_tree = AsyncMock(return_value={"tree": [{"path": "OWNERS", "type": "blob"}]})
+        webhook.unified_api.get_contents = AsyncMock(
+            return_value=Mock(decoded_content=b"approvers:\\n  - user1\\nreviewers:\\n  - user2")
+        )
 
         # Mock get_pull_request to return a valid pull request object
         mock_pr = Mock()
@@ -362,8 +385,11 @@ class TestGithubWebhook:
         mock_tree_element.type = "blob"
         mock_tree.tree = [mock_tree_element]  # Make tree.tree iterable
 
+        # Mock unified_api.get_pull_request and get_last_commit directly
+        webhook.unified_api.get_pull_request = AsyncMock(return_value=mock_pr)
+        webhook.unified_api.get_last_commit = AsyncMock(return_value=mock_commit)
+
         with (
-            patch.object(webhook, "get_pull_request", return_value=mock_pr),
             patch.object(webhook.repository, "get_git_tree", return_value=mock_tree),
             patch.object(
                 webhook.repository,
@@ -381,11 +407,11 @@ class TestGithubWebhook:
     @patch("webhook_server.libs.config.Config.repository_local_data")
     @patch(
         "webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users",
-        new_callable=lambda: property(lambda self: None),
+        return_value=None,
     )
     async def test_process_unsupported_event(
         self,
-        mock_auto_verified_prop: Mock,
+        _mock_auto_verified_method: Mock,
         mock_repo_local_data: Mock,
         mock_get_apis: Mock,
         mock_api_rate_limit: Mock,
@@ -405,13 +431,23 @@ class TestGithubWebhook:
         mock_get_apis.return_value = []  # Return empty list to skip the problematic property code
         mock_repo_local_data.return_value = {}
 
-        headers = Headers({"X-GitHub-Event": "unsupported_event"})
-        webhook = GithubWebhook(hook_data=pull_request_payload, headers=headers, logger=Mock())
+        # Mock UnifiedGitHubAPI to prevent real GraphQL calls
+        with patch("webhook_server.libs.github_api.UnifiedGitHubAPI") as mock_unified:
+            mock_unified_instance = AsyncMock()
+            # Make get_pull_request return a proper mock PR with draft=False
+            mock_pr = Mock()
+            mock_pr.draft = False
+            mock_pr.number = 123
+            mock_unified_instance.get_pull_request = AsyncMock(return_value=mock_pr)
+            mock_unified.return_value = mock_unified_instance
 
-        # Should not raise an exception, just skip processing
-        await webhook.process()
+            headers = Headers({"X-GitHub-Event": "unsupported_event"})
+            webhook = GithubWebhook(hook_data=pull_request_payload, headers=headers, logger=Mock())
 
-    @patch("webhook_server.libs.github_api.get_repository_github_app_api")
+            # Should not raise an exception, just skip processing
+            await webhook.process()
+
+    @patch("webhook_server.libs.github_api.Config")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.libs.github_api.get_github_repo_api")
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
@@ -444,7 +480,7 @@ class TestGithubWebhook:
         # The test config includes pull_request in events list, so should be processed
         assert webhook.repository_name == "test-repo"
 
-    @patch("webhook_server.libs.github_api.get_repository_github_app_api")
+    @patch("webhook_server.libs.github_api.Config")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.libs.github_api.get_github_repo_api")
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
@@ -480,7 +516,7 @@ class TestGithubWebhook:
         assert webhook.github_event == "pull_request"
         assert webhook.x_github_delivery == "abc"
 
-    @patch("webhook_server.libs.github_api.get_repository_github_app_api")
+    @patch("webhook_server.libs.github_api.Config")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.libs.github_api.get_github_repo_api")
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
@@ -645,7 +681,7 @@ class TestGithubWebhook:
         mock_api.get_user.return_value = mock_user
         mock_get_apis.return_value = [(mock_api, "token")]
         gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
-        gh.add_api_users_to_auto_verified_and_merged_users
+        gh.add_api_users_to_auto_verified_and_merged_users()
         assert "test-user" in gh.auto_verified_and_merged_users
 
     @patch("webhook_server.libs.github_api.get_apis_and_tokes_from_config")
@@ -696,343 +732,6 @@ class TestGithubWebhook:
             assert result is not None
             assert result2 is not None
 
-    @pytest.mark.asyncio
-    async def test_process_check_run_event(self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock) -> None:
-        """Test processing check run event."""
-        check_run_data = {
-            "repository": {"name": "test-repo", "full_name": "org/test-repo"},
-            "check_run": {"name": "test-check", "head_sha": "abc123", "status": "completed", "conclusion": "success"},
-        }
-        headers = minimal_headers.copy()
-        headers["X-GitHub-Event"] = "check_run"
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            with patch("webhook_server.libs.github_api.Config") as mock_config:
-                mock_config.return_value.repository = True
-                mock_config.return_value.repository_local_data.return_value = {}
-                mock_config.return_value.data_dir = temp_dir
-
-                with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                    mock_get_api.return_value = (Mock(), "token", "apiuser")
-
-                    # Mock repository and get_pulls to return a PR with matching head.sha
-                    mock_repo = Mock()
-                    mock_repo.get_git_tree.return_value.tree = []
-                    mock_pr = Mock()
-                    mock_pr.head.sha = "abc123"
-                    mock_pr.title = "Test PR"
-                    mock_pr.number = 42
-                    mock_pr.draft = False
-                    mock_pr.user.login = "testuser"
-                    mock_pr.base.ref = "main"
-                    mock_pr.get_commits.return_value = [Mock()]
-                    mock_pr.get_files.return_value = []
-                    mock_repo.get_pulls.return_value = [mock_pr]
-                    mock_repo.get_pull.return_value = mock_pr
-                    with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
-                        mock_get_repo_api.return_value = mock_repo
-
-                        with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
-                            mock_get_app_api.return_value = Mock()
-
-                            with patch(
-                                "webhook_server.libs.github_api.get_apis_and_tokes_from_config"
-                            ) as mock_get_apis:
-                                # Create proper mock API objects
-                                mock_api1 = Mock()
-                                mock_api1.rate_limiting = [0, 5000]
-                                mock_api1.get_user.return_value.login = "user1"
-                                mock_api2 = Mock()
-                                mock_api2.rate_limiting = [0, 5000]
-                                mock_api2.get_user.return_value.login = "user2"
-                                mock_get_apis.return_value = [(mock_api1, "token1"), (mock_api2, "token2")]
-
-                                with (
-                                    patch("webhook_server.libs.github_api.CheckRunHandler") as mock_check_handler,
-                                    patch("webhook_server.libs.github_api.PullRequestHandler") as mock_pr_handler,
-                                ):
-                                    mock_check_handler.return_value.process_pull_request_check_run_webhook_data = (
-                                        AsyncMock(return_value=True)
-                                    )
-                                    mock_pr_handler.return_value.check_if_can_be_merged = AsyncMock(return_value=None)
-
-                                    webhook = GithubWebhook(check_run_data, headers, logger)
-                                    await webhook.process()
-
-                                    mock_check_handler.return_value.process_pull_request_check_run_webhook_data.assert_awaited_once()
-                                    mock_pr_handler.return_value.check_if_can_be_merged.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_get_pull_request_by_number(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
-    ) -> None:
-        """Test getting pull request by number."""
-        with patch("webhook_server.libs.github_api.Config") as mock_config:
-            mock_config.return_value.repository = True
-            mock_config.return_value.repository_local_data.return_value = {}
-
-            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
-
-                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
-                    mock_repo = Mock()
-                    mock_get_repo_api.return_value = mock_repo
-
-                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
-                        mock_get_app_api.return_value = Mock()
-
-                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
-                            mock_color.return_value = "test-repo"
-
-                            mock_pr = Mock()
-                            mock_repo.get_pull.return_value = mock_pr
-
-                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
-                            result = await gh.get_pull_request(number=123)
-                            assert result == mock_pr
-                            mock_repo.get_pull.assert_called_once_with(123)
-
-    @pytest.mark.asyncio
-    async def test_get_pull_request_github_exception(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
-    ) -> None:
-        """Test getting pull request with GithubException."""
-        from github import GithubException
-
-        with patch("webhook_server.libs.github_api.Config") as mock_config:
-            mock_config.return_value.repository = True
-            mock_config.return_value.repository_local_data.return_value = {}
-
-            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
-
-                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
-                    mock_repo = Mock()
-                    mock_get_repo_api.return_value = mock_repo
-
-                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
-                        mock_get_app_api.return_value = Mock()
-
-                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
-                            mock_color.return_value = "test-repo"
-
-                            mock_repo.get_pull.side_effect = GithubException(404, "Not found")
-
-                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
-                            result = await gh.get_pull_request()
-                            assert result is None
-
-    @pytest.mark.asyncio
-    async def test_get_pull_request_by_commit_with_pulls(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
-    ) -> None:
-        """Test getting pull request by commit with pulls."""
-        commit_data = {
-            "repository": {"name": "test-repo", "full_name": "my-org/test-repo"},
-            "commit": {"sha": "abc123"},
-        }
-
-        with patch("webhook_server.libs.github_api.Config") as mock_config:
-            mock_config.return_value.repository = True
-            mock_config.return_value.repository_local_data.return_value = {}
-
-            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
-
-                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
-                    mock_repo = Mock()
-                    mock_get_repo_api.return_value = mock_repo
-
-                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
-                        mock_get_app_api.return_value = Mock()
-
-                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
-                            mock_color.return_value = "test-repo"
-
-                            mock_commit = Mock()
-                            mock_repo.get_commit.return_value = mock_commit
-
-                            mock_pr = Mock()
-                            mock_commit.get_pulls.return_value = [mock_pr]
-
-                            gh = GithubWebhook(commit_data, minimal_headers, logger)
-                            result = await gh.get_pull_request()
-                            assert result == mock_pr
-
-    def test_container_repository_and_tag_with_tag(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
-    ) -> None:
-        """Test container_repository_and_tag with provided tag."""
-        with patch("webhook_server.libs.github_api.Config") as mock_config:
-            mock_config.return_value.repository = True
-            mock_config.return_value.repository_local_data.return_value = {}
-
-            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
-
-                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
-                    mock_get_repo_api.return_value = Mock()
-
-                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
-                        mock_get_app_api.return_value = Mock()
-
-                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
-                            mock_color.return_value = "test-repo"
-
-                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
-                            gh.container_repository = "test-repo"
-
-                            result = gh.container_repository_and_tag(tag="v1.0.0")
-                            assert result == "test-repo:v1.0.0"
-
-    def test_container_repository_and_tag_with_pull_request(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
-    ) -> None:
-        """Test container_repository_and_tag with pull request."""
-        with patch("webhook_server.libs.github_api.Config") as mock_config:
-            mock_config.return_value.repository = True
-            mock_config.return_value.repository_local_data.return_value = {}
-
-            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
-
-                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
-                    mock_get_repo_api.return_value = Mock()
-
-                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
-                        mock_get_app_api.return_value = Mock()
-
-                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
-                            mock_color.return_value = "test-repo"
-
-                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
-                            gh.container_repository = "test-repo"
-
-                            mock_pr = Mock()
-                            mock_pr.number = 123
-
-                            result = gh.container_repository_and_tag(pull_request=mock_pr)
-                            assert result == "test-repo:pr-123"
-
-    def test_container_repository_and_tag_merged_pr(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
-    ) -> None:
-        """Test container_repository_and_tag with merged pull request."""
-        with patch("webhook_server.libs.github_api.Config") as mock_config:
-            mock_config.return_value.repository = True
-            mock_config.return_value.repository_local_data.return_value = {}
-
-            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
-
-                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
-                    mock_get_repo_api.return_value = Mock()
-
-                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
-                        mock_get_app_api.return_value = Mock()
-
-                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
-                            mock_color.return_value = "test-repo"
-
-                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
-                            gh.container_repository = "test-repo"
-                            gh.container_tag = "latest"
-
-                            mock_pr = Mock()
-                            mock_pr.base.ref = "develop"
-
-                            result = gh.container_repository_and_tag(is_merged=True, pull_request=mock_pr)
-                            assert result == "test-repo:develop"
-
-    def test_container_repository_and_tag_no_pull_request(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
-    ) -> None:
-        """Test container_repository_and_tag without pull request."""
-        with patch("webhook_server.libs.github_api.Config") as mock_config:
-            mock_config.return_value.repository = True
-            mock_config.return_value.repository_local_data.return_value = {}
-
-            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
-
-                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
-                    mock_get_repo_api.return_value = Mock()
-
-                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
-                        mock_get_app_api.return_value = Mock()
-
-                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
-                            mock_color.return_value = "test-repo"
-
-                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
-
-                            result = gh.container_repository_and_tag()
-                            assert result is None
-
-    @patch("webhook_server.libs.github_api.requests.post")
-    def test_send_slack_message_success(
-        self, mock_post: Mock, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
-    ) -> None:
-        """Test sending slack message successfully."""
-        with patch("webhook_server.libs.github_api.Config") as mock_config:
-            mock_config.return_value.repository = True
-            mock_config.return_value.repository_local_data.return_value = {}
-
-            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
-
-                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
-                    mock_get_repo_api.return_value = Mock()
-
-                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
-                        mock_get_app_api.return_value = Mock()
-
-                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
-                            mock_color.return_value = "test-repo"
-
-                            mock_response = Mock()
-                            mock_response.status_code = 200
-                            mock_post.return_value = mock_response
-
-                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
-                            gh.send_slack_message("Test message", "https://hooks.slack.com/test")
-
-                            mock_post.assert_called_once()
-                            call_args = mock_post.call_args
-                            assert call_args[0][0] == "https://hooks.slack.com/test"
-                            assert "Test message" in call_args[1]["data"]
-
-    @patch("webhook_server.libs.github_api.requests.post")
-    def test_send_slack_message_failure(
-        self, mock_post: Mock, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
-    ) -> None:
-        """Test sending slack message with failure."""
-        with patch("webhook_server.libs.github_api.Config") as mock_config:
-            mock_config.return_value.repository = True
-            mock_config.return_value.repository_local_data.return_value = {}
-
-            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
-
-                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
-                    mock_get_repo_api.return_value = Mock()
-
-                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
-                        mock_get_app_api.return_value = Mock()
-
-                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
-                            mock_color.return_value = "test-repo"
-
-                            mock_response = Mock()
-                            mock_response.status_code = 400
-                            mock_response.text = "Bad Request"
-                            mock_post.return_value = mock_response
-
-                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
-
-                            with pytest.raises(ValueError, match="Request to slack returned an error 400"):
-                                gh.send_slack_message("Test message", "https://hooks.slack.com/test")
-
     def test_current_pull_request_supported_retest_property(
         self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
     ) -> None:
@@ -1069,30 +768,125 @@ class TestGithubWebhook:
                             assert "pre-commit" in result
                             assert "conventional-title" in result
 
-    @pytest.mark.asyncio
-    async def test_get_last_commit(self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock) -> None:
-        """Test _get_last_commit method."""
-        with patch("webhook_server.libs.github_api.Config") as mock_config:
-            mock_config.return_value.repository = True
-            mock_config.return_value.repository_local_data.return_value = {}
+    @patch("webhook_server.libs.github_api.PullRequestHandler")
+    @patch("webhook_server.libs.github_api.OwnersFileHandler")
+    @patch("webhook_server.libs.github_api.Config")
+    @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
+    @patch("webhook_server.libs.github_api.get_github_repo_api")
+    @patch("webhook_server.libs.github_api.get_repository_github_app_api")
+    @patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix")
+    @patch("webhook_server.libs.github_api.get_apis_and_tokes_from_config")
+    async def test_webhook_data_optimization_for_pull_request_event(
+        self,
+        mock_get_apis: Mock,
+        mock_color: Mock,
+        mock_get_app_api: Mock,
+        mock_get_repo_api: Mock,
+        mock_api_rate_limit: Mock,
+        mock_config: Mock,
+        mock_owners_handler: Mock,
+        mock_pr_handler: Mock,
+    ) -> None:
+        """Test that pull_request events use webhook data directly without API calls.
 
-            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
+        This test validates the optimization where pull_request events construct
+        PullRequestWrapper and CommitWrapper directly from webhook payload instead
+        of making redundant API calls. Expected savings: 2 API calls per pull_request webhook.
+        """
+        # Setup webhook payload with complete PR data (as GitHub sends)
+        webhook_payload = {
+            "action": "opened",
+            "repository": {
+                "name": "test-repo",
+                "full_name": "my-org/test-repo",
+                "node_id": "R_test123",
+                "id": 12345,
+            },
+            "pull_request": {
+                "number": 456,
+                "title": "Test optimization PR",
+                "body": "Testing webhook data optimization",
+                "state": "open",
+                "draft": False,
+                "merged": False,
+                "user": {"login": "testuser", "id": 789, "node_id": "U_test789"},
+                "head": {
+                    "ref": "feature-branch",
+                    "sha": "abc1234567890def",  # pragma: allowlist secret
+                    "user": {"login": "testuser", "id": 789},
+                },
+                "base": {"ref": "main", "sha": "def0987654321abc"},  # pragma: allowlist secret
+                "labels": [],
+            },
+        }
 
-                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
-                    mock_get_repo_api.return_value = Mock()
+        webhook_headers = Headers({
+            "X-GitHub-Event": "pull_request",
+            "X-GitHub-Delivery": "optimization-test-123",
+        })
 
-                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
-                        mock_get_app_api.return_value = Mock()
+        # Mock config and API
+        mock_config_instance = Mock()
+        mock_config_instance.repository_data = True
+        mock_config_instance.get_value.side_effect = lambda value, **kwargs: {
+            "auto-verified-and-merged-users": [],
+            "container": {},
+            "can-be-merged-required-labels": [],
+            "set-auto-merge-prs": [],
+            "create-issue-for-new-pr": False,
+        }.get(value, None)
+        mock_config_instance.repository_local_data.return_value = {}
+        mock_config.return_value = mock_config_instance
 
-                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
-                            mock_color.return_value = "test-repo"
+        mock_api = Mock()
+        mock_api.rate_limiting = [100, 5000]
+        mock_user = Mock()
+        mock_user.login = "test-api-user"
+        mock_api.get_user.return_value = mock_user
+        mock_api_rate_limit.return_value = (mock_api, TEST_GITHUB_TOKEN, "test-api-user")
 
-                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
+        mock_repo = Mock()
+        mock_repo.full_name = "my-org/test-repo"
+        mock_repo.name = "test-repo"
+        mock_get_repo_api.return_value = mock_repo
+        mock_get_app_api.return_value = mock_api
+        mock_color.return_value = "test-repo"
+        mock_get_apis.return_value = []
 
-                            mock_pr = Mock()
-                            mock_commits = [Mock(), Mock(), Mock()]
-                            mock_pr.get_commits.return_value = mock_commits
+        # Mock handlers to prevent actual processing
+        mock_owners_instance = AsyncMock()
+        mock_owners_instance.initialize = AsyncMock(return_value=mock_owners_instance)
+        mock_owners_handler.return_value = mock_owners_instance
+        mock_pr_handler_instance = AsyncMock()
+        mock_pr_handler_instance.process_pull_request_webhook_data = AsyncMock()
+        mock_pr_handler.return_value = mock_pr_handler_instance
 
-                            result = await gh._get_last_commit(mock_pr)
-                            assert result == mock_commits[-1]
+        # Create webhook instance
+        webhook = GithubWebhook(hook_data=webhook_payload, headers=webhook_headers, logger=Mock())
+
+        # Mock unified_api methods - these should NOT be called for pull_request events
+        webhook.unified_api = AsyncMock()
+        webhook.unified_api.get_pull_request = AsyncMock()  # Should NOT be called
+        webhook.unified_api.get_last_commit = AsyncMock()  # Should NOT be called
+        webhook.unified_api.get_pull_request_files = AsyncMock(return_value=[])
+        webhook.unified_api.get_git_tree = AsyncMock(return_value=Mock(tree=[]))
+
+        # Process the webhook
+        await webhook.process()
+
+        # CRITICAL ASSERTIONS: Verify optimization worked
+        # For pull_request events, get_pull_request and get_last_commit should NOT be called
+        webhook.unified_api.get_pull_request.assert_not_called()
+        webhook.unified_api.get_last_commit.assert_not_called()
+
+        # Verify that last_commit was set directly from webhook data
+        assert hasattr(webhook, "last_commit")
+        assert webhook.last_commit.sha == "abc1234567890def"  # pragma: allowlist secret
+
+        # Verify that parent_committer was set from webhook data
+        assert webhook.parent_committer == "testuser"
+        assert webhook.last_committer == "testuser"
+
+        # Verify handlers were called (processing continued normally)
+        mock_owners_instance.initialize.assert_called_once()
+        mock_pr_handler_instance.process_pull_request_webhook_data.assert_called_once()

@@ -1,7 +1,7 @@
 import pytest
 import yaml
 
-from webhook_server.libs.pull_request_handler import PullRequestHandler
+from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
 from webhook_server.tests.conftest import ContentFile, Tree
 from webhook_server.utils.constants import APPROVED_BY_LABEL_PREFIX
 
@@ -126,7 +126,20 @@ def all_approvers_reviewers(owners_file_handler):
 async def test_get_all_repository_approvers_and_reviewers(
     changed_files, process_github_webhook, owners_file_handler, pull_request, all_repository_approvers_and_reviewers
 ):
-    process_github_webhook.repository = Repository()
+    repo = Repository()
+    process_github_webhook.repository = repo
+
+    # Mock unified_api to use Repository methods (no await needed for sync methods)
+    # Return dict format for GraphQL compatibility
+    async def get_tree_wrapper(_owner, _repo, ref, recursive=True):
+        tree_obj = repo.get_git_tree(ref, recursive)
+        return {"tree": tree_obj.tree}  # Convert Tree object to dict
+
+    async def get_contents_wrapper(_owner, _repo, path, ref):
+        return repo.get_contents(path, ref)
+
+    process_github_webhook.unified_api.get_git_tree = get_tree_wrapper
+    process_github_webhook.unified_api.get_contents = get_contents_wrapper
     read_owners_result = await owners_file_handler.get_all_repository_approvers_and_reviewers(pull_request=pull_request)
     assert read_owners_result == owners_file_handler.all_repository_approvers_and_reviewers
 

@@ -5,8 +5,9 @@ import json
 import logging
 import os
 import re
+from collections.abc import Generator, Iterator
 from pathlib import Path
-from typing import Any, Generator, Iterator
+from typing import Any
 
 from fastapi import HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -80,12 +81,12 @@ class LogViewerController:
         try:
             html_content = self._get_log_viewer_html()
             return HTMLResponse(content=html_content)
-        except FileNotFoundError:
+        except FileNotFoundError as e:
             self.logger.error("Log viewer HTML template not found")
-            raise HTTPException(status_code=404, detail="Log viewer template not found")
+            raise HTTPException(status_code=404, detail="Log viewer template not found") from e
         except Exception as e:
             self.logger.error(f"Error serving log viewer page: {e}")
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error") from e
 
     def get_log_entries(
         self,
@@ -211,13 +212,13 @@ class LogViewerController:
 
         except ValueError as e:
             self.logger.warning(f"Invalid parameters for log entries request: {e}")
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=400, detail=str(e)) from e
         except (OSError, PermissionError) as e:
             self.logger.error(f"File access error loading log entries: {e}")
-            raise HTTPException(status_code=500, detail="Error accessing log files")
+            raise HTTPException(status_code=500, detail="Error accessing log files") from e
         except Exception as e:
             self.logger.error(f"Unexpected error getting log entries: {e}")
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error") from e
 
     def _entry_matches_filters(
         self,
@@ -353,13 +354,13 @@ class LogViewerController:
         except ValueError as e:
             if "Result set too large" in str(e):
                 self.logger.warning(f"Export request too large: {e}")
-                raise HTTPException(status_code=413, detail=str(e))
+                raise HTTPException(status_code=413, detail=str(e)) from e
             else:
                 self.logger.warning(f"Invalid export parameters: {e}")
-                raise HTTPException(status_code=400, detail=str(e))
+                raise HTTPException(status_code=400, detail=str(e)) from e
         except Exception as e:
             self.logger.error(f"Error generating export: {e}")
-            raise HTTPException(status_code=500, detail="Export generation failed")
+            raise HTTPException(status_code=500, detail="Export generation failed") from e
 
     async def handle_websocket(
         self,
@@ -479,13 +480,13 @@ class LogViewerController:
         except ValueError as e:
             if "No data found" in str(e):
                 self.logger.warning(f"PR flow data not found: {e}")
-                raise HTTPException(status_code=404, detail=str(e))
+                raise HTTPException(status_code=404, detail=str(e)) from e
             else:
                 self.logger.warning(f"Invalid PR flow hook_id: {e}")
-                raise HTTPException(status_code=400, detail=str(e))
+                raise HTTPException(status_code=400, detail=str(e)) from e
         except Exception as e:
             self.logger.error(f"Error getting PR flow data: {e}")
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error") from e
 
     def get_workflow_steps(self, hook_id: str) -> dict[str, Any]:
         """Get workflow step timeline data for a specific hook ID.
@@ -525,13 +526,13 @@ class LogViewerController:
         except ValueError as e:
             if "No data found" in str(e) or "No workflow steps found" in str(e):
                 self.logger.warning(f"Workflow steps not found: {e}")
-                raise HTTPException(status_code=404, detail=str(e))
+                raise HTTPException(status_code=404, detail=str(e)) from e
             else:
                 self.logger.warning(f"Invalid hook ID: {e}")
-                raise HTTPException(status_code=400, detail=str(e))
+                raise HTTPException(status_code=400, detail=str(e)) from e
         except Exception as e:
             self.logger.error(f"Error getting workflow steps: {e}")
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error") from e
 
     def _build_workflow_timeline(self, workflow_steps: list[LogEntry], hook_id: str) -> dict[str, Any]:
         """Build timeline data from workflow step entries.
@@ -541,7 +542,7 @@ class LogViewerController:
             hook_id: The hook ID for this timeline
 
         Returns:
-            Dictionary with timeline data structure
+            Dictionary with timeline data structure including task correlation fields
         """
         # Sort steps by timestamp
         sorted_steps = sorted(workflow_steps, key=lambda x: x.timestamp)
@@ -564,6 +565,9 @@ class LogViewerController:
                 "repository": step.repository,
                 "event_type": step.event_type,
                 "pr_number": step.pr_number,
+                "task_id": step.task_id,
+                "task_type": step.task_type,
+                "task_status": step.task_status,
             })
 
         # Calculate total duration
@@ -606,17 +610,9 @@ class LogViewerController:
         log_files.extend(log_dir.glob("*.log"))
         log_files.extend(log_dir.glob("*.log.*"))
 
-        # Sort log files to process in correct order (current log first, then rotated by number)
-        def sort_key(f: Path) -> tuple:
-            name_parts = f.name.split(".")
-            if len(name_parts) > 2 and name_parts[-1].isdigit():
-                # Rotated file: extract rotation number
-                return (1, int(name_parts[-1]))
-            else:
-                # Current log file
-                return (0, 0)
-
-        log_files.sort(key=sort_key)
+        # Sort log files by modification time (newest first) to ensure latest logs are processed first
+        # This handles log rotation correctly - after rotation, .log.1 has the most recent entries
+        log_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
         log_files = log_files[:max_files]
 
         self.logger.info(f"Streaming from {len(log_files)} most recent files: {[f.name for f in log_files]}")
@@ -629,42 +625,32 @@ class LogViewerController:
                 break
 
             try:
+                # Parse entire file and sort by timestamp (newest first)
+                # Files are typically reasonable size individually, so load completely
                 file_entries: list[LogEntry] = []
 
-                # Parse file in one go (files are typically reasonable size individually)
-                with open(log_file, "r", encoding="utf-8") as f:
-                    for line_num, line in enumerate(f, 1):
-                        if total_yielded >= max_entries:
-                            break
-
+                with open(log_file, encoding="utf-8") as f:
+                    for line in f:
                         entry = self.log_parser.parse_log_entry(line)
                         if entry:
                             file_entries.append(entry)
 
-                        # Process in chunks to avoid memory buildup for large files
-                        if len(file_entries) >= chunk_size:
-                            # Sort chunk by timestamp (newest first) and yield
-                            file_entries.sort(key=lambda x: x.timestamp, reverse=True)
-                            for entry in file_entries:
-                                yield entry
-                                total_yielded += 1
-                                if total_yielded >= max_entries:
-                                    break
-                            file_entries.clear()  # Free memory
+                # Sort all entries from this file by timestamp (newest first)
+                file_entries.sort(key=lambda x: x.timestamp, reverse=True)
 
-                # Yield remaining entries from this file
-                if file_entries and total_yielded < max_entries:
-                    file_entries.sort(key=lambda x: x.timestamp, reverse=True)
-                    for entry in file_entries:
-                        if total_yielded >= max_entries:
-                            break
-                        yield entry
-                        total_yielded += 1
+                # Yield entries until we reach max_entries
+                for entry in file_entries:
+                    if total_yielded >= max_entries:
+                        break
+                    yield entry
+                    total_yielded += 1
 
-                self.logger.debug(f"Streamed entries from {log_file.name}, total so far: {total_yielded}")
+                self.logger.debug(
+                    f"Streamed {len(file_entries)} entries from {log_file.name}, total so far: {total_yielded}"
+                )
 
-            except Exception as e:
-                self.logger.warning(f"Error streaming log file {log_file}: {e}")
+            except Exception:
+                self.logger.exception(f"Error streaming log file {log_file}")
 
     def _load_log_entries(self) -> list[LogEntry]:
         """Load log entries using streaming approach for memory efficiency.
@@ -703,12 +689,12 @@ class LogViewerController:
         template_path = Path(__file__).parent / "templates" / "log_viewer.html"
 
         try:
-            with open(template_path, "r", encoding="utf-8") as f:
+            with open(template_path, encoding="utf-8") as f:
                 return f.read()
         except FileNotFoundError:
             self.logger.error(f"Log viewer template not found at {template_path}")
             return self._get_fallback_html()
-        except IOError as e:
+        except OSError as e:
             self.logger.error(f"Failed to read log viewer template: {e}")
             return self._get_fallback_html()
 

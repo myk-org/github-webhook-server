@@ -33,10 +33,21 @@ class Config:
     def root_data(self) -> dict[str, Any]:
         try:
             with open(self.config_path) as fd:
-                return yaml.safe_load(fd)
+                return yaml.safe_load(fd) or {}
+        except FileNotFoundError:
+            # Since existence is validated in __init__, this indicates a race condition.
+            # Re-raise to propagate the error rather than returning empty dict.
+            self.logger.exception(f"Config file not found: {self.config_path}")
+            raise
+        except yaml.YAMLError:
+            self.logger.exception(f"Config file has invalid YAML syntax: {self.config_path}")
+            raise  # Don't continue with invalid config
+        except PermissionError:
+            self.logger.exception(f"Permission denied reading config file: {self.config_path}")
+            raise
         except Exception:
-            self.logger.error(f"Config file is empty: {self.config_path}")
-            return {}
+            self.logger.exception(f"Failed to load config file {self.config_path}")
+            raise
 
     @property
     def repository_data(self) -> dict[str, Any]:
@@ -44,11 +55,11 @@ class Config:
 
     def repository_local_data(self, github_api: github.Github, repository_full_name: str) -> dict[str, Any]:
         if self.repository and repository_full_name:
-            # Import here to avoid cyclic imports
-            from webhook_server.utils.helpers import get_github_repo_api
-
             try:
-                repo = get_github_repo_api(github_app_api=github_api, repository=repository_full_name)
+                # Directly use github_api.get_repo instead of importing get_github_repo_api
+                # to avoid circular dependency with helpers.py
+                self.logger.debug(f"Get GitHub API for repository {repository_full_name}")
+                repo = github_api.get_repo(repository_full_name)
                 try:
                     _path = repo.get_contents(".github-webhook-server.yaml")
                 except UnknownObjectException:
@@ -58,8 +69,12 @@ class Config:
                 repo_config = yaml.safe_load(config_file.decoded_content)
                 return repo_config
 
-            except Exception as ex:
-                self.logger.error(f"Repository {repository_full_name} config file not found or error. {ex}")
+            except yaml.YAMLError:
+                self.logger.exception(f"Repository {repository_full_name} config has invalid YAML syntax")
+                raise  # Don't continue with invalid config
+
+            except Exception:
+                self.logger.exception(f"Repository {repository_full_name} config file not found or error")
                 return {}
 
         self.logger.error("self.repository or self.repository_full_name is not defined")

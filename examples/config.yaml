@@ -31,6 +31,19 @@ auto-verify-cherry-picked-prs: true  # Default: true - automatically verify cher
 
 create-issue-for-new-pr: true  # Global default: create tracking issues for new PRs
 
+max-owners-files: 1000  # Maximum number of OWNERS files to process in a repository (default: 1000)
+
+# GraphQL Query Optimization (optional)
+# Customize pagination limits for repository data fetching
+# Defaults to 100 for all if not specified
+# Maximum: 100 (GitHub GraphQL API limit)
+graphql:
+  query-limits:
+    collaborators: 100      # Max collaborators to fetch
+    contributors: 100       # Max contributors (mentionableUsers)
+    issues: 100             # Max open issues to fetch
+    pull-requests: 100      # Max open pull requests to fetch
+
 # Global PR size label configuration (optional)
 # Define custom categories based on total lines changed (additions + deletions)
 # threshold: positive integer representing minimum lines changed for this category
