@@ -294,9 +294,15 @@ class UnifiedGitHubAPI:
 
             self.logger.debug(f"Adding comment to subject_id={subject_id}, body length={len(body)}")
             mutation, variables = MutationBuilder.add_comment(subject_id, body)
+            self.logger.debug(f"Calling graphql_client.execute for addComment mutation")
             result = await self.graphql_client.execute(mutation, variables)  # type: ignore[union-attr]
-            self.logger.debug(f"Comment added successfully to {subject_id}")
-            return result["addComment"]["commentEdge"]["node"]
+            self.logger.debug(f"GraphQL execute returned, extracting comment node")
+            comment_node = result["addComment"]["commentEdge"]["node"]
+            self.logger.info(f"✅ Comment added successfully to {subject_id}, comment_id={comment_node.get('id')}")
+            return comment_node
+        except KeyError as ex:
+            self.logger.error(f"Failed to extract comment from GraphQL result for {subject_id}: {ex}. Result: {result}", exc_info=True)
+            raise
         except Exception as ex:
             self.logger.error(f"Failed to add comment to {subject_id}: {ex}", exc_info=True)
             raise
