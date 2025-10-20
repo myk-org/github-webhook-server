@@ -328,8 +328,14 @@ class GithubWebhook:
 
     async def add_pr_comment(self, pull_request: PullRequestWrapper, body: str) -> None:
         """Add comment to PR via unified_api."""
-        pr_id = pull_request.id
-        await self.unified_api.add_comment(pr_id, body)
+        try:
+            pr_id = pull_request.id
+            self.logger.debug(f"{self.log_prefix} Adding PR comment with pr_id={pr_id}, body length={len(body)}")
+            await self.unified_api.add_comment(pr_id, body)
+            self.logger.info(f"{self.log_prefix} Successfully added PR comment")
+        except Exception as ex:
+            self.logger.error(f"{self.log_prefix} Failed to add PR comment: {ex}", exc_info=True)
+            raise
 
     async def update_pr_title(self, pull_request: PullRequestWrapper, title: str) -> None:
         """Update PR title via unified_api."""

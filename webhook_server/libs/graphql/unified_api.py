@@ -287,12 +287,19 @@ class UnifiedGitHubAPI:
         Returns:
             Created comment data
         """
-        if not self.graphql_client:
-            await self.initialize()
+        try:
+            if not self.graphql_client:
+                self.logger.debug("Initializing GraphQL client for add_comment")
+                await self.initialize()
 
-        mutation, variables = MutationBuilder.add_comment(subject_id, body)
-        result = await self.graphql_client.execute(mutation, variables)  # type: ignore[union-attr]
-        return result["addComment"]["commentEdge"]["node"]
+            self.logger.debug(f"Adding comment to subject_id={subject_id}, body length={len(body)}")
+            mutation, variables = MutationBuilder.add_comment(subject_id, body)
+            result = await self.graphql_client.execute(mutation, variables)  # type: ignore[union-attr]
+            self.logger.debug(f"Comment added successfully to {subject_id}")
+            return result["addComment"]["commentEdge"]["node"]
+        except Exception as ex:
+            self.logger.error(f"Failed to add comment to {subject_id}: {ex}", exc_info=True)
+            raise
 
     async def add_labels(self, labelable_id: str, label_ids: list[str]) -> None:
         """
