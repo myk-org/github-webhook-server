@@ -745,8 +745,17 @@ class UnifiedGitHubAPI:
         return await asyncio.to_thread(repo.get_git_tree, ref, recursive=recursive)
     
     async def get_commit_check_runs(self, commit: Any) -> list[Any]:
-        """Get check runs for a commit."""
-        return list(await asyncio.to_thread(commit.get_check_runs))
+        """
+        Get check runs for a commit.
+        
+        Note: This only works with REST API Commit objects, not CommitWrapper.
+        CommitWrapper from GraphQL doesn't have check runs data.
+        """
+        # Check if this is a REST commit object (has get_check_runs method)
+        if hasattr(commit, 'get_check_runs') and callable(commit.get_check_runs):
+            return list(await asyncio.to_thread(commit.get_check_runs))
+        # CommitWrapper from GraphQL - return empty list
+        return []
     
     async def create_check_run(self, repo_by_app: Any, **kwargs: Any) -> None:
         """Create a check run using GitHub App repository."""
