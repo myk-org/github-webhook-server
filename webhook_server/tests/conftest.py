@@ -143,7 +143,7 @@ def github_webhook(mocker, request):
         logger=test_logger,
     )
     process_github_webhook.repository.full_name = "test-owner/test-repo"
-    
+
     # Mock unified_api for all tests
     process_github_webhook.unified_api = AsyncMock()
     process_github_webhook.unified_api.get_pull_request_files = AsyncMock(return_value=[])
@@ -166,7 +166,7 @@ def github_webhook(mocker, request):
     process_github_webhook.unified_api.merge_pull_request = AsyncMock()
     process_github_webhook.unified_api.is_pull_request_merged = AsyncMock(return_value=False)
     process_github_webhook.unified_api.add_assignees_by_login = AsyncMock()
-    
+
     owners_file_handler = OwnersFileHandler(github_webhook=process_github_webhook)
 
     return process_github_webhook, owners_file_handler

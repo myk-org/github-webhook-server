@@ -1,4 +1,3 @@
-import asyncio
 import contextlib
 import re
 import shutil
@@ -8,9 +7,9 @@ from uuid import uuid4
 import shortuuid
 from github.Branch import Branch
 from github.PullRequest import PullRequest
-from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
 from github.Repository import Repository
 
+from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.utils.constants import (

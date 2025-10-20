@@ -43,7 +43,7 @@ class TestLabelsHandler:
         """Mock GitHub webhook handler."""
         webhook = Mock()
         webhook.repository = Mock()
-        mock_webhook.repository.full_name = "test-owner/test-repo"
+        webhook.repository.full_name = "test-owner/test-repo"
         webhook.repository_full_name = "test-org/test-repo"
         webhook.log_prefix = "[TEST]"
         webhook.logger = Mock()

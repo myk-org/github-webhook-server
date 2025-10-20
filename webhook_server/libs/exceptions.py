@@ -10,3 +10,9 @@ class ProcessGithubWebhookError(Exception):
 
 class NoApiTokenError(Exception):
     pass
+
+
+class UnifiedAPINotInitializedError(Exception):
+    """Raised when UnifiedGitHubAPI is accessed before initialization."""
+
+    pass

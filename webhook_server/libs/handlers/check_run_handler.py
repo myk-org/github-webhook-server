@@ -1,11 +1,10 @@
-import asyncio
 from typing import TYPE_CHECKING, Any
 
 from github.CheckRun import CheckRun
 from github.PullRequest import PullRequest
-from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
 from github.Repository import Repository
 
+from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
 from webhook_server.libs.handlers.labels_handler import LabelsHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.utils.constants import (
@@ -36,6 +35,7 @@ class CheckRunHandler:
         self.logger = self.github_webhook.logger
         self.log_prefix: str = self.github_webhook.log_prefix
         self.repository: Repository = self.github_webhook.repository
+        self.unified_api = self.github_webhook.unified_api
         if isinstance(self.owners_file_handler, OwnersFileHandler):
             self.labels_handler = LabelsHandler(
                 github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
@@ -69,7 +69,9 @@ class CheckRunHandler:
                     try:
                         self.logger.step(f"{self.log_prefix} Executing auto-merge for PR #{pull_request.number}")  # type: ignore
                         owner, repo_name = self.repository.full_name.split("/")
-                        await self.github_webhook.unified_api.merge_pull_request(owner, repo_name, pull_request.number, merge_method="SQUASH")
+                        await self.unified_api.merge_pull_request(
+                            owner, repo_name, pull_request.number, merge_method="SQUASH"
+                        )
                         self.logger.step(f"{self.log_prefix} Auto-merge completed successfully")  # type: ignore
                         self.logger.info(
                             f"{self.log_prefix} Successfully auto-merged pull request #{pull_request.number}"
@@ -231,7 +233,7 @@ class CheckRunHandler:
 
         try:
             self.logger.debug(f"{self.log_prefix} Set check run status with {kwargs}")
-            await self.github_webhook.unified_api.create_check_run(self.github_webhook.repository_by_github_app, **kwargs)
+            await self.unified_api.create_check_run(self.github_webhook.repository_by_github_app, **kwargs)
             if conclusion in (SUCCESS_STR, IN_PROGRESS_STR):
                 self.logger.success(msg)  # type: ignore
             return
@@ -239,7 +241,7 @@ class CheckRunHandler:
         except Exception as ex:
             self.logger.debug(f"{self.log_prefix} Failed to set {check_run} check to {status or conclusion}, {ex}")
             kwargs["conclusion"] = FAILURE_STR
-            await self.github_webhook.unified_api.create_check_run(self.github_webhook.repository_by_github_app, **kwargs)
+            await self.unified_api.create_check_run(self.github_webhook.repository_by_github_app, **kwargs)
 
     def get_check_run_text(self, err: str, out: str) -> str:
         total_len: int = len(err) + len(out)
@@ -268,9 +270,7 @@ class CheckRunHandler:
     async def is_check_run_in_progress(self, check_run: str) -> bool:
         if self.github_webhook.last_commit:
             owner, repo_name = self.repository.full_name.split("/")
-            for run in await self.github_webhook.unified_api.get_commit_check_runs(
-                self.github_webhook.last_commit, owner, repo_name
-            ):
+            for run in await self.unified_api.get_commit_check_runs(self.github_webhook.last_commit, owner, repo_name):
                 if run.name == check_run and run.status == IN_PROGRESS_STR:
                     self.logger.debug(f"{self.log_prefix} Check run {check_run} is in progress.")
                     return True
@@ -346,7 +346,7 @@ class CheckRunHandler:
             return []
 
         owner, repo_name = self.repository.full_name.split("/")
-        branch_protection = await self.github_webhook.unified_api.get_branch_protection(owner, repo_name, pull_request.base.ref)
+        branch_protection = await self.unified_api.get_branch_protection(owner, repo_name, pull_request.base.ref)
         branch_required_status_checks = branch_protection.required_status_checks.contexts
         self.logger.debug(f"branch_required_status_checks: {branch_required_status_checks}")
         return branch_required_status_checks

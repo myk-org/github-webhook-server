@@ -239,7 +239,9 @@ class IssueCommentHandler:
 
     async def create_comment_reaction(self, pull_request: PullRequest, issue_comment_id: int, reaction: str) -> None:
         owner, repo_name = self.repository.full_name.split("/")
-        _comment = await self.github_webhook.unified_api.get_issue_comment(owner, repo_name, pull_request.number, issue_comment_id)
+        _comment = await self.github_webhook.unified_api.get_issue_comment(
+            owner, repo_name, pull_request.number, issue_comment_id
+        )
         await self.github_webhook.unified_api.create_reaction(_comment, reaction)
 
     async def _add_reviewer_by_user_comment(self, pull_request: PullRequest, reviewer: str) -> None:
