@@ -100,7 +100,7 @@ class GraphQLClient:
                 await self._client.close_async()
             except Exception:
                 pass  # Ignore cleanup errors
-            
+
         # Create fresh transport with new connection for this query
         self._transport = AIOHTTPTransport(
             url=self.GITHUB_GRAPHQL_URL,
@@ -159,13 +159,13 @@ class GraphQLClient:
             try:
                 self.logger.debug(f"Executing GraphQL query with {self.timeout}s timeout")
 
-                # Use session context manager for each query to ensure clean connection state
-                async with self._client as session:  # type: ignore[union-attr]
-                    # Force timeout with asyncio.wait_for to prevent silent hangs
-                    result = await asyncio.wait_for(
-                        session.execute(query, variable_values=variables),
-                        timeout=self.timeout
-                    )
+                # Wrap the entire operation (session creation + query execution) in timeout
+                # to prevent hangs during connection setup or query execution
+                async def _execute_with_session() -> dict[str, Any]:
+                    async with self._client as session:  # type: ignore[union-attr]
+                        return await session.execute(query, variable_values=variables)
+
+                result = await asyncio.wait_for(_execute_with_session(), timeout=self.timeout)
 
                 self.logger.debug("GraphQL query executed successfully")
                 return result
@@ -185,17 +185,16 @@ class GraphQLClient:
                     try:
                         from datetime import datetime, timezone
                         import aiohttp
-                        
+
                         async with aiohttp.ClientSession() as http_session:
                             async with http_session.get(
-                                "https://api.github.com/rate_limit",
-                                headers={"Authorization": f"Bearer {self.token}"}
+                                "https://api.github.com/rate_limit", headers={"Authorization": f"Bearer {self.token}"}
                             ) as resp:
                                 rate_data = await resp.json()
                                 reset_timestamp = rate_data["resources"]["graphql"]["reset"]
                                 current_time = datetime.now(timezone.utc).timestamp()
                                 wait_seconds = int(reset_timestamp - current_time) + 5  # Add 5s buffer
-                                
+
                                 if wait_seconds > 0:
                                     self.logger.warning(
                                         f"RATE LIMIT: GraphQL rate limit exceeded. "
@@ -205,7 +204,7 @@ class GraphQLClient:
                                     continue  # Retry after waiting
                     except Exception as ex:
                         self.logger.error(f"Failed to get rate limit info: {ex}", exc_info=True)
-                    
+
                     # If we can't get rate limit info, fail
                     self.logger.error(f"RATE LIMIT: GraphQL rate limit exceeded: {error_msg}", exc_info=True)
                     raise GraphQLRateLimitError(f"Rate limit exceeded: {error_msg}") from error
@@ -229,7 +228,7 @@ class GraphQLClient:
                 # Handle unexpected errors - NEVER SILENT!
                 error_msg = str(error)
                 error_type = type(error).__name__
-                
+
                 # Log ALL exceptions with full context and re-raise immediately
                 self.logger.error(f"FATAL: GraphQL error [{error_type}]: {error_msg}", exc_info=True)
                 raise GraphQLError(f"Unexpected error [{error_type}]: {error_msg}") from error
