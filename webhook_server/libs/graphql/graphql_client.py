@@ -179,8 +179,34 @@ class GraphQLClient:
                     self.logger.error(f"AUTH FAILED: GraphQL authentication failed: {error_msg}", exc_info=True)
                     raise GraphQLAuthenticationError(f"Authentication failed: {error_msg}") from error
 
-                # Check for rate limit errors
+                # Check for rate limit errors - wait until rate limit resets
                 if "rate limit" in error_msg.lower() or "RATE_LIMITED" in error_msg:
+                    # Query GitHub API for current rate limit status
+                    try:
+                        from datetime import datetime, timezone
+                        import aiohttp
+                        
+                        async with aiohttp.ClientSession() as http_session:
+                            async with http_session.get(
+                                "https://api.github.com/rate_limit",
+                                headers={"Authorization": f"Bearer {self.token}"}
+                            ) as resp:
+                                rate_data = await resp.json()
+                                reset_timestamp = rate_data["resources"]["graphql"]["reset"]
+                                current_time = datetime.now(timezone.utc).timestamp()
+                                wait_seconds = int(reset_timestamp - current_time) + 5  # Add 5s buffer
+                                
+                                if wait_seconds > 0:
+                                    self.logger.warning(
+                                        f"RATE LIMIT: GraphQL rate limit exceeded. "
+                                        f"Waiting {wait_seconds}s until reset at {datetime.fromtimestamp(reset_timestamp, tz=timezone.utc)}"
+                                    )
+                                    await asyncio.sleep(wait_seconds)
+                                    continue  # Retry after waiting
+                    except Exception as ex:
+                        self.logger.error(f"Failed to get rate limit info: {ex}", exc_info=True)
+                    
+                    # If we can't get rate limit info, fail
                     self.logger.error(f"RATE LIMIT: GraphQL rate limit exceeded: {error_msg}", exc_info=True)
                     raise GraphQLRateLimitError(f"Rate limit exceeded: {error_msg}") from error
 
