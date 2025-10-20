@@ -654,7 +654,10 @@ For more information, please refer to the project documentation or contact the m
         try:
             self.logger.info(f"{self.log_prefix} Check if {CAN_BE_MERGED_STR}.")
             await self.check_run_handler.set_merge_check_in_progress()
-            last_commit_check_runs = await self.github_webhook.unified_api.get_commit_check_runs(self.github_webhook.last_commit)
+            owner, repo_name = self.repository.full_name.split("/")
+            last_commit_check_runs = await self.github_webhook.unified_api.get_commit_check_runs(
+                self.github_webhook.last_commit, owner, repo_name
+            )
             _labels = await self.labels_handler.pull_request_labels_names(pull_request=pull_request)
             self.logger.debug(f"{self.log_prefix} check if can be merged. PR labels are: {_labels}")
 
