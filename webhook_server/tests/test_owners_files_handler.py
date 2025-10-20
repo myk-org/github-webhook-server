@@ -17,6 +17,7 @@ class TestOwnersFileHandler:
         mock_webhook.logger = Mock()
         mock_webhook.log_prefix = "[TEST]"
         mock_webhook.repository = Mock()
+        mock_webhook.repository.full_name = "test-owner/test-repo"
         mock_webhook.repository_full_name = "test-org/test-repo"
         mock_webhook.add_pr_comment = AsyncMock()
         mock_webhook.request_pr_reviews = AsyncMock()

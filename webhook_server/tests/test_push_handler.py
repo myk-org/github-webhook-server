@@ -18,6 +18,7 @@ class TestPushHandler:
         mock_webhook.logger = Mock()
         mock_webhook.log_prefix = "[TEST]"
         mock_webhook.repository = Mock()
+        mock_webhook.repository.full_name = "test-owner/test-repo"
         mock_webhook.pypi = {"token": "test-token"}
         mock_webhook.build_and_push_container = True
         mock_webhook.container_release = True
