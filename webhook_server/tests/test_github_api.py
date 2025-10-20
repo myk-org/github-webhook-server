@@ -383,6 +383,11 @@ class TestGithubWebhook:
 
         headers = Headers({"X-GitHub-Event": "issue_comment"})
         webhook = GithubWebhook(hook_data=issue_comment_payload, headers=headers, logger=Mock())
+        webhook.repository.full_name = "my-org/test-repo"
+        webhook.unified_api = AsyncMock()
+        webhook.unified_api.get_pull_request_files = AsyncMock(return_value=[Mock(filename="test.py")])
+        webhook.unified_api.get_git_tree = AsyncMock(return_value=Mock(tree=[Mock(path="OWNERS", type="blob")]))
+        webhook.unified_api.get_contents = AsyncMock(return_value=Mock(decoded_content=b"approvers:\\n  - user1\\nreviewers:\\n  - user2"))
 
         # Mock get_pull_request to return a valid pull request object
         mock_pr = Mock()
@@ -807,6 +812,9 @@ class TestGithubWebhook:
                                     mock_pr_handler.return_value.check_if_can_be_merged = AsyncMock(return_value=None)
 
                                     webhook = GithubWebhook(check_run_data, headers, logger)
+                                    webhook.repository.full_name = "org/test-repo"
+                                    webhook.unified_api = AsyncMock()
+                                    webhook.unified_api.get_open_pull_requests = AsyncMock(return_value=[mock_pr])
                                     await webhook.process()
 
                                     mock_check_handler.return_value.process_pull_request_check_run_webhook_data.assert_awaited_once()
@@ -923,6 +931,10 @@ class TestGithubWebhook:
                             mock_commit.get_pulls.return_value = [mock_pr]
 
                             gh = GithubWebhook(commit_data, minimal_headers, logger)
+                            gh.repository.full_name = "my-org/test-repo"
+                            gh.unified_api = AsyncMock()
+                            gh.unified_api.get_commit = AsyncMock(return_value=mock_commit)
+                            gh.unified_api.get_pulls_from_commit = AsyncMock(return_value=[mock_pr])
                             result = await gh.get_pull_request()
                             assert result == mock_pr
 
