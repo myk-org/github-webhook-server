@@ -1,7 +1,7 @@
 import pytest
 import yaml
 
-from webhook_server.libs.pull_request_handler import PullRequestHandler
+from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
 from webhook_server.tests.conftest import ContentFile, Tree
 from webhook_server.utils.constants import APPROVED_BY_LABEL_PREFIX
 

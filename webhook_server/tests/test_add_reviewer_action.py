@@ -2,7 +2,7 @@ import logging
 
 import pytest
 
-from webhook_server.libs.issue_comment_handler import IssueCommentHandler
+from webhook_server.libs.handlers.issue_comment_handler import IssueCommentHandler
 
 
 class User:
@@ -18,24 +18,20 @@ class Repository:
         return [User("user1")]
 
 
-class PullRequest:
-    def __init__(self):
-        pass
-
-    def create_issue_comment(self, _):
-        return
-
-    def create_review_request(self, _):
-        return
-
-
 @pytest.mark.asyncio
 async def test_add_reviewer_by_user_comment(caplog, process_github_webhook, owners_file_handler, pull_request):
     # Set log level BEFORE the action
     caplog.set_level(logging.DEBUG)
 
     process_github_webhook.repository = Repository()
-    process_github_webhook.pull_request = PullRequest()
+
+    # Mock unified_api to prevent real GraphQL calls
+    from unittest.mock import AsyncMock
+
+    process_github_webhook.unified_api = AsyncMock()
+    process_github_webhook.unified_api.get_user_id.return_value = "U_123"
+    process_github_webhook.unified_api.request_reviews.return_value = None
+
     issue_comment_handler = IssueCommentHandler(
         github_webhook=process_github_webhook, owners_file_handler=owners_file_handler
     )
@@ -51,7 +47,12 @@ async def test_add_reviewer_by_user_comment_invalid_user(
     caplog.set_level(logging.DEBUG)
 
     process_github_webhook.repository = Repository()
-    process_github_webhook.pull_request = PullRequest()
+
+    # Mock unified_api to prevent real GraphQL calls
+    from unittest.mock import AsyncMock
+
+    process_github_webhook.unified_api = AsyncMock()
+
     issue_comment_handler = IssueCommentHandler(
         github_webhook=process_github_webhook, owners_file_handler=owners_file_handler
     )

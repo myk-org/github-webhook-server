@@ -1,6 +1,6 @@
 import pytest
 
-from webhook_server.libs.pull_request_handler import PullRequestHandler
+from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
 
 
 class TestPrepareRetestWellcomeMsg:

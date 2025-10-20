@@ -12,6 +12,39 @@ from webhook_server.libs.exceptions import RepositoryNotFoundInConfigError
 from webhook_server.libs.github_api import GithubWebhook
 
 
+@pytest.fixture
+def github_webhook_with_unified():
+    """Create GithubWebhook with mocked unified_api."""
+    minimal_hook_data = {"repository": {"full_name": "test-org/test-repo", "name": "test-repo"}}
+    minimal_headers = {"X-GitHub-Event": "pull_request", "X-GitHub-Delivery": "abc"}
+    logger = get_logger(name="test")
+
+    with (
+        patch("webhook_server.libs.github_api.Config") as mock_config,
+        patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api,
+        patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo,
+        patch("webhook_server.libs.github_api.get_repository_github_app_api"),
+        patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix"),
+    ):
+        mock_config.return_value.repository = True
+        mock_config.return_value.repository_local_data.return_value = {}
+        mock_get_api.return_value = (Mock(), "token", "apiuser")
+        mock_get_repo.return_value = Mock(name="repo_api")
+
+        webhook = GithubWebhook(
+            hook_data=minimal_hook_data,
+            headers=minimal_headers,
+            logger=logger,
+        )
+        webhook.unified_api = AsyncMock()
+        webhook.unified_api.add_comment = AsyncMock()
+        webhook.unified_api.update_pull_request = AsyncMock()
+        webhook.unified_api.enable_pull_request_automerge = AsyncMock()
+        webhook.unified_api.request_reviews = AsyncMock()
+        webhook.unified_api.add_assignees = AsyncMock()
+        yield webhook
+
+
 class TestGithubWebhook:
     """Test suite for GitHub webhook processing and API integration."""
 
@@ -73,6 +106,7 @@ class TestGithubWebhook:
     def logger(self):
         return get_logger(name="test")
 
+    @pytest.fixture
     @patch("webhook_server.libs.github_api.Config")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.libs.github_api.get_github_repo_api")
@@ -203,7 +237,7 @@ class TestGithubWebhook:
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
-    @patch("webhook_server.libs.pull_request_handler.PullRequestHandler.process_pull_request_webhook_data")
+    @patch("webhook_server.libs.handlers.pull_request_handler.PullRequestHandler.process_pull_request_webhook_data")
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.libs.config.Config.repository_local_data")
     @patch(
@@ -270,7 +304,7 @@ class TestGithubWebhook:
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
-    @patch("webhook_server.libs.push_handler.PushHandler.process_push_webhook_data")
+    @patch("webhook_server.libs.handlers.push_handler.PushHandler.process_push_webhook_data")
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.libs.config.Config.repository_local_data")
     @patch(
@@ -310,7 +344,7 @@ class TestGithubWebhook:
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
-    @patch("webhook_server.libs.issue_comment_handler.IssueCommentHandler.process_comment_webhook_data")
+    @patch("webhook_server.libs.handlers.issue_comment_handler.IssueCommentHandler.process_comment_webhook_data")
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.libs.config.Config.repository_local_data")
     @patch(
@@ -405,11 +439,21 @@ class TestGithubWebhook:
         mock_get_apis.return_value = []  # Return empty list to skip the problematic property code
         mock_repo_local_data.return_value = {}
 
-        headers = Headers({"X-GitHub-Event": "unsupported_event"})
-        webhook = GithubWebhook(hook_data=pull_request_payload, headers=headers, logger=Mock())
+        # Mock UnifiedGitHubAPI to prevent real GraphQL calls
+        with patch("webhook_server.libs.github_api.UnifiedGitHubAPI") as mock_unified:
+            mock_unified_instance = AsyncMock()
+            # Make get_pull_request return a proper mock PR with draft=False
+            mock_pr = Mock()
+            mock_pr.draft = False
+            mock_pr.number = 123
+            mock_unified_instance.get_pull_request = AsyncMock(return_value=mock_pr)
+            mock_unified.return_value = mock_unified_instance
 
-        # Should not raise an exception, just skip processing
-        await webhook.process()
+            headers = Headers({"X-GitHub-Event": "unsupported_event"})
+            webhook = GithubWebhook(hook_data=pull_request_payload, headers=headers, logger=Mock())
+
+            # Should not raise an exception, just skip processing
+            await webhook.process()
 
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
@@ -784,13 +828,24 @@ class TestGithubWebhook:
                         with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
                             mock_color.return_value = "test-repo"
 
-                            mock_pr = Mock()
-                            mock_repo.get_pull.return_value = mock_pr
+                            # Mock UnifiedGitHubAPI to return mock PR data
+                            with patch("webhook_server.libs.github_api.UnifiedGitHubAPI") as mock_unified:
+                                mock_unified_instance = AsyncMock()
+                                mock_pr_data = {
+                                    "number": 123,
+                                    "title": "Test PR",
+                                    "state": "OPEN",
+                                    "author": {"login": "testuser"},
+                                    "baseRef": {"name": "main"},
+                                    "headRef": {"name": "feature"},
+                                }
+                                mock_unified_instance.get_pull_request = AsyncMock(return_value=mock_pr_data)
+                                mock_unified.return_value = mock_unified_instance
 
-                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
-                            result = await gh.get_pull_request(number=123)
-                            assert result == mock_pr
-                            mock_repo.get_pull.assert_called_once_with(123)
+                                gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
+                                result = await gh.get_pull_request(number=123)
+                                assert result is not None
+                                assert result.number == 123
 
     @pytest.mark.asyncio
     async def test_get_pull_request_github_exception(
@@ -816,11 +871,17 @@ class TestGithubWebhook:
                         with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
                             mock_color.return_value = "test-repo"
 
-                            mock_repo.get_pull.side_effect = GithubException(404, "Not found")
+                            # Mock UnifiedGitHubAPI to raise GithubException (GraphQL failure)
+                            with patch("webhook_server.libs.github_api.UnifiedGitHubAPI") as mock_unified:
+                                mock_unified_instance = AsyncMock()
+                                mock_unified_instance.get_pull_request.side_effect = GithubException(404, "Not found")
+                                mock_unified.return_value = mock_unified_instance
 
-                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
-                            result = await gh.get_pull_request()
-                            assert result is None
+                                gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
+
+                                # GraphQL fails, no fallback - exception propagates
+                                with pytest.raises(GithubException):
+                                    await gh.get_pull_request()
 
     @pytest.mark.asyncio
     async def test_get_pull_request_by_commit_with_pulls(
@@ -1096,3 +1157,76 @@ class TestGithubWebhook:
 
                             result = await gh._get_last_commit(mock_pr)
                             assert result == mock_commits[-1]
+
+
+@pytest.mark.asyncio
+async def test_add_pr_comment_with_wrapper(github_webhook_with_unified):
+    """Test add_pr_comment uses GraphQL with wrapper."""
+    from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+
+    wrapper = Mock(spec=PullRequestWrapper)
+    wrapper.id = "PR_123"
+
+    await github_webhook_with_unified.add_pr_comment(wrapper, "Test comment")
+
+    github_webhook_with_unified.unified_api.add_comment.assert_called_once_with("PR_123", "Test comment")
+
+
+@pytest.mark.asyncio
+async def test_update_pr_title_with_wrapper(github_webhook_with_unified):
+    """Test update_pr_title uses GraphQL with wrapper."""
+    from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+
+    wrapper = Mock(spec=PullRequestWrapper)
+    wrapper.id = "PR_123"
+
+    await github_webhook_with_unified.update_pr_title(wrapper, "New Title")
+
+    github_webhook_with_unified.unified_api.update_pull_request.assert_called_once_with("PR_123", title="New Title")
+
+
+@pytest.mark.asyncio
+async def test_enable_pr_automerge_with_wrapper(github_webhook_with_unified):
+    """Test enable_pr_automerge uses GraphQL with wrapper."""
+    from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+
+    wrapper = Mock(spec=PullRequestWrapper)
+    wrapper.id = "PR_123"
+
+    await github_webhook_with_unified.enable_pr_automerge(wrapper, "SQUASH")
+
+    github_webhook_with_unified.unified_api.enable_pull_request_automerge.assert_called_once_with("PR_123", "SQUASH")
+
+
+@pytest.mark.asyncio
+async def test_request_pr_reviews_with_wrapper(github_webhook_with_unified):
+    """Test request_pr_reviews uses GraphQL with wrapper."""
+    from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+
+    wrapper = Mock(spec=PullRequestWrapper)
+    wrapper.id = "PR_123"
+
+    # Mock get_user_id to return user IDs
+    github_webhook_with_unified.unified_api.get_user_id = AsyncMock(side_effect=["U_1", "U_2"])
+
+    await github_webhook_with_unified.request_pr_reviews(wrapper, ["reviewer1", "reviewer2"])
+
+    # Should convert logins to IDs
+    github_webhook_with_unified.unified_api.request_reviews.assert_called_once_with("PR_123", ["U_1", "U_2"])
+
+
+@pytest.mark.asyncio
+async def test_add_pr_assignee_with_wrapper(github_webhook_with_unified):
+    """Test add_pr_assignee uses GraphQL with wrapper."""
+    from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+
+    wrapper = Mock(spec=PullRequestWrapper)
+    wrapper.id = "PR_123"
+
+    # Mock get_user_id
+    github_webhook_with_unified.unified_api.get_user_id = AsyncMock(return_value="U_1")
+
+    await github_webhook_with_unified.add_pr_assignee(wrapper, "assignee1")
+
+    # Should convert login to ID
+    github_webhook_with_unified.unified_api.add_assignees.assert_called_once_with("PR_123", ["U_1"])

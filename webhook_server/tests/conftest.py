@@ -4,7 +4,7 @@ import pytest
 import yaml
 from starlette.datastructures import Headers
 
-from webhook_server.libs.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 
 os.environ["WEBHOOK_SERVER_DATA_DIR"] = "webhook_server/tests/manifests"
 os.environ["ENABLE_LOG_SERVER"] = "true"
@@ -92,24 +92,32 @@ class Label:
         self.name = name
 
 
-class PullRequest:
-    def __init__(self, additions: int | None = None, deletions: int | None = None):
-        self.additions = additions
-        self.deletions = deletions
-
-    class base:
-        ref = "refs/heads/main"
-
-    def create_issue_comment(self, *args, **kwargs): ...
-
-    def create_review_request(self, *args, **kwargs): ...
-
-    def get_files(self): ...
-
-
 @pytest.fixture(scope="function")
 def pull_request():
-    return PullRequest()
+    """Return PullRequestWrapper for GraphQL migration."""
+    from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+
+    pr_data = {
+        "id": "PR_kgDOTestId",
+        "number": 123,
+        "title": "Test PR",
+        "body": "Test body",
+        "state": "OPEN",
+        "merged": False,
+        "mergeable": "MERGEABLE",
+        "draft": False,
+        "additions": 100,
+        "deletions": 50,
+        "baseRef": {"name": "main", "target": {"oid": "abc123"}},
+        "headRef": {"name": "feature", "target": {"oid": "def456"}},
+        "author": {"login": "testuser"},
+        "createdAt": "2025-01-01T00:00:00Z",
+        "updatedAt": "2025-01-01T01:00:00Z",
+        "permalink": "https://github.com/test/repo/pull/123",
+        "commits": {"nodes": []},
+        "labels": {"nodes": []},
+    }
+    return PullRequestWrapper(pr_data)
 
 
 @pytest.fixture(scope="function")

@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from webhook_server.libs.runner_handler import RunnerHandler
+from webhook_server.libs.handlers.runner_handler import RunnerHandler
 
 
 class TestRunnerHandler:
@@ -65,7 +65,8 @@ class TestRunnerHandler:
     @pytest.fixture(autouse=True)
     def patch_check_run_text(self) -> Generator[None, None, None]:
         with patch(
-            "webhook_server.libs.check_run_handler.CheckRunHandler.get_check_run_text", return_value="dummy output"
+            "webhook_server.libs.handlers.check_run_handler.CheckRunHandler.get_check_run_text",
+            return_value="dummy output",
         ):
             yield
 
@@ -95,7 +96,9 @@ class TestRunnerHandler:
     @pytest.mark.asyncio
     async def test_run_podman_command_success(self, runner_handler: RunnerHandler) -> None:
         """Test run_podman_command with successful command."""
-        with patch("webhook_server.libs.runner_handler.run_command", new=AsyncMock(return_value=(True, "success", ""))):
+        with patch(
+            "webhook_server.libs.handlers.runner_handler.run_command", new=AsyncMock(return_value=(True, "success", ""))
+        ):
             rc, out, err = await runner_handler.run_podman_command("podman build .")
             assert rc is True
             assert "success" in out  # Relaxed assertion
@@ -104,7 +107,7 @@ class TestRunnerHandler:
     async def test_run_podman_command_podman_bug(self, runner_handler: RunnerHandler) -> None:
         """Test run_podman_command with podman bug error."""
         podman_bug_err = "Error: current system boot ID differs from cached boot ID; an unhandled reboot has occurred"
-        with patch("webhook_server.libs.runner_handler.run_command", new=AsyncMock()) as mock_run:
+        with patch("webhook_server.libs.handlers.runner_handler.run_command", new=AsyncMock()) as mock_run:
             mock_run.side_effect = [(False, "output", podman_bug_err), (True, "success after fix", "")]
             with patch.object(runner_handler, "fix_podman_bug") as mock_fix:
                 rc, out, err = await runner_handler.run_podman_command("podman build .")
@@ -114,7 +117,7 @@ class TestRunnerHandler:
     async def test_run_podman_command_other_error(self, runner_handler: RunnerHandler) -> None:
         """Test run_podman_command with other error."""
         with patch(
-            "webhook_server.libs.runner_handler.run_command",
+            "webhook_server.libs.handlers.runner_handler.run_command",
             new=AsyncMock(return_value=(False, "output", "other error")),
         ):
             rc, out, err = await runner_handler.run_podman_command("podman build .")
@@ -178,7 +181,7 @@ class TestRunnerHandler:
                         mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(True, "", ""))
                         mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
                         with patch(
-                            "webhook_server.libs.runner_handler.run_command",
+                            "webhook_server.libs.handlers.runner_handler.run_command",
                             new=AsyncMock(return_value=(True, "success", "")),
                         ):
                             await runner_handler.run_tox(mock_pull_request)
@@ -231,7 +234,7 @@ class TestRunnerHandler:
                         mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(True, "", ""))
                         mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
                         with patch(
-                            "webhook_server.libs.runner_handler.run_command",
+                            "webhook_server.libs.handlers.runner_handler.run_command",
                             new=AsyncMock(return_value=(True, "success", "")),
                         ):
                             await runner_handler.run_pre_commit(mock_pull_request)
@@ -347,7 +350,7 @@ class TestRunnerHandler:
                         mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(True, "", ""))
                         mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
                         with patch(
-                            "webhook_server.libs.runner_handler.run_command",
+                            "webhook_server.libs.handlers.runner_handler.run_command",
                             new=AsyncMock(return_value=(True, "success", "")),
                         ):
                             await runner_handler.run_install_python_module(mock_pull_request)
@@ -431,9 +434,11 @@ class TestRunnerHandler:
     async def test_cherry_pick_branch_not_exists(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
         """Test cherry_pick when target branch doesn't exist."""
         with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=None)):
-            with patch("asyncio.to_thread") as mock_to_thread:
+            with patch.object(runner_handler.github_webhook, "add_pr_comment", new_callable=AsyncMock) as mock_comment:
                 await runner_handler.cherry_pick(mock_pull_request, "non-existent-branch")
-                mock_to_thread.assert_called_once()
+                # Verify comment was added with correct error message
+                mock_comment.assert_called_once()
+                assert "does not exists" in mock_comment.call_args[0][1]
 
     @pytest.mark.asyncio
     async def test_cherry_pick_prepare_failure(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
@@ -481,7 +486,7 @@ class TestRunnerHandler:
                         mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(True, "", ""))
                         mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
                         with patch(
-                            "webhook_server.libs.runner_handler.run_command",
+                            "webhook_server.libs.handlers.runner_handler.run_command",
                             new=AsyncMock(return_value=(True, "success", "")),
                         ):
                             with patch("asyncio.to_thread"):
@@ -494,7 +499,9 @@ class TestRunnerHandler:
         self, runner_handler: RunnerHandler, mock_pull_request: Mock
     ) -> None:
         """Test _prepare_cloned_repo_dir with successful preparation."""
-        with patch("webhook_server.libs.runner_handler.run_command", new=AsyncMock(return_value=(True, "success", ""))):
+        with patch(
+            "webhook_server.libs.handlers.runner_handler.run_command", new=AsyncMock(return_value=(True, "success", ""))
+        ):
             with patch.object(
                 runner_handler.github_webhook, "get_pull_request", new=AsyncMock(return_value=mock_pull_request)
             ):
@@ -508,7 +515,8 @@ class TestRunnerHandler:
     async def test_prepare_cloned_repo_dir_clone_failure(self, runner_handler: RunnerHandler) -> None:
         """Test _prepare_cloned_repo_dir when clone fails."""
         with patch(
-            "webhook_server.libs.runner_handler.run_command", new=AsyncMock(return_value=(False, "output", "error"))
+            "webhook_server.libs.handlers.runner_handler.run_command",
+            new=AsyncMock(return_value=(False, "output", "error")),
         ):
             async with runner_handler._prepare_cloned_repo_dir("/tmp/test-repo-unique2") as result:
                 success, out, err = result
@@ -520,7 +528,9 @@ class TestRunnerHandler:
         self, runner_handler: RunnerHandler, mock_pull_request: Mock
     ) -> None:
         """Test _prepare_cloned_repo_dir with checkout parameter."""
-        with patch("webhook_server.libs.runner_handler.run_command", new=AsyncMock(return_value=(True, "success", ""))):
+        with patch(
+            "webhook_server.libs.handlers.runner_handler.run_command", new=AsyncMock(return_value=(True, "success", ""))
+        ):
             async with runner_handler._prepare_cloned_repo_dir(
                 "/tmp/test-repo-unique3", mock_pull_request, checkout="feature-branch"
             ) as result:
@@ -532,7 +542,9 @@ class TestRunnerHandler:
         self, runner_handler: RunnerHandler, mock_pull_request: Mock
     ) -> None:
         """Test _prepare_cloned_repo_dir with tag_name parameter."""
-        with patch("webhook_server.libs.runner_handler.run_command", new=AsyncMock(return_value=(True, "success", ""))):
+        with patch(
+            "webhook_server.libs.handlers.runner_handler.run_command", new=AsyncMock(return_value=(True, "success", ""))
+        ):
             async with runner_handler._prepare_cloned_repo_dir(
                 "/tmp/test-repo-unique4", mock_pull_request, tag_name="v1.0.0"
             ) as result:
@@ -544,7 +556,9 @@ class TestRunnerHandler:
         self, runner_handler: RunnerHandler, mock_pull_request: Mock
     ) -> None:
         """Test _prepare_cloned_repo_dir with merged pull request."""
-        with patch("webhook_server.libs.runner_handler.run_command", new=AsyncMock(return_value=(True, "success", ""))):
+        with patch(
+            "webhook_server.libs.handlers.runner_handler.run_command", new=AsyncMock(return_value=(True, "success", ""))
+        ):
             async with runner_handler._prepare_cloned_repo_dir(
                 "/tmp/test-repo-unique5", mock_pull_request, is_merged=True
             ) as result:
@@ -563,7 +577,8 @@ class TestRunnerHandler:
             return (True, "ok", "")
 
         with patch(
-            "webhook_server.libs.runner_handler.run_command", new=AsyncMock(side_effect=run_command_side_effect)
+            "webhook_server.libs.handlers.runner_handler.run_command",
+            new=AsyncMock(side_effect=run_command_side_effect),
         ):
             async with runner_handler._prepare_cloned_repo_dir("/tmp/test-repo-x", mock_pull_request) as result:
                 success, out, err = result
@@ -584,7 +599,8 @@ class TestRunnerHandler:
             return (True, "ok", "")
 
         with patch(
-            "webhook_server.libs.runner_handler.run_command", new=AsyncMock(side_effect=run_command_side_effect)
+            "webhook_server.libs.handlers.runner_handler.run_command",
+            new=AsyncMock(side_effect=run_command_side_effect),
         ):
             async with runner_handler._prepare_cloned_repo_dir("/tmp/test-repo-x", mock_pull_request) as result:
                 success, out, err = result
@@ -605,7 +621,8 @@ class TestRunnerHandler:
             return (True, "ok", "")
 
         with patch(
-            "webhook_server.libs.runner_handler.run_command", new=AsyncMock(side_effect=run_command_side_effect)
+            "webhook_server.libs.handlers.runner_handler.run_command",
+            new=AsyncMock(side_effect=run_command_side_effect),
         ):
             async with runner_handler._prepare_cloned_repo_dir("/tmp/test-repo-x", mock_pull_request) as result:
                 success, out, err = result
@@ -630,7 +647,8 @@ class TestRunnerHandler:
             return (True, "ok", "")
 
         with patch(
-            "webhook_server.libs.runner_handler.run_command", new=AsyncMock(side_effect=run_command_side_effect)
+            "webhook_server.libs.handlers.runner_handler.run_command",
+            new=AsyncMock(side_effect=run_command_side_effect),
         ):
             async with runner_handler._prepare_cloned_repo_dir("/tmp/test-repo-x", mock_pull_request) as result:
                 success, out, err = result
@@ -673,29 +691,22 @@ class TestRunnerHandler:
                                         runner_handler.github_webhook, "slack_webhook_url", "http://slack"
                                     ):
                                         with patch.object(
-                                            runner_handler.github_webhook, "send_slack_message"
-                                        ) as mock_slack:
-                                            with patch("asyncio.to_thread") as mock_to_thread:
-                                                # Set set_check=False to avoid early return after build success
-                                                await runner_handler.run_build_container(
-                                                    pull_request=mock_pull_request, push=True, set_check=False
-                                                )
-                                                mock_set_progress.assert_called_once()
-                                                # Should not call set_success because set_check=False
-                                                mock_set_success.assert_not_called()
-                                                # Slack message should be sent when push fails
-                                                mock_slack.assert_called_once()
-                                                # Should be called twice: build and push
-                                                assert mock_run_podman.call_count == 2, (
-                                                    f"Expected 2 calls, got {mock_run_podman.call_count}"
-                                                )
-                                                # to_thread should be called to create issue comment on push failure
-                                                assert mock_to_thread.called, (
-                                                    f"to_thread was not called, calls: {mock_to_thread.call_args_list}"
-                                                )
-                                                called_args = mock_to_thread.call_args[0]
-                                                assert called_args[0] == mock_pull_request.create_issue_comment
-                                                mock_set_failure.assert_not_called()
+                                            runner_handler.github_webhook, "add_pr_comment", new_callable=AsyncMock
+                                        ) as mock_comment:
+                                            # Set set_check=False to avoid early return after build success
+                                            await runner_handler.run_build_container(
+                                                pull_request=mock_pull_request, push=True, set_check=False
+                                            )
+                                            mock_set_progress.assert_called_once()
+                                            # Should not call set_success because set_check=False
+                                            mock_set_success.assert_not_called()
+                                            # Comment should be added when push fails
+                                            mock_comment.assert_called_once()
+                                            # Should be called twice: build and push
+                                            assert mock_run_podman.call_count == 2, (
+                                                f"Expected 2 calls, got {mock_run_podman.call_count}"
+                                            )
+                                            mock_set_failure.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_run_build_container_with_command_args(self, runner_handler, mock_pull_request):

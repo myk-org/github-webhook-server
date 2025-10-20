@@ -7,11 +7,12 @@ from typing import TYPE_CHECKING, Any, Callable, Coroutine, Union
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
-from webhook_server.libs.check_run_handler import CheckRunHandler
-from webhook_server.libs.labels_handler import LabelsHandler
-from webhook_server.libs.owners_files_handler import OwnersFileHandler
-from webhook_server.libs.pull_request_handler import PullRequestHandler
-from webhook_server.libs.runner_handler import RunnerHandler
+from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
+from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+from webhook_server.libs.handlers.labels_handler import LabelsHandler
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
+from webhook_server.libs.handlers.runner_handler import RunnerHandler
 from webhook_server.utils.constants import (
     AUTOMERGE_LABEL_STR,
     BUILD_AND_PUSH_CONTAINER_STR,
@@ -58,7 +59,7 @@ class IssueCommentHandler:
             github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
         )
 
-    async def process_comment_webhook_data(self, pull_request: PullRequest) -> None:
+    async def process_comment_webhook_data(self, pull_request: PullRequestWrapper) -> None:
         comment_action = self.hook_data["action"]
         self.logger.step(f"{self.log_prefix} Starting issue comment processing: action={comment_action}")  # type: ignore
 
@@ -133,7 +134,7 @@ class IssueCommentHandler:
             missing_command_arg_comment_msg: str = f"{_command} requires an argument"
             error_msg: str = f"{self.log_prefix} {missing_command_arg_comment_msg}"
             self.logger.debug(error_msg)
-            await asyncio.to_thread(pull_request.create_issue_comment, body=missing_command_arg_comment_msg)
+            await self.github_webhook.add_pr_comment(pull_request, missing_command_arg_comment_msg)
             return
 
         if _command == AUTOMERGE_LABEL_STR:
@@ -143,7 +144,7 @@ class IssueCommentHandler:
             ):
                 msg = "Only maintainers or approvers can set pull request to auto-merge"
                 self.logger.debug(f"{self.log_prefix} {msg}")
-                await asyncio.to_thread(pull_request.create_issue_comment, body=msg)
+                await self.github_webhook.add_pr_comment(pull_request, msg)
                 return
 
             await self.labels_handler._add_label(pull_request=pull_request, label=AUTOMERGE_LABEL_STR)
@@ -157,7 +158,7 @@ class IssueCommentHandler:
             await self._add_reviewer_by_user_comment(pull_request=pull_request, reviewer=_args)
 
         elif _command == COMMAND_ADD_ALLOWED_USER_STR:
-            await asyncio.to_thread(pull_request.create_issue_comment, body=f"{_args} is now allowed to run commands")
+            await self.github_webhook.add_pr_comment(pull_request, f"{_args} is now allowed to run commands")
 
         elif _command == COMMAND_ASSIGN_REVIEWERS_STR:
             await self.owners_file_handler.assign_reviewers(pull_request=pull_request)
@@ -188,16 +189,16 @@ class IssueCommentHandler:
                 msg = f"No {BUILD_AND_PUSH_CONTAINER_STR} configured for this repository"
                 error_msg = f"{self.log_prefix} {msg}"
                 self.logger.debug(error_msg)
-                await asyncio.to_thread(pull_request.create_issue_comment, msg)
+                await self.github_webhook.add_pr_comment(pull_request, msg)
 
         elif _command == WIP_STR:
             wip_for_title: str = f"{WIP_STR.upper()}:"
             if remove:
                 await self.labels_handler._remove_label(pull_request=pull_request, label=WIP_STR)
-                await asyncio.to_thread(pull_request.edit, title=pull_request.title.replace(wip_for_title, ""))
+                await self.github_webhook.update_pr_title(pull_request, pull_request.title.replace(wip_for_title, ""))
             else:
                 await self.labels_handler._add_label(pull_request=pull_request, label=WIP_STR)
-                await asyncio.to_thread(pull_request.edit, title=f"{wip_for_title} {pull_request.title}")
+                await self.github_webhook.update_pr_title(pull_request, f"{wip_for_title} {pull_request.title}")
 
         elif _command == HOLD_LABEL_STR:
             if reviewed_user not in self.owners_file_handler.all_pull_request_approvers:
@@ -244,12 +245,12 @@ class IssueCommentHandler:
 
         for contributer in repo_contributors:
             if contributer.login == reviewer:
-                await asyncio.to_thread(pull_request.create_review_request, [reviewer])
+                await self.github_webhook.request_pr_reviews(pull_request, [reviewer])
                 return
 
         _err = f"not adding reviewer {reviewer} by user comment, {reviewer} is not part of contributers"
         self.logger.debug(f"{self.log_prefix} {_err}")
-        await asyncio.to_thread(pull_request.create_issue_comment, _err)
+        await self.github_webhook.add_pr_comment(pull_request, _err)
 
     async def process_cherry_pick_command(
         self, pull_request: PullRequest, command_args: str, reviewed_user: str
@@ -271,7 +272,7 @@ class IssueCommentHandler:
 
         if _non_exits_target_branches_msg:
             self.logger.info(f"{self.log_prefix} {_non_exits_target_branches_msg}")
-            await asyncio.to_thread(pull_request.create_issue_comment, _non_exits_target_branches_msg)
+            await self.github_webhook.add_pr_comment(pull_request, _non_exits_target_branches_msg)
 
         if _exits_target_branches:
             if not await asyncio.to_thread(pull_request.is_merged):
@@ -283,7 +284,7 @@ Cherry-pick requested for PR: `{pull_request.title}` by user `{reviewed_user}`
 Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automatic cheery-pick once the PR is merged
 """
                 self.logger.info(f"{self.log_prefix} {info_msg}")
-                await asyncio.to_thread(pull_request.create_issue_comment, info_msg)
+                await self.github_webhook.add_pr_comment(pull_request, info_msg)
                 for _cp_label in cp_labels:
                     await self.labels_handler._add_label(pull_request=pull_request, label=_cp_label)
             else:
@@ -319,7 +320,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             msg = "No test defined to retest"
             error_msg = f"{self.log_prefix} {msg}."
             self.logger.debug(error_msg)
-            await asyncio.to_thread(pull_request.create_issue_comment, msg)
+            await self.github_webhook.add_pr_comment(pull_request, msg)
             return
 
         if "all" in command_args:
@@ -327,7 +328,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 msg = "Invalid command. `all` cannot be used with other tests"
                 error_msg = f"{self.log_prefix} {msg}."
                 self.logger.debug(error_msg)
-                await asyncio.to_thread(pull_request.create_issue_comment, msg)
+                await self.github_webhook.add_pr_comment(pull_request, msg)
                 return
 
             else:
@@ -348,7 +349,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             msg = f"No {' '.join(_not_supported_retests)} configured for this repository"
             error_msg = f"{self.log_prefix} {msg}."
             self.logger.debug(error_msg)
-            await asyncio.to_thread(pull_request.create_issue_comment, msg)
+            await self.github_webhook.add_pr_comment(pull_request, msg)
 
         if _supported_retests:
             tasks: list[Union[Coroutine[Any, Any, Any], Task[Any]]] = []

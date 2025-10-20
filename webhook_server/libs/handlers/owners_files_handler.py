@@ -9,6 +9,7 @@ from github.GithubException import GithubException
 from github.NamedUser import NamedUser
 from github.PaginatedList import PaginatedList
 from github.PullRequest import PullRequest
+from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
 from github.Repository import Repository
 
 from webhook_server.utils.constants import COMMAND_ADD_ALLOWED_USER_STR
@@ -24,7 +25,7 @@ class OwnersFileHandler:
         self.log_prefix: str = self.github_webhook.log_prefix
         self.repository: Repository = self.github_webhook.repository
 
-    async def initialize(self, pull_request: PullRequest) -> "OwnersFileHandler":
+    async def initialize(self, pull_request: PullRequestWrapper) -> "OwnersFileHandler":
         self.changed_files = await self.list_changed_files(pull_request=pull_request)
         self.all_repository_approvers_and_reviewers = await self.get_all_repository_approvers_and_reviewers(
             pull_request=pull_request
@@ -64,7 +65,7 @@ class OwnersFileHandler:
         self.logger.debug(f"{self.log_prefix} ROOT allowed users: {_allowed_users}")
         return _allowed_users
 
-    async def list_changed_files(self, pull_request: PullRequest) -> list[str]:
+    async def list_changed_files(self, pull_request: PullRequestWrapper) -> list[str]:
         changed_files = [_file.filename for _file in await asyncio.to_thread(pull_request.get_files)]
         self.logger.debug(f"{self.log_prefix} Changed files: {changed_files}")
         return changed_files
@@ -89,7 +90,7 @@ class OwnersFileHandler:
             self.logger.error(f"{self.log_prefix} Invalid OWNERS file {path}: {e}")
             return False
 
-    async def _get_file_content(self, content_path: str, pull_request: PullRequest) -> tuple[ContentFile, str]:
+    async def _get_file_content(self, content_path: str, pull_request: PullRequestWrapper) -> tuple[ContentFile, str]:
         self.logger.debug(f"{self.log_prefix} Get OWNERS file from {content_path}")
 
         _path = await asyncio.to_thread(self.repository.get_contents, content_path, pull_request.base.ref)
@@ -100,7 +101,9 @@ class OwnersFileHandler:
         return _path, content_path
 
     @functools.lru_cache
-    async def get_all_repository_approvers_and_reviewers(self, pull_request: PullRequest) -> dict[str, dict[str, Any]]:
+    async def get_all_repository_approvers_and_reviewers(
+        self, pull_request: PullRequestWrapper
+    ) -> dict[str, dict[str, Any]]:
         # Dictionary mapping OWNERS file paths to their approvers and reviewers
         _owners: dict[str, dict[str, Any]] = {}
         tasks: list[Coroutine[Any, Any, Any]] = []
@@ -238,7 +241,7 @@ class OwnersFileHandler:
         self.logger.debug(f"Final owners data for changed files: {data}")
         return data
 
-    async def assign_reviewers(self, pull_request: PullRequest) -> None:
+    async def assign_reviewers(self, pull_request: PullRequestWrapper) -> None:
         self._ensure_initialized()
 
         self.logger.step(f"{self.log_prefix} Starting reviewer assignment based on OWNERS files")  # type: ignore
@@ -257,7 +260,7 @@ class OwnersFileHandler:
             if reviewer != pull_request.user.login:
                 self.logger.debug(f"{self.log_prefix} Adding reviewer {reviewer}")
                 try:
-                    await asyncio.to_thread(pull_request.create_review_request, [reviewer])
+                    await self.github_webhook.request_pr_reviews(pull_request, [reviewer])
                     self.logger.step(f"{self.log_prefix} Successfully assigned reviewer {reviewer}")  # type: ignore
 
                 except GithubException as ex:
@@ -298,7 +301,7 @@ Maintainers:
                     return True
 
             self.logger.debug(f"{self.log_prefix} {reviewed_user} is not in {valid_users}")
-            await asyncio.to_thread(pull_request.create_issue_comment, comment_msg)
+            await self.github_webhook.add_pr_comment(pull_request, comment_msg)
             return False
 
         return True

@@ -33,8 +33,8 @@ warn_redundant_casts = true
 [tool.hatch.build.targets.wheel]
 packages = ["webhook_server"]
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
   "ipdb>=0.13.13",
   "ipython>=8.12.3",
   "types-colorama>=0.4.15.20240311",
@@ -58,6 +58,7 @@ dependencies = [
   "colorama>=0.4.6",
   "colorlog>=6.8.2",
   "fastapi>=0.115.0",
+  "gql[aiohttp]>=3.5.0",
   "pygithub>=2.4.0",
   "pyhelper-utils>=0.0.42",
   "pytest-cov>=6.0.0",
@@ -94,13 +95,8 @@ repository = "https://github.com/myakove/github-webhook-server"
 "Bug Tracker" = "https://github.com/myakove/github-webhook-server/issues"
 
 [project.optional-dependencies]
-tests = ["pytest-asyncio>=0.26.0", "pytest-xdist>=3.7.0"]
+tests = ["pytest-asyncio>=0.24.0", "pytest-xdist>=3.7.0"]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
-[dependency-groups]
-tests = [
-    "psutil>=7.0.0",
-]

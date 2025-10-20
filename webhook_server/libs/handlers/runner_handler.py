@@ -8,10 +8,11 @@ from uuid import uuid4
 import shortuuid
 from github.Branch import Branch
 from github.PullRequest import PullRequest
+from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
 from github.Repository import Repository
 
-from webhook_server.libs.check_run_handler import CheckRunHandler
-from webhook_server.libs.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CHERRY_PICKED_LABEL_PREFIX,
@@ -177,7 +178,7 @@ class RunnerHandler:
 
         return rc, out, err
 
-    async def run_tox(self, pull_request: PullRequest) -> None:
+    async def run_tox(self, pull_request: PullRequestWrapper) -> None:
         if not self.github_webhook.tox:
             self.logger.debug(f"{self.log_prefix} Tox not configured for this repository")
             return
@@ -226,7 +227,7 @@ class RunnerHandler:
                 self.logger.step(f"{self.log_prefix} Tox tests failed")  # type: ignore
                 return await self.check_run_handler.set_run_tox_check_failure(output=output)
 
-    async def run_pre_commit(self, pull_request: PullRequest) -> None:
+    async def run_pre_commit(self, pull_request: PullRequestWrapper) -> None:
         if not self.github_webhook.pre_commit:
             self.logger.debug(f"{self.log_prefix} Pre-commit not configured for this repository")
             return
@@ -358,7 +359,7 @@ class RunnerHandler:
                     self.logger.step(f"{self.log_prefix} Container push completed successfully")  # type: ignore
                     push_msg: str = f"New container for {_container_repository_and_tag} published"
                     if pull_request:
-                        await asyncio.to_thread(pull_request.create_issue_comment, push_msg)
+                        await self.github_webhook.add_pr_comment(pull_request, push_msg)
 
                     if self.github_webhook.slack_webhook_url:
                         message = f"""
@@ -374,7 +375,7 @@ class RunnerHandler:
                 else:
                     err_msg: str = f"Failed to build and push {_container_repository_and_tag}"
                     if pull_request:
-                        await asyncio.to_thread(pull_request.create_issue_comment, err_msg)
+                        await self.github_webhook.add_pr_comment(pull_request, err_msg)
 
                     if self.github_webhook.slack_webhook_url:
                         message = f"""
@@ -386,7 +387,7 @@ class RunnerHandler:
                             message=message, webhook_url=self.github_webhook.slack_webhook_url
                         )
 
-    async def run_install_python_module(self, pull_request: PullRequest) -> None:
+    async def run_install_python_module(self, pull_request: PullRequestWrapper) -> None:
         if not self.github_webhook.pypi:
             return
 
@@ -428,7 +429,7 @@ class RunnerHandler:
             self.logger.step(f"{self.log_prefix} Python module installation failed")  # type: ignore
             return await self.check_run_handler.set_python_module_install_failure(output=output)
 
-    async def run_conventional_title_check(self, pull_request: PullRequest) -> None:
+    async def run_conventional_title_check(self, pull_request: PullRequestWrapper) -> None:
         if not self.github_webhook.conventional_title:
             return
 
@@ -471,7 +472,7 @@ class RunnerHandler:
             err_msg = f"cherry-pick failed: {target_branch} does not exists"
             self.logger.step(f"{self.log_prefix} Cherry-pick failed: target branch does not exist")  # type: ignore
             self.logger.error(err_msg)
-            await asyncio.to_thread(pull_request.create_issue_comment, err_msg)
+            await self.github_webhook.add_pr_comment(pull_request, err_msg)
 
         else:
             self.logger.step(f"{self.log_prefix} Setting cherry-pick check status to in-progress")  # type: ignore
