@@ -142,6 +142,7 @@ def github_webhook(mocker, request):
         headers=Headers({"X-GitHub-Event": "test-event"}),
         logger=test_logger,
     )
+    process_github_webhook.repository.full_name = "test-owner/test-repo"
     
     # Mock unified_api for all tests
     process_github_webhook.unified_api = AsyncMock()
