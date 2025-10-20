@@ -13,17 +13,17 @@ from github.Repository import Repository
 
 # GraphQL wrappers provide PyGithub-compatible interface
 from webhook_server.libs.graphql.graphql_wrappers import CommitWrapper, PullRequestWrapper
+from webhook_server.libs.graphql.unified_api import UnifiedGitHubAPI
 from starlette.datastructures import Headers
 
-from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.libs.config import Config
+from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.libs.exceptions import RepositoryNotFoundInConfigError
 from webhook_server.libs.handlers.issue_comment_handler import IssueCommentHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
 from webhook_server.libs.handlers.pull_request_review_handler import PullRequestReviewHandler
 from webhook_server.libs.handlers.push_handler import PushHandler
-from webhook_server.libs.graphql.unified_api import UnifiedGitHubAPI
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
