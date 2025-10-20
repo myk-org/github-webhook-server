@@ -75,16 +75,18 @@ class PullRequestHandler:
 
         if hook_action in ("opened", "reopened", "ready_for_review"):
             self.logger.step(f"{self.log_prefix} Processing PR {hook_action} event: initializing new pull request")  # type: ignore
-            tasks: list[Coroutine[Any, Any, Any]] = []
-            task_names: list[str] = []
 
+            # Post welcome message first, before parallel tasks
             if hook_action in ("opened", "ready_for_review"):
                 self.logger.info(f"{self.log_prefix} WELCOME: Triggering welcome message for action={hook_action}")
                 welcome_msg = self._prepare_welcome_comment()
-                tasks.append(self.github_webhook.add_pr_comment(pull_request, welcome_msg))
-                task_names.append("add_welcome_comment")
+                await self.github_webhook.add_pr_comment(pull_request, welcome_msg)
+                self.logger.info(f"{self.log_prefix} WELCOME: Welcome message posted successfully")
             else:
                 self.logger.debug(f"{self.log_prefix} WELCOME: Skipping welcome message for action={hook_action}")
+
+            tasks: list[Coroutine[Any, Any, Any]] = []
+            task_names: list[str] = []
 
             tasks.append(self.create_issue_for_new_pull_request(pull_request=pull_request))
             task_names.append("create_issue")
