@@ -84,6 +84,10 @@ class CommitWrapper:
             return UserWrapper(committer_data["user"])
         return UserWrapper({"login": committer_data.get("name", "")})
 
+    def get_check_runs(self) -> list:
+        """Get check runs for this commit. Returns empty list - use unified_api.get_commit_check_runs() instead."""
+        return []
+
 
 class PullRequestWrapper:
     """
