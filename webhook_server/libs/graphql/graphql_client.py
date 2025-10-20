@@ -92,25 +92,31 @@ class GraphQLClient:
         await self.close()
 
     async def _ensure_client(self) -> None:
-        """Ensure the GraphQL client is initialized with fresh transport for each webhook."""
-        if self._client is None:
-            # Create fresh transport with new connection for this webhook request
-            self._transport = AIOHTTPTransport(
-                url=self.GITHUB_GRAPHQL_URL,
-                headers={
-                    "Authorization": f"Bearer {self.token}",
-                    "Accept": "application/vnd.github.v4+json",
-                },
-                timeout=self.timeout,
-            )
+        """Ensure the GraphQL client is initialized with fresh transport for each query."""
+        # ALWAYS recreate transport and client for each query to avoid connection reuse
+        # Close existing client first if it exists
+        if self._client:
+            try:
+                await self._client.close_async()
+            except Exception:
+                pass  # Ignore cleanup errors
+            
+        # Create fresh transport with new connection for this query
+        self._transport = AIOHTTPTransport(
+            url=self.GITHUB_GRAPHQL_URL,
+            headers={
+                "Authorization": f"Bearer {self.token}",
+                "Accept": "application/vnd.github.v4+json",
+            },
+            timeout=self.timeout,
+        )
 
-            self._client = Client(
-                transport=self._transport,
-                fetch_schema_from_transport=False,  # Don't fetch schema on every request
-                # Don't execute_timeout here - handle in retry logic
-            )
+        self._client = Client(
+            transport=self._transport,
+            fetch_schema_from_transport=False,  # Don't fetch schema on every request
+        )
 
-            self.logger.debug("GraphQL client initialized with fresh transport")
+        self.logger.debug("GraphQL client recreated with fresh transport")
 
     async def close(self) -> None:
         """Close the GraphQL client and cleanup resources."""
