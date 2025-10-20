@@ -143,7 +143,8 @@ class PullRequestHandler:
                 return
 
             self.logger.info(f"{self.log_prefix} PR {pull_request.number} {hook_action} with {labeled}")
-            self.logger.debug(f"PR labels are {pull_request.labels}")
+            label_names = [label.name for label in pull_request.labels]
+            self.logger.debug(f"PR labels are {label_names}")
 
             _split_label = labeled.split(LABELS_SEPARATOR, 1)
 
