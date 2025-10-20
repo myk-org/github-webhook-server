@@ -194,6 +194,11 @@ class PullRequestWrapper:
         return self._data.get("permalink", "")
 
     @property
+    def merge_commit_sha(self) -> str | None:
+        """Get the merge commit SHA if PR is merged."""
+        return self._data.get("mergeCommit", {}).get("oid")
+
+    @property
     def additions(self) -> int:
         """Get number of additions."""
         return self._data.get("additions", 0)
