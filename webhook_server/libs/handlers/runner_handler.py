@@ -460,7 +460,8 @@ class RunnerHandler:
             await self.check_run_handler.set_conventional_title_failure(output=output)
 
     async def is_branch_exists(self, branch: str) -> Branch:
-        return await asyncio.to_thread(self.repository.get_branch, branch)
+        owner, repo_name = self.repository.full_name.split("/")
+        return await self.github_webhook.unified_api.get_branch(owner, repo_name, branch)
 
     async def cherry_pick(self, pull_request: PullRequest, target_branch: str, reviewed_user: str = "") -> None:
         requested_by = reviewed_user or "by target-branch label"
@@ -513,8 +514,12 @@ class RunnerHandler:
                         await self.check_run_handler.set_cherry_pick_failure(output=output)
                         self.logger.error(f"{self.log_prefix} Cherry pick failed: {out} --- {err}")
                         local_branch_name = f"{pull_request.head.ref}-{target_branch}"
-                        await asyncio.to_thread(
-                            pull_request.create_issue_comment,
+                        # Use unified_api for create_issue_comment
+                        owner, repo_name = self.repository.full_name.split("/")
+                        await self.github_webhook.unified_api.create_issue_comment(
+                            owner,
+                            repo_name,
+                            pull_request.number,
                             f"**Manual cherry-pick is needed**\nCherry pick failed for "
                             f"{commit_hash} to {target_branch}:\n"
                             f"To cherry-pick run:\n"
@@ -533,6 +538,8 @@ class RunnerHandler:
 
             self.logger.step(f"{self.log_prefix} Cherry-pick completed successfully")  # type: ignore
             await self.check_run_handler.set_cherry_pick_success(output=output)
-            await asyncio.to_thread(
-                pull_request.create_issue_comment, f"Cherry-picked PR {pull_request.title} into {target_branch}"
+            # Use unified_api for create_issue_comment
+            owner, repo_name = self.repository.full_name.split("/")
+            await self.github_webhook.unified_api.create_issue_comment(
+                owner, repo_name, pull_request.number, f"Cherry-picked PR {pull_request.title} into {target_branch}"
             )

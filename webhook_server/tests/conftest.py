@@ -1,4 +1,5 @@
 import os
+from unittest.mock import AsyncMock
 
 import pytest
 import yaml
@@ -141,6 +142,30 @@ def github_webhook(mocker, request):
         headers=Headers({"X-GitHub-Event": "test-event"}),
         logger=test_logger,
     )
+    
+    # Mock unified_api for all tests
+    process_github_webhook.unified_api = AsyncMock()
+    process_github_webhook.unified_api.get_pull_request_files = AsyncMock(return_value=[])
+    process_github_webhook.unified_api.create_issue_comment = AsyncMock()
+    process_github_webhook.unified_api.get_issue_comments = AsyncMock(return_value=[])
+    process_github_webhook.unified_api.get_issue_comment = AsyncMock()
+    process_github_webhook.unified_api.create_reaction = AsyncMock()
+    process_github_webhook.unified_api.get_contributors = AsyncMock(return_value=[])
+    process_github_webhook.unified_api.get_collaborators = AsyncMock(return_value=[])
+    process_github_webhook.unified_api.get_branch = AsyncMock()
+    process_github_webhook.unified_api.get_branch_protection = AsyncMock()
+    process_github_webhook.unified_api.get_issues = AsyncMock(return_value=[])
+    process_github_webhook.unified_api.create_issue = AsyncMock()
+    process_github_webhook.unified_api.edit_issue = AsyncMock()
+    process_github_webhook.unified_api.create_issue_comment_on_issue = AsyncMock()
+    process_github_webhook.unified_api.get_contents = AsyncMock()
+    process_github_webhook.unified_api.get_git_tree = AsyncMock()
+    process_github_webhook.unified_api.get_commit_check_runs = AsyncMock(return_value=[])
+    process_github_webhook.unified_api.create_check_run = AsyncMock()
+    process_github_webhook.unified_api.merge_pull_request = AsyncMock()
+    process_github_webhook.unified_api.is_pull_request_merged = AsyncMock(return_value=False)
+    process_github_webhook.unified_api.add_assignees_by_login = AsyncMock()
+    
     owners_file_handler = OwnersFileHandler(github_webhook=process_github_webhook)
 
     return process_github_webhook, owners_file_handler

@@ -13,6 +13,7 @@ class User:
 class Repository:
     def __init__(self):
         self.name = "test-repo"
+        self.full_name = "my-org/test-repo"
 
     def get_contributors(self):
         return [User("user1")]

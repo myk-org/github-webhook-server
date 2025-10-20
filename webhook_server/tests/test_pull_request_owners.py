@@ -126,7 +126,16 @@ def all_approvers_reviewers(owners_file_handler):
 async def test_get_all_repository_approvers_and_reviewers(
     changed_files, process_github_webhook, owners_file_handler, pull_request, all_repository_approvers_and_reviewers
 ):
-    process_github_webhook.repository = Repository()
+    from unittest.mock import AsyncMock
+    repo = Repository()
+    process_github_webhook.repository = repo
+    # Mock unified_api to use Repository methods (no await needed for sync methods)
+    async def get_tree_wrapper(o, n, ref, recursive):
+        return repo.get_git_tree(ref, recursive)
+    async def get_contents_wrapper(o, n, path, ref):
+        return repo.get_contents(path, ref)
+    process_github_webhook.unified_api.get_git_tree = get_tree_wrapper
+    process_github_webhook.unified_api.get_contents = get_contents_wrapper
     read_owners_result = await owners_file_handler.get_all_repository_approvers_and_reviewers(pull_request=pull_request)
     assert read_owners_result == owners_file_handler.all_repository_approvers_and_reviewers
 
