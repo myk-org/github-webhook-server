@@ -267,7 +267,10 @@ class CheckRunHandler:
 
     async def is_check_run_in_progress(self, check_run: str) -> bool:
         if self.github_webhook.last_commit:
-            for run in await self.github_webhook.unified_api.get_commit_check_runs(self.github_webhook.last_commit):
+            owner, repo_name = self.repository.full_name.split("/")
+            for run in await self.github_webhook.unified_api.get_commit_check_runs(
+                self.github_webhook.last_commit, owner, repo_name
+            ):
                 if run.name == check_run and run.status == IN_PROGRESS_STR:
                     self.logger.debug(f"{self.log_prefix} Check run {check_run} is in progress.")
                     return True
