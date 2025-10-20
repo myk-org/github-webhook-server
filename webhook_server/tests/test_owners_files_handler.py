@@ -1,9 +1,9 @@
-from unittest.mock import AsyncMock, Mock, call, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 import yaml
 
-from webhook_server.libs.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.tests.conftest import ContentFile
 
 
@@ -17,12 +17,18 @@ class TestOwnersFileHandler:
         mock_webhook.logger = Mock()
         mock_webhook.log_prefix = "[TEST]"
         mock_webhook.repository = Mock()
+        mock_webhook.repository_full_name = "test-org/test-repo"
+        mock_webhook.add_pr_comment = AsyncMock()
+        mock_webhook.request_pr_reviews = AsyncMock()
+        mock_webhook.unified_api = AsyncMock()
         return mock_webhook
 
     @pytest.fixture
     def mock_pull_request(self) -> Mock:
         """Create a mock PullRequest instance."""
         mock_pr = Mock()
+        mock_pr.id = "PR_kgDOTestId"
+        mock_pr.number = 123
         mock_pr.base.ref = "main"
         mock_pr.user.login = "test-user"
         return mock_pr
@@ -402,12 +408,16 @@ class TestOwnersFileHandler:
         owners_file_handler.all_pull_request_reviewers = ["reviewer1", "reviewer2", "test-user"]
         mock_pull_request.user.login = "test-user"
 
-        with patch.object(mock_pull_request, "create_review_request") as mock_create_request:
+        with patch.object(
+            owners_file_handler.github_webhook, "request_pr_reviews", new_callable=AsyncMock
+        ) as mock_request:
             await owners_file_handler.assign_reviewers(mock_pull_request)
-            # Should only add reviewers that are not the PR author
-            expected_calls = [call(["reviewer1"]), call(["reviewer2"])]
-            actual_calls = mock_create_request.call_args_list
-            assert sorted(actual_calls, key=str) == sorted(expected_calls, key=str)
+            # Should be called twice (once for each reviewer, excluding PR author)
+            assert mock_request.call_count == 2
+            # Verify each call has the right reviewer
+            calls = mock_request.call_args_list
+            reviewers_added = [call[0][1][0] for call in calls]
+            assert set(reviewers_added) == {"reviewer1", "reviewer2"}
 
     @pytest.mark.asyncio
     async def test_assign_reviewers_github_exception(
@@ -420,12 +430,19 @@ class TestOwnersFileHandler:
 
         from github.GithubException import GithubException
 
-        with patch.object(mock_pull_request, "create_review_request", side_effect=GithubException(404, "Not found")):
-            with patch.object(mock_pull_request, "create_issue_comment") as mock_comment:
+        with patch.object(
+            owners_file_handler.github_webhook,
+            "request_pr_reviews",
+            new_callable=AsyncMock,
+            side_effect=GithubException(404, "Not found"),
+        ):
+            with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread:
                 await owners_file_handler.assign_reviewers(mock_pull_request)
-
-                mock_comment.assert_called_once()
-                assert "reviewer1 can not be added as reviewer" in mock_comment.call_args[0][0]
+                # Verify asyncio.to_thread was called to add the comment
+                mock_to_thread.assert_called_once()
+                # Check it was called with create_issue_comment
+                assert mock_to_thread.call_args[0][0] == mock_pull_request.create_issue_comment
+                assert "reviewer1 can not be added as reviewer" in mock_to_thread.call_args[0][1]
 
     @pytest.mark.asyncio
     async def test_is_user_valid_to_run_commands_valid_user(
@@ -491,19 +508,20 @@ class TestOwnersFileHandler:
                     mock_comment.user.login = "maintainer1"
                     mock_comment.body = "Some other comment"
 
-                    with patch.object(mock_pull_request, "get_issue_comments") as mock_get_comments:
-                        with patch.object(mock_pull_request, "create_issue_comment") as mock_create_comment:
-                            mock_get_comments.return_value = [mock_comment]
+                    with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread:
+                        with patch.object(
+                            owners_file_handler.github_webhook, "add_pr_comment", new_callable=AsyncMock
+                        ) as mock_add_comment:
+                            mock_to_thread.return_value = [mock_comment]
 
                             result = await owners_file_handler.is_user_valid_to_run_commands(
                                 mock_pull_request, "invalid_user"
                             )
 
                             assert result is False
-                            mock_create_comment.assert_called_once()
+                            mock_add_comment.assert_called_once()
                             assert (
-                                "invalid_user is not allowed to run retest commands"
-                                in mock_create_comment.call_args[0][0]
+                                "invalid_user is not allowed to run retest commands" in mock_add_comment.call_args[0][1]
                             )
 
     @pytest.mark.asyncio

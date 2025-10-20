@@ -3,11 +3,11 @@ from typing import TYPE_CHECKING
 
 import webcolors
 from github.GithubException import UnknownObjectException
-from github.PullRequest import PullRequest
 from github.Repository import Repository
 from timeout_sampler import TimeoutWatch
 
-from webhook_server.libs.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.utils.constants import (
     ADD_STR,
     APPROVE_STR,
@@ -37,21 +37,29 @@ class LabelsHandler:
         self.logger = self.github_webhook.logger
         self.log_prefix: str = self.github_webhook.log_prefix
         self.repository: Repository = self.github_webhook.repository
+        self.unified_api = self.github_webhook.unified_api
 
-    async def label_exists_in_pull_request(self, pull_request: PullRequest, label: str) -> bool:
+    async def label_exists_in_pull_request(self, pull_request: PullRequestWrapper, label: str) -> bool:
         return label in await self.pull_request_labels_names(pull_request=pull_request)
 
-    async def pull_request_labels_names(self, pull_request: PullRequest) -> list[str]:
-        labels = await asyncio.to_thread(pull_request.get_labels)
+    async def pull_request_labels_names(self, pull_request: PullRequestWrapper) -> list[str]:
+        labels = pull_request.get_labels()
         return [lb.name for lb in labels]
 
-    async def _remove_label(self, pull_request: PullRequest, label: str) -> bool:
+    async def _remove_label(self, pull_request: PullRequestWrapper, label: str) -> bool:
         self.logger.step(f"{self.log_prefix} Removing label '{label}' from PR")  # type: ignore
         self.logger.debug(f"{self.log_prefix} Removing label {label}")
         try:
             if await self.label_exists_in_pull_request(pull_request=pull_request, label=label):
                 self.logger.info(f"{self.log_prefix} Removing label {label}")
-                await asyncio.to_thread(pull_request.remove_from_labels, label)
+
+                # unified_api handles GraphQL vs REST
+                pr_id = pull_request.id
+                owner, repo_name = self.github_webhook.repository_full_name.split("/")
+                label_id = await self.unified_api.get_label_id(owner, repo_name, label)
+                if label_id:
+                    await self.unified_api.remove_labels(pr_id, [label_id])
+
                 return await self.wait_for_label(pull_request=pull_request, label=label, exists=False)
         except Exception as exp:
             self.logger.debug(f"{self.log_prefix} Failed to remove {label} label. Exception: {exp}")
@@ -60,7 +68,7 @@ class LabelsHandler:
         self.logger.debug(f"{self.log_prefix} Label {label} not found and cannot be removed")
         return False
 
-    async def _add_label(self, pull_request: PullRequest, label: str) -> None:
+    async def _add_label(self, pull_request: PullRequestWrapper, label: str) -> None:
         label = label.strip()
         self.logger.step(f"{self.log_prefix} Adding label '{label}' to PR")  # type: ignore
         self.logger.debug(f"{self.log_prefix} Adding label {label}")
@@ -72,28 +80,45 @@ class LabelsHandler:
             self.logger.debug(f"{self.log_prefix} Label {label} already assign")
             return
 
+        owner, repo_name = self.github_webhook.repository_full_name.split("/")
+
         if label in STATIC_LABELS_DICT:
             self.logger.info(f"{self.log_prefix} Adding pull request label {label}")
-            await asyncio.to_thread(pull_request.add_to_labels, label)
+            pr_id = pull_request.id
+            label_id = await self.unified_api.get_label_id(owner, repo_name, label)
+            if label_id:
+                await self.unified_api.add_labels(pr_id, [label_id])
             return
 
         color = self._get_label_color(label)
         _with_color_msg = f"repository label {label} with color {color}"
 
         try:
-            _repo_label = await asyncio.to_thread(self.repository.get_label, label)
-            await asyncio.to_thread(_repo_label.edit, name=_repo_label.name, color=color)
-            self.logger.debug(f"{self.log_prefix} Edit {_with_color_msg}")
+            # Try to get label via GraphQL
+            label_id = await self.unified_api.get_label_id(owner, repo_name, label)
+            if label_id:
+                # Label exists, update color
+                await self.unified_api.update_label(label_id, color)
+                self.logger.debug(f"{self.log_prefix} Edit {_with_color_msg}")
+            else:
+                # Label doesn't exist, create it
+                repo_data = await self.unified_api.get_repository(owner, repo_name)
+                await self.unified_api.create_label(repo_data["id"], label, color)
+                self.logger.debug(f"{self.log_prefix} Add {_with_color_msg}")
 
-        except UnknownObjectException:
+        except (UnknownObjectException, Exception):
+            repo_data = await self.unified_api.get_repository(owner, repo_name)
+            await self.unified_api.create_label(repo_data["id"], label, color)
             self.logger.debug(f"{self.log_prefix} Add {_with_color_msg}")
-            await asyncio.to_thread(self.repository.create_label, name=label, color=color)
 
         self.logger.info(f"{self.log_prefix} Adding pull request label {label}")
-        await asyncio.to_thread(pull_request.add_to_labels, label)
+        pr_id = pull_request.id
+        label_id = await self.unified_api.get_label_id(owner, repo_name, label)
+        if label_id:
+            await self.unified_api.add_labels(pr_id, [label_id])
         await self.wait_for_label(pull_request=pull_request, label=label, exists=True)
 
-    async def wait_for_label(self, pull_request: PullRequest, label: str, exists: bool) -> bool:
+    async def wait_for_label(self, pull_request: PullRequestWrapper, label: str, exists: bool) -> bool:
         self.logger.debug(f"{self.log_prefix} waiting for label {label} to {'exists' if exists else 'not exists'}")
         while TimeoutWatch(timeout=30).remaining_time() > 0:
             res = await self.label_exists_in_pull_request(pull_request=pull_request, label=label)
@@ -116,7 +141,7 @@ class LabelsHandler:
             size_name = label[len(SIZE_LABEL_PREFIX) :]
 
             thresholds = self._get_custom_pr_size_thresholds()
-            for threshold, label_name, color_hex in thresholds:
+            for _, label_name, color_hex in thresholds:
                 if label_name == size_name:
                     return color_hex
 
@@ -143,7 +168,7 @@ class LabelsHandler:
                 return webcolors.name_to_hex(default_color).lstrip("#")
             except ValueError:
                 # Fallback to hardcoded hex if default color name fails
-                return "d3d3d3"  # lightgray hex
+                return "d3d3d3"  # lightgray hex #d3d3d3
 
     def _get_custom_pr_size_thresholds(self) -> list[tuple[int | float, str, str]]:
         """Get custom PR size thresholds from configuration with fallback to static defaults.
@@ -184,7 +209,7 @@ class LabelsHandler:
 
         return sorted_thresholds
 
-    def get_size(self, pull_request: PullRequest) -> str:
+    def get_size(self, pull_request: PullRequestWrapper) -> str:
         """Calculates size label based on additions and deletions."""
 
         # Handle None values by defaulting to 0
@@ -209,7 +234,7 @@ class LabelsHandler:
         # Fallback (should not happen due to our default handling)
         return f"{SIZE_LABEL_PREFIX}XL"
 
-    async def add_size_label(self, pull_request: PullRequest) -> None:
+    async def add_size_label(self, pull_request: PullRequestWrapper) -> None:
         """Add a size label to the pull request based on its additions and deletions."""
         self.logger.step(f"{self.log_prefix} Calculating and applying PR size label")  # type: ignore
         size_label = self.get_size(pull_request=pull_request)
@@ -236,7 +261,7 @@ class LabelsHandler:
 
     async def label_by_user_comment(
         self,
-        pull_request: PullRequest,
+        pull_request: PullRequestWrapper,
         user_requested_label: str,
         remove: bool,
         reviewed_user: str,
@@ -259,7 +284,7 @@ class LabelsHandler:
             await label_func(pull_request=pull_request, label=user_requested_label)
 
     async def manage_reviewed_by_label(
-        self, pull_request: PullRequest, review_state: str, action: str, reviewed_user: str
+        self, pull_request: PullRequestWrapper, review_state: str, action: str, reviewed_user: str
     ) -> None:
         self.logger.info(
             f"{self.log_prefix} "

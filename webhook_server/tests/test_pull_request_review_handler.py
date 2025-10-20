@@ -1,10 +1,10 @@
-"""Tests for webhook_server.libs.pull_request_review_handler module."""
+"""Tests for webhook_server.libs.handlers.pull_request_review_handler module."""
 
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 from github.PullRequest import PullRequest
 
-from webhook_server.libs.pull_request_review_handler import PullRequestReviewHandler
+from webhook_server.libs.handlers.pull_request_review_handler import PullRequestReviewHandler
 from webhook_server.utils.constants import ADD_STR, APPROVE_STR
 
 

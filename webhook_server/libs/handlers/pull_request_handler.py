@@ -6,10 +6,11 @@ from typing import TYPE_CHECKING, Any, Coroutine
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
-from webhook_server.libs.check_run_handler import CheckRunHandler
-from webhook_server.libs.labels_handler import LabelsHandler
-from webhook_server.libs.owners_files_handler import OwnersFileHandler
-from webhook_server.libs.runner_handler import RunnerHandler
+from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
+from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+from webhook_server.libs.handlers.labels_handler import LabelsHandler
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.handlers.runner_handler import RunnerHandler
 from webhook_server.utils.constants import (
     APPROVED_BY_LABEL_PREFIX,
     AUTOMERGE_LABEL_STR,
@@ -58,7 +59,7 @@ class PullRequestHandler:
             github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
         )
 
-    async def process_pull_request_webhook_data(self, pull_request: PullRequest) -> None:
+    async def process_pull_request_webhook_data(self, pull_request: PullRequestWrapper) -> None:
         hook_action: str = self.hook_data["action"]
         self.logger.step(f"{self.log_prefix} Starting pull request processing: action={hook_action}")  # type: ignore
         self.logger.info(f"{self.log_prefix} hook_action is: {hook_action}")
@@ -78,7 +79,7 @@ class PullRequestHandler:
 
             if hook_action in ("opened", "ready_for_review"):
                 welcome_msg = self._prepare_welcome_comment()
-                tasks.append(asyncio.to_thread(pull_request.create_issue_comment, body=welcome_msg))
+                tasks.append(self.github_webhook.add_pr_comment(pull_request, welcome_msg))
 
             tasks.append(self.create_issue_for_new_pull_request(pull_request=pull_request))
             tasks.append(self.set_wip_label_based_on_title(pull_request=pull_request))
@@ -179,7 +180,7 @@ class PullRequestHandler:
             if _check_for_merge:
                 await self.check_if_can_be_merged(pull_request=pull_request)
 
-    async def set_wip_label_based_on_title(self, pull_request: PullRequest) -> None:
+    async def set_wip_label_based_on_title(self, pull_request: PullRequestWrapper) -> None:
         if pull_request.title.lower().startswith(f"{WIP_STR}:"):
             self.logger.debug(f"{self.log_prefix} Found {WIP_STR} in {pull_request.title}; adding {WIP_STR} label.")
             await self.labels_handler._add_label(pull_request=pull_request, label=WIP_STR)
@@ -348,7 +349,7 @@ For more information, please refer to the project documentation or contact the m
             self.logger.info(f"{self.log_prefix} check label pull request after merge")
             await self.label_pull_request_by_merge_state(pull_request=pull_request)
 
-    async def delete_remote_tag_for_merged_or_closed_pr(self, pull_request: PullRequest) -> None:
+    async def delete_remote_tag_for_merged_or_closed_pr(self, pull_request: PullRequestWrapper) -> None:
         self.logger.debug(f"{self.log_prefix} Checking if need to delete remote tag for {pull_request.number}")
         if not self.github_webhook.build_and_push_container:
             self.logger.info(f"{self.log_prefix} repository do not have container configured")
@@ -422,7 +423,7 @@ For more information, please refer to the project documentation or contact the m
 
                 break
 
-    async def process_opened_or_synchronize_pull_request(self, pull_request: PullRequest) -> None:
+    async def process_opened_or_synchronize_pull_request(self, pull_request: PullRequestWrapper) -> None:
         self.logger.step(f"{self.log_prefix} Starting PR processing workflow")  # type: ignore
 
         # Stage 1: Initial setup and check queue tasks
@@ -479,7 +480,7 @@ For more information, please refer to the project documentation or contact the m
 
         self.logger.step(f"{self.log_prefix} PR processing workflow completed")  # type: ignore
 
-    async def create_issue_for_new_pull_request(self, pull_request: PullRequest) -> None:
+    async def create_issue_for_new_pull_request(self, pull_request: PullRequestWrapper) -> None:
         if not self.github_webhook.create_issue_for_new_pr:
             self.logger.info(f"{self.log_prefix} Issue creation for new PRs is disabled for this repository")
             return
@@ -499,13 +500,13 @@ For more information, please refer to the project documentation or contact the m
             assignee=pull_request.user.login,
         )
 
-    def _generate_issue_title(self, pull_request: PullRequest) -> str:
+    def _generate_issue_title(self, pull_request: PullRequestWrapper) -> str:
         return f"{pull_request.title} - {pull_request.number}"
 
-    def _generate_issue_body(self, pull_request: PullRequest) -> str:
+    def _generate_issue_body(self, pull_request: PullRequestWrapper) -> str:
         return f"[Auto generated]\nNumber: [#{pull_request.number}]"
 
-    async def set_pull_request_automerge(self, pull_request: PullRequest) -> None:
+    async def set_pull_request_automerge(self, pull_request: PullRequestWrapper) -> None:
         set_auto_merge_base_branch = pull_request.base.ref in self.github_webhook.set_auto_merge_prs
         self.logger.debug(f"{self.log_prefix} set auto merge for base branch is {set_auto_merge_base_branch}")
         parent_committer_in_auto_merge_users = (
@@ -528,14 +529,14 @@ For more information, please refer to the project documentation or contact the m
                         f"is part of auto merge enabled rules"
                     )
 
-                    await asyncio.to_thread(pull_request.enable_automerge, merge_method="SQUASH")
+                    await self.github_webhook.enable_pr_automerge(pull_request, "SQUASH")
                 else:
                     self.logger.debug(f"{self.log_prefix} is already set to auto merge")
 
             except Exception as exp:
                 self.logger.error(f"{self.log_prefix} Exception while setting auto merge: {exp}")
 
-    async def remove_labels_when_pull_request_sync(self, pull_request: PullRequest) -> None:
+    async def remove_labels_when_pull_request_sync(self, pull_request: PullRequestWrapper) -> None:
         tasks: list[Coroutine[Any, Any, Any]] = []
         for _label in pull_request.labels:
             _label_name = _label.name
@@ -558,7 +559,7 @@ For more information, please refer to the project documentation or contact the m
             if isinstance(result, Exception):
                 self.logger.error(f"{self.log_prefix} Async task failed: {result}")
 
-    async def label_pull_request_by_merge_state(self, pull_request: PullRequest) -> None:
+    async def label_pull_request_by_merge_state(self, pull_request: PullRequestWrapper) -> None:
         merge_state = pull_request.mergeable_state
         self.logger.debug(f"{self.log_prefix} Mergeable state is {merge_state}")
         if merge_state == "unknown":
@@ -574,7 +575,7 @@ For more information, please refer to the project documentation or contact the m
         else:
             await self.labels_handler._remove_label(pull_request=pull_request, label=HAS_CONFLICTS_LABEL_STR)
 
-    async def _process_verified_for_update_or_new_pull_request(self, pull_request: PullRequest) -> None:
+    async def _process_verified_for_update_or_new_pull_request(self, pull_request: PullRequestWrapper) -> None:
         if not self.github_webhook.verified_job:
             return
 
@@ -604,7 +605,7 @@ For more information, please refer to the project documentation or contact the m
             await self.labels_handler._remove_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
             await self.check_run_handler.set_verify_check_queued()
 
-    async def add_pull_request_owner_as_assingee(self, pull_request: PullRequest) -> None:
+    async def add_pull_request_owner_as_assingee(self, pull_request: PullRequestWrapper) -> None:
         try:
             self.logger.info(f"{self.log_prefix} Adding PR owner as assignee")
             pull_request.add_to_assignees(pull_request.user.login)
@@ -615,7 +616,7 @@ For more information, please refer to the project documentation or contact the m
                 self.logger.debug(f"{self.log_prefix} Falling back to first approver as assignee")
                 pull_request.add_to_assignees(self.owners_file_handler.root_approvers[0])
 
-    async def check_if_can_be_merged(self, pull_request: PullRequest) -> None:
+    async def check_if_can_be_merged(self, pull_request: PullRequestWrapper) -> None:
         """
         Check if PR can be merged and set the job for it
 
@@ -806,7 +807,7 @@ For more information, please refer to the project documentation or contact the m
 
         return failure_output
 
-    def skip_if_pull_request_already_merged(self, pull_request: PullRequest) -> bool:
+    def skip_if_pull_request_already_merged(self, pull_request: PullRequestWrapper) -> bool:
         if pull_request and pull_request.is_merged():
             self.logger.info(f"{self.log_prefix}: PR is merged, not processing")
             return True

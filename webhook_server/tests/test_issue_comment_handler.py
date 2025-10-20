@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from webhook_server.libs.issue_comment_handler import IssueCommentHandler
+from webhook_server.libs.handlers.issue_comment_handler import IssueCommentHandler
 from webhook_server.utils.constants import (
     BUILD_AND_PUSH_CONTAINER_STR,
     COMMAND_ASSIGN_REVIEWER_STR,
@@ -37,6 +37,12 @@ class TestIssueCommentHandler:
         mock_webhook.issue_url_for_welcome_msg = "welcome-message-url"
         mock_webhook.build_and_push_container = True
         mock_webhook.current_pull_request_supported_retest = [TOX_STR, "pre-commit"]
+        # Add new async helper methods
+        mock_webhook.add_pr_comment = AsyncMock()
+        mock_webhook.update_pr_title = AsyncMock()
+        mock_webhook.enable_pr_automerge = AsyncMock()
+        mock_webhook.request_pr_reviews = AsyncMock()
+        mock_webhook.add_pr_assignee = AsyncMock()
         return mock_webhook
 
     @pytest.fixture
@@ -109,6 +115,8 @@ class TestIssueCommentHandler:
     async def test_user_commands_unsupported_command(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test user commands with unsupported command."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
             await issue_comment_handler.user_commands(
@@ -120,9 +128,13 @@ class TestIssueCommentHandler:
     async def test_user_commands_retest_no_args(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test user commands with retest command without arguments."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(mock_pull_request, "create_issue_comment") as mock_comment:
+            with patch.object(
+                issue_comment_handler.github_webhook, "add_pr_comment", new_callable=AsyncMock
+            ) as mock_comment:
                 await issue_comment_handler.user_commands(
                     pull_request=mock_pull_request,
                     command=COMMAND_RETEST_STR,
@@ -136,9 +148,13 @@ class TestIssueCommentHandler:
     async def test_user_commands_assign_reviewer_no_args(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test user commands with assign reviewer command without arguments."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(mock_pull_request, "create_issue_comment") as mock_comment:
+            with patch.object(
+                issue_comment_handler.github_webhook, "add_pr_comment", new_callable=AsyncMock
+            ) as mock_comment:
                 await issue_comment_handler.user_commands(
                     pull_request=mock_pull_request,
                     command=COMMAND_ASSIGN_REVIEWER_STR,
@@ -152,6 +168,8 @@ class TestIssueCommentHandler:
     async def test_user_commands_assign_reviewer_with_args(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test user commands with assign reviewer command with arguments."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
             with patch.object(issue_comment_handler, "_add_reviewer_by_user_comment") as mock_add_reviewer:
@@ -168,6 +186,8 @@ class TestIssueCommentHandler:
     async def test_user_commands_assign_reviewers(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test user commands with assign reviewers command."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
             with patch.object(
@@ -186,6 +206,8 @@ class TestIssueCommentHandler:
     async def test_user_commands_check_can_merge(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test user commands with check can merge command."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
             with patch.object(issue_comment_handler.pull_request_handler, "check_if_can_be_merged") as mock_check:
@@ -202,6 +224,8 @@ class TestIssueCommentHandler:
     async def test_user_commands_cherry_pick(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test user commands with cherry pick command."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
             with patch.object(issue_comment_handler, "process_cherry_pick_command") as mock_cherry_pick:
@@ -220,6 +244,8 @@ class TestIssueCommentHandler:
     async def test_user_commands_retest_with_args(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test user commands with retest command with arguments."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
             with patch.object(issue_comment_handler, "process_retest_command") as mock_retest:
@@ -238,6 +264,8 @@ class TestIssueCommentHandler:
     async def test_user_commands_build_container_enabled(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test user commands with build container command when enabled."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
             with patch.object(issue_comment_handler.runner_handler, "run_build_container") as mock_build:
@@ -260,10 +288,14 @@ class TestIssueCommentHandler:
     async def test_user_commands_build_container_disabled(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test user commands with build container command when disabled."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
         # Patch build_and_push_container as a bool for this test
         with patch.object(issue_comment_handler.github_webhook, "build_and_push_container", False):
             with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-                with patch.object(mock_pull_request, "create_issue_comment") as mock_comment:
+                with patch.object(
+                    issue_comment_handler.github_webhook, "add_pr_comment", new_callable=AsyncMock
+                ) as mock_comment:
                     await issue_comment_handler.user_commands(
                         pull_request=mock_pull_request,
                         command=BUILD_AND_PUSH_CONTAINER_STR,
@@ -277,27 +309,38 @@ class TestIssueCommentHandler:
     async def test_user_commands_wip_add(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test user commands with wip command to add."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
         mock_pull_request.title = "Test PR"
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
             with patch.object(issue_comment_handler.labels_handler, "_add_label") as mock_add_label:
-                with patch.object(mock_pull_request, "edit") as mock_edit:
+                with patch.object(
+                    issue_comment_handler.github_webhook, "update_pr_title", new_callable=AsyncMock
+                ) as mock_update:
                     await issue_comment_handler.user_commands(
                         pull_request=mock_pull_request, command=WIP_STR, reviewed_user="test-user", issue_comment_id=123
                     )
                     mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=WIP_STR)
-                    mock_edit.assert_called_once_with(title="WIP: Test PR")
+                    # Check that update_pr_title was called with the PR and title starting with "WIP:"
+                    mock_update.assert_called_once()
+                    call_args = mock_update.call_args
+                    assert call_args[0][1].startswith("WIP:")
                     mock_reaction.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_user_commands_wip_remove(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test user commands with wip command to remove."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
         mock_pull_request.title = "WIP: Test PR"
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
             with patch.object(issue_comment_handler.labels_handler, "_remove_label") as mock_remove_label:
-                with patch.object(mock_pull_request, "edit") as mock_edit:
+                with patch.object(
+                    issue_comment_handler.github_webhook, "update_pr_title", new_callable=AsyncMock
+                ) as mock_update:
                     await issue_comment_handler.user_commands(
                         pull_request=mock_pull_request,
                         command=f"{WIP_STR} cancel",
@@ -305,31 +348,37 @@ class TestIssueCommentHandler:
                         issue_comment_id=123,
                     )
                     mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=WIP_STR)
-                    # Accept both with and without leading space
-                    called_args = mock_edit.call_args[1]
-                    assert called_args["title"].strip() == "Test PR"
+                    # Verify title has "WIP:" removed
+                    mock_update.assert_called_once()
+                    call_args = mock_update.call_args
+                    assert "WIP:" not in call_args[0][1]
+                    assert "Test PR" in call_args[0][1]
                     mock_reaction.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_user_commands_hold_unauthorized_user(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test user commands with hold command by unauthorized user."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(mock_pull_request, "create_issue_comment") as mock_comment:
+            # Mock asyncio.to_thread since hold uses it for unauthorized users
+            with patch("asyncio.to_thread", new_callable=AsyncMock):
                 await issue_comment_handler.user_commands(
                     pull_request=mock_pull_request,
                     command=HOLD_LABEL_STR,
                     reviewed_user="unauthorized-user",
                     issue_comment_id=123,
                 )
-                mock_comment.assert_called_once()
                 mock_reaction.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_user_commands_hold_authorized_user_add(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test user commands with hold command by authorized user to add."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
             with patch.object(issue_comment_handler.labels_handler, "_add_label") as mock_add_label:
@@ -348,6 +397,8 @@ class TestIssueCommentHandler:
     async def test_user_commands_hold_authorized_user_remove(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test user commands with hold command by authorized user to remove."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
             with patch.object(issue_comment_handler.labels_handler, "_remove_label") as mock_remove_label:
@@ -366,6 +417,8 @@ class TestIssueCommentHandler:
     async def test_user_commands_verified_add(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test user commands with verified command to add."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
             with patch.object(issue_comment_handler.labels_handler, "_add_label") as mock_add_label:
@@ -384,6 +437,8 @@ class TestIssueCommentHandler:
     async def test_user_commands_verified_remove(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test user commands with verified command to remove."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
             with patch.object(issue_comment_handler.labels_handler, "_remove_label") as mock_remove_label:
@@ -402,8 +457,10 @@ class TestIssueCommentHandler:
     async def test_user_commands_custom_label(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test user commands with custom label command."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
         # Patch USER_LABELS_DICT to include 'bug'
-        with patch("webhook_server.libs.issue_comment_handler.USER_LABELS_DICT", {"bug": "Bug label"}):
+        with patch("webhook_server.libs.handlers.issue_comment_handler.USER_LABELS_DICT", {"bug": "Bug label"}):
             with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
                 with patch.object(
                     issue_comment_handler.labels_handler, "label_by_user_comment", new_callable=AsyncMock
@@ -423,6 +480,8 @@ class TestIssueCommentHandler:
     async def test_create_comment_reaction(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test creating comment reaction."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
         mock_comment = Mock()
 
         with patch.object(mock_pull_request, "get_issue_comment", return_value=mock_comment):
@@ -437,15 +496,23 @@ class TestIssueCommentHandler:
     async def test_add_reviewer_by_user_comment_success(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test adding reviewer by user comment successfully."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
         mock_contributor = Mock()
         mock_contributor.login = "reviewer1"
 
         with patch.object(issue_comment_handler.repository, "get_contributors", return_value=[mock_contributor]):
-            with patch.object(mock_pull_request, "create_review_request") as mock_create_request:
+            with patch.object(
+                issue_comment_handler.github_webhook, "request_pr_reviews", new_callable=AsyncMock
+            ) as mock_request:
                 await issue_comment_handler._add_reviewer_by_user_comment(
                     pull_request=mock_pull_request, reviewer="@reviewer1"
                 )
-                mock_create_request.assert_called_once_with(["reviewer1"])
+                # Verify it was called with the PR and reviewer list
+                mock_request.assert_called_once()
+                call_args = mock_request.call_args
+                assert call_args[0][0] == mock_pull_request
+                assert "reviewer1" in call_args[0][1]
 
     @pytest.mark.asyncio
     async def test_add_reviewer_by_user_comment_not_contributor(
@@ -453,11 +520,15 @@ class TestIssueCommentHandler:
     ) -> None:
         """Test adding reviewer by user comment when user is not a contributor."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
         mock_contributor = Mock()
         mock_contributor.login = "other-user"
 
         with patch.object(issue_comment_handler.repository, "get_contributors", return_value=[mock_contributor]):
-            with patch.object(mock_pull_request, "create_issue_comment") as mock_comment:
+            with patch.object(
+                issue_comment_handler.github_webhook, "add_pr_comment", new_callable=AsyncMock
+            ) as mock_comment:
                 await issue_comment_handler._add_reviewer_by_user_comment(
                     pull_request=mock_pull_request, reviewer="reviewer1"
                 )
@@ -469,11 +540,15 @@ class TestIssueCommentHandler:
     ) -> None:
         """Test processing cherry pick command with existing branches."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
         mock_pull_request.title = "Test PR"
         # Patch is_merged as a method
         with patch.object(mock_pull_request, "is_merged", new=Mock(return_value=False)):
             with patch.object(issue_comment_handler.repository, "get_branch") as mock_get_branch:
-                with patch.object(mock_pull_request, "create_issue_comment") as mock_comment:
+                with patch.object(
+                    issue_comment_handler.github_webhook, "add_pr_comment", new_callable=AsyncMock
+                ) as mock_comment:
                     with patch.object(issue_comment_handler.labels_handler, "_add_label") as mock_add_label:
                         await issue_comment_handler.process_cherry_pick_command(
                             pull_request=mock_pull_request, command_args="branch1 branch2", reviewed_user="test-user"
@@ -489,9 +564,13 @@ class TestIssueCommentHandler:
     ) -> None:
         """Test processing cherry pick command with non-existing branches."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
 
         with patch.object(issue_comment_handler.repository, "get_branch", side_effect=Exception("Branch not found")):
-            with patch.object(mock_pull_request, "create_issue_comment") as mock_comment:
+            with patch.object(
+                issue_comment_handler.github_webhook, "add_pr_comment", new_callable=AsyncMock
+            ) as mock_comment:
                 await issue_comment_handler.process_cherry_pick_command(
                     pull_request=mock_pull_request, command_args="branch1 branch2", reviewed_user="test-user"
                 )
@@ -501,6 +580,8 @@ class TestIssueCommentHandler:
     async def test_process_cherry_pick_command_merged_pr(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test processing cherry pick command for merged PR."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
         # Patch is_merged as a method
         with patch.object(mock_pull_request, "is_merged", new=Mock(return_value=True)):
             with patch.object(issue_comment_handler.repository, "get_branch"):
@@ -516,8 +597,12 @@ class TestIssueCommentHandler:
     async def test_process_retest_command_no_target_tests(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test processing retest command with no target tests."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
 
-        with patch.object(mock_pull_request, "create_issue_comment") as mock_comment:
+        with patch.object(
+            issue_comment_handler.github_webhook, "add_pr_comment", new_callable=AsyncMock
+        ) as mock_comment:
             await issue_comment_handler.process_retest_command(
                 pull_request=mock_pull_request, command_args="", reviewed_user="test-user"
             )
@@ -529,8 +614,12 @@ class TestIssueCommentHandler:
     ) -> None:
         """Test processing retest command with 'all' and other tests."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
 
-        with patch.object(mock_pull_request, "create_issue_comment") as mock_comment:
+        with patch.object(
+            issue_comment_handler.github_webhook, "add_pr_comment", new_callable=AsyncMock
+        ) as mock_comment:
             await issue_comment_handler.process_retest_command(
                 pull_request=mock_pull_request, command_args="all tox", reviewed_user="test-user"
             )
@@ -540,6 +629,8 @@ class TestIssueCommentHandler:
     async def test_process_retest_command_all_only(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test processing retest command with 'all' only."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
 
         with patch.object(issue_comment_handler.runner_handler, "run_tox") as mock_run_tox:
             await issue_comment_handler.process_retest_command(
@@ -551,9 +642,13 @@ class TestIssueCommentHandler:
     async def test_process_retest_command_specific_tests(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test processing retest command with specific tests."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
 
         with patch.object(issue_comment_handler.runner_handler, "run_tox") as mock_run_tox:
-            with patch.object(mock_pull_request, "create_issue_comment") as mock_comment:
+            with patch.object(
+                issue_comment_handler.github_webhook, "add_pr_comment", new_callable=AsyncMock
+            ) as mock_comment:
                 await issue_comment_handler.process_retest_command(
                     pull_request=mock_pull_request, command_args="tox unsupported-test", reviewed_user="test-user"
                 )
@@ -564,8 +659,12 @@ class TestIssueCommentHandler:
     async def test_process_retest_command_unsupported_tests(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test processing retest command with unsupported tests."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
 
-        with patch.object(mock_pull_request, "create_issue_comment") as mock_comment:
+        with patch.object(
+            issue_comment_handler.github_webhook, "add_pr_comment", new_callable=AsyncMock
+        ) as mock_comment:
             await issue_comment_handler.process_retest_command(
                 pull_request=mock_pull_request,
                 command_args="unsupported-test1 unsupported-test2",
@@ -577,6 +676,8 @@ class TestIssueCommentHandler:
     async def test_process_retest_command_user_not_valid(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test processing retest command when user is not valid."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
         # Patch is_user_valid_to_run_commands as AsyncMock
         with patch.object(
             issue_comment_handler.owners_file_handler,
@@ -595,6 +696,8 @@ class TestIssueCommentHandler:
     ) -> None:
         """Test processing retest command with async task exception."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
 
         with patch.object(issue_comment_handler.runner_handler, "run_tox", side_effect=Exception("Test error")):
             with patch.object(issue_comment_handler.logger, "error") as mock_error:

@@ -618,6 +618,8 @@ class TestSetRepositoryCheckRunsToQueued:
 
         # Mock pull request and commits
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
         mock_pull_request.number = 123
         mock_repo.get_pulls.return_value = [mock_pull_request]
 

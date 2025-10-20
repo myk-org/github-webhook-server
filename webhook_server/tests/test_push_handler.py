@@ -1,10 +1,10 @@
-"""Tests for webhook_server.libs.push_handler module."""
+"""Tests for webhook_server.libs.handlers.push_handler module."""
 
 from unittest.mock import Mock, patch
 
 import pytest
 
-from webhook_server.libs.push_handler import PushHandler
+from webhook_server.libs.handlers.push_handler import PushHandler
 
 
 class TestPushHandler:
@@ -109,8 +109,8 @@ class TestPushHandler:
     async def test_upload_to_pypi_success(self, push_handler: PushHandler) -> None:
         """Test successful upload to pypi."""
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-            with patch("webhook_server.libs.push_handler.run_command") as mock_run_command:
-                with patch("webhook_server.libs.push_handler.uuid4") as mock_uuid:
+            with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
+                with patch("webhook_server.libs.handlers.push_handler.uuid4") as mock_uuid:
                     # Mock successful clone
                     mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
@@ -154,7 +154,7 @@ class TestPushHandler:
     async def test_upload_to_pypi_build_failure(self, push_handler: PushHandler) -> None:
         """Test upload to pypi when build fails."""
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-            with patch("webhook_server.libs.push_handler.run_command") as mock_run_command:
+            with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
                 with patch.object(push_handler.repository, "create_issue") as mock_create_issue:
                     # Mock successful clone
                     mock_prepare.return_value.__aenter__.return_value = (True, "", "")
@@ -173,7 +173,7 @@ class TestPushHandler:
     async def test_upload_to_pypi_ls_failure(self, push_handler: PushHandler) -> None:
         """Test upload to pypi when ls command fails."""
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-            with patch("webhook_server.libs.push_handler.run_command") as mock_run_command:
+            with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
                 with patch.object(push_handler.repository, "create_issue") as mock_create_issue:
                     # Mock successful clone
                     mock_prepare.return_value.__aenter__.return_value = (True, "", "")
@@ -195,7 +195,7 @@ class TestPushHandler:
     async def test_upload_to_pypi_twine_check_failure(self, push_handler: PushHandler) -> None:
         """Test upload to pypi when twine check fails."""
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-            with patch("webhook_server.libs.push_handler.run_command") as mock_run_command:
+            with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
                 with patch.object(push_handler.repository, "create_issue") as mock_create_issue:
                     # Mock successful clone
                     mock_prepare.return_value.__aenter__.return_value = (True, "", "")
@@ -218,7 +218,7 @@ class TestPushHandler:
     async def test_upload_to_pypi_twine_upload_failure(self, push_handler: PushHandler) -> None:
         """Test upload to pypi when twine upload fails."""
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-            with patch("webhook_server.libs.push_handler.run_command") as mock_run_command:
+            with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
                 with patch.object(push_handler.repository, "create_issue") as mock_create_issue:
                     # Mock successful clone
                     mock_prepare.return_value.__aenter__.return_value = (True, "", "")
@@ -244,8 +244,8 @@ class TestPushHandler:
         push_handler.github_webhook.slack_webhook_url = ""  # Empty string instead of None
 
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-            with patch("webhook_server.libs.push_handler.run_command") as mock_run_command:
-                with patch("webhook_server.libs.push_handler.uuid4") as mock_uuid:
+            with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
+                with patch("webhook_server.libs.handlers.push_handler.uuid4") as mock_uuid:
                     # Mock successful clone
                     mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
@@ -268,8 +268,8 @@ class TestPushHandler:
     async def test_upload_to_pypi_commands_execution_order(self, push_handler: PushHandler) -> None:
         """Test that commands are executed in the correct order."""
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-            with patch("webhook_server.libs.push_handler.run_command") as mock_run_command:
-                with patch("webhook_server.libs.push_handler.uuid4") as mock_uuid:
+            with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
+                with patch("webhook_server.libs.handlers.push_handler.uuid4") as mock_uuid:
                     # Mock successful clone
                     mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
@@ -300,8 +300,8 @@ class TestPushHandler:
     async def test_upload_to_pypi_unique_clone_directory(self, push_handler: PushHandler) -> None:
         """Test that each upload uses a unique clone directory."""
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-            with patch("webhook_server.libs.push_handler.run_command") as mock_run_command:
-                with patch("webhook_server.libs.push_handler.uuid4") as mock_uuid:
+            with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
+                with patch("webhook_server.libs.handlers.push_handler.uuid4") as mock_uuid:
                     # Mock successful clone
                     mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
@@ -345,8 +345,8 @@ class TestPushHandler:
     async def test_upload_to_pypi_slack_message_format(self, push_handler: PushHandler) -> None:
         """Test that slack messages are sent with proper format."""
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-            with patch("webhook_server.libs.push_handler.run_command") as mock_run_command:
-                with patch("webhook_server.libs.push_handler.uuid4") as mock_uuid:
+            with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
+                with patch("webhook_server.libs.handlers.push_handler.uuid4") as mock_uuid:
                     # Mock successful clone
                     mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 

@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import AsyncMock, Mock, patch
 from github.PullRequest import PullRequest
 
-from webhook_server.libs.pull_request_handler import PullRequestHandler
+from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
 from webhook_server.utils.constants import (
     APPROVED_BY_LABEL_PREFIX,
     CAN_BE_MERGED_STR,
@@ -44,6 +44,12 @@ class TestPullRequestHandler:
         mock_webhook.set_auto_merge_prs = []
         mock_webhook.auto_merge_enabled = True
         mock_webhook.container_repository = "docker.io/org/repo"
+        # Add async helper methods
+        mock_webhook.add_pr_comment = AsyncMock()
+        mock_webhook.update_pr_title = AsyncMock()
+        mock_webhook.enable_pr_automerge = AsyncMock()
+        mock_webhook.request_pr_reviews = AsyncMock()
+        mock_webhook.add_pr_assignee = AsyncMock()
         return mock_webhook
 
     @pytest.fixture
@@ -411,12 +417,18 @@ class TestPullRequestHandler:
             patch.object(pull_request_handler.github_webhook, "auto_verified_and_merged_users", ["test-user"]),
             patch.object(pull_request_handler.github_webhook, "parent_committer", "test-user"),
             patch.object(pull_request_handler.github_webhook, "set_auto_merge_prs", []),
+            patch.object(
+                pull_request_handler.github_webhook, "enable_pr_automerge", new_callable=AsyncMock
+            ) as mock_enable,
         ):
             mock_pull_request.base.ref = "main"
             mock_pull_request.raw_data = {}
-            mock_pull_request.enable_automerge = Mock()
             await pull_request_handler.set_pull_request_automerge(pull_request=mock_pull_request)
-            mock_pull_request.enable_automerge.assert_called_once_with(merge_method="SQUASH")
+            # Verify enable_pr_automerge was called with correct arguments
+            mock_enable.assert_called_once()
+            call_args = mock_enable.call_args
+            assert call_args[0][0] == mock_pull_request
+            assert call_args[0][1] == "SQUASH"
 
     @pytest.mark.asyncio
     async def test_set_pull_request_automerge_disabled(

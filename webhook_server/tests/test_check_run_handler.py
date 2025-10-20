@@ -2,7 +2,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from webhook_server.libs.check_run_handler import CheckRunHandler
+from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
@@ -525,6 +525,8 @@ class TestCheckRunHandler:
     async def test_required_check_failed_or_no_status(self, check_run_handler: CheckRunHandler) -> None:
         """Test checking for failed or no status checks."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
         mock_check_run = Mock()
         mock_check_run.name = "test-check"
         mock_check_run.conclusion = FAILURE_STR
@@ -538,6 +540,8 @@ class TestCheckRunHandler:
     async def test_all_required_status_checks(self, check_run_handler: CheckRunHandler) -> None:
         """Test getting all required status checks."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
 
         with patch.object(check_run_handler, "get_branch_required_status_checks", return_value=["branch-check"]):
             result = await check_run_handler.all_required_status_checks(mock_pull_request)
@@ -557,6 +561,8 @@ class TestCheckRunHandler:
     async def test_get_branch_required_status_checks_public_repo(self, check_run_handler: CheckRunHandler) -> None:
         """Test getting branch required status checks for public repository."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
         mock_pull_request.base.ref = "main"
         mock_branch = Mock()
         mock_branch_protection = Mock()
@@ -578,6 +584,8 @@ class TestCheckRunHandler:
     async def test_get_branch_required_status_checks_private_repo(self, check_run_handler: CheckRunHandler) -> None:
         """Test getting branch required status checks for private repository."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
         with patch.object(check_run_handler.repository, "private", True):
             with patch.object(check_run_handler.github_webhook.logger, "info") as mock_info:
                 result = await check_run_handler.get_branch_required_status_checks(mock_pull_request)
@@ -588,6 +596,8 @@ class TestCheckRunHandler:
     async def test_required_check_in_progress(self, check_run_handler: CheckRunHandler) -> None:
         """Test checking for required checks in progress."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
         mock_check_run = Mock()
         mock_check_run.name = "test-check"
         mock_check_run.status = IN_PROGRESS_STR
@@ -604,6 +614,8 @@ class TestCheckRunHandler:
     async def test_required_check_in_progress_can_be_merged(self, check_run_handler: CheckRunHandler) -> None:
         """Test checking for required checks in progress excluding can-be-merged."""
         mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
         mock_check_run = Mock()
         mock_check_run.name = CAN_BE_MERGED_STR
         mock_check_run.status = IN_PROGRESS_STR

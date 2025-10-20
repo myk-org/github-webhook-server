@@ -8,20 +8,23 @@ import os
 from typing import Any
 
 import requests
-from github import GithubException
 from github.Commit import Commit
 from github.PullRequest import PullRequest
 from github.Repository import Repository
+
+# GraphQL wrappers provide PyGithub-compatible interface
+from webhook_server.libs.graphql.graphql_wrappers import CommitWrapper, PullRequestWrapper
 from starlette.datastructures import Headers
 
-from webhook_server.libs.check_run_handler import CheckRunHandler
+from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import RepositoryNotFoundInConfigError
-from webhook_server.libs.issue_comment_handler import IssueCommentHandler
-from webhook_server.libs.owners_files_handler import OwnersFileHandler
-from webhook_server.libs.pull_request_handler import PullRequestHandler
-from webhook_server.libs.pull_request_review_handler import PullRequestReviewHandler
-from webhook_server.libs.push_handler import PushHandler
+from webhook_server.libs.handlers.issue_comment_handler import IssueCommentHandler
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
+from webhook_server.libs.handlers.pull_request_review_handler import PullRequestReviewHandler
+from webhook_server.libs.handlers.push_handler import PushHandler
+from webhook_server.libs.graphql.unified_api import UnifiedGitHubAPI
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
@@ -61,6 +64,7 @@ class GithubWebhook:
         self.token: str
         self.api_user: str
         self.current_pull_request_supported_retest: list[str] = []
+        self.unified_api: UnifiedGitHubAPI | None = None
 
         if not self.config.repository_data:
             raise RepositoryNotFoundInConfigError(f"Repository {self.repository_name} not found in config file")
@@ -73,6 +77,8 @@ class GithubWebhook:
 
         if github_api and self.token:
             self.repository = get_github_repo_api(github_app_api=github_api, repository=self.repository_full_name)
+            # Initialize UnifiedGitHubAPI for GraphQL operations
+            self.unified_api = UnifiedGitHubAPI(token=self.token, logger=self.logger)
             # Once we have a repository, we can get the config from .github-webhook-server.yaml
             local_repository_config = self.config.repository_local_data(
                 github_api=github_api, repository_full_name=self.repository_full_name
@@ -200,7 +206,7 @@ class GithubWebhook:
 
             self.auto_verified_and_merged_users.append(_api.get_user().login)
 
-    def prepare_log_prefix(self, pull_request: PullRequest | None = None) -> str:
+    def prepare_log_prefix(self, pull_request: PullRequestWrapper | None = None) -> str:
         return prepare_log_prefix(
             event_type=self.github_event,
             delivery_id=self.x_github_delivery,
@@ -264,16 +270,32 @@ class GithubWebhook:
             value="create-issue-for-new-pr", return_on_none=global_create_issue_for_new_pr, extra_dict=repository_config
         )
 
-    async def get_pull_request(self, number: int | None = None) -> PullRequest | None:
-        if number:
-            return await asyncio.to_thread(self.repository.get_pull, number)
+    async def get_pull_request(self, number: int | None = None) -> PullRequestWrapper | None:
+        """Get pull request using GraphQL."""
+        if not self.unified_api:
+            self.logger.error(f"{self.log_prefix} UnifiedAPI not initialized")
+            return None
 
-        for _number in extract_key_from_dict(key="number", _dict=self.hook_data):
-            try:
-                return await asyncio.to_thread(self.repository.get_pull, _number)
-            except GithubException:
-                continue
+        # Extract owner and repo name from repository_full_name
+        owner, repo_name = self.repository_full_name.split("/")
 
+        # Try to get PR number from various sources
+        pr_number = number
+        if not pr_number:
+            for _number in extract_key_from_dict(key="number", _dict=self.hook_data):
+                pr_number = _number
+                break
+
+        # If we have a PR number, use GraphQL
+        if pr_number:
+            # Fetch PR with commits and labels (commonly needed data)
+            pr_data = await self.unified_api.get_pull_request(
+                owner, repo_name, pr_number, include_commits=True, include_labels=True
+            )
+            return PullRequestWrapper(pr_data)
+
+        # For commit-based lookups or check_run events, use REST
+        # (GraphQL doesn't have efficient commit->PR lookup)
         commit: dict[str, Any] = self.hook_data.get("commit", {})
         if commit:
             commit_obj = await asyncio.to_thread(self.repository.get_commit, commit["sha"])
@@ -291,9 +313,53 @@ class GithubWebhook:
 
         return None
 
-    async def _get_last_commit(self, pull_request: PullRequest) -> Commit:
-        _commits = await asyncio.to_thread(pull_request.get_commits)
+    async def _get_last_commit(self, pull_request: PullRequestWrapper) -> Commit | CommitWrapper:
+        """Get last commit from PullRequestWrapper."""
+        commits = pull_request.get_commits()
+        if commits:
+            return commits[-1]
+        # If no commits in wrapper, fallback to REST
+        self.logger.warning(f"{self.log_prefix} No commits in GraphQL response, using REST fallback")
+        rest_pr = await asyncio.to_thread(self.repository.get_pull, pull_request.number)
+        _commits = await asyncio.to_thread(rest_pr.get_commits)
         return list(_commits)[-1]
+
+    async def add_pr_comment(self, pull_request: PullRequestWrapper, body: str) -> None:
+        """Add comment to PR via unified_api."""
+        pr_id = pull_request.id
+        await self.unified_api.add_comment(pr_id, body)
+
+    async def update_pr_title(self, pull_request: PullRequestWrapper, title: str) -> None:
+        """Update PR title via unified_api."""
+        pr_id = pull_request.id
+        await self.unified_api.update_pull_request(pr_id, title=title)
+
+    async def enable_pr_automerge(self, pull_request: PullRequestWrapper, merge_method: str = "SQUASH") -> None:
+        """Enable automerge on PR via unified_api."""
+        pr_id = pull_request.id
+        await self.unified_api.enable_pull_request_automerge(pr_id, merge_method)
+
+    async def request_pr_reviews(self, pull_request: PullRequestWrapper, reviewers: list[str]) -> None:
+        """Request reviews on PR via unified_api."""
+        pr_id = pull_request.id
+        reviewer_ids = []
+        for reviewer in reviewers:
+            try:
+                user_id = await self.unified_api.get_user_id(reviewer)
+                reviewer_ids.append(user_id)
+            except Exception as ex:
+                self.logger.warning(f"{self.log_prefix} Failed to get ID for {reviewer}: {ex}")
+        if reviewer_ids:
+            await self.unified_api.request_reviews(pr_id, reviewer_ids)
+
+    async def add_pr_assignee(self, pull_request: PullRequestWrapper, assignee: str) -> None:
+        """Add assignee to PR via unified_api."""
+        pr_id = pull_request.id
+        try:
+            user_id = await self.unified_api.get_user_id(assignee)
+            await self.unified_api.add_assignees(pr_id, [user_id])
+        except Exception as ex:
+            self.logger.warning(f"{self.log_prefix} Failed to add assignee {assignee}: {ex}")
 
     @staticmethod
     def _comment_with_details(title: str, body: str) -> str:

@@ -3,10 +3,11 @@ from typing import TYPE_CHECKING, Any
 
 from github.CheckRun import CheckRun
 from github.PullRequest import PullRequest
+from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
 from github.Repository import Repository
 
-from webhook_server.libs.labels_handler import LabelsHandler
-from webhook_server.libs.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.handlers.labels_handler import LabelsHandler
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.utils.constants import (
     AUTOMERGE_LABEL_STR,
     BUILD_CONTAINER_STR,
@@ -310,7 +311,7 @@ class CheckRunHandler:
 
         return msg
 
-    async def all_required_status_checks(self, pull_request: PullRequest) -> list[str]:
+    async def all_required_status_checks(self, pull_request: PullRequestWrapper) -> list[str]:
         all_required_status_checks: list[str] = []
         branch_required_status_checks = await self.get_branch_required_status_checks(pull_request=pull_request)
 
@@ -333,7 +334,7 @@ class CheckRunHandler:
         self.logger.debug(f"{self.log_prefix} All required status checks: {_all_required_status_checks}")
         return _all_required_status_checks
 
-    async def get_branch_required_status_checks(self, pull_request: PullRequest) -> list[str]:
+    async def get_branch_required_status_checks(self, pull_request: PullRequestWrapper) -> list[str]:
         if self.repository.private:
             self.logger.info(
                 f"{self.log_prefix} Repository is private, skipping getting branch protection required status checks"
