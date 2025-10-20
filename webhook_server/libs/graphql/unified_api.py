@@ -619,10 +619,10 @@ class UnifiedGitHubAPI:
               This method exists ONLY because check runs aren't in GraphQL.
 
         Example:
-            >>> # ✅ Use GraphQL for PR data
+            >>> # CORRECT: Use GraphQL for PR data
             >>> pr_data = await api.get_pull_request("owner", "repo", 123)
             >>>
-            >>> # ❌ Use REST ONLY for check runs
+            >>> # INCORRECT: Use REST ONLY for check runs
             >>> rest_pr = await api.get_pr_for_check_runs("owner", "repo", 123)
             >>> commits = await asyncio.to_thread(rest_pr.get_commits)
             >>> check_runs = await asyncio.to_thread(commits[0].get_check_runs)
