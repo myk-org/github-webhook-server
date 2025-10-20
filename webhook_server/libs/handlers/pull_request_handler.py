@@ -31,6 +31,7 @@ from webhook_server.utils.constants import (
     PRE_COMMIT_STR,
     PYTHON_MODULE_INSTALL_STR,
     TOX_STR,
+    USER_LABELS_DICT,
     VERIFIED_LABEL_STR,
     WIP_STR,
 )
@@ -205,7 +206,106 @@ class PullRequestHandler:
 
     def _prepare_welcome_comment(self) -> str:
         self.logger.info(f"{self.log_prefix} Prepare welcome comment")
-        return "WELCOME TO OPENED PR"
+        supported_user_labels_str: str = "".join([f" * {label}\n" for label in USER_LABELS_DICT.keys()])
+
+        # Check if current user is auto-verified
+        is_auto_verified = self.github_webhook.parent_committer in self.github_webhook.auto_verified_and_merged_users
+        auto_verified_note = ""
+        if is_auto_verified:
+            auto_verified_note = """
+
+> **Note**: You are an auto-verified user. Your PRs will be automatically verified and may be auto-merged when all requirements are met.
+"""
+
+        # Check if issue creation is enabled
+        issue_creation_note = ""
+        if self.github_webhook.create_issue_for_new_pr:
+            issue_creation_note = "* **Issue Creation**: A tracking issue is created for this PR and will be closed when the PR is merged or closed\n"
+        else:
+            issue_creation_note = "* **Issue Creation**: Disabled for this repository\n"
+
+        return f"""
+{self.github_webhook.issue_url_for_welcome_msg}
+
+## Welcome! 🎉
+
+This pull request will be automatically processed with the following features:{auto_verified_note}
+
+### 🔄 Automatic Actions
+* **Reviewer Assignment**: Reviewers are automatically assigned based on the OWNERS file in the repository root
+* **Size Labeling**: PR size labels (XS, S, M, L, XL, XXL) are automatically applied based on changes
+{issue_creation_note}* **Pre-commit Checks**: [pre-commit](https://pre-commit.ci/) runs automatically if `.pre-commit-config.yaml` exists
+* **Branch Labeling**: Branch-specific labels are applied to track the target branch
+* **Auto-verification**: Auto-verified users have their PRs automatically marked as verified
+
+### 📋 Available Commands
+
+#### PR Status Management
+* `/wip` - Mark PR as work in progress (adds WIP: prefix to title)
+* `/wip cancel` - Remove work in progress status
+* `/hold` - Block PR merging (approvers only)
+* `/hold cancel` - Unblock PR merging
+* `/verified` - Mark PR as verified
+* `/verified cancel` - Remove verification status
+
+#### Review & Approval
+* `/lgtm` - Approve changes (looks good to me)
+* `/approve` - Approve PR (approvers only)
+* `/automerge` - Enable automatic merging when all requirements are met (maintainers and approvers only)
+* `/assign-reviewers` - Assign reviewers based on OWNERS file
+* `/assign-reviewer @username` - Assign specific reviewer
+* `/check-can-merge` - Check if PR meets merge requirements
+
+#### Testing & Validation
+{self._prepare_retest_welcome_comment}
+
+#### Container Operations
+* `/build-and-push-container` - Build and push container image (tagged with PR number)
+  * Supports additional build arguments: `/build-and-push-container --build-arg KEY=value`
+
+#### Cherry-pick Operations
+* `/cherry-pick <branch>` - Schedule cherry-pick to target branch when PR is merged
+  * Multiple branches: `/cherry-pick branch1 branch2 branch3`
+
+#### Label Management
+* `/<label-name>` - Add a label to the PR
+* `/<label-name> cancel` - Remove a label from the PR
+
+### ✅ Merge Requirements
+
+This PR will be automatically approved when the following conditions are met:
+
+1. **Approval**: `/approve` from at least one approver
+2. **LGTM Count**: Minimum {self.github_webhook.minimum_lgtm} `/lgtm` from reviewers
+3. **Status Checks**: All required status checks must pass
+4. **No Blockers**: No WIP, hold, or conflict labels
+5. **Verified**: PR must be marked as verified (if verification is enabled)
+
+### 📊 Review Process
+
+<details>
+<summary><strong>Approvers and Reviewers</strong></summary>
+
+{self._prepare_owners_welcome_comment()}
+</details>
+
+<details>
+<summary><strong>Available Labels</strong></summary>
+
+{supported_user_labels_str}
+</details>
+
+### 💡 Tips
+
+* **WIP Status**: Use `/wip` when your PR is not ready for review
+* **Verification**: The verified label is automatically removed on each new commit
+* **Cherry-picking**: Cherry-pick labels are processed when the PR is merged
+* **Container Builds**: Container images are automatically tagged with the PR number
+* **Permission Levels**: Some commands require approver permissions
+* **Auto-verified Users**: Certain users have automatic verification and merge privileges
+
+For more information, please refer to the project documentation or contact the maintainers.
+    """
 
     def _prepare_owners_welcome_comment(self) -> str:
         body_approvers: str = "**Approvers:**\n"
