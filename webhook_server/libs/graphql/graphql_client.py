@@ -64,7 +64,7 @@ class GraphQLClient:
         token: str,
         logger: logging.Logger,
         retry_count: int = 3,
-        timeout: int = 30,
+        timeout: int = 90,
     ) -> None:
         """
         Initialize GraphQL client.
@@ -73,7 +73,7 @@ class GraphQLClient:
             token: GitHub personal access token or GitHub App token
             logger: Logger instance for operation logging
             retry_count: Number of retry attempts for failed requests (default: 3)
-            timeout: Request timeout in seconds (default: 30)
+            timeout: Request timeout in seconds (default: 90, increased for large mutations)
         """
         self.token = token
         self.logger = logger
