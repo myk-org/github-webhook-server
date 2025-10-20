@@ -348,6 +348,7 @@ def set_repository_check_runs_to_queued(
 ) -> tuple[bool, str, Callable]:
     def _set_checkrun_queued(_api: Repository, _pull_request: PullRequest) -> None:
         last_commit: Commit = list(_pull_request.get_commits())[-1]
+        # Use REST API method directly (this is REST-only code)
         for check_run in last_commit.get_check_runs():
             if check_run.name in check_runs and check_run.status == IN_PROGRESS_STR:
                 LOGGER.warning(
