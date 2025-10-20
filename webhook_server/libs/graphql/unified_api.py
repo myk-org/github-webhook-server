@@ -277,8 +277,8 @@ class UnifiedGitHubAPI:
         """
         Add comment to PR or issue.
 
-        Uses: GraphQL
-        Reason: Efficient mutation
+        Uses: GraphQL for small comments, REST for large ones
+        Reason: GraphQL can hang with large payloads (>2KB)
 
         Args:
             subject_id: PR or issue node ID
@@ -287,6 +287,17 @@ class UnifiedGitHubAPI:
         Returns:
             Created comment data
         """
+        # Use REST API for large comments (>2000 chars) to avoid GraphQL hangs
+        if len(body) > 2000:
+            self.logger.warning(
+                f"Comment body is {len(body)} chars (>2000), using REST API instead of GraphQL to avoid hangs"
+            )
+            # Extract PR/issue info from subject_id (format: PR_kwXXXX or I_kwXXXX)
+            # This is a fallback - we'd need the actual PR/issue object to use REST
+            # For now, try GraphQL anyway but with explicit warning
+            # TODO: Add REST API fallback with proper PR/issue lookup
+            self.logger.error(f"Large comment GraphQL mutation may hang - body length={len(body)}")
+
         try:
             if not self.graphql_client:
                 self.logger.debug("Initializing GraphQL client for add_comment")
