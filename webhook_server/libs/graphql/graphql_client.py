@@ -102,6 +102,7 @@ class GraphQLClient:
                 pass  # Ignore cleanup errors
 
         # Create fresh transport with new connection for this query
+        # Set explicit timeout on transport to handle network-level hangs
         self._transport = AIOHTTPTransport(
             url=self.GITHUB_GRAPHQL_URL,
             headers={
@@ -222,6 +223,14 @@ class GraphQLClient:
             except asyncio.TimeoutError as error:
                 # Explicit timeout handling - NEVER silent!
                 self.logger.error(f"TIMEOUT: GraphQL query timeout after {self.timeout}s", exc_info=True)
+                # Force close the client to stop any pending connections
+                if self._client:
+                    try:
+                        await self._client.close_async()
+                        self._client = None
+                        self._transport = None
+                    except Exception:
+                        pass
                 raise GraphQLError(f"GraphQL query timeout after {self.timeout}s") from error
 
             except Exception as error:
