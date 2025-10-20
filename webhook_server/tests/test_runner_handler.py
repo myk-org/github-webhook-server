@@ -17,6 +17,7 @@ class TestRunnerHandler:
         mock_webhook.logger = Mock()
         mock_webhook.log_prefix = "[TEST]"
         mock_webhook.repository = Mock()
+        mock_webhook.repository.full_name = "test-owner/test-repo"
         mock_webhook.repository.clone_url = "https://github.com/test/repo.git"
         mock_webhook.repository.full_name = "test-owner/test-repo"
         mock_webhook.repository.owner.login = "test-owner"

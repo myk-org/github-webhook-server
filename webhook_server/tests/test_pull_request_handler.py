@@ -33,6 +33,7 @@ class TestPullRequestHandler:
         mock_webhook.logger = Mock()
         mock_webhook.log_prefix = "[TEST]"
         mock_webhook.repository = Mock()
+        mock_webhook.repository.full_name = "test-owner/test-repo"
         mock_webhook.issue_url_for_welcome_msg = "welcome-message-url"
         mock_webhook.parent_committer = "test-user"
         mock_webhook.auto_verified_and_merged_users = ["test-user"]
