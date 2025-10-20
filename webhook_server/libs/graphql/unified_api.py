@@ -721,10 +721,13 @@ class UnifiedGitHubAPI:
         repo = await self.get_repository_for_rest_operations(owner, name)
         return list(await asyncio.to_thread(repo.get_issues))
     
-    async def create_issue(self, owner: str, name: str, title: str, body: str) -> None:
-        """Create an issue."""
+    async def create_issue(self, owner: str, name: str, title: str, body: str, assignee: str | None = None) -> None:
+        """Create an issue with optional assignee."""
         repo = await self.get_repository_for_rest_operations(owner, name)
-        await asyncio.to_thread(repo.create_issue, title=title, body=body)
+        kwargs = {"title": title, "body": body}
+        if assignee:
+            kwargs["assignee"] = assignee
+        await asyncio.to_thread(repo.create_issue, **kwargs)
     
     async def edit_issue(self, issue: Any, state: str) -> None:
         """Edit issue state."""
