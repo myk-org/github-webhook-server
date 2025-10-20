@@ -175,12 +175,12 @@ class GraphQLClient:
 
                 # Check for authentication errors
                 if "401" in error_msg or "Unauthorized" in error_msg or "Bad credentials" in error_msg:
-                    self.logger.error(f"GraphQL authentication failed: {error_msg}")
+                    self.logger.error(f"AUTH FAILED: GraphQL authentication failed: {error_msg}", exc_info=True)
                     raise GraphQLAuthenticationError(f"Authentication failed: {error_msg}") from error
 
                 # Check for rate limit errors
                 if "rate limit" in error_msg.lower() or "RATE_LIMITED" in error_msg:
-                    self.logger.warning(f"GraphQL rate limit exceeded: {error_msg}")
+                    self.logger.warning(f"RATE LIMIT: GraphQL rate limit exceeded: {error_msg}", exc_info=True)
 
                     # If not the last attempt, wait before retrying
                     if attempt < self.retry_count - 1:
@@ -204,7 +204,7 @@ class GraphQLClient:
             except TransportServerError as error:
                 # Handle server errors (5xx)
                 error_msg = str(error)
-                self.logger.warning(f"GraphQL server error (attempt {attempt + 1}): {error_msg}")
+                self.logger.warning(f"SERVER ERROR: GraphQL server error (attempt {attempt + 1}): {error_msg}", exc_info=True)
 
                 if attempt < self.retry_count - 1:
                     wait_time = 2**attempt
@@ -214,17 +214,39 @@ class GraphQLClient:
 
                 raise GraphQLError(f"GraphQL server error: {error_msg}") from error
 
+            except asyncio.TimeoutError as error:
+                # Explicit timeout handling - NEVER silent!
+                self.logger.error(
+                    f"TIMEOUT: GraphQL query timeout after {self.timeout}s (attempt {attempt + 1}/{self.retry_count})",
+                    exc_info=True
+                )
+                if attempt < self.retry_count - 1:
+                    wait_time = 2**attempt
+                    self.logger.warning(f"Retrying after timeout in {wait_time}s...")
+                    await asyncio.sleep(wait_time)
+                    continue
+                
+                raise GraphQLError(f"GraphQL query timeout after {self.timeout}s") from error
+
             except Exception as error:
-                # Handle unexpected errors
+                # Handle unexpected errors - NEVER SILENT!
                 error_msg = str(error)
-                self.logger.error(f"Unexpected GraphQL error: {error_msg}")
+                error_type = type(error).__name__
+                
+                # Log ALL exceptions with full context
+                self.logger.error(
+                    f"ERROR: GraphQL unexpected error [{error_type}]: {error_msg} (attempt {attempt + 1}/{self.retry_count})",
+                    exc_info=True
+                )
 
                 if attempt < self.retry_count - 1:
                     wait_time = 2**attempt
                     await asyncio.sleep(wait_time)
                     continue
 
-                raise GraphQLError(f"Unexpected error: {error_msg}") from error
+                # NEVER silent - always re-raise with context
+                self.logger.error(f"FATAL: GraphQL error [{error_type}]: {error_msg}")
+                raise GraphQLError(f"Unexpected error [{error_type}]: {error_msg}") from error
 
         # Should never reach here, but just in case
         raise GraphQLError("Failed to execute query after all retries")
