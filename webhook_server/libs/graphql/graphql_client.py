@@ -154,6 +154,15 @@ class GraphQLClient:
                     extra={"variables": variables},
                 )
 
+                # Close any existing connection before creating new one
+                if self._client:
+                    try:
+                        await self._client.close_async()
+                    except Exception:
+                        pass
+                    # Recreate client with fresh transport
+                    await self._ensure_client()
+
                 async with self._client as session:  # type: ignore[union-attr]
                     result = await session.execute(query, variable_values=variables)
 
