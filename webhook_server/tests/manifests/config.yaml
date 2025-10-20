@@ -23,6 +23,8 @@ auto-verified-and-merged-users:
   - "renovate[bot]"
   - "pre-commit-ci[bot]"
 
+auto-verify-cherry-picked-prs: true
+
 repositories:
   test-repo:
     name: my-org/test-repo

@@ -18,6 +18,7 @@ from webhook_server.utils.constants import (
     CAN_BE_MERGED_STR,
     CHANGED_REQUESTED_BY_LABEL_PREFIX,
     CHERRY_PICK_LABEL_PREFIX,
+    CHERRY_PICKED_LABEL_PREFIX,
     COMMENTED_BY_LABEL_PREFIX,
     CONVENTIONAL_TITLE_STR,
     FAILURE_STR,
@@ -575,6 +576,19 @@ For more information, please refer to the project documentation or contact the m
 
     async def _process_verified_for_update_or_new_pull_request(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.verified_job:
+            return
+
+        # Check if this is a cherry-picked PR
+        labels = await asyncio.to_thread(lambda: list(pull_request.labels))
+        is_cherry_picked = any(label.name == CHERRY_PICKED_LABEL_PREFIX for label in labels)
+
+        # If it's a cherry-picked PR and auto-verify is disabled for cherry-picks, skip auto-verification
+        if is_cherry_picked and not self.github_webhook.auto_verify_cherry_picked_prs:
+            self.logger.info(
+                f"{self.log_prefix} Cherry-picked PR detected and auto-verify-cherry-picked-prs is disabled, "
+                "skipping auto-verification"
+            )
+            await self.check_run_handler.set_verify_check_queued()
             return
 
         if self.github_webhook.parent_committer in self.github_webhook.auto_verified_and_merged_users:

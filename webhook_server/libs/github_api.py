@@ -242,6 +242,9 @@ class GithubWebhook:
         self.auto_verified_and_merged_users: list[str] = self.config.get_value(
             value="auto-verified-and-merged-users", return_on_none=[], extra_dict=repository_config
         )
+        self.auto_verify_cherry_picked_prs: bool = self.config.get_value(
+            value="auto-verify-cherry-picked-prs", return_on_none=True, extra_dict=repository_config
+        )
         self.can_be_merged_required_labels = self.config.get_value(
             value="can-be-merged-required-labels", return_on_none=[], extra_dict=repository_config
         )

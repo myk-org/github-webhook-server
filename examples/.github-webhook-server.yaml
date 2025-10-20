@@ -66,6 +66,9 @@ auto-verified-and-merged-users:
   - "dependabot[bot]"
   - "trusted-user"
 
+# Auto-verify cherry-picked PRs (default: true)
+auto-verify-cherry-picked-prs: false  # Set to false to require manual verification for cherry-picked PRs
+
 # Repository-specific GitHub tokens
 github-tokens:
   - ghp_your_repository_specific_token_here

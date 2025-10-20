@@ -1,5 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
+from github.PullRequest import PullRequest
 
 from webhook_server.libs.pull_request_handler import PullRequestHandler
 from webhook_server.utils.constants import (
@@ -500,6 +501,50 @@ class TestPullRequestHandler:
                 )
                 mock_add_label.assert_not_called()
                 mock_success.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_process_verified_cherry_picked_pr_auto_verify_enabled(
+        self, pull_request_handler: PullRequestHandler
+    ) -> None:
+        """Test cherry-picked PR with auto-verify enabled (default behavior)."""
+        from webhook_server.utils.constants import CHERRY_PICKED_LABEL_PREFIX
+
+        mock_pull_request = Mock(spec=PullRequest)
+        mock_label = Mock()
+        mock_label.name = CHERRY_PICKED_LABEL_PREFIX
+        mock_pull_request.labels = [mock_label]
+
+        with (
+            patch.object(pull_request_handler.github_webhook, "auto_verify_cherry_picked_prs", True),
+            patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label,
+            patch.object(pull_request_handler.check_run_handler, "set_verify_check_success") as mock_set_success,
+        ):
+            await pull_request_handler._process_verified_for_update_or_new_pull_request(mock_pull_request)
+            # Should auto-verify since auto_verify_cherry_picked_prs is True and user is in auto_verified list
+            mock_add_label.assert_called_once()
+            mock_set_success.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_process_verified_cherry_picked_pr_auto_verify_disabled(
+        self, pull_request_handler: PullRequestHandler
+    ) -> None:
+        """Test cherry-picked PR with auto-verify disabled."""
+        from webhook_server.utils.constants import CHERRY_PICKED_LABEL_PREFIX
+
+        mock_pull_request = Mock(spec=PullRequest)
+        mock_label = Mock()
+        mock_label.name = CHERRY_PICKED_LABEL_PREFIX
+        mock_pull_request.labels = [mock_label]
+
+        with (
+            patch.object(pull_request_handler.github_webhook, "auto_verify_cherry_picked_prs", False),
+            patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label,
+            patch.object(pull_request_handler.check_run_handler, "set_verify_check_queued") as mock_set_queued,
+        ):
+            await pull_request_handler._process_verified_for_update_or_new_pull_request(mock_pull_request)
+            # Should NOT auto-verify since auto_verify_cherry_picked_prs is False
+            mock_add_label.assert_not_called()
+            mock_set_queued.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_add_pull_request_owner_as_assingee(

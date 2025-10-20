@@ -27,6 +27,8 @@ auto-verified-and-merged-users:
   - "renovate[bot]"
   - "pre-commit-ci[bot]"
 
+auto-verify-cherry-picked-prs: true  # Default: true - automatically verify cherry-picked PRs. Set to false to require manual verification.
+
 create-issue-for-new-pr: true  # Global default: create tracking issues for new PRs
 
 # Global PR size label configuration (optional)
@@ -100,6 +102,8 @@ repositories:
 
     auto-verified-and-merged-users: # override auto verified users per repository
       - "my[bot]"
+
+    auto-verify-cherry-picked-prs: false  # Disable auto-verification for cherry-picked PRs in this repository
 
     github-tokens: # override GitHub tokens per repository
       - <GITHUB TOKEN1>

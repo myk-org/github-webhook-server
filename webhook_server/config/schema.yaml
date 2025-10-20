@@ -66,6 +66,10 @@ properties:
     type: array
     items:
       type: string
+  auto-verify-cherry-picked-prs:
+    type: boolean
+    description: Automatically verify cherry-picked PRs (default is true for backward compatibility)
+    default: true
   create-issue-for-new-pr:
     type: boolean
     description: Create a tracking issue for new pull requests (global default)
@@ -211,6 +215,10 @@ properties:
           items:
             type: string
           description: Users whose PRs are automatically verified and merged
+        auto-verify-cherry-picked-prs:
+          type: boolean
+          description: Automatically verify cherry-picked PRs for this repository (default is true)
+          default: true
         github-tokens:
           type: array
           items:
