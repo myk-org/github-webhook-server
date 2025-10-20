@@ -389,8 +389,10 @@ For more information, please refer to the project documentation or contact the m
 
                     rc, _, _ = await self.runner_handler.run_podman_command(command=tag_del_cmd)
                     if rc:
-                        await asyncio.to_thread(
-                            pull_request.create_issue_comment, f"Successfully removed PR tag: {repository_full_tag}."
+                        # Use unified_api for create_issue_comment
+                        owner, repo_name = self.repository.full_name.split("/")
+                        await self.github_webhook.unified_api.create_issue_comment(
+                            owner, repo_name, pull_request.number, f"Successfully removed PR tag: {repository_full_tag}."
                         )
                     else:
                         self.logger.error(
@@ -405,21 +407,22 @@ For more information, please refer to the project documentation or contact the m
                 await self.runner_handler.run_podman_command(command="regctl registry logout")
 
         else:
-            await asyncio.to_thread(
-                pull_request.create_issue_comment,
-                f"Failed to delete tag: {repository_full_tag}. Please delete it manually.",
+            # Use unified_api for create_issue_comment
+            owner, repo_name = self.repository.full_name.split("/")
+            await self.github_webhook.unified_api.create_issue_comment(
+                owner, repo_name, pull_request.number, f"Failed to delete tag: {repository_full_tag}. Please delete it manually."
             )
             self.logger.error(f"{self.log_prefix} Failed to delete tag: {repository_full_tag}. OUT:{out}. ERR:{err}")
 
     async def close_issue_for_merged_or_closed_pr(self, pull_request: PullRequest, hook_action: str) -> None:
-        for issue in await asyncio.to_thread(self.repository.get_issues):
+        owner, repo_name = self.repository.full_name.split("/")
+        for issue in await self.github_webhook.unified_api.get_issues(owner, repo_name):
             if issue.body == self._generate_issue_body(pull_request=pull_request):
                 self.logger.info(f"{self.log_prefix} Closing issue {issue.title} for PR: {pull_request.title}")
-                await asyncio.to_thread(
-                    issue.create_comment,
-                    f"{self.log_prefix} Closing issue for PR: {pull_request.title}.\nPR was {hook_action}.",
+                await self.github_webhook.unified_api.create_issue_comment_on_issue(
+                    issue, f"{self.log_prefix} Closing issue for PR: {pull_request.title}.\nPR was {hook_action}."
                 )
-                await asyncio.to_thread(issue.edit, state="closed")
+                await self.github_webhook.unified_api.edit_issue(issue, state="closed")
 
                 break
 
@@ -493,8 +496,10 @@ For more information, please refer to the project documentation or contact the m
             return
 
         self.logger.info(f"{self.log_prefix} Creating issue for new PR: {pull_request.title}")
-        await asyncio.to_thread(
-            self.repository.create_issue,
+        owner, repo_name = self.repository.full_name.split("/")
+        await self.github_webhook.unified_api.create_issue(
+            owner,
+            repo_name,
             title=self._generate_issue_title(pull_request=pull_request),
             body=self._generate_issue_body(pull_request=pull_request),
             assignee=pull_request.user.login,
@@ -580,7 +585,7 @@ For more information, please refer to the project documentation or contact the m
             return
 
         # Check if this is a cherry-picked PR
-        labels = await asyncio.to_thread(lambda: list(pull_request.labels))
+        labels = list(pull_request.labels)
         is_cherry_picked = any(label.name == CHERRY_PICKED_LABEL_PREFIX for label in labels)
 
         # If it's a cherry-picked PR and auto-verify is disabled for cherry-picks, skip auto-verification
@@ -606,15 +611,21 @@ For more information, please refer to the project documentation or contact the m
             await self.check_run_handler.set_verify_check_queued()
 
     async def add_pull_request_owner_as_assingee(self, pull_request: PullRequestWrapper) -> None:
+        # Use unified_api for add_assignees
+        owner, repo_name = self.repository.full_name.split("/")
         try:
             self.logger.info(f"{self.log_prefix} Adding PR owner as assignee")
-            pull_request.add_to_assignees(pull_request.user.login)
+            await self.github_webhook.unified_api.add_assignees_by_login(
+                owner, repo_name, pull_request.number, [pull_request.user.login]
+            )
         except Exception as exp:
             self.logger.debug(f"{self.log_prefix} Exception while adding PR owner as assignee: {exp}")
 
             if self.owners_file_handler.root_approvers:
                 self.logger.debug(f"{self.log_prefix} Falling back to first approver as assignee")
-                pull_request.add_to_assignees(self.owners_file_handler.root_approvers[0])
+                await self.github_webhook.unified_api.add_assignees_by_login(
+                    owner, repo_name, pull_request.number, [self.owners_file_handler.root_approvers[0]]
+                )
 
     async def check_if_can_be_merged(self, pull_request: PullRequestWrapper) -> None:
         """
@@ -643,8 +654,7 @@ For more information, please refer to the project documentation or contact the m
         try:
             self.logger.info(f"{self.log_prefix} Check if {CAN_BE_MERGED_STR}.")
             await self.check_run_handler.set_merge_check_in_progress()
-            _last_commit_check_runs = await asyncio.to_thread(self.github_webhook.last_commit.get_check_runs)
-            last_commit_check_runs = list(_last_commit_check_runs)
+            last_commit_check_runs = await self.github_webhook.unified_api.get_commit_check_runs(self.github_webhook.last_commit)
             _labels = await self.labels_handler.pull_request_labels_names(pull_request=pull_request)
             self.logger.debug(f"{self.log_prefix} check if can be merged. PR labels are: {_labels}")
 

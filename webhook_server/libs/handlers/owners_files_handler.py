@@ -66,7 +66,10 @@ class OwnersFileHandler:
         return _allowed_users
 
     async def list_changed_files(self, pull_request: PullRequestWrapper) -> list[str]:
-        changed_files = [_file.filename for _file in await asyncio.to_thread(pull_request.get_files)]
+        # Use unified_api for get_files
+        owner, repo_name = self.repository.full_name.split("/")
+        files = await self.github_webhook.unified_api.get_pull_request_files(owner, repo_name, pull_request.number)
+        changed_files = [_file.filename for _file in files]
         self.logger.debug(f"{self.log_prefix} Changed files: {changed_files}")
         return changed_files
 
@@ -93,7 +96,8 @@ class OwnersFileHandler:
     async def _get_file_content(self, content_path: str, pull_request: PullRequestWrapper) -> tuple[ContentFile, str]:
         self.logger.debug(f"{self.log_prefix} Get OWNERS file from {content_path}")
 
-        _path = await asyncio.to_thread(self.repository.get_contents, content_path, pull_request.base.ref)
+        owner, repo_name = self.repository.full_name.split("/")
+        _path = await self.github_webhook.unified_api.get_contents(owner, repo_name, content_path, pull_request.base.ref)
 
         if isinstance(_path, list):
             _path = _path[0]
@@ -112,7 +116,8 @@ class OwnersFileHandler:
         owners_count = 0
 
         self.logger.debug(f"{self.log_prefix} Get git tree")
-        tree = await asyncio.to_thread(self.repository.get_git_tree, pull_request.base.ref, recursive=True)
+        owner, repo_name = self.repository.full_name.split("/")
+        tree = await self.github_webhook.unified_api.get_git_tree(owner, repo_name, pull_request.base.ref, recursive=True)
 
         for element in tree.tree:
             if element.type == "blob" and element.path.endswith("OWNERS"):
@@ -266,8 +271,10 @@ class OwnersFileHandler:
                 except GithubException as ex:
                     self.logger.step(f"{self.log_prefix} Failed to assign reviewer {reviewer}")  # type: ignore
                     self.logger.debug(f"{self.log_prefix} Failed to add reviewer {reviewer}. {ex}")
-                    await asyncio.to_thread(
-                        pull_request.create_issue_comment, f"{reviewer} can not be added as reviewer. {ex}"
+                    # Use unified_api for create_issue_comment
+                    owner, repo_name = self.repository.full_name.split("/")
+                    await self.github_webhook.unified_api.create_issue_comment(
+                        owner, repo_name, pull_request.number, f"{reviewer} can not be added as reviewer. {ex}"
                     )
 
         self.logger.step(f"{self.log_prefix} Reviewer assignment completed")  # type: ignore
@@ -289,9 +296,12 @@ Maintainers:
         self.logger.debug(f"Valid users to run commands: {valid_users}")
 
         if reviewed_user not in valid_users:
+            # Use unified_api for get_issue_comments
+            owner, repo_name = self.repository.full_name.split("/")
+            comments = await self.github_webhook.unified_api.get_issue_comments(owner, repo_name, pull_request.number)
             for comment in [
                 _comment
-                for _comment in await asyncio.to_thread(pull_request.get_issue_comments)
+                for _comment in comments
                 if _comment.user.login in allowed_user_to_approve
             ]:
                 if allow_user_comment in comment.body:
@@ -342,9 +352,11 @@ Maintainers:
         return maintainers
 
     @functools.cached_property
-    async def repository_collaborators(self) -> PaginatedList[NamedUser]:
-        return await asyncio.to_thread(self.repository.get_collaborators)
+    async def repository_collaborators(self) -> list[NamedUser]:
+        owner, repo_name = self.repository.full_name.split("/")
+        return await self.github_webhook.unified_api.get_collaborators(owner, repo_name)
 
     @functools.cached_property
-    async def repository_contributors(self) -> PaginatedList[NamedUser]:
-        return await asyncio.to_thread(self.repository.get_contributors)
+    async def repository_contributors(self) -> list[NamedUser]:
+        owner, repo_name = self.repository.full_name.split("/")
+        return await self.github_webhook.unified_api.get_contributors(owner, repo_name)

@@ -294,17 +294,19 @@ class GithubWebhook:
             )
             return PullRequestWrapper(pr_data)
 
-        # For commit-based lookups or check_run events, use REST
+        # For commit-based lookups or check_run events, use REST via unified_api
         # (GraphQL doesn't have efficient commit->PR lookup)
         commit: dict[str, Any] = self.hook_data.get("commit", {})
         if commit:
-            commit_obj = await asyncio.to_thread(self.repository.get_commit, commit["sha"])
+            owner, repo_name = self.repository.full_name.split("/")
+            commit_obj = await self.unified_api.get_commit(owner, repo_name, commit["sha"])
             with contextlib.suppress(Exception):
-                _pulls = await asyncio.to_thread(commit_obj.get_pulls)
+                _pulls = await self.unified_api.get_pulls_from_commit(commit_obj)
                 return _pulls[0]
 
         if self.github_event == "check_run":
-            for _pull_request in await asyncio.to_thread(self.repository.get_pulls, state="open"):
+            owner, repo_name = self.repository.full_name.split("/")
+            for _pull_request in await self.unified_api.get_open_pull_requests(owner, repo_name):
                 if _pull_request.head.sha == self.hook_data["check_run"]["head_sha"]:
                     self.logger.debug(
                         f"{self.log_prefix} Found pull request {_pull_request.title} [{_pull_request.number}] for check run {self.hook_data['check_run']['name']}"
@@ -318,11 +320,11 @@ class GithubWebhook:
         commits = pull_request.get_commits()
         if commits:
             return commits[-1]
-        # If no commits in wrapper, fallback to REST
+        # If no commits in wrapper, fallback to REST via unified_api
         self.logger.warning(f"{self.log_prefix} No commits in GraphQL response, using REST fallback")
-        rest_pr = await asyncio.to_thread(self.repository.get_pull, pull_request.number)
-        _commits = await asyncio.to_thread(rest_pr.get_commits)
-        return list(_commits)[-1]
+        owner, repo_name = self.repository.full_name.split("/")
+        commits = await self.unified_api.get_pr_commits(owner, repo_name, pull_request.number)
+        return commits[-1]
 
     async def add_pr_comment(self, pull_request: PullRequestWrapper, body: str) -> None:
         """Add comment to PR via unified_api."""

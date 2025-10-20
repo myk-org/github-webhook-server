@@ -363,15 +363,15 @@ class TestIssueCommentHandler:
         mock_pull_request.number = 123
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            # Mock asyncio.to_thread since hold uses it for unauthorized users
-            with patch("asyncio.to_thread", new_callable=AsyncMock):
-                await issue_comment_handler.user_commands(
-                    pull_request=mock_pull_request,
-                    command=HOLD_LABEL_STR,
-                    reviewed_user="unauthorized-user",
-                    issue_comment_id=123,
-                )
-                mock_reaction.assert_called_once()
+            # Mock unified_api.create_issue_comment for unauthorized user message
+            issue_comment_handler.github_webhook.unified_api.create_issue_comment = AsyncMock()
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=HOLD_LABEL_STR,
+                reviewed_user="unauthorized-user",
+                issue_comment_id=123,
+            )
+            mock_reaction.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_user_commands_hold_authorized_user_add(self, issue_comment_handler: IssueCommentHandler) -> None:

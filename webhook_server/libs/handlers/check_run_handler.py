@@ -68,7 +68,8 @@ class CheckRunHandler:
                 ):
                     try:
                         self.logger.step(f"{self.log_prefix} Executing auto-merge for PR #{pull_request.number}")  # type: ignore
-                        await asyncio.to_thread(pull_request.merge, merge_method="SQUASH")
+                        owner, repo_name = self.repository.full_name.split("/")
+                        await self.github_webhook.unified_api.merge_pull_request(owner, repo_name, pull_request.number, merge_method="SQUASH")
                         self.logger.step(f"{self.log_prefix} Auto-merge completed successfully")  # type: ignore
                         self.logger.info(
                             f"{self.log_prefix} Successfully auto-merged pull request #{pull_request.number}"
@@ -230,7 +231,7 @@ class CheckRunHandler:
 
         try:
             self.logger.debug(f"{self.log_prefix} Set check run status with {kwargs}")
-            await asyncio.to_thread(self.github_webhook.repository_by_github_app.create_check_run, **kwargs)
+            await self.github_webhook.unified_api.create_check_run(self.github_webhook.repository_by_github_app, **kwargs)
             if conclusion in (SUCCESS_STR, IN_PROGRESS_STR):
                 self.logger.success(msg)  # type: ignore
             return
@@ -238,7 +239,7 @@ class CheckRunHandler:
         except Exception as ex:
             self.logger.debug(f"{self.log_prefix} Failed to set {check_run} check to {status or conclusion}, {ex}")
             kwargs["conclusion"] = FAILURE_STR
-            await asyncio.to_thread(self.github_webhook.repository_by_github_app.create_check_run, **kwargs)
+            await self.github_webhook.unified_api.create_check_run(self.github_webhook.repository_by_github_app, **kwargs)
 
     def get_check_run_text(self, err: str, out: str) -> str:
         total_len: int = len(err) + len(out)
@@ -266,7 +267,7 @@ class CheckRunHandler:
 
     async def is_check_run_in_progress(self, check_run: str) -> bool:
         if self.github_webhook.last_commit:
-            for run in await asyncio.to_thread(self.github_webhook.last_commit.get_check_runs):
+            for run in await self.github_webhook.unified_api.get_commit_check_runs(self.github_webhook.last_commit):
                 if run.name == check_run and run.status == IN_PROGRESS_STR:
                     self.logger.debug(f"{self.log_prefix} Check run {check_run} is in progress.")
                     return True
@@ -341,8 +342,8 @@ class CheckRunHandler:
             )
             return []
 
-        pull_request_branch = await asyncio.to_thread(self.repository.get_branch, pull_request.base.ref)
-        branch_protection = await asyncio.to_thread(pull_request_branch.get_protection)
+        owner, repo_name = self.repository.full_name.split("/")
+        branch_protection = await self.github_webhook.unified_api.get_branch_protection(owner, repo_name, pull_request.base.ref)
         branch_required_status_checks = branch_protection.required_status_checks.contexts
         self.logger.debug(f"branch_required_status_checks: {branch_required_status_checks}")
         return branch_required_status_checks

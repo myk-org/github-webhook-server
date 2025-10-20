@@ -230,5 +230,24 @@ class PullRequestWrapper:
         """Get the GraphQL node ID (used for mutations)."""
         return self._data.get("id", "")
 
+    @property
+    def labels(self) -> list[LabelWrapper]:
+        """Property alias for get_labels() to match PyGithub interface."""
+        return self.get_labels()
+
+    @property
+    def mergeable_state(self) -> str:
+        """
+        Get mergeable state.
+        GraphQL returns mergeStateStatus: BEHIND, BLOCKED, CLEAN, DIRTY, DRAFT, HAS_HOOKS, UNKNOWN, UNSTABLE
+        PyGithub returns mergeable_state: behind, blocked, clean, dirty, draft, has_hooks, unknown, unstable
+        """
+        state = self._data.get("mergeStateStatus", "UNKNOWN")
+        return state.lower()
+
+    def is_merged(self) -> bool:
+        """Method wrapper for merged property to match PyGithub interface."""
+        return self.merged
+
     def __repr__(self) -> str:
         return f"PullRequestWrapper(number={self.number}, title='{self.title}')"

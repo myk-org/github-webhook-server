@@ -1,4 +1,4 @@
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -42,6 +42,11 @@ class TestCheckRunHandler:
         mock_webhook.token = "test-token"
         mock_webhook.container_repository_username = "test-user"
         mock_webhook.container_repository_password = "test-pass"  # pragma: allowlist secret
+        # Mock unified_api
+        mock_webhook.unified_api = AsyncMock()
+        mock_webhook.unified_api.create_check_run = AsyncMock()
+        mock_webhook.unified_api.get_commit_check_runs = AsyncMock(return_value=[])
+        mock_webhook.unified_api.get_branch_protection = AsyncMock()
         return mock_webhook
 
     @pytest.fixture
@@ -428,18 +433,14 @@ class TestCheckRunHandler:
             call_count["count"] += 1
             return None
 
-        with patch.object(
-            check_run_handler.github_webhook.repository_by_github_app,
-            "create_check_run",
-            side_effect=create_check_run_side_effect,
-        ):
-            with patch.object(check_run_handler.github_webhook.logger, "debug") as mock_debug:
-                await check_run_handler.set_check_run_status(
-                    check_run="test-check", status="queued", conclusion="", output=None
-                )
-                # Should be called twice - once for the original attempt, once for the fallback
-                assert call_count["count"] == 2
-                mock_debug.assert_called()
+        check_run_handler.github_webhook.unified_api.create_check_run = AsyncMock(side_effect=create_check_run_side_effect)
+        with patch.object(check_run_handler.github_webhook.logger, "debug") as mock_debug:
+            await check_run_handler.set_check_run_status(
+                check_run="test-check", status="queued", conclusion="", output=None
+            )
+            # Should be called twice - once for the original attempt, once for the fallback
+            assert call_count["count"] == 2
+            mock_debug.assert_called()
 
     def test_get_check_run_text_normal_length(self, check_run_handler: CheckRunHandler) -> None:
         """Test getting check run text with normal length."""
@@ -493,12 +494,10 @@ class TestCheckRunHandler:
         mock_check_run.name = "test-check"
         mock_check_run.status = IN_PROGRESS_STR
 
-        def get_check_runs() -> list:
-            return [mock_check_run]
-
-        with patch.object(check_run_handler.github_webhook.last_commit, "get_check_runs", side_effect=get_check_runs):
-            result = await check_run_handler.is_check_run_in_progress("test-check")
-            assert result is True
+        # Mock unified_api.get_commit_check_runs instead of direct last_commit.get_check_runs
+        check_run_handler.github_webhook.unified_api.get_commit_check_runs = AsyncMock(return_value=[mock_check_run])
+        result = await check_run_handler.is_check_run_in_progress("test-check")
+        assert result is True
 
     @pytest.mark.asyncio
     async def test_is_check_run_in_progress_false(self, check_run_handler: CheckRunHandler) -> None:
@@ -507,12 +506,10 @@ class TestCheckRunHandler:
         mock_check_run.name = "test-check"
         mock_check_run.status = "completed"
 
-        def get_check_runs() -> list:
-            return [mock_check_run]
-
-        with patch.object(check_run_handler.github_webhook.last_commit, "get_check_runs", side_effect=get_check_runs):
-            result = await check_run_handler.is_check_run_in_progress("test-check")
-            assert result is False
+        # Mock unified_api.get_commit_check_runs instead of direct last_commit.get_check_runs
+        check_run_handler.github_webhook.unified_api.get_commit_check_runs = AsyncMock(return_value=[mock_check_run])
+        result = await check_run_handler.is_check_run_in_progress("test-check")
+        assert result is False
 
     @pytest.mark.asyncio
     async def test_is_check_run_in_progress_no_last_commit(self, check_run_handler: CheckRunHandler) -> None:
@@ -564,21 +561,13 @@ class TestCheckRunHandler:
         mock_pull_request.id = "PR_kgDOTestId"
         mock_pull_request.number = 123
         mock_pull_request.base.ref = "main"
-        mock_branch = Mock()
         mock_branch_protection = Mock()
         mock_branch_protection.required_status_checks.contexts = ["branch-check-1", "branch-check-2"]
         with patch.object(check_run_handler.repository, "private", False):
-
-            def get_branch(ref: object) -> Mock:
-                return mock_branch
-
-            def get_protection() -> Mock:
-                return mock_branch_protection
-
-            with patch.object(check_run_handler.repository, "get_branch", side_effect=get_branch):
-                with patch.object(mock_branch, "get_protection", side_effect=get_protection):
-                    result = await check_run_handler.get_branch_required_status_checks(mock_pull_request)
-                    assert result == ["branch-check-1", "branch-check-2"]
+            check_run_handler.repository.full_name = "test/repo"
+            check_run_handler.github_webhook.unified_api.get_branch_protection = AsyncMock(return_value=mock_branch_protection)
+            result = await check_run_handler.get_branch_required_status_checks(mock_pull_request)
+            assert result == ["branch-check-1", "branch-check-2"]
 
     @pytest.mark.asyncio
     async def test_get_branch_required_status_checks_private_repo(self, check_run_handler: CheckRunHandler) -> None:

@@ -205,8 +205,12 @@ class IssueCommentHandler:
                 self.logger.debug(
                     f"{self.log_prefix} {reviewed_user} is not an approver, not adding {HOLD_LABEL_STR} label"
                 )
-                await asyncio.to_thread(
-                    pull_request.create_issue_comment,
+                # Use unified_api for create_issue_comment
+                owner, repo_name = self.repository.full_name.split("/")
+                await self.github_webhook.unified_api.create_issue_comment(
+                    owner,
+                    repo_name,
+                    pull_request.number,
                     f"{reviewed_user} is not part of the approver, only approvers can mark pull request with hold",
                 )
             else:
@@ -234,13 +238,15 @@ class IssueCommentHandler:
             )
 
     async def create_comment_reaction(self, pull_request: PullRequest, issue_comment_id: int, reaction: str) -> None:
-        _comment = await asyncio.to_thread(pull_request.get_issue_comment, issue_comment_id)
-        await asyncio.to_thread(_comment.create_reaction, reaction)
+        owner, repo_name = self.repository.full_name.split("/")
+        _comment = await self.github_webhook.unified_api.get_issue_comment(owner, repo_name, pull_request.number, issue_comment_id)
+        await self.github_webhook.unified_api.create_reaction(_comment, reaction)
 
     async def _add_reviewer_by_user_comment(self, pull_request: PullRequest, reviewer: str) -> None:
         reviewer = reviewer.strip("@")
         self.logger.info(f"{self.log_prefix} Adding reviewer {reviewer} by user comment")
-        repo_contributors = list(await asyncio.to_thread(self.repository.get_contributors))
+        owner, repo_name = self.repository.full_name.split("/")
+        repo_contributors = await self.github_webhook.unified_api.get_contributors(owner, repo_name)
         self.logger.debug(f"Repo contributors are: {repo_contributors}")
 
         for contributer in repo_contributors:
@@ -262,7 +268,8 @@ class IssueCommentHandler:
 
         for _target_branch in _target_branches:
             try:
-                await asyncio.to_thread(self.repository.get_branch, _target_branch)
+                owner, repo_name = self.repository.full_name.split("/")
+                await self.github_webhook.unified_api.get_branch(owner, repo_name, _target_branch)
                 _exits_target_branches.add(_target_branch)
             except Exception:
                 _non_exits_target_branches_msg += f"Target branch `{_target_branch}` does not exist\n"
@@ -275,7 +282,8 @@ class IssueCommentHandler:
             await self.github_webhook.add_pr_comment(pull_request, _non_exits_target_branches_msg)
 
         if _exits_target_branches:
-            if not await asyncio.to_thread(pull_request.is_merged):
+            owner, repo_name = self.repository.full_name.split("/")
+            if not await self.github_webhook.unified_api.is_pull_request_merged(owner, repo_name, pull_request.number):
                 cp_labels: list[str] = [
                     f"{CHERRY_PICK_LABEL_PREFIX}{_target_branch}" for _target_branch in _exits_target_branches
                 ]
