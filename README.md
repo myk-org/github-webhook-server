@@ -236,6 +236,8 @@ auto-verified-and-merged-users:
   - "renovate[bot]"
   - "dependabot[bot]"
 
+auto-verify-cherry-picked-prs: true  # Auto-verify cherry-picked PRs (default: true)
+
 # Global PR Size Labels (optional)
 pr-size-thresholds:
   Tiny:
@@ -1151,10 +1153,18 @@ Users can interact with the webhook server through GitHub comments on pull reque
 
 ### Cherry-pick Commands
 
+Cherry-picked PRs can be automatically verified or require manual verification depending on your configuration.
+
 | Command                        | Description                      | Example                  |
 | ------------------------------ | -------------------------------- | ------------------------ |
 | `/cherry-pick branch`          | Cherry-pick to single branch     | `/cherry-pick develop`   |
 | `/cherry-pick branch1 branch2` | Cherry-pick to multiple branches | `/cherry-pick v1.0 v2.0` |
+
+**Configuration**: Control auto-verification of cherry-picked PRs:
+```yaml
+auto-verify-cherry-picked-prs: true  # Default: true (auto-verify)
+                                      # Set to false to require manual verification
+```
 
 ### Label Commands
 
