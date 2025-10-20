@@ -298,7 +298,7 @@ class UnifiedGitHubAPI:
             result = await self.graphql_client.execute(mutation, variables)  # type: ignore[union-attr]
             self.logger.debug(f"GraphQL execute returned, extracting comment node")
             comment_node = result["addComment"]["commentEdge"]["node"]
-            self.logger.info(f"✅ Comment added successfully to {subject_id}, comment_id={comment_node.get('id')}")
+            self.logger.info(f"SUCCESS: Comment added to {subject_id}, comment_id={comment_node.get('id')}")
             return comment_node
         except KeyError as ex:
             self.logger.error(f"Failed to extract comment from GraphQL result for {subject_id}: {ex}. Result: {result}", exc_info=True)
