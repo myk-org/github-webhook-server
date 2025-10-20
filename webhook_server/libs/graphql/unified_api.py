@@ -744,17 +744,29 @@ class UnifiedGitHubAPI:
         repo = await self.get_repository_for_rest_operations(owner, name)
         return await asyncio.to_thread(repo.get_git_tree, ref, recursive=recursive)
     
-    async def get_commit_check_runs(self, commit: Any) -> list[Any]:
+    async def get_commit_check_runs(self, commit: Any, owner: str | None = None, name: str | None = None) -> list[Any]:
         """
         Get check runs for a commit.
         
-        Note: This only works with REST API Commit objects, not CommitWrapper.
-        CommitWrapper from GraphQL doesn't have check runs data.
+        Works with both REST API Commit objects and CommitWrapper.
+        If commit is CommitWrapper, fetches check runs via REST API using commit SHA.
+        
+        Args:
+            commit: REST Commit object or CommitWrapper
+            owner: Repository owner (required if commit is CommitWrapper)
+            name: Repository name (required if commit is CommitWrapper)
         """
         # Check if this is a REST commit object (has get_check_runs method)
         if hasattr(commit, 'get_check_runs') and callable(commit.get_check_runs):
             return list(await asyncio.to_thread(commit.get_check_runs))
-        # CommitWrapper from GraphQL - return empty list
+        
+        # CommitWrapper from GraphQL - fetch check runs via REST API
+        if hasattr(commit, 'sha') and owner and name:
+            repo = await self.get_repository_for_rest_operations(owner, name)
+            rest_commit = await asyncio.to_thread(repo.get_commit, commit.sha)
+            return list(await asyncio.to_thread(rest_commit.get_check_runs))
+        
+        # Fallback - return empty list
         return []
     
     async def create_check_run(self, repo_by_app: Any, **kwargs: Any) -> None:
