@@ -491,6 +491,25 @@ class UnifiedGitHubAPI:
         result = await self.graphql_client.execute(query, variables)  # type: ignore[union-attr]
         return result["user"]["id"]
 
+    async def get_user_id_rest(self, login: str) -> str:
+        """
+        Get user node ID from login using REST API.
+
+        Uses: REST (wrapped in asyncio.to_thread to avoid blocking)
+        Reason: Fallback when GraphQL fails
+
+        Args:
+            login: User login name
+
+        Returns:
+            User node ID
+        """
+        if not self.rest_client:
+            await self.initialize()
+
+        user = await asyncio.to_thread(self.rest_client.get_user, login)  # type: ignore[union-attr]
+        return user.node_id
+
     async def get_label_id(self, owner: str, name: str, label_name: str) -> str | None:
         """
         Get label node ID from label name.

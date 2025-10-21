@@ -130,19 +130,19 @@ class TestPullRequestWrapper:
 
     def test_mergeable_states(self, pr_data):
         """Test mergeable state handling."""
-        # MERGEABLE state
+        # MERGEABLE state returns True
         pr = PullRequestWrapper(pr_data)
-        assert pr.mergeable == "MERGEABLE"
+        assert pr.mergeable is True
 
         # UNKNOWN state returns None
         pr_data["mergeable"] = "UNKNOWN"
         pr = PullRequestWrapper(pr_data)
         assert pr.mergeable is None
 
-        # CONFLICTING state
+        # CONFLICTING state returns False
         pr_data["mergeable"] = "CONFLICTING"
         pr = PullRequestWrapper(pr_data)
-        assert pr.mergeable == "CONFLICTING"
+        assert pr.mergeable is False
 
     def test_timestamps(self, pr_data):
         """Test timestamp parsing."""
@@ -201,4 +201,4 @@ def test_pull_request_wrapper_mergeable_state():
         "mergeable": "MERGEABLE",
     }
     wrapper = PullRequestWrapper(pr_data)
-    assert wrapper.mergeable == "MERGEABLE"
+    assert wrapper.mergeable is True

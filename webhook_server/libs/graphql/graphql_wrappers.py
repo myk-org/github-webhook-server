@@ -142,16 +142,19 @@ class PullRequestWrapper:
         return self._data.get("merged", False)
 
     @property
-    def mergeable(self) -> str | None:
+    def mergeable(self) -> bool | None:
         """
         Return mergeable state.
         GraphQL returns: MERGEABLE, CONFLICTING, UNKNOWN
-        PyGithub returns: None if unknown, otherwise string
+        PyGithub returns: bool | None (True if mergeable, False if conflicting, None if unknown)
         """
         mergeable = self._data.get("mergeable")
-        if mergeable == "UNKNOWN":
+        if mergeable == "MERGEABLE":
+            return True
+        elif mergeable == "CONFLICTING":
+            return False
+        else:  # "UNKNOWN" or None
             return None
-        return mergeable
 
     @property
     def user(self) -> UserWrapper:

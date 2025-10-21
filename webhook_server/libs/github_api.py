@@ -323,21 +323,37 @@ class GithubWebhook:
         commits = await self.unified_api.get_pr_commits(owner, repo_name, pull_request.number)
         return commits[-1]
 
-    async def add_pr_comment(self, pull_request: PullRequestWrapper, body: str) -> None:
-        """Add comment to PR via unified_api."""
+    async def add_pr_comment(self, pull_request: PullRequest | PullRequestWrapper, body: str) -> None:
+        """Add comment to PR via unified_api (supports both REST and GraphQL PRs)."""
         try:
-            pr_id = pull_request.id
-            self.logger.debug(f"{self.log_prefix} Adding PR comment with pr_id={pr_id}, body length={len(body)}")
-            await self.unified_api.add_comment(pr_id, body)
+            # Handle PyGithub PullRequest (REST) - use REST API
+            if isinstance(pull_request, PullRequest):
+                owner = pull_request.base.repo.owner.login
+                repo = pull_request.base.repo.name
+                self.logger.debug(
+                    f"{self.log_prefix} Adding PR comment via REST, pr={pull_request.number}, body length={len(body)}"
+                )
+                await self.unified_api.create_issue_comment(owner, repo, pull_request.number, body)
+            else:
+                # Handle PullRequestWrapper (GraphQL)
+                pr_id = pull_request.id
+                self.logger.debug(f"{self.log_prefix} Adding PR comment with pr_id={pr_id}, body length={len(body)}")
+                await self.unified_api.add_comment(pr_id, body)
             self.logger.info(f"{self.log_prefix} Successfully added PR comment")
         except Exception as ex:
             self.logger.error(f"{self.log_prefix} Failed to add PR comment: {ex}", exc_info=True)
             raise
 
-    async def update_pr_title(self, pull_request: PullRequestWrapper, title: str) -> None:
-        """Update PR title via unified_api."""
-        pr_id = pull_request.id
-        await self.unified_api.update_pull_request(pr_id, title=title)
+    async def update_pr_title(self, pull_request: PullRequest | PullRequestWrapper, title: str) -> None:
+        """Update PR title via unified_api (supports both REST and GraphQL PRs)."""
+        # Handle PyGithub PullRequest (REST) - use REST API directly
+        if isinstance(pull_request, PullRequest):
+            pull_request.edit(title=title)
+            self.logger.info(f"{self.log_prefix} Updated PR #{pull_request.number} title via REST API")
+        else:
+            # Handle PullRequestWrapper (GraphQL)
+            pr_id = pull_request.id
+            await self.unified_api.update_pull_request(pr_id, title=title)
 
     async def enable_pr_automerge(self, pull_request: PullRequestWrapper, merge_method: str = "SQUASH") -> None:
         """Enable automerge on PR via unified_api."""
@@ -349,28 +365,65 @@ class GithubWebhook:
         pr_id = pull_request.id
         reviewer_ids = []
         for reviewer in reviewers:
-            # Normalize reviewer to username string
+            # (1) Accept numeric reviewer IDs directly
+            if isinstance(reviewer, int):
+                reviewer_ids.append(str(reviewer))
+                continue
+
+            # (2) Normalize reviewer to username string (keep existing normalization logic)
             username = None
+            reviewer_id = None
+
             if isinstance(reviewer, str):
+                # Check if it's already a node ID format
+                if reviewer.startswith("U_"):
+                    reviewer_ids.append(reviewer)
+                    continue
                 username = reviewer
             elif hasattr(reviewer, "login"):
                 username = reviewer.login
+                # Try to extract id if available
+                if hasattr(reviewer, "id"):
+                    reviewer_id = reviewer.id
             elif hasattr(reviewer, "user") and hasattr(reviewer.user, "login"):
                 username = reviewer.user.login
+                if hasattr(reviewer.user, "id"):
+                    reviewer_id = reviewer.user.id
             elif isinstance(reviewer, dict):
                 username = reviewer.get("login") or (reviewer.get("user") or {}).get("login")
+                # (3) Try to extract 'id' from dict
+                if not username and reviewer.get("id"):
+                    reviewer_ids.append(str(reviewer["id"]))
+                    continue
+                reviewer_id = reviewer.get("id")
 
             if not username:
                 self.logger.warning(f"{self.log_prefix} Could not resolve username from reviewer: {reviewer}")
                 continue
 
+            # Try GraphQL first
             try:
                 user_id = await self.unified_api.get_user_id(username)
                 reviewer_ids.append(user_id)
             except Exception as ex:
-                self.logger.warning(f"{self.log_prefix} Failed to get ID for {username}: {ex}")
+                # (3) If GraphQL fails, try to use extracted id from original reviewer
+                if reviewer_id:
+                    self.logger.debug(f"{self.log_prefix} Using extracted id {reviewer_id} for {username}")
+                    reviewer_ids.append(str(reviewer_id))
+                else:
+                    # (4) Final fallback: try REST API via unified_api
+                    try:
+                        user_id = await self.unified_api.get_user_id_rest(username)
+                        reviewer_ids.append(user_id)
+                    except Exception as rest_ex:
+                        self.logger.warning(
+                            f"{self.log_prefix} Failed to get ID for {username} via GraphQL ({ex}) and REST ({rest_ex})"
+                        )
+
+        # Deduplicate reviewer_ids before calling request_reviews
         if reviewer_ids:
-            await self.unified_api.request_reviews(pr_id, reviewer_ids)
+            unique_reviewer_ids = list(dict.fromkeys(reviewer_ids))  # Preserve order while deduplicating
+            await self.unified_api.request_reviews(pr_id, unique_reviewer_ids)
 
     async def add_pr_assignee(self, pull_request: PullRequest | PullRequestWrapper, assignee: str) -> None:
         """Add assignee to PR via unified_api."""

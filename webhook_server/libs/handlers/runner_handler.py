@@ -358,7 +358,11 @@ class RunnerHandler:
                     self.logger.step(f"{self.log_prefix} Container push completed successfully")  # type: ignore
                     push_msg: str = f"New container for {_container_repository_and_tag} published"
                     if pull_request:
-                        await self.github_webhook.add_pr_comment(pull_request, push_msg)
+                        owner = pull_request.base.repo.owner.login
+                        repo = pull_request.base.repo.name
+                        await self.github_webhook.unified_api.create_issue_comment(
+                            owner, repo, pull_request.number, push_msg
+                        )
 
                     if self.github_webhook.slack_webhook_url:
                         message = f"""
@@ -374,7 +378,11 @@ class RunnerHandler:
                 else:
                     err_msg: str = f"Failed to build and push {_container_repository_and_tag}"
                     if pull_request:
-                        await self.github_webhook.add_pr_comment(pull_request, err_msg)
+                        owner = pull_request.base.repo.owner.login
+                        repo = pull_request.base.repo.name
+                        await self.github_webhook.unified_api.create_issue_comment(
+                            owner, repo, pull_request.number, err_msg
+                        )
 
                     if self.github_webhook.slack_webhook_url:
                         message = f"""
@@ -472,7 +480,9 @@ class RunnerHandler:
             err_msg = f"cherry-pick failed: {target_branch} does not exists"
             self.logger.step(f"{self.log_prefix} Cherry-pick failed: target branch does not exist")  # type: ignore
             self.logger.error(err_msg)
-            await self.github_webhook.add_pr_comment(pull_request, err_msg)
+            owner = pull_request.base.repo.owner.login
+            repo = pull_request.base.repo.name
+            await self.github_webhook.unified_api.create_issue_comment(owner, repo, pull_request.number, err_msg)
 
         else:
             self.logger.step(f"{self.log_prefix} Setting cherry-pick check status to in-progress")  # type: ignore
@@ -491,7 +501,9 @@ class RunnerHandler:
                 f"{git_cmd} push origin {new_branch_name}",
                 f"bash -c \"{hub_cmd} pull-request -b {target_branch} -h {new_branch_name} -l {CHERRY_PICKED_LABEL_PREFIX} -m '{CHERRY_PICKED_LABEL_PREFIX}: [{target_branch}] {commit_msg_striped}' -m 'cherry-pick {pull_request_url} into {target_branch}' -m 'requested-by {requested_by}'\"",
             ]
-            self.logger.debug(f"{self.log_prefix} Cherry pick commands to run: {commands}")
+            # Redact GITHUB_TOKEN from debug logs
+            redacted_commands = [cmd.replace(self.github_webhook.token, "***REDACTED***") for cmd in commands]
+            self.logger.debug(f"{self.log_prefix} Cherry pick commands to run: {redacted_commands}")
 
             rc, out, err = None, "", ""
             async with self._prepare_cloned_repo_dir(pull_request=pull_request, clone_repo_dir=clone_repo_dir) as _res:

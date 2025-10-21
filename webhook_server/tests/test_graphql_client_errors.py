@@ -1,17 +1,18 @@
 """Test GraphQL client error handling."""
 
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 from gql.transport.exceptions import TransportQueryError, TransportServerError
 
 from webhook_server.libs.graphql.graphql_client import GraphQLClient, GraphQLAuthenticationError, GraphQLRateLimitError
 
+# Test token constant to silence S106 security warnings
+TEST_GITHUB_TOKEN = "ghs_" + "test1234567890abcdefghijklmnopqrstuvwxyz"  # pragma: allowlist secret
+
 
 @pytest.fixture
 def graphql_client():
-    from unittest.mock import Mock
-
-    return GraphQLClient(token="test_token", logger=Mock())
+    return GraphQLClient(token=TEST_GITHUB_TOKEN, logger=Mock())
 
 
 @pytest.mark.asyncio
@@ -71,8 +72,8 @@ async def test_rate_limit_exhausted(graphql_client):
 
 
 @pytest.mark.asyncio
-async def test_server_error_no_retry(graphql_client):
-    """Test 500 server error fails immediately without retry."""
+async def test_server_error_with_retry(graphql_client, monkeypatch):
+    """Test 500 server error retries with exponential backoff before failing."""
     mock_session = AsyncMock()
     mock_session.execute = AsyncMock(side_effect=TransportServerError("500: Internal server error"))
 
@@ -83,11 +84,22 @@ async def test_server_error_no_retry(graphql_client):
     graphql_client._client = mock_client
     graphql_client._ensure_client = AsyncMock()  # Don't recreate client
 
+    # Patch asyncio.sleep to avoid real delays
+    mock_sleep = AsyncMock()
+    monkeypatch.setattr("asyncio.sleep", mock_sleep)
+
     from webhook_server.libs.graphql.graphql_client import GraphQLError
 
-    # Server errors don't retry - they fail immediately
+    # Server errors retry with backoff, then fail after retry_count attempts
     with pytest.raises(GraphQLError, match="GraphQL server error"):
         await graphql_client.execute("query { viewer { login } }")
+
+    # Verify retries happened (default retry_count=3 means 3 attempts, 2 sleeps between them)
+    assert mock_session.execute.call_count == 3
+    assert mock_sleep.call_count == 2  # 2 sleeps between 3 attempts
+    # Verify exponential backoff: 2^0=1s, 2^1=2s
+    mock_sleep.assert_any_call(1)
+    mock_sleep.assert_any_call(2)
 
 
 @pytest.mark.asyncio

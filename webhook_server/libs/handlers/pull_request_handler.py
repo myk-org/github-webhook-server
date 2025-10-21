@@ -98,7 +98,7 @@ class PullRequestHandler:
             for idx, result in enumerate(results):
                 task_name = task_names[idx] if idx < len(task_names) else f"task_{idx}"
                 if isinstance(result, Exception):
-                    self.logger.error(f"{self.log_prefix} Async task '{task_name}' FAILED: {result}", exc_info=True)
+                    self.logger.exception(f"{self.log_prefix} Async task '{task_name}' FAILED: {result}")
                 else:
                     self.logger.debug(f"{self.log_prefix} Async task '{task_name}' completed successfully")
 
@@ -116,7 +116,7 @@ class PullRequestHandler:
 
             for result in results:
                 if isinstance(result, Exception):
-                    self.logger.error(f"{self.log_prefix} Async task failed: {result}")
+                    self.logger.exception(f"{self.log_prefix} Async task failed: {result}")
 
         if hook_action == "closed":
             self.logger.step(f"{self.log_prefix} Processing PR closed event: cleaning up resources")  # type: ignore
@@ -580,8 +580,8 @@ For more information, please refer to the project documentation or contact the m
                 else:
                     self.logger.debug(f"{self.log_prefix} is already set to auto merge")
 
-            except Exception as exp:
-                self.logger.error(f"{self.log_prefix} Exception while setting auto merge: {exp}")
+            except Exception:
+                self.logger.exception(f"{self.log_prefix} Exception while setting auto merge")
 
     async def remove_labels_when_pull_request_sync(self, pull_request: PullRequestWrapper) -> None:
         tasks: list[Coroutine[Any, Any, Any]] = []
@@ -660,8 +660,8 @@ For more information, please refer to the project documentation or contact the m
             await self.github_webhook.unified_api.add_assignees_by_login(
                 owner, repo_name, pull_request.number, [pull_request.user.login]
             )
-        except Exception as exp:
-            self.logger.debug(f"{self.log_prefix} Exception while adding PR owner as assignee: {exp}")
+        except Exception:
+            self.logger.exception(f"{self.log_prefix} Exception while adding PR owner as assignee")
 
             if self.owners_file_handler.root_approvers:
                 self.logger.debug(f"{self.log_prefix} Falling back to first approver as assignee")

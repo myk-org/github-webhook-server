@@ -442,11 +442,14 @@ class TestRunnerHandler:
     async def test_cherry_pick_branch_not_exists(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
         """Test cherry_pick when target branch doesn't exist."""
         with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=None)):
-            with patch.object(runner_handler.github_webhook, "add_pr_comment", new_callable=AsyncMock) as mock_comment:
+            with patch.object(
+                runner_handler.github_webhook.unified_api, "create_issue_comment", new_callable=AsyncMock
+            ) as mock_comment:
                 await runner_handler.cherry_pick(mock_pull_request, "non-existent-branch")
                 # Verify comment was added with correct error message
                 mock_comment.assert_called_once()
-                assert "does not exists" in mock_comment.call_args[0][1]
+                # create_issue_comment(owner, repo, number, comment) - comment is 4th arg (index 3)
+                assert "does not exists" in mock_comment.call_args[0][3]
 
     @pytest.mark.asyncio
     async def test_cherry_pick_prepare_failure(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
@@ -702,7 +705,9 @@ class TestRunnerHandler:
                                         runner_handler.github_webhook, "slack_webhook_url", "http://slack"
                                     ):
                                         with patch.object(
-                                            runner_handler.github_webhook, "add_pr_comment", new_callable=AsyncMock
+                                            runner_handler.github_webhook.unified_api,
+                                            "create_issue_comment",
+                                            new_callable=AsyncMock,
                                         ) as mock_comment:
                                             # Set set_check=False to avoid early return after build success
                                             await runner_handler.run_build_container(
@@ -756,7 +761,10 @@ class TestRunnerHandler:
                         mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(True, "", ""))
                         mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
                         # First command fails, triggers manual cherry-pick
-                        with patch("webhook_server.utils.helpers.run_command", side_effect=[(False, "fail", "err")]):
+                        with patch(
+                            "webhook_server.libs.handlers.runner_handler.run_command",
+                            side_effect=[(False, "fail", "err")],
+                        ):
                             # Mock unified_api.create_issue_comment for failure message
                             runner_handler.github_webhook.unified_api.create_issue_comment = AsyncMock()
                             await runner_handler.cherry_pick(mock_pull_request, "main")

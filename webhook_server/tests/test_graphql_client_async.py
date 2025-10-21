@@ -68,8 +68,9 @@ async def test_graphql_client_with_variables(mock_logger):
         result = await client.execute("mutation { addComment }", variables=variables)
 
         assert result == mock_result
-        # Verify variables were passed
-        mock_session.execute.assert_called()
+        # Verify variables were passed to gql execute
+        call_kwargs = mock_session.execute.call_args[1]
+        assert call_kwargs.get("variable_values") == variables
 
 
 @pytest.mark.asyncio
@@ -147,9 +148,9 @@ async def test_ensure_client_idempotent(mock_logger):
     """Test _ensure_client creates NEW client on each call."""
     client = GraphQLClient(token="test_token", logger=mock_logger)
 
-    # Create different mock instances for each call
-    mock_client_1 = MagicMock()
-    mock_client_2 = MagicMock()
+    # Create different async mock instances for each call to make close_async awaitable
+    mock_client_1 = AsyncMock()
+    mock_client_2 = AsyncMock()
 
     with (
         patch("webhook_server.libs.graphql.graphql_client.AIOHTTPTransport"),

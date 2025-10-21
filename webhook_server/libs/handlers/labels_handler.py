@@ -150,8 +150,17 @@ class LabelsHandler:
 
     async def wait_for_label(self, pull_request: PullRequestWrapper, label: str, exists: bool) -> bool:
         self.logger.debug(f"{self.log_prefix} waiting for label {label} to {'exists' if exists else 'not exists'}")
+        owner, repo_name = self.github_webhook.repository.full_name.split("/")
+
         while TimeoutWatch(timeout=30).remaining_time() > 0:
-            res = await self.label_exists_in_pull_request(pull_request=pull_request, label=label)
+            # Re-fetch labels in each iteration to avoid stale reads
+            refreshed_pr_data = await self.github_webhook.unified_api.get_pull_request(
+                owner, repo_name, pull_request.number
+            )
+            from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+
+            refreshed_pr = PullRequestWrapper(refreshed_pr_data)
+            res = await self.label_exists_in_pull_request(pull_request=refreshed_pr, label=label)
             if res == exists:
                 return True
 

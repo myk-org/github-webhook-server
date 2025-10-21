@@ -10,6 +10,9 @@ from webhook_server.libs.graphql.graphql_client import (
     GraphQLClient,
 )
 
+# Test token constant to silence S106 security warnings
+TEST_GITHUB_TOKEN = "ghs_" + "test1234567890abcdefghijklmnopqrstuvwxyz"  # pragma: allowlist secret
+
 
 @pytest.fixture
 def mock_logger():
@@ -25,13 +28,13 @@ def mock_logger():
 @pytest.fixture
 def graphql_client(mock_logger):
     """Create a GraphQL client instance."""
-    return GraphQLClient(token="test_token", logger=mock_logger)
+    return GraphQLClient(token=TEST_GITHUB_TOKEN, logger=mock_logger)
 
 
 @pytest.mark.asyncio
 async def test_graphql_client_initialization(graphql_client, mock_logger):
     """Test GraphQL client initialization."""
-    assert graphql_client.token == "test_token"
+    assert graphql_client.token == TEST_GITHUB_TOKEN
     assert graphql_client.logger == mock_logger
     assert graphql_client.retry_count == 3
     assert graphql_client.timeout == 90

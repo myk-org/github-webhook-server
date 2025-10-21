@@ -250,6 +250,11 @@ class GraphQLClient:
                         self.logger.exception(f"Error during timeout cleanup: {ex}")
                 raise GraphQLError(f"GraphQL query timeout after {self.timeout}s") from error
 
+            except asyncio.CancelledError:
+                # Propagate cancellations without wrapping them
+                self.logger.debug("GraphQL query cancelled")
+                raise
+
             except Exception as error:
                 # Handle unexpected errors - NEVER SILENT!
                 error_msg = str(error)
