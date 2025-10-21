@@ -885,12 +885,7 @@ async def test_get_pr_commits(initialized_api, mock_rest_client):
         patch("asyncio.to_thread", side_effect=mock_to_thread),
         patch.object(initialized_api, "get_pr_for_check_runs", return_value=mock_pr),
     ):
-
-        async def mock_get_commits():
-            return iter(mock_commits)
-
-        with patch("asyncio.to_thread", return_value=iter(mock_commits)):
-            result = await initialized_api.get_pr_commits("owner", "repo", 1)
+        result = await initialized_api.get_pr_commits("owner", "repo", 1)
 
     assert len(result) == 2
 

@@ -755,7 +755,7 @@ For more information, please refer to the project documentation or contact the m
             await self.check_run_handler.set_merge_check_failure(output=output)
 
         except Exception as ex:
-            self.logger.error(
+            self.logger.exception(
                 f"{self.log_prefix} Failed to check if can be merged, set check run to {FAILURE_STR} {ex}"
             )
             _err = "Failed to check if can be merged, check logs"

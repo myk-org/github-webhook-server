@@ -198,7 +198,17 @@ def test_pull_request_wrapper_mergeable_state():
         "id": "PR_123",
         "number": 1,
         "title": "Test",
-        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN",
     }
     wrapper = PullRequestWrapper(pr_data)
-    assert wrapper.mergeable is True
+    assert wrapper.mergeable_state == "clean"
+
+    # Test with BEHIND state
+    pr_data["mergeStateStatus"] = "BEHIND"
+    wrapper = PullRequestWrapper(pr_data)
+    assert wrapper.mergeable_state == "behind"
+
+    # Test with UNKNOWN state (default)
+    pr_data.pop("mergeStateStatus")
+    wrapper = PullRequestWrapper(pr_data)
+    assert wrapper.mergeable_state == "unknown"
