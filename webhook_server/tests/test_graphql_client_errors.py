@@ -4,7 +4,12 @@ import pytest
 from unittest.mock import AsyncMock, Mock
 from gql.transport.exceptions import TransportQueryError, TransportServerError
 
-from webhook_server.libs.graphql.graphql_client import GraphQLClient, GraphQLAuthenticationError, GraphQLRateLimitError
+from webhook_server.libs.graphql.graphql_client import (
+    GraphQLAuthenticationError,
+    GraphQLClient,
+    GraphQLError,
+    GraphQLRateLimitError,
+)
 
 # Test token constant to silence S106 security warnings
 TEST_GITHUB_TOKEN = "ghs_" + "test1234567890abcdefghijklmnopqrstuvwxyz"  # pragma: allowlist secret
@@ -88,8 +93,6 @@ async def test_server_error_with_retry(graphql_client, monkeypatch):
     mock_sleep = AsyncMock()
     monkeypatch.setattr("asyncio.sleep", mock_sleep)
 
-    from webhook_server.libs.graphql.graphql_client import GraphQLError
-
     # Server errors retry with backoff, then fail after retry_count attempts
     with pytest.raises(GraphQLError, match="GraphQL server error"):
         await graphql_client.execute("query { viewer { login } }")
@@ -114,8 +117,6 @@ async def test_generic_query_error_no_retry(graphql_client):
     mock_client.close_async = AsyncMock()
     graphql_client._client = mock_client
     graphql_client._ensure_client = AsyncMock()  # Don't recreate client
-
-    from webhook_server.libs.graphql.graphql_client import GraphQLError
 
     # Generic query errors don't retry - they fail immediately
     with pytest.raises(GraphQLError, match="GraphQL query failed"):

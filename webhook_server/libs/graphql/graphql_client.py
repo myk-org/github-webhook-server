@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
+import aiohttp
 from gql import Client, gql
 from gql.transport.aiohttp import AIOHTTPTransport
 from gql.transport.exceptions import (
@@ -187,9 +189,6 @@ class GraphQLClient:
                 if "rate limit" in error_msg.lower() or "RATE_LIMITED" in error_msg:
                     # Query GitHub API for current rate limit status
                     try:
-                        from datetime import datetime, timezone
-                        import aiohttp
-
                         async with aiohttp.ClientSession() as http_session:
                             async with http_session.get(
                                 "https://api.github.com/rate_limit", headers={"Authorization": f"Bearer {self.token}"}
