@@ -61,14 +61,14 @@ class TestCommitWrapper:
 
     def test_commit_wrapper_with_sha(self):
         """Test CommitWrapper with commit SHA."""
-        data = {"oid": "commit123", "commit": {"committer": {"user": {"login": "committer1"}}}}
+        data = {"oid": "commit123", "committer": {"user": {"login": "committer1"}}}
         commit = CommitWrapper(data)
         assert commit.sha == "commit123"
         assert commit.committer.login == "committer1"
 
     def test_commit_wrapper_fallback_committer(self):
         """Test CommitWrapper with fallback committer name."""
-        data = {"oid": "commit123", "commit": {"committer": {"name": "Committer Name"}}}
+        data = {"oid": "commit123", "committer": {"name": "Committer Name"}}
         commit = CommitWrapper(data)
         assert commit.sha == "commit123"
         assert commit.committer.login == "Committer Name"
@@ -98,9 +98,7 @@ class TestPullRequestWrapper:
             "mergedAt": None,
             "permalink": "https://github.com/org/repo/pull/42",
             "labels": {"nodes": [{"id": "L1", "name": "bug", "color": "d73a4a"}]},
-            "commits": {
-                "nodes": [{"commit": {"oid": "commit1", "commit": {"committer": {"user": {"login": "dev1"}}}}}]
-            },
+            "commits": {"nodes": [{"commit": {"oid": "commit1", "committer": {"user": {"login": "dev1"}}}}]},
         }
 
     def test_basic_properties(self, pr_data):

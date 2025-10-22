@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any, Coroutine
 
-from github.PullRequest import PullRequest
 from github.Repository import Repository
 
 from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
@@ -58,6 +57,16 @@ class PullRequestHandler:
         self.runner_handler = RunnerHandler(
             github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
         )
+
+    @property
+    def _owner_and_repo(self) -> tuple[str, str]:
+        """Split repository full name into owner and repo name.
+
+        Returns:
+            Tuple of (owner, repo_name)
+        """
+        owner, repo_name = self.repository.full_name.split("/")
+        return owner, repo_name
 
     async def process_pull_request_webhook_data(self, pull_request: PullRequestWrapper) -> None:
         hook_action: str = self.hook_data["action"]
@@ -403,7 +412,7 @@ For more information, please refer to the project documentation or contact the m
                     rc, _, _ = await self.runner_handler.run_podman_command(command=tag_del_cmd)
                     if rc:
                         # Use unified_api for create_issue_comment
-                        owner, repo_name = self.repository.full_name.split("/")
+                        owner, repo_name = self._owner_and_repo
                         await self.github_webhook.unified_api.create_issue_comment(
                             owner,
                             repo_name,
@@ -424,7 +433,7 @@ For more information, please refer to the project documentation or contact the m
 
         else:
             # Use unified_api for create_issue_comment
-            owner, repo_name = self.repository.full_name.split("/")
+            owner, repo_name = self._owner_and_repo
             await self.github_webhook.unified_api.create_issue_comment(
                 owner,
                 repo_name,
@@ -433,8 +442,8 @@ For more information, please refer to the project documentation or contact the m
             )
             self.logger.error(f"{self.log_prefix} Failed to delete tag: {repository_full_tag}. OUT:{out}. ERR:{err}")
 
-    async def close_issue_for_merged_or_closed_pr(self, pull_request: PullRequest, hook_action: str) -> None:
-        owner, repo_name = self.repository.full_name.split("/")
+    async def close_issue_for_merged_or_closed_pr(self, pull_request: PullRequestWrapper, hook_action: str) -> None:
+        owner, repo_name = self._owner_and_repo
         for issue in await self.github_webhook.unified_api.get_issues(owner, repo_name):
             if issue.body == self._generate_issue_body(pull_request=pull_request):
                 self.logger.info(f"{self.log_prefix} Closing issue {issue.title} for PR: {pull_request.title}")
@@ -514,7 +523,7 @@ For more information, please refer to the project documentation or contact the m
             )
             return
 
-        owner, repo_name = self.repository.full_name.split("/")
+        owner, repo_name = self._owner_and_repo
         issue_title = self._generate_issue_title(pull_request=pull_request)
 
         # Check if issue already exists
@@ -627,7 +636,7 @@ For more information, please refer to the project documentation or contact the m
             return
 
         # Check if this is a cherry-picked PR
-        labels = list(pull_request.labels)
+        labels = pull_request.labels
         is_cherry_picked = any(label.name == CHERRY_PICKED_LABEL_PREFIX for label in labels)
 
         # If it's a cherry-picked PR and auto-verify is disabled for cherry-picks, skip auto-verification
@@ -654,7 +663,7 @@ For more information, please refer to the project documentation or contact the m
 
     async def add_pull_request_owner_as_assingee(self, pull_request: PullRequestWrapper) -> None:
         # Use unified_api for add_assignees
-        owner, repo_name = self.repository.full_name.split("/")
+        owner, repo_name = self._owner_and_repo
         try:
             self.logger.info(f"{self.log_prefix} Adding PR owner as assignee")
             await self.github_webhook.unified_api.add_assignees_by_login(
@@ -696,7 +705,7 @@ For more information, please refer to the project documentation or contact the m
         try:
             self.logger.info(f"{self.log_prefix} Check if {CAN_BE_MERGED_STR}.")
             await self.check_run_handler.set_merge_check_in_progress()
-            owner, repo_name = self.repository.full_name.split("/")
+            owner, repo_name = self._owner_and_repo
             last_commit_check_runs = await self.github_webhook.unified_api.get_commit_check_runs(
                 self.github_webhook.last_commit, owner, repo_name
             )

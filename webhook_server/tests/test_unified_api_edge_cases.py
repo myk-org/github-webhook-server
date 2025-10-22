@@ -408,7 +408,7 @@ async def test_get_file_contents_binary_fallback(initialized_api, mock_graphql_c
     mock_contents = MagicMock()
     mock_contents.decoded_content = b"binary content"
 
-    with patch.object(initialized_api, "get_contents", return_value=mock_contents):
+    with patch.object(initialized_api, "get_contents", new=AsyncMock(return_value=mock_contents)):
         result = await initialized_api.get_file_contents("owner", "repo", "image.png")
 
     assert result == "binary content"
@@ -422,7 +422,7 @@ async def test_get_file_contents_null_text_fallback(initialized_api, mock_graphq
     mock_contents = MagicMock()
     mock_contents.decoded_content = b"fallback content"
 
-    with patch.object(initialized_api, "get_contents", return_value=mock_contents):
+    with patch.object(initialized_api, "get_contents", new=AsyncMock(return_value=mock_contents)):
         result = await initialized_api.get_file_contents("owner", "repo", "file.txt")
 
     assert result == "fallback content"
@@ -468,7 +468,7 @@ async def test_get_repository_for_rest_operations(mock_logger):
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient"),
         patch("webhook_server.libs.graphql.unified_api.Github") as mock_github_class,
-        patch("asyncio.to_thread", return_value=mock_repo),
+        patch("asyncio.to_thread", new=AsyncMock(return_value=mock_repo)),
     ):
         mock_github_instance = MagicMock()
         mock_github_class.return_value = mock_github_instance
@@ -603,7 +603,7 @@ async def test_create_reaction(initialized_api):
     """Test create_reaction."""
     mock_comment = MagicMock()
 
-    with patch("asyncio.to_thread"):
+    with patch("asyncio.to_thread", new=AsyncMock()):
         await initialized_api.create_reaction(mock_comment, "+1")
 
 
@@ -710,7 +710,7 @@ async def test_edit_issue(initialized_api):
     """Test edit_issue."""
     mock_issue = MagicMock()
 
-    with patch("asyncio.to_thread"):
+    with patch("asyncio.to_thread", new=AsyncMock()):
         await initialized_api.edit_issue(mock_issue, "closed")
 
 
@@ -719,7 +719,7 @@ async def test_create_issue_comment_on_issue(initialized_api):
     """Test create_issue_comment_on_issue."""
     mock_issue = MagicMock()
 
-    with patch("asyncio.to_thread"):
+    with patch("asyncio.to_thread", new=AsyncMock()):
         await initialized_api.create_issue_comment_on_issue(mock_issue, "Comment")
 
 
@@ -780,9 +780,12 @@ async def test_get_commit_check_runs_with_rest_commit(initialized_api):
 @pytest.mark.asyncio
 async def test_get_commit_check_runs_with_commit_wrapper(initialized_api, mock_rest_client):
     """Test get_commit_check_runs with CommitWrapper."""
-    mock_commit_wrapper = MagicMock()
-    mock_commit_wrapper.sha = "abc123"
-    delattr(mock_commit_wrapper, "get_check_runs")  # Ensure no get_check_runs method
+
+    # Create minimal object without get_check_runs method
+    class MockCommitWrapper:
+        sha = "abc123"
+
+    mock_commit_wrapper = MockCommitWrapper()
 
     mock_repo = MagicMock()
     mock_rest_commit = MagicMock()
@@ -806,9 +809,12 @@ async def test_get_commit_check_runs_with_commit_wrapper(initialized_api, mock_r
 @pytest.mark.asyncio
 async def test_get_commit_check_runs_fallback(initialized_api):
     """Test get_commit_check_runs fallback for unsupported commit."""
-    mock_commit = MagicMock()
-    delattr(mock_commit, "get_check_runs")
-    delattr(mock_commit, "sha")
+
+    # Create minimal object without get_check_runs or sha attributes
+    class MockCommitFallback:
+        pass
+
+    mock_commit = MockCommitFallback()
 
     result = await initialized_api.get_commit_check_runs(mock_commit)
 
@@ -820,7 +826,7 @@ async def test_create_check_run(initialized_api):
     """Test create_check_run."""
     mock_repo = MagicMock()
 
-    with patch("asyncio.to_thread"):
+    with patch("asyncio.to_thread", new=AsyncMock()):
         await initialized_api.create_check_run(mock_repo, name="test", head_sha="abc")
 
 
@@ -896,7 +902,7 @@ async def test_get_pulls_from_commit(initialized_api):
     mock_commit = MagicMock()
     mock_pulls = [MagicMock(), MagicMock()]
 
-    with patch("asyncio.to_thread", return_value=iter(mock_pulls)):
+    with patch("asyncio.to_thread", new=AsyncMock(return_value=iter(mock_pulls))):
         result = await initialized_api.get_pulls_from_commit(mock_commit)
 
     assert len(result) == 2

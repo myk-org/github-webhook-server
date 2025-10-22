@@ -77,25 +77,25 @@ class CommitWrapper:
     @property
     def committer(self) -> UserWrapper:
         """Get committer information."""
-        # Prefer commit->author for GraphQL responses
-        commit_data = self._data.get("commit", {})
-        author_data = commit_data.get("author", {})
+        # GraphQL commit data is already extracted (not nested under "commit" key)
+        # Access committer directly from self._data
+        committer_data = self._data.get("committer", {})
 
-        # Map author.user to UserWrapper if available
-        if "user" in author_data:
-            return UserWrapper(author_data["user"])
-
-        # If author has name but no user, use name as login
-        if "name" in author_data:
-            return UserWrapper({"login": author_data.get("name", "")})
-
-        # Fall back to committer if no author data
-        committer_data = commit_data.get("committer", {})
+        # Map committer.user to UserWrapper if available
         if "user" in committer_data:
             return UserWrapper(committer_data["user"])
 
-        # Final fallback: use committer name as login
-        return UserWrapper({"login": committer_data.get("name", "")})
+        # If committer has name but no user, use name as login
+        if "name" in committer_data:
+            return UserWrapper({"login": committer_data.get("name", "")})
+
+        # Fall back to author if no committer data
+        author_data = self._data.get("author", {})
+        if "user" in author_data:
+            return UserWrapper(author_data["user"])
+
+        # Final fallback: use author name as login
+        return UserWrapper({"login": author_data.get("name", "")})
 
 
 class PullRequestWrapper:
