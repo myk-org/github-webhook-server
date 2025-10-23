@@ -11,6 +11,7 @@ import aiohttp
 from gql import Client, gql
 from gql.transport.aiohttp import AIOHTTPTransport
 from gql.transport.exceptions import (
+    TransportConnectionFailed,
     TransportQueryError,
     TransportServerError,
 )
@@ -154,14 +155,15 @@ class GraphQLClient:
             GraphQLRateLimitError: If rate limit is exceeded
             GraphQLError: For other GraphQL errors
         """
-        await self._ensure_client()
-
         if isinstance(query, str):
             query = gql(query)
 
         result = None
         for attempt in range(self.retry_count):
             try:
+                # Ensure client is available for this attempt (may need recreation after error)
+                await self._ensure_client()
+
                 self.logger.debug(f"Executing GraphQL query with {self.timeout}s timeout")
 
                 # Wrap the entire operation (session creation + query execution) in timeout
@@ -215,6 +217,28 @@ class GraphQLClient:
                 # For other query errors, fail immediately
                 self.logger.error(f"GraphQL query error: {error_msg}", exc_info=True)
                 raise GraphQLError(f"GraphQL query failed: {error_msg}") from error
+
+            except TransportConnectionFailed as error:
+                # Handle connection closed errors - recreate client and retry
+                error_msg = str(error)
+                if attempt < self.retry_count - 1:
+                    self.logger.warning(
+                        f"CONNECTION CLOSED: GraphQL connection closed (attempt {attempt + 1}/{self.retry_count}): {error_msg}. "
+                        f"Recreating client and retrying...",
+                        exc_info=True,
+                    )
+                    # Force recreate client on next iteration
+                    self._client = None
+                    self._transport = None
+                    await asyncio.sleep(1)  # Brief wait before retry
+                    continue  # Retry with fresh client
+                else:
+                    # Final attempt failed
+                    self.logger.error(
+                        f"CONNECTION CLOSED: GraphQL connection closed after {self.retry_count} attempts: {error_msg}",
+                        exc_info=True,
+                    )
+                    raise GraphQLError(f"GraphQL connection closed: {error_msg}") from error
 
             except TransportServerError as error:
                 # Handle server errors (5xx) with exponential backoff
