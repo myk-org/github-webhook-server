@@ -13,6 +13,7 @@ from webhook_server.utils.helpers import (
     run_command,
     log_rate_limit,
     get_future_results,
+    _redact_secrets,
 )
 
 
@@ -66,7 +67,20 @@ class TestHelpers:
         logger = get_logger_with_params()
         assert isinstance(logger, logging.Logger)
         # Logger name is now the log file path (or 'console') to ensure single handler instance
-        assert logger.name  # Just verify it has a name
+        assert logger.name  # Verify it has a name
+
+        # Verify actual logging behavior
+        assert logger.hasHandlers(), "Logger should have handlers configured"
+        assert logger.level in [
+            logging.DEBUG,
+            logging.INFO,
+            logging.WARNING,
+            logging.ERROR,
+            logging.CRITICAL,
+        ], "Logger should have a valid log level"
+
+        # Verify logger can write messages (test basic functionality)
+        logger.info("Test message")  # Should not raise exception
 
     def test_get_logger_with_params_with_repository(self) -> None:
         """Test logger creation with repository name."""
@@ -329,6 +343,67 @@ class TestHelpers:
         """Test run_command with an invalid command to trigger exception."""
         result = await run_command("nonexistent_command_xyz", log_prefix="[TEST]")
         assert result[0] is False
+
+    def test_redact_secrets_helper_basic(self):
+        """Test _redact_secrets helper function with basic redaction."""
+        text = "password is secret123 and token is abc456"
+        secrets = ["secret123", "abc456"]
+        result = _redact_secrets(text, secrets)
+        assert result == "password is ***REDACTED*** and token is ***REDACTED***"
+
+    def test_redact_secrets_helper_no_secrets(self):
+        """Test _redact_secrets with None secrets list."""
+        text = "no secrets here"
+        result = _redact_secrets(text, None)
+        assert result == "no secrets here"
+
+    def test_redact_secrets_helper_empty_secrets(self):
+        """Test _redact_secrets with empty secrets list."""
+        text = "no secrets here"
+        result = _redact_secrets(text, [])
+        assert result == "no secrets here"
+
+    def test_redact_secrets_helper_empty_secret_string(self):
+        """Test _redact_secrets skips empty strings in secrets list."""
+        text = "password is secret123"
+        secrets = ["", "secret123", ""]
+        result = _redact_secrets(text, secrets)
+        assert result == "password is ***REDACTED***"
+
+    def test_redact_secrets_helper_multiple_occurrences(self):
+        """Test _redact_secrets redacts multiple occurrences of same secret."""
+        text = "token secret123 appears here and secret123 appears again"
+        secrets = ["secret123"]
+        result = _redact_secrets(text, secrets)
+        assert result == "token ***REDACTED*** appears here and ***REDACTED*** appears again"
+
+    @pytest.mark.asyncio
+    async def test_run_command_redaction_does_not_mutate_return_values(self):
+        """Test that redaction creates copies and doesn't mutate returned values."""
+        # Run a command that will output a secret in stdout
+        secret = "SECRET_TOKEN_12345"  # pragma: allowlist secret
+        command = f'echo "{secret}"'
+        result = await run_command(command, log_prefix="[TEST]", redact_secrets=[secret])
+
+        # Verify command succeeded
+        assert result[0] is True
+
+        # CRITICAL: Verify the returned stdout contains the ORIGINAL secret (not redacted)
+        # This ensures callers get the real command output
+        assert secret in result[1], "Return value should contain original secret, not redacted version"
+        assert "***REDACTED***" not in result[1], "Return value should not be redacted"
+
+    @pytest.mark.asyncio
+    async def test_run_command_redaction_in_stderr(self):
+        """Test that redaction works for stderr without mutating return values."""
+        secret = "SECRET_TOKEN_STDERR"  # pragma: allowlist secret
+        # Use python to output secret to stderr
+        command = f'{sys.executable} -c "import sys; sys.stderr.write(\\"{secret}\\")"'
+        result = await run_command(command, log_prefix="[TEST]", redact_secrets=[secret])
+
+        # Verify the returned stderr contains the ORIGINAL secret (not redacted)
+        assert secret in result[2], "Stderr return value should contain original secret"
+        assert "***REDACTED***" not in result[2], "Stderr return value should not be redacted"
 
     def test_log_rate_limit_all_branches(self):
         """Test log_rate_limit for all color/warning branches."""

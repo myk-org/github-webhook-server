@@ -110,6 +110,27 @@ def get_github_repo_api(github_app_api: github.Github, repository: int | str) ->
     return github_app_api.get_repo(repository)
 
 
+def _redact_secrets(text: str, secrets: list[str] | None) -> str:
+    """
+    Redact sensitive strings from text for logging.
+
+    Args:
+        text: The text to redact secrets from
+        secrets: List of sensitive strings to redact
+
+    Returns:
+        Text with secrets replaced by ***REDACTED***
+    """
+    if not secrets:
+        return text
+
+    redacted_text = text
+    for secret in secrets:
+        if secret:  # Only redact non-empty secrets
+            redacted_text = redacted_text.replace(secret, "***REDACTED***")
+    return redacted_text
+
+
 async def run_command(
     command: str,
     log_prefix: str,
@@ -136,11 +157,7 @@ async def run_command(
     kwargs["stderr"] = subprocess.PIPE
 
     # Redact sensitive data from command for logging
-    logged_command = command
-    if redact_secrets:
-        for secret in redact_secrets:
-            if secret:  # Only redact non-empty secrets
-                logged_command = logged_command.replace(secret, "***REDACTED***")
+    logged_command = _redact_secrets(command, redact_secrets)
 
     try:
         logger.debug(f"{log_prefix} Running '{logged_command}' command")
@@ -155,16 +172,13 @@ async def run_command(
         out_decoded = stdout.decode(errors="ignore") if isinstance(stdout, bytes) else stdout
         err_decoded = stderr.decode(errors="ignore") if isinstance(stderr, bytes) else stderr
 
-        # Redact secrets from stdout/stderr before logging
-        if redact_secrets:
-            for secret in redact_secrets:
-                if secret:  # Only redact non-empty secrets
-                    out_decoded = out_decoded.replace(secret, "***REDACTED***")
-                    err_decoded = err_decoded.replace(secret, "***REDACTED***")
+        # Create redacted copies for logging (don't mutate return values)
+        redacted_out = _redact_secrets(out_decoded, redact_secrets)
+        redacted_err = _redact_secrets(err_decoded, redact_secrets)
 
         error_msg = (
             f"{log_prefix} Failed to run '{logged_command}'. "
-            f"rc: {sub_process.returncode}, out: {out_decoded}, error: {err_decoded}"
+            f"rc: {sub_process.returncode}, out: {redacted_out}, error: {redacted_err}"
         )
 
         if sub_process.returncode != 0:
@@ -179,7 +193,7 @@ async def run_command(
         return True, out_decoded, err_decoded
 
     except Exception as ex:
-        logger.error(f"{log_prefix} Failed to run '{command}' command: {ex}")
+        logger.error(f"{log_prefix} Failed to run '{logged_command}' command: {ex}")
         return False, out_decoded, err_decoded
 
 
