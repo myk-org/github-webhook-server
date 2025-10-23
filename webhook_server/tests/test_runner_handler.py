@@ -709,11 +709,12 @@ class TestRunnerHandler:
                                             "create_issue_comment",
                                             new_callable=AsyncMock,
                                         ) as mock_comment:
-                                            # Set set_check=False to avoid early return after build success
+                                            # Set set_check=False to avoid setting check status
                                             await runner_handler.run_build_container(
                                                 pull_request=mock_pull_request, push=True, set_check=False
                                             )
-                                            mock_set_progress.assert_called_once()
+                                            # Should not call set_progress because set_check=False
+                                            mock_set_progress.assert_not_called()
                                             # Should not call set_success because set_check=False
                                             mock_set_success.assert_not_called()
                                             # Comment should be added when push fails
