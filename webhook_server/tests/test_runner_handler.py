@@ -152,7 +152,8 @@ class TestRunnerHandler:
                     mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(True, "", ""))
                     mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
                     with patch(
-                        "webhook_server.utils.helpers.run_command", new=AsyncMock(return_value=(True, "success", ""))
+                        "webhook_server.libs.handlers.runner_handler.run_command",
+                        new=AsyncMock(return_value=(True, "success", "")),
                     ):
                         await runner_handler.run_tox(mock_pull_request)
                         mock_set_progress.assert_called_once()
@@ -210,7 +211,7 @@ class TestRunnerHandler:
                         mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(True, "", ""))
                         mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
                         with patch(
-                            "webhook_server.utils.helpers.run_command",
+                            "webhook_server.libs.handlers.runner_handler.run_command",
                             new=AsyncMock(return_value=(False, "output", "error")),
                         ):
                             await runner_handler.run_tox(mock_pull_request)
@@ -384,7 +385,7 @@ class TestRunnerHandler:
                         mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(True, "", ""))
                         mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
                         with patch(
-                            "webhook_server.utils.helpers.run_command",
+                            "webhook_server.libs.handlers.runner_handler.run_command",
                             new=AsyncMock(return_value=(False, "output", "error")),
                         ):
                             await runner_handler.run_install_python_module(mock_pull_request)
@@ -448,7 +449,7 @@ class TestRunnerHandler:
                 # Verify comment was added with correct error message
                 mock_comment.assert_called_once()
                 # create_issue_comment(owner, repo, number, comment) - comment is 4th arg (index 3)
-                assert "does not exists" in mock_comment.call_args[0][3]
+                assert "does not exist" in mock_comment.call_args[0][3]
 
     @pytest.mark.asyncio
     async def test_cherry_pick_prepare_failure(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
@@ -479,7 +480,7 @@ class TestRunnerHandler:
                         mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(True, "", ""))
                         mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
                         with patch(
-                            "webhook_server.utils.helpers.run_command",
+                            "webhook_server.libs.handlers.runner_handler.run_command",
                             new=AsyncMock(return_value=(False, "output", "error")),
                         ):
                             await runner_handler.cherry_pick(mock_pull_request, "main")

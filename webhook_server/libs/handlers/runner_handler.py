@@ -477,7 +477,7 @@ class RunnerHandler:
 
         new_branch_name = f"{CHERRY_PICKED_LABEL_PREFIX}-{pull_request.head.ref}-{shortuuid.uuid()[:5]}"
         if not await self.is_branch_exists(branch=target_branch):
-            err_msg = f"cherry-pick failed: {target_branch} does not exists"
+            err_msg = f"cherry-pick failed: {target_branch} does not exist"
             self.logger.step(f"{self.log_prefix} Cherry-pick failed: target branch does not exist")  # type: ignore
             self.logger.error(err_msg)
             owner = pull_request.base.repo.owner.login
