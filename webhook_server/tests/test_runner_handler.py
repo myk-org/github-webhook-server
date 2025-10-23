@@ -19,7 +19,6 @@ class TestRunnerHandler:
         mock_webhook.repository = Mock()
         mock_webhook.repository.full_name = "test-owner/test-repo"
         mock_webhook.repository.clone_url = "https://github.com/test/repo.git"
-        mock_webhook.repository.full_name = "test-owner/test-repo"
         mock_webhook.repository.owner.login = "test-owner"
         mock_webhook.repository.owner.email = "test@example.com"
         mock_webhook.token = "test-token"
