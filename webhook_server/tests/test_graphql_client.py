@@ -63,14 +63,10 @@ async def test_execute_success(graphql_client, mock_logger):
         patch("webhook_server.libs.graphql.graphql_client.AIOHTTPTransport"),
         patch("webhook_server.libs.graphql.graphql_client.Client") as mock_client_class,
     ):
-        # Create a mock session
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
-
-        # Create a mock client that returns the session
+        # Create a mock client that uses execute_async
         mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_client.__aexit__ = AsyncMock()
+        mock_client.execute_async = AsyncMock(return_value=mock_result)
+        mock_client.close_async = AsyncMock()
 
         mock_client_class.return_value = mock_client
 
@@ -90,13 +86,10 @@ async def test_execute_batch(graphql_client, mock_logger):
         patch("webhook_server.libs.graphql.graphql_client.AIOHTTPTransport"),
         patch("webhook_server.libs.graphql.graphql_client.Client") as mock_client_class,
     ):
-        # Create a mock session
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(side_effect=[mock_result_1, mock_result_2])
-
+        # Create a mock client that uses execute_async
         mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_client.__aexit__ = AsyncMock()
+        mock_client.execute_async = AsyncMock(side_effect=[mock_result_1, mock_result_2])
+        mock_client.close_async = AsyncMock()
 
         mock_client_class.return_value = mock_client
 
@@ -128,12 +121,9 @@ async def test_get_rate_limit(graphql_client, mock_logger):
         patch("webhook_server.libs.graphql.graphql_client.AIOHTTPTransport"),
         patch("webhook_server.libs.graphql.graphql_client.Client") as mock_client_class,
     ):
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
-
         mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_client.__aexit__ = AsyncMock()
+        mock_client.execute_async = AsyncMock(return_value=mock_result)
+        mock_client.close_async = AsyncMock()
 
         mock_client_class.return_value = mock_client
 
@@ -159,12 +149,9 @@ async def test_get_viewer_info(graphql_client, mock_logger):
         patch("webhook_server.libs.graphql.graphql_client.AIOHTTPTransport"),
         patch("webhook_server.libs.graphql.graphql_client.Client") as mock_client_class,
     ):
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
-
         mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_client.__aexit__ = AsyncMock()
+        mock_client.execute_async = AsyncMock(return_value=mock_result)
+        mock_client.close_async = AsyncMock()
 
         mock_client_class.return_value = mock_client
 

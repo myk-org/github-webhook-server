@@ -171,17 +171,15 @@ class GraphQLClient:
 
                 self.logger.debug(f"Executing GraphQL query with {self.timeout}s timeout")
 
-                # Wrap the entire operation (session creation + query execution) in timeout
-                # to prevent hangs during connection setup or query execution
-                async def _execute_with_session() -> dict[str, Any]:
-                    async with self._client as session:  # type: ignore[union-attr]
-                        # Use gql 4.x style: pass variables to execute() as keyword argument
-                        return await session.execute(query, variable_values=variables)
-
-                result = await asyncio.wait_for(_execute_with_session(), timeout=self.timeout)
+                # Execute directly on the client without context manager to maintain persistent session
+                # The transport manages its own session lifecycle for connection pooling
+                result = await asyncio.wait_for(
+                    self._client.execute_async(query, variable_values=variables),  # type: ignore[union-attr]
+                    timeout=self.timeout,
+                )
 
                 self.logger.debug("GraphQL query executed successfully")
-                return result
+                return dict(result) if result else {}
 
             except TransportQueryError as error:
                 # Handle GraphQL-specific errors
