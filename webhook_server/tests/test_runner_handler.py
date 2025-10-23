@@ -463,6 +463,11 @@ class TestRunnerHandler:
             ("update: Not in allowed list", False),
             ("feat :Space before colon", False),
             ("feat : Space around colon", False),
+            # Whitespace handling (should pass after stripping)
+            (" feat: Leading space", True),
+            ("feat: Trailing space ", True),
+            ("  feat: Leading and trailing spaces  ", True),
+            ("\tfeat: Tab prefix", True),
         ],
     )
     async def test_run_conventional_title_check_various_formats(
