@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator
 from uuid import uuid4
 
 import shortuuid
+from github.GithubException import GithubException
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
@@ -59,6 +60,7 @@ class RunnerHandler:
                 command=f"git clone {self.repository.clone_url.replace('https://', f'https://{self.github_webhook.token}@')} "
                 f"{clone_repo_dir}",
                 log_prefix=self.log_prefix,
+                redact_secrets=[self.github_webhook.token],
             )
             if not rc:
                 result = (rc, out, err)
@@ -164,15 +166,15 @@ class RunnerHandler:
         shutil.rmtree("/tmp/storage-run-1000/containers", ignore_errors=True)
         shutil.rmtree("/tmp/storage-run-1000/libpod/tmp", ignore_errors=True)
 
-    async def run_podman_command(self, command: str) -> tuple[bool, str, str]:
-        rc, out, err = await run_command(command=command, log_prefix=self.log_prefix)
+    async def run_podman_command(self, command: str, redact_secrets: list[str] | None = None) -> tuple[bool, str, str]:
+        rc, out, err = await run_command(command=command, log_prefix=self.log_prefix, redact_secrets=redact_secrets)
 
         if rc:
             return rc, out, err
 
         if self.is_podman_bug(err=err):
             self.fix_podman_bug()
-            return await run_command(command=command, log_prefix=self.log_prefix)
+            return await run_command(command=command, log_prefix=self.log_prefix, redact_secrets=redact_secrets)
 
         return rc, out, err
 
@@ -341,7 +343,8 @@ class RunnerHandler:
             if build_rc:
                 self.logger.step(f"{self.log_prefix} Container build completed successfully")  # type: ignore
                 self.logger.info(f"{self.log_prefix} Done building {_container_repository_and_tag}")
-                if pull_request and set_check:
+                # Set check success if requested, but don't return yet if push is needed
+                if pull_request and set_check and not push:
                     return await self.check_run_handler.set_container_build_success(output=output)
             else:
                 self.logger.step(f"{self.log_prefix} Container build failed")  # type: ignore
@@ -352,7 +355,15 @@ class RunnerHandler:
             if push and build_rc:
                 self.logger.step(f"{self.log_prefix} Starting container push to registry")  # type: ignore
                 cmd = f"podman push --creds {self.github_webhook.container_repository_username}:{self.github_webhook.container_repository_password} {_container_repository_and_tag}"
-                push_rc, _, _ = await self.run_podman_command(command=cmd)
+                # Redact credentials from logs
+                push_rc, _, _ = await self.run_podman_command(
+                    command=cmd,
+                    redact_secrets=[
+                        self.github_webhook.container_repository_username,
+                        self.github_webhook.container_repository_password,
+                        f"{self.github_webhook.container_repository_username}:{self.github_webhook.container_repository_password}",
+                    ],
+                )
                 if push_rc:
                     self.logger.step(f"{self.log_prefix} Container push completed successfully")  # type: ignore
                     push_msg: str = f"New container for {_container_repository_and_tag} published"
@@ -450,7 +461,8 @@ class RunnerHandler:
 
         self.logger.step(f"{self.log_prefix} Setting conventional title check status to in-progress")  # type: ignore
         await self.check_run_handler.set_conventional_title_in_progress()
-        allowed_names = self.github_webhook.conventional_title.split(",")
+        # Strip whitespace from each allowed name to tolerate config whitespace
+        allowed_names = [name.strip() for name in self.github_webhook.conventional_title.split(",")]
         # Strip leading/trailing whitespace from title to be more forgiving
         title = pull_request.title.strip()
 
@@ -470,9 +482,12 @@ class RunnerHandler:
         owner, repo_name = self.repository.full_name.split("/")
         try:
             await self.github_webhook.unified_api.get_branch(owner, repo_name, branch)
+        except GithubException as ex:
+            if ex.status == 404:
+                return False
+            raise
+        else:
             return True
-        except Exception:
-            return False
 
     async def cherry_pick(self, pull_request: PullRequest, target_branch: str, reviewed_user: str = "") -> None:
         requested_by = reviewed_user or "by target-branch label"
@@ -484,8 +499,7 @@ class RunnerHandler:
             err_msg = f"cherry-pick failed: {target_branch} does not exist"
             self.logger.step(f"{self.log_prefix} Cherry-pick failed: target branch does not exist")  # type: ignore
             self.logger.error(err_msg)
-            owner = pull_request.base.repo.owner.login
-            repo = pull_request.base.repo.name
+            owner, repo = self.repository.full_name.split("/")
             await self.github_webhook.unified_api.create_issue_comment(owner, repo, pull_request.number, err_msg)
 
         else:

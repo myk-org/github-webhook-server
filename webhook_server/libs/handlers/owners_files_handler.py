@@ -155,11 +155,7 @@ class OwnersFileHandler:
 
         self.logger.debug(f"{self.log_prefix} Get git tree")
         owner, repo_name = self._get_owner_and_repo()
-        try:
-            tree = await self.unified_api.get_git_tree(owner, repo_name, pull_request.base.ref, recursive=True)
-        except Exception:
-            self.logger.exception(f"{self.log_prefix} Failed to fetch git tree for ref {pull_request.base.ref}")
-            return _owners
+        tree = await self.unified_api.get_git_tree(owner, repo_name, pull_request.base.ref, recursive=True)
 
         for element in tree.tree:
             if element.type == "blob" and element.path.endswith("OWNERS"):

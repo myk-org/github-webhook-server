@@ -321,10 +321,14 @@ class TestRunnerHandler:
                             mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
                             with patch.object(
                                 runner_handler, "run_podman_command", new=AsyncMock(return_value=(True, "success", ""))
-                            ):
+                            ) as mock_run_podman:
                                 await runner_handler.run_build_container(pull_request=mock_pull_request, push=True)
                                 mock_set_progress.assert_called_once()
-                                mock_set_success.assert_called_once()
+                                # When push=True, set_container_build_success should NOT be called after build
+                                # (it would be called after successful push instead, which is not part of this test)
+                                mock_set_success.assert_not_called()
+                                # Verify both build and push commands were executed
+                                assert mock_run_podman.call_count == 2
 
     @pytest.mark.asyncio
     async def test_run_install_python_module_disabled(
@@ -504,6 +508,29 @@ class TestRunnerHandler:
         assert result is True
 
     @pytest.mark.asyncio
+    async def test_is_branch_exists_not_found(self, runner_handler: RunnerHandler) -> None:
+        """Test is_branch_exists when branch does not exist (404)."""
+        from github.GithubException import GithubException
+
+        runner_handler.github_webhook.unified_api.get_branch = AsyncMock(
+            side_effect=GithubException(404, "Not Found", None)
+        )
+        result = await runner_handler.is_branch_exists("non-existent-branch")
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_is_branch_exists_other_error(self, runner_handler: RunnerHandler) -> None:
+        """Test is_branch_exists when other GithubException occurs (should re-raise)."""
+        from github.GithubException import GithubException
+
+        runner_handler.github_webhook.unified_api.get_branch = AsyncMock(
+            side_effect=GithubException(500, "Server Error", None)
+        )
+        with pytest.raises(GithubException) as exc_info:
+            await runner_handler.is_branch_exists("main")
+        assert exc_info.value.status == 500
+
+    @pytest.mark.asyncio
     async def test_cherry_pick_branch_not_exists(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
         """Test cherry_pick when target branch doesn't exist."""
         with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=None)):
@@ -572,6 +599,10 @@ class TestRunnerHandler:
                             await runner_handler.cherry_pick(mock_pull_request, "main")
                             mock_set_progress.assert_called_once()
                             mock_set_success.assert_called_once()
+                            # Verify success comment was posted
+                            runner_handler.github_webhook.unified_api.create_issue_comment.assert_called()
+                            call_args = runner_handler.github_webhook.unified_api.create_issue_comment.call_args
+                            assert "cherry-picked pr" in call_args[0][3].lower()
 
     @pytest.mark.asyncio
     async def test_prepare_cloned_repo_dir_success(

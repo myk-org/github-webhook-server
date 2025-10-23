@@ -106,9 +106,9 @@ Publish to PYPI failed: `{_error}`
                 fd = os.open(pypirc_path, flags, 0o600)
                 with os.fdopen(fd, "w", encoding="utf-8") as f:
                     f.write(pypirc_content)
-            except FileExistsError as ex:
+            except FileExistsError:
                 _error = f".pypirc file already exists at {pypirc_path}"
-                self.logger.error(f"{self.log_prefix} {_error}: {ex}")
+                self.logger.exception(f"{self.log_prefix} {_error}")
                 return _issue_on_error(_error=_error)
             except OSError as ex:
                 _error = f"Failed to create .pypirc file: {ex}"
