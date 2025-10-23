@@ -28,7 +28,7 @@ class TestRunnerHandler:
         mock_webhook.pre_commit = True
         mock_webhook.build_and_push_container = True
         mock_webhook.pypi = {"token": "dummy"}
-        mock_webhook.conventional_title = "feat,fix,docs"
+        mock_webhook.conventional_title = "ci,docs,feat,fix,refactor,test,release,CherryPicked,perf,chore"
         mock_webhook.container_repository_username = "test-user"
         mock_webhook.container_repository_password = "test-pass"  # pragma: allowlist secret
         mock_webhook.slack_webhook_url = "https://hooks.slack.com/test"
@@ -429,6 +429,64 @@ class TestRunnerHandler:
                     await runner_handler.run_conventional_title_check(mock_pull_request)
                     mock_set_progress.assert_called_once()
                     mock_set_failure.assert_called_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "title,should_pass",
+        [
+            # Valid conventional commit formats
+            ("feat: Add new feature", True),
+            ("fix: Bug fix", True),
+            ("docs: Update README", True),
+            ("feat(scope): Feature with scope", True),
+            ("fix(api): API bug fix", True),
+            ("chore(deps): Update dependencies", True),
+            ("fix!: Breaking change", True),
+            ("feat(scope)!: Breaking with scope", True),
+            ("feat:", True),  # Minimal valid format
+            ("ci: CI improvement", True),
+            ("test: Add tests", True),
+            ("refactor: Code refactoring", True),
+            ("perf: Performance improvement", True),
+            ("chore: Chore task", True),
+            ("release: New release", True),
+            ("CherryPicked: Cherry-picked commit", True),
+            # Invalid formats
+            ("feature: Invalid prefix", False),
+            ("Fix: Wrong case", False),
+            ("FIX: Wrong case", False),
+            ("feat", False),  # Missing colon
+            ("feat(scope)", False),  # Missing colon after scope
+            ("random: Not in allowed list", False),
+            ("update: Not in allowed list", False),
+            ("feat :Space before colon", False),
+            ("feat : Space around colon", False),
+        ],
+    )
+    async def test_run_conventional_title_check_various_formats(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock, title: str, should_pass: bool
+    ) -> None:
+        """Test run_conventional_title_check with various title formats."""
+        mock_pull_request.title = title
+
+        with patch.object(
+            runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+        ):
+            with patch.object(runner_handler.check_run_handler, "set_conventional_title_in_progress"):
+                with patch.object(
+                    runner_handler.check_run_handler, "set_conventional_title_success"
+                ) as mock_set_success:
+                    with patch.object(
+                        runner_handler.check_run_handler, "set_conventional_title_failure"
+                    ) as mock_set_failure:
+                        await runner_handler.run_conventional_title_check(mock_pull_request)
+
+                        if should_pass:
+                            mock_set_success.assert_called_once()
+                            mock_set_failure.assert_not_called()
+                        else:
+                            mock_set_failure.assert_called_once()
+                            mock_set_success.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_is_branch_exists(self, runner_handler: RunnerHandler) -> None:

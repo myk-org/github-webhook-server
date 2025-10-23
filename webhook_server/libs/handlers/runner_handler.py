@@ -454,7 +454,9 @@ class RunnerHandler:
         title = pull_request.title
 
         self.logger.debug(f"{self.log_prefix} Conventional title check for title: {title}, allowed: {allowed_names}")
-        if any([re.search(rf"^{re.escape(_name)}(.*):", title) for _name in allowed_names]):
+        # Match conventional commit format: type(optional-scope): description
+        # Examples: "feat: title", "feat(scope): title", "fix!: breaking change"
+        if any([re.search(rf"^{re.escape(_name)}(\([^)]*\))?!?:", title) for _name in allowed_names]):
             self.logger.step(f"{self.log_prefix} Conventional title check completed successfully")  # type: ignore
             await self.check_run_handler.set_conventional_title_success(output=output)
         else:
