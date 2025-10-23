@@ -96,9 +96,9 @@ class GraphQLClient:
         await self.close()
 
     async def _ensure_client(self) -> None:
-        """Ensure the GraphQL client is initialized. Reuses existing client for connection pooling."""
+        """Ensure the GraphQL client is initialized and connected. Reuses existing client for connection pooling."""
         async with self._client_lock:
-            # Only create client once and reuse for connection pooling
+            # Only create and connect client once for connection pooling
             if self._client is not None:
                 return
 
@@ -129,6 +129,9 @@ class GraphQLClient:
                 transport=self._transport,
                 fetch_schema_from_transport=False,  # Don't fetch schema on every request
             )
+
+            # Connect the client session once for persistent connection pooling
+            await self._client.connect_async()
 
             self.logger.debug("GraphQL client initialized with persistent connection pooling")
 
@@ -174,10 +177,9 @@ class GraphQLClient:
 
                 self.logger.debug(f"Executing GraphQL query with {self.timeout}s timeout")
 
-                # Execute directly on the client without context manager to maintain persistent session
-                # The transport already has timeout configured; no need for asyncio.wait_for wrapper
-                # which would create competing timeouts and race conditions
-                result = await self._client.execute_async(query, variable_values=variables)  # type: ignore[union-attr]
+                # Use the already-connected session directly to avoid "Transport is already connected" error
+                # The session was connected in _ensure_client and stays connected for connection pooling
+                result = await self._client.session.execute(query, variable_values=variables)  # type: ignore[union-attr]
 
                 self.logger.debug("GraphQL query executed successfully")
                 return dict(result) if result else {}

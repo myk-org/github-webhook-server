@@ -24,9 +24,13 @@ async def test_graphql_client_auto_initialize(mock_logger):
         patch("webhook_server.libs.graphql.graphql_client.AIOHTTPTransport"),
         patch("webhook_server.libs.graphql.graphql_client.Client") as mock_client_class,
     ):
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
         mock_gql_client = AsyncMock()
-        mock_gql_client.execute_async = AsyncMock(return_value=mock_result)
+        mock_gql_client.connect_async = AsyncMock()
         mock_gql_client.close_async = AsyncMock()
+        mock_gql_client.session = mock_session
 
         mock_client_class.return_value = mock_gql_client
 
@@ -35,6 +39,8 @@ async def test_graphql_client_auto_initialize(mock_logger):
 
         assert result == mock_result
         assert client._client is not None
+        mock_gql_client.connect_async.assert_called_once()
+        mock_session.execute.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -49,18 +55,23 @@ async def test_graphql_client_with_variables(mock_logger):
         patch("webhook_server.libs.graphql.graphql_client.AIOHTTPTransport"),
         patch("webhook_server.libs.graphql.graphql_client.Client") as mock_client_class,
     ):
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
         mock_gql_client = AsyncMock()
-        mock_gql_client.execute_async = AsyncMock(return_value=mock_result)
+        mock_gql_client.connect_async = AsyncMock()
         mock_gql_client.close_async = AsyncMock()
+        mock_gql_client.session = mock_session
 
         mock_client_class.return_value = mock_gql_client
 
         result = await client.execute("mutation { addComment }", variables=variables)
 
         assert result == mock_result
-        # Verify variables were passed to gql execute_async
-        call_kwargs = mock_gql_client.execute_async.call_args[1]
+        # Verify variables were passed to session.execute
+        call_kwargs = mock_session.execute.call_args[1]
         assert call_kwargs.get("variable_values") == variables
+        mock_gql_client.connect_async.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -91,9 +102,13 @@ async def test_get_viewer_info_method(mock_logger):
         patch("webhook_server.libs.graphql.graphql_client.AIOHTTPTransport"),
         patch("webhook_server.libs.graphql.graphql_client.Client") as mock_client_class,
     ):
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
         mock_gql_client = AsyncMock()
-        mock_gql_client.execute_async = AsyncMock(return_value=mock_result)
+        mock_gql_client.connect_async = AsyncMock()
         mock_gql_client.close_async = AsyncMock()
+        mock_gql_client.session = mock_session
 
         mock_client_class.return_value = mock_gql_client
 
@@ -101,6 +116,8 @@ async def test_get_viewer_info_method(mock_logger):
 
         assert result["login"] == "testuser"
         assert result["email"] == "test@example.com"
+        mock_gql_client.connect_async.assert_called_once()
+        mock_session.execute.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -135,6 +152,8 @@ async def test_ensure_client_idempotent(mock_logger):
 
     # Create a single async mock instance for the persistent client
     mock_client = AsyncMock()
+    mock_client.connect_async = AsyncMock()
+    mock_client.session = AsyncMock()
 
     with (
         patch("webhook_server.libs.graphql.graphql_client.AIOHTTPTransport"),
@@ -149,3 +168,5 @@ async def test_ensure_client_idempotent(mock_logger):
         # Should reuse the SAME client instance for connection pooling
         assert first_client is second_client
         assert first_client is mock_client
+        # connect_async should only be called once (connection pooling)
+        mock_client.connect_async.assert_called_once()
