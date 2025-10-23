@@ -45,7 +45,7 @@ class PushHandler:
             self.logger.step(f"{self.log_prefix} Non-tag push detected, skipping processing")  # type: ignore
 
     async def upload_to_pypi(self, tag_name: str) -> None:
-        def _issue_on_error(_error: str) -> None:
+        def _issue_on_error(*, _error: str) -> None:
             self.repository.create_issue(
                 title=_error,
                 body=f"""
@@ -115,25 +115,27 @@ Publish to PYPI failed: `{_error}`
                 self.logger.exception(f"{self.log_prefix} {_error}")
                 return _issue_on_error(_error=_error)
 
-            commands: list[str] = [
-                f"uvx {uv_cmd_dir} twine check --strict '{_dist_dir}/{tar_gz_file}'",
-                f"uvx {uv_cmd_dir} twine upload --non-interactive --config-file '{pypirc_path}' '{_dist_dir}/{tar_gz_file}' --skip-existing",
-            ]
-            # Avoid logging secrets; keep high-level trace only
-            self.logger.debug("Prepared Twine commands (details redacted for security)")
-
-            for cmd in commands:
-                rc, out, err = await run_command(command=cmd, log_prefix=self.log_prefix)
-                if not rc:
-                    _error = self.check_run_handler.get_check_run_text(out=out, err=err)
-                    return _issue_on_error(_error=_error)
-
-            # Clean up .pypirc immediately after successful upload to reduce credential exposure
+            # Ensure .pypirc is always removed, even on errors
             try:
-                os.remove(pypirc_path)
-                self.logger.debug(f"{self.log_prefix} Removed .pypirc after successful upload")
-            except OSError as ex:
-                self.logger.warning(f"{self.log_prefix} Failed to remove .pypirc: {ex}")
+                commands: list[str] = [
+                    f"uvx {uv_cmd_dir} twine check --strict '{_dist_dir}/{tar_gz_file}'",
+                    f"uvx {uv_cmd_dir} twine upload --non-interactive --config-file '{pypirc_path}' '{_dist_dir}/{tar_gz_file}' --skip-existing",
+                ]
+                # Avoid logging secrets; keep high-level trace only
+                self.logger.debug("Prepared Twine commands (details redacted for security)")
+
+                for cmd in commands:
+                    rc, out, err = await run_command(command=cmd, log_prefix=self.log_prefix)
+                    if not rc:
+                        _error = self.check_run_handler.get_check_run_text(out=out, err=err)
+                        return _issue_on_error(_error=_error)
+            finally:
+                # Clean up .pypirc to reduce credential exposure
+                try:
+                    os.remove(pypirc_path)
+                    self.logger.debug(f"{self.log_prefix} Removed .pypirc after upload attempt")
+                except OSError as ex:
+                    self.logger.warning(f"{self.log_prefix} Failed to remove .pypirc: {ex}")
 
             self.logger.step(f"{self.log_prefix} PyPI upload completed successfully for tag: {tag_name}")  # type: ignore
             self.logger.info(f"{self.log_prefix} Publish to pypi finished")

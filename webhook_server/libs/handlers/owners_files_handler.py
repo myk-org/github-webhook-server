@@ -4,16 +4,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Coroutine
 
 import yaml
-from asyncstdlib import functools
 from github.ContentFile import ContentFile
 from github.GithubException import GithubException
-from github.NamedUser import NamedUser
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
 from webhook_server.libs.graphql.graphql_client import GraphQLError
 from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
-from webhook_server.utils.constants import COMMAND_ADD_ALLOWED_USER_STR
+from webhook_server.utils.constants import COMMAND_ADD_ALLOWED_USER_STR, ROOT_APPROVERS_KEY
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
@@ -29,6 +27,14 @@ class OwnersFileHandler:
         self.config = self.github_webhook.config
         self.max_owners_files = self.config.get_value("max-owners-files", return_on_none=1000)
 
+    def _get_owner_and_repo(self) -> tuple[str, str]:
+        """Extract owner and repository name from full repository name.
+
+        Returns:
+            Tuple of (owner, repo_name).
+        """
+        return self.repository.full_name.split("/")
+
     async def initialize(self, pull_request: PullRequestWrapper) -> "OwnersFileHandler":
         self.changed_files = await self.list_changed_files(pull_request=pull_request)
         self.all_repository_approvers_and_reviewers = await self.get_all_repository_approvers_and_reviewers(
@@ -39,14 +45,37 @@ class OwnersFileHandler:
         self.all_pull_request_approvers = await self.get_all_pull_request_approvers()
         self.all_pull_request_reviewers = await self.get_all_pull_request_reviewers()
 
+        # Cache collaborators and contributors during initialization
+        owner, repo_name = self._get_owner_and_repo()
+        self._repository_collaborators = await self.unified_api.get_collaborators(owner, repo_name)
+        self._repository_contributors = await self.unified_api.get_contributors(owner, repo_name)
+
+        # Cache valid users to avoid repeated API calls
+        self._valid_users_to_run_commands = set((
+            *[val.login for val in self._repository_collaborators],
+            *[val.login for val in self._repository_contributors],
+            *self.all_repository_approvers,
+            *self.all_pull_request_reviewers,
+        ))
+
         return self
 
     def _ensure_initialized(self) -> None:
+        """Verify that initialize() has been called before using instance methods.
+
+        Raises:
+            RuntimeError: If initialize() has not been called yet.
+        """
         if not hasattr(self, "changed_files"):
             raise RuntimeError("OwnersFileHandler.initialize() must be called before using this method")
 
     @property
     def root_reviewers(self) -> list[str]:
+        """Get reviewers from the root OWNERS file.
+
+        Returns:
+            List of reviewer usernames from the root (.) OWNERS file, or empty list if not defined.
+        """
         self._ensure_initialized()
 
         _reviewers = self.all_repository_approvers_and_reviewers.get(".", {}).get("reviewers", [])
@@ -55,6 +84,11 @@ class OwnersFileHandler:
 
     @property
     def root_approvers(self) -> list[str]:
+        """Get approvers from the root OWNERS file.
+
+        Returns:
+            List of approver usernames from the root (.) OWNERS file, or empty list if not defined.
+        """
         self._ensure_initialized()
 
         _approvers = self.all_repository_approvers_and_reviewers.get(".", {}).get("approvers", [])
@@ -71,7 +105,7 @@ class OwnersFileHandler:
 
     async def list_changed_files(self, pull_request: PullRequestWrapper) -> list[str]:
         # Use unified_api for get_files
-        owner, repo_name = self.repository.full_name.split("/")
+        owner, repo_name = self._get_owner_and_repo()
         files = await self.unified_api.get_pull_request_files(owner, repo_name, pull_request.number)
         changed_files = [_file.filename for _file in files]
         self.logger.debug(f"{self.log_prefix} Changed files: {changed_files}")
@@ -100,7 +134,7 @@ class OwnersFileHandler:
     async def _get_file_content(self, content_path: str, pull_request: PullRequestWrapper) -> tuple[ContentFile, str]:
         self.logger.debug(f"{self.log_prefix} Get OWNERS file from {content_path}")
 
-        owner, repo_name = self.repository.full_name.split("/")
+        owner, repo_name = self._get_owner_and_repo()
         _path = await self.unified_api.get_contents(owner, repo_name, content_path, pull_request.base.ref)
 
         if isinstance(_path, list):
@@ -120,8 +154,12 @@ class OwnersFileHandler:
         owners_count = 0
 
         self.logger.debug(f"{self.log_prefix} Get git tree")
-        owner, repo_name = self.repository.full_name.split("/")
-        tree = await self.unified_api.get_git_tree(owner, repo_name, pull_request.base.ref, recursive=True)
+        owner, repo_name = self._get_owner_and_repo()
+        try:
+            tree = await self.unified_api.get_git_tree(owner, repo_name, pull_request.base.ref, recursive=True)
+        except Exception:
+            self.logger.exception(f"{self.log_prefix} Failed to fetch git tree for ref {pull_request.base.ref}")
+            return _owners
 
         for element in tree.tree:
             if element.type == "blob" and element.path.endswith("OWNERS"):
@@ -254,10 +292,12 @@ class OwnersFileHandler:
                         f"{self.log_prefix} Matched changed folder: {changed_folder} with owners dir: {_owners_dir}"
                     )
                     if require_root_approvers is None:
-                        require_root_approvers = owners_data.get("root-approvers", True)
+                        require_root_approvers = owners_data.get(ROOT_APPROVERS_KEY, True)
 
         if require_root_approvers or require_root_approvers is None:
-            self.logger.debug(f"{self.log_prefix} require root_approvers")
+            self.logger.debug(
+                f"{self.log_prefix} Including root OWNERS approvers/reviewers (not disabled by {ROOT_APPROVERS_KEY})"
+            )
             data["."] = self.all_repository_approvers_and_reviewers.get(".", {})
 
         else:
@@ -307,7 +347,7 @@ class OwnersFileHandler:
                 f"{self.log_prefix} Batch review request failed with traceback:\n{traceback.format_exc()}"
             )
             # Use unified_api for create_issue_comment
-            owner, repo_name = self.repository.full_name.split("/")
+            owner, repo_name = self._get_owner_and_repo()
             error_type = type(ex).__name__
             await self.unified_api.create_issue_comment(
                 owner,
@@ -331,12 +371,12 @@ maintainers can allow it by comment `{allow_user_comment}`
 Maintainers:
  - {"\n - ".join(allowed_user_to_approve)}
 """
-        valid_users = await self.valid_users_to_run_commands
+        valid_users = self.valid_users_to_run_commands
         self.logger.debug(f"Valid users to run commands: {valid_users}")
 
         if reviewed_user not in valid_users:
             # Use unified_api for get_issue_comments
-            owner, repo_name = self.repository.full_name.split("/")
+            owner, repo_name = self._get_owner_and_repo()
             comments = await self.unified_api.get_issue_comments(owner, repo_name, pull_request.number)
             for comment in [_comment for _comment in comments if _comment.user.login in allowed_user_to_approve]:
                 if allow_user_comment in comment.body:
@@ -351,32 +391,24 @@ Maintainers:
 
         return True
 
-    @functools.cached_property
-    async def valid_users_to_run_commands(self) -> set[str]:
+    @property
+    def valid_users_to_run_commands(self) -> set[str]:
         self._ensure_initialized()
-
-        repository_collaborators = await self.get_all_repository_collaborators()
-        repository_contributors = await self.get_all_repository_contributors()
-
-        return set((
-            *repository_collaborators,
-            *repository_contributors,
-            *self.all_repository_approvers,
-            *self.all_pull_request_reviewers,
-        ))
+        return self._valid_users_to_run_commands
 
     async def get_all_repository_contributors(self) -> list[str]:
-        contributors = await self.repository_contributors
-        return [val.login for val in contributors]
+        self._ensure_initialized()
+        return [val.login for val in self._repository_contributors]
 
     async def get_all_repository_collaborators(self) -> list[str]:
-        collaborators = await self.repository_collaborators
-        return [val.login for val in collaborators]
+        self._ensure_initialized()
+        return [val.login for val in self._repository_collaborators]
 
     async def get_all_repository_maintainers(self) -> list[str]:
+        self._ensure_initialized()
         maintainers: list[str] = []
 
-        for user in await self.repository_collaborators:
+        for user in self._repository_collaborators:
             permissions = user.permissions
             self.logger.debug(f"User {user.login} permissions: {permissions}")
 
@@ -385,13 +417,3 @@ Maintainers:
 
         self.logger.debug(f"Maintainers: {maintainers}")
         return maintainers
-
-    @functools.cached_property
-    async def repository_collaborators(self) -> list[NamedUser]:
-        owner, repo_name = self.repository.full_name.split("/")
-        return await self.unified_api.get_collaborators(owner, repo_name)
-
-    @functools.cached_property
-    async def repository_contributors(self) -> list[NamedUser]:
-        owner, repo_name = self.repository.full_name.split("/")
-        return await self.unified_api.get_contributors(owner, repo_name)
