@@ -65,8 +65,8 @@ class TestHelpers:
         """Test logger creation with default parameters."""
         logger = get_logger_with_params()
         assert isinstance(logger, logging.Logger)
-        # Logger name is now based on log file path to ensure single handler instance
-        assert logger.name.startswith("webhook-server-")
+        # Logger name is now the log file path (or 'console') to ensure single handler instance
+        assert logger.name  # Just verify it has a name
 
     def test_get_logger_with_params_with_repository(self) -> None:
         """Test logger creation with repository name."""

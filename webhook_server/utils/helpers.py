@@ -77,7 +77,7 @@ def get_logger_with_params(
     # only ONE RotatingFileHandler instance manages the file rotation.
     # Multiple handlers writing to the same file causes rotation to fail.
     # The original 'name' parameter is preserved in log records via the logger name.
-    logger_cache_key = f"webhook-server-{log_file or 'console'}"
+    logger_cache_key = os.path.basename(log_file) if log_file else "console"
 
     return get_logger(
         name=logger_cache_key,
