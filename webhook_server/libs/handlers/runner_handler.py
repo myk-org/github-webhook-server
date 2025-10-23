@@ -457,13 +457,13 @@ class RunnerHandler:
         title = pull_request.title
 
         self.logger.debug(f"{self.log_prefix} Conventional title check for title: {title}, allowed: {allowed_names}")
-        if any([re.search(rf"{_name}(.*):", title) for _name in allowed_names]):
+        if any([re.search(rf"{re.escape(_name)}(.*):", title) for _name in allowed_names]):
             self.logger.step(f"{self.log_prefix} Conventional title check completed successfully")  # type: ignore
             await self.check_run_handler.set_conventional_title_success(output=output)
         else:
             self.logger.step(f"{self.log_prefix} Conventional title check failed")  # type: ignore
             output["summary"] = "Failed"
-            output["text"] = f"Pull request title must starts with allowed title: {': ,'.join(allowed_names)}"
+            output["text"] = f"Pull request title must starts with allowed title: {', '.join(allowed_names)}"
             await self.check_run_handler.set_conventional_title_failure(output=output)
 
     async def is_branch_exists(self, branch: str) -> Branch:
@@ -501,9 +501,6 @@ class RunnerHandler:
                 f"{git_cmd} push origin {new_branch_name}",
                 f"bash -c \"{hub_cmd} pull-request -b {target_branch} -h {new_branch_name} -l {CHERRY_PICKED_LABEL_PREFIX} -m '{CHERRY_PICKED_LABEL_PREFIX}: [{target_branch}] {commit_msg_striped}' -m 'cherry-pick {pull_request_url} into {target_branch}' -m 'requested-by {requested_by}'\"",
             ]
-            # Redact GITHUB_TOKEN from debug logs
-            redacted_commands = [cmd.replace(self.github_webhook.token, "***REDACTED***") for cmd in commands]
-            self.logger.debug(f"{self.log_prefix} Cherry pick commands to run: {redacted_commands}")
 
             rc, out, err = None, "", ""
             async with self._prepare_cloned_repo_dir(pull_request=pull_request, clone_repo_dir=clone_repo_dir) as _res:
@@ -518,7 +515,9 @@ class RunnerHandler:
 
                 self.logger.step(f"{self.log_prefix} Executing cherry-pick commands")  # type: ignore
                 for cmd in commands:
-                    rc, out, err = await run_command(command=cmd, log_prefix=self.log_prefix)
+                    rc, out, err = await run_command(
+                        command=cmd, log_prefix=self.log_prefix, redact_secrets=[self.github_webhook.token]
+                    )
                     if not rc:
                         self.logger.step(f"{self.log_prefix} Cherry-pick command failed")  # type: ignore
                         output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)

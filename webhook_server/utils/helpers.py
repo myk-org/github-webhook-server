@@ -114,6 +114,7 @@ async def run_command(
     command: str,
     log_prefix: str,
     verify_stderr: bool = False,
+    redact_secrets: list[str] | None = None,
     **kwargs: Any,
 ) -> tuple[bool, Any, Any]:
     """
@@ -123,6 +124,7 @@ async def run_command(
         command (str): Command to run
         log_prefix (str): Prefix for log messages
         verify_stderr (bool, default False): Check command stderr
+        redact_secrets (list[str], optional): List of sensitive strings to redact from logs
 
     Returns:
         tuple: True, out if command succeeded, False, err otherwise.
@@ -133,8 +135,15 @@ async def run_command(
     kwargs["stdout"] = subprocess.PIPE
     kwargs["stderr"] = subprocess.PIPE
 
+    # Redact sensitive data from command for logging
+    logged_command = command
+    if redact_secrets:
+        for secret in redact_secrets:
+            if secret:  # Only redact non-empty secrets
+                logged_command = logged_command.replace(secret, "***REDACTED***")
+
     try:
-        logger.debug(f"{log_prefix} Running '{command}' command")
+        logger.debug(f"{log_prefix} Running '{logged_command}' command")
         command_list = shlex.split(command)
 
         sub_process = await asyncio.create_subprocess_exec(
@@ -147,7 +156,7 @@ async def run_command(
         err_decoded = stderr.decode(errors="ignore") if isinstance(stderr, bytes) else stderr
 
         error_msg = (
-            f"{log_prefix} Failed to run '{command}'. "
+            f"{log_prefix} Failed to run '{logged_command}'. "
             f"rc: {sub_process.returncode}, out: {out_decoded}, error: {err_decoded}"
         )
 

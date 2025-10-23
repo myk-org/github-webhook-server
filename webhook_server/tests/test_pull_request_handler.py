@@ -85,10 +85,10 @@ class TestPullRequestHandler:
         mock_pr.title = "Test PR"
         mock_pr.body = "Test PR body"
         mock_pr.html_url = "https://github.com/test/repo/pull/123"
-        mock_pr.labels = []
+        mock_pr.get_labels = Mock(return_value=[])
         mock_pr.create_issue_comment = Mock()
         mock_pr.edit = Mock()
-        mock_pr.is_merged = False
+        mock_pr.merged = False
         mock_pr.base = Mock()
         mock_pr.base.ref = "main"
         mock_pr.user = Mock()
@@ -214,7 +214,7 @@ class TestPullRequestHandler:
         # Mock labels
         mock_label = Mock()
         mock_label.name = f"{CHERRY_PICK_LABEL_PREFIX}branch1"
-        mock_pull_request.labels = [mock_label]
+        mock_pull_request.get_labels = Mock(return_value=[mock_label])
 
         with patch.object(pull_request_handler, "close_issue_for_merged_or_closed_pr") as mock_close_issue:
             with patch.object(pull_request_handler, "delete_remote_tag_for_merged_or_closed_pr") as mock_delete_tag:
@@ -349,11 +349,21 @@ class TestPullRequestHandler:
         mock_pr1.number = 1
         mock_pr2.number = 2
 
+        mock_pr_wrapper1 = Mock()
+        mock_pr_wrapper2 = Mock()
+
         with patch.object(pull_request_handler.repository, "get_pulls", return_value=[mock_pr1, mock_pr2]):
-            with patch.object(pull_request_handler, "label_pull_request_by_merge_state", new=AsyncMock()) as mock_label:
-                with patch("asyncio.sleep", new=AsyncMock()):
-                    await pull_request_handler.label_all_opened_pull_requests_merge_state_after_merged()
-                    assert mock_label.await_count == 2
+            with patch.object(
+                pull_request_handler.github_webhook.unified_api,
+                "get_pull_request",
+                new=AsyncMock(side_effect=[mock_pr_wrapper1, mock_pr_wrapper2]),
+            ):
+                with patch.object(
+                    pull_request_handler, "label_pull_request_by_merge_state", new=AsyncMock()
+                ) as mock_label:
+                    with patch("asyncio.sleep", new=AsyncMock()):
+                        await pull_request_handler.label_all_opened_pull_requests_merge_state_after_merged()
+                        assert mock_label.await_count == 2
 
     @pytest.mark.asyncio
     async def test_delete_remote_tag_for_merged_or_closed_pr_with_tag(
@@ -460,7 +470,7 @@ class TestPullRequestHandler:
         mock_label1.name = f"{APPROVED_BY_LABEL_PREFIX}approver1"
         mock_label2 = Mock()
         mock_label2.name = f"{LGTM_BY_LABEL_PREFIX}reviewer1"
-        mock_pull_request.labels = [mock_label1, mock_label2]
+        mock_pull_request.get_labels = Mock(return_value=[mock_label1, mock_label2])
         with patch.object(pull_request_handler.labels_handler, "_remove_label", new=AsyncMock()) as mock_remove_label:
             await pull_request_handler.remove_labels_when_pull_request_sync(pull_request=mock_pull_request)
             assert mock_remove_label.await_count == 2
@@ -537,7 +547,7 @@ class TestPullRequestHandler:
         mock_pull_request = Mock(spec=PullRequest)
         mock_label = Mock()
         mock_label.name = CHERRY_PICKED_LABEL_PREFIX
-        mock_pull_request.labels = [mock_label]
+        mock_pull_request.get_labels = Mock(return_value=[mock_label])
 
         with (
             patch.object(pull_request_handler.github_webhook, "auto_verify_cherry_picked_prs", True),
@@ -559,7 +569,7 @@ class TestPullRequestHandler:
         mock_pull_request = Mock(spec=PullRequest)
         mock_label = Mock()
         mock_label.name = CHERRY_PICKED_LABEL_PREFIX
-        mock_pull_request.labels = [mock_label]
+        mock_pull_request.get_labels = Mock(return_value=[mock_label])
 
         with (
             patch.object(pull_request_handler.github_webhook, "auto_verify_cherry_picked_prs", False),
@@ -590,32 +600,32 @@ class TestPullRequestHandler:
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         """Test checking if can be merged when already merged."""
-        # Patch is_merged as a method that returns True
-        with patch.object(mock_pull_request, "is_merged", new=Mock(return_value=True)):
-            with patch.object(pull_request_handler, "_check_if_pr_approved") as mock_check_approved:
-                await pull_request_handler.check_if_can_be_merged(pull_request=mock_pull_request)
-                mock_check_approved.assert_not_called()
+        # Patch merged as a property that returns True
+        mock_pull_request.merged = True
+        with patch.object(pull_request_handler, "_check_if_pr_approved") as mock_check_approved:
+            await pull_request_handler.check_if_can_be_merged(pull_request=mock_pull_request)
+            mock_check_approved.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_check_if_can_be_merged_not_approved(
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         """Test checking if can be merged when not approved."""
-        # Patch is_merged as a method that returns False
-        with patch.object(mock_pull_request, "is_merged", new=Mock(return_value=False)):
-            mock_pull_request.labels = []
+        # Patch merged as a property that returns False
+        mock_pull_request.merged = False
+        mock_pull_request.get_labels = Mock(return_value=[])
 
-            with patch.object(pull_request_handler, "_check_if_pr_approved", return_value="not_approved"):
-                with patch.object(pull_request_handler.labels_handler, "_remove_label") as mock_remove_label:
-                    await pull_request_handler.check_if_can_be_merged(pull_request=mock_pull_request)
-                    mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=CAN_BE_MERGED_STR)
+        with patch.object(pull_request_handler, "_check_if_pr_approved", return_value="not_approved"):
+            with patch.object(pull_request_handler.labels_handler, "_remove_label") as mock_remove_label:
+                await pull_request_handler.check_if_can_be_merged(pull_request=mock_pull_request)
+                mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=CAN_BE_MERGED_STR)
 
     @pytest.mark.asyncio
     async def test_check_if_can_be_merged_approved(
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
+        mock_pull_request.merged = False
         with (
-            patch.object(mock_pull_request, "is_merged", new=Mock(return_value=False)),
             patch.object(mock_pull_request, "mergeable", True),
             patch.object(pull_request_handler, "_check_if_pr_approved", new=AsyncMock(return_value="")),
             patch.object(pull_request_handler, "_check_labels_for_can_be_merged", return_value=""),
@@ -769,19 +779,19 @@ class TestPullRequestHandler:
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         """Test skipping if pull request is already merged."""
-        # Patch is_merged as a method that returns True
-        with patch.object(mock_pull_request, "is_merged", new=Mock(return_value=True)):
-            result = pull_request_handler.skip_if_pull_request_already_merged(pull_request=mock_pull_request)
-            assert result is True
+        # Patch merged as a property that returns True
+        mock_pull_request.merged = True
+        result = pull_request_handler.skip_if_pull_request_already_merged(pull_request=mock_pull_request)
+        assert result is True
 
     def test_skip_if_pull_request_already_merged_not_merged(
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         """Test skipping if pull request is not merged."""
-        # Patch is_merged as a method that returns False
-        with patch.object(mock_pull_request, "is_merged", new=Mock(return_value=False)):
-            result = pull_request_handler.skip_if_pull_request_already_merged(pull_request=mock_pull_request)
-            assert result is False
+        # Patch merged as a property that returns False
+        mock_pull_request.merged = False
+        result = pull_request_handler.skip_if_pull_request_already_merged(pull_request=mock_pull_request)
+        assert result is False
 
     @pytest.mark.asyncio
     async def test_delete_remote_tag_for_merged_or_closed_pr_without_tag(

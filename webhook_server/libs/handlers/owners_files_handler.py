@@ -104,7 +104,6 @@ class OwnersFileHandler:
 
         return _path, content_path
 
-    @functools.lru_cache
     async def get_all_repository_approvers_and_reviewers(
         self, pull_request: PullRequestWrapper
     ) -> dict[str, dict[str, Any]]:

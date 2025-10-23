@@ -470,7 +470,7 @@ class TestGithubWebhook:
             # Should not raise an exception, just skip processing
             await webhook.process()
 
-    @patch("webhook_server.libs.github_api.get_repository_github_app_api")
+    @patch("webhook_server.libs.github_api.Config")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.libs.github_api.get_github_repo_api")
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
@@ -503,7 +503,7 @@ class TestGithubWebhook:
         # The test config includes pull_request in events list, so should be processed
         assert webhook.repository_name == "test-repo"
 
-    @patch("webhook_server.libs.github_api.get_repository_github_app_api")
+    @patch("webhook_server.libs.github_api.Config")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.libs.github_api.get_github_repo_api")
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
@@ -539,7 +539,7 @@ class TestGithubWebhook:
         assert webhook.github_event == "pull_request"
         assert webhook.x_github_delivery == "abc"
 
-    @patch("webhook_server.libs.github_api.get_repository_github_app_api")
+    @patch("webhook_server.libs.github_api.Config")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.libs.github_api.get_github_repo_api")
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")

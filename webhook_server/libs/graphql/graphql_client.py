@@ -96,25 +96,30 @@ class GraphQLClient:
         await self.close()
 
     async def _ensure_client(self) -> None:
-        """Ensure the GraphQL client is initialized with fresh transport for each query."""
+        """Ensure the GraphQL client is initialized. Reuses existing client for connection pooling."""
         async with self._client_lock:
-            # ALWAYS recreate transport and client for each query to avoid connection reuse
-            # Close existing client first if it exists
-            if self._client:
-                try:
-                    await self._client.close_async()
-                except Exception as ex:
-                    self.logger.debug(f"Ignoring error during client cleanup: {ex}")
+            # Only create client once and reuse for connection pooling
+            if self._client is not None:
+                return
 
-            # Create fresh transport with new connection for this query
-            # Set explicit timeout on transport to handle network-level hangs
+            # Create persistent transport with connection pooling via TCPConnector
+            # Configure keepalive and connection limits for optimal performance
+            connector = aiohttp.TCPConnector(
+                limit=100,  # Max total connections
+                limit_per_host=10,  # Max connections per host
+                ttl_dns_cache=300,  # DNS cache TTL in seconds
+                keepalive_timeout=30,  # Keep connections alive for reuse
+            )
+
             self._transport = AIOHTTPTransport(
                 url=self.GITHUB_GRAPHQL_URL,
                 headers={
                     "Authorization": f"Bearer {self.token}",
                     "Accept": "application/vnd.github.v4+json",
+                    "User-Agent": "github-webhook-server/graphql-client",
                 },
                 timeout=self.timeout,
+                client_session_args={"connector": connector},
             )
 
             self._client = Client(
@@ -122,7 +127,7 @@ class GraphQLClient:
                 fetch_schema_from_transport=False,  # Don't fetch schema on every request
             )
 
-            self.logger.debug("GraphQL client recreated with fresh transport")
+            self.logger.debug("GraphQL client initialized with persistent connection pooling")
 
     async def close(self) -> None:
         """Close the GraphQL client and cleanup resources."""

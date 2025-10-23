@@ -93,7 +93,7 @@ class IssueCommentHandler:
             )
 
     async def user_commands(
-        self, pull_request: PullRequest, command: str, reviewed_user: str, issue_comment_id: int
+        self, pull_request: PullRequest | PullRequestWrapper, command: str, reviewed_user: str, issue_comment_id: int
     ) -> None:
         available_commands: list[str] = [
             COMMAND_RETEST_STR,
@@ -237,14 +237,18 @@ class IssueCommentHandler:
                 reviewed_user=reviewed_user,
             )
 
-    async def create_comment_reaction(self, pull_request: PullRequest, issue_comment_id: int, reaction: str) -> None:
+    async def create_comment_reaction(
+        self, pull_request: PullRequest | PullRequestWrapper, issue_comment_id: int, reaction: str
+    ) -> None:
         owner, repo_name = self.repository.full_name.split("/")
         _comment = await self.github_webhook.unified_api.get_issue_comment(
             owner, repo_name, pull_request.number, issue_comment_id
         )
         await self.github_webhook.unified_api.create_reaction(_comment, reaction)
 
-    async def _add_reviewer_by_user_comment(self, pull_request: PullRequest, reviewer: str) -> None:
+    async def _add_reviewer_by_user_comment(
+        self, pull_request: PullRequest | PullRequestWrapper, reviewer: str
+    ) -> None:
         reviewer = reviewer.strip("@")
         self.logger.info(f"{self.log_prefix} Adding reviewer {reviewer} by user comment")
         owner, repo_name = self.repository.full_name.split("/")
@@ -261,7 +265,7 @@ class IssueCommentHandler:
         await self.github_webhook.add_pr_comment(pull_request, _err)
 
     async def process_cherry_pick_command(
-        self, pull_request: PullRequest, command_args: str, reviewed_user: str
+        self, pull_request: PullRequest | PullRequestWrapper, command_args: str, reviewed_user: str
     ) -> None:
         _target_branches: list[str] = command_args.split()
         _exits_target_branches: set[str] = set()
@@ -306,7 +310,11 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                     )
 
     async def process_retest_command(
-        self, pull_request: PullRequest, command_args: str, reviewed_user: str, automerge: bool = False
+        self,
+        pull_request: PullRequest | PullRequestWrapper,
+        command_args: str,
+        reviewed_user: str,
+        automerge: bool = False,
     ) -> None:
         if not await self.owners_file_handler.is_user_valid_to_run_commands(
             pull_request=pull_request, reviewed_user=reviewed_user

@@ -135,7 +135,7 @@ class PullRequestHandler:
                 self.logger.step(f"{self.log_prefix} PR was merged: processing post-merge tasks")  # type: ignore
                 self.logger.info(f"{self.log_prefix} PR is merged")
 
-                for _label in pull_request.labels:
+                for _label in pull_request.get_labels():
                     _label_name = _label.name
                     if _label_name.startswith(CHERRY_PICK_LABEL_PREFIX):
                         await self.runner_handler.cherry_pick(
@@ -164,7 +164,7 @@ class PullRequestHandler:
                 return
 
             self.logger.info(f"{self.log_prefix} PR {pull_request.number} {hook_action} with {labeled}")
-            label_names = [label.name for label in pull_request.labels]
+            label_names = [label.name for label in pull_request.get_labels()]
             self.logger.debug(f"PR labels are {label_names}")
 
             _split_label = labeled.split(LABELS_SEPARATOR, 1)
@@ -367,9 +367,13 @@ For more information, please refer to the project documentation or contact the m
         self.logger.info(f"{self.log_prefix} Sleep for {time_sleep} seconds before getting all opened PRs")
         await asyncio.sleep(time_sleep)
 
+        owner, repo_name = self._owner_and_repo
         for pull_request in self.repository.get_pulls(state="open"):
             self.logger.info(f"{self.log_prefix} check label pull request after merge")
-            await self.label_pull_request_by_merge_state(pull_request=pull_request)
+            # Fetch PullRequestWrapper for GraphQL compatibility
+            pr_data = await self.github_webhook.unified_api.get_pull_request(owner, repo_name, pull_request.number)
+            pr_wrapper = PullRequestWrapper(pr_data)
+            await self.label_pull_request_by_merge_state(pull_request=pr_wrapper)
 
     async def delete_remote_tag_for_merged_or_closed_pr(self, pull_request: PullRequestWrapper) -> None:
         self.logger.debug(f"{self.log_prefix} Checking if need to delete remote tag for {pull_request.number}")
@@ -594,7 +598,7 @@ For more information, please refer to the project documentation or contact the m
 
     async def remove_labels_when_pull_request_sync(self, pull_request: PullRequestWrapper) -> None:
         tasks: list[Coroutine[Any, Any, Any]] = []
-        for _label in pull_request.labels:
+        for _label in pull_request.get_labels():
             _label_name = _label.name
             if (
                 _label_name.startswith(APPROVED_BY_LABEL_PREFIX)
@@ -636,7 +640,7 @@ For more information, please refer to the project documentation or contact the m
             return
 
         # Check if this is a cherry-picked PR
-        labels = pull_request.labels
+        labels = pull_request.get_labels()
         is_cherry_picked = any(label.name == CHERRY_PICKED_LABEL_PREFIX for label in labels)
 
         # If it's a cherry-picked PR and auto-verify is disabled for cherry-picks, skip auto-verification
@@ -872,7 +876,7 @@ For more information, please refer to the project documentation or contact the m
         return failure_output
 
     def skip_if_pull_request_already_merged(self, pull_request: PullRequestWrapper) -> bool:
-        if pull_request and pull_request.is_merged():
+        if pull_request and pull_request.merged:
             self.logger.info(f"{self.log_prefix}: PR is merged, not processing")
             return True
 

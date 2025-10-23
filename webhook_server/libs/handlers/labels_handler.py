@@ -152,7 +152,9 @@ class LabelsHandler:
         self.logger.debug(f"{self.log_prefix} waiting for label {label} to {'exists' if exists else 'not exists'}")
         owner, repo_name = self.github_webhook.repository.full_name.split("/")
 
-        while TimeoutWatch(timeout=30).remaining_time() > 0:
+        # Create TimeoutWatch once outside the loop to track total elapsed time
+        watch = TimeoutWatch(timeout=30)
+        while watch.remaining_time() > 0:
             # Re-fetch labels in each iteration to avoid stale reads
             refreshed_pr_data = await self.github_webhook.unified_api.get_pull_request(
                 owner, repo_name, pull_request.number
@@ -164,7 +166,8 @@ class LabelsHandler:
             if res == exists:
                 return True
 
-            await asyncio.sleep(5)
+            # Cap sleep by remaining time to avoid sleeping past timeout
+            await asyncio.sleep(min(5, max(0, watch.remaining_time())))
 
         self.logger.debug(f"{self.log_prefix} Label {label} {'not found' if exists else 'found'}")
         return False

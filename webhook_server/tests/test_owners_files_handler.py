@@ -330,7 +330,7 @@ class TestOwnersFileHandler:
         """Test get_all_pull_request_approvers method."""
         owners_file_handler.changed_files = ["file1.py"]
 
-        with patch.object(owners_file_handler, "owners_data_for_changed_files") as mock_owners_data:
+        with patch.object(owners_file_handler, "owners_data_for_changed_files", new=AsyncMock()) as mock_owners_data:
             mock_owners_data.return_value = {
                 ".": {"approvers": ["user1", "user2"], "reviewers": ["user3"]},
                 "folder1": {"approvers": ["user4"], "reviewers": ["user5"]},
@@ -345,7 +345,7 @@ class TestOwnersFileHandler:
         """Test get_all_pull_request_reviewers method."""
         owners_file_handler.changed_files = ["file1.py"]
 
-        with patch.object(owners_file_handler, "owners_data_for_changed_files") as mock_owners_data:
+        with patch.object(owners_file_handler, "owners_data_for_changed_files", new=AsyncMock()) as mock_owners_data:
             mock_owners_data.return_value = {
                 ".": {"approvers": ["user1"], "reviewers": ["user2", "user3"]},
                 "folder1": {"approvers": ["user4"], "reviewers": ["user5"]},
