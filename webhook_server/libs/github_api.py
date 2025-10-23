@@ -289,7 +289,7 @@ class GithubWebhook:
             pr_data = await self.unified_api.get_pull_request(
                 owner, repo_name, pr_number, include_commits=True, include_labels=True
             )
-            return PullRequestWrapper(pr_data)
+            return PullRequestWrapper(pr_data, owner, repo_name)
 
         # For commit-based lookups or check_run events, use REST via unified_api
         # (GraphQL doesn't have efficient commit->PR lookup)

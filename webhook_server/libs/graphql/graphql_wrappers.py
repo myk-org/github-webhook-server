@@ -23,11 +23,30 @@ class UserWrapper:
         return self._data.get("login", "")
 
 
+class RepositoryWrapper:
+    """Minimal wrapper for repository information."""
+
+    def __init__(self, owner: str, name: str):
+        self._owner = owner
+        self._name = name
+
+    @property
+    def owner(self) -> UserWrapper:
+        """Return owner as UserWrapper."""
+        return UserWrapper({"login": self._owner})
+
+    @property
+    def name(self) -> str:
+        """Return repository name."""
+        return self._name
+
+
 class RefWrapper:
     """Wrapper for GitHub ref (branch) data from GraphQL responses."""
 
-    def __init__(self, data: dict[str, Any] | None):
+    def __init__(self, data: dict[str, Any] | None, repository: RepositoryWrapper | None = None):
         self._data = data or {}
+        self._repository = repository
 
     @property
     def name(self) -> str:
@@ -43,6 +62,13 @@ class RefWrapper:
         """Get the commit SHA from target.oid."""
         target = self._data.get("target", {})
         return target.get("oid", "")
+
+    @property
+    def repo(self) -> RepositoryWrapper:
+        """Return repository wrapper for PyGithub compatibility."""
+        if self._repository is None:
+            raise AttributeError("Repository information not available in this RefWrapper")
+        return self._repository
 
 
 class LabelWrapper:
@@ -107,8 +133,12 @@ class PullRequestWrapper:
     GraphQL responses internally.
     """
 
-    def __init__(self, data: dict[str, Any]):
+    def __init__(self, data: dict[str, Any], owner: str | None = None, repo_name: str | None = None):
         self._data = data
+        self._owner = owner
+        self._repo_name = repo_name
+        # Create repository wrapper if owner and repo_name provided
+        self._repository = RepositoryWrapper(owner, repo_name) if owner and repo_name else None
 
     @property
     def raw_data(self) -> dict[str, Any]:
@@ -164,12 +194,12 @@ class PullRequestWrapper:
     @property
     def base(self) -> RefWrapper:
         """Get the base (target) branch."""
-        return RefWrapper(self._data.get("baseRef"))
+        return RefWrapper(self._data.get("baseRef"), self._repository)
 
     @property
     def head(self) -> RefWrapper:
         """Get the head (source) branch."""
-        return RefWrapper(self._data.get("headRef"))
+        return RefWrapper(self._data.get("headRef"), self._repository)
 
     @property
     def created_at(self) -> datetime | None:

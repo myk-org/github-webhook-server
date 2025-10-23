@@ -66,7 +66,7 @@ class LabelsHandler:
                 )
                 from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
 
-                refreshed_pr = PullRequestWrapper(refreshed_pr_data)
+                refreshed_pr = PullRequestWrapper(refreshed_pr_data, owner, repo_name)
 
                 return await self.wait_for_label(pull_request=refreshed_pr, label=label, exists=False)
         except Exception as exp:
@@ -103,7 +103,7 @@ class LabelsHandler:
             )
             from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
 
-            refreshed_pr = PullRequestWrapper(refreshed_pr_data)
+            refreshed_pr = PullRequestWrapper(refreshed_pr_data, owner, repo_name)
             try:
                 await self.wait_for_label(pull_request=refreshed_pr, label=label, exists=True)
             except Exception as ex:
@@ -145,7 +145,7 @@ class LabelsHandler:
         )
         from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
 
-        refreshed_pr = PullRequestWrapper(refreshed_pr_data)
+        refreshed_pr = PullRequestWrapper(refreshed_pr_data, owner, repo_name)
         await self.wait_for_label(pull_request=refreshed_pr, label=label, exists=True)
 
     async def wait_for_label(self, pull_request: PullRequestWrapper, label: str, exists: bool) -> bool:
@@ -159,7 +159,7 @@ class LabelsHandler:
             )
             from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
 
-            refreshed_pr = PullRequestWrapper(refreshed_pr_data)
+            refreshed_pr = PullRequestWrapper(refreshed_pr_data, owner, repo_name)
             res = await self.label_exists_in_pull_request(pull_request=refreshed_pr, label=label)
             if res == exists:
                 return True

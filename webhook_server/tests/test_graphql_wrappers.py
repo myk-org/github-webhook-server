@@ -210,3 +210,34 @@ def test_pull_request_wrapper_mergeable_state():
     pr_data.pop("mergeStateStatus")
     wrapper = PullRequestWrapper(pr_data)
     assert wrapper.mergeable_state == "unknown"
+
+
+def test_pull_request_wrapper_with_repository_info():
+    """Test PullRequestWrapper with repository information."""
+    pr_data = {
+        "id": "PR_123",
+        "number": 1,
+        "title": "Test PR",
+        "baseRef": {"name": "main", "target": {"oid": "abc123"}},
+        "headRef": {"name": "feature", "target": {"oid": "def456"}},
+    }
+    wrapper = PullRequestWrapper(pr_data, "owner-name", "repo-name")
+
+    # Test that base and head refs have repository info
+    assert wrapper.base.repo.owner.login == "owner-name"
+    assert wrapper.base.repo.name == "repo-name"
+    assert wrapper.head.repo.owner.login == "owner-name"
+    assert wrapper.head.repo.name == "repo-name"
+
+
+def test_ref_wrapper_without_repository_raises_error():
+    """Test RefWrapper without repository info raises AttributeError."""
+    ref_data = {"name": "main", "target": {"oid": "abc123"}}
+    from webhook_server.libs.graphql.graphql_wrappers import RefWrapper
+
+    ref = RefWrapper(ref_data)
+    try:
+        _ = ref.repo
+        assert False, "Expected AttributeError"
+    except AttributeError as e:
+        assert "Repository information not available" in str(e)
