@@ -119,7 +119,10 @@ class GraphQLClient:
                     "User-Agent": "github-webhook-server/graphql-client",
                 },
                 timeout=self.timeout,
-                client_session_args={"connector": connector},
+                client_session_args={
+                    "connector": connector,
+                    "connector_owner": False,  # Preserve connector across client context exits
+                },
             )
 
             self._client = Client(
@@ -172,11 +175,9 @@ class GraphQLClient:
                 self.logger.debug(f"Executing GraphQL query with {self.timeout}s timeout")
 
                 # Execute directly on the client without context manager to maintain persistent session
-                # The transport manages its own session lifecycle for connection pooling
-                result = await asyncio.wait_for(
-                    self._client.execute_async(query, variable_values=variables),  # type: ignore[union-attr]
-                    timeout=self.timeout,
-                )
+                # The transport already has timeout configured; no need for asyncio.wait_for wrapper
+                # which would create competing timeouts and race conditions
+                result = await self._client.execute_async(query, variable_values=variables)  # type: ignore[union-attr]
 
                 self.logger.debug("GraphQL query executed successfully")
                 return dict(result) if result else {}
