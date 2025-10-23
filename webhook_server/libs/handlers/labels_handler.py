@@ -64,8 +64,6 @@ class LabelsHandler:
                 refreshed_pr_data = await self.unified_api.get_pull_request(
                     owner, repo_name, pull_request.number, include_labels=True
                 )
-                from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
-
                 refreshed_pr = PullRequestWrapper(refreshed_pr_data, owner, repo_name)
 
                 return await self.wait_for_label(pull_request=refreshed_pr, label=label, exists=False)
@@ -101,8 +99,6 @@ class LabelsHandler:
             refreshed_pr_data = await self.unified_api.get_pull_request(
                 owner, repo_name, pull_request.number, include_labels=True
             )
-            from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
-
             refreshed_pr = PullRequestWrapper(refreshed_pr_data, owner, repo_name)
             try:
                 await self.wait_for_label(pull_request=refreshed_pr, label=label, exists=True)
@@ -143,8 +139,6 @@ class LabelsHandler:
         refreshed_pr_data = await self.unified_api.get_pull_request(
             owner, repo_name, pull_request.number, include_labels=True
         )
-        from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
-
         refreshed_pr = PullRequestWrapper(refreshed_pr_data, owner, repo_name)
         await self.wait_for_label(pull_request=refreshed_pr, label=label, exists=True)
 
@@ -157,10 +151,8 @@ class LabelsHandler:
         while watch.remaining_time() > 0:
             # Re-fetch labels in each iteration to avoid stale reads
             refreshed_pr_data = await self.github_webhook.unified_api.get_pull_request(
-                owner, repo_name, pull_request.number
+                owner, repo_name, pull_request.number, include_labels=True
             )
-            from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
-
             refreshed_pr = PullRequestWrapper(refreshed_pr_data, owner, repo_name)
             res = await self.label_exists_in_pull_request(pull_request=refreshed_pr, label=label)
             if res == exists:

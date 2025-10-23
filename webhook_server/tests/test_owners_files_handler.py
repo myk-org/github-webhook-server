@@ -580,10 +580,13 @@ class TestOwnersFileHandler:
         mock_contributor2 = Mock()
         mock_contributor2.login = "contributor2"
 
+        async def mock_contributors_property():
+            return [mock_contributor1, mock_contributor2]
+
         with patch.object(
             owners_file_handler,
             "repository_contributors",
-            new_callable=AsyncMock(return_value=[mock_contributor1, mock_contributor2]),
+            new=mock_contributors_property(),
         ):
             result = await owners_file_handler.get_all_repository_contributors()
             assert result == ["contributor1", "contributor2"]
@@ -595,10 +598,13 @@ class TestOwnersFileHandler:
         mock_collaborator2 = Mock()
         mock_collaborator2.login = "collaborator2"
 
+        async def mock_collaborators_property():
+            return [mock_collaborator1, mock_collaborator2]
+
         with patch.object(
             owners_file_handler,
             "repository_collaborators",
-            new_callable=AsyncMock(return_value=[mock_collaborator1, mock_collaborator2]),
+            new=mock_collaborators_property(),
         ):
             result = await owners_file_handler.get_all_repository_collaborators()
             assert result == ["collaborator1", "collaborator2"]

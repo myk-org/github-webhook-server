@@ -436,7 +436,7 @@ class TestRunnerHandler:
         mock_branch = Mock()
         runner_handler.github_webhook.unified_api.get_branch = AsyncMock(return_value=mock_branch)
         result = await runner_handler.is_branch_exists("main")
-        assert result == mock_branch
+        assert result is True
 
     @pytest.mark.asyncio
     async def test_cherry_pick_branch_not_exists(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:

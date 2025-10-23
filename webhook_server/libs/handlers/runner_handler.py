@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator
 from uuid import uuid4
 
 import shortuuid
-from github.Branch import Branch
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
@@ -358,8 +357,7 @@ class RunnerHandler:
                     self.logger.step(f"{self.log_prefix} Container push completed successfully")  # type: ignore
                     push_msg: str = f"New container for {_container_repository_and_tag} published"
                     if pull_request:
-                        owner = pull_request.base.repo.owner.login
-                        repo = pull_request.base.repo.name
+                        owner, repo = self.repository.full_name.split("/")
                         await self.github_webhook.unified_api.create_issue_comment(
                             owner, repo, pull_request.number, push_msg
                         )
@@ -378,8 +376,7 @@ class RunnerHandler:
                 else:
                     err_msg: str = f"Failed to build and push {_container_repository_and_tag}"
                     if pull_request:
-                        owner = pull_request.base.repo.owner.login
-                        repo = pull_request.base.repo.name
+                        owner, repo = self.repository.full_name.split("/")
                         await self.github_webhook.unified_api.create_issue_comment(
                             owner, repo, pull_request.number, err_msg
                         )
@@ -457,18 +454,22 @@ class RunnerHandler:
         title = pull_request.title
 
         self.logger.debug(f"{self.log_prefix} Conventional title check for title: {title}, allowed: {allowed_names}")
-        if any([re.search(rf"{re.escape(_name)}(.*):", title) for _name in allowed_names]):
+        if any([re.search(rf"^{re.escape(_name)}(.*):", title) for _name in allowed_names]):
             self.logger.step(f"{self.log_prefix} Conventional title check completed successfully")  # type: ignore
             await self.check_run_handler.set_conventional_title_success(output=output)
         else:
             self.logger.step(f"{self.log_prefix} Conventional title check failed")  # type: ignore
             output["summary"] = "Failed"
-            output["text"] = f"Pull request title must starts with allowed title: {', '.join(allowed_names)}"
+            output["text"] = f"Pull request title must start with allowed title: {', '.join(allowed_names)}"
             await self.check_run_handler.set_conventional_title_failure(output=output)
 
-    async def is_branch_exists(self, branch: str) -> Branch:
+    async def is_branch_exists(self, branch: str) -> bool:
         owner, repo_name = self.repository.full_name.split("/")
-        return await self.github_webhook.unified_api.get_branch(owner, repo_name, branch)
+        try:
+            await self.github_webhook.unified_api.get_branch(owner, repo_name, branch)
+            return True
+        except Exception:
+            return False
 
     async def cherry_pick(self, pull_request: PullRequest, target_branch: str, reviewed_user: str = "") -> None:
         requested_by = reviewed_user or "by target-branch label"

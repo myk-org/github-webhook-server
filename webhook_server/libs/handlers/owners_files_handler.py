@@ -129,10 +129,15 @@ class OwnersFileHandler:
                 self.logger.debug(f"{self.log_prefix} Found OWNERS file: {content_path}")
                 tasks.append(self._get_file_content(content_path, pull_request))
 
-        results = await asyncio.gather(*tasks)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
         for result in results:
-            _path, _content_path = result
+            # Skip exceptions from failed OWNERS file fetches
+            if isinstance(result, Exception):
+                self.logger.error(f"{self.log_prefix} Failed to fetch OWNERS file: {result}")
+                continue
+            # Type narrowing: result is tuple[ContentFile, str] after exception check
+            _path, _content_path = result  # type: ignore[misc]
 
             try:
                 content = yaml.safe_load(_path.decoded_content)

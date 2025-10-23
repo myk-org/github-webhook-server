@@ -1,3 +1,4 @@
+import os
 import re
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -97,6 +98,8 @@ Publish to PYPI failed: `{_error}`
             )
             with open(pypirc_path, "w", encoding="utf-8") as f:
                 f.write(pypirc_content)
+            # Set restrictive permissions immediately after writing
+            os.chmod(pypirc_path, 0o600)
 
             commands: list[str] = [
                 f"uvx {uv_cmd_dir} twine check {_dist_dir}/{tar_gz_file}",

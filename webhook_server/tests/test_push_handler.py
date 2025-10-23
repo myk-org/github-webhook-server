@@ -113,32 +113,36 @@ class TestPushHandler:
             with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
                 with patch("webhook_server.libs.handlers.push_handler.uuid4") as mock_uuid:
                     with patch("builtins.open", create=True) as mock_open:
-                        # Mock successful clone
-                        mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+                        with patch("os.chmod") as mock_chmod:
+                            # Mock successful clone
+                            mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
-                        # Mock successful build
-                        mock_run_command.side_effect = [
-                            (True, "", ""),  # uv build
-                            (True, "package-1.0.0.tar.gz", ""),  # ls command
-                            (True, "", ""),  # twine check
-                            (True, "", ""),  # twine upload
-                        ]
+                            # Mock successful build
+                            mock_run_command.side_effect = [
+                                (True, "", ""),  # uv build
+                                (True, "package-1.0.0.tar.gz", ""),  # ls command
+                                (True, "", ""),  # twine check
+                                (True, "", ""),  # twine upload
+                            ]
 
-                        mock_uuid.return_value = "test-uuid"
+                            mock_uuid.return_value = "test-uuid"
 
-                        await push_handler.upload_to_pypi(tag_name="v1.0.0")
+                            await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
-                        # Verify clone was called
-                        mock_prepare.assert_called_once()
+                            # Verify clone was called
+                            mock_prepare.assert_called_once()
 
-                        # Verify build command was called
-                        assert mock_run_command.call_count == 4
+                            # Verify build command was called
+                            assert mock_run_command.call_count == 4
 
-                        # Verify pypirc file was written
-                        mock_open.assert_called_once_with("/tmp/test-repo-test-uuid/.pypirc", "w", encoding="utf-8")
+                            # Verify pypirc file was written
+                            mock_open.assert_called_once_with("/tmp/test-repo-test-uuid/.pypirc", "w", encoding="utf-8")
 
-                        # Verify slack message was sent
-                        push_handler.github_webhook.send_slack_message.assert_called_once()
+                            # Verify chmod was called for security
+                            mock_chmod.assert_called_once_with("/tmp/test-repo-test-uuid/.pypirc", 0o600)
+
+                            # Verify slack message was sent
+                            push_handler.github_webhook.send_slack_message.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_clone_failure(self, push_handler: PushHandler) -> None:
@@ -203,22 +207,23 @@ class TestPushHandler:
             with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
                 with patch.object(push_handler.repository, "create_issue") as mock_create_issue:
                     with patch("builtins.open", create=True):
-                        # Mock successful clone
-                        mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+                        with patch("os.chmod"):
+                            # Mock successful clone
+                            mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
-                        # Mock successful build and ls, failed twine check
-                        mock_run_command.side_effect = [
-                            (True, "", ""),  # uv build
-                            (True, "package-1.0.0.tar.gz", ""),  # ls command
-                            (False, "twine check failed", "Error"),  # twine check
-                        ]
+                            # Mock successful build and ls, failed twine check
+                            mock_run_command.side_effect = [
+                                (True, "", ""),  # uv build
+                                (True, "package-1.0.0.tar.gz", ""),  # ls command
+                                (False, "twine check failed", "Error"),  # twine check
+                            ]
 
-                        await push_handler.upload_to_pypi(tag_name="v1.0.0")
+                            await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
-                        # Verify issue was created
-                        mock_create_issue.assert_called_once()
-                        call_args = mock_create_issue.call_args
-                        assert "twine check failed" in call_args[1]["title"]
+                            # Verify issue was created
+                            mock_create_issue.assert_called_once()
+                            call_args = mock_create_issue.call_args
+                            assert "twine check failed" in call_args[1]["title"]
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_twine_upload_failure(self, push_handler: PushHandler) -> None:
@@ -227,23 +232,24 @@ class TestPushHandler:
             with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
                 with patch.object(push_handler.repository, "create_issue") as mock_create_issue:
                     with patch("builtins.open", create=True):
-                        # Mock successful clone
-                        mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+                        with patch("os.chmod"):
+                            # Mock successful clone
+                            mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
-                        # Mock successful build, ls, and twine check, failed twine upload
-                        mock_run_command.side_effect = [
-                            (True, "", ""),  # uv build
-                            (True, "package-1.0.0.tar.gz", ""),  # ls command
-                            (True, "", ""),  # twine check
-                            (False, "twine upload failed", "Error"),  # twine upload
-                        ]
+                            # Mock successful build, ls, and twine check, failed twine upload
+                            mock_run_command.side_effect = [
+                                (True, "", ""),  # uv build
+                                (True, "package-1.0.0.tar.gz", ""),  # ls command
+                                (True, "", ""),  # twine check
+                                (False, "twine upload failed", "Error"),  # twine upload
+                            ]
 
-                        await push_handler.upload_to_pypi(tag_name="v1.0.0")
+                            await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
-                        # Verify issue was created
-                        mock_create_issue.assert_called_once()
-                        call_args = mock_create_issue.call_args
-                        assert "twine upload failed" in call_args[1]["title"]
+                            # Verify issue was created
+                            mock_create_issue.assert_called_once()
+                            call_args = mock_create_issue.call_args
+                            assert "twine upload failed" in call_args[1]["title"]
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_success_no_slack(self, push_handler: PushHandler) -> None:
@@ -254,23 +260,24 @@ class TestPushHandler:
             with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
                 with patch("webhook_server.libs.handlers.push_handler.uuid4") as mock_uuid:
                     with patch("builtins.open", create=True):
-                        # Mock successful clone
-                        mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+                        with patch("os.chmod"):
+                            # Mock successful clone
+                            mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
-                        # Mock successful build
-                        mock_run_command.side_effect = [
-                            (True, "", ""),  # uv build
-                            (True, "package-1.0.0.tar.gz", ""),  # ls command
-                            (True, "", ""),  # twine check
-                            (True, "", ""),  # twine upload
-                        ]
+                            # Mock successful build
+                            mock_run_command.side_effect = [
+                                (True, "", ""),  # uv build
+                                (True, "package-1.0.0.tar.gz", ""),  # ls command
+                                (True, "", ""),  # twine check
+                                (True, "", ""),  # twine upload
+                            ]
 
-                        mock_uuid.return_value = "test-uuid"
+                            mock_uuid.return_value = "test-uuid"
 
-                        await push_handler.upload_to_pypi(tag_name="v1.0.0")
+                            await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
-                        # Verify slack message was not sent
-                        push_handler.github_webhook.send_slack_message.assert_not_called()
+                            # Verify slack message was not sent
+                            push_handler.github_webhook.send_slack_message.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_commands_execution_order(self, push_handler: PushHandler) -> None:
@@ -279,31 +286,32 @@ class TestPushHandler:
             with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
                 with patch("webhook_server.libs.handlers.push_handler.uuid4") as mock_uuid:
                     with patch("builtins.open", create=True):
-                        # Mock successful clone
-                        mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+                        with patch("os.chmod"):
+                            # Mock successful clone
+                            mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
-                        # Mock successful all commands
-                        mock_run_command.side_effect = [
-                            (True, "", ""),  # uv build
-                            (True, "package-1.0.0.tar.gz", ""),  # ls command
-                            (True, "", ""),  # twine check
-                            (True, "", ""),  # twine upload
-                        ]
+                            # Mock successful all commands
+                            mock_run_command.side_effect = [
+                                (True, "", ""),  # uv build
+                                (True, "package-1.0.0.tar.gz", ""),  # ls command
+                                (True, "", ""),  # twine check
+                                (True, "", ""),  # twine upload
+                            ]
 
-                        mock_uuid.return_value = "test-uuid"
+                            mock_uuid.return_value = "test-uuid"
 
-                        await push_handler.upload_to_pypi(tag_name="v1.0.0")
+                            await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
-                        # Verify commands were called in correct order
-                        calls = mock_run_command.call_args_list
-                        # Each call is call(command=..., log_prefix=...)
-                        # The command string is in the 'command' kwarg
-                        assert "uv" in calls[0].kwargs["command"]
-                        assert "build" in calls[0].kwargs["command"]
-                        assert "ls" in calls[1].kwargs["command"]
-                        assert "twine check" in calls[2].kwargs["command"]
-                        assert "twine upload" in calls[3].kwargs["command"]
-                        assert "package-1.0.0.tar.gz" in calls[3].kwargs["command"]
+                            # Verify commands were called in correct order
+                            calls = mock_run_command.call_args_list
+                            # Each call is call(command=..., log_prefix=...)
+                            # The command string is in the 'command' kwarg
+                            assert "uv" in calls[0].kwargs["command"]
+                            assert "build" in calls[0].kwargs["command"]
+                            assert "ls" in calls[1].kwargs["command"]
+                            assert "twine check" in calls[2].kwargs["command"]
+                            assert "twine upload" in calls[3].kwargs["command"]
+                            assert "package-1.0.0.tar.gz" in calls[3].kwargs["command"]
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_unique_clone_directory(self, push_handler: PushHandler) -> None:
@@ -312,26 +320,27 @@ class TestPushHandler:
             with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
                 with patch("webhook_server.libs.handlers.push_handler.uuid4") as mock_uuid:
                     with patch("builtins.open", create=True):
-                        # Mock successful clone
-                        mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+                        with patch("os.chmod"):
+                            # Mock successful clone
+                            mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
-                        # Mock successful build
-                        mock_run_command.side_effect = [
-                            (True, "", ""),  # uv build
-                            (True, "package-1.0.0.tar.gz", ""),  # ls command
-                            (True, "", ""),  # twine check
-                            (True, "", ""),  # twine upload
-                        ]
+                            # Mock successful build
+                            mock_run_command.side_effect = [
+                                (True, "", ""),  # uv build
+                                (True, "package-1.0.0.tar.gz", ""),  # ls command
+                                (True, "", ""),  # twine check
+                                (True, "", ""),  # twine upload
+                            ]
 
-                        mock_uuid.return_value = "test-uuid"
+                            mock_uuid.return_value = "test-uuid"
 
-                        await push_handler.upload_to_pypi(tag_name="v1.0.0")
+                            await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
-                        # Verify clone directory includes UUID
-                        mock_prepare.assert_called_once()
-                        call_args = mock_prepare.call_args
-                        assert "test-uuid" in call_args[1]["clone_repo_dir"]
-                        assert call_args[1]["clone_repo_dir"] == "/tmp/test-repo-test-uuid"
+                            # Verify clone directory includes UUID
+                            mock_prepare.assert_called_once()
+                            call_args = mock_prepare.call_args
+                            assert "test-uuid" in call_args[1]["clone_repo_dir"]
+                            assert call_args[1]["clone_repo_dir"] == "/tmp/test-repo-test-uuid"
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_issue_creation_format(self, push_handler: PushHandler) -> None:
@@ -358,26 +367,27 @@ class TestPushHandler:
             with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
                 with patch("webhook_server.libs.handlers.push_handler.uuid4") as mock_uuid:
                     with patch("builtins.open", create=True):
-                        # Mock successful clone
-                        mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+                        with patch("os.chmod"):
+                            # Mock successful clone
+                            mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
-                        # Mock successful build
-                        mock_run_command.side_effect = [
-                            (True, "", ""),  # uv build
-                            (True, "package-1.0.0.tar.gz", ""),  # ls command
-                            (True, "", ""),  # twine check
-                            (True, "", ""),  # twine upload
-                        ]
+                            # Mock successful build
+                            mock_run_command.side_effect = [
+                                (True, "", ""),  # uv build
+                                (True, "package-1.0.0.tar.gz", ""),  # ls command
+                                (True, "", ""),  # twine check
+                                (True, "", ""),  # twine upload
+                            ]
 
-                        mock_uuid.return_value = "test-uuid"
+                            mock_uuid.return_value = "test-uuid"
 
-                        await push_handler.upload_to_pypi(tag_name="v1.0.0")
+                            await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
-                        # Verify slack message format
-                        push_handler.github_webhook.send_slack_message.assert_called_once()
-                        call_args = push_handler.github_webhook.send_slack_message.call_args
+                            # Verify slack message format
+                            push_handler.github_webhook.send_slack_message.assert_called_once()
+                            call_args = push_handler.github_webhook.send_slack_message.call_args
 
-                        assert call_args[1]["webhook_url"] == "https://hooks.slack.com/test"
-                        assert "test-repo" in call_args[1]["message"]
-                        assert "v1.0.0" in call_args[1]["message"]
-                        assert "published to PYPI" in call_args[1]["message"]
+                            assert call_args[1]["webhook_url"] == "https://hooks.slack.com/test"
+                            assert "test-repo" in call_args[1]["message"]
+                            assert "v1.0.0" in call_args[1]["message"]
+                            assert "published to PYPI" in call_args[1]["message"]
