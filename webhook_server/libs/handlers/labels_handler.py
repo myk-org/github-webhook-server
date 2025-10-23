@@ -143,7 +143,7 @@ class LabelsHandler:
         await self.wait_for_label(pull_request=refreshed_pr, label=label, exists=True)
 
     async def wait_for_label(self, pull_request: PullRequestWrapper, label: str, exists: bool) -> bool:
-        self.logger.debug(f"{self.log_prefix} waiting for label {label} to {'exists' if exists else 'not exists'}")
+        self.logger.debug(f"{self.log_prefix} waiting for label {label} to {'exist' if exists else 'not exist'}")
         owner, repo_name = self.github_webhook.repository.full_name.split("/")
 
         # Create TimeoutWatch once outside the loop to track total elapsed time

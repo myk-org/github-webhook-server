@@ -12,7 +12,7 @@ class TestPushHandler:
     """Test suite for PushHandler class."""
 
     @pytest.fixture
-    def mock_github_webhook(self) -> Mock:
+    def mock_github_webhook(self, tmp_path) -> Mock:
         """Create a mock GithubWebhook instance."""
         mock_webhook = Mock()
         mock_webhook.hook_data = {"ref": "refs/tags/v1.0.0"}
@@ -23,7 +23,7 @@ class TestPushHandler:
         mock_webhook.pypi = {"token": "test-token"}
         mock_webhook.build_and_push_container = True
         mock_webhook.container_release = True
-        mock_webhook.clone_repo_dir = "/tmp/test-repo"
+        mock_webhook.clone_repo_dir = str(tmp_path / "test-repo")
         mock_webhook.slack_webhook_url = "https://hooks.slack.com/test"
         mock_webhook.repository_name = "test-repo"
         mock_webhook.send_slack_message = Mock()
@@ -115,46 +115,55 @@ class TestPushHandler:
                 with patch("webhook_server.libs.handlers.push_handler.uuid4") as mock_uuid:
                     with patch("os.open") as mock_os_open:
                         with patch("os.fdopen", create=True) as mock_fdopen:
-                            # Mock successful clone
-                            mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+                            with patch("os.remove") as mock_remove:
+                                # Mock successful clone
+                                mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
-                            # Mock successful build
-                            mock_run_command.side_effect = [
-                                (True, "", ""),  # uv build
-                                (True, "package-1.0.0.tar.gz", ""),  # ls command
-                                (True, "", ""),  # twine check
-                                (True, "", ""),  # twine upload
-                            ]
+                                # Mock successful build
+                                mock_run_command.side_effect = [
+                                    (True, "", ""),  # uv build
+                                    (True, "package-1.0.0.tar.gz", ""),  # ls command
+                                    (True, "", ""),  # twine check
+                                    (True, "", ""),  # twine upload
+                                ]
 
-                            mock_uuid.return_value = "test-uuid"
+                                mock_uuid.return_value = "test-uuid"
 
-                            # Mock os.open to return a fake file descriptor
-                            mock_os_open.return_value = 3
+                                # Mock os.open to return a fake file descriptor
+                                mock_os_open.return_value = 3
 
-                            # Mock os.fdopen to return a mock file object
-                            mock_file = Mock()
-                            mock_file.__enter__ = Mock(return_value=mock_file)
-                            mock_file.__exit__ = Mock(return_value=False)
-                            mock_fdopen.return_value = mock_file
+                                # Mock os.fdopen to return a mock file object
+                                mock_file = Mock()
+                                mock_file.__enter__ = Mock(return_value=mock_file)
+                                mock_file.__exit__ = Mock(return_value=False)
+                                mock_fdopen.return_value = mock_file
 
-                            await push_handler.upload_to_pypi(tag_name="v1.0.0")
+                                await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
-                            # Verify clone was called
-                            mock_prepare.assert_called_once()
+                                # Verify clone was called
+                                mock_prepare.assert_called_once()
 
-                            # Verify build command was called
-                            assert mock_run_command.call_count == 4
+                                # Verify build command was called
+                                assert mock_run_command.call_count == 4
 
-                            # Verify os.open was called with atomic creation flags and secure permissions
-                            mock_os_open.assert_called_once_with(
-                                "/tmp/test-repo-test-uuid/.pypirc", os.O_CREAT | os.O_WRONLY | os.O_EXCL, 0o600
-                            )
+                                # Verify os.open was called with atomic creation flags and secure permissions
+                                expected_flags = os.O_CREAT | os.O_WRONLY | os.O_EXCL
+                                if hasattr(os, "O_NOFOLLOW"):
+                                    expected_flags |= os.O_NOFOLLOW
+                                # Get the actual path used from mock_os_open call
+                                actual_pypirc_path = mock_os_open.call_args[0][0]
+                                assert actual_pypirc_path.endswith("test-repo-test-uuid/.pypirc")
+                                assert mock_os_open.call_args[0][1] == expected_flags
+                                assert mock_os_open.call_args[0][2] == 0o600
 
-                            # Verify os.fdopen was called with the file descriptor
-                            mock_fdopen.assert_called_once_with(3, "w", encoding="utf-8")
+                                # Verify os.fdopen was called with the file descriptor
+                                mock_fdopen.assert_called_once_with(3, "w", encoding="utf-8")
 
-                            # Verify slack message was sent
-                            push_handler.github_webhook.send_slack_message.assert_called_once()
+                                # Verify .pypirc was cleaned up after successful upload
+                                assert mock_remove.call_args[0][0].endswith("test-repo-test-uuid/.pypirc")
+
+                                # Verify slack message was sent
+                                push_handler.github_webhook.send_slack_message.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_clone_failure(self, push_handler: PushHandler) -> None:
@@ -291,32 +300,33 @@ class TestPushHandler:
                 with patch("webhook_server.libs.handlers.push_handler.uuid4") as mock_uuid:
                     with patch("os.open") as mock_os_open:
                         with patch("os.fdopen", create=True) as mock_fdopen:
-                            # Mock successful clone
-                            mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+                            with patch("os.remove"):
+                                # Mock successful clone
+                                mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
-                            # Mock successful build
-                            mock_run_command.side_effect = [
-                                (True, "", ""),  # uv build
-                                (True, "package-1.0.0.tar.gz", ""),  # ls command
-                                (True, "", ""),  # twine check
-                                (True, "", ""),  # twine upload
-                            ]
+                                # Mock successful build
+                                mock_run_command.side_effect = [
+                                    (True, "", ""),  # uv build
+                                    (True, "package-1.0.0.tar.gz", ""),  # ls command
+                                    (True, "", ""),  # twine check
+                                    (True, "", ""),  # twine upload
+                                ]
 
-                            mock_uuid.return_value = "test-uuid"
+                                mock_uuid.return_value = "test-uuid"
 
-                            # Mock os.open to return a fake file descriptor
-                            mock_os_open.return_value = 3
+                                # Mock os.open to return a fake file descriptor
+                                mock_os_open.return_value = 3
 
-                            # Mock os.fdopen to return a mock file object
-                            mock_file = Mock()
-                            mock_file.__enter__ = Mock(return_value=mock_file)
-                            mock_file.__exit__ = Mock(return_value=False)
-                            mock_fdopen.return_value = mock_file
+                                # Mock os.fdopen to return a mock file object
+                                mock_file = Mock()
+                                mock_file.__enter__ = Mock(return_value=mock_file)
+                                mock_file.__exit__ = Mock(return_value=False)
+                                mock_fdopen.return_value = mock_file
 
-                            await push_handler.upload_to_pypi(tag_name="v1.0.0")
+                                await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
-                            # Verify slack message was not sent
-                            push_handler.github_webhook.send_slack_message.assert_not_called()
+                                # Verify slack message was not sent
+                                push_handler.github_webhook.send_slack_message.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_commands_execution_order(self, push_handler: PushHandler) -> None:
@@ -326,40 +336,41 @@ class TestPushHandler:
                 with patch("webhook_server.libs.handlers.push_handler.uuid4") as mock_uuid:
                     with patch("os.open") as mock_os_open:
                         with patch("os.fdopen", create=True) as mock_fdopen:
-                            # Mock successful clone
-                            mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+                            with patch("os.remove"):
+                                # Mock successful clone
+                                mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
-                            # Mock successful all commands
-                            mock_run_command.side_effect = [
-                                (True, "", ""),  # uv build
-                                (True, "package-1.0.0.tar.gz", ""),  # ls command
-                                (True, "", ""),  # twine check
-                                (True, "", ""),  # twine upload
-                            ]
+                                # Mock successful all commands
+                                mock_run_command.side_effect = [
+                                    (True, "", ""),  # uv build
+                                    (True, "package-1.0.0.tar.gz", ""),  # ls command
+                                    (True, "", ""),  # twine check
+                                    (True, "", ""),  # twine upload
+                                ]
 
-                            mock_uuid.return_value = "test-uuid"
+                                mock_uuid.return_value = "test-uuid"
 
-                            # Mock os.open to return a fake file descriptor
-                            mock_os_open.return_value = 3
+                                # Mock os.open to return a fake file descriptor
+                                mock_os_open.return_value = 3
 
-                            # Mock os.fdopen to return a mock file object
-                            mock_file = Mock()
-                            mock_file.__enter__ = Mock(return_value=mock_file)
-                            mock_file.__exit__ = Mock(return_value=False)
-                            mock_fdopen.return_value = mock_file
+                                # Mock os.fdopen to return a mock file object
+                                mock_file = Mock()
+                                mock_file.__enter__ = Mock(return_value=mock_file)
+                                mock_file.__exit__ = Mock(return_value=False)
+                                mock_fdopen.return_value = mock_file
 
-                            await push_handler.upload_to_pypi(tag_name="v1.0.0")
+                                await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
-                            # Verify commands were called in correct order
-                            calls = mock_run_command.call_args_list
-                            # Each call is call(command=..., log_prefix=...)
-                            # The command string is in the 'command' kwarg
-                            assert "uv" in calls[0].kwargs["command"]
-                            assert "build" in calls[0].kwargs["command"]
-                            assert "ls" in calls[1].kwargs["command"]
-                            assert "twine check" in calls[2].kwargs["command"]
-                            assert "twine upload" in calls[3].kwargs["command"]
-                            assert "package-1.0.0.tar.gz" in calls[3].kwargs["command"]
+                                # Verify commands were called in correct order
+                                calls = mock_run_command.call_args_list
+                                # Each call is call(command=..., log_prefix=...)
+                                # The command string is in the 'command' kwarg
+                                assert "uv" in calls[0].kwargs["command"]
+                                assert "build" in calls[0].kwargs["command"]
+                                assert "ls" in calls[1].kwargs["command"]
+                                assert "twine check" in calls[2].kwargs["command"]
+                                assert "twine upload" in calls[3].kwargs["command"]
+                                assert "package-1.0.0.tar.gz" in calls[3].kwargs["command"]
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_unique_clone_directory(self, push_handler: PushHandler) -> None:
@@ -369,35 +380,36 @@ class TestPushHandler:
                 with patch("webhook_server.libs.handlers.push_handler.uuid4") as mock_uuid:
                     with patch("os.open") as mock_os_open:
                         with patch("os.fdopen", create=True) as mock_fdopen:
-                            # Mock successful clone
-                            mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+                            with patch("os.remove"):
+                                # Mock successful clone
+                                mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
-                            # Mock successful build
-                            mock_run_command.side_effect = [
-                                (True, "", ""),  # uv build
-                                (True, "package-1.0.0.tar.gz", ""),  # ls command
-                                (True, "", ""),  # twine check
-                                (True, "", ""),  # twine upload
-                            ]
+                                # Mock successful build
+                                mock_run_command.side_effect = [
+                                    (True, "", ""),  # uv build
+                                    (True, "package-1.0.0.tar.gz", ""),  # ls command
+                                    (True, "", ""),  # twine check
+                                    (True, "", ""),  # twine upload
+                                ]
 
-                            mock_uuid.return_value = "test-uuid"
+                                mock_uuid.return_value = "test-uuid"
 
-                            # Mock os.open to return a fake file descriptor
-                            mock_os_open.return_value = 3
+                                # Mock os.open to return a fake file descriptor
+                                mock_os_open.return_value = 3
 
-                            # Mock os.fdopen to return a mock file object
-                            mock_file = Mock()
-                            mock_file.__enter__ = Mock(return_value=mock_file)
-                            mock_file.__exit__ = Mock(return_value=False)
-                            mock_fdopen.return_value = mock_file
+                                # Mock os.fdopen to return a mock file object
+                                mock_file = Mock()
+                                mock_file.__enter__ = Mock(return_value=mock_file)
+                                mock_file.__exit__ = Mock(return_value=False)
+                                mock_fdopen.return_value = mock_file
 
-                            await push_handler.upload_to_pypi(tag_name="v1.0.0")
+                                await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
-                            # Verify clone directory includes UUID
-                            mock_prepare.assert_called_once()
-                            call_args = mock_prepare.call_args
-                            assert "test-uuid" in call_args[1]["clone_repo_dir"]
-                            assert call_args[1]["clone_repo_dir"] == "/tmp/test-repo-test-uuid"
+                                # Verify clone directory includes UUID
+                                mock_prepare.assert_called_once()
+                                call_args = mock_prepare.call_args
+                                assert "test-uuid" in call_args[1]["clone_repo_dir"]
+                                assert call_args[1]["clone_repo_dir"].endswith("test-repo-test-uuid")
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_issue_creation_format(self, push_handler: PushHandler) -> None:
@@ -425,35 +437,87 @@ class TestPushHandler:
                 with patch("webhook_server.libs.handlers.push_handler.uuid4") as mock_uuid:
                     with patch("os.open") as mock_os_open:
                         with patch("os.fdopen", create=True) as mock_fdopen:
-                            # Mock successful clone
-                            mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+                            with patch("os.remove"):
+                                # Mock successful clone
+                                mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
-                            # Mock successful build
-                            mock_run_command.side_effect = [
-                                (True, "", ""),  # uv build
-                                (True, "package-1.0.0.tar.gz", ""),  # ls command
-                                (True, "", ""),  # twine check
-                                (True, "", ""),  # twine upload
-                            ]
+                                # Mock successful build
+                                mock_run_command.side_effect = [
+                                    (True, "", ""),  # uv build
+                                    (True, "package-1.0.0.tar.gz", ""),  # ls command
+                                    (True, "", ""),  # twine check
+                                    (True, "", ""),  # twine upload
+                                ]
 
-                            mock_uuid.return_value = "test-uuid"
+                                mock_uuid.return_value = "test-uuid"
 
-                            # Mock os.open to return a fake file descriptor
-                            mock_os_open.return_value = 3
+                                # Mock os.open to return a fake file descriptor
+                                mock_os_open.return_value = 3
 
-                            # Mock os.fdopen to return a mock file object
-                            mock_file = Mock()
-                            mock_file.__enter__ = Mock(return_value=mock_file)
-                            mock_file.__exit__ = Mock(return_value=False)
-                            mock_fdopen.return_value = mock_file
+                                # Mock os.fdopen to return a mock file object
+                                mock_file = Mock()
+                                mock_file.__enter__ = Mock(return_value=mock_file)
+                                mock_file.__exit__ = Mock(return_value=False)
+                                mock_fdopen.return_value = mock_file
 
-                            await push_handler.upload_to_pypi(tag_name="v1.0.0")
+                                await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
-                            # Verify slack message format
-                            push_handler.github_webhook.send_slack_message.assert_called_once()
-                            call_args = push_handler.github_webhook.send_slack_message.call_args
+                                # Verify slack message format
+                                push_handler.github_webhook.send_slack_message.assert_called_once()
+                                call_args = push_handler.github_webhook.send_slack_message.call_args
 
-                            assert call_args[1]["webhook_url"] == "https://hooks.slack.com/test"
-                            assert "test-repo" in call_args[1]["message"]
-                            assert "v1.0.0" in call_args[1]["message"]
-                            assert "published to PYPI" in call_args[1]["message"]
+                                assert call_args[1]["webhook_url"] == "https://hooks.slack.com/test"
+                                assert "test-repo" in call_args[1]["message"]
+                                assert "v1.0.0" in call_args[1]["message"]
+                                assert "published to PYPI" in call_args[1]["message"]
+
+    @pytest.mark.asyncio
+    async def test_upload_to_pypi_missing_token(self, push_handler: PushHandler) -> None:
+        """Test upload to pypi when PyPI token is missing."""
+        # Set pypi config without token
+        push_handler.github_webhook.pypi = {}
+
+        with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
+            with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
+                with patch.object(push_handler.repository, "create_issue") as mock_create_issue:
+                    # Mock successful clone
+                    mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+
+                    # Mock successful build and ls
+                    mock_run_command.side_effect = [
+                        (True, "", ""),  # uv build
+                        (True, "package-1.0.0.tar.gz", ""),  # ls command
+                    ]
+
+                    await push_handler.upload_to_pypi(tag_name="v1.0.0")
+
+                    # Verify issue was created for missing token
+                    mock_create_issue.assert_called_once()
+                    call_args = mock_create_issue.call_args
+                    assert "PyPI token is not configured" in call_args[1]["title"]
+
+    @pytest.mark.asyncio
+    async def test_upload_to_pypi_preexisting_pypirc(self, push_handler: PushHandler) -> None:
+        """Test upload to pypi when .pypirc file already exists."""
+        with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
+            with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
+                with patch.object(push_handler.repository, "create_issue") as mock_create_issue:
+                    with patch("os.open") as mock_os_open:
+                        # Mock successful clone
+                        mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+
+                        # Mock successful build and ls
+                        mock_run_command.side_effect = [
+                            (True, "", ""),  # uv build
+                            (True, "package-1.0.0.tar.gz", ""),  # ls command
+                        ]
+
+                        # Simulate FileExistsError when creating .pypirc
+                        mock_os_open.side_effect = FileExistsError("File exists")
+
+                        await push_handler.upload_to_pypi(tag_name="v1.0.0")
+
+                        # Verify issue was created for pre-existing file
+                        mock_create_issue.assert_called_once()
+                        call_args = mock_create_issue.call_args
+                        assert ".pypirc file already exists" in call_args[1]["title"]

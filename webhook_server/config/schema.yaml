@@ -74,6 +74,11 @@ properties:
     type: boolean
     description: Create a tracking issue for new pull requests (global default)
     default: true
+  max-owners-files:
+    type: integer
+    description: Maximum number of OWNERS files to process in a repository (default is 1000)
+    default: 1000
+    minimum: 1
 
   pr-size-thresholds:
     type: object
@@ -260,6 +265,11 @@ properties:
           type: boolean
           description: Create a tracking issue for new pull requests
           default: true
+        max-owners-files:
+          type: integer
+          description: Maximum number of OWNERS files to process in this repository (default is 1000)
+          default: 1000
+          minimum: 1
         pr-size-thresholds:
           type: object
           description: Custom PR size thresholds with label names and colors (repository-specific override)

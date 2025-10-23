@@ -1,4 +1,5 @@
 import asyncio
+import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Coroutine
 
@@ -10,6 +11,7 @@ from github.NamedUser import NamedUser
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
+from webhook_server.libs.graphql.graphql_client import GraphQLError
 from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
 from webhook_server.utils.constants import COMMAND_ADD_ALLOWED_USER_STR
 
@@ -24,6 +26,8 @@ class OwnersFileHandler:
         self.log_prefix: str = self.github_webhook.log_prefix
         self.repository: Repository = self.github_webhook.repository
         self.unified_api = self.github_webhook.unified_api
+        self.config = self.github_webhook.config
+        self.max_owners_files = self.config.get_value("max-owners-files", return_on_none=1000)
 
     async def initialize(self, pull_request: PullRequestWrapper) -> "OwnersFileHandler":
         self.changed_files = await self.list_changed_files(pull_request=pull_request)
@@ -113,7 +117,6 @@ class OwnersFileHandler:
         _owners: dict[str, dict[str, Any]] = {}
         tasks: list[Coroutine[Any, Any, Any]] = []
 
-        max_owners_files = 1000  # Configurable limit
         owners_count = 0
 
         self.logger.debug(f"{self.log_prefix} Get git tree")
@@ -123,8 +126,8 @@ class OwnersFileHandler:
         for element in tree.tree:
             if element.type == "blob" and element.path.endswith("OWNERS"):
                 owners_count += 1
-                if owners_count > max_owners_files:
-                    self.logger.error(f"{self.log_prefix} Too many OWNERS files (>{max_owners_files})")
+                if owners_count > self.max_owners_files:
+                    self.logger.error(f"{self.log_prefix} Too many OWNERS files (>{self.max_owners_files})")
                     break
 
                 content_path = element.path
@@ -298,16 +301,19 @@ class OwnersFileHandler:
             await self.github_webhook.request_pr_reviews(pull_request, reviewers_to_request)
             self.logger.step(f"{self.log_prefix} Successfully assigned {len(reviewers_to_request)} reviewers")  # type: ignore
 
-        except GithubException as ex:
+        except (GithubException, GraphQLError) as ex:
             self.logger.step(f"{self.log_prefix} Failed to assign reviewers in batch")  # type: ignore
-            self.logger.debug(f"{self.log_prefix} Batch review request failed: {ex}")
+            self.logger.debug(
+                f"{self.log_prefix} Batch review request failed with traceback:\n{traceback.format_exc()}"
+            )
             # Use unified_api for create_issue_comment
             owner, repo_name = self.repository.full_name.split("/")
+            error_type = type(ex).__name__
             await self.unified_api.create_issue_comment(
                 owner,
                 repo_name,
                 pull_request.number,
-                f"Failed to assign reviewers {', '.join(reviewers_to_request)}: {ex}",
+                f"Failed to assign reviewers {', '.join(reviewers_to_request)}: [{error_type}] {ex}",
             )
 
         self.logger.step(f"{self.log_prefix} Reviewer assignment completed")  # type: ignore

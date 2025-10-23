@@ -39,10 +39,8 @@ class TestRunnerHandler:
         mock_webhook.last_commit = Mock()
         mock_webhook.last_commit.sha = "abc123def456"  # pragma: allowlist secret
         mock_webhook.repository_by_github_app = Mock()
-        # Add unified_api mock with async methods
-        mock_webhook.unified_api = Mock()
-        mock_webhook.unified_api.create_check_run = AsyncMock()
-        mock_webhook.unified_api.create_issue_comment = AsyncMock()
+        # Add unified_api mock as AsyncMock for all async methods
+        mock_webhook.unified_api = AsyncMock()
         return mock_webhook
 
     @pytest.fixture
@@ -113,13 +111,17 @@ class TestRunnerHandler:
 
     @pytest.mark.asyncio
     async def test_run_podman_command_podman_bug(self, runner_handler: RunnerHandler) -> None:
-        """Test run_podman_command with podman bug error."""
+        """Test run_podman_command with podman bug error and retry."""
         podman_bug_err = "Error: current system boot ID differs from cached boot ID; an unhandled reboot has occurred"
         with patch("webhook_server.libs.handlers.runner_handler.run_command", new=AsyncMock()) as mock_run:
             mock_run.side_effect = [(False, "output", podman_bug_err), (True, "success after fix", "")]
             with patch.object(runner_handler, "fix_podman_bug") as mock_fix:
                 rc, out, err = await runner_handler.run_podman_command("podman build .")
+                # Verify fix_podman_bug was called
                 assert mock_fix.call_count >= 1
+                # Verify retry succeeded
+                assert rc is True
+                assert "success after fix" in out
 
     @pytest.mark.asyncio
     async def test_run_podman_command_other_error(self, runner_handler: RunnerHandler) -> None:

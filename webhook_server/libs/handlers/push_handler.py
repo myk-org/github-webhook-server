@@ -97,14 +97,27 @@ Publish to PYPI failed: `{_error}`
                 "username = __token__\n"
                 f"password = {token}\n"
             )
-            # Atomically create with restrictive permissions
-            fd = os.open(pypirc_path, os.O_CREAT | os.O_WRONLY | os.O_EXCL, 0o600)
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(pypirc_content)
+            # Atomically create with restrictive permissions and symlink protection
+            try:
+                # O_NOFOLLOW prevents symlink traversal attacks
+                flags = os.O_CREAT | os.O_WRONLY | os.O_EXCL
+                if hasattr(os, "O_NOFOLLOW"):
+                    flags |= os.O_NOFOLLOW
+                fd = os.open(pypirc_path, flags, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(pypirc_content)
+            except FileExistsError as ex:
+                _error = f".pypirc file already exists at {pypirc_path}"
+                self.logger.error(f"{self.log_prefix} {_error}: {ex}")
+                return _issue_on_error(_error=_error)
+            except OSError as ex:
+                _error = f"Failed to create .pypirc file: {ex}"
+                self.logger.exception(f"{self.log_prefix} {_error}")
+                return _issue_on_error(_error=_error)
 
             commands: list[str] = [
-                f"uvx {uv_cmd_dir} twine check {_dist_dir}/{tar_gz_file}",
-                f"uvx {uv_cmd_dir} twine upload --config-file {pypirc_path} {_dist_dir}/{tar_gz_file} --skip-existing",
+                f"uvx {uv_cmd_dir} twine check --strict '{_dist_dir}/{tar_gz_file}'",
+                f"uvx {uv_cmd_dir} twine upload --non-interactive --config-file '{pypirc_path}' '{_dist_dir}/{tar_gz_file}' --skip-existing",
             ]
             # Avoid logging secrets; keep high-level trace only
             self.logger.debug("Prepared Twine commands (details redacted for security)")
@@ -114,6 +127,13 @@ Publish to PYPI failed: `{_error}`
                 if not rc:
                     _error = self.check_run_handler.get_check_run_text(out=out, err=err)
                     return _issue_on_error(_error=_error)
+
+            # Clean up .pypirc immediately after successful upload to reduce credential exposure
+            try:
+                os.remove(pypirc_path)
+                self.logger.debug(f"{self.log_prefix} Removed .pypirc after successful upload")
+            except OSError as ex:
+                self.logger.warning(f"{self.log_prefix} Failed to remove .pypirc: {ex}")
 
             self.logger.step(f"{self.log_prefix} PyPI upload completed successfully for tag: {tag_name}")  # type: ignore
             self.logger.info(f"{self.log_prefix} Publish to pypi finished")

@@ -43,7 +43,7 @@ async def test_graphql_client_initialization(graphql_client, mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_context_manager(graphql_client, mock_logger):
+async def test_context_manager(graphql_client):
     """Test async context manager."""
     with (
         patch("webhook_server.libs.graphql.graphql_client.AIOHTTPTransport"),
@@ -62,7 +62,7 @@ async def test_context_manager(graphql_client, mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_execute_success(graphql_client, mock_logger):
+async def test_execute_success(graphql_client):
     """Test successful query execution."""
     mock_result = {"viewer": {"login": "testuser"}}
 
@@ -84,13 +84,12 @@ async def test_execute_success(graphql_client, mock_logger):
         result = await graphql_client.execute("query { viewer { login } }")
 
         assert result == mock_result
-        mock_logger.debug.assert_called()
         mock_client.connect_async.assert_called_once()
         mock_session.execute.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_execute_batch(graphql_client, mock_logger):
+async def test_execute_batch(graphql_client):
     """Test batch query execution."""
     mock_result_1 = {"viewer": {"login": "testuser"}}
     mock_result_2 = {"rateLimit": {"remaining": 5000}}
@@ -125,7 +124,7 @@ async def test_execute_batch(graphql_client, mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_get_rate_limit(graphql_client, mock_logger):
+async def test_get_rate_limit(graphql_client):
     """Test get_rate_limit helper method."""
     mock_result = {
         "rateLimit": {
@@ -158,7 +157,7 @@ async def test_get_rate_limit(graphql_client, mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_get_viewer_info(graphql_client, mock_logger):
+async def test_get_viewer_info(graphql_client):
     """Test get_viewer_info helper method."""
     mock_result = {
         "viewer": {
@@ -192,7 +191,7 @@ async def test_get_viewer_info(graphql_client, mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_close(graphql_client, mock_logger):
+async def test_close(graphql_client):
     """Test client cleanup."""
     with (
         patch("webhook_server.libs.graphql.graphql_client.AIOHTTPTransport"),

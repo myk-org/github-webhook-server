@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, PropertyMock, patch
 
 import pytest
 import yaml
@@ -26,6 +26,9 @@ class TestOwnersFileHandler:
         mock_webhook.unified_api.request_reviews = AsyncMock()
         mock_webhook.unified_api.get_user_id = AsyncMock()
         mock_webhook.unified_api.add_assignees_by_login = AsyncMock()
+        # Mock config
+        mock_webhook.config = Mock()
+        mock_webhook.config.get_value = Mock(return_value=1000)
         return mock_webhook
 
     @pytest.fixture
@@ -266,6 +269,31 @@ class TestOwnersFileHandler:
         result = await owners_file_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
         assert len(result) == 1000
         owners_file_handler.logger.error.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_get_all_repository_approvers_and_reviewers_custom_max_limit(
+        self, mock_github_webhook: Mock, mock_pull_request: Mock
+    ) -> None:
+        """Test that custom max-owners-files config is respected."""
+        # Set custom limit to 5
+        mock_github_webhook.config.get_value = Mock(return_value=5)
+        custom_handler = OwnersFileHandler(mock_github_webhook)
+
+        mock_tree = Mock()
+        mock_tree.tree = [Mock(type="blob", path=f"file{i}/OWNERS") for i in range(10)]
+        custom_handler.repository.full_name = "test/repo"
+        custom_handler.github_webhook.unified_api.get_git_tree = AsyncMock(return_value=mock_tree)
+        custom_handler.github_webhook.unified_api.get_contents = AsyncMock(
+            return_value=ContentFile(yaml.dump({"approvers": [], "reviewers": []}))
+        )
+        custom_handler.logger.error = Mock()
+
+        result = await custom_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
+
+        # Should only process 5 files because custom limit is 5
+        assert len(result) == 5
+        custom_handler.logger.error.assert_called_once()
+        assert ">5" in str(custom_handler.logger.error.call_args)
 
     @pytest.mark.asyncio
     async def test_get_all_repository_approvers_and_reviewers_invalid_yaml(
@@ -584,9 +612,10 @@ class TestOwnersFileHandler:
             return [mock_contributor1, mock_contributor2]
 
         with patch.object(
-            owners_file_handler,
+            type(owners_file_handler),
             "repository_contributors",
-            new=mock_contributors_property(),
+            new_callable=PropertyMock,
+            return_value=mock_contributors_property(),
         ):
             result = await owners_file_handler.get_all_repository_contributors()
             assert result == ["contributor1", "contributor2"]
@@ -602,9 +631,10 @@ class TestOwnersFileHandler:
             return [mock_collaborator1, mock_collaborator2]
 
         with patch.object(
-            owners_file_handler,
+            type(owners_file_handler),
             "repository_collaborators",
-            new=mock_collaborators_property(),
+            new_callable=PropertyMock,
+            return_value=mock_collaborators_property(),
         ):
             result = await owners_file_handler.get_all_repository_collaborators()
             assert result == ["collaborator1", "collaborator2"]
@@ -631,9 +661,10 @@ class TestOwnersFileHandler:
             return [mock_admin, mock_maintainer, mock_regular]
 
         with patch.object(
-            owners_file_handler,
+            type(owners_file_handler),
             "repository_collaborators",
-            new=mock_collaborators_property(),
+            new_callable=PropertyMock,
+            return_value=mock_collaborators_property(),
         ):
             result = await owners_file_handler.get_all_repository_maintainers()
             assert result == ["admin_user", "maintainer_user"]
