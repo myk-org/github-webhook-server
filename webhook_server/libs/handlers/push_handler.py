@@ -87,6 +87,7 @@ Publish to PYPI failed: `{_error}`
                 return _issue_on_error(_error="PyPI token is not configured")
 
             # Write temporary pypirc (removed when clone dir is cleaned up)
+            # Create file atomically with secure permissions (0o600)
             pypirc_path = f"{clone_repo_dir}/.pypirc"
             pypirc_content = (
                 "[distutils]\n"
@@ -96,10 +97,10 @@ Publish to PYPI failed: `{_error}`
                 "username = __token__\n"
                 f"password = {token}\n"
             )
-            with open(pypirc_path, "w", encoding="utf-8") as f:
+            # Atomically create with restrictive permissions
+            fd = os.open(pypirc_path, os.O_CREAT | os.O_WRONLY | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(pypirc_content)
-            # Set restrictive permissions immediately after writing
-            os.chmod(pypirc_path, 0o600)
 
             commands: list[str] = [
                 f"uvx {uv_cmd_dir} twine check {_dist_dir}/{tar_gz_file}",

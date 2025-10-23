@@ -223,10 +223,10 @@ class TestOwnersFileHandler:
     ) -> None:
         owners_file_handler.repository.full_name = "test/repo"
 
-        async def get_tree_wrapper(o, n, ref, recursive):
+        async def get_tree_wrapper(_o, _n, _ref, recursive=False):
             return mock_tree
 
-        async def get_contents_wrapper(o, n, path, ref):
+        async def get_contents_wrapper(_o, _n, path, _ref):
             return mock_content_files.get(path, ContentFile(""))
 
         owners_file_handler.github_webhook.unified_api.get_git_tree = get_tree_wrapper
@@ -627,10 +627,13 @@ class TestOwnersFileHandler:
         mock_regular.permissions.admin = False
         mock_regular.permissions.maintain = False
 
+        async def mock_collaborators_property():
+            return [mock_admin, mock_maintainer, mock_regular]
+
         with patch.object(
             owners_file_handler,
             "repository_collaborators",
-            new_callable=AsyncMock(return_value=[mock_admin, mock_maintainer, mock_regular]),
+            new=mock_collaborators_property(),
         ):
             result = await owners_file_handler.get_all_repository_maintainers()
             assert result == ["admin_user", "maintainer_user"]

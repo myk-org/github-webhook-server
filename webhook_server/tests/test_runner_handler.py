@@ -695,7 +695,9 @@ class TestRunnerHandler:
                                 mock_prepare.return_value = AsyncMock()
                                 mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(True, "", ""))
                                 mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
-                                with patch.object(runner_handler, "run_podman_command") as mock_run_podman:
+                                with patch.object(
+                                    runner_handler, "run_podman_command", new_callable=AsyncMock
+                                ) as mock_run_podman:
                                     # First call (build) succeeds, second call (push) fails
                                     mock_run_podman.side_effect = [
                                         (True, "build success", ""),
@@ -744,7 +746,12 @@ class TestRunnerHandler:
                             mock_prepare.return_value = AsyncMock()
                             mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(True, "", ""))
                             mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
-                            with patch.object(runner_handler, "run_podman_command", return_value=(True, "success", "")):
+                            with patch.object(
+                                runner_handler,
+                                "run_podman_command",
+                                new_callable=AsyncMock,
+                                return_value=(True, "success", ""),
+                            ):
                                 await runner_handler.run_build_container(
                                     pull_request=mock_pull_request, command_args="--extra-arg"
                                 )

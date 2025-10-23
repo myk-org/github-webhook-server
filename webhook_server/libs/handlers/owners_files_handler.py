@@ -100,6 +100,8 @@ class OwnersFileHandler:
         _path = await self.unified_api.get_contents(owner, repo_name, content_path, pull_request.base.ref)
 
         if isinstance(_path, list):
+            if not _path:
+                raise FileNotFoundError(f"OWNERS file not found at {content_path} in ref {pull_request.base.ref}")
             _path = _path[0]
 
         return _path, content_path
@@ -170,10 +172,6 @@ class OwnersFileHandler:
         """
         Get all reviewers from repository OWNERS files.
 
-        Note: GraphQL queries in get_all_repository_approvers_and_reviewers() use first:100
-        for commits/labels/reviews. If you have >100 items, implement pagination or
-        document the limitation.
-
         Returns:
             List of reviewer usernames
         """
@@ -193,10 +191,6 @@ class OwnersFileHandler:
         """
         Get all approvers required for the current pull request based on changed files.
 
-        Note: This method relies on GraphQL queries with first:100 pagination limits.
-        If you have >100 commits, labels, or reviews, some data may be truncated.
-        Consider implementing cursor-based pagination if needed.
-
         Returns:
             Sorted list of unique approver usernames
         """
@@ -215,10 +209,6 @@ class OwnersFileHandler:
     async def get_all_pull_request_reviewers(self) -> list[str]:
         """
         Get all reviewers required for the current pull request based on changed files.
-
-        Note: This method relies on GraphQL queries with first:100 pagination limits.
-        If you have >100 commits, labels, or reviews, some data may be truncated.
-        Consider implementing cursor-based pagination if needed.
 
         Returns:
             Sorted list of unique reviewer usernames

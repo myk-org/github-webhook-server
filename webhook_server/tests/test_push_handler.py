@@ -1,5 +1,6 @@
 """Tests for webhook_server.libs.handlers.push_handler module."""
 
+import os
 from unittest.mock import Mock, patch
 
 import pytest
@@ -112,8 +113,8 @@ class TestPushHandler:
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
             with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
                 with patch("webhook_server.libs.handlers.push_handler.uuid4") as mock_uuid:
-                    with patch("builtins.open", create=True) as mock_open:
-                        with patch("os.chmod") as mock_chmod:
+                    with patch("os.open") as mock_os_open:
+                        with patch("os.fdopen", create=True) as mock_fdopen:
                             # Mock successful clone
                             mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
@@ -127,6 +128,15 @@ class TestPushHandler:
 
                             mock_uuid.return_value = "test-uuid"
 
+                            # Mock os.open to return a fake file descriptor
+                            mock_os_open.return_value = 3
+
+                            # Mock os.fdopen to return a mock file object
+                            mock_file = Mock()
+                            mock_file.__enter__ = Mock(return_value=mock_file)
+                            mock_file.__exit__ = Mock(return_value=False)
+                            mock_fdopen.return_value = mock_file
+
                             await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
                             # Verify clone was called
@@ -135,11 +145,13 @@ class TestPushHandler:
                             # Verify build command was called
                             assert mock_run_command.call_count == 4
 
-                            # Verify pypirc file was written
-                            mock_open.assert_called_once_with("/tmp/test-repo-test-uuid/.pypirc", "w", encoding="utf-8")
+                            # Verify os.open was called with atomic creation flags and secure permissions
+                            mock_os_open.assert_called_once_with(
+                                "/tmp/test-repo-test-uuid/.pypirc", os.O_CREAT | os.O_WRONLY | os.O_EXCL, 0o600
+                            )
 
-                            # Verify chmod was called for security
-                            mock_chmod.assert_called_once_with("/tmp/test-repo-test-uuid/.pypirc", 0o600)
+                            # Verify os.fdopen was called with the file descriptor
+                            mock_fdopen.assert_called_once_with(3, "w", encoding="utf-8")
 
                             # Verify slack message was sent
                             push_handler.github_webhook.send_slack_message.assert_called_once()
@@ -206,8 +218,8 @@ class TestPushHandler:
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
             with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
                 with patch.object(push_handler.repository, "create_issue") as mock_create_issue:
-                    with patch("builtins.open", create=True):
-                        with patch("os.chmod"):
+                    with patch("os.open") as mock_os_open:
+                        with patch("os.fdopen", create=True) as mock_fdopen:
                             # Mock successful clone
                             mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
@@ -217,6 +229,15 @@ class TestPushHandler:
                                 (True, "package-1.0.0.tar.gz", ""),  # ls command
                                 (False, "twine check failed", "Error"),  # twine check
                             ]
+
+                            # Mock os.open to return a fake file descriptor
+                            mock_os_open.return_value = 3
+
+                            # Mock os.fdopen to return a mock file object
+                            mock_file = Mock()
+                            mock_file.__enter__ = Mock(return_value=mock_file)
+                            mock_file.__exit__ = Mock(return_value=False)
+                            mock_fdopen.return_value = mock_file
 
                             await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
@@ -231,8 +252,8 @@ class TestPushHandler:
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
             with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
                 with patch.object(push_handler.repository, "create_issue") as mock_create_issue:
-                    with patch("builtins.open", create=True):
-                        with patch("os.chmod"):
+                    with patch("os.open") as mock_os_open:
+                        with patch("os.fdopen", create=True) as mock_fdopen:
                             # Mock successful clone
                             mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
@@ -243,6 +264,15 @@ class TestPushHandler:
                                 (True, "", ""),  # twine check
                                 (False, "twine upload failed", "Error"),  # twine upload
                             ]
+
+                            # Mock os.open to return a fake file descriptor
+                            mock_os_open.return_value = 3
+
+                            # Mock os.fdopen to return a mock file object
+                            mock_file = Mock()
+                            mock_file.__enter__ = Mock(return_value=mock_file)
+                            mock_file.__exit__ = Mock(return_value=False)
+                            mock_fdopen.return_value = mock_file
 
                             await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
@@ -259,8 +289,8 @@ class TestPushHandler:
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
             with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
                 with patch("webhook_server.libs.handlers.push_handler.uuid4") as mock_uuid:
-                    with patch("builtins.open", create=True):
-                        with patch("os.chmod"):
+                    with patch("os.open") as mock_os_open:
+                        with patch("os.fdopen", create=True) as mock_fdopen:
                             # Mock successful clone
                             mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
@@ -274,6 +304,15 @@ class TestPushHandler:
 
                             mock_uuid.return_value = "test-uuid"
 
+                            # Mock os.open to return a fake file descriptor
+                            mock_os_open.return_value = 3
+
+                            # Mock os.fdopen to return a mock file object
+                            mock_file = Mock()
+                            mock_file.__enter__ = Mock(return_value=mock_file)
+                            mock_file.__exit__ = Mock(return_value=False)
+                            mock_fdopen.return_value = mock_file
+
                             await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
                             # Verify slack message was not sent
@@ -285,8 +324,8 @@ class TestPushHandler:
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
             with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
                 with patch("webhook_server.libs.handlers.push_handler.uuid4") as mock_uuid:
-                    with patch("builtins.open", create=True):
-                        with patch("os.chmod"):
+                    with patch("os.open") as mock_os_open:
+                        with patch("os.fdopen", create=True) as mock_fdopen:
                             # Mock successful clone
                             mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
@@ -299,6 +338,15 @@ class TestPushHandler:
                             ]
 
                             mock_uuid.return_value = "test-uuid"
+
+                            # Mock os.open to return a fake file descriptor
+                            mock_os_open.return_value = 3
+
+                            # Mock os.fdopen to return a mock file object
+                            mock_file = Mock()
+                            mock_file.__enter__ = Mock(return_value=mock_file)
+                            mock_file.__exit__ = Mock(return_value=False)
+                            mock_fdopen.return_value = mock_file
 
                             await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
@@ -319,8 +367,8 @@ class TestPushHandler:
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
             with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
                 with patch("webhook_server.libs.handlers.push_handler.uuid4") as mock_uuid:
-                    with patch("builtins.open", create=True):
-                        with patch("os.chmod"):
+                    with patch("os.open") as mock_os_open:
+                        with patch("os.fdopen", create=True) as mock_fdopen:
                             # Mock successful clone
                             mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
@@ -333,6 +381,15 @@ class TestPushHandler:
                             ]
 
                             mock_uuid.return_value = "test-uuid"
+
+                            # Mock os.open to return a fake file descriptor
+                            mock_os_open.return_value = 3
+
+                            # Mock os.fdopen to return a mock file object
+                            mock_file = Mock()
+                            mock_file.__enter__ = Mock(return_value=mock_file)
+                            mock_file.__exit__ = Mock(return_value=False)
+                            mock_fdopen.return_value = mock_file
 
                             await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
@@ -366,8 +423,8 @@ class TestPushHandler:
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
             with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
                 with patch("webhook_server.libs.handlers.push_handler.uuid4") as mock_uuid:
-                    with patch("builtins.open", create=True):
-                        with patch("os.chmod"):
+                    with patch("os.open") as mock_os_open:
+                        with patch("os.fdopen", create=True) as mock_fdopen:
                             # Mock successful clone
                             mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
@@ -380,6 +437,15 @@ class TestPushHandler:
                             ]
 
                             mock_uuid.return_value = "test-uuid"
+
+                            # Mock os.open to return a fake file descriptor
+                            mock_os_open.return_value = 3
+
+                            # Mock os.fdopen to return a mock file object
+                            mock_file = Mock()
+                            mock_file.__enter__ = Mock(return_value=mock_file)
+                            mock_file.__exit__ = Mock(return_value=False)
+                            mock_fdopen.return_value = mock_file
 
                             await push_handler.upload_to_pypi(tag_name="v1.0.0")
 

@@ -6,6 +6,9 @@ import pytest
 
 from webhook_server.libs.graphql.graphql_client import GraphQLClient
 
+# Test token constant to silence security warnings
+TEST_GITHUB_TOKEN = "ghs_" + "test1234567890abcdefghijklmnopqrstuvwxyz"  # pragma: allowlist secret
+
 
 @pytest.fixture
 def mock_logger():
@@ -16,7 +19,7 @@ def mock_logger():
 @pytest.mark.asyncio
 async def test_graphql_client_auto_initialize(mock_logger):
     """Test client auto-initializes when calling methods."""
-    client = GraphQLClient(token="test_token", logger=mock_logger)
+    client = GraphQLClient(token=TEST_GITHUB_TOKEN, logger=mock_logger)
 
     mock_result = {"rateLimit": {"limit": 5000}}
 
@@ -46,7 +49,7 @@ async def test_graphql_client_auto_initialize(mock_logger):
 @pytest.mark.asyncio
 async def test_graphql_client_with_variables(mock_logger):
     """Test query execution with variables."""
-    client = GraphQLClient(token="test_token", logger=mock_logger)
+    client = GraphQLClient(token=TEST_GITHUB_TOKEN, logger=mock_logger)
 
     mock_result = {"addComment": {"comment": {"id": "123"}}}
     variables = {"subjectId": "PR_123", "body": "Test"}
@@ -77,7 +80,7 @@ async def test_graphql_client_with_variables(mock_logger):
 @pytest.mark.asyncio
 async def test_graphql_client_custom_timeout(mock_logger):
     """Test client with custom timeout and retry count."""
-    client = GraphQLClient(token="test_token", logger=mock_logger, retry_count=5, timeout=60)
+    client = GraphQLClient(token=TEST_GITHUB_TOKEN, logger=mock_logger, retry_count=5, timeout=60)
 
     assert client.retry_count == 5
     assert client.timeout == 60
@@ -86,7 +89,7 @@ async def test_graphql_client_custom_timeout(mock_logger):
 @pytest.mark.asyncio
 async def test_get_viewer_info_method(mock_logger):
     """Test get_viewer_info helper method."""
-    client = GraphQLClient(token="test_token", logger=mock_logger)
+    client = GraphQLClient(token=TEST_GITHUB_TOKEN, logger=mock_logger)
 
     mock_result = {
         "viewer": {
@@ -123,7 +126,7 @@ async def test_get_viewer_info_method(mock_logger):
 @pytest.mark.asyncio
 async def test_execute_batch_empty_list(mock_logger):
     """Test execute_batch with empty query list."""
-    client = GraphQLClient(token="test_token", logger=mock_logger)
+    client = GraphQLClient(token=TEST_GITHUB_TOKEN, logger=mock_logger)
 
     with (
         patch("webhook_server.libs.graphql.graphql_client.AIOHTTPTransport"),
@@ -137,7 +140,7 @@ async def test_execute_batch_empty_list(mock_logger):
 @pytest.mark.asyncio
 async def test_close_when_not_initialized(mock_logger):
     """Test close when client was never initialized."""
-    client = GraphQLClient(token="test_token", logger=mock_logger)
+    client = GraphQLClient(token=TEST_GITHUB_TOKEN, logger=mock_logger)
 
     # Should not raise error
     await client.close()
@@ -148,7 +151,7 @@ async def test_close_when_not_initialized(mock_logger):
 @pytest.mark.asyncio
 async def test_ensure_client_idempotent(mock_logger):
     """Test _ensure_client reuses the same client (idempotent with connection pooling)."""
-    client = GraphQLClient(token="test_token", logger=mock_logger)
+    client = GraphQLClient(token=TEST_GITHUB_TOKEN, logger=mock_logger)
 
     # Create a single async mock instance for the persistent client
     mock_client = AsyncMock()

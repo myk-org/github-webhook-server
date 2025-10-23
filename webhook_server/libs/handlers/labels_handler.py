@@ -123,8 +123,8 @@ class LabelsHandler:
                 self.logger.debug(f"{self.log_prefix} Add {_with_color_msg}")
 
         except UnknownObjectException:
-            # Label not found, create it
-            self.logger.exception(f"{self.log_prefix} Label {label} not found, creating it")
+            # Label not found, create it (expected condition, not an error)
+            self.logger.debug(f"{self.log_prefix} Label {label} not found, creating it")
             repo_data = await self.unified_api.get_repository(owner, repo_name)
             await self.unified_api.create_label(repo_data["id"], label, color)
             self.logger.debug(f"{self.log_prefix} Add {_with_color_msg}")
