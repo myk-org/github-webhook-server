@@ -912,11 +912,11 @@ body {
 }
 
 .task-group-arrow.expanded {
-  transform: rotate(0deg);
+  transform: rotate(90deg);
 }
 
 .task-group-arrow.collapsed {
-  transform: rotate(-90deg);
+  transform: rotate(0deg);
 }
 
 .task-group-status {
