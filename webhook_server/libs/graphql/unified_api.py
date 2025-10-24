@@ -22,6 +22,7 @@ from github.Repository import Repository as RestRepository
 
 from webhook_server.libs.graphql.graphql_builders import MutationBuilder, QueryBuilder
 from webhook_server.libs.graphql.graphql_client import GraphQLClient
+from webhook_server.utils.constants import ERROR_IDS
 
 
 class APIType(Enum):
@@ -308,7 +309,11 @@ class UnifiedGitHubAPI:
         try:
             result = await self.graphql_client.execute(mutation, variables)  # type: ignore[union-attr]
         except Exception as ex:
-            self.logger.error(f"Failed to add comment to {subject_id}: {ex}", exc_info=True)
+            self.logger.error(
+                f"Failed to add comment to {subject_id}: {ex}",
+                exc_info=True,
+                extra={"error_id": ERROR_IDS.GRAPHQL_ADD_COMMENT_FAILED},
+            )
             raise
         else:
             self.logger.debug("GraphQL execute returned, extracting comment node")
@@ -318,6 +323,7 @@ class UnifiedGitHubAPI:
                 self.logger.error(
                     f"Failed to extract comment from GraphQL result for {subject_id}: {ex}. Result: {result}",
                     exc_info=True,
+                    extra={"error_id": ERROR_IDS.GRAPHQL_COMMENT_EXTRACT_FAILED},
                 )
                 raise
             else:
@@ -405,6 +411,42 @@ class UnifiedGitHubAPI:
         mutation, variables = MutationBuilder.create_issue(repository_id, title, body, assignee_ids, label_ids)
         result = await self.graphql_client.execute(mutation, variables)  # type: ignore[union-attr]
         return result["createIssue"]["issue"]
+
+    async def create_issue_on_repository(
+        self,
+        owner: str,
+        name: str,
+        title: str,
+        body: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Create a new issue on a repository (convenience method).
+
+        Uses: GraphQL
+        Reason: More efficient than REST, fetches repository ID automatically
+
+        Args:
+            owner: Repository owner
+            name: Repository name
+            title: Issue title
+            body: Issue body
+
+        Returns:
+            Created issue data
+
+        Example:
+            >>> issue = await api.create_issue_on_repository(
+            ...     "owner", "repo",
+            ...     "Bug: Something broke",
+            ...     "Details about the bug..."
+            ... )
+        """
+        # Get repository ID first
+        repo_data = await self.get_repository(owner, name)
+        repository_id = repo_data["id"]
+
+        # Create the issue
+        return await self.create_issue(repository_id, title, body)
 
     async def request_reviews(self, pull_request_id: str, user_ids: list[str]) -> None:
         """
@@ -687,21 +729,28 @@ class UnifiedGitHubAPI:
         pr = await asyncio.to_thread(repo.get_pull, number)
         return list(await asyncio.to_thread(pr.get_files))
 
-    async def create_issue_comment(self, owner: str, name: str, number: int, body: str) -> None:
+    async def get_open_pull_requests(self, owner: str, name: str) -> list[RestPullRequest]:
         """
-        Create a comment on a pull request or issue.
+        Get all open pull requests.
 
-        Uses: REST (helper method)
+        Uses: REST (wrapped in asyncio.to_thread to avoid blocking)
+        Reason: Simpler for iteration over all PRs; GraphQL pagination is more complex for this use case
 
         Args:
             owner: Repository owner
             name: Repository name
-            number: PR or issue number
-            body: Comment text
+
+        Returns:
+            List of PyGithub PullRequest objects
+
+        Example:
+            >>> prs = await api.get_open_pull_requests("owner", "repo")
+            >>> for pr in prs:
+            ...     print(pr.number, pr.title)
         """
         repo = await self.get_repository_for_rest_operations(owner, name)
-        pr = await asyncio.to_thread(repo.get_pull, number)
-        await asyncio.to_thread(pr.create_issue_comment, body)
+        pulls = await asyncio.to_thread(repo.get_pulls, state="open")
+        return list(pulls)
 
     async def get_issue_comments(self, owner: str, name: str, number: int) -> list[Any]:
         """
@@ -719,7 +768,8 @@ class UnifiedGitHubAPI:
         """
         repo = await self.get_repository_for_rest_operations(owner, name)
         pr = await asyncio.to_thread(repo.get_pull, number)
-        return await asyncio.to_thread(pr.get_issue_comments)
+        comments = await asyncio.to_thread(pr.get_issue_comments)
+        return list(comments)
 
     async def add_assignees_by_login(self, owner: str, name: str, number: int, assignees: list[str]) -> None:
         """
@@ -777,10 +827,6 @@ class UnifiedGitHubAPI:
         """Edit issue state."""
         await asyncio.to_thread(issue.edit, state=state)
 
-    async def create_issue_comment_on_issue(self, issue: Any, body: str) -> None:
-        """Create a comment on an issue object."""
-        await asyncio.to_thread(issue.create_comment, body)
-
     async def get_contents(self, owner: str, name: str, path: str, ref: str) -> Any:
         """Get file contents from repository."""
         repo = await self.get_repository_for_rest_operations(owner, name)
@@ -813,7 +859,11 @@ class UnifiedGitHubAPI:
             rest_commit = await asyncio.to_thread(repo.get_commit, commit.sha)
             return list(await asyncio.to_thread(rest_commit.get_check_runs))
 
-        # Fallback - return empty list
+        # Fallback - return empty list with warning
+        self.logger.warning(
+            f"Unable to get check runs for commit (type={type(commit).__name__}, "
+            f"owner={owner}, name={name}). Returning empty list."
+        )
         return []
 
     async def create_check_run(self, repo_by_app: Any, **kwargs: Any) -> None:
@@ -826,25 +876,28 @@ class UnifiedGitHubAPI:
         pr = await asyncio.to_thread(repo.get_pull, number)
         await asyncio.to_thread(pr.merge, merge_method=merge_method)
 
-    async def is_pull_request_merged(self, owner: str, name: str, number: int) -> bool:
-        """Check if pull request is merged."""
-        repo = await self.get_repository_for_rest_operations(owner, name)
-        pr = await asyncio.to_thread(repo.get_pull, number)
-        return await asyncio.to_thread(pr.is_merged)
-
-    async def get_pr_commits(self, owner: str, name: str, number: int) -> list[Any]:
-        """Get all commits from a pull request."""
-        pr = await self.get_pr_for_check_runs(owner, name, number)
-        return list(await asyncio.to_thread(pr.get_commits))
-
     async def get_pulls_from_commit(self, commit: Any) -> list[Any]:
         """Get pull requests associated with a commit."""
         return list(await asyncio.to_thread(commit.get_pulls))
 
-    async def get_open_pull_requests(self, owner: str, name: str) -> list[Any]:
-        """Get all open pull requests."""
+    async def get_pulls_from_commit_sha(self, owner: str, name: str, sha: str) -> list[Any]:
+        """
+        Get pull requests associated with a commit SHA.
+
+        Uses: REST
+        Reason: Efficient commit->PR lookup
+
+        Args:
+            owner: Repository owner
+            name: Repository name
+            sha: Commit SHA
+
+        Returns:
+            List of pull requests associated with the commit
+        """
         repo = await self.get_repository_for_rest_operations(owner, name)
-        return list(await asyncio.to_thread(repo.get_pulls, state="open"))
+        commit = await asyncio.to_thread(repo.get_commit, sha)
+        return list(await asyncio.to_thread(commit.get_pulls))
 
     # ===== Helper Methods =====
 

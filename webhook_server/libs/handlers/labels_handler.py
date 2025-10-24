@@ -6,6 +6,7 @@ from github.GithubException import UnknownObjectException
 from github.Repository import Repository
 from timeout_sampler import TimeoutWatch
 
+from webhook_server.libs.graphql.graphql_client import GraphQLError
 from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.utils.constants import (
@@ -67,8 +68,19 @@ class LabelsHandler:
                 refreshed_pr = PullRequestWrapper(refreshed_pr_data, owner, repo_name)
 
                 return await self.wait_for_label(pull_request=refreshed_pr, label=label, exists=False)
-        except Exception as exp:
-            self.logger.debug(f"{self.log_prefix} Failed to remove {label} label. Exception: {exp}")
+        except GraphQLError as ex:
+            # Check if error is critical (auth/permission/rate-limit)
+            error_str = str(ex).lower()
+            if any(keyword in error_str for keyword in ["auth", "permission", "forbidden", "rate limit", "401", "403"]):
+                self.logger.error(f"{self.log_prefix} Critical error removing {label} label: {ex}")
+                raise  # Don't hide auth/permission/rate-limit errors
+            else:
+                # Transient error or label doesn't exist
+                self.logger.warning(f"{self.log_prefix} Failed to remove {label} label (may not exist): {ex}")
+                return False
+        except Exception as ex:
+            # Handle non-GraphQL errors
+            self.logger.error(f"{self.log_prefix} Unexpected error removing {label} label: {ex}")
             return False
 
         self.logger.debug(f"{self.log_prefix} Label {label} not found and cannot be removed")
@@ -102,8 +114,20 @@ class LabelsHandler:
             refreshed_pr = PullRequestWrapper(refreshed_pr_data, owner, repo_name)
             try:
                 await self.wait_for_label(pull_request=refreshed_pr, label=label, exists=True)
+            except GraphQLError as ex:
+                # Check if error is critical (auth/permission/rate-limit)
+                error_str = str(ex).lower()
+                if any(
+                    keyword in error_str for keyword in ["auth", "permission", "forbidden", "rate limit", "401", "403"]
+                ):
+                    self.logger.error(f"{self.log_prefix} Critical error waiting for {label} label: {ex}")
+                    raise  # Don't hide auth/permission/rate-limit errors
+                else:
+                    # Transient error or timeout - log but don't fail the whole operation
+                    self.logger.warning(f"{self.log_prefix} Wait for {label} label timed out or failed: {ex}")
             except Exception as ex:
-                self.logger.warning(f"{self.log_prefix} Wait for label failed: {ex}")
+                # Handle non-GraphQL errors
+                self.logger.error(f"{self.log_prefix} Unexpected error waiting for {label} label: {ex}")
             return
 
         color = self._get_label_color(label)

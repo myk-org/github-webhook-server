@@ -8,6 +8,7 @@ from github.PullRequest import PullRequest
 from github.Repository import Repository
 
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
+from webhook_server.libs.graphql.graphql_client import GraphQLError
 from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
 from webhook_server.libs.handlers.labels_handler import LabelsHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
@@ -205,12 +206,8 @@ class IssueCommentHandler:
                 self.logger.debug(
                     f"{self.log_prefix} {reviewed_user} is not an approver, not adding {HOLD_LABEL_STR} label"
                 )
-                # Use unified_api for create_issue_comment
-                owner, repo_name = self.repository.full_name.split("/")
-                await self.github_webhook.unified_api.create_issue_comment(
-                    owner,
-                    repo_name,
-                    pull_request.number,
+                await self.github_webhook.add_pr_comment(
+                    pull_request,
                     f"{reviewed_user} is not part of the approver, only approvers can mark pull request with hold",
                 )
             else:
@@ -277,8 +274,12 @@ class IssueCommentHandler:
                 owner, repo_name = self.repository.full_name.split("/")
                 await self.github_webhook.unified_api.get_branch(owner, repo_name, _target_branch)
                 _exits_target_branches.add(_target_branch)
-            except Exception:
-                _non_exits_target_branches_msg += f"Target branch `{_target_branch}` does not exist\n"
+            except GraphQLError as ex:
+                if "404" in str(ex) or "not found" in str(ex).lower():
+                    _non_exits_target_branches_msg += f"Target branch `{_target_branch}` does not exist\n"
+                else:
+                    self.logger.error(f"{self.log_prefix} Failed to check branch {_target_branch}: {ex}", exc_info=True)
+                    raise  # Don't hide authentication/network errors
         self.logger.debug(
             f"{self.log_prefix} Found target branches {_exits_target_branches} and not found {_non_exits_target_branches_msg}"
         )
@@ -289,7 +290,9 @@ class IssueCommentHandler:
 
         if _exits_target_branches:
             owner, repo_name = self.repository.full_name.split("/")
-            if not await self.github_webhook.unified_api.is_pull_request_merged(owner, repo_name, pull_request.number):
+            pr_data = await self.github_webhook.unified_api.get_pull_request(owner, repo_name, pull_request.number)
+            is_merged = pr_data["merged"]
+            if not is_merged:
                 cp_labels: list[str] = [
                     f"{CHERRY_PICK_LABEL_PREFIX}{_target_branch}" for _target_branch in _exits_target_branches
                 ]

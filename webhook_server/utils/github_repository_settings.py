@@ -1,5 +1,5 @@
-import contextlib
 import copy
+import logging
 import os
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from copy import deepcopy
@@ -10,7 +10,7 @@ from github import Auth, Github, GithubIntegration
 from github.Auth import AppAuth
 from github.Branch import Branch
 from github.Commit import Commit
-from github.GithubException import UnknownObjectException
+from github.GithubException import GithubException, UnknownObjectException
 from github.Label import Label
 from github.PullRequest import PullRequest
 from github.Repository import Repository
@@ -32,6 +32,8 @@ from webhook_server.utils.helpers import (
     get_logger_with_params,
     run_command,
 )
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_BRANCH_PROTECTION = {
     "strict": True,
@@ -139,9 +141,15 @@ def get_required_status_checks(
     if data.get(CONVENTIONAL_TITLE_STR):
         default_status_checks.append(CONVENTIONAL_TITLE_STR)
 
-    with contextlib.suppress(Exception):
+    try:
         repo.get_contents(".pre-commit-config.yaml")
         default_status_checks.append("pre-commit.ci - pr")
+    except GithubException as ex:
+        # 404 is expected if file doesn't exist
+        if ex.status != 404:
+            logger.warning(f"Failed to check for .pre-commit-config.yaml in {repo.full_name}: {ex}")
+    except Exception as ex:
+        logger.warning(f"Unexpected error checking for .pre-commit-config.yaml in {repo.full_name}: {ex}")
 
     for status_check in exclude_status_checks:
         while status_check in default_status_checks:

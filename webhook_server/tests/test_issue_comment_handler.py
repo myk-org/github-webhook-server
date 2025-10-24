@@ -52,7 +52,7 @@ class TestIssueCommentHandler:
         mock_webhook.unified_api.create_reaction = AsyncMock()
         mock_webhook.unified_api.create_check_run = AsyncMock()
         mock_webhook.unified_api.get_issues = AsyncMock(return_value=[])
-        mock_webhook.unified_api.create_issue_comment_on_issue = AsyncMock()
+        mock_webhook.unified_api.add_comment = AsyncMock()
         mock_webhook.unified_api.edit_issue = AsyncMock()
         mock_webhook.unified_api.get_commit_check_runs = AsyncMock(return_value=[])
         return mock_webhook
@@ -222,14 +222,16 @@ class TestIssueCommentHandler:
         mock_pull_request.number = 123
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler.pull_request_handler, "check_if_can_be_merged") as mock_check:
+            with patch.object(
+                issue_comment_handler.pull_request_handler, "check_if_can_be_merged", new=AsyncMock()
+            ) as mock_check:
                 await issue_comment_handler.user_commands(
                     pull_request=mock_pull_request,
                     command=COMMAND_CHECK_CAN_MERGE_STR,
                     reviewed_user="test-user",
                     issue_comment_id=123,
                 )
-                mock_check.assert_called_once_with(pull_request=mock_pull_request)
+                mock_check.assert_awaited_once_with(pull_request=mock_pull_request)
                 mock_reaction.assert_called_once()
 
     @pytest.mark.asyncio
@@ -280,14 +282,16 @@ class TestIssueCommentHandler:
         mock_pull_request.number = 123
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler.runner_handler, "run_build_container") as mock_build:
+            with patch.object(
+                issue_comment_handler.runner_handler, "run_build_container", new=AsyncMock()
+            ) as mock_build:
                 await issue_comment_handler.user_commands(
                     pull_request=mock_pull_request,
                     command=f"{BUILD_AND_PUSH_CONTAINER_STR} args",
                     reviewed_user="test-user",
                     issue_comment_id=123,
                 )
-                mock_build.assert_called_once_with(
+                mock_build.assert_awaited_once_with(
                     push=True,
                     set_check=False,
                     command_args="args",
@@ -394,7 +398,9 @@ class TestIssueCommentHandler:
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
             with patch.object(issue_comment_handler.labels_handler, "_add_label") as mock_add_label:
-                with patch.object(issue_comment_handler.pull_request_handler, "check_if_can_be_merged") as mock_check:
+                with patch.object(
+                    issue_comment_handler.pull_request_handler, "check_if_can_be_merged", new=AsyncMock()
+                ) as mock_check:
                     await issue_comment_handler.user_commands(
                         pull_request=mock_pull_request,
                         command=HOLD_LABEL_STR,
@@ -402,7 +408,7 @@ class TestIssueCommentHandler:
                         issue_comment_id=123,
                     )
                     mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=HOLD_LABEL_STR)
-                    mock_check.assert_called_once_with(pull_request=mock_pull_request)
+                    mock_check.assert_awaited_once_with(pull_request=mock_pull_request)
                     mock_reaction.assert_called_once()
 
     @pytest.mark.asyncio
@@ -414,7 +420,9 @@ class TestIssueCommentHandler:
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
             with patch.object(issue_comment_handler.labels_handler, "_remove_label") as mock_remove_label:
-                with patch.object(issue_comment_handler.pull_request_handler, "check_if_can_be_merged") as mock_check:
+                with patch.object(
+                    issue_comment_handler.pull_request_handler, "check_if_can_be_merged", new=AsyncMock()
+                ) as mock_check:
                     await issue_comment_handler.user_commands(
                         pull_request=mock_pull_request,
                         command=f"{HOLD_LABEL_STR} cancel",
@@ -422,7 +430,7 @@ class TestIssueCommentHandler:
                         issue_comment_id=123,
                     )
                     mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=HOLD_LABEL_STR)
-                    mock_check.assert_called_once_with(pull_request=mock_pull_request)
+                    mock_check.assert_awaited_once_with(pull_request=mock_pull_request)
                     mock_reaction.assert_called_once()
 
     @pytest.mark.asyncio
@@ -572,7 +580,9 @@ class TestIssueCommentHandler:
         with patch.object(mock_pull_request, "is_merged", new=Mock(return_value=False)):
             # Mock unified_api methods
             issue_comment_handler.github_webhook.unified_api.get_branch = AsyncMock()
-            issue_comment_handler.github_webhook.unified_api.is_pull_request_merged = AsyncMock(return_value=False)
+            issue_comment_handler.github_webhook.unified_api.get_pull_request = AsyncMock(
+                return_value={"merged": False}
+            )
             with patch.object(issue_comment_handler.labels_handler, "_add_label") as mock_add_label:
                 await issue_comment_handler.process_cherry_pick_command(
                     pull_request=mock_pull_request, command_args="branch1 branch2", reviewed_user="test-user"
@@ -587,11 +597,19 @@ class TestIssueCommentHandler:
         self, issue_comment_handler: IssueCommentHandler
     ) -> None:
         """Test processing cherry pick command with non-existing branches."""
+        from webhook_server.libs.graphql.graphql_client import GraphQLError
+
         mock_pull_request = Mock()
         mock_pull_request.id = "PR_kgDOTestId"
         mock_pull_request.number = 123
 
-        with patch.object(issue_comment_handler.repository, "get_branch", side_effect=Exception("Branch not found")):
+        # Mock unified_api.get_branch to raise GraphQLError with 404
+        with patch.object(
+            issue_comment_handler.github_webhook.unified_api,
+            "get_branch",
+            new_callable=AsyncMock,
+            side_effect=GraphQLError("404: Branch not found"),
+        ):
             with patch.object(
                 issue_comment_handler.github_webhook, "add_pr_comment", new_callable=AsyncMock
             ) as mock_comment:
@@ -610,7 +628,7 @@ class TestIssueCommentHandler:
         with patch.object(mock_pull_request, "is_merged", new=Mock(return_value=True)):
             # Mock unified_api methods
             issue_comment_handler.github_webhook.unified_api.get_branch = AsyncMock()
-            issue_comment_handler.github_webhook.unified_api.is_pull_request_merged = AsyncMock(return_value=True)
+            issue_comment_handler.github_webhook.unified_api.get_pull_request = AsyncMock(return_value={"merged": True})
             with patch.object(issue_comment_handler.runner_handler, "cherry_pick") as mock_cherry_pick:
                 await issue_comment_handler.process_cherry_pick_command(
                     pull_request=mock_pull_request, command_args="branch1", reviewed_user="test-user"

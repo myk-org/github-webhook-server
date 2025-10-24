@@ -153,8 +153,9 @@ class TestConfig:
         config.config_path = config_file
         config.logger = Mock()
 
-        root_data = config.root_data
-        assert root_data == {}
+        # Corrupted YAML should raise exception, not return empty dict
+        with pytest.raises(yaml.YAMLError):
+            _ = config.root_data
 
     def test_repository_data_with_repository(self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test repository_data property when repository is specified."""

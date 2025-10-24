@@ -130,10 +130,10 @@ async def test_get_all_repository_approvers_and_reviewers(
     process_github_webhook.repository = repo
 
     # Mock unified_api to use Repository methods (no await needed for sync methods)
-    async def get_tree_wrapper(o, n, ref, recursive):
+    async def get_tree_wrapper(_owner, _repo, ref, recursive=True):
         return repo.get_git_tree(ref, recursive)
 
-    async def get_contents_wrapper(o, n, path, ref):
+    async def get_contents_wrapper(_owner, _repo, path, ref):
         return repo.get_contents(path, ref)
 
     process_github_webhook.unified_api.get_git_tree = get_tree_wrapper

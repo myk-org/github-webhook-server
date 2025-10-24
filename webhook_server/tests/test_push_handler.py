@@ -1,7 +1,7 @@
 """Tests for webhook_server.libs.handlers.push_handler module."""
 
 import os
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -30,6 +30,9 @@ class TestPushHandler:
         mock_webhook.container_repository_username = "test-user"  # Always a string
         mock_webhook.container_repository_password = "test-password"  # Always a string # pragma: allowlist secret
         mock_webhook.token = "test-token"  # Always a string
+        # Mock unified_api for async create_issue_on_repository
+        mock_webhook.unified_api = Mock()
+        mock_webhook.unified_api.create_issue_on_repository = AsyncMock()
         return mock_webhook
 
     @pytest.fixture
@@ -169,126 +172,121 @@ class TestPushHandler:
     async def test_upload_to_pypi_clone_failure(self, push_handler: PushHandler) -> None:
         """Test upload to pypi when clone fails."""
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-            with patch.object(push_handler.repository, "create_issue") as mock_create_issue:
-                # Mock failed clone
-                mock_prepare.return_value.__aenter__.return_value = (False, "Clone failed", "Error")
+            # Mock failed clone
+            mock_prepare.return_value.__aenter__.return_value = (False, "Clone failed", "Error")
 
-                await push_handler.upload_to_pypi(tag_name="v1.0.0")
+            await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
-                # Verify issue was created
-                mock_create_issue.assert_called_once()
-                call_args = mock_create_issue.call_args
-                assert "Clone failed" in call_args[1]["title"]
+            # Verify issue was created via unified_api
+            push_handler.github_webhook.unified_api.create_issue_on_repository.assert_called_once()
+            call_args = push_handler.github_webhook.unified_api.create_issue_on_repository.call_args
+            assert "Clone failed" in call_args[1]["title"]
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_build_failure(self, push_handler: PushHandler) -> None:
         """Test upload to pypi when build fails."""
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
             with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
-                with patch.object(push_handler.repository, "create_issue") as mock_create_issue:
-                    # Mock successful clone
-                    mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+                # Mock successful clone
+                mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
-                    # Mock failed build
-                    mock_run_command.return_value = (False, "Build failed", "Error")
+                # Mock failed build
+                mock_run_command.return_value = (False, "Build failed", "Error")
 
-                    await push_handler.upload_to_pypi(tag_name="v1.0.0")
+                await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
-                    # Verify issue was created
-                    mock_create_issue.assert_called_once()
-                    call_args = mock_create_issue.call_args
-                    assert "Build failed" in call_args[1]["title"]
+                # Verify issue was created via unified_api
+                push_handler.github_webhook.unified_api.create_issue_on_repository.assert_called_once()
+                call_args = push_handler.github_webhook.unified_api.create_issue_on_repository.call_args
+                assert "Build failed" in call_args[1]["title"]
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_ls_failure(self, push_handler: PushHandler) -> None:
         """Test upload to pypi when ls command fails."""
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
             with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
-                with patch.object(push_handler.repository, "create_issue") as mock_create_issue:
-                    # Mock successful clone
-                    mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+                # Mock successful clone
+                mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
-                    # Mock successful build, failed ls
-                    mock_run_command.side_effect = [
-                        (True, "", ""),  # uv build
-                        (False, "ls failed", "Error"),  # ls command
-                    ]
+                # Mock successful build, failed ls
+                mock_run_command.side_effect = [
+                    (True, "", ""),  # uv build
+                    (False, "ls failed", "Error"),  # ls command
+                ]
 
-                    await push_handler.upload_to_pypi(tag_name="v1.0.0")
+                await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
-                    # Verify issue was created
-                    mock_create_issue.assert_called_once()
-                    call_args = mock_create_issue.call_args
-                    assert "ls failed" in call_args[1]["title"]
+                # Verify issue was created via unified_api
+                push_handler.github_webhook.unified_api.create_issue_on_repository.assert_called_once()
+                call_args = push_handler.github_webhook.unified_api.create_issue_on_repository.call_args
+                assert "ls failed" in call_args[1]["title"]
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_twine_check_failure(self, push_handler: PushHandler) -> None:
         """Test upload to pypi when twine check fails."""
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
             with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
-                with patch.object(push_handler.repository, "create_issue") as mock_create_issue:
-                    with patch("os.open") as mock_os_open:
-                        with patch("os.fdopen", create=True) as mock_fdopen:
-                            # Mock successful clone
-                            mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+                with patch("os.open") as mock_os_open:
+                    with patch("os.fdopen", create=True) as mock_fdopen:
+                        # Mock successful clone
+                        mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
-                            # Mock successful build and ls, failed twine check
-                            mock_run_command.side_effect = [
-                                (True, "", ""),  # uv build
-                                (True, "package-1.0.0.tar.gz", ""),  # ls command
-                                (False, "twine check failed", "Error"),  # twine check
-                            ]
+                        # Mock successful build and ls, failed twine check
+                        mock_run_command.side_effect = [
+                            (True, "", ""),  # uv build
+                            (True, "package-1.0.0.tar.gz", ""),  # ls command
+                            (False, "twine check failed", "Error"),  # twine check
+                        ]
 
-                            # Mock os.open to return a fake file descriptor
-                            mock_os_open.return_value = 3
+                        # Mock os.open to return a fake file descriptor
+                        mock_os_open.return_value = 3
 
-                            # Mock os.fdopen to return a mock file object
-                            mock_file = Mock()
-                            mock_file.__enter__ = Mock(return_value=mock_file)
-                            mock_file.__exit__ = Mock(return_value=False)
-                            mock_fdopen.return_value = mock_file
+                        # Mock os.fdopen to return a mock file object
+                        mock_file = Mock()
+                        mock_file.__enter__ = Mock(return_value=mock_file)
+                        mock_file.__exit__ = Mock(return_value=False)
+                        mock_fdopen.return_value = mock_file
 
-                            await push_handler.upload_to_pypi(tag_name="v1.0.0")
+                        await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
-                            # Verify issue was created
-                            mock_create_issue.assert_called_once()
-                            call_args = mock_create_issue.call_args
-                            assert "twine check failed" in call_args[1]["title"]
+                        # Verify issue was created
+                        push_handler.github_webhook.unified_api.create_issue_on_repository.assert_called_once()
+                        call_args = push_handler.github_webhook.unified_api.create_issue_on_repository.call_args
+                        assert "twine check failed" in call_args[1]["title"]
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_twine_upload_failure(self, push_handler: PushHandler) -> None:
         """Test upload to pypi when twine upload fails."""
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
             with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
-                with patch.object(push_handler.repository, "create_issue") as mock_create_issue:
-                    with patch("os.open") as mock_os_open:
-                        with patch("os.fdopen", create=True) as mock_fdopen:
-                            # Mock successful clone
-                            mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+                with patch("os.open") as mock_os_open:
+                    with patch("os.fdopen", create=True) as mock_fdopen:
+                        # Mock successful clone
+                        mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
-                            # Mock successful build, ls, and twine check, failed twine upload
-                            mock_run_command.side_effect = [
-                                (True, "", ""),  # uv build
-                                (True, "package-1.0.0.tar.gz", ""),  # ls command
-                                (True, "", ""),  # twine check
-                                (False, "twine upload failed", "Error"),  # twine upload
-                            ]
+                        # Mock successful build, ls, and twine check, failed twine upload
+                        mock_run_command.side_effect = [
+                            (True, "", ""),  # uv build
+                            (True, "package-1.0.0.tar.gz", ""),  # ls command
+                            (True, "", ""),  # twine check
+                            (False, "twine upload failed", "Error"),  # twine upload
+                        ]
 
-                            # Mock os.open to return a fake file descriptor
-                            mock_os_open.return_value = 3
+                        # Mock os.open to return a fake file descriptor
+                        mock_os_open.return_value = 3
 
-                            # Mock os.fdopen to return a mock file object
-                            mock_file = Mock()
-                            mock_file.__enter__ = Mock(return_value=mock_file)
-                            mock_file.__exit__ = Mock(return_value=False)
-                            mock_fdopen.return_value = mock_file
+                        # Mock os.fdopen to return a mock file object
+                        mock_file = Mock()
+                        mock_file.__enter__ = Mock(return_value=mock_file)
+                        mock_file.__exit__ = Mock(return_value=False)
+                        mock_fdopen.return_value = mock_file
 
-                            await push_handler.upload_to_pypi(tag_name="v1.0.0")
+                        await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
-                            # Verify issue was created
-                            mock_create_issue.assert_called_once()
-                            call_args = mock_create_issue.call_args
-                            assert "twine upload failed" in call_args[1]["title"]
+                        # Verify issue was created
+                        push_handler.github_webhook.unified_api.create_issue_on_repository.assert_called_once()
+                        call_args = push_handler.github_webhook.unified_api.create_issue_on_repository.call_args
+                        assert "twine upload failed" in call_args[1]["title"]
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_success_no_slack(self, push_handler: PushHandler) -> None:
@@ -415,19 +413,18 @@ class TestPushHandler:
     async def test_upload_to_pypi_issue_creation_format(self, push_handler: PushHandler) -> None:
         """Test that issues are created with proper format."""
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-            with patch.object(push_handler.repository, "create_issue") as mock_create_issue:
-                # Mock failed clone
-                mock_prepare.return_value.__aenter__.return_value = (False, "Clone failed", "Error details")
+            # Mock failed clone
+            mock_prepare.return_value.__aenter__.return_value = (False, "Clone failed", "Error details")
 
-                await push_handler.upload_to_pypi(tag_name="v1.0.0")
+            await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
-                # Verify issue format
-                mock_create_issue.assert_called_once()
-                call_args = mock_create_issue.call_args
+            # Verify issue format
+            push_handler.github_webhook.unified_api.create_issue_on_repository.assert_called_once()
+            call_args = push_handler.github_webhook.unified_api.create_issue_on_repository.call_args
 
-                # The title should be the full formatted error text from get_check_run_text
-                expected_title = "```\nError details\n\nClone failed\n```"
-                assert call_args[1]["title"] == expected_title
+            # The title should be the full formatted error text from get_check_run_text
+            expected_title = "```\nError details\n\nClone failed\n```"
+            assert call_args[1]["title"] == expected_title
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_slack_message_format(self, push_handler: PushHandler) -> None:
@@ -479,7 +476,28 @@ class TestPushHandler:
 
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
             with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
-                with patch.object(push_handler.repository, "create_issue") as mock_create_issue:
+                # Mock successful clone
+                mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+
+                # Mock successful build and ls
+                mock_run_command.side_effect = [
+                    (True, "", ""),  # uv build
+                    (True, "package-1.0.0.tar.gz", ""),  # ls command
+                ]
+
+                await push_handler.upload_to_pypi(tag_name="v1.0.0")
+
+                # Verify issue was created for missing token
+                push_handler.github_webhook.unified_api.create_issue_on_repository.assert_called_once()
+                call_args = push_handler.github_webhook.unified_api.create_issue_on_repository.call_args
+                assert "PyPI token is not configured" in call_args[1]["title"]
+
+    @pytest.mark.asyncio
+    async def test_upload_to_pypi_preexisting_pypirc(self, push_handler: PushHandler) -> None:
+        """Test upload to pypi when .pypirc file already exists."""
+        with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
+            with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
+                with patch("os.open") as mock_os_open:
                     # Mock successful clone
                     mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
@@ -489,35 +507,12 @@ class TestPushHandler:
                         (True, "package-1.0.0.tar.gz", ""),  # ls command
                     ]
 
+                    # Simulate FileExistsError when creating .pypirc
+                    mock_os_open.side_effect = FileExistsError("File exists")
+
                     await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
-                    # Verify issue was created for missing token
-                    mock_create_issue.assert_called_once()
-                    call_args = mock_create_issue.call_args
-                    assert "PyPI token is not configured" in call_args[1]["title"]
-
-    @pytest.mark.asyncio
-    async def test_upload_to_pypi_preexisting_pypirc(self, push_handler: PushHandler) -> None:
-        """Test upload to pypi when .pypirc file already exists."""
-        with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-            with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
-                with patch.object(push_handler.repository, "create_issue") as mock_create_issue:
-                    with patch("os.open") as mock_os_open:
-                        # Mock successful clone
-                        mock_prepare.return_value.__aenter__.return_value = (True, "", "")
-
-                        # Mock successful build and ls
-                        mock_run_command.side_effect = [
-                            (True, "", ""),  # uv build
-                            (True, "package-1.0.0.tar.gz", ""),  # ls command
-                        ]
-
-                        # Simulate FileExistsError when creating .pypirc
-                        mock_os_open.side_effect = FileExistsError("File exists")
-
-                        await push_handler.upload_to_pypi(tag_name="v1.0.0")
-
-                        # Verify issue was created for pre-existing file
-                        mock_create_issue.assert_called_once()
-                        call_args = mock_create_issue.call_args
-                        assert ".pypirc file already exists" in call_args[1]["title"]
+                    # Verify issue was created for pre-existing file
+                    push_handler.github_webhook.unified_api.create_issue_on_repository.assert_called_once()
+                    call_args = push_handler.github_webhook.unified_api.create_issue_on_repository.call_args
+                    assert ".pypirc file already exists" in call_args[1]["title"]

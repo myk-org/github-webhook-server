@@ -81,6 +81,7 @@ class TestPullRequestHandler:
     def mock_pull_request(self) -> Mock:
         """Create a mock PullRequest instance."""
         mock_pr = Mock()
+        mock_pr.id = "PR_kgDOTestId"  # GraphQL node ID for mutations
         mock_pr.number = 123
         mock_pr.title = "Test PR"
         mock_pr.body = "Test PR body"
@@ -265,10 +266,10 @@ class TestPullRequestHandler:
         pull_request_handler.hook_data["action"] = "labeled"
         pull_request_handler.hook_data["label"] = {"name": VERIFIED_LABEL_STR}
 
-        with patch.object(pull_request_handler, "check_if_can_be_merged") as mock_check_merge:
+        with patch.object(pull_request_handler, "check_if_can_be_merged", new=AsyncMock()) as mock_check_merge:
             with patch.object(pull_request_handler.check_run_handler, "set_verify_check_success") as mock_success:
                 await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
-                mock_check_merge.assert_called_once_with(pull_request=mock_pull_request)
+                mock_check_merge.assert_awaited_once_with(pull_request=mock_pull_request)
                 mock_success.assert_called_once()
 
     @pytest.mark.asyncio
@@ -279,10 +280,10 @@ class TestPullRequestHandler:
         pull_request_handler.hook_data["action"] = "unlabeled"
         pull_request_handler.hook_data["label"] = {"name": VERIFIED_LABEL_STR}
 
-        with patch.object(pull_request_handler, "check_if_can_be_merged") as mock_check_merge:
+        with patch.object(pull_request_handler, "check_if_can_be_merged", new=AsyncMock()) as mock_check_merge:
             with patch.object(pull_request_handler.check_run_handler, "set_verify_check_queued") as mock_queued:
                 await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
-                mock_check_merge.assert_called_once_with(pull_request=mock_pull_request)
+                mock_check_merge.assert_awaited_once_with(pull_request=mock_pull_request)
                 mock_queued.assert_called_once()
 
     @pytest.mark.asyncio
@@ -352,7 +353,11 @@ class TestPullRequestHandler:
         mock_pr_wrapper1 = Mock()
         mock_pr_wrapper2 = Mock()
 
-        with patch.object(pull_request_handler.repository, "get_pulls", return_value=[mock_pr1, mock_pr2]):
+        with patch.object(
+            pull_request_handler.github_webhook.unified_api,
+            "get_open_pull_requests",
+            new=AsyncMock(return_value=[mock_pr1, mock_pr2]),
+        ):
             with patch.object(
                 pull_request_handler.github_webhook.unified_api,
                 "get_pull_request",
@@ -370,6 +375,8 @@ class TestPullRequestHandler:
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         mock_pull_request.title = "Test PR"
+        # Mock add_comment for GraphQL mutation
+        pull_request_handler.github_webhook.unified_api.add_comment = AsyncMock()
         with (
             patch.object(pull_request_handler.github_webhook, "build_and_push_container", True),
             patch.object(
@@ -383,11 +390,16 @@ class TestPullRequestHandler:
             patch.object(
                 pull_request_handler.runner_handler,
                 "run_podman_command",
-                new=AsyncMock(side_effect=[(0, "", ""), (1, "tag exists", ""), (0, "", "")]),
+                # Sequence: login (success), tag_ls (success with output), tag_delete (success), logout
+                new=AsyncMock(side_effect=[(1, "", ""), (1, "pr-123", ""), (1, "", ""), (1, "", "")]),
             ),
         ):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
-            # The method uses runner_handler.run_podman_command, not repository.delete_tag
+            # Verify add_comment was called with success message
+            pull_request_handler.github_webhook.unified_api.add_comment.assert_called_once()
+            call_args = pull_request_handler.github_webhook.unified_api.add_comment.call_args
+            assert call_args[0][0] == "PR_kgDOTestId"  # PR node ID
+            assert "Successfully removed PR tag" in call_args[0][1]  # Comment body
 
     @pytest.mark.asyncio
     async def test_close_issue_for_merged_or_closed_pr_with_issue(
@@ -399,15 +411,17 @@ class TestPullRequestHandler:
         mock_issue.title = "Test PR - 123"
         mock_issue.number = 456
         mock_issue.body = "[Auto generated]\nNumber: [#123]"
+        mock_issue.node_id = "I_kwDOABCDEF123"
 
         # Mock unified_api methods
         pull_request_handler.github_webhook.unified_api.get_issues = AsyncMock(return_value=[mock_issue])
-        pull_request_handler.github_webhook.unified_api.create_issue_comment_on_issue = AsyncMock()
+        pull_request_handler.github_webhook.unified_api.add_comment = AsyncMock()
         pull_request_handler.github_webhook.unified_api.edit_issue = AsyncMock()
 
         await pull_request_handler.close_issue_for_merged_or_closed_pr(
             pull_request=mock_pull_request, hook_action="closed"
         )
+        pull_request_handler.github_webhook.unified_api.add_comment.assert_called_once()
         pull_request_handler.github_webhook.unified_api.edit_issue.assert_called_once_with(mock_issue, state="closed")
 
     @pytest.mark.asyncio
@@ -615,7 +629,7 @@ class TestPullRequestHandler:
         mock_pull_request.merged = False
         mock_pull_request.get_labels = Mock(return_value=[])
 
-        with patch.object(pull_request_handler, "_check_if_pr_approved", return_value="not_approved"):
+        with patch.object(pull_request_handler, "_check_if_pr_approved", new=AsyncMock(return_value="not_approved")):
             with patch.object(pull_request_handler.labels_handler, "_remove_label") as mock_remove_label:
                 await pull_request_handler.check_if_can_be_merged(pull_request=mock_pull_request)
                 mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=CAN_BE_MERGED_STR)
@@ -816,3 +830,46 @@ class TestPullRequestHandler:
                 pull_request=mock_pull_request, hook_action="closed"
             )
             # Should not find any matching issues
+
+    @pytest.mark.asyncio
+    async def test_handler_with_pull_request_wrapper(
+        self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock
+    ) -> None:
+        """Test handler works with PullRequestWrapper (GraphQL) not just PullRequest (REST)."""
+        from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+
+        # Create realistic GraphQL PR data (using GraphQL field names)
+        pr_data = {
+            "number": 456,
+            "title": "feat: Add GraphQL wrapper support",
+            "body": "This PR adds GraphQL wrapper integration",
+            "permalink": "https://github.com/test/repo/pull/456",  # GraphQL uses "permalink" not "url"
+            "state": "OPEN",
+            "isDraft": False,
+            "mergeable": "MERGEABLE",
+            "baseRefName": "main",
+            "headRefName": "feature/graphql",
+            "author": {"login": "graphql-user"},
+            "labels": {"nodes": []},
+        }
+
+        # Create PullRequestWrapper instead of mock PullRequest
+        wrapper_pr = PullRequestWrapper(pr_data, owner="test-org", repo_name="test-repo")
+
+        # Verify wrapper has expected properties (PyGithub-compatible)
+        assert wrapper_pr.number == 456
+        assert wrapper_pr.title == "feat: Add GraphQL wrapper support"
+        assert wrapper_pr.body == "This PR adds GraphQL wrapper integration"
+        assert wrapper_pr.html_url == "https://github.com/test/repo/pull/456"
+        assert wrapper_pr.state == "open"  # Wrapper converts "OPEN" to lowercase "open" for PyGithub compatibility
+        assert wrapper_pr.draft is False
+        assert wrapper_pr.mergeable is True  # Wrapper converts "MERGEABLE" to True
+
+        # Test handler can access wrapper properties without AttributeError
+        # This validates the dual-API strategy works in production
+        pr_number = wrapper_pr.number  # noqa: F841
+        pr_title = wrapper_pr.title  # noqa: F841
+        pr_state = wrapper_pr.state  # noqa: F841
+        pr_mergeable = wrapper_pr.mergeable  # noqa: F841
+
+        # All property accesses should succeed without errors

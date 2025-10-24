@@ -51,12 +51,12 @@ class OwnersFileHandler:
         self._repository_contributors = await self.unified_api.get_contributors(owner, repo_name)
 
         # Cache valid users to avoid repeated API calls
-        self._valid_users_to_run_commands = set((
-            *[val.login for val in self._repository_collaborators],
-            *[val.login for val in self._repository_contributors],
+        self._valid_users_to_run_commands = {
+            *{val.login for val in self._repository_collaborators},
+            *{val.login for val in self._repository_contributors},
             *self.all_repository_approvers,
             *self.all_pull_request_reviewers,
-        ))
+        }
 
         return self
 
@@ -161,7 +161,10 @@ class OwnersFileHandler:
             if element.type == "blob" and element.path.endswith("OWNERS"):
                 owners_count += 1
                 if owners_count > self.max_owners_files:
-                    self.logger.error(f"{self.log_prefix} Too many OWNERS files (>{self.max_owners_files})")
+                    self.logger.error(
+                        f"{self.log_prefix} Too many OWNERS files (>{self.max_owners_files}), "
+                        "stopping processing to avoid performance issues"
+                    )
                     break
 
                 content_path = element.path
@@ -342,19 +345,18 @@ class OwnersFileHandler:
             self.logger.debug(
                 f"{self.log_prefix} Batch review request failed with traceback:\n{traceback.format_exc()}"
             )
-            # Use unified_api for create_issue_comment
-            owner, repo_name = self._get_owner_and_repo()
+            # Use GraphQL add_comment mutation
             error_type = type(ex).__name__
-            await self.unified_api.create_issue_comment(
-                owner,
-                repo_name,
-                pull_request.number,
+            await self.unified_api.add_comment(
+                pull_request.id,
                 f"Failed to assign reviewers {', '.join(reviewers_to_request)}: [{error_type}] {ex}",
             )
 
         self.logger.step(f"{self.log_prefix} Reviewer assignment completed")  # type: ignore
 
-    async def is_user_valid_to_run_commands(self, pull_request: PullRequest, reviewed_user: str) -> bool:
+    async def is_user_valid_to_run_commands(
+        self, pull_request: PullRequest | PullRequestWrapper, reviewed_user: str
+    ) -> bool:
         self._ensure_initialized()
 
         _allowed_user_to_approve = await self.get_all_repository_maintainers() + self.all_repository_approvers

@@ -937,8 +937,7 @@ class TestGithubWebhook:
                             gh = GithubWebhook(commit_data, minimal_headers, logger)
                             gh.repository.full_name = "my-org/test-repo"
                             gh.unified_api = AsyncMock()
-                            gh.unified_api.get_commit = AsyncMock(return_value=mock_commit)
-                            gh.unified_api.get_pulls_from_commit = AsyncMock(return_value=[mock_pr])
+                            gh.unified_api.get_pulls_from_commit_sha = AsyncMock(return_value=[mock_pr])
                             result = await gh.get_pull_request()
                             assert result == mock_pr
 
@@ -1154,7 +1153,9 @@ class TestGithubWebhook:
 
     @pytest.mark.asyncio
     async def test_get_last_commit(self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock) -> None:
-        """Test _get_last_commit method."""
+        """Test _get_last_commit method with PullRequestWrapper (GraphQL)."""
+        from webhook_server.libs.graphql.graphql_wrappers import CommitWrapper, PullRequestWrapper
+
         with patch("webhook_server.libs.github_api.Config") as mock_config:
             mock_config.return_value.repository = True
             mock_config.return_value.repository_local_data.return_value = {}
@@ -1173,12 +1174,53 @@ class TestGithubWebhook:
 
                             gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
 
-                            mock_pr = Mock()
-                            mock_commits = [Mock(), Mock(), Mock()]
-                            mock_pr.get_commits.return_value = mock_commits
+                            # Test with PullRequestWrapper (GraphQL) that has commits
+                            mock_commits = [
+                                Mock(spec=CommitWrapper),
+                                Mock(spec=CommitWrapper),
+                                Mock(spec=CommitWrapper),
+                            ]
+                            mock_pr_wrapper = Mock(spec=PullRequestWrapper)
+                            mock_pr_wrapper.get_commits.return_value = mock_commits
 
-                            result = await gh._get_last_commit(mock_pr)
+                            result = await gh._get_last_commit(mock_pr_wrapper)
                             assert result == mock_commits[-1]
+
+
+@pytest.mark.asyncio
+async def test_get_last_commit_with_rest_pr(github_webhook_with_unified):
+    """Test _get_last_commit with REST PullRequest uses GraphQL."""
+    from github.PullRequest import PullRequest
+    from webhook_server.libs.graphql.graphql_wrappers import CommitWrapper
+
+    mock_pr = Mock(spec=PullRequest)
+    mock_pr.number = 789
+    mock_pr.base.repo.owner.login = "test-owner"
+    mock_pr.base.repo.name = "test-repo"
+
+    # Mock GraphQL response with commits
+    mock_commit_data = {"sha": "abc123", "message": "Test commit"}
+    github_webhook_with_unified.unified_api.get_pull_request = AsyncMock(
+        return_value={
+            "commits": {
+                "nodes": [
+                    {"commit": {"sha": "commit1", "message": "First"}},
+                    {"commit": {"sha": "commit2", "message": "Second"}},
+                    {"commit": mock_commit_data},
+                ]
+            }
+        }
+    )
+
+    result = await github_webhook_with_unified._get_last_commit(mock_pr)
+
+    # Verify get_pull_request was called with include_commits=True
+    github_webhook_with_unified.unified_api.get_pull_request.assert_called_once_with(
+        "test-owner", "test-repo", 789, include_commits=True
+    )
+    # Verify result is a CommitWrapper with the last commit data
+    assert isinstance(result, CommitWrapper)
+    assert result._data == mock_commit_data
 
 
 @pytest.mark.asyncio
@@ -1192,6 +1234,27 @@ async def test_add_pr_comment_with_wrapper(github_webhook_with_unified):
     await github_webhook_with_unified.add_pr_comment(wrapper, "Test comment")
 
     github_webhook_with_unified.unified_api.add_comment.assert_called_once_with("PR_123", "Test comment")
+
+
+@pytest.mark.asyncio
+async def test_add_pr_comment_with_rest_pr(github_webhook_with_unified):
+    """Test add_pr_comment with REST PullRequest converts to GraphQL."""
+    from github.PullRequest import PullRequest
+
+    mock_pr = Mock(spec=PullRequest)
+    mock_pr.number = 456
+    mock_pr.base.repo.owner.login = "test-owner"
+    mock_pr.base.repo.name = "test-repo"
+
+    # Mock get_pull_request to return PR data with node ID
+    github_webhook_with_unified.unified_api.get_pull_request = AsyncMock(return_value={"id": "PR_GraphQLNodeId"})
+
+    await github_webhook_with_unified.add_pr_comment(mock_pr, "Test REST comment")
+
+    # Verify get_pull_request was called to get node ID
+    github_webhook_with_unified.unified_api.get_pull_request.assert_called_once_with("test-owner", "test-repo", 456)
+    # Verify add_comment was called with GraphQL node ID
+    github_webhook_with_unified.unified_api.add_comment.assert_called_once_with("PR_GraphQLNodeId", "Test REST comment")
 
 
 @pytest.mark.asyncio

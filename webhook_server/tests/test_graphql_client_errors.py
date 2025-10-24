@@ -1,8 +1,10 @@
 """Test GraphQL client error handling."""
 
+import asyncio
+from datetime import datetime, timedelta, timezone
 import pytest
-from unittest.mock import AsyncMock, Mock
-from gql.transport.exceptions import TransportQueryError, TransportServerError
+from unittest.mock import AsyncMock, Mock, patch
+from gql.transport.exceptions import TransportConnectionFailed, TransportQueryError, TransportServerError
 
 from webhook_server.libs.graphql.graphql_client import (
     GraphQLAuthenticationError,
@@ -11,8 +13,8 @@ from webhook_server.libs.graphql.graphql_client import (
     GraphQLRateLimitError,
 )
 
-# Test token constant to silence S106 security warnings
-TEST_GITHUB_TOKEN = "ghs_" + "test1234567890abcdefghijklmnopqrstuvwxyz"  # pragma: allowlist secret
+# Test token constant
+TEST_GITHUB_TOKEN = "test_token_12345"
 
 
 @pytest.fixture
@@ -126,3 +128,231 @@ async def test_generic_query_error_no_retry(graphql_client):
     # Generic query errors don't retry - they fail immediately
     with pytest.raises(GraphQLError, match="GraphQL query failed"):
         await graphql_client.execute("query { viewer { login } }")
+
+
+@pytest.mark.asyncio
+async def test_connection_failed_retry_success(graphql_client, monkeypatch):
+    """Test connection failure retries with fresh client and succeeds."""
+    # Track calls to verify retry behavior
+    call_count = {"count": 0}
+
+    def execute_side_effect(*args, **kwargs):
+        call_count["count"] += 1
+        if call_count["count"] == 1:
+            # First attempt fails with connection error
+            raise TransportConnectionFailed("Connection lost")
+        # Second attempt succeeds
+        return {"viewer": {"login": "test-user"}}
+
+    mock_session = AsyncMock()
+    mock_session.execute = AsyncMock(side_effect=execute_side_effect)
+
+    mock_client = AsyncMock()
+    mock_client.connect_async = AsyncMock()
+    mock_client.close_async = AsyncMock()
+    mock_client.session = mock_session
+
+    # Mock _ensure_client to return our mock client
+    async def ensure_client_side_effect():
+        if graphql_client._client is None:
+            graphql_client._client = mock_client
+
+    graphql_client._ensure_client = AsyncMock(side_effect=ensure_client_side_effect)
+    graphql_client._client = mock_client
+
+    # Patch asyncio.sleep to avoid real delays
+    mock_sleep = AsyncMock()
+    monkeypatch.setattr("asyncio.sleep", mock_sleep)
+
+    # Execute query - should fail once, then succeed on retry
+    result = await graphql_client.execute("query { viewer { login } }")
+
+    # Verify retry happened
+    assert call_count["count"] == 2
+    assert result == {"viewer": {"login": "test-user"}}
+
+    # Verify sleep was called once between retries
+    mock_sleep.assert_called_once_with(1)
+
+    # Verify client was recreated (ensured twice - initial + after failure)
+    assert graphql_client._ensure_client.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_connection_failed_exhausts_retries(graphql_client, monkeypatch):
+    """Test connection failure that exhausts all retry attempts."""
+    mock_session = AsyncMock()
+    mock_session.execute = AsyncMock(side_effect=TransportConnectionFailed("Connection lost"))
+
+    mock_client = AsyncMock()
+    mock_client.connect_async = AsyncMock()
+    mock_client.close_async = AsyncMock()
+    mock_client.session = mock_session
+
+    # Mock _ensure_client to return our mock client
+    async def ensure_client_side_effect():
+        if graphql_client._client is None:
+            graphql_client._client = mock_client
+
+    graphql_client._ensure_client = AsyncMock(side_effect=ensure_client_side_effect)
+    graphql_client._client = mock_client
+
+    # Patch asyncio.sleep to avoid real delays
+    mock_sleep = AsyncMock()
+    monkeypatch.setattr("asyncio.sleep", mock_sleep)
+
+    # Should exhaust retries and raise GraphQLError
+    with pytest.raises(GraphQLError, match="GraphQL connection closed"):
+        await graphql_client.execute("query { viewer { login } }")
+
+    # Verify retries happened (default retry_count=3 means 3 attempts)
+    assert mock_session.execute.call_count == 3
+
+    # Verify sleep was called between retry attempts (2 sleeps for 3 attempts)
+    assert mock_sleep.call_count == 2
+    mock_sleep.assert_any_call(1)
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_wait_and_retry_success(graphql_client, monkeypatch):
+    """Test rate limit error triggers wait based on reset time and succeeds on retry."""
+    # Track calls to verify retry behavior
+    call_count = {"count": 0}
+
+    def execute_side_effect(*args, **kwargs):
+        call_count["count"] += 1
+        if call_count["count"] == 1:
+            # First attempt fails with rate limit error
+            raise TransportQueryError("RATE_LIMITED: API rate limit exceeded")
+        # Second attempt succeeds
+        return {"viewer": {"login": "test-user"}}
+
+    mock_session = AsyncMock()
+    mock_session.execute = AsyncMock(side_effect=execute_side_effect)
+
+    mock_client = AsyncMock()
+    mock_client.connect_async = AsyncMock()
+    mock_client.close_async = AsyncMock()
+    mock_client.session = mock_session
+
+    graphql_client._client = mock_client
+    graphql_client._ensure_client = AsyncMock()
+
+    # Mock the current time
+    current_time = datetime.now(timezone.utc)
+    reset_time = current_time + timedelta(seconds=60)  # Reset in 60 seconds
+    reset_timestamp = int(reset_time.timestamp())
+
+    # Mock aiohttp session for rate limit API call
+    # resp.json() returns the rate limit data
+    mock_http_response = Mock()
+    mock_http_response.json = AsyncMock(
+        return_value={"resources": {"graphql": {"reset": reset_timestamp, "remaining": 0, "limit": 5000}}}
+    )
+
+    # http_session.get() returns async context manager
+    mock_get_context = Mock()
+    mock_get_context.__aenter__ = AsyncMock(return_value=mock_http_response)
+    mock_get_context.__aexit__ = AsyncMock(return_value=None)
+
+    # http_session from ClientSession
+    mock_http_session = Mock()
+    mock_http_session.get = Mock(return_value=mock_get_context)
+
+    # ClientSession() returns async context manager
+    mock_session_context = Mock()
+    mock_session_context.__aenter__ = AsyncMock(return_value=mock_http_session)
+    mock_session_context.__aexit__ = AsyncMock(return_value=None)
+
+    # Patch aiohttp.ClientSession at the module level where it's used
+    with patch("webhook_server.libs.graphql.graphql_client.aiohttp.ClientSession", return_value=mock_session_context):
+        # Patch asyncio.sleep to avoid real delays
+        mock_sleep = AsyncMock()
+        monkeypatch.setattr("asyncio.sleep", mock_sleep)
+
+        # Execute query - should fail with rate limit, wait, then succeed on retry
+        result = await graphql_client.execute("query { viewer { login } }")
+
+        # Verify retry happened
+        assert call_count["count"] == 2
+        assert result == {"viewer": {"login": "test-user"}}
+
+        # Verify sleep was called with correct wait time (60s + 5s buffer = 65s, but timing may vary slightly)
+        assert mock_sleep.call_count == 1
+        # Check that wait time is approximately 60-70 seconds (accounting for 5s buffer and timing variations)
+        actual_wait = mock_sleep.call_args[0][0]
+        assert 55 <= actual_wait <= 70, f"Expected wait time ~65s, got {actual_wait}s"
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_no_reset_info_fails(graphql_client, monkeypatch):
+    """Test rate limit error without reset info raises GraphQLRateLimitError."""
+    mock_session = AsyncMock()
+    mock_session.execute = AsyncMock(side_effect=TransportQueryError("RATE_LIMITED: API rate limit exceeded"))
+
+    mock_client = AsyncMock()
+    mock_client.connect_async = AsyncMock()
+    mock_client.close_async = AsyncMock()
+    mock_client.session = mock_session
+
+    graphql_client._client = mock_client
+    graphql_client._ensure_client = AsyncMock()
+
+    # Mock aiohttp session to fail when getting rate limit info
+    mock_http_session = Mock()
+    mock_http_session.get.side_effect = Exception("Network error")
+
+    mock_session_context = Mock()
+    mock_session_context.__aenter__ = AsyncMock(return_value=mock_http_session)
+    mock_session_context.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("webhook_server.libs.graphql.graphql_client.aiohttp.ClientSession", return_value=mock_session_context):
+        # Should raise GraphQLRateLimitError when we can't get reset info
+        with pytest.raises(GraphQLRateLimitError, match="Rate limit exceeded"):
+            await graphql_client.execute("query { viewer { login } }")
+
+
+@pytest.mark.asyncio
+async def test_timeout_error_cleanup(graphql_client):
+    """Test timeout error triggers proper cleanup of client resources."""
+    mock_session = AsyncMock()
+    mock_session.execute = AsyncMock(side_effect=asyncio.TimeoutError("Query timeout"))
+
+    mock_client = AsyncMock()
+    mock_client.connect_async = AsyncMock()
+    mock_client.close_async = AsyncMock()
+    mock_client.session = mock_session
+
+    graphql_client._client = mock_client
+    graphql_client._transport = Mock()  # Add a transport object
+    graphql_client._ensure_client = AsyncMock()
+
+    # Should raise GraphQLError wrapping TimeoutError
+    with pytest.raises(GraphQLError, match="GraphQL query timeout"):
+        await graphql_client.execute("query { viewer { login } }")
+
+    # Verify cleanup happened
+    mock_client.close_async.assert_called_once()
+    assert graphql_client._client is None
+    assert graphql_client._transport is None
+
+
+@pytest.mark.asyncio
+async def test_cancelled_error_propagation(graphql_client):
+    """Test CancelledError is re-raised without wrapping in GraphQLError."""
+    mock_session = AsyncMock()
+    mock_session.execute = AsyncMock(side_effect=asyncio.CancelledError())
+
+    mock_client = AsyncMock()
+    mock_client.connect_async = AsyncMock()
+    mock_client.close_async = AsyncMock()
+    mock_client.session = mock_session
+
+    graphql_client._client = mock_client
+    graphql_client._ensure_client = AsyncMock()
+
+    # Should propagate CancelledError as-is, not wrapped in GraphQLError
+    with pytest.raises(asyncio.CancelledError):
+        await graphql_client.execute("query { viewer { login } }")
+
+    # Verify debug log was called (can check logger mock if needed)

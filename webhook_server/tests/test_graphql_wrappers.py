@@ -233,11 +233,74 @@ def test_pull_request_wrapper_with_repository_info():
 def test_ref_wrapper_without_repository_raises_error():
     """Test RefWrapper without repository info raises AttributeError."""
     ref_data = {"name": "main", "target": {"oid": "abc123"}}
-    from webhook_server.libs.graphql.graphql_wrappers import RefWrapper
 
     ref = RefWrapper(ref_data)
-    try:
+    with pytest.raises(AttributeError, match="Repository information not available"):
         _ = ref.repo
-        assert False, "Expected AttributeError"
-    except AttributeError as e:
-        assert "Repository information not available" in str(e)
+
+
+def test_pull_request_wrapper_missing_author():
+    """Test PullRequestWrapper handles missing author gracefully."""
+    pr_data = {
+        "id": "PR_123",
+        "number": 1,
+        "title": "Test PR",
+        # Missing author field
+    }
+    wrapper = PullRequestWrapper(pr_data)
+    # Should return UserWrapper with empty login instead of crashing
+    assert wrapper.user.login == ""  # Default empty string
+
+
+def test_pull_request_wrapper_missing_base_ref():
+    """Test PullRequestWrapper handles missing base ref gracefully."""
+    pr_data = {
+        "id": "PR_123",
+        "number": 1,
+        "title": "Test PR",
+        "headRef": {"name": "feature", "target": {"oid": "abc123"}},
+        # Missing baseRef
+    }
+    wrapper = PullRequestWrapper(pr_data, "owner", "repo")
+    # Should handle missing base gracefully
+    assert wrapper.base.ref == ""  # Default empty string
+    assert wrapper.base.sha == ""  # Default empty string
+
+
+def test_pull_request_wrapper_missing_head_ref():
+    """Test PullRequestWrapper handles missing head ref gracefully."""
+    pr_data = {
+        "id": "PR_123",
+        "number": 1,
+        "title": "Test PR",
+        "baseRef": {"name": "main", "target": {"oid": "def456"}},
+        # Missing headRef
+    }
+    wrapper = PullRequestWrapper(pr_data, "owner", "repo")
+    # Should handle missing head gracefully
+    assert wrapper.head.ref == ""  # Default empty string
+    assert wrapper.head.sha == ""  # Default empty string
+
+
+def test_commit_wrapper_missing_author():
+    """Test CommitWrapper handles missing author gracefully."""
+    commit_data = {
+        "oid": "abc123",
+        "commit": {},
+        # Missing author in commit
+    }
+    wrapper = CommitWrapper(commit_data)
+    # Should handle missing author gracefully - CommitWrapper doesn't have author property
+    # Just verify it doesn't crash on creation
+    assert wrapper.sha == "abc123"
+
+
+def test_ref_wrapper_missing_target():
+    """Test RefWrapper handles missing target gracefully."""
+    ref_data = {
+        "name": "main",
+        # Missing target field
+    }
+    wrapper = RefWrapper(ref_data)
+    # Should return empty string instead of crashing
+    assert wrapper.sha == ""

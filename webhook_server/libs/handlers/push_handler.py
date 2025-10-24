@@ -45,8 +45,12 @@ class PushHandler:
             self.logger.step(f"{self.log_prefix} Non-tag push detected, skipping processing")  # type: ignore
 
     async def upload_to_pypi(self, tag_name: str) -> None:
-        def _issue_on_error(*, _error: str) -> None:
-            self.repository.create_issue(
+        async def _issue_on_error(*, _error: str) -> None:
+            """Create an issue for PyPI upload errors using GraphQL API."""
+            owner, repo_name = self.repository.full_name.split("/")
+            await self.github_webhook.unified_api.create_issue_on_repository(
+                owner=owner,
+                name=repo_name,
                 title=_error,
                 body=f"""
 Publish to PYPI failed: `{_error}`
@@ -65,26 +69,26 @@ Publish to PYPI failed: `{_error}`
         ) as _res:
             if not _res[0]:
                 _error = self.check_run_handler.get_check_run_text(out=_res[1], err=_res[2])
-                return _issue_on_error(_error=_error)
+                return await _issue_on_error(_error=_error)
 
             rc, out, err = await run_command(
                 command=f"uv {uv_cmd_dir} build --sdist --out-dir {_dist_dir}", log_prefix=self.log_prefix
             )
             if not rc:
                 _error = self.check_run_handler.get_check_run_text(out=out, err=err)
-                return _issue_on_error(_error=_error)
+                return await _issue_on_error(_error=_error)
 
             rc, tar_gz_file, err = await run_command(command=f"ls {_dist_dir}", log_prefix=self.log_prefix)
             if not rc:
                 _error = self.check_run_handler.get_check_run_text(out=tar_gz_file, err=err)
-                return _issue_on_error(_error=_error)
+                return await _issue_on_error(_error=_error)
 
             tar_gz_file = tar_gz_file.strip()
 
             # Securely handle PyPI token - use pypirc file instead of CLI args
             token = (self.github_webhook.pypi or {}).get("token")
             if not token:
-                return _issue_on_error(_error="PyPI token is not configured")
+                return await _issue_on_error(_error="PyPI token is not configured")
 
             # Write temporary pypirc (removed when clone dir is cleaned up)
             # Create file atomically with secure permissions (0o600)
@@ -109,11 +113,11 @@ Publish to PYPI failed: `{_error}`
             except FileExistsError:
                 _error = f".pypirc file already exists at {pypirc_path}"
                 self.logger.exception(f"{self.log_prefix} {_error}")
-                return _issue_on_error(_error=_error)
+                return await _issue_on_error(_error=_error)
             except OSError as ex:
                 _error = f"Failed to create .pypirc file: {ex}"
                 self.logger.exception(f"{self.log_prefix} {_error}")
-                return _issue_on_error(_error=_error)
+                return await _issue_on_error(_error=_error)
 
             # Ensure .pypirc is always removed, even on errors
             try:
@@ -128,7 +132,7 @@ Publish to PYPI failed: `{_error}`
                     rc, out, err = await run_command(command=cmd, log_prefix=self.log_prefix)
                     if not rc:
                         _error = self.check_run_handler.get_check_run_text(out=out, err=err)
-                        return _issue_on_error(_error=_error)
+                        return await _issue_on_error(_error=_error)
             finally:
                 # Clean up .pypirc to reduce credential exposure
                 try:

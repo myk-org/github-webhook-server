@@ -16,6 +16,12 @@ from webhook_server.utils.helpers import (
     _redact_secrets,
 )
 
+# Test tokens for security scanners
+TEST_TOKEN_1 = "ghp_test1234567890abcdefghijklmnopqrstu"  # pragma: allowlist secret  # noqa: S105  # gitleaks:allow
+TEST_TOKEN_2 = "ghs_test0987654321zyxwvutsrqponmlkjih"  # pragma: allowlist secret  # noqa: S105  # gitleaks:allow
+TEST_SECRET_1 = "SECRET_TOKEN_12345"  # pragma: allowlist secret  # noqa: S105  # gitleaks:allow
+TEST_SECRET_2 = "SECRET_TOKEN_STDERR"  # pragma: allowlist secret  # noqa: S105  # gitleaks:allow
+
 
 class TestHelpers:
     """Test suite for utility helper functions."""
@@ -244,7 +250,6 @@ class TestHelpers:
             assert isinstance(logger, logging.Logger)
             log_dir = tmp_path / "logs"
             assert log_dir.exists()
-            assert (log_dir / "test.log").exists() or True  # File may not be created until logging
 
     def test_get_logger_with_params_mask_sensitive_default(self, tmp_path):
         """Test get_logger_with_params masks sensitive data by default."""
@@ -381,7 +386,7 @@ class TestHelpers:
     async def test_run_command_redaction_does_not_mutate_return_values(self):
         """Test that redaction creates copies and doesn't mutate returned values."""
         # Run a command that will output a secret in stdout
-        secret = "SECRET_TOKEN_12345"  # pragma: allowlist secret
+        secret = TEST_SECRET_1
         command = f'echo "{secret}"'
         result = await run_command(command, log_prefix="[TEST]", redact_secrets=[secret])
 
@@ -396,7 +401,7 @@ class TestHelpers:
     @pytest.mark.asyncio
     async def test_run_command_redaction_in_stderr(self):
         """Test that redaction works for stderr without mutating return values."""
-        secret = "SECRET_TOKEN_STDERR"  # pragma: allowlist secret
+        secret = TEST_SECRET_2
         # Use python to output secret to stderr
         command = f'{sys.executable} -c "import sys; sys.stderr.write(\\"{secret}\\")"'
         result = await run_command(command, log_prefix="[TEST]", redact_secrets=[secret])

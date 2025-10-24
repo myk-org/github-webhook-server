@@ -246,8 +246,20 @@ class QueryBuilder:
 
         Returns:
             GraphQL query string
+
+        Raises:
+            ValueError: If invalid state is provided
         """
-        states_str = f"states: [{', '.join(states)}]" if states else ""
+        # Validate and normalize state values
+        valid_states = {"OPEN", "CLOSED", "MERGED"}
+        if states:
+            normalized_states = [state.upper() for state in states]
+            invalid_states = set(normalized_states) - valid_states
+            if invalid_states:
+                raise ValueError(f"Invalid PR states: {invalid_states}. Valid states are: {valid_states}")
+            states_str = f"states: [{', '.join(normalized_states)}]"
+        else:
+            states_str = ""
         after_str = f', after: "{after}"' if after else ""
 
         return f"""

@@ -505,17 +505,19 @@ class TestOwnersFileHandler:
             new_callable=AsyncMock,
             side_effect=GithubException(404, "Not found"),
         ):
-            # Mock unified_api.create_issue_comment for error comment
-            owners_file_handler.github_webhook.unified_api.create_issue_comment = AsyncMock()
+            # Mock unified_api.add_comment for error comment (GraphQL mutation)
+            owners_file_handler.unified_api.add_comment = AsyncMock()
             await owners_file_handler.assign_reviewers(mock_pull_request)
-            # Verify create_issue_comment was called for the error
-            owners_file_handler.github_webhook.unified_api.create_issue_comment.assert_called_once()
+            # Verify add_comment was called for the error
+            owners_file_handler.unified_api.add_comment.assert_called_once()
             # Check the error message was included - call_args is (args, kwargs)
-            call_args = owners_file_handler.github_webhook.unified_api.create_issue_comment.call_args
-            # The body is call_args.args[3] or call_args[0][3]
-            # New format: "Failed to assign reviewers reviewer1: 404 'Not found'"
-            assert "Failed to assign reviewers reviewer1" in call_args.args[3]
-            assert "404" in call_args.args[3]
+            call_args = owners_file_handler.unified_api.add_comment.call_args
+            # The PR node ID is call_args.args[0] or call_args[0][0]
+            # The body is call_args.args[1] or call_args[0][1]
+            assert call_args.args[0] == "PR_kgDOTestId"  # PR node ID
+            # New format: "Failed to assign reviewers reviewer1: [GithubException] 404 'Not found'"
+            assert "Failed to assign reviewers reviewer1" in call_args.args[1]
+            assert "GithubException" in call_args.args[1]
 
     @pytest.mark.asyncio
     async def test_is_user_valid_to_run_commands_valid_user(

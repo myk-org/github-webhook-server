@@ -521,20 +521,22 @@ async def test_get_pull_request_files(initialized_api, mock_rest_client):
 
 
 @pytest.mark.asyncio
-async def test_create_issue_comment(initialized_api, mock_rest_client):
-    """Test create_issue_comment."""
-    mock_repo = MagicMock()
-    mock_pr = MagicMock()
+async def test_add_comment_graphql(initialized_api, mock_graphql_client):
+    """Test add_comment GraphQL mutation."""
+    # Mock get_pull_request to return PR data with ID
+    mock_graphql_client.execute.side_effect = [
+        # First call: get_pull_request
+        {"repository": {"pullRequest": {"id": "PR_123", "number": 1}}},
+        # Second call: add_comment
+        {"addComment": {"commentEdge": {"node": {"id": "comment123", "body": "Test comment"}}}},
+    ]
 
-    async def mock_to_thread(func, *args):
-        if func == mock_rest_client.get_repo:
-            return mock_repo
-        elif func == mock_repo.get_pull:
-            return mock_pr
-        return None
+    # Test the actual GraphQL approach used in production
+    pr_data = await initialized_api.get_pull_request("owner", "repo", 1)
+    result = await initialized_api.add_comment(pr_data["id"], "Test comment")
 
-    with patch("asyncio.to_thread", side_effect=mock_to_thread):
-        await initialized_api.create_issue_comment("owner", "repo", 1, "Comment")
+    assert result["id"] == "comment123"
+    assert mock_graphql_client.execute.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -715,15 +717,6 @@ async def test_edit_issue(initialized_api):
 
 
 @pytest.mark.asyncio
-async def test_create_issue_comment_on_issue(initialized_api):
-    """Test create_issue_comment_on_issue."""
-    mock_issue = MagicMock()
-
-    with patch("asyncio.to_thread", new=AsyncMock()):
-        await initialized_api.create_issue_comment_on_issue(mock_issue, "Comment")
-
-
-@pytest.mark.asyncio
 async def test_get_contents(initialized_api, mock_rest_client):
     """Test get_contents."""
     mock_repo = MagicMock()
@@ -848,52 +841,46 @@ async def test_merge_pull_request(initialized_api, mock_rest_client):
 
 
 @pytest.mark.asyncio
-async def test_is_pull_request_merged(initialized_api, mock_rest_client):
-    """Test is_pull_request_merged."""
-    mock_repo = MagicMock()
-    mock_pr = MagicMock()
+async def test_check_pr_merged_status(initialized_api, mock_graphql_client):
+    """Test checking PR merge status via GraphQL."""
+    # Mock get_pull_request to return PR data with merged status
+    mock_graphql_client.execute.return_value = {
+        "repository": {"pullRequest": {"id": "PR_123", "number": 1, "merged": True, "state": "MERGED"}}
+    }
 
-    async def mock_to_thread(func, *args):
-        if func == mock_rest_client.get_repo:
-            return mock_repo
-        elif func == mock_repo.get_pull:
-            return mock_pr
-        elif func == mock_pr.is_merged:
-            return True
-        return None
+    pr_data = await initialized_api.get_pull_request("owner", "repo", 1)
+    is_merged = pr_data["merged"]
 
-    with patch("asyncio.to_thread", side_effect=mock_to_thread):
-        result = await initialized_api.is_pull_request_merged("owner", "repo", 1)
-
-    assert result is True
+    assert isinstance(is_merged, bool)
+    assert is_merged is True
 
 
 @pytest.mark.asyncio
-async def test_get_pr_commits(initialized_api, mock_rest_client):
-    """Test get_pr_commits."""
-    mock_pr = MagicMock()
-    mock_commits = [MagicMock(), MagicMock()]
+async def test_get_pr_with_commits(initialized_api, mock_graphql_client):
+    """Test getting PR commits via GraphQL."""
+    # Mock get_pull_request with include_commits=True
+    mock_graphql_client.execute.return_value = {
+        "repository": {
+            "pullRequest": {
+                "id": "PR_123",
+                "number": 1,
+                "commits": {
+                    "nodes": [
+                        {"commit": {"oid": "abc123", "message": "First commit"}},
+                        {"commit": {"oid": "def456", "message": "Second commit"}},
+                    ]
+                },
+            }
+        }
+    }
 
-    async def mock_to_thread(func, *args):
-        if func == mock_rest_client.get_repo:
-            mock_repo = MagicMock()
-            return mock_repo
-        elif func.__self__.get_pull if hasattr(func, "__self__") else None:
-            return mock_pr
-        elif func == mock_pr.get_commits:
-            return iter(mock_commits)
-        # Handle repo.get_pull
-        if hasattr(func, "__name__") and "get_pull" in str(func):
-            return mock_pr
-        return None
+    pr_data = await initialized_api.get_pull_request("owner", "repo", 1, include_commits=True)
+    commits = pr_data["commits"]["nodes"]
 
-    with (
-        patch("asyncio.to_thread", side_effect=mock_to_thread),
-        patch.object(initialized_api, "get_pr_for_check_runs", return_value=mock_pr),
-    ):
-        result = await initialized_api.get_pr_commits("owner", "repo", 1)
-
-    assert len(result) == 2
+    assert isinstance(commits, list)
+    assert len(commits) == 2
+    assert commits[0]["commit"]["oid"] == "abc123"
+    assert commits[1]["commit"]["oid"] == "def456"
 
 
 @pytest.mark.asyncio

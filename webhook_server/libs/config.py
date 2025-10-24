@@ -34,9 +34,18 @@ class Config:
         try:
             with open(self.config_path) as fd:
                 return yaml.safe_load(fd)
-        except Exception:
-            self.logger.error(f"Config file is empty: {self.config_path}")
+        except FileNotFoundError:
+            self.logger.error(f"Config file not found: {self.config_path}")
             return {}
+        except yaml.YAMLError as ex:
+            self.logger.error(f"Config file has invalid YAML syntax: {self.config_path}, error: {ex}", exc_info=True)
+            raise  # Don't continue with invalid config
+        except PermissionError:
+            self.logger.error(f"Permission denied reading config file: {self.config_path}", exc_info=True)
+            raise
+        except Exception as ex:
+            self.logger.error(f"Failed to load config file {self.config_path}: {ex}", exc_info=True)
+            raise
 
     @property
     def repository_data(self) -> dict[str, Any]:
@@ -55,8 +64,14 @@ class Config:
                     return {}
 
                 config_file = _path[0] if isinstance(_path, list) else _path
-                repo_config = yaml.safe_load(config_file.decoded_content)
-                return repo_config
+                try:
+                    repo_config = yaml.safe_load(config_file.decoded_content)
+                    return repo_config
+                except yaml.YAMLError as ex:
+                    self.logger.error(
+                        f"Repository {repository_full_name} config has invalid YAML syntax: {ex}", exc_info=True
+                    )
+                    raise  # Don't continue with invalid config
 
             except Exception as ex:
                 self.logger.error(f"Repository {repository_full_name} config file not found or error. {ex}")

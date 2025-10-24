@@ -4,6 +4,7 @@ from github.CheckRun import CheckRun
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
+from webhook_server.libs.graphql.graphql_client import GraphQLError
 from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
 from webhook_server.libs.handlers.labels_handler import LabelsHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
@@ -81,8 +82,15 @@ class CheckRunHandler:
                         self.logger.error(
                             f"{self.log_prefix} Failed to auto-merge pull request #{pull_request.number}: {ex}"
                         )
-                        # Continue processing to allow manual intervention
-                        return True
+                        # Inform user of auto-merge failure
+                        failure_msg = (
+                            f"⚠️ **Auto-merge failed**\n\n"
+                            f"The PR has the `{AUTOMERGE_LABEL_STR}` label and all checks passed, "
+                            f"but auto-merge failed with error:\n\n```\n{ex}\n```\n\n"
+                            f"Please merge manually or check the error above."
+                        )
+                        await self.github_webhook.add_pr_comment(pull_request, failure_msg)
+                        return False
 
             else:
                 self.logger.debug(f"{self.log_prefix} check run is {CAN_BE_MERGED_STR}, skipping")
@@ -234,12 +242,31 @@ class CheckRunHandler:
         try:
             self.logger.debug(f"{self.log_prefix} Set check run status with {kwargs}")
             await self.unified_api.create_check_run(self.github_webhook.repository_by_github_app, **kwargs)
+        except GraphQLError as ex:
+            # Check if error is auth/permission/rate-limit (don't retry these)
+            error_str = str(ex).lower()
+            is_critical_error = any(
+                keyword in error_str
+                for keyword in ["auth", "permission", "forbidden", "rate limit", "unauthorized", "401", "403"]
+            )
+
+            if is_critical_error:
+                self.logger.error(
+                    f"{self.log_prefix} Failed to set {check_run} check to {status or conclusion}: {ex}. "
+                    "Not retrying due to auth/permission/rate-limit error."
+                )
+                raise  # Don't hide auth/permission/rate-limit errors
+            else:
+                # For transient errors, log the failure without attempting retry
+                # Retrying here could cause cascading failures if the same error occurs again
+                self.logger.exception(
+                    f"{self.log_prefix} Failed to set {check_run} check to {status or conclusion}. "
+                    "Check run may be in inconsistent state."
+                )
         except Exception:
+            # Handle non-GraphQL errors (e.g., network issues, PyGithub errors)
             self.logger.exception(f"{self.log_prefix} Failed to set {check_run} check to {status or conclusion}")
-            # Attempt explicit failure only if not already setting a failure result
-            if kwargs.get("conclusion") != FAILURE_STR:
-                fail_kwargs = dict(kwargs, conclusion=FAILURE_STR)
-                await self.unified_api.create_check_run(self.github_webhook.repository_by_github_app, **fail_kwargs)
+            # Don't retry for unknown errors to prevent cascading failures
         else:
             # Success log only after successful check run creation
             if conclusion in (SUCCESS_STR, IN_PROGRESS_STR):

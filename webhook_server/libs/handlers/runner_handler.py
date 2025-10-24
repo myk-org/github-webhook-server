@@ -368,10 +368,12 @@ class RunnerHandler:
                     self.logger.step(f"{self.log_prefix} Container push completed successfully")  # type: ignore
                     push_msg: str = f"New container for {_container_repository_and_tag} published"
                     if pull_request:
+                        # Get PR node ID for GraphQL comment
                         owner, repo = self.repository.full_name.split("/")
-                        await self.github_webhook.unified_api.create_issue_comment(
-                            owner, repo, pull_request.number, push_msg
+                        pr_data = await self.github_webhook.unified_api.get_pull_request(
+                            owner, repo, pull_request.number
                         )
+                        await self.github_webhook.unified_api.add_comment(pr_data["id"], push_msg)
 
                     if self.github_webhook.slack_webhook_url:
                         message = f"""
@@ -387,10 +389,12 @@ class RunnerHandler:
                 else:
                     err_msg: str = f"Failed to build and push {_container_repository_and_tag}"
                     if pull_request:
+                        # Get PR node ID for GraphQL comment
                         owner, repo = self.repository.full_name.split("/")
-                        await self.github_webhook.unified_api.create_issue_comment(
-                            owner, repo, pull_request.number, err_msg
+                        pr_data = await self.github_webhook.unified_api.get_pull_request(
+                            owner, repo, pull_request.number
                         )
+                        await self.github_webhook.unified_api.add_comment(pr_data["id"], err_msg)
 
                     if self.github_webhook.slack_webhook_url:
                         message = f"""
@@ -499,8 +503,10 @@ class RunnerHandler:
             err_msg = f"cherry-pick failed: {target_branch} does not exist"
             self.logger.step(f"{self.log_prefix} Cherry-pick failed: target branch does not exist")  # type: ignore
             self.logger.error(err_msg)
+            # Get PR node ID for GraphQL comment
             owner, repo = self.repository.full_name.split("/")
-            await self.github_webhook.unified_api.create_issue_comment(owner, repo, pull_request.number, err_msg)
+            pr_data = await self.github_webhook.unified_api.get_pull_request(owner, repo, pull_request.number)
+            await self.github_webhook.unified_api.add_comment(pr_data["id"], err_msg)
 
         else:
             self.logger.step(f"{self.log_prefix} Setting cherry-pick check status to in-progress")  # type: ignore
@@ -542,12 +548,13 @@ class RunnerHandler:
                         await self.check_run_handler.set_cherry_pick_failure(output=output)
                         self.logger.error(f"{self.log_prefix} Cherry pick failed: {out} --- {err}")
                         local_branch_name = f"{pull_request.head.ref}-{target_branch}"
-                        # Use unified_api for create_issue_comment
+                        # Get PR node ID for GraphQL comment
                         owner, repo_name = self.repository.full_name.split("/")
-                        await self.github_webhook.unified_api.create_issue_comment(
-                            owner,
-                            repo_name,
-                            pull_request.number,
+                        pr_data = await self.github_webhook.unified_api.get_pull_request(
+                            owner, repo_name, pull_request.number
+                        )
+                        await self.github_webhook.unified_api.add_comment(
+                            pr_data["id"],
                             f"**Manual cherry-pick is needed**\nCherry pick failed for "
                             f"{commit_hash} to {target_branch}:\n"
                             f"To cherry-pick run:\n"
@@ -566,8 +573,9 @@ class RunnerHandler:
 
             self.logger.step(f"{self.log_prefix} Cherry-pick completed successfully")  # type: ignore
             await self.check_run_handler.set_cherry_pick_success(output=output)
-            # Use unified_api for create_issue_comment
+            # Get PR node ID for GraphQL comment
             owner, repo_name = self.repository.full_name.split("/")
-            await self.github_webhook.unified_api.create_issue_comment(
-                owner, repo_name, pull_request.number, f"Cherry-picked PR {pull_request.title} into {target_branch}"
+            pr_data = await self.github_webhook.unified_api.get_pull_request(owner, repo_name, pull_request.number)
+            await self.github_webhook.unified_api.add_comment(
+                pr_data["id"], f"Cherry-picked PR {pull_request.title} into {target_branch}"
             )

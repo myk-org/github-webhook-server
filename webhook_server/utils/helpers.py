@@ -192,8 +192,8 @@ async def run_command(
 
         return True, out_decoded, err_decoded
 
-    except Exception as ex:
-        logger.error(f"{log_prefix} Failed to run '{logged_command}' command: {ex}")
+    except Exception:
+        logger.exception(f"{log_prefix} Failed to run '{logged_command}' command")
         return False, out_decoded, err_decoded
 
 

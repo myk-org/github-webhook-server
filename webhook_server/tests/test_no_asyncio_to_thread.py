@@ -13,8 +13,8 @@ def test_asyncio_to_thread_only_in_unified_api():
 
     violations = []
 
-    # Check all handler files
-    for handler_file in handlers_dir.glob("*.py"):
+    # Check all handler files (including subpackages)
+    for handler_file in handlers_dir.rglob("*.py"):
         if handler_file.name == "__init__.py":
             continue
 
@@ -23,12 +23,12 @@ def test_asyncio_to_thread_only_in_unified_api():
             # Parse to get line numbers
             tree = ast.parse(content, filename=str(handler_file))
             for node in ast.walk(tree):
-                if isinstance(node, ast.Attribute):
+                # Check for Call nodes where func is asyncio.to_thread
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
                     if (
-                        isinstance(node.value, ast.Attribute)
-                        and isinstance(node.value.value, ast.Name)
-                        and node.value.value.id == "asyncio"
-                        and node.value.attr == "to_thread"
+                        isinstance(node.func.value, ast.Name)
+                        and node.func.value.id == "asyncio"
+                        and node.func.attr == "to_thread"
                     ):
                         violations.append(f"{handler_file}:{node.lineno}")
 
@@ -38,12 +38,12 @@ def test_asyncio_to_thread_only_in_unified_api():
         if "asyncio.to_thread" in content:
             tree = ast.parse(content, filename=str(github_api_file))
             for node in ast.walk(tree):
-                if isinstance(node, ast.Attribute):
+                # Check for Call nodes where func is asyncio.to_thread
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
                     if (
-                        isinstance(node.value, ast.Attribute)
-                        and isinstance(node.value.value, ast.Name)
-                        and node.value.value.id == "asyncio"
-                        and node.value.attr == "to_thread"
+                        isinstance(node.func.value, ast.Name)
+                        and node.func.value.id == "asyncio"
+                        and node.func.attr == "to_thread"
                     ):
                         violations.append(f"{github_api_file}:{node.lineno}")
 

@@ -423,27 +423,50 @@ class TestCheckRunHandler:
 
     @pytest.mark.asyncio
     async def test_set_check_run_status_exception_handling(self, check_run_handler: CheckRunHandler) -> None:
-        """Test setting check run status with exception handling."""
-        # Patch create_check_run as a real function that raises, then succeeds
-        call_count = {"count": 0}
-
-        def create_check_run_side_effect(*args: object, **kwargs: object) -> None:
-            if call_count["count"] == 0:
-                call_count["count"] += 1
-                raise Exception("API Error")
-            call_count["count"] += 1
-            return None
-
+        """Test that generic exceptions don't retry (to prevent cascading failures)."""
         check_run_handler.github_webhook.unified_api.create_check_run = AsyncMock(
-            side_effect=create_check_run_side_effect
+            side_effect=Exception("Generic API Error")
         )
-        with patch.object(check_run_handler.github_webhook.logger, "debug") as mock_debug:
+        with patch.object(check_run_handler.github_webhook.logger, "exception") as mock_exception:
             await check_run_handler.set_check_run_status(
                 check_run="test-check", status="queued", conclusion="", output=None
             )
-            # Should be called twice - once for the original attempt, once for the fallback
-            assert call_count["count"] == 2
-            mock_debug.assert_called()
+            # Should be called once - no retry for generic exceptions
+            assert check_run_handler.github_webhook.unified_api.create_check_run.call_count == 1
+            mock_exception.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_set_check_run_status_auth_error_no_retry(self, check_run_handler: CheckRunHandler) -> None:
+        """Test that auth/permission errors don't retry."""
+        from webhook_server.libs.graphql.graphql_client import GraphQLError
+
+        check_run_handler.github_webhook.unified_api.create_check_run = AsyncMock(
+            side_effect=GraphQLError("401 Unauthorized")
+        )
+        with patch.object(check_run_handler.github_webhook.logger, "error") as mock_error:
+            with pytest.raises(GraphQLError):
+                await check_run_handler.set_check_run_status(
+                    check_run="test-check", status="queued", conclusion="", output=None
+                )
+            # Should be called once - no retry for auth errors
+            assert check_run_handler.github_webhook.unified_api.create_check_run.call_count == 1
+            mock_error.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_set_check_run_status_transient_error_retries(self, check_run_handler: CheckRunHandler) -> None:
+        """Test that non-critical GraphQL errors are logged without retry to prevent cascading failures."""
+        from webhook_server.libs.graphql.graphql_client import GraphQLError
+
+        check_run_handler.github_webhook.unified_api.create_check_run = AsyncMock(
+            side_effect=GraphQLError("Network timeout")
+        )
+        with patch.object(check_run_handler.github_webhook.logger, "exception") as mock_exception:
+            await check_run_handler.set_check_run_status(
+                check_run="test-check", status="queued", conclusion="", output=None
+            )
+            # Should be called once only - no retry to prevent cascading failures
+            check_run_handler.github_webhook.unified_api.create_check_run.assert_called_once()
+            mock_exception.assert_called_once()
 
     def test_get_check_run_text_normal_length(self, check_run_handler: CheckRunHandler) -> None:
         """Test getting check run text with normal length."""

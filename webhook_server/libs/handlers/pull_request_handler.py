@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any, Coroutine
 
+from github.GithubException import GithubException
 from github.Repository import Repository
 
+from webhook_server.libs.graphql.graphql_client import GraphQLError
 from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.libs.handlers.labels_handler import LabelsHandler
@@ -69,6 +71,10 @@ class PullRequestHandler:
         return owner, repo_name
 
     async def process_pull_request_webhook_data(self, pull_request: PullRequestWrapper) -> None:
+        # Ensure OwnersFileHandler is initialized before any processing
+        # This is a defensive check to catch refactoring errors where initialization might be skipped
+        self.owners_file_handler._ensure_initialized()
+
         hook_action: str = self.hook_data["action"]
         self.logger.step(f"{self.log_prefix} Starting pull request processing: action={hook_action}")  # type: ignore
         self.logger.info(f"{self.log_prefix} hook_action is: {hook_action}")
@@ -317,6 +323,9 @@ For more information, please refer to the project documentation or contact the m
     """
 
     def _prepare_owners_welcome_comment(self) -> str:
+        # Defensive check: ensure OwnersFileHandler is initialized
+        self.owners_file_handler._ensure_initialized()
+
         body_approvers: str = "**Approvers:**\n"
         body_reviewers: str = "**Reviewers:**\n"
 
@@ -368,7 +377,9 @@ For more information, please refer to the project documentation or contact the m
         await asyncio.sleep(time_sleep)
 
         owner, repo_name = self._owner_and_repo
-        for pull_request in self.repository.get_pulls(state="open"):
+        # Use unified_api to avoid blocking the event loop (asyncio.to_thread in unified_api.py)
+        open_prs = await self.github_webhook.unified_api.get_open_pull_requests(owner, repo_name)
+        for pull_request in open_prs:
             self.logger.info(f"{self.log_prefix} check label pull request after merge")
             # Fetch PullRequestWrapper for GraphQL compatibility
             pr_data = await self.github_webhook.unified_api.get_pull_request(owner, repo_name, pull_request.number)
@@ -415,12 +426,9 @@ For more information, please refer to the project documentation or contact the m
 
                     rc, _, _ = await self.runner_handler.run_podman_command(command=tag_del_cmd)
                     if rc:
-                        # Use unified_api for create_issue_comment
-                        owner, repo_name = self._owner_and_repo
-                        await self.github_webhook.unified_api.create_issue_comment(
-                            owner,
-                            repo_name,
-                            pull_request.number,
+                        # Use GraphQL add_comment mutation
+                        await self.github_webhook.unified_api.add_comment(
+                            pull_request.id,
                             f"Successfully removed PR tag: {repository_full_tag}.",
                         )
                     else:
@@ -436,12 +444,9 @@ For more information, please refer to the project documentation or contact the m
                 await self.runner_handler.run_podman_command(command="regctl registry logout")
 
         else:
-            # Use unified_api for create_issue_comment
-            owner, repo_name = self._owner_and_repo
-            await self.github_webhook.unified_api.create_issue_comment(
-                owner,
-                repo_name,
-                pull_request.number,
+            # Use GraphQL add_comment mutation
+            await self.github_webhook.unified_api.add_comment(
+                pull_request.id,
                 f"Failed to delete tag: {repository_full_tag}. Please delete it manually.",
             )
             self.logger.error(f"{self.log_prefix} Failed to delete tag: {repository_full_tag}. OUT:{out}. ERR:{err}")
@@ -451,8 +456,9 @@ For more information, please refer to the project documentation or contact the m
         for issue in await self.github_webhook.unified_api.get_issues(owner, repo_name):
             if issue.body == self._generate_issue_body(pull_request=pull_request):
                 self.logger.info(f"{self.log_prefix} Closing issue {issue.title} for PR: {pull_request.title}")
-                await self.github_webhook.unified_api.create_issue_comment_on_issue(
-                    issue, f"{self.log_prefix} Closing issue for PR: {pull_request.title}.\nPR was {hook_action}."
+                await self.github_webhook.unified_api.add_comment(
+                    issue.node_id,
+                    f"{self.log_prefix} Closing issue for PR: {pull_request.title}.\nPR was {hook_action}.",
                 )
                 await self.github_webhook.unified_api.edit_issue(issue, state="closed")
 
@@ -593,7 +599,7 @@ For more information, please refer to the project documentation or contact the m
                 else:
                     self.logger.debug(f"{self.log_prefix} is already set to auto merge")
 
-            except Exception:
+            except (GraphQLError, GithubException):
                 self.logger.exception(f"{self.log_prefix} Exception while setting auto merge")
 
     async def remove_labels_when_pull_request_sync(self, pull_request: PullRequestWrapper) -> None:
@@ -777,6 +783,9 @@ For more information, please refer to the project documentation or contact the m
             await self.check_run_handler.set_merge_check_failure(output=output)
 
     async def _check_if_pr_approved(self, labels: list[str]) -> str:
+        # Defensive check: ensure OwnersFileHandler is initialized
+        self.owners_file_handler._ensure_initialized()
+
         self.logger.info(f"{self.log_prefix} Check if pull request is approved by pull request labels.")
         self.logger.debug(f"labels are {labels}")
 
@@ -854,6 +863,9 @@ For more information, please refer to the project documentation or contact the m
         return error
 
     def _check_labels_for_can_be_merged(self, labels: list[str]) -> str:
+        # Defensive check: ensure OwnersFileHandler is initialized
+        self.owners_file_handler._ensure_initialized()
+
         self.logger.debug(f"{self.log_prefix} _check_labels_for_can_be_merged.")
         failure_output = ""
 

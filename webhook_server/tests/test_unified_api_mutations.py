@@ -47,25 +47,48 @@ async def test_add_comment_mutation(initialized_api, mock_graphql_client):
 
 @pytest.mark.asyncio
 async def test_add_labels_mutation(initialized_api, mock_graphql_client):
-    """Test add_labels calls GraphQL mutation."""
+    """Test add_labels calls GraphQL mutation with label IDs."""
     mock_graphql_client.execute.return_value = {"addLabelsToLabelable": {"labelable": {"id": "PR_123"}}}
 
-    await initialized_api.add_labels("PR_123", ["bug", "enhancement"])
+    # Use label IDs (GraphQL node IDs), not label names
+    label_ids = ["LA_kgDOABCDEF1", "LA_kgDOABCDEF2"]
+    await initialized_api.add_labels("PR_123", label_ids)
 
     mock_graphql_client.execute.assert_called_once()
     call_args = mock_graphql_client.execute.call_args
-    assert "mutation" in call_args[0][0]
-    assert "addLabelsToLabelable" in call_args[0][0]
+
+    # Verify mutation string
+    mutation_str = call_args[0][0]
+    assert "mutation" in mutation_str
+    assert "addLabelsToLabelable" in mutation_str
+
+    # Verify variables payload matches expected structure
+    variables = call_args[0][1]
+    assert variables["labelableId"] == "PR_123"
+    assert variables["labelIds"] == label_ids
 
 
 @pytest.mark.asyncio
 async def test_remove_labels_mutation(initialized_api, mock_graphql_client):
-    """Test remove_labels calls GraphQL mutation."""
+    """Test remove_labels calls GraphQL mutation with label IDs."""
     mock_graphql_client.execute.return_value = {"removeLabelsFromLabelable": {"labelable": {"id": "PR_123"}}}
 
-    await initialized_api.remove_labels("PR_123", ["wip"])
+    # Use label IDs (GraphQL node IDs), not label names
+    label_ids = ["LA_kgDOABCDEF1"]
+    await initialized_api.remove_labels("PR_123", label_ids)
 
     mock_graphql_client.execute.assert_called_once()
+    call_args = mock_graphql_client.execute.call_args
+
+    # Verify mutation string
+    mutation_str = call_args[0][0]
+    assert "mutation" in mutation_str
+    assert "removeLabelsFromLabelable" in mutation_str
+
+    # Verify variables payload matches expected structure
+    variables = call_args[0][1]
+    assert variables["labelableId"] == "PR_123"
+    assert variables["labelIds"] == label_ids
 
 
 @pytest.mark.asyncio
@@ -127,14 +150,25 @@ async def test_update_label_mutation(initialized_api, mock_graphql_client):
 
 @pytest.mark.asyncio
 async def test_request_reviews_mutation(initialized_api, mock_graphql_client):
-    """Test request_reviews calls GraphQL mutation."""
+    """Test request_reviews calls GraphQL mutation with user IDs."""
     mock_graphql_client.execute.return_value = {"requestReviews": {"pullRequest": {"id": "PR_123"}}}
 
-    # Mock get_user_id
-    with patch.object(initialized_api, "get_user_id", return_value="U_123"):
-        await initialized_api.request_reviews("PR_123", ["reviewer1"])
+    # Pass user IDs directly (GraphQL node IDs), not usernames
+    user_ids = ["U_kgDOABCDEF1"]
+    await initialized_api.request_reviews("PR_123", user_ids)
 
     mock_graphql_client.execute.assert_called_once()
+    call_args = mock_graphql_client.execute.call_args
+
+    # Verify mutation string
+    mutation_str = call_args[0][0]
+    assert "mutation" in mutation_str
+    assert "requestReviews" in mutation_str
+
+    # Verify variables payload matches expected structure
+    variables = call_args[0][1]
+    assert variables["pullRequestId"] == "PR_123"
+    assert variables["userIds"] == user_ids
 
 
 @pytest.mark.asyncio
@@ -355,13 +389,20 @@ async def test_update_pull_request_none_values(initialized_api, mock_graphql_cli
 
 @pytest.mark.asyncio
 async def test_request_reviews_multiple_reviewers(initialized_api, mock_graphql_client):
-    """Test request_reviews with multiple reviewers."""
+    """Test request_reviews with multiple reviewer IDs."""
     mock_graphql_client.execute.return_value = {"requestReviews": {"pullRequest": {"id": "PR_123"}}}
 
-    with patch.object(initialized_api, "get_user_id", side_effect=["U_1", "U_2", "U_3"]):
-        await initialized_api.request_reviews("PR_123", ["user1", "user2", "user3"])
+    # Pass user IDs directly (GraphQL node IDs)
+    user_ids = ["U_kgDOABCDEF1", "U_kgDOABCDEF2", "U_kgDOABCDEF3"]
+    await initialized_api.request_reviews("PR_123", user_ids)
 
     mock_graphql_client.execute.assert_called_once()
+    call_args = mock_graphql_client.execute.call_args
+
+    # Verify variables contain all user IDs
+    variables = call_args[0][1]
+    assert variables["userIds"] == user_ids
+    assert len(variables["userIds"]) == 3
 
 
 @pytest.mark.asyncio
@@ -393,9 +434,16 @@ async def test_remove_labels_multiple(initialized_api, mock_graphql_client):
     """Test remove_labels with multiple label IDs."""
     mock_graphql_client.execute.return_value = {"removeLabelsFromLabelable": {"labelable": {"id": "PR_123"}}}
 
-    await initialized_api.remove_labels("PR_123", ["LA_1", "LA_2", "LA_3"])
+    label_ids = ["LA_kgDOABCDEF1", "LA_kgDOABCDEF2", "LA_kgDOABCDEF3"]
+    await initialized_api.remove_labels("PR_123", label_ids)
 
     mock_graphql_client.execute.assert_called_once()
+    call_args = mock_graphql_client.execute.call_args
+
+    # Verify variables contain all label IDs
+    variables = call_args[0][1]
+    assert variables["labelIds"] == label_ids
+    assert len(variables["labelIds"]) == 3
 
 
 @pytest.mark.asyncio
@@ -403,6 +451,13 @@ async def test_add_labels_multiple(initialized_api, mock_graphql_client):
     """Test add_labels with multiple label IDs."""
     mock_graphql_client.execute.return_value = {"addLabelsToLabelable": {"labelable": {"id": "PR_123"}}}
 
-    await initialized_api.add_labels("PR_123", ["LA_1", "LA_2", "LA_3", "LA_4"])
+    label_ids = ["LA_kgDOABCDEF1", "LA_kgDOABCDEF2", "LA_kgDOABCDEF3", "LA_kgDOABCDEF4"]
+    await initialized_api.add_labels("PR_123", label_ids)
 
     mock_graphql_client.execute.assert_called_once()
+    call_args = mock_graphql_client.execute.call_args
+
+    # Verify variables contain all label IDs
+    variables = call_args[0][1]
+    assert variables["labelIds"] == label_ids
+    assert len(variables["labelIds"]) == 4

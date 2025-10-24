@@ -32,6 +32,7 @@ async def test_add_reviewer_by_user_comment(caplog, process_github_webhook, owne
     process_github_webhook.unified_api = AsyncMock()
     process_github_webhook.unified_api.get_user_id.return_value = "U_123"
     process_github_webhook.unified_api.request_reviews.return_value = None
+    process_github_webhook.unified_api.get_contributors.return_value = [User("user1")]
 
     issue_comment_handler = IssueCommentHandler(
         github_webhook=process_github_webhook, owners_file_handler=owners_file_handler
@@ -53,6 +54,7 @@ async def test_add_reviewer_by_user_comment_invalid_user(
     from unittest.mock import AsyncMock
 
     process_github_webhook.unified_api = AsyncMock()
+    process_github_webhook.unified_api.get_contributors.return_value = [User("user1")]
 
     issue_comment_handler = IssueCommentHandler(
         github_webhook=process_github_webhook, owners_file_handler=owners_file_handler

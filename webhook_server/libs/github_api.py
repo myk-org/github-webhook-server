@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 import os
@@ -12,13 +11,18 @@ from github.PullRequest import PullRequest
 from github.Repository import Repository
 
 # GraphQL wrappers provide PyGithub-compatible interface
+from webhook_server.libs.graphql.graphql_client import (
+    GraphQLAuthenticationError,
+    GraphQLError,
+    GraphQLRateLimitError,
+)
 from webhook_server.libs.graphql.graphql_wrappers import CommitWrapper, PullRequestWrapper
 from webhook_server.libs.graphql.unified_api import UnifiedGitHubAPI
 from starlette.datastructures import Headers
 
 from webhook_server.libs.config import Config
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
-from webhook_server.libs.exceptions import RepositoryNotFoundInConfigError
+from webhook_server.libs.exceptions import RepositoryNotFoundInConfigError, UnifiedAPINotInitializedError
 from webhook_server.libs.handlers.issue_comment_handler import IssueCommentHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
@@ -203,7 +207,7 @@ class GithubWebhook:
 
             self.auto_verified_and_merged_users.append(_api.get_user().login)
 
-    def prepare_log_prefix(self, pull_request: PullRequestWrapper | None = None) -> str:
+    def prepare_log_prefix(self, pull_request: PullRequest | PullRequestWrapper | None = None) -> str:
         return prepare_log_prefix(
             event_type=self.github_event,
             delivery_id=self.x_github_delivery,
@@ -271,7 +275,7 @@ class GithubWebhook:
         """Get pull request using GraphQL."""
         if not self.unified_api:
             self.logger.error(f"{self.log_prefix} UnifiedAPI not initialized")
-            return None
+            raise UnifiedAPINotInitializedError("UnifiedAPI must be initialized before use")
 
         # Extract owner and repo name from repository_full_name
         owner, repo_name = self.repository_full_name.split("/")
@@ -296,10 +300,15 @@ class GithubWebhook:
         commit: dict[str, Any] = self.hook_data.get("commit", {})
         if commit:
             owner, repo_name = self.repository.full_name.split("/")
-            commit_obj = await self.unified_api.get_commit(owner, repo_name, commit["sha"])
-            with contextlib.suppress(Exception):
-                _pulls = await self.unified_api.get_pulls_from_commit(commit_obj)
-                return _pulls[0]
+            try:
+                # Get PRs associated with this commit SHA (unified_api handles REST internally)
+                _pulls = await self.unified_api.get_pulls_from_commit_sha(owner, repo_name, commit["sha"])
+                if _pulls:
+                    return _pulls[0]
+                self.logger.warning(f"{self.log_prefix} No PRs found for commit {commit['sha']}")
+            except (GraphQLError, IndexError) as ex:
+                self.logger.warning(f"{self.log_prefix} Failed to get PR from commit {commit['sha']}: {ex}")
+            # Don't suppress authentication or connection errors
 
         if self.github_event == "check_run":
             owner, repo_name = self.repository.full_name.split("/")
@@ -312,28 +321,55 @@ class GithubWebhook:
 
         return None
 
-    async def _get_last_commit(self, pull_request: PullRequestWrapper) -> Commit | CommitWrapper:
-        """Get last commit from PullRequestWrapper."""
+    async def _get_last_commit(self, pull_request: PullRequest | PullRequestWrapper) -> Commit | CommitWrapper:
+        """Get last commit from pull request (supports both REST and GraphQL PR types)."""
+        # Handle PyGithub PullRequest (REST) - use GraphQL
+        if isinstance(pull_request, PullRequest):
+            owner = pull_request.base.repo.owner.login
+            repo_name = pull_request.base.repo.name
+            # Use GraphQL to get PR with commits
+            pr_data = await self.unified_api.get_pull_request(
+                owner, repo_name, pull_request.number, include_commits=True
+            )
+            # Extract commits from GraphQL response
+            commits_nodes = pr_data.get("commits", {}).get("nodes", [])
+            if not commits_nodes:
+                raise ValueError(f"No commits found in PR {pull_request.number}")
+            # Return last commit (wrapped)
+            last_commit_data = commits_nodes[-1].get("commit", {})
+            return CommitWrapper(last_commit_data)
+
+        # Handle PullRequestWrapper (GraphQL)
         commits = pull_request.get_commits()
         if commits:
             return commits[-1]
-        # If no commits in wrapper, fallback to REST via unified_api
-        self.logger.warning(f"{self.log_prefix} No commits in GraphQL response, using REST fallback")
+        # If no commits in wrapper, fetch PR with commits
+        self.logger.warning(f"{self.log_prefix} No commits in GraphQL wrapper, fetching with include_commits=True")
         owner, repo_name = self.repository.full_name.split("/")
-        commits = await self.unified_api.get_pr_commits(owner, repo_name, pull_request.number)
-        return commits[-1]
+        pr_data = await self.unified_api.get_pull_request(owner, repo_name, pull_request.number, include_commits=True)
+        commits_nodes = pr_data.get("commits", {}).get("nodes", [])
+        if not commits_nodes:
+            raise ValueError(f"No commits found in PR {pull_request.number}")
+        last_commit_data = commits_nodes[-1].get("commit", {})
+        return CommitWrapper(last_commit_data)
 
     async def add_pr_comment(self, pull_request: PullRequest | PullRequestWrapper, body: str) -> None:
         """Add comment to PR via unified_api (supports both REST and GraphQL PRs)."""
         try:
-            # Handle PyGithub PullRequest (REST) - use REST API
+            # Handle PyGithub PullRequest (REST) - convert to GraphQL
             if isinstance(pull_request, PullRequest):
                 owner = pull_request.base.repo.owner.login
                 repo = pull_request.base.repo.name
                 self.logger.debug(
-                    f"{self.log_prefix} Adding PR comment via REST, pr={pull_request.number}, body length={len(body)}"
+                    f"{self.log_prefix} Getting PR node ID for GraphQL mutation, pr={pull_request.number}"
                 )
-                await self.unified_api.create_issue_comment(owner, repo, pull_request.number, body)
+                # Get PR data via GraphQL to obtain node ID
+                pr_data = await self.unified_api.get_pull_request(owner, repo, pull_request.number)
+                pr_id = pr_data["id"]
+                self.logger.debug(
+                    f"{self.log_prefix} Adding PR comment via GraphQL, pr_id={pr_id}, body length={len(body)}"
+                )
+                await self.unified_api.add_comment(pr_id, body)
             else:
                 # Handle PullRequestWrapper (GraphQL)
                 pr_id = pull_request.id
@@ -405,8 +441,11 @@ class GithubWebhook:
             try:
                 user_id = await self.unified_api.get_user_id(username)
                 reviewer_ids.append(user_id)
+            except (GraphQLAuthenticationError, GraphQLRateLimitError):
+                # Re-raise auth/rate-limit errors - don't waste time trying REST
+                raise
             except Exception as ex:
-                # (3) If GraphQL fails, try to use extracted id from original reviewer
+                # (3) If GraphQL fails (user not found or other error), try to use extracted id from original reviewer
                 if reviewer_id:
                     self.logger.debug(f"{self.log_prefix} Using extracted id {reviewer_id} for {username}")
                     reviewer_ids.append(str(reviewer_id))
@@ -415,6 +454,9 @@ class GithubWebhook:
                     try:
                         user_id = await self.unified_api.get_user_id_rest(username)
                         reviewer_ids.append(user_id)
+                    except (GraphQLAuthenticationError, GraphQLRateLimitError):
+                        # Re-raise auth/rate-limit errors
+                        raise
                     except Exception as rest_ex:
                         self.logger.warning(
                             f"{self.log_prefix} Failed to get ID for {username} via GraphQL ({ex}) and REST ({rest_ex})"
