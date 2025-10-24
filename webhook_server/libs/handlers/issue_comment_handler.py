@@ -274,8 +274,8 @@ class IssueCommentHandler:
         repo_contributors = await self.github_webhook.unified_api.get_contributors(owner, repo_name)
         self.logger.debug(f"Repo contributors are: {repo_contributors}")
 
-        for contributer in repo_contributors:
-            if contributer.login == reviewer:
+        for contributor in repo_contributors:
+            if contributor.login == reviewer:
                 # Convert REST PullRequest to PullRequestWrapper if needed
                 # request_pr_reviews expects PullRequestWrapper for GraphQL node ID
                 pr_wrapper = pull_request

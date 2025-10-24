@@ -1,5 +1,6 @@
 import os
 import re
+from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -92,24 +93,14 @@ Publish to PYPI failed: `{_error}`
                 _error = self.check_run_handler.get_check_run_text(out=out, err=err)
                 return await _issue_on_error(_error=_error)
 
-            # Get the sdist file (*.tar.gz) deterministically
-            # Use find to get exactly one .tar.gz file, sorted by name for consistency
-            rc, tar_gz_file, err = await run_command(
-                command=f"find {_dist_dir} -name '*.tar.gz' -type f | sort | head -n 1",
-                log_prefix=self.log_prefix,
-                redact_secrets=[],
-            )
-            if not rc:
-                _error = self.check_run_handler.get_check_run_text(out=tar_gz_file, err=err)
-                return await _issue_on_error(_error=_error)
-
-            tar_gz_file = tar_gz_file.strip()
-            if not tar_gz_file:
+            # Get the sdist file (*.tar.gz) deterministically using Python (no shell pipes required)
+            matches = sorted(Path(_dist_dir).glob("*.tar.gz"))
+            if not matches:
                 _error = f"No .tar.gz file found in {_dist_dir}"
                 return await _issue_on_error(_error=_error)
 
             # Extract just the filename from the full path
-            tar_gz_file = os.path.basename(tar_gz_file)
+            tar_gz_file = matches[0].name
 
             # Securely handle PyPI token - use pypirc file instead of CLI args
             token = (self.github_webhook.pypi or {}).get("token")

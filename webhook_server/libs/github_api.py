@@ -269,6 +269,32 @@ class GithubWebhook:
 
             self.auto_verified_and_merged_users.append(_api.get_user().login)
 
+    def _normalize_container_args(self, args: str | list[str] | dict[str, str] | None) -> list[str]:
+        """
+        Normalize container build args to list format.
+
+        Supports:
+        - str: Single string (legacy format) or space-separated args
+        - list[str]: Already in correct format
+        - dict[str, str]: Key-value pairs converted to KEY=VALUE format
+        - None: Returns empty list
+
+        Returns:
+            List of argument strings
+        """
+        if not args:
+            return []
+
+        if isinstance(args, list):
+            return args
+
+        if isinstance(args, dict):
+            return [f"{key}={value}" for key, value in args.items()]
+
+        # String - split on whitespace for backward compatibility
+        # (schema says array, but legacy configs may have strings)
+        return args.split()
+
     def prepare_log_prefix(self, pull_request: PullRequest | PullRequestWrapper | None = None) -> str:
         return prepare_log_prefix(
             event_type=self.github_event,
@@ -300,8 +326,13 @@ class GithubWebhook:
             self.container_repository: str = self.build_and_push_container["repository"]
             self.dockerfile: str = self.build_and_push_container.get("dockerfile", "Dockerfile")
             self.container_tag: str = self.build_and_push_container.get("tag", "latest")
-            self.container_build_args: str = self.build_and_push_container.get("build-args", "")
-            self.container_command_args: str = self.build_and_push_container.get("args", "")
+            # Support str | list[str] for build-args (schema says array, but may be string in legacy configs)
+            self.container_build_args: list[str] = self._normalize_container_args(
+                self.build_and_push_container.get("build-args", [])
+            )
+            self.container_command_args: list[str] = self._normalize_container_args(
+                self.build_and_push_container.get("args", [])
+            )
             self.container_release: bool = self.build_and_push_container.get("release", False)
 
         self.pre_commit: bool = self.config.get_value(
@@ -334,7 +365,14 @@ class GithubWebhook:
         )
 
     async def get_pull_request(self, number: int | None = None) -> PullRequest | PullRequestWrapper | None:
-        """Get pull request using GraphQL."""
+        """
+        Get pull request using GraphQL or REST API.
+
+        Returns:
+            PullRequestWrapper for GraphQL queries (when PR number is available)
+            PullRequest (REST) for commit-based lookups or check_run events
+            None if no PR found
+        """
         if not self.unified_api:
             self.logger.error(f"{self.log_prefix} UnifiedAPI not initialized")
             raise UnifiedAPINotInitializedError("UnifiedAPI must be initialized before use")

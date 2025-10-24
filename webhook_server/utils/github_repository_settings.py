@@ -1,5 +1,4 @@
 import copy
-import logging
 import os
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from copy import deepcopy
@@ -33,8 +32,6 @@ from webhook_server.utils.helpers import (
     run_command,
 )
 
-logger = logging.getLogger(__name__)
-
 DEFAULT_BRANCH_PROTECTION = {
     "strict": True,
     "require_code_owner_reviews": False,
@@ -44,6 +41,7 @@ DEFAULT_BRANCH_PROTECTION = {
     "required_conversation_resolution": True,
 }
 
+# Use LOGGER consistently throughout the module
 LOGGER = get_logger_with_params()
 
 
@@ -144,12 +142,12 @@ def get_required_status_checks(
     try:
         repo.get_contents(".pre-commit-config.yaml")
         default_status_checks.append("pre-commit.ci - pr")
-    except GithubException as ex:
+    except UnknownObjectException:
         # 404 is expected if file doesn't exist
-        if ex.status != 404:
-            logger.warning(f"Failed to check for .pre-commit-config.yaml in {repo.full_name}: {ex}")
-    except Exception as ex:
-        logger.warning(f"Unexpected error checking for .pre-commit-config.yaml in {repo.full_name}: {ex}")
+        pass
+    except GithubException as ex:
+        # Handle other GitHub API errors (rate limits, permissions, etc.)
+        LOGGER.warning(f"Failed to check for .pre-commit-config.yaml in {repo.full_name}: {ex}")
 
     for status_check in exclude_status_checks:
         while status_check in default_status_checks:
@@ -211,7 +209,8 @@ async def set_repositories_settings(config: Config, apis_dict: dict[str, dict[st
         docker_password: str = docker["password"]
         await run_command(
             log_prefix="",
-            command=f"podman login -u {docker_username} -p {docker_password} docker.io",
+            command=f"podman login -u {docker_username} --password-stdin docker.io",
+            stdin_input=docker_password,
             redact_secrets=[docker_username, docker_password],
         )
 
@@ -359,7 +358,15 @@ def set_repository_check_runs_to_queued(
     api_user: str,
 ) -> tuple[bool, str, Callable]:
     def _set_checkrun_queued(_api: Repository, _pull_request: PullRequest) -> None:
-        last_commit: Commit = list(_pull_request.get_commits())[-1]
+        # Avoid materializing all commits - use single-pass tail iteration
+        # This is O(1) memory instead of O(N) for large PRs
+        commits = _pull_request.get_commits()
+        last_commit: Commit | None = None
+        for last_commit in commits:
+            pass  # Iterate to end without materializing full list
+        if last_commit is None:
+            LOGGER.error(f"[API user {api_user}] - {repository}: [PR:{_pull_request.number}] No commits found")
+            return
         # Use REST API method directly (this is REST-only code)
         for check_run in last_commit.get_check_runs():
             if check_run.name in check_runs and check_run.status == IN_PROGRESS_STR:

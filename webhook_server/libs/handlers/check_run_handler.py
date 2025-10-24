@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, Any
 
 from github.CheckRun import CheckRun
+from github.GithubException import GithubException
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
@@ -87,16 +88,17 @@ class CheckRunHandler:
                             f"{self.log_prefix} Successfully auto-merged pull request #{pull_request.number}"
                         )
                         return False
-                    except Exception as ex:
+                    except Exception:
+                        # Log full exception with traceback for debugging
                         self.logger.exception(
-                            f"{self.log_prefix} Failed to auto-merge pull request #{pull_request.number}: {ex}"
+                            f"{self.log_prefix} Failed to auto-merge pull request #{pull_request.number}"
                         )
-                        # Inform user of auto-merge failure
+                        # Send sanitized message to PR (no sensitive exception details)
                         failure_msg = (
                             f"⚠️ **Auto-merge failed**\n\n"
                             f"The PR has the `{AUTOMERGE_LABEL_STR}` label and all checks passed, "
-                            f"but auto-merge failed with error:\n\n```\n{ex}\n```\n\n"
-                            f"Please merge manually or check the error above."
+                            f"but auto-merge encountered an error.\n\n"
+                            f"Please merge manually or contact the repository maintainers for assistance."
                         )
                         await self.github_webhook.add_pr_comment(pull_request, failure_msg)
                         return False
@@ -259,7 +261,7 @@ class CheckRunHandler:
         try:
             self.logger.debug(f"{self.log_prefix} Set check run status with {kwargs}")
             await self.unified_api.create_check_run(self.github_webhook.repository_by_github_app, **kwargs)
-        except GraphQLError as ex:
+        except (GraphQLError, GithubException) as ex:
             # Check if error is auth/permission/rate-limit (don't retry these)
             error_str = str(ex).lower()
             is_critical_error = any(
@@ -286,7 +288,8 @@ class CheckRunHandler:
             # Don't retry for unknown errors to prevent cascading failures
         else:
             # Success log only after successful check run creation
-            if conclusion in (SUCCESS_STR, IN_PROGRESS_STR) or status == IN_PROGRESS_STR:
+            # Use exact SUCCESS check (conclusion never equals IN_PROGRESS)
+            if conclusion == SUCCESS_STR or status in (IN_PROGRESS_STR, QUEUED_STR):
                 self.logger.success(msg)  # type: ignore[attr-defined]
 
     def get_check_run_text(self, err: str, out: str) -> str:

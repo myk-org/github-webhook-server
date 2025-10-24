@@ -343,7 +343,7 @@ class TestHelpers:
         """Test run_command with stderr and verify_stderr=True."""
         # Use python to print to stderr
         result = await run_command(
-            f'{sys.executable} -c "import sys; sys.stderr.write("err")"',
+            f"{sys.executable} -c \"import sys; sys.stderr.write('err')\"",
             log_prefix="[TEST]",
             verify_stderr=True,
             redact_secrets=[],

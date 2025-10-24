@@ -9,6 +9,8 @@ from github.GithubException import GithubException
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
+from gql.transport.exceptions import TransportConnectionFailed, TransportQueryError, TransportServerError
+
 from webhook_server.libs.graphql.graphql_client import GraphQLError
 from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
 from webhook_server.utils.constants import COMMAND_ADD_ALLOWED_USER_STR, ROOT_APPROVERS_KEY
@@ -104,7 +106,7 @@ class OwnersFileHandler:
         self.logger.debug(f"{self.log_prefix} ROOT allowed users: {_allowed_users}")
         return _allowed_users
 
-    async def list_changed_files(self, pull_request: PullRequestWrapper) -> list[str]:
+    async def list_changed_files(self, pull_request: PullRequest | PullRequestWrapper) -> list[str]:
         # Use unified_api for get_files
         owner, repo_name = self._get_owner_and_repo()
         files = await self.unified_api.get_pull_request_files(owner, repo_name, pull_request.number)
@@ -132,7 +134,9 @@ class OwnersFileHandler:
             self.logger.error(f"{self.log_prefix} Invalid OWNERS file {path}: {e}")
             return False
 
-    async def _get_file_content(self, content_path: str, pull_request: PullRequestWrapper) -> tuple[ContentFile, str]:
+    async def _get_file_content(
+        self, content_path: str, pull_request: PullRequest | PullRequestWrapper
+    ) -> tuple[ContentFile, str]:
         self.logger.debug(f"{self.log_prefix} Get OWNERS file from {content_path}")
 
         owner, repo_name = self._get_owner_and_repo()
@@ -146,7 +150,7 @@ class OwnersFileHandler:
         return _path, content_path
 
     async def get_all_repository_approvers_and_reviewers(
-        self, pull_request: PullRequestWrapper
+        self, pull_request: PullRequest | PullRequestWrapper
     ) -> dict[str, dict[str, Any]]:
         # Dictionary mapping OWNERS file paths to their approvers and reviewers
         _owners: dict[str, dict[str, Any]] = {}
@@ -355,7 +359,13 @@ class OwnersFileHandler:
                 f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'completed')} Successfully assigned {len(reviewers_to_request)} reviewers",
             )
 
-        except (GithubException, GraphQLError) as ex:
+        except (
+            GithubException,
+            GraphQLError,
+            TransportConnectionFailed,
+            TransportQueryError,
+            TransportServerError,
+        ) as ex:
             self.logger.step(  # type: ignore[attr-defined]
                 f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'processing')} Failed to assign reviewers in batch",
             )

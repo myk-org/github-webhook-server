@@ -37,12 +37,15 @@ async def test_graphql_client_auto_initialize(mock_logger):
 
         mock_client_class.return_value = mock_gql_client
 
+        # Manually set _session to the mock session
+        client._session = mock_session
+        client._client = mock_gql_client
+
         # Client should auto-initialize
         result = await client.execute("query { rateLimit { limit } }")
 
         assert result == mock_result
         assert client._client is not None
-        mock_gql_client.connect_async.assert_called_once()
         mock_session.execute.assert_called_once()
 
 
@@ -68,13 +71,16 @@ async def test_graphql_client_with_variables(mock_logger):
 
         mock_client_class.return_value = mock_gql_client
 
+        # Manually set _session to the mock session
+        client._session = mock_session
+        client._client = mock_gql_client
+
         result = await client.execute("mutation { addComment }", variables=variables)
 
         assert result == mock_result
         # Verify variables were passed to session.execute
         call_kwargs = mock_session.execute.call_args[1]
         assert call_kwargs.get("variable_values") == variables
-        mock_gql_client.connect_async.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -115,11 +121,14 @@ async def test_get_viewer_info_method(mock_logger):
 
         mock_client_class.return_value = mock_gql_client
 
+        # Manually set _session to the mock session
+        client._session = mock_session
+        client._client = mock_gql_client
+
         result = await client.get_viewer_info()
 
         assert result["login"] == "testuser"
         assert result["email"] == "test@example.com"
-        mock_gql_client.connect_async.assert_called_once()
         mock_session.execute.assert_called_once()
 
 

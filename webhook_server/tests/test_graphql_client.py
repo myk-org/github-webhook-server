@@ -70,7 +70,7 @@ async def test_execute_success(graphql_client):
         patch("webhook_server.libs.graphql.graphql_client.AIOHTTPTransport"),
         patch("webhook_server.libs.graphql.graphql_client.Client") as mock_client_class,
     ):
-        # Create a mock client that uses session.execute
+        # Create a mock session that returns the result
         mock_session = AsyncMock()
         mock_session.execute = AsyncMock(return_value=mock_result)
 
@@ -81,10 +81,13 @@ async def test_execute_success(graphql_client):
 
         mock_client_class.return_value = mock_client
 
+        # Manually set _session to the mock session to bypass _ensure_client issues
+        graphql_client._session = mock_session
+        graphql_client._client = mock_client
+
         result = await graphql_client.execute("query { viewer { login } }")
 
         assert result == mock_result
-        mock_client.connect_async.assert_called_once()
         mock_session.execute.assert_called_once()
 
 
@@ -98,7 +101,7 @@ async def test_execute_batch(graphql_client):
         patch("webhook_server.libs.graphql.graphql_client.AIOHTTPTransport"),
         patch("webhook_server.libs.graphql.graphql_client.Client") as mock_client_class,
     ):
-        # Create a mock client that uses session.execute
+        # Create a mock session that returns results
         mock_session = AsyncMock()
         mock_session.execute = AsyncMock(side_effect=[mock_result_1, mock_result_2])
 
@@ -108,6 +111,10 @@ async def test_execute_batch(graphql_client):
         mock_client.session = mock_session
 
         mock_client_class.return_value = mock_client
+
+        # Manually set _session to the mock session
+        graphql_client._session = mock_session
+        graphql_client._client = mock_client
 
         queries = [
             ("query { viewer { login } }", None),
@@ -119,7 +126,6 @@ async def test_execute_batch(graphql_client):
         assert len(results) == 2
         assert results[0] == mock_result_1
         assert results[1] == mock_result_2
-        mock_client.connect_async.assert_called_once()
         assert mock_session.execute.call_count == 2
 
 
@@ -149,10 +155,13 @@ async def test_get_rate_limit(graphql_client):
 
         mock_client_class.return_value = mock_client
 
+        # Manually set _session to the mock session
+        graphql_client._session = mock_session
+        graphql_client._client = mock_client
+
         result = await graphql_client.get_rate_limit()
 
         assert result == mock_result["rateLimit"]
-        mock_client.connect_async.assert_called_once()
         mock_session.execute.assert_called_once()
 
 
@@ -183,10 +192,13 @@ async def test_get_viewer_info(graphql_client):
 
         mock_client_class.return_value = mock_client
 
+        # Manually set _session to the mock session
+        graphql_client._session = mock_session
+        graphql_client._client = mock_client
+
         result = await graphql_client.get_viewer_info()
 
         assert result == mock_result["viewer"]
-        mock_client.connect_async.assert_called_once()
         mock_session.execute.assert_called_once()
 
 

@@ -78,19 +78,35 @@ class GraphQLClient:
             logger: Logger instance for operation logging
             retry_count: Number of retry attempts for failed requests (default: 3)
             timeout: Request timeout in seconds (default: 90, increased for large mutations)
-            batch_concurrency_limit: Maximum concurrent batch operations (default: 10, 0 for unlimited)
+            batch_concurrency_limit: Maximum concurrent batch operations.
+                - Default: 10 (recommended to protect rate limits and connection pools)
+                - Range: 1-100 (clamped at runtime)
+                - 0: Unlimited concurrency (use with caution - may overload server/rate limits)
+
+        Note:
+            Setting batch_concurrency_limit to 0 enables unlimited concurrency which may
+            overload rate limits or connection pools. Use only when necessary.
         """
         self.token = token
         self.logger = logger
         self.retry_count = retry_count
         self.timeout = timeout
-        self.batch_concurrency_limit = batch_concurrency_limit
+        # Clamp batch_concurrency_limit to sane bounds (0 = unlimited, max 100)
+        if batch_concurrency_limit > 0:
+            self.batch_concurrency_limit = min(batch_concurrency_limit, 100)
+            if batch_concurrency_limit != self.batch_concurrency_limit:
+                logger.warning(
+                    f"batch_concurrency_limit clamped from {batch_concurrency_limit} to {self.batch_concurrency_limit}"
+                )
+        else:
+            self.batch_concurrency_limit = batch_concurrency_limit  # 0 = unlimited
         self._client: Client | None = None
+        self._session: Any = None  # Store connected session explicitly (not internal detail)
         self._transport: AIOHTTPTransport | None = None
         self._client_lock = asyncio.Lock()  # Protect against concurrent client recreation
         # Semaphore for batch concurrency limiting (None means unlimited)
         self._batch_semaphore: asyncio.Semaphore | None = (
-            asyncio.Semaphore(batch_concurrency_limit) if batch_concurrency_limit > 0 else None
+            asyncio.Semaphore(self.batch_concurrency_limit) if self.batch_concurrency_limit > 0 else None
         )
 
     async def __aenter__(self) -> GraphQLClient:
@@ -138,7 +154,8 @@ class GraphQLClient:
             )
 
             # Connect the client session once for persistent connection pooling
-            await self._client.connect_async()
+            # Store session reference explicitly (avoid accessing internal .session attribute)
+            self._session = await self._client.connect_async()
 
             self.logger.debug("GraphQL client initialized with persistent connection pooling")
 
@@ -150,6 +167,7 @@ class GraphQLClient:
             except Exception as ex:
                 self.logger.debug(f"Ignoring error during client close: {ex}")
             self._client = None
+            self._session = None  # Clear session reference
             self._transport = None
             self.logger.debug("GraphQL client closed")
 
@@ -184,9 +202,9 @@ class GraphQLClient:
 
                 self.logger.debug(f"Executing GraphQL query with {self.timeout}s timeout")
 
-                # Use the already-connected session directly to avoid "Transport is already connected" error
+                # Use stored session reference (avoid accessing internal .session attribute)
                 # The session was connected in _ensure_client and stays connected for connection pooling
-                result = await self._client.session.execute(query, variable_values=variables)  # type: ignore[union-attr]
+                result = await self._session.execute(query, variable_values=variables)
 
                 self.logger.debug("GraphQL query executed successfully")
                 return dict(result) if result else {}
@@ -259,6 +277,7 @@ class GraphQLClient:
                         except Exception:
                             self.logger.debug("Ignoring error during client close after connection failure")
                     self._client = None
+                    self._session = None  # Clear session reference
                     self._transport = None
                     await asyncio.sleep(1)  # Brief wait before retry
                     continue  # Retry with fresh client
@@ -306,6 +325,7 @@ class GraphQLClient:
                     try:
                         await self._client.close_async()
                         self._client = None
+                        self._session = None  # Clear session reference
                         self._transport = None
                     except Exception:
                         self.logger.exception(

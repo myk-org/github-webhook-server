@@ -77,8 +77,10 @@ class RunnerHandler:
                     success = False
 
             if success:
+                # Guard against missing owner email (may be None for some organizations)
+                owner_email = self.repository.owner.email or "noreply@github.com"
                 rc, out, err = await run_command(
-                    command=f"{git_cmd} config user.email '{self.repository.owner.email}'",
+                    command=f"{git_cmd} config user.email '{owner_email}'",
                     log_prefix=self.log_prefix,
                     redact_secrets=[],
                 )
@@ -271,7 +273,7 @@ class RunnerHandler:
             self.logger.debug(f"{self.log_prefix} Check run is in progress, re-running {PRE_COMMIT_STR}.")
 
         clone_repo_dir = f"{self.github_webhook.clone_repo_dir}-{uuid4()}"
-        cmd = f"uvx --directory {clone_repo_dir} {PREK_STR} run --all-files"
+        cmd = f"uv run --directory {clone_repo_dir} {PREK_STR} run --all-files"
 
         self.logger.step(  # type: ignore[attr-defined]
             f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Setting pre-commit check status to in-progress",

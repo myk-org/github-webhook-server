@@ -151,6 +151,11 @@ def get_github_repo_api(github_app_api: github.Github, repository: int | str) ->
     return github_app_api.get_repo(repository)
 
 
+# Global cache for compiled regex patterns
+# Cache key: (tuple of secrets, case_insensitive flag)
+_REDACT_REGEX_CACHE: dict[tuple[tuple[str, ...], bool], re.Pattern[str]] = {}
+
+
 def _redact_secrets(text: str, secrets: list[str] | None, case_insensitive: bool = False) -> str:
     """
     Redact sensitive strings from text for logging using compiled regex for performance.
@@ -171,6 +176,7 @@ def _redact_secrets(text: str, secrets: list[str] | None, case_insensitive: bool
         - O(n) where n = len(text) instead of O(s*n) where s = len(secrets)
         - Compiles single regex pattern from all secrets
         - Uses re.escape() to handle special regex characters safely
+        - Caches compiled regex by (secrets, case_insensitive) to reduce CPU in hot paths
 
     Security Note:
         - Default case-sensitive matching prevents accidental false positives
@@ -184,14 +190,24 @@ def _redact_secrets(text: str, secrets: list[str] | None, case_insensitive: bool
     if not escaped_secrets:
         return text
 
-    # Build single regex pattern: (secret1|secret2|secret3)
-    # Non-capturing group for alternation without word boundaries
-    # (tokens can appear anywhere in strings, not just as whole words)
-    pattern = "|".join(escaped_secrets)
+    # Create cache key from sorted tuple of secrets and case_insensitive flag
+    cache_key = (tuple(sorted(escaped_secrets)), case_insensitive)
 
-    # Compile regex with optional case-insensitive flag
-    flags = re.IGNORECASE if case_insensitive else 0
-    regex = re.compile(pattern, flags)
+    # Check cache for existing compiled regex
+    if cache_key in _REDACT_REGEX_CACHE:
+        regex = _REDACT_REGEX_CACHE[cache_key]
+    else:
+        # Build single regex pattern: (secret1|secret2|secret3)
+        # Non-capturing group for alternation without word boundaries
+        # (tokens can appear anywhere in strings, not just as whole words)
+        pattern = "|".join(escaped_secrets)
+
+        # Compile regex with optional case-insensitive flag
+        flags = re.IGNORECASE if case_insensitive else 0
+        regex = re.compile(pattern, flags)
+
+        # Store in cache
+        _REDACT_REGEX_CACHE[cache_key] = regex
 
     # Replace all matches with single sub() call - much faster than loop
     return regex.sub("***REDACTED***", text)
@@ -219,26 +235,37 @@ async def run_command(
     log_prefix: str,
     verify_stderr: bool = False,
     redact_secrets: list[str] | None = None,
+    stdin_input: str | bytes | None = None,
     **kwargs: Any,
 ) -> tuple[bool, str, str]:
     """
-    Run command locally.
+    Run command locally using create_subprocess_exec (safe from shell injection).
 
     Args:
-        command (str): Command to run
+        command (str): Command to run (will be split with shlex.split for safety)
         log_prefix (str): Prefix for log messages
         verify_stderr (bool, default False): Check command stderr
         redact_secrets (list[str], optional): List of sensitive strings to redact from output before returning
+        stdin_input (str | bytes | None, optional): Input to pass to command via stdin (for passwords, etc.)
 
     Returns:
         tuple[bool, str, str]: (success, stdout, stderr) where stdout and stderr are always strings,
                                redacted if redact_secrets is provided.
+
+    Security:
+        Uses asyncio.create_subprocess_exec (NOT shell=True) to prevent command injection.
+        stdin_input is passed via pipe, not command line arguments.
     """
     logger = get_logger_with_params()
     out_decoded: str = ""
     err_decoded: str = ""
-    kwargs["stdout"] = subprocess.PIPE
-    kwargs["stderr"] = subprocess.PIPE
+    # Don't override caller-provided pipes - use setdefault to respect provided kwargs
+    kwargs.setdefault("stdout", subprocess.PIPE)
+    kwargs.setdefault("stderr", subprocess.PIPE)
+
+    # Set up stdin pipe if input is provided
+    if stdin_input is not None:
+        kwargs.setdefault("stdin", subprocess.PIPE)
 
     # Redact sensitive data from command for logging
     logged_command = _redact_secrets(command, redact_secrets)
@@ -252,7 +279,12 @@ async def run_command(
             **kwargs,
         )
 
-        stdout, stderr = await sub_process.communicate()
+        # Prepare stdin (convert str to bytes if needed)
+        stdin_bytes = None
+        if stdin_input is not None:
+            stdin_bytes = stdin_input.encode("utf-8") if isinstance(stdin_input, str) else stdin_input
+
+        stdout, stderr = await sub_process.communicate(input=stdin_bytes)
         # Ensure we always have strings, never None or bytes
         out_decoded = stdout.decode(errors="ignore") if isinstance(stdout, bytes) else (stdout or "")
         err_decoded = stderr.decode(errors="ignore") if isinstance(stderr, bytes) else (stderr or "")
@@ -291,7 +323,8 @@ async def run_command(
 
 def get_apis_and_tokes_from_config(config: Config) -> list[tuple[github.Github, str]]:
     apis_and_tokens: list[tuple[github.Github, str]] = []
-    tokens = config.get_value(value="github-tokens")
+    # Guard against None tokens from config - default to empty list
+    tokens = config.get_value(value="github-tokens") or []
 
     for _token in tokens:
         apis_and_tokens.append((github.Github(auth=github.Auth.Token(_token)), _token))

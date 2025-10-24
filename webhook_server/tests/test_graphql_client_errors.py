@@ -37,6 +37,7 @@ async def test_authentication_error(graphql_client):
 
     # Replace the client and bypass _ensure_client
     graphql_client._client = mock_client
+    graphql_client._session = mock_session
     graphql_client._ensure_client = AsyncMock()  # Don't recreate client
 
     with pytest.raises(GraphQLAuthenticationError):
@@ -56,6 +57,7 @@ async def test_rate_limit_error_raises(graphql_client, monkeypatch):
     mock_client.session = mock_session
 
     graphql_client._client = mock_client
+    graphql_client._session = mock_session
     graphql_client._ensure_client = AsyncMock()
 
     # Mock aiohttp.ClientSession to prevent real HTTP call to rate_limit endpoint
@@ -98,6 +100,7 @@ async def test_rate_limit_exhausted(graphql_client, monkeypatch):
     mock_client.session = mock_session
 
     graphql_client._client = mock_client
+    graphql_client._session = mock_session
     graphql_client._ensure_client = AsyncMock()  # Don't recreate client
     graphql_client.retry_count = 1  # Reduce retries to exhaust quickly
 
@@ -133,6 +136,7 @@ async def test_server_error_with_retry(graphql_client, monkeypatch):
     mock_client.session = mock_session
 
     graphql_client._client = mock_client
+    graphql_client._session = mock_session
     graphql_client._ensure_client = AsyncMock()  # Don't recreate client
 
     # Patch asyncio.sleep to avoid real delays
@@ -163,6 +167,7 @@ async def test_generic_query_error_no_retry(graphql_client):
     mock_client.session = mock_session
 
     graphql_client._client = mock_client
+    graphql_client._session = mock_session
     graphql_client._ensure_client = AsyncMock()  # Don't recreate client
 
     # Generic query errors don't retry - they fail immediately
@@ -196,9 +201,11 @@ async def test_connection_failed_retry_success(graphql_client, monkeypatch):
     async def ensure_client_side_effect():
         if graphql_client._client is None:
             graphql_client._client = mock_client
+            graphql_client._session = mock_session
 
     graphql_client._ensure_client = AsyncMock(side_effect=ensure_client_side_effect)
     graphql_client._client = mock_client
+    graphql_client._session = mock_session
 
     # Patch asyncio.sleep to avoid real delays
     mock_sleep = AsyncMock()
@@ -233,9 +240,11 @@ async def test_connection_failed_exhausts_retries(graphql_client, monkeypatch):
     async def ensure_client_side_effect():
         if graphql_client._client is None:
             graphql_client._client = mock_client
+            graphql_client._session = mock_session
 
     graphql_client._ensure_client = AsyncMock(side_effect=ensure_client_side_effect)
     graphql_client._client = mock_client
+    graphql_client._session = mock_session
 
     # Patch asyncio.sleep to avoid real delays
     mock_sleep = AsyncMock()
@@ -276,6 +285,7 @@ async def test_rate_limit_wait_and_retry_success(graphql_client, monkeypatch):
     mock_client.session = mock_session
 
     graphql_client._client = mock_client
+    graphql_client._session = mock_session
     graphql_client._ensure_client = AsyncMock()
 
     # Freeze time to fixed value for deterministic testing
@@ -339,6 +349,7 @@ async def test_rate_limit_no_reset_info_fails(graphql_client, monkeypatch):
     mock_client.session = mock_session
 
     graphql_client._client = mock_client
+    graphql_client._session = mock_session
     graphql_client._ensure_client = AsyncMock()
 
     # Mock aiohttp session to fail when getting rate limit info
@@ -374,6 +385,7 @@ async def test_timeout_error_cleanup(graphql_client):
     mock_client.session = mock_session
 
     graphql_client._client = mock_client
+    graphql_client._session = mock_session
     graphql_client._transport = Mock()  # Add a transport object
     graphql_client._ensure_client = AsyncMock()
 
@@ -399,6 +411,7 @@ async def test_cancelled_error_propagation(graphql_client):
     mock_client.session = mock_session
 
     graphql_client._client = mock_client
+    graphql_client._session = mock_session
     graphql_client._ensure_client = AsyncMock()
 
     # Should propagate CancelledError as-is, not wrapped in GraphQLError

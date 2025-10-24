@@ -164,7 +164,7 @@ def github_webhook(mocker, request):
     process_github_webhook.unified_api.get_commit_check_runs = AsyncMock(return_value=[])
     process_github_webhook.unified_api.create_check_run = AsyncMock()
     process_github_webhook.unified_api.merge_pull_request = AsyncMock()
-    process_github_webhook.unified_api.get_pull_request = AsyncMock(return_value={"merged": False})
+    process_github_webhook.unified_api.get_pull_request = AsyncMock(return_value={"merged": False, "id": "PR_node_id"})
     process_github_webhook.unified_api.add_assignees_by_login = AsyncMock()
 
     owners_file_handler = OwnersFileHandler(github_webhook=process_github_webhook)

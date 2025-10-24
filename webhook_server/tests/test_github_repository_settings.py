@@ -143,9 +143,11 @@ class TestGetRequiredStatusChecks:
 
     def test_get_required_status_checks_basic(self) -> None:
         """Test getting required status checks with basic configuration."""
+        from github.GithubException import UnknownObjectException
+
         mock_repo = Mock()
-        # Patch get_contents to raise exception so 'pre-commit.ci - pr' is not added
-        mock_repo.get_contents.side_effect = Exception()
+        # Patch get_contents to raise UnknownObjectException so 'pre-commit.ci - pr' is not added
+        mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
         data: dict = {}
         default_status_checks: list[str] = ["basic-check"]
         exclude_status_checks: list[str] = []
@@ -229,9 +231,11 @@ class TestGetRequiredStatusChecks:
 
     def test_get_required_status_checks_with_exclusions(self) -> None:
         """Test getting required status checks with exclusions."""
+        from github.GithubException import UnknownObjectException
+
         mock_repo = Mock()
-        # Patch get_contents to raise exception so 'pre-commit.ci - pr' is not added
-        mock_repo.get_contents.side_effect = Exception()
+        # Patch get_contents to raise UnknownObjectException so 'pre-commit.ci - pr' is not added
+        mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
         data: dict = {"tox": True}
         default_status_checks: list[str] = ["tox", "verified"]
         exclude_status_checks: list[str] = ["tox"]

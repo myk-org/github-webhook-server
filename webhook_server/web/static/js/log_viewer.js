@@ -696,6 +696,7 @@ function showFlowModal(hookId) {
       if (!response.ok) {
         if (response.status === 404) {
           console.log("No flow data found for hook ID:", hookId);
+          showErrorMessage("No workflow data found for this hook");
           return;
         }
         throw new Error("Failed to fetch workflow steps");
@@ -750,6 +751,7 @@ function showPrModal(prNumber) {
 
         if (uniqueHookIds.length === 0) {
           console.log("No hook IDs found for PR:", prNumber);
+          showErrorMessage(`No workflow events found for PR #${prNumber}`);
           return;
         }
 
@@ -831,21 +833,19 @@ function renderPrModal(prNumber, hookIds, repository) {
 }
 
 function groupStepsByTaskId(steps) {
-  // Filter out internal/routing steps - only show meaningful milestones
-  const meaningfulTaskTypes = [
-    "ci_check", // tox, precommit, container build, etc
-    "pr_management", // reviewer assignment, labels, etc
-    "webhook_event", // comment processing, check runs, etc
-  ];
-
-  // Filter steps to only meaningful task types
+  // Show all steps by default - don't filter aggressively
+  // Only filter out truly redundant internal steps
   const filteredSteps = steps.filter((step) => {
-    // Keep steps with meaningful task_type
-    if (step.task_type && meaningfulTaskTypes.includes(step.task_type)) {
-      return true;
-    }
-    // Filter out webhook_routing steps (internal initialization)
-    return false;
+    // Filter out only very specific internal messages that add no value
+    const message = step.message ? step.message.toLowerCase() : "";
+
+    // Keep all steps except these specific redundant ones
+    const redundantPatterns = [
+      "signature verification successful",
+      "processing webhook for repository:",
+    ];
+
+    return !redundantPatterns.some((pattern) => message.includes(pattern));
   });
 
   const groups = [];
@@ -1059,7 +1059,6 @@ function renderTaskGroup(group, parentElement) {
     arrow.className = isCollapsed
       ? "task-group-arrow expanded"
       : "task-group-arrow collapsed";
-    arrow.textContent = isCollapsed ? "▼" : "►";
   });
 
   taskGroupContainer.appendChild(groupHeader);
