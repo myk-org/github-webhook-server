@@ -148,32 +148,66 @@ function createLogEntryElement(entry) {
 
   div.className = `log-entry ${safeLevel}`;
 
-  // Use efficient string template
-  div.innerHTML = `
-    <span class="timestamp">${new Date(entry.timestamp).toLocaleString()}</span>
-    <span class="level">[${entry.level}]</span>
-    <span class="message">${escapeHtml(entry.message)}</span>
-    ${
-      entry.hook_id
-        ? `<span class="hook-id">[Hook: ${escapeHtml(entry.hook_id)}]</span>`
-        : ""
-    }
-    ${
-      entry.pr_number
-        ? `<span class="pr-number">[PR: #${entry.pr_number}]</span>`
-        : ""
-    }
-    ${
-      entry.repository
-        ? `<span class="repository">[${escapeHtml(entry.repository)}]</span>`
-        : ""
-    }
-    ${
-      entry.github_user
-        ? `<span class="user">[User: ${escapeHtml(entry.github_user)}]</span>`
-        : ""
-    }
-  `;
+  // Create timestamp
+  const timestamp = document.createElement("span");
+  timestamp.className = "timestamp";
+  timestamp.textContent = new Date(entry.timestamp).toLocaleString();
+  div.appendChild(timestamp);
+
+  // Create level
+  const level = document.createElement("span");
+  level.className = "level";
+  level.textContent = `[${entry.level}]`;
+  div.appendChild(level);
+
+  // Create message
+  const message = document.createElement("span");
+  message.className = "message";
+  message.textContent = entry.message;
+  div.appendChild(message);
+
+  // Create clickable hook ID link if present
+  if (entry.hook_id) {
+    const hookIdSpan = document.createElement("span");
+    hookIdSpan.className = "hook-id";
+    hookIdSpan.textContent = "[Hook: ";
+
+    const hookLink = document.createElement("span");
+    hookLink.className = "hook-id-link";
+    hookLink.textContent = entry.hook_id;
+    hookLink.title = "Click to view workflow";
+    hookLink.style.cursor = "pointer";
+    hookLink.addEventListener("click", () => {
+      showFlowModal(entry.hook_id);
+    });
+
+    hookIdSpan.appendChild(hookLink);
+    const closeBracket = document.createTextNode("]");
+    hookIdSpan.appendChild(closeBracket);
+    div.appendChild(hookIdSpan);
+  }
+
+  // Add other metadata
+  if (entry.pr_number) {
+    const prSpan = document.createElement("span");
+    prSpan.className = "pr-number";
+    prSpan.textContent = `[PR: #${entry.pr_number}]`;
+    div.appendChild(prSpan);
+  }
+
+  if (entry.repository) {
+    const repoSpan = document.createElement("span");
+    repoSpan.className = "repository";
+    repoSpan.textContent = `[${entry.repository}]`;
+    div.appendChild(repoSpan);
+  }
+
+  if (entry.github_user) {
+    const userSpan = document.createElement("span");
+    userSpan.className = "user";
+    userSpan.textContent = `[User: ${entry.github_user}]`;
+    div.appendChild(userSpan);
+  }
 
   return div;
 }
@@ -629,6 +663,12 @@ function showFlowModal(hookId) {
     return;
   }
 
+  // Hide step logs section when opening new modal
+  const flowLogsSection = document.getElementById("flowLogs");
+  if (flowLogsSection) {
+    flowLogsSection.style.display = "none";
+  }
+
   // Fetch workflow steps data
   fetch(`/logs/api/workflow-steps/${hookId}`)
     .then((response) => {
@@ -811,18 +851,83 @@ function getStepType(message) {
   }
 }
 
-function filterByStep(stepIndex) {
+async function filterByStep(stepIndex) {
   if (!currentFlowData || !currentFlowData.steps[stepIndex]) return;
 
   const step = currentFlowData.steps[stepIndex];
 
-  // Close modal
-  closeFlowModal();
+  // Show logs in the modal instead of closing it
+  await showStepLogsInModal(step);
+}
 
-  // Set search filter to find logs related to this step
-  const searchText = step.message.substring(0, 50);
-  document.getElementById("searchFilter").value = searchText;
-  debounceFilter();
+async function showStepLogsInModal(step) {
+  const flowLogsSection = document.getElementById("flowLogs");
+  const flowLogsContent = document.getElementById("flowLogsContent");
+
+  if (!flowLogsSection || !flowLogsContent) return;
+
+  // Show loading state
+  flowLogsSection.style.display = "block";
+  flowLogsContent.textContent = "Loading logs...";
+
+  try {
+    // Fetch logs matching this step message
+    const searchText = step.message.substring(0, 50);
+    const hookId = currentFlowData.hook_id;
+
+    const params = new URLSearchParams({
+      hook_id: hookId,
+      search: searchText,
+      limit: "100",
+    });
+
+    const response = await fetch(`/logs/api/entries?${params}`);
+    if (!response.ok) throw new Error("Failed to fetch logs");
+
+    const data = await response.json();
+
+    // Clear and display logs
+    flowLogsContent.innerHTML = "";
+
+    if (data.entries.length === 0) {
+      const emptyMsg = document.createElement("div");
+      emptyMsg.textContent = "No logs found for this step";
+      emptyMsg.style.textAlign = "center";
+      emptyMsg.style.color = "var(--timestamp-color)";
+      flowLogsContent.appendChild(emptyMsg);
+      return;
+    }
+
+    // Render log entries
+    data.entries.forEach((entry) => {
+      const logEntry = document.createElement("div");
+      logEntry.className = `log-entry ${entry.level}`;
+
+      const timestamp = document.createElement("span");
+      timestamp.className = "timestamp";
+      timestamp.textContent = new Date(entry.timestamp).toLocaleString();
+
+      const level = document.createElement("span");
+      level.className = "level";
+      level.textContent = ` [${entry.level}] `;
+
+      const message = document.createElement("span");
+      message.className = "message";
+      message.textContent = entry.message;
+
+      logEntry.appendChild(timestamp);
+      logEntry.appendChild(level);
+      logEntry.appendChild(message);
+
+      flowLogsContent.appendChild(logEntry);
+    });
+
+    // Scroll to logs section
+    flowLogsSection.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  } catch (error) {
+    console.error("Error fetching step logs:", error);
+    flowLogsContent.textContent = "Error loading logs";
+  }
 }
 
 // Auto-show modal when hook ID filter is applied, close when cleared

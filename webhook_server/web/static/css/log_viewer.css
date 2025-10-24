@@ -772,3 +772,47 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+.flow-logs {
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 2px solid var(--border-color);
+}
+
+.flow-logs h3 {
+  margin: 0 0 16px 0;
+  color: var(--text-color);
+}
+
+#flowLogsContent {
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--log-debug-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 12px;
+}
+
+#flowLogsContent .log-entry {
+  padding: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--log-entry-border);
+  font-family: monospace;
+  font-size: 13px;
+}
+
+#flowLogsContent .log-entry:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.hook-id-link {
+  cursor: pointer;
+  color: var(--button-bg);
+  text-decoration: underline;
+  font-weight: bold;
+}
+
+.hook-id-link:hover {
+  color: var(--button-hover);
+}
