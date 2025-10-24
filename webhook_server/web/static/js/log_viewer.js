@@ -1,4 +1,3 @@
-File: /tmp/log_viewer_part1.js
 let ws = null;
 let logEntries = [];
 
@@ -573,9 +572,6 @@ initializeEventListeners();
 
 // Load initial data
 loadHistoricalLogs();
-
-
-File: /tmp/flow_modal_code.js
 
 // Flow Modal functionality
 let currentFlowData = null;
