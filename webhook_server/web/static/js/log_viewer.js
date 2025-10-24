@@ -1014,8 +1014,8 @@ function renderTaskGroup(group, parentElement) {
 
   // Collapse arrow
   const arrow = document.createElement("span");
-  arrow.className = "task-group-arrow expanded";
-  arrow.textContent = "▼";
+  arrow.className = "task-group-arrow collapsed";
+  arrow.textContent = "►";
 
   // Status icon
   const statusIcon = document.createElement("span");
@@ -1046,7 +1046,7 @@ function renderTaskGroup(group, parentElement) {
   // Create nested steps container
   const stepsContainer = document.createElement("div");
   stepsContainer.className = "task-group-steps";
-  stepsContainer.style.display = "block"; // Start expanded
+  stepsContainer.style.display = "none"; // Start collapsed
 
   group.steps.forEach((step) => {
     renderSingleStep(step, stepsContainer, true);
