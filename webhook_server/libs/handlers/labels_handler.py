@@ -54,6 +54,8 @@ class LabelsHandler:
         return label in await self.pull_request_labels_names(pull_request=pull_request)
 
     async def pull_request_labels_names(self, pull_request: PullRequest | PullRequestWrapper) -> list[str]:
+        # Ensure we use wrapper to avoid blocking calls in async context
+        pull_request = await self._ensure_wrapper(pull_request)
         labels = pull_request.get_labels()
         return [lb.name for lb in labels]
 
@@ -279,7 +281,15 @@ class LabelsHandler:
 
         if not sorted_thresholds:
             self.logger.warning(f"{self.log_prefix} No valid custom thresholds found, using static defaults")
-            return self._get_custom_pr_size_thresholds()  # Recursive call will return static defaults
+            # Return static defaults directly to avoid infinite recursion
+            return [
+                (20, "XS", "ededed"),
+                (50, "S", "0E8A16"),
+                (100, "M", "F09C74"),
+                (300, "L", "F5621C"),
+                (500, "XL", "D93F0B"),
+                (float("inf"), "XXL", "B60205"),
+            ]
 
         return sorted_thresholds
 

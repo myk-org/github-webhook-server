@@ -109,7 +109,7 @@ class TestPullRequestHandler:
         pull_request_handler.hook_data["action"] = "edited"
         pull_request_handler.hook_data["changes"] = {}
 
-        with patch.object(pull_request_handler, "set_wip_label_based_on_title") as mock_set_wip:
+        with patch.object(pull_request_handler, "set_wip_label_based_on_title", new=AsyncMock()) as mock_set_wip:
             await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
             mock_set_wip.assert_called_once_with(pull_request=mock_pull_request)
 
@@ -121,9 +121,11 @@ class TestPullRequestHandler:
         pull_request_handler.hook_data["action"] = "edited"
         pull_request_handler.hook_data["changes"] = {"title": {"from": "old title"}}
 
-        with patch.object(pull_request_handler.labels_handler, "_ensure_wrapper", return_value=mock_pull_request):
+        with patch.object(
+            pull_request_handler.labels_handler, "_ensure_wrapper", new=AsyncMock(return_value=mock_pull_request)
+        ):
             with patch.object(
-                pull_request_handler.runner_handler, "run_conventional_title_check"
+                pull_request_handler.runner_handler, "run_conventional_title_check", new=AsyncMock()
             ) as mock_run_conventional_title_check:
                 await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
                 mock_run_conventional_title_check.assert_called_once_with(pull_request=mock_pull_request)
@@ -135,10 +137,16 @@ class TestPullRequestHandler:
         """Test processing pull request webhook data when action is opened."""
         pull_request_handler.hook_data["action"] = "opened"
 
-        with patch.object(pull_request_handler, "create_issue_for_new_pull_request") as mock_create_issue:
-            with patch.object(pull_request_handler, "set_wip_label_based_on_title") as mock_set_wip:
-                with patch.object(pull_request_handler, "process_opened_or_synchronize_pull_request") as mock_process:
-                    with patch.object(pull_request_handler, "set_pull_request_automerge") as mock_automerge:
+        with patch.object(
+            pull_request_handler, "create_issue_for_new_pull_request", new=AsyncMock()
+        ) as mock_create_issue:
+            with patch.object(pull_request_handler, "set_wip_label_based_on_title", new=AsyncMock()) as mock_set_wip:
+                with patch.object(
+                    pull_request_handler, "process_opened_or_synchronize_pull_request", new=AsyncMock()
+                ) as mock_process:
+                    with patch.object(
+                        pull_request_handler, "set_pull_request_automerge", new=AsyncMock()
+                    ) as mock_automerge:
                         await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
                         mock_create_issue.assert_called_once_with(pull_request=mock_pull_request)
                         mock_set_wip.assert_called_once_with(pull_request=mock_pull_request)
@@ -152,10 +160,16 @@ class TestPullRequestHandler:
         """Test processing pull request webhook data when action is reopened."""
         pull_request_handler.hook_data["action"] = "reopened"
 
-        with patch.object(pull_request_handler, "create_issue_for_new_pull_request") as mock_create_issue:
-            with patch.object(pull_request_handler, "set_wip_label_based_on_title") as mock_set_wip:
-                with patch.object(pull_request_handler, "process_opened_or_synchronize_pull_request") as mock_process:
-                    with patch.object(pull_request_handler, "set_pull_request_automerge") as mock_automerge:
+        with patch.object(
+            pull_request_handler, "create_issue_for_new_pull_request", new=AsyncMock()
+        ) as mock_create_issue:
+            with patch.object(pull_request_handler, "set_wip_label_based_on_title", new=AsyncMock()) as mock_set_wip:
+                with patch.object(
+                    pull_request_handler, "process_opened_or_synchronize_pull_request", new=AsyncMock()
+                ) as mock_process:
+                    with patch.object(
+                        pull_request_handler, "set_pull_request_automerge", new=AsyncMock()
+                    ) as mock_automerge:
                         await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
                         mock_create_issue.assert_called_once_with(pull_request=mock_pull_request)
                         mock_set_wip.assert_called_once_with(pull_request=mock_pull_request)
@@ -169,10 +183,16 @@ class TestPullRequestHandler:
         """Test processing pull request webhook data when action is ready_for_review."""
         pull_request_handler.hook_data["action"] = "ready_for_review"
 
-        with patch.object(pull_request_handler, "create_issue_for_new_pull_request") as mock_create_issue:
-            with patch.object(pull_request_handler, "set_wip_label_based_on_title") as mock_set_wip:
-                with patch.object(pull_request_handler, "process_opened_or_synchronize_pull_request") as mock_process:
-                    with patch.object(pull_request_handler, "set_pull_request_automerge") as mock_automerge:
+        with patch.object(
+            pull_request_handler, "create_issue_for_new_pull_request", new=AsyncMock()
+        ) as mock_create_issue:
+            with patch.object(pull_request_handler, "set_wip_label_based_on_title", new=AsyncMock()) as mock_set_wip:
+                with patch.object(
+                    pull_request_handler, "process_opened_or_synchronize_pull_request", new=AsyncMock()
+                ) as mock_process:
+                    with patch.object(
+                        pull_request_handler, "set_pull_request_automerge", new=AsyncMock()
+                    ) as mock_automerge:
                         await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
                         mock_create_issue.assert_called_once_with(pull_request=mock_pull_request)
                         mock_set_wip.assert_called_once_with(pull_request=mock_pull_request)
@@ -186,8 +206,12 @@ class TestPullRequestHandler:
         """Test processing pull request webhook data when action is synchronize."""
         pull_request_handler.hook_data["action"] = "synchronize"
 
-        with patch.object(pull_request_handler, "process_opened_or_synchronize_pull_request") as mock_process:
-            with patch.object(pull_request_handler, "remove_labels_when_pull_request_sync") as mock_remove_labels:
+        with patch.object(
+            pull_request_handler, "process_opened_or_synchronize_pull_request", new=AsyncMock()
+        ) as mock_process:
+            with patch.object(
+                pull_request_handler, "remove_labels_when_pull_request_sync", new=AsyncMock()
+            ) as mock_remove_labels:
                 await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
                 mock_process.assert_called_once_with(pull_request=mock_pull_request)
                 mock_remove_labels.assert_called_once_with(pull_request=mock_pull_request)
@@ -200,8 +224,12 @@ class TestPullRequestHandler:
         pull_request_handler.hook_data["action"] = "closed"
         pull_request_handler.hook_data["pull_request"]["merged"] = False
 
-        with patch.object(pull_request_handler, "close_issue_for_merged_or_closed_pr") as mock_close_issue:
-            with patch.object(pull_request_handler, "delete_remote_tag_for_merged_or_closed_pr") as mock_delete_tag:
+        with patch.object(
+            pull_request_handler, "close_issue_for_merged_or_closed_pr", new=AsyncMock()
+        ) as mock_close_issue:
+            with patch.object(
+                pull_request_handler, "delete_remote_tag_for_merged_or_closed_pr", new=AsyncMock()
+            ) as mock_delete_tag:
                 await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
                 mock_close_issue.assert_called_once_with(pull_request=mock_pull_request, hook_action="closed")
                 mock_delete_tag.assert_called_once_with(pull_request=mock_pull_request)
@@ -219,12 +247,22 @@ class TestPullRequestHandler:
         mock_label.name = f"{CHERRY_PICK_LABEL_PREFIX}branch1"
         mock_pull_request.get_labels = Mock(return_value=[mock_label])
 
-        with patch.object(pull_request_handler, "close_issue_for_merged_or_closed_pr") as mock_close_issue:
-            with patch.object(pull_request_handler, "delete_remote_tag_for_merged_or_closed_pr") as mock_delete_tag:
-                with patch.object(pull_request_handler.runner_handler, "cherry_pick") as mock_cherry_pick:
-                    with patch.object(pull_request_handler.runner_handler, "run_build_container") as mock_build:
+        with patch.object(
+            pull_request_handler, "close_issue_for_merged_or_closed_pr", new=AsyncMock()
+        ) as mock_close_issue:
+            with patch.object(
+                pull_request_handler, "delete_remote_tag_for_merged_or_closed_pr", new=AsyncMock()
+            ) as mock_delete_tag:
+                with patch.object(
+                    pull_request_handler.runner_handler, "cherry_pick", new=AsyncMock()
+                ) as mock_cherry_pick:
+                    with patch.object(
+                        pull_request_handler.runner_handler, "run_build_container", new=AsyncMock()
+                    ) as mock_build:
                         with patch.object(
-                            pull_request_handler, "label_all_opened_pull_requests_merge_state_after_merged"
+                            pull_request_handler,
+                            "label_all_opened_pull_requests_merge_state_after_merged",
+                            new=AsyncMock(),
                         ) as mock_label_all:
                             await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
                             mock_close_issue.assert_called_once_with(
@@ -269,7 +307,9 @@ class TestPullRequestHandler:
         pull_request_handler.hook_data["label"] = {"name": VERIFIED_LABEL_STR}
 
         with patch.object(pull_request_handler, "check_if_can_be_merged", new=AsyncMock()) as mock_check_merge:
-            with patch.object(pull_request_handler.check_run_handler, "set_verify_check_success") as mock_success:
+            with patch.object(
+                pull_request_handler.check_run_handler, "set_verify_check_success", new=AsyncMock()
+            ) as mock_success:
                 await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
                 mock_check_merge.assert_awaited_once_with(pull_request=mock_pull_request)
                 mock_success.assert_called_once()
@@ -283,7 +323,9 @@ class TestPullRequestHandler:
         pull_request_handler.hook_data["label"] = {"name": VERIFIED_LABEL_STR}
 
         with patch.object(pull_request_handler, "check_if_can_be_merged", new=AsyncMock()) as mock_check_merge:
-            with patch.object(pull_request_handler.check_run_handler, "set_verify_check_queued") as mock_queued:
+            with patch.object(
+                pull_request_handler.check_run_handler, "set_verify_check_queued", new=AsyncMock()
+            ) as mock_queued:
                 await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
                 mock_check_merge.assert_awaited_once_with(pull_request=mock_pull_request)
                 mock_queued.assert_called_once()
@@ -295,7 +337,7 @@ class TestPullRequestHandler:
         """Test setting WIP label when title contains WIP."""
         mock_pull_request.title = "WIP: Test PR"
 
-        with patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label:
+        with patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add_label:
             await pull_request_handler.set_wip_label_based_on_title(pull_request=mock_pull_request)
             mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=WIP_STR)
 
@@ -306,7 +348,7 @@ class TestPullRequestHandler:
         """Test removing WIP label when title doesn't contain WIP."""
         mock_pull_request.title = "Test PR"
 
-        with patch.object(pull_request_handler.labels_handler, "_remove_label") as mock_remove_label:
+        with patch.object(pull_request_handler.labels_handler, "_remove_label", new=AsyncMock()) as mock_remove_label:
             await pull_request_handler.set_wip_label_based_on_title(pull_request=mock_pull_request)
             mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=WIP_STR)
 
@@ -510,8 +552,10 @@ class TestPullRequestHandler:
         mock_pull_request.mergeable = True
         mock_pull_request.mergeable_state = "behind"
 
-        with patch.object(pull_request_handler.labels_handler, "_ensure_wrapper", return_value=mock_pull_request):
-            with patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label:
+        with patch.object(
+            pull_request_handler.labels_handler, "_ensure_wrapper", new=AsyncMock(return_value=mock_pull_request)
+        ):
+            with patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add_label:
                 await pull_request_handler.label_pull_request_by_merge_state(pull_request=mock_pull_request)
                 mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=NEEDS_REBASE_LABEL_STR)
 
@@ -523,8 +567,10 @@ class TestPullRequestHandler:
         mock_pull_request.mergeable = False
         mock_pull_request.mergeable_state = "dirty"
 
-        with patch.object(pull_request_handler.labels_handler, "_ensure_wrapper", return_value=mock_pull_request):
-            with patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label:
+        with patch.object(
+            pull_request_handler.labels_handler, "_ensure_wrapper", new=AsyncMock(return_value=mock_pull_request)
+        ):
+            with patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add_label:
                 await pull_request_handler.label_pull_request_by_merge_state(pull_request=mock_pull_request)
                 mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=HAS_CONFLICTS_LABEL_STR)
 
@@ -533,8 +579,10 @@ class TestPullRequestHandler:
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         """Test processing verified for update or new pull request for auto-verified user."""
-        with patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label:
-            with patch.object(pull_request_handler.check_run_handler, "set_verify_check_success") as mock_success:
+        with patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add_label:
+            with patch.object(
+                pull_request_handler.check_run_handler, "set_verify_check_success", new=AsyncMock()
+            ) as mock_success:
                 await pull_request_handler._process_verified_for_update_or_new_pull_request(
                     pull_request=mock_pull_request
                 )
@@ -548,9 +596,13 @@ class TestPullRequestHandler:
         """Test processing verified for update or new pull request for non-auto-verified user."""
         pull_request_handler.github_webhook.parent_committer = "other-user"
 
-        with patch.object(pull_request_handler.labels_handler, "_ensure_wrapper", return_value=mock_pull_request):
-            with patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label:
-                with patch.object(pull_request_handler.check_run_handler, "set_verify_check_success") as mock_success:
+        with patch.object(
+            pull_request_handler.labels_handler, "_ensure_wrapper", new=AsyncMock(return_value=mock_pull_request)
+        ):
+            with patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add_label:
+                with patch.object(
+                    pull_request_handler.check_run_handler, "set_verify_check_success", new=AsyncMock()
+                ) as mock_success:
                     await pull_request_handler._process_verified_for_update_or_new_pull_request(
                         pull_request=mock_pull_request
                     )
