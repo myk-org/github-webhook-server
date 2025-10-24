@@ -30,9 +30,10 @@ class TestPushHandler:
         mock_webhook.container_repository_username = "test-user"  # Always a string
         mock_webhook.container_repository_password = "test-password"  # Always a string # pragma: allowlist secret
         mock_webhook.token = "test-token"  # Always a string
-        # Mock unified_api for async create_issue_on_repository
+        # Mock unified_api for async operations
         mock_webhook.unified_api = Mock()
         mock_webhook.unified_api.create_issue_on_repository = AsyncMock()
+        mock_webhook.unified_api.send_slack_message_async = AsyncMock()
         return mock_webhook
 
     @pytest.fixture
@@ -169,8 +170,8 @@ class TestPushHandler:
                                 # Verify .pypirc was cleaned up after successful upload
                                 assert mock_remove.call_args[0][0].endswith("test-repo-test-uuid/.pypirc")
 
-                                # Verify slack message was sent
-                                push_handler.github_webhook.send_slack_message.assert_called_once()
+                                # Verify slack message was sent via unified_api
+                                push_handler.github_webhook.unified_api.send_slack_message_async.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_clone_failure(self, push_handler: PushHandler) -> None:
@@ -331,8 +332,8 @@ class TestPushHandler:
 
                                 await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
-                                # Verify slack message was not sent
-                                push_handler.github_webhook.send_slack_message.assert_not_called()
+                                # Verify slack message was not sent via unified_api
+                                push_handler.github_webhook.unified_api.send_slack_message_async.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_commands_execution_order(self, push_handler: PushHandler) -> None:
@@ -481,14 +482,19 @@ class TestPushHandler:
 
                                 await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
-                                # Verify slack message format
-                                push_handler.github_webhook.send_slack_message.assert_called_once()
-                                call_args = push_handler.github_webhook.send_slack_message.call_args
+                                # Verify slack message format via unified_api
+                                push_handler.github_webhook.unified_api.send_slack_message_async.assert_awaited_once()
+                                call_args = push_handler.github_webhook.unified_api.send_slack_message_async.call_args
 
-                                assert call_args[1]["webhook_url"] == "https://hooks.slack.com/test"
-                                assert "test-repo" in call_args[1]["message"]
-                                assert "v1.0.0" in call_args[1]["message"]
-                                assert "published to PYPI" in call_args[1]["message"]
+                                # Verify parameters passed to send_slack_message_async
+                                assert call_args.kwargs["webhook_url"] == "https://hooks.slack.com/test"
+                                assert "test-repo" in call_args.kwargs["message"]
+                                assert "v1.0.0" in call_args.kwargs["message"]
+                                assert "published to PYPI" in call_args.kwargs["message"]
+                                assert (
+                                    call_args.kwargs["send_slack_message_func"]
+                                    == push_handler.github_webhook.send_slack_message
+                                )
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_missing_token(self, push_handler: PushHandler) -> None:

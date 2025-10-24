@@ -67,8 +67,6 @@ async def test_add_reviewer_by_user_comment_invalid_user(
     process_github_webhook.repository = Repository()
 
     # Mock unified_api to prevent real GraphQL calls
-    from unittest.mock import AsyncMock
-
     process_github_webhook.unified_api = AsyncMock()
     process_github_webhook.unified_api.get_contributors.return_value = [User("user1")]
 
@@ -76,4 +74,4 @@ async def test_add_reviewer_by_user_comment_invalid_user(
         github_webhook=process_github_webhook, owners_file_handler=owners_file_handler
     )
     await issue_comment_handler._add_reviewer_by_user_comment(pull_request=pull_request, reviewer="user2")
-    assert "not adding reviewer user2 by user comment, user2 is not part of contributers" in caplog.text
+    assert "not adding reviewer user2 by user comment, user2 is not part of contributors" in caplog.text

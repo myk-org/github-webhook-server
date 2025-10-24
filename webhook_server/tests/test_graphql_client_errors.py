@@ -14,7 +14,7 @@ from webhook_server.libs.graphql.graphql_client import (
 )
 
 # Test token constant
-TEST_GITHUB_TOKEN = "test_token_12345"
+TEST_GITHUB_TOKEN = "test_token_12345"  # noqa: S105
 
 
 @pytest.fixture

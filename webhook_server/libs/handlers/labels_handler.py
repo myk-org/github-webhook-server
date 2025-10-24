@@ -41,6 +41,14 @@ class LabelsHandler:
         self.repository: Repository = self.github_webhook.repository
         self.unified_api = self.github_webhook.unified_api
 
+    def _ensure_wrapper(self, pull_request: PullRequest | PullRequestWrapper) -> PullRequestWrapper:
+        """Convert REST PullRequest to PullRequestWrapper if needed."""
+        if isinstance(pull_request, PullRequestWrapper):
+            return pull_request
+        # Convert REST PR to wrapper
+        owner, repo_name = self.github_webhook.repository.full_name.split("/")
+        return PullRequestWrapper(pull_request, owner, repo_name)
+
     async def label_exists_in_pull_request(self, pull_request: PullRequest | PullRequestWrapper, label: str) -> bool:
         return label in await self.pull_request_labels_names(pull_request=pull_request)
 
@@ -49,6 +57,9 @@ class LabelsHandler:
         return [lb.name for lb in labels]
 
     async def _remove_label(self, pull_request: PullRequest | PullRequestWrapper, label: str) -> bool:
+        # Ensure we have a wrapper for GraphQL mutations
+        pull_request = self._ensure_wrapper(pull_request)
+
         self.logger.step(f"{self.log_prefix} Removing label '{label}' from PR")  # type: ignore
         self.logger.debug(f"{self.log_prefix} Removing label {label}")
         try:
@@ -57,7 +68,7 @@ class LabelsHandler:
 
                 # unified_api handles GraphQL vs REST
                 pr_id = pull_request.id
-                owner, repo_name = self.github_webhook.repository_full_name.split("/")
+                owner, repo_name = self.github_webhook.repository.full_name.split("/")
                 label_id = await self.unified_api.get_label_id(owner, repo_name, label)
                 if label_id:
                     await self.unified_api.remove_labels(pr_id, [label_id])
@@ -88,6 +99,9 @@ class LabelsHandler:
         return False
 
     async def _add_label(self, pull_request: PullRequest | PullRequestWrapper, label: str) -> None:
+        # Ensure we have a wrapper for GraphQL mutations
+        pull_request = self._ensure_wrapper(pull_request)
+
         label = label.strip()
         self.logger.step(f"{self.log_prefix} Adding label '{label}' to PR")  # type: ignore
         self.logger.debug(f"{self.log_prefix} Adding label {label}")
@@ -99,7 +113,7 @@ class LabelsHandler:
             self.logger.debug(f"{self.log_prefix} Label {label} already assign")
             return
 
-        owner, repo_name = self.github_webhook.repository_full_name.split("/")
+        owner, repo_name = self.github_webhook.repository.full_name.split("/")
 
         if label in STATIC_LABELS_DICT:
             self.logger.info(f"{self.log_prefix} Adding pull request label {label}")

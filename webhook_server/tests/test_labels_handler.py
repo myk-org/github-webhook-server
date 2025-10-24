@@ -139,17 +139,19 @@ class TestLabelsHandler:
         # Mock that label doesn't exist initially
         with patch.object(labels_handler, "label_exists_in_pull_request", return_value=False):
             with patch.object(labels_handler, "wait_for_label", return_value=True):
-                # Mock unified_api for static label (skips dynamic label logic)
-                labels_handler.unified_api.get_label_id.return_value = "LA_test"
-                labels_handler.unified_api.add_labels.return_value = None
+                # Mock _ensure_wrapper to return the same mock PR (prevents new object creation)
+                with patch.object(labels_handler, "_ensure_wrapper", return_value=mock_pull_request):
+                    # Mock unified_api for static label (skips dynamic label logic)
+                    labels_handler.unified_api.get_label_id.return_value = "LA_test"
+                    labels_handler.unified_api.add_labels.return_value = None
 
-                await labels_handler._add_label(mock_pull_request, "lgtm")  # Static label
+                    await labels_handler._add_label(mock_pull_request, "lgtm")  # Static label
 
-                # Verify unified_api was called with correct arguments
-                labels_handler.unified_api.add_labels.assert_called_once()
-                call_args = labels_handler.unified_api.add_labels.call_args
-                assert call_args[0][0] == mock_pull_request.id
-                assert "LA_test" in call_args[0][1]
+                    # Verify unified_api was called with correct arguments
+                    labels_handler.unified_api.add_labels.assert_called_once()
+                    call_args = labels_handler.unified_api.add_labels.call_args
+                    assert call_args[0][0] == mock_pull_request.id
+                    assert "LA_test" in call_args[0][1]
 
     @pytest.mark.asyncio
     async def test_add_label_exception_handling(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
@@ -171,17 +173,19 @@ class TestLabelsHandler:
         """Test successful label removal."""
         with patch.object(labels_handler, "label_exists_in_pull_request", return_value=True):
             with patch.object(labels_handler, "wait_for_label", return_value=True):
-                labels_handler.unified_api.get_label_id.return_value = "LA_test"
-                labels_handler.unified_api.remove_labels.return_value = None
+                # Mock _ensure_wrapper to return the same mock PR (prevents new object creation)
+                with patch.object(labels_handler, "_ensure_wrapper", return_value=mock_pull_request):
+                    labels_handler.unified_api.get_label_id.return_value = "LA_test"
+                    labels_handler.unified_api.remove_labels.return_value = None
 
-                result = await labels_handler._remove_label(mock_pull_request, "test-label")
+                    result = await labels_handler._remove_label(mock_pull_request, "test-label")
 
-                assert result is True
-                # Verify unified_api was called with correct arguments
-                labels_handler.unified_api.remove_labels.assert_called_once()
-                call_args = labels_handler.unified_api.remove_labels.call_args
-                assert call_args[0][0] == mock_pull_request.id
-                assert "LA_test" in call_args[0][1]
+                    assert result is True
+                    # Verify unified_api was called with correct arguments
+                    labels_handler.unified_api.remove_labels.assert_called_once()
+                    call_args = labels_handler.unified_api.remove_labels.call_args
+                    assert call_args[0][0] == mock_pull_request.id
+                    assert "LA_test" in call_args[0][1]
 
     @pytest.mark.asyncio
     async def test_remove_label_exception_handling(
@@ -253,9 +257,11 @@ class TestLabelsHandler:
             mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
             with patch("asyncio.sleep", new_callable=AsyncMock):
                 with patch.object(labels_handler, "label_exists_in_pull_request", side_effect=[False, True]):
-                    with patch.object(labels_handler, "wait_for_label", side_effect=Exception("Wait failed")):
-                        # Should not raise exception
-                        await labels_handler._add_label(mock_pull_request, static_label)
+                    # Mock _ensure_wrapper to return the same mock PR (prevents new object creation)
+                    with patch.object(labels_handler, "_ensure_wrapper", return_value=mock_pull_request):
+                        with patch.object(labels_handler, "wait_for_label", side_effect=Exception("Wait failed")):
+                            # Should not raise exception
+                            await labels_handler._add_label(mock_pull_request, static_label)
 
     @pytest.mark.asyncio
     async def test_wait_for_label_success(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
@@ -451,13 +457,15 @@ class TestLabelsHandler:
         with patch.object(labels_handler, "label_exists_in_pull_request", return_value=False):
             with patch.object(mock_pull_request, "get_labels", return_value=[]):
                 with patch.object(labels_handler, "wait_for_label", return_value=True):
-                    # Mock unified_api for successful label update
-                    # First call returns label_id (line 98), second call returns label_id (line 116)
-                    labels_handler.github_webhook.unified_api.get_label_id.side_effect = ["LA_123", "LA_123"]
-                    labels_handler.github_webhook.unified_api.update_label.return_value = {"id": "LA_123"}
-                    labels_handler.github_webhook.unified_api.add_labels.return_value = None
+                    # Mock _ensure_wrapper to return the same mock PR (prevents new object creation)
+                    with patch.object(labels_handler, "_ensure_wrapper", return_value=mock_pull_request):
+                        # Mock unified_api for successful label update
+                        # First call returns label_id (line 98), second call returns label_id (line 116)
+                        labels_handler.github_webhook.unified_api.get_label_id.side_effect = ["LA_123", "LA_123"]
+                        labels_handler.github_webhook.unified_api.update_label.return_value = {"id": "LA_123"}
+                        labels_handler.github_webhook.unified_api.add_labels.return_value = None
 
-                    await labels_handler._add_label(mock_pull_request, "dynamic-label")
+                        await labels_handler._add_label(mock_pull_request, "dynamic-label")
 
     @pytest.mark.asyncio
     async def test_manage_reviewed_by_label_approve_not_in_approvers(

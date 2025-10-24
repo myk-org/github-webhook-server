@@ -160,6 +160,8 @@ Publish to PYPI failed: `{_error}`
 {self.github_webhook.repository_name} Version {tag_name} published to PYPI.
 ```
 """
-                self.github_webhook.send_slack_message(
-                    message=message, webhook_url=self.github_webhook.slack_webhook_url
+                await self.github_webhook.unified_api.send_slack_message_async(
+                    send_slack_message_func=self.github_webhook.send_slack_message,
+                    message=message,
+                    webhook_url=self.github_webhook.slack_webhook_url,
                 )

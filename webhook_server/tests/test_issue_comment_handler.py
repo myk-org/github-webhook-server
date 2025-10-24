@@ -628,7 +628,7 @@ class TestIssueCommentHandler:
         # Verify the comment contains the expected error message
         comment_text = call_args[0][1]
         assert "reviewer1" in comment_text
-        assert "not part of contributers" in comment_text
+        assert "not part of contributors" in comment_text
 
     @pytest.mark.asyncio
     async def test_process_cherry_pick_command_existing_branches(

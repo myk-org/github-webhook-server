@@ -302,9 +302,9 @@ class GraphQLClient:
                         await self._client.close_async()
                         self._client = None
                         self._transport = None
-                    except Exception as ex:
+                    except Exception:
                         self.logger.exception(
-                            f"Error during timeout cleanup: {ex}",
+                            "Error during timeout cleanup",
                             extra={"error_id": ERROR_IDS.GRAPHQL_TIMEOUT_CLEANUP_FAILED},
                         )
                 raise GraphQLError(f"GraphQL query timeout after {self.timeout}s") from error

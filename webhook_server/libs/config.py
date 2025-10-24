@@ -37,14 +37,14 @@ class Config:
         except FileNotFoundError:
             self.logger.error(f"Config file not found: {self.config_path}")
             return {}
-        except yaml.YAMLError as ex:
-            self.logger.exception(f"Config file has invalid YAML syntax: {self.config_path}, error: {ex}")
+        except yaml.YAMLError:
+            self.logger.exception(f"Config file has invalid YAML syntax: {self.config_path}")
             raise  # Don't continue with invalid config
         except PermissionError:
             self.logger.exception(f"Permission denied reading config file: {self.config_path}")
             raise
-        except Exception as ex:
-            self.logger.exception(f"Failed to load config file {self.config_path}: {ex}")
+        except Exception:
+            self.logger.exception(f"Failed to load config file {self.config_path}")
             raise
 
     @property

@@ -432,7 +432,7 @@ class TestPullRequestHandler:
             pull_request_handler, "_process_verified_for_update_or_new_pull_request", new=AsyncMock()
         ) as mock_process_verified:
             with patch.object(
-                pull_request_handler, "add_pull_request_owner_as_assingee", new=AsyncMock()
+                pull_request_handler, "add_pull_request_owner_as_assignee", new=AsyncMock()
             ) as mock_add_assignee:
                 with patch.object(
                     pull_request_handler, "label_pull_request_by_merge_state", new=AsyncMock()
@@ -565,8 +565,10 @@ class TestPullRequestHandler:
 
         with (
             patch.object(pull_request_handler.github_webhook, "auto_verify_cherry_picked_prs", True),
-            patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label,
-            patch.object(pull_request_handler.check_run_handler, "set_verify_check_success") as mock_set_success,
+            patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add_label,
+            patch.object(
+                pull_request_handler.check_run_handler, "set_verify_check_success", new=AsyncMock()
+            ) as mock_set_success,
         ):
             await pull_request_handler._process_verified_for_update_or_new_pull_request(mock_pull_request)
             # Should auto-verify since auto_verify_cherry_picked_prs is True and user is in auto_verified list
@@ -587,8 +589,10 @@ class TestPullRequestHandler:
 
         with (
             patch.object(pull_request_handler.github_webhook, "auto_verify_cherry_picked_prs", False),
-            patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label,
-            patch.object(pull_request_handler.check_run_handler, "set_verify_check_queued") as mock_set_queued,
+            patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add_label,
+            patch.object(
+                pull_request_handler.check_run_handler, "set_verify_check_queued", new=AsyncMock()
+            ) as mock_set_queued,
         ):
             await pull_request_handler._process_verified_for_update_or_new_pull_request(mock_pull_request)
             # Should NOT auto-verify since auto_verify_cherry_picked_prs is False
@@ -596,7 +600,7 @@ class TestPullRequestHandler:
             mock_set_queued.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_add_pull_request_owner_as_assingee(
+    async def test_add_pull_request_owner_as_assignee(
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         """Test adding pull request owner as assignee."""
@@ -604,7 +608,7 @@ class TestPullRequestHandler:
         mock_pull_request.number = 123
 
         # Now it uses unified_api.add_assignees_by_login, not pr.add_to_assignees
-        await pull_request_handler.add_pull_request_owner_as_assingee(pull_request=mock_pull_request)
+        await pull_request_handler.add_pull_request_owner_as_assignee(pull_request=mock_pull_request)
         pull_request_handler.github_webhook.unified_api.add_assignees_by_login.assert_called_once_with(
             "test-owner", "test-repo", 123, ["owner1"]
         )

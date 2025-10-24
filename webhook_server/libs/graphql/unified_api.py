@@ -308,6 +308,10 @@ class UnifiedGitHubAPI:
         result = await self.graphql_client.execute(query, variables)  # type: ignore[union-attr]
         blob = result["repository"]["object"]
 
+        # Check if file exists
+        if blob is None:
+            raise FileNotFoundError(f"File not found: owner={owner}, repo={name}, path={path}, ref={ref}")
+
         # Handle binary files - text will be null for binary files
         if blob.get("isBinary") or blob.get("text") is None:
             # Fall back to REST API for binary files
@@ -546,7 +550,7 @@ class UnifiedGitHubAPI:
         """
         Get user node ID from login.
 
-        Uses: GraphQL
+        Uses: GraphQL with REST fallback
         Reason: Need node ID for mutations
 
         Args:
@@ -558,16 +562,21 @@ class UnifiedGitHubAPI:
         if not self.graphql_client:
             await self.initialize()
 
-        query = """
-            query($login: String!) {
-                user(login: $login) {
-                    id
+        try:
+            query = """
+                query($login: String!) {
+                    user(login: $login) {
+                        id
+                    }
                 }
-            }
-        """
-        variables = {"login": login}
-        result = await self.graphql_client.execute(query, variables)  # type: ignore[union-attr]
-        return result["user"]["id"]
+            """
+            variables = {"login": login}
+            result = await self.graphql_client.execute(query, variables)  # type: ignore[union-attr]
+            return result["user"]["id"]
+        except Exception:
+            # Fallback to REST API
+            self.logger.debug(f"GraphQL failed for get_user_id, falling back to REST for user: {login}")
+            return await self.get_user_id_rest(login)
 
     async def get_user_id_rest(self, login: str) -> str:
         """
@@ -1093,6 +1102,26 @@ class UnifiedGitHubAPI:
         repo = await self.get_repository_for_rest_operations(owner, name)
         commit = await asyncio.to_thread(repo.get_commit, sha)
         return list(await asyncio.to_thread(commit.get_pulls))
+
+    async def send_slack_message_async(self, send_slack_message_func: Any, message: str, webhook_url: str) -> None:
+        """
+        Send Slack message asynchronously.
+
+        Uses: REST (Slack API via requests library)
+
+        This method wraps the synchronous send_slack_message function from GithubWebhook
+        to run in a separate thread, preventing blocking of the async event loop.
+
+        Args:
+            send_slack_message_func: The synchronous send_slack_message method to call
+            message: Message text to send
+            webhook_url: Slack webhook URL
+
+        Note:
+            This is the ONLY location where asyncio.to_thread should be used for Slack messages.
+            All other code should call this method instead of using asyncio.to_thread directly.
+        """
+        await asyncio.to_thread(send_slack_message_func, message=message, webhook_url=webhook_url)
 
     # ===== Helper Methods =====
 

@@ -4,7 +4,7 @@ import asyncio
 from asyncio import Task
 from typing import TYPE_CHECKING, Any, Callable, Coroutine, Union
 
-from github import GithubException
+from github.GithubException import GithubException
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
@@ -61,7 +61,7 @@ class IssueCommentHandler:
             github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
         )
 
-    async def process_comment_webhook_data(self, pull_request: PullRequestWrapper) -> None:
+    async def process_comment_webhook_data(self, pull_request: PullRequest | PullRequestWrapper) -> None:
         comment_action = self.hook_data["action"]
         self.logger.step(f"{self.log_prefix} Starting issue comment processing: action={comment_action}")  # type: ignore
 
@@ -209,7 +209,7 @@ class IssueCommentHandler:
                 )
                 await self.github_webhook.add_pr_comment(
                     pull_request,
-                    f"{reviewed_user} is not part of the approver, only approvers can mark pull request with hold",
+                    f"{reviewed_user} is not part of the approvers, only approvers can mark pull request with hold",
                 )
             else:
                 if remove:
@@ -267,7 +267,7 @@ class IssueCommentHandler:
                 await self.github_webhook.request_pr_reviews(pr_wrapper, [reviewer])
                 return
 
-        _err = f"not adding reviewer {reviewer} by user comment, {reviewer} is not part of contributers"
+        _err = f"not adding reviewer {reviewer} by user comment, {reviewer} is not part of contributors"
         self.logger.debug(f"{self.log_prefix} {_err}")
         await self.github_webhook.add_pr_comment(pull_request, _err)
 

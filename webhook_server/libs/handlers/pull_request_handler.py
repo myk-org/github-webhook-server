@@ -113,7 +113,10 @@ class PullRequestHandler:
             for idx, result in enumerate(results):
                 task_name = task_names[idx] if idx < len(task_names) else f"task_{idx}"
                 if isinstance(result, Exception):
-                    self.logger.exception(f"{self.log_prefix} Async task '{task_name}' FAILED: {result}")
+                    self.logger.error(
+                        f"{self.log_prefix} Async task '{task_name}' FAILED",
+                        exc_info=result,
+                    )
                 else:
                     self.logger.debug(f"{self.log_prefix} Async task '{task_name}' completed successfully")
 
@@ -131,7 +134,10 @@ class PullRequestHandler:
 
             for result in results:
                 if isinstance(result, Exception):
-                    self.logger.exception(f"{self.log_prefix} Async task failed: {result}")
+                    self.logger.error(
+                        f"{self.log_prefix} Async task failed",
+                        exc_info=result,
+                    )
 
         if hook_action == "closed":
             self.logger.step(f"{self.log_prefix} Processing PR closed event: cleaning up resources")  # type: ignore
@@ -486,7 +492,7 @@ For more information, please refer to the project documentation or contact the m
         setup_tasks.append(self.check_run_handler.set_container_build_queued())
         setup_tasks.append(self._process_verified_for_update_or_new_pull_request(pull_request=pull_request))
         setup_tasks.append(self.labels_handler.add_size_label(pull_request=pull_request))
-        setup_tasks.append(self.add_pull_request_owner_as_assingee(pull_request=pull_request))
+        setup_tasks.append(self.add_pull_request_owner_as_assignee(pull_request=pull_request))
 
         if self.github_webhook.conventional_title:
             setup_tasks.append(self.check_run_handler.set_conventional_title_queued())
@@ -671,7 +677,7 @@ For more information, please refer to the project documentation or contact the m
             await self.labels_handler._remove_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
             await self.check_run_handler.set_verify_check_queued()
 
-    async def add_pull_request_owner_as_assingee(self, pull_request: PullRequestWrapper) -> None:
+    async def add_pull_request_owner_as_assignee(self, pull_request: PullRequestWrapper) -> None:
         # Use unified_api for add_assignees
         owner, repo_name = self._owner_and_repo
         try:
