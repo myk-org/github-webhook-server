@@ -329,6 +329,7 @@ async function loadEntriesProgressivelyDirect(entries) {
   logEntries = entries;
   // Apply memory bounding after direct assignment
   applyMemoryBounding();
+  hideLoadingSkeleton();
   renderLogEntriesDirectly(logEntries);
   console.log(`Loaded ${entries.length} backend-filtered entries`);
 }
