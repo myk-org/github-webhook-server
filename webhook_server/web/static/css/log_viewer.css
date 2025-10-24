@@ -814,3 +814,156 @@ body {
 .hook-id-link:hover {
   color: var(--button-hover);
 }
+
+.pr-number-link {
+  cursor: pointer;
+  color: var(--button-bg);
+  text-decoration: underline;
+  font-weight: bold;
+}
+
+.pr-number-link:hover {
+  color: var(--button-hover);
+}
+
+/* PR Modal Styles */
+.pr-summary {
+  background: var(--level-info-bg);
+  border-left: 4px solid var(--level-info-border);
+  padding: 16px;
+  border-radius: 8px;
+  margin-bottom: 24px;
+}
+
+.pr-summary h3 {
+  margin: 0 0 12px 0;
+  font-size: 18px;
+  color: var(--level-info-border);
+}
+
+.pr-hook-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pr-hook-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--container-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.pr-hook-item:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border-color: var(--button-bg);
+  transform: translateX(4px);
+}
+
+.pr-hook-icon {
+  font-size: 20px;
+  color: var(--button-bg);
+}
+
+.pr-hook-id {
+  flex: 1;
+  font-family: monospace;
+  font-size: 14px;
+  color: var(--text-color);
+  font-weight: 600;
+}
+
+/* Task Group Styles */
+.task-group {
+  margin-bottom: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--container-bg);
+}
+
+.task-group-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--log-debug-bg);
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.task-group-header:hover {
+  background: var(--log-entry-border);
+}
+
+.task-group-arrow {
+  font-size: 14px;
+  transition: transform 0.3s ease;
+  display: inline-block;
+  width: 16px;
+  text-align: center;
+}
+
+.task-group-arrow.expanded {
+  transform: rotate(0deg);
+}
+
+.task-group-arrow.collapsed {
+  transform: rotate(-90deg);
+}
+
+.task-group-status {
+  font-size: 18px;
+  font-weight: bold;
+  width: 24px;
+  text-align: center;
+}
+
+.task-group-success {
+  color: #28a745;
+}
+
+.task-group-error {
+  color: #dc3545;
+}
+
+.task-group-in_progress {
+  color: #007bff;
+}
+
+.task-group-title {
+  flex: 1;
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text-color);
+}
+
+.task-group-duration {
+  font-size: 13px;
+  color: var(--timestamp-color);
+  font-weight: 600;
+  padding: 4px 8px;
+  background: var(--tag-bg);
+  border-radius: 4px;
+}
+
+.task-group-steps {
+  padding: 8px;
+  background: var(--container-bg);
+}
+
+.task-group-steps .flow-step-container.nested {
+  margin-left: 20px;
+  position: relative;
+}
+
+.task-group-steps .flow-step-container.nested::before {
+  left: -1px;
+}

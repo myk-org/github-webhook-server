@@ -23,6 +23,9 @@ class LogEntry:
     repository: str | None = None
     pr_number: int | None = None
     github_user: str | None = None
+    task_id: str | None = None
+    task_type: str | None = None
+    task_status: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert LogEntry to dictionary for JSON serialization."""
@@ -36,6 +39,9 @@ class LogEntry:
             "repository": self.repository,
             "pr_number": self.pr_number,
             "github_user": self.github_user,
+            "task_id": self.task_id,
+            "task_type": self.task_type,
+            "task_status": self.task_status,
         }
 
 
@@ -72,15 +78,18 @@ class LogParser:
 
     def is_workflow_step(self, entry: LogEntry) -> bool:
         """
-        Check if a log entry is a workflow step (logger.step call).
+        Check if a log entry is a workflow milestone step.
+
+        Only entries with task_id AND task_status are considered workflow milestones.
+        This filters out internal/initialization steps and only shows meaningful business events.
 
         Args:
             entry: LogEntry to check
 
         Returns:
-            True if this is a workflow step entry
+            True if this is a workflow milestone entry (has task_id and task_status)
         """
-        return entry.level.upper() == "STEP"
+        return bool(entry.task_id and entry.task_status)
 
     def extract_workflow_steps(self, entries: list[LogEntry], hook_id: str) -> list[LogEntry]:
         """
@@ -124,6 +133,9 @@ class LogParser:
         # Extract GitHub webhook context from prepare_log_prefix format
         repository, event_type, hook_id, github_user, pr_number, cleaned_message = self._extract_github_context(message)
 
+        # Extract task correlation fields from message
+        task_id, task_type, task_status = self._extract_task_fields(cleaned_message)
+
         return LogEntry(
             timestamp=timestamp,
             level=level,
@@ -134,6 +146,9 @@ class LogParser:
             repository=repository,
             pr_number=pr_number,
             github_user=github_user,
+            task_id=task_id,
+            task_type=task_type,
+            task_status=task_status,
         )
 
     def _extract_github_context(
@@ -169,6 +184,36 @@ class LogParser:
         # No GitHub context found, return original message cleaned of ANSI codes
         cleaned_message = self.ANSI_ESCAPE_PATTERN.sub("", message)
         return None, None, None, None, None, cleaned_message
+
+    def _extract_task_fields(self, message: str) -> tuple[str | None, str | None, str | None]:
+        """Extract task correlation fields from log message.
+
+        Extracts task_id, task_type, and task_status from patterns like:
+        [task_id=check_tox] [task_type=ci_check] [task_status=started]
+
+        Args:
+            message: Log message to extract from
+
+        Returns:
+            Tuple of (task_id, task_type, task_status)
+        """
+        task_id = None
+        task_type = None
+        task_status = None
+
+        # Extract task_id
+        if task_id_match := re.search(r"\[task_id=([^\]]+)\]", message):
+            task_id = task_id_match.group(1)
+
+        # Extract task_type
+        if task_type_match := re.search(r"\[task_type=([^\]]+)\]", message):
+            task_type = task_type_match.group(1)
+
+        # Extract task_status
+        if task_status_match := re.search(r"\[task_status=([^\]]+)\]", message):
+            task_status = task_status_match.group(1)
+
+        return task_id, task_type, task_status
 
     def parse_log_file(self, file_path: Path) -> list[LogEntry]:
         """

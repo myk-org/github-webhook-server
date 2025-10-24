@@ -187,11 +187,24 @@ function createLogEntryElement(entry) {
     div.appendChild(hookIdSpan);
   }
 
-  // Add other metadata
+  // Add other metadata - make PR number clickable
   if (entry.pr_number) {
     const prSpan = document.createElement("span");
     prSpan.className = "pr-number";
-    prSpan.textContent = `[PR: #${entry.pr_number}]`;
+    prSpan.textContent = "[PR: #";
+
+    const prLink = document.createElement("span");
+    prLink.className = "pr-number-link";
+    prLink.textContent = entry.pr_number;
+    prLink.title = "Click to view all webhook flows for this PR";
+    prLink.style.cursor = "pointer";
+    prLink.addEventListener("click", () => {
+      showPrModal(entry.pr_number);
+    });
+
+    prSpan.appendChild(prLink);
+    const closeBracket = document.createTextNode("]");
+    prSpan.appendChild(closeBracket);
     div.appendChild(prSpan);
   }
 
@@ -360,6 +373,7 @@ async function loadHistoricalLogs() {
 async function loadEntriesProgressivelyDirect(entries) {
   // For backend-filtered data, just render all entries at once
   // Progressive loading isn't needed since data is already filtered and limited
+  // Backend handles chunked streaming to reduce memory usage
   logEntries = entries;
   // Apply memory bounding after direct assignment
   applyMemoryBounding();
@@ -633,6 +647,21 @@ function initializeEventListeners() {
       }
     });
   }
+
+  // PR modal event listeners
+  const closePrModalBtn = document.getElementById("closePrModal");
+  if (closePrModalBtn) {
+    closePrModalBtn.addEventListener("click", closePrModal);
+  }
+
+  const prModal = document.getElementById("prModal");
+  if (prModal) {
+    prModal.addEventListener("click", (e) => {
+      if (e.target === prModal) {
+        closePrModal();
+      }
+    });
+  }
 }
 
 // Initialize event listeners
@@ -689,6 +718,184 @@ function closeFlowModal() {
     modal.style.display = "none";
   }
   currentFlowData = null;
+}
+
+// PR Modal functionality
+function showPrModal(prNumber) {
+  if (!prNumber) {
+    closePrModal();
+    return;
+  }
+
+  // Fetch all log entries for this PR number
+  const params = new URLSearchParams({
+    pr_number: prNumber,
+    limit: "10000",
+  });
+
+  fetch(`/logs/api/entries?${params}`)
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error("Failed to fetch PR entries");
+      }
+      return response.json();
+    })
+    .then((data) => {
+      if (data.entries && data.entries.length > 0) {
+        // Extract unique hook IDs (deduplicate)
+        const hookIds = data.entries
+          .map((e) => e.hook_id)
+          .filter((id) => id !== null && id !== undefined);
+        const uniqueHookIds = [...new Set(hookIds)];
+
+        if (uniqueHookIds.length === 0) {
+          console.log("No hook IDs found for PR:", prNumber);
+          return;
+        }
+
+        renderPrModal(prNumber, uniqueHookIds, data.entries[0].repository);
+        document.getElementById("prModal").style.display = "flex";
+      }
+    })
+    .catch((error) => console.error("Error fetching PR data:", error));
+}
+
+function closePrModal() {
+  const modal = document.getElementById("prModal");
+  if (modal) {
+    modal.style.display = "none";
+  }
+}
+
+function renderPrModal(prNumber, hookIds, repository) {
+  // Render summary section
+  const summaryElement = document.getElementById("prSummary");
+  if (!summaryElement) return;
+
+  // Clear existing content
+  while (summaryElement.firstChild) {
+    summaryElement.removeChild(summaryElement.firstChild);
+  }
+
+  const title = document.createElement("h3");
+  title.textContent = `PR #${prNumber} Workflow Overview`;
+  summaryElement.appendChild(title);
+
+  const info = document.createElement("p");
+  info.textContent = `Found ${hookIds.length} unique webhook event${
+    hookIds.length !== 1 ? "s" : ""
+  }${repository ? ` for ${repository}` : ""}`;
+  info.style.margin = "8px 0 0 0";
+  info.style.color = "var(--timestamp-color)";
+  summaryElement.appendChild(info);
+
+  // Render hook ID list
+  const listElement = document.getElementById("prHookList");
+  if (!listElement) return;
+
+  // Clear existing content
+  while (listElement.firstChild) {
+    listElement.removeChild(listElement.firstChild);
+  }
+
+  if (hookIds.length === 0) {
+    const emptyMsg = document.createElement("p");
+    emptyMsg.style.textAlign = "center";
+    emptyMsg.style.color = "var(--timestamp-color)";
+    emptyMsg.textContent = "No webhook events found";
+    listElement.appendChild(emptyMsg);
+    return;
+  }
+
+  // Create clickable list items for each hook ID
+  hookIds.forEach((hookId, index) => {
+    const hookItem = document.createElement("div");
+    hookItem.className = "pr-hook-item";
+    hookItem.addEventListener("click", () => {
+      closePrModal();
+      showFlowModal(hookId);
+    });
+
+    const icon = document.createElement("span");
+    icon.className = "pr-hook-icon";
+    icon.textContent = "🔗";
+
+    const hookIdSpan = document.createElement("span");
+    hookIdSpan.className = "pr-hook-id";
+    hookIdSpan.textContent = `Event ${index + 1}: ${hookId}`;
+
+    hookItem.appendChild(icon);
+    hookItem.appendChild(hookIdSpan);
+    listElement.appendChild(hookItem);
+  });
+}
+
+function groupStepsByTaskId(steps) {
+  // Filter out internal/routing steps - only show meaningful milestones
+  const meaningfulTaskTypes = [
+    "ci_check", // tox, precommit, container build, etc
+    "pr_management", // reviewer assignment, labels, etc
+    "webhook_event", // comment processing, check runs, etc
+  ];
+
+  // Filter steps to only meaningful task types
+  const filteredSteps = steps.filter((step) => {
+    // Keep steps with meaningful task_type
+    if (step.task_type && meaningfulTaskTypes.includes(step.task_type)) {
+      return true;
+    }
+    // Filter out webhook_routing steps (internal initialization)
+    return false;
+  });
+
+  const groups = [];
+  const ungrouped = [];
+  const taskMap = new Map();
+
+  filteredSteps.forEach((step, index) => {
+    if (step.task_id) {
+      if (!taskMap.has(step.task_id)) {
+        taskMap.set(step.task_id, {
+          task_id: step.task_id,
+          task_title: step.task_title || step.task_id,
+          steps: [],
+          start_time: step.timestamp,
+          end_time: step.timestamp,
+          start_index: index,
+        });
+      }
+      const group = taskMap.get(step.task_id);
+      group.steps.push({ ...step, original_index: index });
+      if (new Date(step.timestamp) > new Date(group.end_time)) {
+        group.end_time = step.timestamp;
+      }
+    } else {
+      ungrouped.push({ ...step, original_index: index });
+    }
+  });
+
+  // Calculate duration and status for each group
+  taskMap.forEach((group) => {
+    const startMs = new Date(group.start_time).getTime();
+    const endMs = new Date(group.end_time).getTime();
+    group.duration_ms = endMs - startMs;
+
+    // Determine group status based on step levels
+    if (group.steps.some((s) => s.level === "ERROR")) {
+      group.status = "error";
+    } else if (group.steps.some((s) => s.level === "SUCCESS")) {
+      group.status = "success";
+    } else {
+      group.status = "in_progress";
+    }
+
+    groups.push(group);
+  });
+
+  // Sort groups by start index to maintain chronological order
+  groups.sort((a, b) => a.start_index - b.start_index);
+
+  return { groups, ungrouped };
 }
 
 function renderFlowModal(data) {
@@ -761,61 +968,17 @@ function renderFlowModal(data) {
     return;
   }
 
-  // Create flow steps
-  data.steps.forEach((step, index) => {
-    const stepType = getStepType(step.message);
-    const timeFromStart = `+${(step.relative_time_ms / 1000).toFixed(2)}s`;
-    const timestamp = new Date(step.timestamp).toLocaleTimeString();
+  // Group steps by task_id
+  const { groups, ungrouped } = groupStepsByTaskId(data.steps);
 
-    const flowStepContainer = document.createElement("div");
-    flowStepContainer.className = "flow-step-container";
+  // Render grouped steps
+  groups.forEach((group) => {
+    renderTaskGroup(group, vizElement);
+  });
 
-    const flowStep = document.createElement("div");
-    flowStep.className = `flow-step ${stepType}`;
-    flowStep.setAttribute("data-step-index", index.toString());
-    flowStep.style.cursor = "pointer";
-    flowStep.addEventListener("click", () => filterByStep(index));
-
-    const stepNumber = document.createElement("div");
-    stepNumber.className = "flow-step-number";
-    stepNumber.textContent = (index + 1).toString();
-
-    const stepContent = document.createElement("div");
-    stepContent.className = "flow-step-content";
-
-    const stepTitle = document.createElement("div");
-    stepTitle.className = "flow-step-title";
-    stepTitle.textContent = step.message;
-
-    const stepTime = document.createElement("div");
-    stepTime.className = "flow-step-time";
-
-    const timestampSpan = document.createElement("span");
-    timestampSpan.textContent = timestamp;
-
-    const durationSpan = document.createElement("span");
-    durationSpan.className = "flow-step-duration";
-    durationSpan.textContent = timeFromStart;
-
-    stepTime.appendChild(timestampSpan);
-    stepTime.appendChild(durationSpan);
-
-    stepContent.appendChild(stepTitle);
-    stepContent.appendChild(stepTime);
-
-    flowStep.appendChild(stepNumber);
-    flowStep.appendChild(stepContent);
-
-    // Create logs container for this step (hidden by default)
-    const stepLogsContainer = document.createElement("div");
-    stepLogsContainer.className = "step-logs-container";
-    stepLogsContainer.style.display = "none";
-    stepLogsContainer.setAttribute("data-step-logs", index.toString());
-
-    flowStepContainer.appendChild(flowStep);
-    flowStepContainer.appendChild(stepLogsContainer);
-
-    vizElement.appendChild(flowStepContainer);
+  // Render ungrouped steps
+  ungrouped.forEach((step) => {
+    renderSingleStep(step, vizElement);
   });
 
   // Add final status
@@ -840,15 +1003,140 @@ function renderFlowModal(data) {
   vizElement.appendChild(finalStatus);
 }
 
-function getStepType(message) {
-  if (
-    message.includes("completed successfully") ||
-    message.includes("success")
-  ) {
+function renderTaskGroup(group, parentElement) {
+  const taskGroupContainer = document.createElement("div");
+  taskGroupContainer.className = "task-group";
+
+  // Create group header
+  const groupHeader = document.createElement("div");
+  groupHeader.className = "task-group-header";
+  groupHeader.style.cursor = "pointer";
+
+  // Collapse arrow
+  const arrow = document.createElement("span");
+  arrow.className = "task-group-arrow expanded";
+  arrow.textContent = "▼";
+
+  // Status icon
+  const statusIcon = document.createElement("span");
+  statusIcon.className = `task-group-status task-group-${group.status}`;
+  if (group.status === "success") {
+    statusIcon.textContent = "✓";
+  } else if (group.status === "error") {
+    statusIcon.textContent = "✗";
+  } else {
+    statusIcon.textContent = "◷";
+  }
+
+  // Task title
+  const taskTitle = document.createElement("span");
+  taskTitle.className = "task-group-title";
+  taskTitle.textContent = group.task_title;
+
+  // Duration
+  const duration = document.createElement("span");
+  duration.className = "task-group-duration";
+  duration.textContent = `${(group.duration_ms / 1000).toFixed(2)}s`;
+
+  groupHeader.appendChild(arrow);
+  groupHeader.appendChild(statusIcon);
+  groupHeader.appendChild(taskTitle);
+  groupHeader.appendChild(duration);
+
+  // Create nested steps container
+  const stepsContainer = document.createElement("div");
+  stepsContainer.className = "task-group-steps";
+  stepsContainer.style.display = "block"; // Start expanded
+
+  group.steps.forEach((step) => {
+    renderSingleStep(step, stepsContainer, true);
+  });
+
+  // Toggle expand/collapse
+  groupHeader.addEventListener("click", () => {
+    const isCollapsed = stepsContainer.style.display === "none";
+    stepsContainer.style.display = isCollapsed ? "block" : "none";
+    arrow.className = isCollapsed
+      ? "task-group-arrow expanded"
+      : "task-group-arrow collapsed";
+    arrow.textContent = isCollapsed ? "▼" : "►";
+  });
+
+  taskGroupContainer.appendChild(groupHeader);
+  taskGroupContainer.appendChild(stepsContainer);
+  parentElement.appendChild(taskGroupContainer);
+}
+
+function renderSingleStep(step, parentElement, isNested = false) {
+  const stepType = getStepType(step.level);
+  const timeFromStart = `+${(step.relative_time_ms / 1000).toFixed(2)}s`;
+  const timestamp = new Date(step.timestamp).toLocaleTimeString();
+
+  const flowStepContainer = document.createElement("div");
+  flowStepContainer.className = isNested
+    ? "flow-step-container nested"
+    : "flow-step-container";
+
+  const flowStep = document.createElement("div");
+  flowStep.className = `flow-step ${stepType}`;
+  flowStep.setAttribute("data-step-index", step.original_index.toString());
+  flowStep.style.cursor = "pointer";
+  flowStep.addEventListener("click", () => filterByStep(step.original_index));
+
+  const stepNumber = document.createElement("div");
+  stepNumber.className = "flow-step-number";
+  stepNumber.textContent = (step.original_index + 1).toString();
+
+  const stepContent = document.createElement("div");
+  stepContent.className = "flow-step-content";
+
+  const stepTitle = document.createElement("div");
+  stepTitle.className = "flow-step-title";
+  stepTitle.textContent = step.message;
+
+  const stepTime = document.createElement("div");
+  stepTime.className = "flow-step-time";
+
+  const timestampSpan = document.createElement("span");
+  timestampSpan.textContent = timestamp;
+
+  const durationSpan = document.createElement("span");
+  durationSpan.className = "flow-step-duration";
+  durationSpan.textContent = timeFromStart;
+
+  stepTime.appendChild(timestampSpan);
+  stepTime.appendChild(durationSpan);
+
+  stepContent.appendChild(stepTitle);
+  stepContent.appendChild(stepTime);
+
+  flowStep.appendChild(stepNumber);
+  flowStep.appendChild(stepContent);
+
+  // Create logs container for this step (hidden by default)
+  const stepLogsContainer = document.createElement("div");
+  stepLogsContainer.className = "step-logs-container";
+  stepLogsContainer.style.display = "none";
+  stepLogsContainer.setAttribute(
+    "data-step-logs",
+    step.original_index.toString(),
+  );
+
+  flowStepContainer.appendChild(flowStep);
+  flowStepContainer.appendChild(stepLogsContainer);
+
+  parentElement.appendChild(flowStepContainer);
+}
+
+function getStepType(level) {
+  // Accept level parameter to determine step type based on log level
+  const levelUpper = typeof level === "string" ? level.toUpperCase() : "";
+
+  if (levelUpper === "SUCCESS") {
     return "success";
-  } else if (message.includes("failed") || message.includes("error")) {
+  } else if (levelUpper === "ERROR") {
     return "error";
-  } else if (message.includes("warning")) {
+  } else if (levelUpper === "WARNING") {
     return "warning";
   } else {
     return "info";

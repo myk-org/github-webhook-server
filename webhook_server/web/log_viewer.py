@@ -541,7 +541,7 @@ class LogViewerController:
             hook_id: The hook ID for this timeline
 
         Returns:
-            Dictionary with timeline data structure
+            Dictionary with timeline data structure including task correlation fields
         """
         # Sort steps by timestamp
         sorted_steps = sorted(workflow_steps, key=lambda x: x.timestamp)
@@ -564,6 +564,9 @@ class LogViewerController:
                 "repository": step.repository,
                 "event_type": step.event_type,
                 "pr_number": step.pr_number,
+                "task_id": step.task_id,
+                "task_type": step.task_type,
+                "task_status": step.task_status,
             })
 
         # Calculate total duration

@@ -340,6 +340,10 @@ class TestLogViewerController:
             mock_path_instance.exists.return_value = True
             mock_log_file = Mock()
             mock_log_file.name = "test.log"
+            # Mock file stat for sorting by modification time
+            mock_stat = Mock()
+            mock_stat.st_mtime = 1234567890
+            mock_log_file.stat.return_value = mock_stat
             mock_path_instance.glob.return_value = [mock_log_file]
             mock_path.return_value = mock_path_instance
 
@@ -433,6 +437,51 @@ class TestLogViewerController:
         assert result["step_count"] == 0
         assert result["steps"] == []
         assert result["start_time"] is None
+
+    def test_build_workflow_timeline_with_task_fields(self, controller):
+        """Test workflow timeline includes task correlation fields."""
+        workflow_steps = [
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 0, 0),
+                level="STEP",
+                logger_name="main",
+                message="Starting check_tox task",
+                hook_id="hook1",
+                task_id="check_tox",
+                task_type="ci_check",
+                task_status=None,
+            ),
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 0, 5),
+                level="STEP",
+                logger_name="main",
+                message="Completed check_tox task",
+                hook_id="hook1",
+                task_id="check_tox",
+                task_type="ci_check",
+                task_status="completed",
+            ),
+        ]
+        result = controller._build_workflow_timeline(workflow_steps, "hook1")
+
+        # Verify overall structure
+        assert result["hook_id"] == "hook1"
+        assert result["step_count"] == 2
+        assert len(result["steps"]) == 2
+
+        # Verify first step includes task fields
+        first_step = result["steps"][0]
+        assert first_step["task_id"] == "check_tox"
+        assert first_step["task_type"] == "ci_check"
+        assert first_step["task_status"] is None
+        assert first_step["message"] == "Starting check_tox task"
+
+        # Verify second step includes updated task status
+        second_step = result["steps"][1]
+        assert second_step["task_id"] == "check_tox"
+        assert second_step["task_type"] == "ci_check"
+        assert second_step["task_status"] == "completed"
+        assert second_step["message"] == "Completed check_tox task"
 
 
 class TestLogAPI:

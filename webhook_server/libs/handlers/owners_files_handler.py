@@ -319,33 +319,51 @@ class OwnersFileHandler:
     async def assign_reviewers(self, pull_request: PullRequestWrapper) -> None:
         self._ensure_initialized()
 
-        self.logger.step(f"{self.log_prefix} Starting reviewer assignment based on OWNERS files")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} Starting reviewer assignment based on OWNERS files",
+            extra={"task_id": "reviewer_assignment", "task_type": "pr_management"},
+        )
         self.logger.info(f"{self.log_prefix} Assign reviewers")
 
         _to_add: list[str] = list(set(self.all_pull_request_reviewers))
         self.logger.debug(f"{self.log_prefix} Reviewers to add: {', '.join(_to_add)}")
 
         if _to_add:
-            self.logger.step(f"{self.log_prefix} Assigning {len(_to_add)} reviewers to PR")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} Assigning {len(_to_add)} reviewers to PR",
+                extra={"task_id": "reviewer_assignment", "task_type": "pr_management"},
+            )
         else:
-            self.logger.step(f"{self.log_prefix} No reviewers to assign")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} No reviewers to assign",
+                extra={"task_id": "reviewer_assignment", "task_type": "pr_management"},
+            )
             return
 
         # Filter out PR author from reviewers list
         reviewers_to_request = [r for r in _to_add if r != pull_request.user.login]
 
         if not reviewers_to_request:
-            self.logger.step(f"{self.log_prefix} No reviewers to assign (all were PR author)")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} No reviewers to assign (all were PR author)",
+                extra={"task_id": "reviewer_assignment", "task_type": "pr_management"},
+            )
             return
 
         # Batch review request in one mutation instead of looping
         try:
             self.logger.debug(f"{self.log_prefix} Batch requesting reviews from: {', '.join(reviewers_to_request)}")
             await self.github_webhook.request_pr_reviews(pull_request, reviewers_to_request)
-            self.logger.step(f"{self.log_prefix} Successfully assigned {len(reviewers_to_request)} reviewers")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} Successfully assigned {len(reviewers_to_request)} reviewers",
+                extra={"task_id": "reviewer_assignment", "task_type": "pr_management"},
+            )
 
         except (GithubException, GraphQLError) as ex:
-            self.logger.step(f"{self.log_prefix} Failed to assign reviewers in batch")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} Failed to assign reviewers in batch",
+                extra={"task_id": "reviewer_assignment", "task_type": "pr_management"},
+            )
             self.logger.debug(
                 f"{self.log_prefix} Batch review request failed with traceback:\n{traceback.format_exc()}"
             )
@@ -356,7 +374,10 @@ class OwnersFileHandler:
                 f"Failed to assign reviewers {', '.join(reviewers_to_request)}: [{error_type}] {ex}",
             )
 
-        self.logger.step(f"{self.log_prefix} Reviewer assignment completed")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} Reviewer assignment completed",
+            extra={"task_id": "reviewer_assignment", "task_type": "pr_management"},
+        )
 
     async def is_user_valid_to_run_commands(
         self, pull_request: PullRequest | PullRequestWrapper, reviewed_user: str

@@ -50,7 +50,10 @@ class CheckRunHandler:
         _check_run: dict[str, Any] = self.hook_data["check_run"]
         check_run_name: str = _check_run["name"]
 
-        self.logger.step(f"{self.log_prefix} Processing check run: {check_run_name}")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} Processing check run: {check_run_name}",
+            extra={"task_id": "check_run_processing", "task_type": "webhook_event"},
+        )
 
         if self.hook_data.get("action", "") != "completed":
             self.logger.debug(
@@ -70,12 +73,18 @@ class CheckRunHandler:
                     label=AUTOMERGE_LABEL_STR, pull_request=pull_request
                 ):
                     try:
-                        self.logger.step(f"{self.log_prefix} Executing auto-merge for PR #{pull_request.number}")  # type: ignore
+                        self.logger.step(  # type: ignore[attr-defined]
+                            f"{self.log_prefix} Executing auto-merge for PR #{pull_request.number}",
+                            extra={"task_id": "check_run_processing", "task_type": "webhook_event"},
+                        )
                         owner, repo_name = self.repository.full_name.split("/")
                         await self.unified_api.merge_pull_request(
                             owner, repo_name, pull_request.number, merge_method="SQUASH"
                         )
-                        self.logger.step(f"{self.log_prefix} Auto-merge completed successfully")  # type: ignore
+                        self.logger.step(  # type: ignore[attr-defined]
+                            f"{self.log_prefix} Auto-merge completed successfully",
+                            extra={"task_id": "check_run_processing", "task_type": "webhook_event"},
+                        )
                         self.logger.info(
                             f"{self.log_prefix} Successfully auto-merged pull request #{pull_request.number}"
                         )
@@ -233,13 +242,25 @@ class CheckRunHandler:
 
         # Log workflow steps for check run status changes
         if status == QUEUED_STR:
-            self.logger.step(f"{self.log_prefix} Setting {check_run} check to queued")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} Setting {check_run} check to queued",
+                extra={"task_id": "check_run_processing", "task_type": "webhook_event"},
+            )
         elif status == IN_PROGRESS_STR:
-            self.logger.step(f"{self.log_prefix} Setting {check_run} check to in-progress")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} Setting {check_run} check to in-progress",
+                extra={"task_id": "check_run_processing", "task_type": "webhook_event"},
+            )
         elif conclusion == SUCCESS_STR:
-            self.logger.step(f"{self.log_prefix} Setting {check_run} check to success")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} Setting {check_run} check to success",
+                extra={"task_id": "check_run_processing", "task_type": "webhook_event"},
+            )
         elif conclusion == FAILURE_STR:
-            self.logger.step(f"{self.log_prefix} Setting {check_run} check to failure")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} Setting {check_run} check to failure",
+                extra={"task_id": "check_run_processing", "task_type": "webhook_event"},
+            )
 
         try:
             self.logger.debug(f"{self.log_prefix} Set check run status with {kwargs}")
@@ -272,7 +293,7 @@ class CheckRunHandler:
         else:
             # Success log only after successful check run creation
             if conclusion in (SUCCESS_STR, IN_PROGRESS_STR) or status == IN_PROGRESS_STR:
-                self.logger.success(msg)  # type: ignore
+                self.logger.success(msg)  # type: ignore[attr-defined]
 
     def get_check_run_text(self, err: str, out: str) -> str:
         total_len: int = len(err) + len(out)

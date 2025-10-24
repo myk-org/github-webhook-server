@@ -63,14 +63,23 @@ class IssueCommentHandler:
 
     async def process_comment_webhook_data(self, pull_request: PullRequest | PullRequestWrapper) -> None:
         comment_action = self.hook_data["action"]
-        self.logger.step(f"{self.log_prefix} Starting issue comment processing: action={comment_action}")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} Starting issue comment processing: action={comment_action}",
+            extra={"task_id": "comment_processing", "task_type": "webhook_event"},
+        )
 
         if comment_action in ("edited", "deleted"):
-            self.logger.step(f"{self.log_prefix} Skipping comment processing: action is {comment_action}")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} Skipping comment processing: action is {comment_action}",
+                extra={"task_id": "comment_processing", "task_type": "webhook_event"},
+            )
             self.logger.debug(f"{self.log_prefix} Not processing comment. action is {comment_action}")
             return
 
-        self.logger.step(f"{self.log_prefix} Processing issue comment for issue {self.hook_data['issue']['number']}")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} Processing issue comment for issue {self.hook_data['issue']['number']}",
+            extra={"task_id": "comment_processing", "task_type": "webhook_event"},
+        )
         self.logger.info(f"{self.log_prefix} Processing issue {self.hook_data['issue']['number']}")
 
         body: str = self.hook_data["comment"]["body"]
@@ -82,11 +91,17 @@ class IssueCommentHandler:
         _user_commands: list[str] = [_cmd.strip("/") for _cmd in body.strip().splitlines() if _cmd.startswith("/")]
 
         if _user_commands:
-            self.logger.step(f"{self.log_prefix} Found {len(_user_commands)} user commands: {_user_commands}")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} Found {len(_user_commands)} user commands: {_user_commands}",
+                extra={"task_id": "comment_processing", "task_type": "webhook_event"},
+            )
 
         user_login: str = self.hook_data["sender"]["login"]
         for user_command in _user_commands:
-            self.logger.step(f"{self.log_prefix} Executing user command: /{user_command} by {user_login}")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} Executing user command: /{user_command} by {user_login}",
+                extra={"task_id": "comment_processing", "task_type": "webhook_event"},
+            )
             await self.user_commands(
                 pull_request=pull_request,
                 command=user_command,
