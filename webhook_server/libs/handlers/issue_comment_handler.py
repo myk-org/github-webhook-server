@@ -4,6 +4,7 @@ import asyncio
 from asyncio import Task
 from typing import TYPE_CHECKING, Any, Callable, Coroutine, Union
 
+from github import GithubException
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
@@ -254,7 +255,16 @@ class IssueCommentHandler:
 
         for contributer in repo_contributors:
             if contributer.login == reviewer:
-                await self.github_webhook.request_pr_reviews(pull_request, [reviewer])
+                # Convert REST PullRequest to PullRequestWrapper if needed
+                # request_pr_reviews expects PullRequestWrapper for GraphQL node ID
+                pr_wrapper = pull_request
+                if isinstance(pull_request, PullRequest):
+                    pr_data = await self.github_webhook.unified_api.get_pull_request(
+                        owner, repo_name, pull_request.number
+                    )
+                    pr_wrapper = PullRequestWrapper(pr_data, owner, repo_name)
+
+                await self.github_webhook.request_pr_reviews(pr_wrapper, [reviewer])
                 return
 
         _err = f"not adding reviewer {reviewer} by user comment, {reviewer} is not part of contributers"
@@ -274,11 +284,11 @@ class IssueCommentHandler:
                 owner, repo_name = self.repository.full_name.split("/")
                 await self.github_webhook.unified_api.get_branch(owner, repo_name, _target_branch)
                 _exits_target_branches.add(_target_branch)
-            except GraphQLError as ex:
+            except (GraphQLError, GithubException) as ex:
                 if "404" in str(ex) or "not found" in str(ex).lower():
                     _non_exits_target_branches_msg += f"Target branch `{_target_branch}` does not exist\n"
                 else:
-                    self.logger.error(f"{self.log_prefix} Failed to check branch {_target_branch}: {ex}", exc_info=True)
+                    self.logger.exception(f"{self.log_prefix} Failed to check branch {_target_branch}")
                     raise  # Don't hide authentication/network errors
         self.logger.debug(
             f"{self.log_prefix} Found target branches {_exits_target_branches} and not found {_non_exits_target_branches_msg}"

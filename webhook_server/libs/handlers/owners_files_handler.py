@@ -176,7 +176,11 @@ class OwnersFileHandler:
         for result in results:
             # Skip exceptions from failed OWNERS file fetches
             if isinstance(result, Exception):
-                self.logger.error(f"{self.log_prefix} Failed to fetch OWNERS file: {result}")
+                exception_type = type(result).__name__
+                self.logger.exception(
+                    f"{self.log_prefix} Failed to fetch OWNERS file: [{exception_type}] {result}",
+                    exc_info=result,
+                )
                 continue
             # Type narrowing: result is tuple[ContentFile, str] after exception check
             _path, _content_path = result  # type: ignore[misc]

@@ -238,7 +238,7 @@ class RunnerHandler:
             self.logger.debug(f"{self.log_prefix} Check run is in progress, re-running {PRE_COMMIT_STR}.")
 
         clone_repo_dir = f"{self.github_webhook.clone_repo_dir}-{uuid4()}"
-        cmd = f" uvx --directory {clone_repo_dir} {PREK_STR} run --all-files"
+        cmd = f"uvx --directory {clone_repo_dir} {PREK_STR} run --all-files"
 
         self.logger.step(f"{self.log_prefix} Setting pre-commit check status to in-progress")  # type: ignore
         await self.check_run_handler.set_run_pre_commit_check_in_progress()

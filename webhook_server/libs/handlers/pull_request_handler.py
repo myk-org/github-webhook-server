@@ -383,7 +383,7 @@ For more information, please refer to the project documentation or contact the m
             self.logger.info(f"{self.log_prefix} check label pull request after merge")
             # Fetch PullRequestWrapper for GraphQL compatibility
             pr_data = await self.github_webhook.unified_api.get_pull_request(owner, repo_name, pull_request.number)
-            pr_wrapper = PullRequestWrapper(pr_data)
+            pr_wrapper = PullRequestWrapper(pr_data, owner, repo_name)
             await self.label_pull_request_by_merge_state(pull_request=pr_wrapper)
 
     async def delete_remote_tag_for_merged_or_closed_pr(self, pull_request: PullRequestWrapper) -> None:

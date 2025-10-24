@@ -104,6 +104,40 @@ class UnifiedGitHubAPI:
         """Async context manager exit."""
         await self.close()
 
+    # ===== Batch Operations =====
+
+    async def execute_batch(
+        self,
+        queries: list[tuple[str, dict[str, Any] | None]],
+    ) -> list[dict[str, Any]]:
+        """
+        Execute multiple GraphQL queries in parallel.
+
+        This is a public wrapper around GraphQLClient.execute_batch that maintains
+        API encapsulation. Tests should use this method instead of accessing
+        the internal graphql_client directly.
+
+        Args:
+            queries: List of (query, variables) tuples
+
+        Returns:
+            List of query results in the same order as input
+
+        Example:
+            >>> api = UnifiedGitHubAPI(token="ghp_...", logger=logger)
+            >>> await api.initialize()
+            >>> queries = [
+            ...     ("query { viewer { login } }", None),
+            ...     ("query { rateLimit { remaining } }", None),
+            ... ]
+            >>> results = await api.execute_batch(queries)
+            >>> await api.close()
+        """
+        if not self.graphql_client:
+            await self.initialize()
+
+        return await self.graphql_client.execute_batch(queries)  # type: ignore[union-attr]
+
     # ===== Query Operations (GraphQL Primary) =====
 
     async def get_rate_limit(self) -> dict[str, Any]:
@@ -157,8 +191,8 @@ class UnifiedGitHubAPI:
         if not self.graphql_client:
             await self.initialize()
 
-        query = QueryBuilder.get_repository(owner, name)
-        result = await self.graphql_client.execute(query)  # type: ignore[union-attr]
+        query, variables = QueryBuilder.get_repository(owner, name)
+        result = await self.graphql_client.execute(query, variables)  # type: ignore[union-attr]
         return result["repository"]
 
     async def get_pull_request(
@@ -191,7 +225,7 @@ class UnifiedGitHubAPI:
         if not self.graphql_client:
             await self.initialize()
 
-        query = QueryBuilder.get_pull_request(
+        query, variables = QueryBuilder.get_pull_request(
             owner,
             name,
             number,
@@ -199,7 +233,7 @@ class UnifiedGitHubAPI:
             include_labels=include_labels,
             include_reviews=include_reviews,
         )
-        result = await self.graphql_client.execute(query)  # type: ignore[union-attr]
+        result = await self.graphql_client.execute(query, variables)  # type: ignore[union-attr]
         return result["repository"]["pullRequest"]
 
     async def get_pull_requests(
@@ -224,8 +258,8 @@ class UnifiedGitHubAPI:
         if not self.graphql_client:
             await self.initialize()
 
-        query = QueryBuilder.get_pull_requests(owner, name, states=states, first=first, after=after)
-        result = await self.graphql_client.execute(query)  # type: ignore[union-attr]
+        query, variables = QueryBuilder.get_pull_requests(owner, name, states=states, first=first, after=after)
+        result = await self.graphql_client.execute(query, variables)  # type: ignore[union-attr]
         return result["repository"]["pullRequests"]
 
     async def get_commit(self, owner: str, name: str, oid: str) -> dict[str, Any]:
@@ -246,8 +280,8 @@ class UnifiedGitHubAPI:
         if not self.graphql_client:
             await self.initialize()
 
-        query = QueryBuilder.get_commit(owner, name, oid)
-        result = await self.graphql_client.execute(query)  # type: ignore[union-attr]
+        query, variables = QueryBuilder.get_commit(owner, name, oid)
+        result = await self.graphql_client.execute(query, variables)  # type: ignore[union-attr]
         return result["repository"]["object"]
 
     async def get_file_contents(self, owner: str, name: str, path: str, ref: str = "main") -> str:
@@ -270,15 +304,17 @@ class UnifiedGitHubAPI:
             await self.initialize()
 
         expression = f"{ref}:{path}"
-        query = QueryBuilder.get_file_contents(owner, name, expression)
-        result = await self.graphql_client.execute(query)  # type: ignore[union-attr]
+        query, variables = QueryBuilder.get_file_contents(owner, name, expression)
+        result = await self.graphql_client.execute(query, variables)  # type: ignore[union-attr]
         blob = result["repository"]["object"]
 
         # Handle binary files - text will be null for binary files
         if blob.get("isBinary") or blob.get("text") is None:
             # Fall back to REST API for binary files
             contents = await self.get_contents(owner, name, path, ref)
-            return contents.decoded_content.decode("utf-8")
+            # Handle non-UTF-8 content gracefully with error recovery
+            # errors="replace" replaces invalid UTF-8 bytes with � (U+FFFD)
+            return contents.decoded_content.decode("utf-8", errors="replace")
 
         return blob["text"]
 
@@ -918,6 +954,21 @@ class UnifiedGitHubAPI:
         """
         await asyncio.to_thread(issue.edit, state=state)
 
+    async def edit_pull_request_rest(self, pull_request: RestPullRequest, **kwargs: Any) -> None:
+        """
+        Edit pull request via REST API (non-blocking).
+
+        Uses: REST
+
+        Note: This method wraps the sync edit() call with asyncio.to_thread to make it non-blocking.
+              For GraphQL PR objects (PullRequestWrapper), use update_pull_request() instead.
+
+        Args:
+            pull_request: REST PullRequest object
+            **kwargs: Arguments to pass to pull_request.edit() (e.g., title="New Title")
+        """
+        await asyncio.to_thread(pull_request.edit, **kwargs)
+
     async def get_contents(self, owner: str, name: str, path: str, ref: str) -> Any:
         """
         Get file contents from repository.
@@ -1064,6 +1115,7 @@ class UnifiedGitHubAPI:
             "create_webhook",
             "repository_settings",
             "branch_protection",  # Partial - some in GraphQL
+            "get_issues",  # REST-backed, see TODO in method for GraphQL migration consideration
         }
 
         # Operations better in GraphQL (fewer API calls)
@@ -1077,7 +1129,6 @@ class UnifiedGitHubAPI:
             "add_labels",
             "remove_labels",
             "get_file_contents",
-            "get_issues",
             "create_issue",
             "get_rate_limit",
             "get_user_id",  # Aligned with actual method name

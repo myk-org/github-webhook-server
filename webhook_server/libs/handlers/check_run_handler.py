@@ -42,7 +42,9 @@ class CheckRunHandler:
                 github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
             )
 
-    async def process_pull_request_check_run_webhook_data(self, pull_request: PullRequest | None = None) -> bool:
+    async def process_pull_request_check_run_webhook_data(
+        self, pull_request: PullRequest | PullRequestWrapper | None = None
+    ) -> bool:
         """Return True if check_if_can_be_merged need to run"""
 
         _check_run: dict[str, Any] = self.hook_data["check_run"]
@@ -251,8 +253,8 @@ class CheckRunHandler:
             )
 
             if is_critical_error:
-                self.logger.error(
-                    f"{self.log_prefix} Failed to set {check_run} check to {status or conclusion}: {ex}. "
+                self.logger.exception(
+                    f"{self.log_prefix} Failed to set {check_run} check to {status or conclusion}. "
                     "Not retrying due to auth/permission/rate-limit error."
                 )
                 raise  # Don't hide auth/permission/rate-limit errors
@@ -269,7 +271,7 @@ class CheckRunHandler:
             # Don't retry for unknown errors to prevent cascading failures
         else:
             # Success log only after successful check run creation
-            if conclusion in (SUCCESS_STR, IN_PROGRESS_STR):
+            if conclusion in (SUCCESS_STR, IN_PROGRESS_STR) or status == IN_PROGRESS_STR:
                 self.logger.success(msg)  # type: ignore
 
     def get_check_run_text(self, err: str, out: str) -> str:
@@ -306,7 +308,10 @@ class CheckRunHandler:
         return False
 
     async def required_check_failed_or_no_status(
-        self, pull_request: PullRequest, last_commit_check_runs: list[CheckRun], check_runs_in_progress: list[str]
+        self,
+        pull_request: PullRequest | PullRequestWrapper,
+        last_commit_check_runs: list[CheckRun],
+        check_runs_in_progress: list[str],
     ) -> str:
         failed_check_runs: list[str] = []
         no_status_check_runs: list[str] = []
@@ -344,7 +349,7 @@ class CheckRunHandler:
 
         return msg
 
-    async def all_required_status_checks(self, pull_request: PullRequestWrapper) -> list[str]:
+    async def all_required_status_checks(self, pull_request: PullRequest | PullRequestWrapper) -> list[str]:
         all_required_status_checks: list[str] = []
         branch_required_status_checks = await self.get_branch_required_status_checks(pull_request=pull_request)
 
@@ -367,7 +372,7 @@ class CheckRunHandler:
         self.logger.debug(f"{self.log_prefix} All required status checks: {_all_required_status_checks}")
         return _all_required_status_checks
 
-    async def get_branch_required_status_checks(self, pull_request: PullRequestWrapper) -> list[str]:
+    async def get_branch_required_status_checks(self, pull_request: PullRequest | PullRequestWrapper) -> list[str]:
         if self.repository.private:
             self.logger.info(
                 f"{self.log_prefix} Repository is private, skipping getting branch protection required status checks"
@@ -381,7 +386,7 @@ class CheckRunHandler:
         return branch_required_status_checks
 
     async def required_check_in_progress(
-        self, pull_request: PullRequest, last_commit_check_runs: list[CheckRun]
+        self, pull_request: PullRequest | PullRequestWrapper, last_commit_check_runs: list[CheckRun]
     ) -> tuple[str, list[str]]:
         self.logger.debug(f"{self.log_prefix} Check if any required check runs in progress.")
 

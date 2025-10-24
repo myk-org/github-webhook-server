@@ -21,7 +21,7 @@ class TestRunnerHandler:
         mock_webhook.repository.clone_url = "https://github.com/test/repo.git"
         mock_webhook.repository.owner.login = "test-owner"
         mock_webhook.repository.owner.email = "test@example.com"
-        mock_webhook.token = "test-token"
+        mock_webhook.token = "test-token"  # pragma: allowlist secret
         mock_webhook.clone_repo_dir = "/tmp/test-repo"
         mock_webhook.tox = {"main": "all"}
         mock_webhook.tox_python_version = "3.12"
@@ -336,6 +336,11 @@ class TestRunnerHandler:
                                 mock_set_success.assert_not_called()
                                 # Verify both build and push commands were executed
                                 assert mock_run_podman.call_count == 2
+                                # Verify success comment was posted
+                                runner_handler.github_webhook.unified_api.add_comment.assert_called_once()
+                                call_args = runner_handler.github_webhook.unified_api.add_comment.call_args
+                                assert call_args[0][0] == "PR_test123"  # PR node ID
+                                assert "New container for test/repo:latest published" in call_args[0][1]
 
     @pytest.mark.asyncio
     async def test_run_install_python_module_disabled(
@@ -540,7 +545,7 @@ class TestRunnerHandler:
     @pytest.mark.asyncio
     async def test_cherry_pick_branch_not_exists(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
         """Test cherry_pick when target branch doesn't exist."""
-        with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=None)):
+        with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=False)):
             with patch.object(
                 runner_handler.github_webhook.unified_api, "get_pull_request", new_callable=AsyncMock
             ) as mock_get_pr:

@@ -17,13 +17,13 @@ def mock_logger():
 @pytest.fixture
 def unified_api(mock_logger):
     """Create UnifiedGitHubAPI instance."""
-    return UnifiedGitHubAPI(token="test_token", logger=mock_logger)
+    return UnifiedGitHubAPI(token="test_token", logger=mock_logger)  # pragma: allowlist secret
 
 
 @pytest.mark.asyncio
 async def test_unified_api_initialization(unified_api):
     """Test API initialization."""
-    assert unified_api.token == "test_token"
+    assert unified_api.token == "test_token"  # pragma: allowlist secret
     assert not unified_api._initialized
     assert unified_api.graphql_client is None
     assert unified_api.rest_client is None
@@ -160,7 +160,7 @@ async def test_add_comment(unified_api):
 
 @pytest.mark.asyncio
 async def test_add_labels(unified_api):
-    """Test add_labels uses GraphQL mutation."""
+    """Test add_labels uses GraphQL mutation with correct variables."""
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
         patch("webhook_server.libs.graphql.unified_api.Github"),
@@ -170,30 +170,97 @@ async def test_add_labels(unified_api):
         mock_gql_class.return_value = mock_gql
 
         await unified_api.initialize()
-        await unified_api.add_labels("labelable123", ["label1", "label2"])
 
-        mock_gql.execute.assert_called_once()
+        # Test with GraphQL node IDs
+        labelable_id = "gid://github.com/PullRequest/PR_kwDOABcD1M5abc123"
+        label_ids = ["gid://github.com/Label/LA_kwDOABcD1M8def456", "gid://github.com/Label/LA_kwDOABcD1M8ghi789"]
+
+        await unified_api.add_labels(labelable_id, label_ids)
+
+        # Verify mock_gql.execute was called once
+        assert mock_gql.execute.call_count == 1
+
+        # Get the call arguments
+        call_args = mock_gql.execute.call_args
+        mutation = call_args[0][0]  # First positional argument
+        variables = call_args[0][1]  # Second positional argument
+
+        # Assert the mutation starts with "mutation"
+        assert mutation.strip().startswith("mutation"), "Mutation should start with 'mutation' keyword"
+
+        # Assert the mutation contains the addLabelsToLabelable operation
+        assert "addLabelsToLabelable" in mutation, "Mutation should contain addLabelsToLabelable operation"
+
+        # Assert variables contain the correct labelableId
+        assert variables["labelableId"] == labelable_id, (
+            f"Expected labelableId={labelable_id}, got {variables.get('labelableId')}"
+        )
+
+        # Assert variables contain the correct labelIds
+        assert variables["labelIds"] == label_ids, f"Expected labelIds={label_ids}, got {variables.get('labelIds')}"
 
 
-def test_get_repository_for_rest_operations(unified_api):
-    """Test get_repository_for_rest_operations returns PyGithub repo."""
-    # Note: This is an async test but mocking makes it testable synchronously
-    assert hasattr(unified_api, "get_repository_for_rest_operations")
+@pytest.mark.asyncio
+async def test_get_repository_for_rest_operations(unified_api):
+    """Test get_repository_for_rest_operations calls rest_client.get_repo with correct parameters."""
+    mock_repo = MagicMock()
+
+    # Track asyncio.to_thread call to verify wrapping
+    async def mock_to_thread(func, *args):
+        # Verify the function and arguments are correct
+        assert func == unified_api.rest_client.get_repo
+        assert args == ("owner/name",)
+        return mock_repo
+
+    with patch("asyncio.to_thread", side_effect=mock_to_thread) as mock_thread:
+        result = await unified_api.get_repository_for_rest_operations("owner", "name")
+
+        # Verify asyncio.to_thread was called exactly once
+        mock_thread.assert_called_once_with(unified_api.rest_client.get_repo, "owner/name")
+        # Verify correct return value
+        assert result == mock_repo
 
 
-def test_get_pr_for_check_runs(unified_api):
-    """Test get_pr_for_check_runs returns PyGithub PR."""
-    # Note: This is an async test but mocking makes it testable synchronously
-    assert hasattr(unified_api, "get_pr_for_check_runs")
+@pytest.mark.asyncio
+async def test_get_pr_for_check_runs(unified_api):
+    """Test get_pr_for_check_runs calls repo.get_pull with correct PR number."""
+    mock_repo = MagicMock()
+    mock_pr = MagicMock()
+
+    # Track both asyncio.to_thread calls
+    call_count = [0]
+
+    async def mock_to_thread(func, *args):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            # First call: get_repository_for_rest_operations
+            assert func == unified_api.rest_client.get_repo
+            assert args == ("owner/name",)
+            return mock_repo
+        elif call_count[0] == 2:
+            # Second call: repo.get_pull
+            assert func == mock_repo.get_pull
+            assert args == (123,)
+            return mock_pr
+        return None
+
+    with patch("asyncio.to_thread", side_effect=mock_to_thread) as mock_thread:
+        result = await unified_api.get_pr_for_check_runs("owner", "name", 123)
+
+        # Verify both asyncio.to_thread calls were made
+        assert mock_thread.call_count == 2
+        # Verify correct return value
+        assert result == mock_pr
 
 
 def test_get_api_type_for_operation():
     """Test API type selection logic."""
-    api = UnifiedGitHubAPI("token", MagicMock())
+    api = UnifiedGitHubAPI("token", MagicMock())  # pragma: allowlist secret
 
     # REST only operations
     assert api.get_api_type_for_operation("check_runs") == APIType.REST
     assert api.get_api_type_for_operation("create_webhook") == APIType.REST
+    assert api.get_api_type_for_operation("get_issues") == APIType.REST
 
     # GraphQL preferred operations
     assert api.get_api_type_for_operation("get_pull_request") == APIType.GRAPHQL
@@ -215,19 +282,19 @@ async def test_concurrent_initialize_creates_single_client():
     Verify: Only one GraphQL client and one REST client created
     """
     logger = MagicMock()
-    api = UnifiedGitHubAPI("test_token", logger)
+    api = UnifiedGitHubAPI("test_token", logger)  # pragma: allowlist secret
 
     # Track how many times each client constructor is called
     graphql_client_count = {"count": 0}
     rest_client_count = {"count": 0}
 
-    def mock_graphql_client(*args, **kwargs):
+    def mock_graphql_client(*_args, **_kwargs):
         graphql_client_count["count"] += 1
         mock = MagicMock()
         mock.close = AsyncMock()  # GraphQL client has async close
         return mock
 
-    def mock_rest_client(*args, **kwargs):
+    def mock_rest_client(*_args, **_kwargs):
         rest_client_count["count"] += 1
         mock = MagicMock()
         mock.close = MagicMock()  # REST client has sync close
@@ -270,7 +337,7 @@ async def test_concurrent_initialize_idempotency():
     doesn't change the client instances.
     """
     logger = MagicMock()
-    api = UnifiedGitHubAPI("test_token", logger)
+    api = UnifiedGitHubAPI("test_token", logger)  # pragma: allowlist secret
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
@@ -319,7 +386,7 @@ async def test_binary_file_fallback_to_rest():
     Verify: get_contents called, decoded_content used correctly
     """
     logger = MagicMock()
-    api = UnifiedGitHubAPI("test_token", logger)
+    api = UnifiedGitHubAPI("test_token", logger)  # pragma: allowlist secret
 
     # Mock GraphQL response for binary file
     binary_blob_response = {"repository": {"object": {"isBinary": True, "text": None}}}
@@ -370,7 +437,7 @@ async def test_text_file_uses_graphql_no_fallback():
     Verifies that normal text files don't trigger REST fallback.
     """
     logger = MagicMock()
-    api = UnifiedGitHubAPI("test_token", logger)
+    api = UnifiedGitHubAPI("test_token", logger)  # pragma: allowlist secret
 
     # Mock GraphQL response for text file
     text_blob_response = {
@@ -424,7 +491,7 @@ async def test_null_text_triggers_rest_fallback():
     Verifies edge case where text is None but isBinary might be False/missing.
     """
     logger = MagicMock()
-    api = UnifiedGitHubAPI("test_token", logger)
+    api = UnifiedGitHubAPI("test_token", logger)  # pragma: allowlist secret
 
     # Mock GraphQL response with null text but no isBinary flag
     null_text_response = {"repository": {"object": {"text": None}}}

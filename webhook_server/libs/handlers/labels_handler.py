@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 
 import webcolors
 from github.GithubException import UnknownObjectException
+from github.PullRequest import PullRequest
 from github.Repository import Repository
 from timeout_sampler import TimeoutWatch
 
@@ -40,14 +41,14 @@ class LabelsHandler:
         self.repository: Repository = self.github_webhook.repository
         self.unified_api = self.github_webhook.unified_api
 
-    async def label_exists_in_pull_request(self, pull_request: PullRequestWrapper, label: str) -> bool:
+    async def label_exists_in_pull_request(self, pull_request: PullRequest | PullRequestWrapper, label: str) -> bool:
         return label in await self.pull_request_labels_names(pull_request=pull_request)
 
-    async def pull_request_labels_names(self, pull_request: PullRequestWrapper) -> list[str]:
+    async def pull_request_labels_names(self, pull_request: PullRequest | PullRequestWrapper) -> list[str]:
         labels = pull_request.get_labels()
         return [lb.name for lb in labels]
 
-    async def _remove_label(self, pull_request: PullRequestWrapper, label: str) -> bool:
+    async def _remove_label(self, pull_request: PullRequest | PullRequestWrapper, label: str) -> bool:
         self.logger.step(f"{self.log_prefix} Removing label '{label}' from PR")  # type: ignore
         self.logger.debug(f"{self.log_prefix} Removing label {label}")
         try:
@@ -72,21 +73,21 @@ class LabelsHandler:
             # Check if error is critical (auth/permission/rate-limit)
             error_str = str(ex).lower()
             if any(keyword in error_str for keyword in ["auth", "permission", "forbidden", "rate limit", "401", "403"]):
-                self.logger.error(f"{self.log_prefix} Critical error removing {label} label: {ex}")
+                self.logger.exception(f"{self.log_prefix} Critical error removing {label} label")
                 raise  # Don't hide auth/permission/rate-limit errors
             else:
-                # Transient error or label doesn't exist
-                self.logger.warning(f"{self.log_prefix} Failed to remove {label} label (may not exist): {ex}")
+                # Transient error or label doesn't exist - log with full traceback for debugging
+                self.logger.exception(f"{self.log_prefix} Failed to remove {label} label (may not exist)")
                 return False
-        except Exception as ex:
-            # Handle non-GraphQL errors
-            self.logger.error(f"{self.log_prefix} Unexpected error removing {label} label: {ex}")
+        except Exception:
+            # Handle non-GraphQL errors with full traceback
+            self.logger.exception(f"{self.log_prefix} Unexpected error removing {label} label")
             return False
 
         self.logger.debug(f"{self.log_prefix} Label {label} not found and cannot be removed")
         return False
 
-    async def _add_label(self, pull_request: PullRequestWrapper, label: str) -> None:
+    async def _add_label(self, pull_request: PullRequest | PullRequestWrapper, label: str) -> None:
         label = label.strip()
         self.logger.step(f"{self.log_prefix} Adding label '{label}' to PR")  # type: ignore
         self.logger.debug(f"{self.log_prefix} Adding label {label}")
@@ -120,14 +121,14 @@ class LabelsHandler:
                 if any(
                     keyword in error_str for keyword in ["auth", "permission", "forbidden", "rate limit", "401", "403"]
                 ):
-                    self.logger.error(f"{self.log_prefix} Critical error waiting for {label} label: {ex}")
+                    self.logger.exception(f"{self.log_prefix} Critical error waiting for {label} label")
                     raise  # Don't hide auth/permission/rate-limit errors
                 else:
-                    # Transient error or timeout - log but don't fail the whole operation
-                    self.logger.warning(f"{self.log_prefix} Wait for {label} label timed out or failed: {ex}")
-            except Exception as ex:
-                # Handle non-GraphQL errors
-                self.logger.error(f"{self.log_prefix} Unexpected error waiting for {label} label: {ex}")
+                    # Transient error or timeout - log with full traceback for debugging
+                    self.logger.exception(f"{self.log_prefix} Wait for {label} label timed out or failed")
+            except Exception:
+                # Handle non-GraphQL errors with full traceback
+                self.logger.exception(f"{self.log_prefix} Unexpected error waiting for {label} label")
             return
 
         color = self._get_label_color(label)
@@ -166,7 +167,7 @@ class LabelsHandler:
         refreshed_pr = PullRequestWrapper(refreshed_pr_data, owner, repo_name)
         await self.wait_for_label(pull_request=refreshed_pr, label=label, exists=True)
 
-    async def wait_for_label(self, pull_request: PullRequestWrapper, label: str, exists: bool) -> bool:
+    async def wait_for_label(self, pull_request: PullRequest | PullRequestWrapper, label: str, exists: bool) -> bool:
         self.logger.debug(f"{self.log_prefix} waiting for label {label} to {'exist' if exists else 'not exist'}")
         owner, repo_name = self.github_webhook.repository.full_name.split("/")
 
@@ -267,7 +268,7 @@ class LabelsHandler:
 
         return sorted_thresholds
 
-    def get_size(self, pull_request: PullRequestWrapper) -> str:
+    def get_size(self, pull_request: PullRequest | PullRequestWrapper) -> str:
         """Calculates size label based on additions and deletions."""
 
         # Handle None values by defaulting to 0
@@ -292,7 +293,7 @@ class LabelsHandler:
         # Fallback (should not happen due to our default handling)
         return f"{SIZE_LABEL_PREFIX}XL"
 
-    async def add_size_label(self, pull_request: PullRequestWrapper) -> None:
+    async def add_size_label(self, pull_request: PullRequest | PullRequestWrapper) -> None:
         """Add a size label to the pull request based on its additions and deletions."""
         self.logger.step(f"{self.log_prefix} Calculating and applying PR size label")  # type: ignore
         size_label = self.get_size(pull_request=pull_request)
@@ -319,7 +320,7 @@ class LabelsHandler:
 
     async def label_by_user_comment(
         self,
-        pull_request: PullRequestWrapper,
+        pull_request: PullRequest | PullRequestWrapper,
         user_requested_label: str,
         remove: bool,
         reviewed_user: str,
@@ -342,7 +343,7 @@ class LabelsHandler:
             await label_func(pull_request=pull_request, label=user_requested_label)
 
     async def manage_reviewed_by_label(
-        self, pull_request: PullRequestWrapper, review_state: str, action: str, reviewed_user: str
+        self, pull_request: PullRequest | PullRequestWrapper, review_state: str, action: str, reviewed_user: str
     ) -> None:
         self.logger.info(
             f"{self.log_prefix} "

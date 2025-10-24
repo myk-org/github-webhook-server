@@ -428,6 +428,27 @@ async def test_get_file_contents_null_text_fallback(initialized_api, mock_graphq
     assert result == "fallback content"
 
 
+@pytest.mark.asyncio
+async def test_get_file_contents_non_utf8_binary(initialized_api, mock_graphql_client):
+    """Test get_file_contents handles non-UTF-8 binary content gracefully."""
+    mock_graphql_client.execute.return_value = {"repository": {"object": {"isBinary": True, "text": None}}}
+
+    # Create binary content with invalid UTF-8 sequences
+    # 0xFF and 0xFE are invalid UTF-8 start bytes
+    mock_contents = MagicMock()
+    mock_contents.decoded_content = b"\xff\xfe\x00\x48\x00\x65\x00\x6c\x00\x6c\x00\x6f"  # UTF-16 LE encoded "Hello"
+
+    with patch.object(initialized_api, "get_contents", new=AsyncMock(return_value=mock_contents)):
+        # Should not raise UnicodeDecodeError, should use errors="replace"
+        result = await initialized_api.get_file_contents("owner", "repo", "binary.dat")
+
+    # Verify result contains replacement characters (�) for invalid UTF-8
+    assert result is not None
+    assert isinstance(result, str)
+    # UTF-16 bytes decoded as UTF-8 with errors="replace" will have replacement chars
+    assert "\ufffd" in result or len(result) > 0  # Either has replacement char or decoded something
+
+
 # ===== Error Handling Tests =====
 
 

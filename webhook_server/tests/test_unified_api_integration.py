@@ -7,7 +7,7 @@ from webhook_server.libs.graphql.unified_api import UnifiedGitHubAPI
 
 
 # Test token constant
-TEST_GITHUB_TOKEN = "test_token_12345"
+TEST_GITHUB_TOKEN = "test_token_12345"  # pragma: allowlist secret
 
 
 @pytest.fixture
@@ -234,7 +234,7 @@ async def test_batch_operations_use_graphql(mock_logger):
         for i in range(1, 6)
     ]
 
-    results = await api.graphql_client.execute_batch(queries)
+    results = await api.execute_batch(queries)
 
     # Verify single batch call was made instead of 5 individual calls
     assert mock_graphql_client.execute_batch.call_count == 1

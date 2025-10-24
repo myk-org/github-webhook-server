@@ -44,7 +44,7 @@ async def test_authentication_error(graphql_client):
 
 
 @pytest.mark.asyncio
-async def test_rate_limit_error_raises(graphql_client):
+async def test_rate_limit_error_raises(graphql_client, monkeypatch):
     """Test rate limit error is raised when retry fails."""
     # Just test that rate limit errors are properly detected and raised
     mock_session = AsyncMock()
@@ -58,13 +58,36 @@ async def test_rate_limit_error_raises(graphql_client):
     graphql_client._client = mock_client
     graphql_client._ensure_client = AsyncMock()
 
-    # This should raise GraphQLRateLimitError (after trying to get rate limit info and failing)
-    with pytest.raises(GraphQLRateLimitError):
-        await graphql_client.execute("query { viewer { login } }")
+    # Mock aiohttp.ClientSession to prevent real HTTP call to rate_limit endpoint
+    mock_http_response = Mock()
+    mock_http_response.json = AsyncMock(side_effect=Exception("Failed to get rate limit info"))
+
+    mock_get_context = Mock()
+    mock_get_context.__aenter__ = AsyncMock(return_value=mock_http_response)
+    mock_get_context.__aexit__ = AsyncMock(return_value=None)
+
+    mock_http_session = Mock()
+    mock_http_session.get = Mock(return_value=mock_get_context)
+
+    mock_session_context = Mock()
+    mock_session_context.__aenter__ = AsyncMock(return_value=mock_http_session)
+    mock_session_context.__aexit__ = AsyncMock(return_value=None)
+
+    # Patch asyncio.sleep to avoid real delays
+    mock_sleep = AsyncMock()
+    monkeypatch.setattr("asyncio.sleep", mock_sleep)
+
+    with patch("webhook_server.libs.graphql.graphql_client.aiohttp.ClientSession", return_value=mock_session_context):
+        # This should raise GraphQLRateLimitError (after trying to get rate limit info and failing)
+        with pytest.raises(GraphQLRateLimitError):
+            await graphql_client.execute("query { viewer { login } }")
+
+        # Verify no sleep was called since we couldn't get rate limit info
+        assert mock_sleep.call_count == 0
 
 
 @pytest.mark.asyncio
-async def test_rate_limit_exhausted(graphql_client):
+async def test_rate_limit_exhausted(graphql_client, monkeypatch):
     """Test rate limit error that exhausts retries."""
     mock_session = AsyncMock()
     mock_session.execute = AsyncMock(side_effect=TransportQueryError("RATE_LIMITED"))
@@ -76,9 +99,26 @@ async def test_rate_limit_exhausted(graphql_client):
 
     graphql_client._client = mock_client
     graphql_client._ensure_client = AsyncMock()  # Don't recreate client
+    graphql_client.retry_count = 1  # Reduce retries to exhaust quickly
 
-    with pytest.raises(GraphQLRateLimitError):
-        await graphql_client.execute("query { viewer { login } }")
+    # Mock aiohttp.ClientSession to fail when getting rate limit info
+    mock_http_session = Mock()
+    mock_http_session.get.side_effect = Exception("Network error")
+
+    mock_session_context = Mock()
+    mock_session_context.__aenter__ = AsyncMock(return_value=mock_http_session)
+    mock_session_context.__aexit__ = AsyncMock(return_value=None)
+
+    # Patch asyncio.sleep to avoid real delays
+    mock_sleep = AsyncMock()
+    monkeypatch.setattr("asyncio.sleep", mock_sleep)
+
+    with patch("webhook_server.libs.graphql.graphql_client.aiohttp.ClientSession", return_value=mock_session_context):
+        with pytest.raises(GraphQLRateLimitError):
+            await graphql_client.execute("query { viewer { login } }")
+
+    # Verify no sleep was called (failed to get rate limit info, so raised immediately)
+    assert mock_sleep.call_count == 0
 
 
 @pytest.mark.asyncio
@@ -306,10 +346,17 @@ async def test_rate_limit_no_reset_info_fails(graphql_client, monkeypatch):
     mock_session_context.__aenter__ = AsyncMock(return_value=mock_http_session)
     mock_session_context.__aexit__ = AsyncMock(return_value=None)
 
+    # Patch asyncio.sleep to avoid real delays
+    mock_sleep = AsyncMock()
+    monkeypatch.setattr("asyncio.sleep", mock_sleep)
+
     with patch("webhook_server.libs.graphql.graphql_client.aiohttp.ClientSession", return_value=mock_session_context):
         # Should raise GraphQLRateLimitError when we can't get reset info
         with pytest.raises(GraphQLRateLimitError, match="Rate limit exceeded"):
             await graphql_client.execute("query { viewer { login } }")
+
+        # Verify no sleep was called since we couldn't get rate limit info
+        assert mock_sleep.call_count == 0
 
 
 @pytest.mark.asyncio

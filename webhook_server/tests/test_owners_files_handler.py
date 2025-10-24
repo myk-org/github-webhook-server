@@ -349,6 +349,32 @@ class TestOwnersFileHandler:
         owners_file_handler.logger.error.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_get_all_repository_approvers_and_reviewers_fetch_exception(
+        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that exceptions during OWNERS file fetch include exception type in log."""
+        mock_tree = Mock()
+        mock_tree.tree = [Mock(type="blob", path="test/OWNERS")]
+        owners_file_handler.repository.full_name = "test/repo"
+        owners_file_handler.github_webhook.unified_api.get_git_tree = AsyncMock(return_value=mock_tree)
+
+        # Make get_contents raise a specific exception type
+        test_exception = FileNotFoundError("OWNERS file not found")
+        owners_file_handler.github_webhook.unified_api.get_contents = AsyncMock(side_effect=test_exception)
+        owners_file_handler.logger.exception = Mock()
+
+        result = await owners_file_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
+
+        # Should return empty dict since file fetch failed
+        assert result == {}
+
+        # Verify exception log was called with exception type in the message
+        owners_file_handler.logger.exception.assert_called_once()
+        error_message = str(owners_file_handler.logger.exception.call_args[0][0])
+        assert "[FileNotFoundError]" in error_message
+        assert "OWNERS file not found" in error_message
+
+    @pytest.mark.asyncio
     async def test_get_all_repository_approvers(self, owners_file_handler: OwnersFileHandler) -> None:
         """Test get_all_repository_approvers method."""
         owners_file_handler.changed_files = ["file1.py"]

@@ -825,7 +825,7 @@ class TestPullRequestHandler:
         """Test closing issue for merged or closed PR without issue."""
         mock_pull_request.title = "Test PR"
 
-        with patch.object(pull_request_handler.repository, "get_issues", return_value=[]):
+        with patch.object(pull_request_handler.github_webhook.unified_api, "get_issues", return_value=[]):
             await pull_request_handler.close_issue_for_merged_or_closed_pr(
                 pull_request=mock_pull_request, hook_action="closed"
             )

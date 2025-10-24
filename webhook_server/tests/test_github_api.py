@@ -1198,14 +1198,14 @@ async def test_get_last_commit_with_rest_pr(github_webhook_with_unified):
     mock_pr.base.repo.owner.login = "test-owner"
     mock_pr.base.repo.name = "test-repo"
 
-    # Mock GraphQL response with commits
-    mock_commit_data = {"sha": "abc123", "message": "Test commit"}
+    # Mock GraphQL response with commits (GraphQL uses "oid" not "sha")
+    mock_commit_data = {"oid": "abc123", "message": "Test commit"}
     github_webhook_with_unified.unified_api.get_pull_request = AsyncMock(
         return_value={
             "commits": {
                 "nodes": [
-                    {"commit": {"sha": "commit1", "message": "First"}},
-                    {"commit": {"sha": "commit2", "message": "Second"}},
+                    {"commit": {"oid": "commit1", "message": "First"}},
+                    {"commit": {"oid": "commit2", "message": "Second"}},
                     {"commit": mock_commit_data},
                 ]
             }
@@ -1221,6 +1221,8 @@ async def test_get_last_commit_with_rest_pr(github_webhook_with_unified):
     # Verify result is a CommitWrapper with the last commit data
     assert isinstance(result, CommitWrapper)
     assert result._data == mock_commit_data
+    # Verify CommitWrapper correctly exposes sha from oid
+    assert result.sha == "abc123"
 
 
 @pytest.mark.asyncio
@@ -1268,6 +1270,53 @@ async def test_update_pr_title_with_wrapper(github_webhook_with_unified):
     await github_webhook_with_unified.update_pr_title(wrapper, "New Title")
 
     github_webhook_with_unified.unified_api.update_pull_request.assert_called_once_with("PR_123", title="New Title")
+
+
+@pytest.mark.asyncio
+async def test_update_pr_title_with_rest_pr():
+    """Test update_pr_title uses REST API with PullRequest (non-blocking)."""
+    from unittest.mock import patch
+    from github.PullRequest import PullRequest
+    from webhook_server.libs.graphql.unified_api import UnifiedGitHubAPI
+
+    # Create a minimal GithubWebhook instance for this test
+    minimal_hook_data = {"repository": {"full_name": "test-org/test-repo", "name": "test-repo"}}
+    minimal_headers = {"X-GitHub-Event": "pull_request", "X-GitHub-Delivery": "abc"}
+    logger = get_logger(name="test")
+
+    with (
+        patch("webhook_server.libs.github_api.Config") as mock_config,
+        patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api,
+        patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo,
+        patch("webhook_server.libs.github_api.get_repository_github_app_api"),
+        patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix"),
+    ):
+        mock_config.return_value.repository = True
+        mock_config.return_value.repository_local_data.return_value = {}
+        mock_get_api.return_value = (Mock(), "token", "apiuser")
+        mock_get_repo.return_value = Mock(name="repo_api")
+
+        webhook = GithubWebhook(
+            hook_data=minimal_hook_data,
+            headers=minimal_headers,
+            logger=logger,
+        )
+
+        # Create real UnifiedGitHubAPI instance (will be used for the edit_pull_request_rest method)
+        webhook.unified_api = UnifiedGitHubAPI(token="test_token", logger=logger)
+
+        mock_pr = Mock(spec=PullRequest)
+        mock_pr.number = 456
+        mock_pr.edit = Mock()
+
+        # Mock asyncio.to_thread in unified_api module to verify it's called correctly
+        with patch(
+            "webhook_server.libs.graphql.unified_api.asyncio.to_thread", new_callable=AsyncMock
+        ) as mock_to_thread:
+            await webhook.update_pr_title(mock_pr, "New REST Title")
+
+            # Verify asyncio.to_thread was called with the edit method and title
+            mock_to_thread.assert_called_once_with(mock_pr.edit, title="New REST Title")
 
 
 @pytest.mark.asyncio

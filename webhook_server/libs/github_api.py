@@ -377,14 +377,14 @@ class GithubWebhook:
                 await self.unified_api.add_comment(pr_id, body)
             self.logger.info(f"{self.log_prefix} Successfully added PR comment")
         except Exception as ex:
-            self.logger.error(f"{self.log_prefix} Failed to add PR comment: {ex}", exc_info=True)
+            self.logger.exception(f"{self.log_prefix} Failed to add PR comment: {ex}")
             raise
 
     async def update_pr_title(self, pull_request: PullRequest | PullRequestWrapper, title: str) -> None:
         """Update PR title via unified_api (supports both REST and GraphQL PRs)."""
-        # Handle PyGithub PullRequest (REST) - use REST API directly
+        # Handle PyGithub PullRequest (REST) - use REST API with asyncio.to_thread wrapper
         if isinstance(pull_request, PullRequest):
-            pull_request.edit(title=title)
+            await self.unified_api.edit_pull_request_rest(pull_request, title=title)
             self.logger.info(f"{self.log_prefix} Updated PR #{pull_request.number} title via REST API")
         else:
             # Handle PullRequestWrapper (GraphQL)

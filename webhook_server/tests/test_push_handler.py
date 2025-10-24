@@ -125,7 +125,11 @@ class TestPushHandler:
                                 # Mock successful build
                                 mock_run_command.side_effect = [
                                     (True, "", ""),  # uv build
-                                    (True, "package-1.0.0.tar.gz", ""),  # ls command
+                                    (
+                                        True,
+                                        "/path/to/dist/package-1.0.0.tar.gz",
+                                        "",
+                                    ),  # find command (returns full path)
                                     (True, "", ""),  # twine check
                                     (True, "", ""),  # twine upload
                                 ]
@@ -202,16 +206,16 @@ class TestPushHandler:
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_ls_failure(self, push_handler: PushHandler) -> None:
-        """Test upload to pypi when ls command fails."""
+        """Test upload to pypi when find command fails."""
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
             with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
                 # Mock successful clone
                 mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
-                # Mock successful build, failed ls
+                # Mock successful build, failed find
                 mock_run_command.side_effect = [
                     (True, "", ""),  # uv build
-                    (False, "ls failed", "Error"),  # ls command
+                    (False, "find failed", "Error"),  # find command
                 ]
 
                 await push_handler.upload_to_pypi(tag_name="v1.0.0")
@@ -219,7 +223,7 @@ class TestPushHandler:
                 # Verify issue was created via unified_api
                 push_handler.github_webhook.unified_api.create_issue_on_repository.assert_called_once()
                 call_args = push_handler.github_webhook.unified_api.create_issue_on_repository.call_args
-                assert "ls failed" in call_args[1]["title"]
+                assert "find failed" in call_args[1]["title"]
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_twine_check_failure(self, push_handler: PushHandler) -> None:
@@ -305,7 +309,11 @@ class TestPushHandler:
                                 # Mock successful build
                                 mock_run_command.side_effect = [
                                     (True, "", ""),  # uv build
-                                    (True, "package-1.0.0.tar.gz", ""),  # ls command
+                                    (
+                                        True,
+                                        "/path/to/dist/package-1.0.0.tar.gz",
+                                        "",
+                                    ),  # find command (returns full path)
                                     (True, "", ""),  # twine check
                                     (True, "", ""),  # twine upload
                                 ]
@@ -341,7 +349,11 @@ class TestPushHandler:
                                 # Mock successful all commands
                                 mock_run_command.side_effect = [
                                     (True, "", ""),  # uv build
-                                    (True, "package-1.0.0.tar.gz", ""),  # ls command
+                                    (
+                                        True,
+                                        "/path/to/dist/package-1.0.0.tar.gz",
+                                        "",
+                                    ),  # find command (returns full path)
                                     (True, "", ""),  # twine check
                                     (True, "", ""),  # twine upload
                                 ]
@@ -365,7 +377,9 @@ class TestPushHandler:
                                 # The command string is in the 'command' kwarg
                                 assert "uv" in calls[0].kwargs["command"]
                                 assert "build" in calls[0].kwargs["command"]
-                                assert "ls" in calls[1].kwargs["command"]
+                                assert "find" in calls[1].kwargs["command"]
+                                assert "*.tar.gz" in calls[1].kwargs["command"]
+                                assert "sort" in calls[1].kwargs["command"]
                                 assert "twine check" in calls[2].kwargs["command"]
                                 assert "twine upload" in calls[3].kwargs["command"]
                                 assert "package-1.0.0.tar.gz" in calls[3].kwargs["command"]
@@ -385,7 +399,11 @@ class TestPushHandler:
                                 # Mock successful build
                                 mock_run_command.side_effect = [
                                     (True, "", ""),  # uv build
-                                    (True, "package-1.0.0.tar.gz", ""),  # ls command
+                                    (
+                                        True,
+                                        "/path/to/dist/package-1.0.0.tar.gz",
+                                        "",
+                                    ),  # find command (returns full path)
                                     (True, "", ""),  # twine check
                                     (True, "", ""),  # twine upload
                                 ]
@@ -441,7 +459,11 @@ class TestPushHandler:
                                 # Mock successful build
                                 mock_run_command.side_effect = [
                                     (True, "", ""),  # uv build
-                                    (True, "package-1.0.0.tar.gz", ""),  # ls command
+                                    (
+                                        True,
+                                        "/path/to/dist/package-1.0.0.tar.gz",
+                                        "",
+                                    ),  # find command (returns full path)
                                     (True, "", ""),  # twine check
                                     (True, "", ""),  # twine upload
                                 ]

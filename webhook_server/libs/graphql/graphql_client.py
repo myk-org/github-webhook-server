@@ -123,7 +123,7 @@ class GraphQLClient:
                 timeout=self.timeout,
                 client_session_args={
                     "connector": connector,
-                    "connector_owner": False,  # Preserve connector across client context exits
+                    "connector_owner": True,  # Session owns connector to ensure proper cleanup
                 },
             )
 

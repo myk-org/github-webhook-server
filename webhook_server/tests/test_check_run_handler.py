@@ -443,17 +443,19 @@ class TestCheckRunHandler:
         check_run_handler.github_webhook.unified_api.create_check_run = AsyncMock(
             side_effect=GraphQLError("401 Unauthorized")
         )
-        with patch.object(check_run_handler.github_webhook.logger, "error") as mock_error:
+        with patch.object(check_run_handler.github_webhook.logger, "exception") as mock_exception:
             with pytest.raises(GraphQLError):
                 await check_run_handler.set_check_run_status(
                     check_run="test-check", status="queued", conclusion="", output=None
                 )
             # Should be called once - no retry for auth errors
             assert check_run_handler.github_webhook.unified_api.create_check_run.call_count == 1
-            mock_error.assert_called_once()
+            mock_exception.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_set_check_run_status_transient_error_retries(self, check_run_handler: CheckRunHandler) -> None:
+    async def test_set_check_run_status_transient_error_logged_without_retry(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
         """Test that non-critical GraphQL errors are logged without retry to prevent cascading failures."""
         from webhook_server.libs.graphql.graphql_client import GraphQLError
 
@@ -467,6 +469,18 @@ class TestCheckRunHandler:
             # Should be called once only - no retry to prevent cascading failures
             check_run_handler.github_webhook.unified_api.create_check_run.assert_called_once()
             mock_exception.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_set_check_run_status_in_progress_triggers_success_log(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """Test that in-progress status triggers success logging."""
+        with patch.object(check_run_handler.github_webhook.logger, "success") as mock_success:
+            await check_run_handler.set_check_run_status(
+                check_run="test-check", status=IN_PROGRESS_STR, conclusion="", output=None
+            )
+            # Should call success logger for in-progress status
+            mock_success.assert_called_once()
 
     def test_get_check_run_text_normal_length(self, check_run_handler: CheckRunHandler) -> None:
         """Test getting check run text with normal length."""

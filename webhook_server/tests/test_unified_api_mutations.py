@@ -101,6 +101,11 @@ async def test_get_user_id_query(initialized_api, mock_graphql_client):
     assert result == "U_kgDOABCDEF"
     mock_graphql_client.execute.assert_called_once()
 
+    # Assert variables passed to GraphQL execute
+    call_args = mock_graphql_client.execute.call_args
+    variables = call_args[0][1]
+    assert variables["login"] == "testuser"
+
 
 @pytest.mark.asyncio
 async def test_get_label_id_query(initialized_api, mock_graphql_client):
@@ -111,6 +116,13 @@ async def test_get_label_id_query(initialized_api, mock_graphql_client):
 
     assert result == "LA_kgDOABCDEF"
     mock_graphql_client.execute.assert_called_once()
+
+    # Assert variables passed to GraphQL execute
+    call_args = mock_graphql_client.execute.call_args
+    variables = call_args[0][1]
+    assert variables["owner"] == "owner"
+    assert variables["name"] == "repo"
+    assert variables["labelName"] == "bug"
 
 
 @pytest.mark.asyncio
@@ -220,7 +232,16 @@ async def test_enable_pull_request_automerge(initialized_api, mock_graphql_clien
 
     mock_graphql_client.execute.assert_called_once()
     call_args = mock_graphql_client.execute.call_args
-    assert "SQUASH" in str(call_args)
+
+    # Verify mutation string
+    mutation_str = call_args[0][0]
+    assert "mutation" in mutation_str
+    assert "enablePullRequestAutoMerge" in mutation_str
+
+    # Verify variables payload matches expected structure
+    variables = call_args[0][1]
+    assert variables["pullRequestId"] == "PR_123"
+    assert variables["mergeMethod"] == "SQUASH"
 
 
 @pytest.mark.asyncio
@@ -337,7 +358,7 @@ async def test_lazy_initialization_in_add_comment(mock_graphql_client):
 
 @pytest.mark.asyncio
 async def test_lazy_initialization_in_add_labels(mock_graphql_client):
-    """Test lazy initialization in add_labels."""
+    """Test lazy initialization in add_labels with label node IDs."""
     api = UnifiedGitHubAPI(token="test_token", logger=MagicMock())
 
     with (
@@ -346,10 +367,18 @@ async def test_lazy_initialization_in_add_labels(mock_graphql_client):
     ):
         mock_graphql_client.execute.return_value = {"addLabelsToLabelable": {"labelable": {"id": "PR_123"}}}
 
-        await api.add_labels("PR_123", ["bug"])
+        # Use label node IDs (GraphQL IDs), not label names
+        label_ids = ["LA_kgDOABCDEF1", "LA_kgDOABCDEF2"]
+        await api.add_labels("PR_123", label_ids)
 
         assert api._initialized
         mock_graphql_client.execute.assert_called_once()
+
+        # Verify variables payload matches expected structure
+        call_args = mock_graphql_client.execute.call_args
+        variables = call_args[0][1]
+        assert variables["labelableId"] == "PR_123"
+        assert variables["labelIds"] == label_ids
 
 
 @pytest.mark.asyncio
@@ -414,7 +443,16 @@ async def test_enable_automerge_merge_method(initialized_api, mock_graphql_clien
 
     mock_graphql_client.execute.assert_called_once()
     call_args = mock_graphql_client.execute.call_args
-    assert "MERGE" in str(call_args)
+
+    # Verify mutation string
+    mutation_str = call_args[0][0]
+    assert "mutation" in mutation_str
+    assert "enablePullRequestAutoMerge" in mutation_str
+
+    # Verify variables payload matches expected structure
+    variables = call_args[0][1]
+    assert variables["pullRequestId"] == "PR_123"
+    assert variables["mergeMethod"] == "MERGE"
 
 
 @pytest.mark.asyncio
@@ -426,7 +464,16 @@ async def test_enable_automerge_rebase_method(initialized_api, mock_graphql_clie
 
     mock_graphql_client.execute.assert_called_once()
     call_args = mock_graphql_client.execute.call_args
-    assert "REBASE" in str(call_args)
+
+    # Verify mutation string
+    mutation_str = call_args[0][0]
+    assert "mutation" in mutation_str
+    assert "enablePullRequestAutoMerge" in mutation_str
+
+    # Verify variables payload matches expected structure
+    variables = call_args[0][1]
+    assert variables["pullRequestId"] == "PR_123"
+    assert variables["mergeMethod"] == "REBASE"
 
 
 @pytest.mark.asyncio

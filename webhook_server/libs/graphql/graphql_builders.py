@@ -115,7 +115,7 @@ class QueryBuilder:
         """
 
     @staticmethod
-    def get_repository(owner: str, name: str) -> str:
+    def get_repository(owner: str, name: str) -> tuple[str, dict[str, Any]]:
         """
         Get repository information.
 
@@ -124,11 +124,11 @@ class QueryBuilder:
             name: Repository name
 
         Returns:
-            GraphQL query string
+            Tuple of (GraphQL query string, variables dict)
         """
-        return f"""
-            query {{
-                repository(owner: "{owner}", name: "{name}") {{
+        query = """
+            query($owner: String!, $name: String!) {
+                repository(owner: $owner, name: $name) {
                     id
                     name
                     nameWithOwner
@@ -136,12 +136,14 @@ class QueryBuilder:
                     url
                     isPrivate
                     isFork
-                    defaultBranchRef {{
+                    defaultBranchRef {
                         name
-                    }}
-                }}
-            }}
+                    }
+                }
+            }
         """
+        variables = {"owner": owner, "name": name}
+        return query, variables
 
     @staticmethod
     def get_pull_request(
@@ -151,7 +153,7 @@ class QueryBuilder:
         include_commits: bool = False,
         include_labels: bool = False,
         include_reviews: bool = False,
-    ) -> str:
+    ) -> tuple[str, dict[str, Any]]:
         """
         Get pull request information.
 
@@ -164,7 +166,7 @@ class QueryBuilder:
             include_reviews: Include reviews
 
         Returns:
-            GraphQL query string
+            Tuple of (GraphQL query string, variables dict)
         """
         commits_field = (
             """
@@ -215,11 +217,11 @@ class QueryBuilder:
 
         fragment_str = "\n".join(fragments)
 
-        return f"""
+        query = f"""
             {fragment_str}
-            query {{
-                repository(owner: "{owner}", name: "{name}") {{
-                    pullRequest(number: {number}) {{
+            query($owner: String!, $name: String!, $number: Int!) {{
+                repository(owner: $owner, name: $name) {{
+                    pullRequest(number: $number) {{
                         ...PullRequestFields
                         {commits_field}
                         {labels_field}
@@ -229,11 +231,13 @@ class QueryBuilder:
             }}
             {PULL_REQUEST_FRAGMENT}
         """
+        variables = {"owner": owner, "name": name, "number": number}
+        return query, variables
 
     @staticmethod
     def get_pull_requests(
         owner: str, name: str, states: list[str] | None = None, first: int = 10, after: str | None = None
-    ) -> str:
+    ) -> tuple[str, dict[str, Any]]:
         """
         Get pull requests with pagination.
 
@@ -245,43 +249,72 @@ class QueryBuilder:
             after: Cursor for pagination
 
         Returns:
-            GraphQL query string
+            Tuple of (GraphQL query string, variables dict)
 
         Raises:
             ValueError: If invalid state is provided
         """
         # Validate and normalize state values
         valid_states = {"OPEN", "CLOSED", "MERGED"}
+        normalized_states = None
         if states:
             normalized_states = [state.upper() for state in states]
             invalid_states = set(normalized_states) - valid_states
             if invalid_states:
                 raise ValueError(f"Invalid PR states: {invalid_states}. Valid states are: {valid_states}")
-            states_str = f"states: [{', '.join(normalized_states)}]"
-        else:
-            states_str = ""
-        after_str = f', after: "{after}"' if after else ""
 
-        return f"""
-            query {{
-                repository(owner: "{owner}", name: "{name}") {{
-                    pullRequests({states_str}, first: {first}{after_str}, orderBy: {{field: UPDATED_AT, direction: DESC}}) {{
-                        totalCount
-                        pageInfo {{
-                            hasNextPage
-                            endCursor
-                        }}
-                        nodes {{
-                            ...PullRequestFields
+        # Build query with optional states parameter
+        if normalized_states:
+            query = f"""
+                query($owner: String!, $name: String!, $states: [PullRequestState!], $first: Int!, $after: String) {{
+                    repository(owner: $owner, name: $name) {{
+                        pullRequests(states: $states, first: $first, after: $after, orderBy: {{field: UPDATED_AT, direction: DESC}}) {{
+                            totalCount
+                            pageInfo {{
+                                hasNextPage
+                                endCursor
+                            }}
+                            nodes {{
+                                ...PullRequestFields
+                            }}
                         }}
                     }}
                 }}
-            }}
-            {PULL_REQUEST_FRAGMENT}
-        """
+                {PULL_REQUEST_FRAGMENT}
+            """
+        else:
+            query = f"""
+                query($owner: String!, $name: String!, $first: Int!, $after: String) {{
+                    repository(owner: $owner, name: $name) {{
+                        pullRequests(first: $first, after: $after, orderBy: {{field: UPDATED_AT, direction: DESC}}) {{
+                            totalCount
+                            pageInfo {{
+                                hasNextPage
+                                endCursor
+                            }}
+                            nodes {{
+                                ...PullRequestFields
+                            }}
+                        }}
+                    }}
+                }}
+                {PULL_REQUEST_FRAGMENT}
+            """
+
+        variables: dict[str, Any] = {
+            "owner": owner,
+            "name": name,
+            "first": first,
+        }
+        if normalized_states:
+            variables["states"] = normalized_states
+        if after:
+            variables["after"] = after
+
+        return query, variables
 
     @staticmethod
-    def get_commit(owner: str, name: str, oid: str) -> str:
+    def get_commit(owner: str, name: str, oid: str) -> tuple[str, dict[str, Any]]:
         """
         Get commit information.
 
@@ -291,12 +324,12 @@ class QueryBuilder:
             oid: Commit SHA
 
         Returns:
-            GraphQL query string
+            Tuple of (GraphQL query string, variables dict)
         """
-        return f"""
-            query {{
-                repository(owner: "{owner}", name: "{name}") {{
-                    object(oid: "{oid}") {{
+        query = f"""
+            query($owner: String!, $name: String!, $oid: GitObjectID!) {{
+                repository(owner: $owner, name: $name) {{
+                    object(oid: $oid) {{
                         ... on Commit {{
                             ...CommitFields
                         }}
@@ -305,9 +338,11 @@ class QueryBuilder:
             }}
             {COMMIT_FRAGMENT}
         """
+        variables = {"owner": owner, "name": name, "oid": oid}
+        return query, variables
 
     @staticmethod
-    def get_file_contents(owner: str, name: str, expression: str) -> str:
+    def get_file_contents(owner: str, name: str, expression: str) -> tuple[str, dict[str, Any]]:
         """
         Get file contents from repository.
 
@@ -317,26 +352,28 @@ class QueryBuilder:
             expression: Git expression (e.g., "main:path/to/file")
 
         Returns:
-            GraphQL query string
+            Tuple of (GraphQL query string, variables dict)
         """
-        return f"""
-            query {{
-                repository(owner: "{owner}", name: "{name}") {{
-                    object(expression: "{expression}") {{
-                        ... on Blob {{
+        query = """
+            query($owner: String!, $name: String!, $expression: String!) {
+                repository(owner: $owner, name: $name) {
+                    object(expression: $expression) {
+                        ... on Blob {
                             text
                             byteSize
                             isBinary
-                        }}
-                    }}
-                }}
-            }}
+                        }
+                    }
+                }
+            }
         """
+        variables = {"owner": owner, "name": name, "expression": expression}
+        return query, variables
 
     @staticmethod
     def get_issues(
         owner: str, name: str, states: list[str] | None = None, first: int = 10, after: str | None = None
-    ) -> str:
+    ) -> tuple[str, dict[str, Any]]:
         """
         Get issues with pagination.
 
@@ -348,36 +385,73 @@ class QueryBuilder:
             after: Cursor for pagination
 
         Returns:
-            GraphQL query string
+            Tuple of (GraphQL query string, variables dict)
         """
-        states_str = f"states: [{', '.join(states)}]" if states else ""
-        after_str = f', after: "{after}"' if after else ""
+        # Build query with optional states parameter
+        if states:
+            query = """
+                query($owner: String!, $name: String!, $states: [IssueState!], $first: Int!, $after: String) {
+                    repository(owner: $owner, name: $name) {
+                        issues(states: $states, first: $first, after: $after, orderBy: {field: UPDATED_AT, direction: DESC}) {
+                            totalCount
+                            pageInfo {
+                                hasNextPage
+                                endCursor
+                            }
+                            nodes {
+                                id
+                                number
+                                title
+                                body
+                                state
+                                createdAt
+                                updatedAt
+                                author {
+                                    login
+                                }
+                            }
+                        }
+                    }
+                }
+            """
+        else:
+            query = """
+                query($owner: String!, $name: String!, $first: Int!, $after: String) {
+                    repository(owner: $owner, name: $name) {
+                        issues(first: $first, after: $after, orderBy: {field: UPDATED_AT, direction: DESC}) {
+                            totalCount
+                            pageInfo {
+                                hasNextPage
+                                endCursor
+                            }
+                            nodes {
+                                id
+                                number
+                                title
+                                body
+                                state
+                                createdAt
+                                updatedAt
+                                author {
+                                    login
+                                }
+                            }
+                        }
+                    }
+                }
+            """
 
-        return f"""
-            query {{
-                repository(owner: "{owner}", name: "{name}") {{
-                    issues({states_str}, first: {first}{after_str}, orderBy: {{field: UPDATED_AT, direction: DESC}}) {{
-                        totalCount
-                        pageInfo {{
-                            hasNextPage
-                            endCursor
-                        }}
-                        nodes {{
-                            id
-                            number
-                            title
-                            body
-                            state
-                            createdAt
-                            updatedAt
-                            author {{
-                                login
-                            }}
-                        }}
-                    }}
-                }}
-            }}
-        """
+        variables: dict[str, Any] = {
+            "owner": owner,
+            "name": name,
+            "first": first,
+        }
+        if states:
+            variables["states"] = states
+        if after:
+            variables["after"] = after
+
+        return query, variables
 
 
 class MutationBuilder:
@@ -628,8 +702,8 @@ class MutationBuilder:
 #     results = []
 #     cursor = None
 #     while True:
-#         query = QueryBuilder.get_pull_requests(owner, name, after=cursor, first=100)
-#         data = await client.execute(query)
+#         query, variables = QueryBuilder.get_pull_requests(owner, name, after=cursor, first=100)
+#         data = await client.execute(query, variables)
 #         results.extend(data['repository']['pullRequests']['nodes'])
 #         if not data['repository']['pullRequests']['pageInfo']['hasNextPage']:
 #             break

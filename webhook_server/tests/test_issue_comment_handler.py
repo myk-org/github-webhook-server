@@ -75,8 +75,13 @@ class TestIssueCommentHandler:
         """Test processing comment webhook data when action is edited."""
         issue_comment_handler.hook_data["action"] = "edited"
 
-        with patch.object(issue_comment_handler, "user_commands") as mock_user_commands:
-            await issue_comment_handler.process_comment_webhook_data(Mock())
+        # Create a mock PullRequestWrapper with required attributes
+        mock_pr = Mock()
+        mock_pr.title = "Test PR"
+        mock_pr.number = 123
+
+        with patch.object(issue_comment_handler, "user_commands", new_callable=AsyncMock) as mock_user_commands:
+            await issue_comment_handler.process_comment_webhook_data(mock_pr)
             mock_user_commands.assert_not_called()
 
     @pytest.mark.asyncio
@@ -86,8 +91,13 @@ class TestIssueCommentHandler:
         """Test processing comment webhook data when action is deleted."""
         issue_comment_handler.hook_data["action"] = "deleted"
 
-        with patch.object(issue_comment_handler, "user_commands") as mock_user_commands:
-            await issue_comment_handler.process_comment_webhook_data(Mock())
+        # Create a mock PullRequestWrapper with required attributes
+        mock_pr = Mock()
+        mock_pr.title = "Test PR"
+        mock_pr.number = 123
+
+        with patch.object(issue_comment_handler, "user_commands", new_callable=AsyncMock) as mock_user_commands:
+            await issue_comment_handler.process_comment_webhook_data(mock_pr)
             mock_user_commands.assert_not_called()
 
     @pytest.mark.asyncio
@@ -97,8 +107,13 @@ class TestIssueCommentHandler:
         """Test processing comment webhook data with welcome message."""
         issue_comment_handler.hook_data["comment"]["body"] = "welcome-message-url"
 
-        with patch.object(issue_comment_handler, "user_commands") as mock_user_commands:
-            await issue_comment_handler.process_comment_webhook_data(Mock())
+        # Create a mock PullRequestWrapper with required attributes
+        mock_pr = Mock()
+        mock_pr.title = "Test PR"
+        mock_pr.number = 123
+
+        with patch.object(issue_comment_handler, "user_commands", new_callable=AsyncMock) as mock_user_commands:
+            await issue_comment_handler.process_comment_webhook_data(mock_pr)
             mock_user_commands.assert_not_called()
 
     @pytest.mark.asyncio
@@ -108,8 +123,13 @@ class TestIssueCommentHandler:
         """Test processing comment webhook data with normal comment."""
         issue_comment_handler.hook_data["comment"]["body"] = "/retest tox"
 
-        with patch.object(issue_comment_handler, "user_commands") as mock_user_commands:
-            await issue_comment_handler.process_comment_webhook_data(Mock())
+        # Create a mock PullRequestWrapper with required attributes
+        mock_pr = Mock()
+        mock_pr.title = "Test PR"
+        mock_pr.number = 123
+
+        with patch.object(issue_comment_handler, "user_commands", new_callable=AsyncMock) as mock_user_commands:
+            await issue_comment_handler.process_comment_webhook_data(mock_pr)
             mock_user_commands.assert_called_once()
 
     @pytest.mark.asyncio
@@ -119,8 +139,13 @@ class TestIssueCommentHandler:
         """Test processing comment webhook data with multiple commands."""
         issue_comment_handler.hook_data["comment"]["body"] = "/retest tox\n/assign reviewer"
 
-        with patch.object(issue_comment_handler, "user_commands") as mock_user_commands:
-            await issue_comment_handler.process_comment_webhook_data(Mock())
+        # Create a mock PullRequestWrapper with required attributes
+        mock_pr = Mock()
+        mock_pr.title = "Test PR"
+        mock_pr.number = 123
+
+        with patch.object(issue_comment_handler, "user_commands", new_callable=AsyncMock) as mock_user_commands:
+            await issue_comment_handler.process_comment_webhook_data(mock_pr)
             assert mock_user_commands.call_count == 2
 
     @pytest.mark.asyncio
@@ -130,7 +155,7 @@ class TestIssueCommentHandler:
         mock_pull_request.id = "PR_kgDOTestId"
         mock_pull_request.number = 123
 
-        with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
+        with patch.object(issue_comment_handler, "create_comment_reaction", new_callable=AsyncMock) as mock_reaction:
             await issue_comment_handler.user_commands(
                 pull_request=mock_pull_request, command="unsupported", reviewed_user="test-user", issue_comment_id=123
             )
@@ -143,7 +168,7 @@ class TestIssueCommentHandler:
         mock_pull_request.id = "PR_kgDOTestId"
         mock_pull_request.number = 123
 
-        with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
+        with patch.object(issue_comment_handler, "create_comment_reaction", new_callable=AsyncMock) as mock_reaction:
             with patch.object(
                 issue_comment_handler.github_webhook, "add_pr_comment", new_callable=AsyncMock
             ) as mock_comment:
@@ -163,7 +188,7 @@ class TestIssueCommentHandler:
         mock_pull_request.id = "PR_kgDOTestId"
         mock_pull_request.number = 123
 
-        with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
+        with patch.object(issue_comment_handler, "create_comment_reaction", new_callable=AsyncMock) as mock_reaction:
             with patch.object(
                 issue_comment_handler.github_webhook, "add_pr_comment", new_callable=AsyncMock
             ) as mock_comment:
@@ -183,15 +208,17 @@ class TestIssueCommentHandler:
         mock_pull_request.id = "PR_kgDOTestId"
         mock_pull_request.number = 123
 
-        with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler, "_add_reviewer_by_user_comment") as mock_add_reviewer:
+        with patch.object(issue_comment_handler, "create_comment_reaction", new_callable=AsyncMock) as mock_reaction:
+            with patch.object(
+                issue_comment_handler, "_add_reviewer_by_user_comment", new_callable=AsyncMock
+            ) as mock_add_reviewer:
                 await issue_comment_handler.user_commands(
                     pull_request=mock_pull_request,
                     command=f"{COMMAND_ASSIGN_REVIEWER_STR} reviewer1",
                     reviewed_user="test-user",
                     issue_comment_id=123,
                 )
-                mock_add_reviewer.assert_called_once_with(pull_request=mock_pull_request, reviewer="reviewer1")
+                mock_add_reviewer.assert_awaited_once_with(pull_request=mock_pull_request, reviewer="reviewer1")
                 mock_reaction.assert_called_once()
 
     @pytest.mark.asyncio
@@ -201,7 +228,7 @@ class TestIssueCommentHandler:
         mock_pull_request.id = "PR_kgDOTestId"
         mock_pull_request.number = 123
 
-        with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
+        with patch.object(issue_comment_handler, "create_comment_reaction", new_callable=AsyncMock) as mock_reaction:
             with patch.object(
                 issue_comment_handler.owners_file_handler, "assign_reviewers", new_callable=AsyncMock
             ) as mock_assign:
@@ -212,7 +239,7 @@ class TestIssueCommentHandler:
                     issue_comment_id=123,
                 )
                 mock_assign.assert_awaited_once_with(pull_request=mock_pull_request)
-                mock_reaction.assert_called_once()
+                mock_reaction.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_user_commands_check_can_merge(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -221,9 +248,9 @@ class TestIssueCommentHandler:
         mock_pull_request.id = "PR_kgDOTestId"
         mock_pull_request.number = 123
 
-        with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
+        with patch.object(issue_comment_handler, "create_comment_reaction", new_callable=AsyncMock) as mock_reaction:
             with patch.object(
-                issue_comment_handler.pull_request_handler, "check_if_can_be_merged", new=AsyncMock()
+                issue_comment_handler.pull_request_handler, "check_if_can_be_merged", new_callable=AsyncMock
             ) as mock_check:
                 await issue_comment_handler.user_commands(
                     pull_request=mock_pull_request,
@@ -232,7 +259,7 @@ class TestIssueCommentHandler:
                     issue_comment_id=123,
                 )
                 mock_check.assert_awaited_once_with(pull_request=mock_pull_request)
-                mock_reaction.assert_called_once()
+                mock_reaction.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_user_commands_cherry_pick(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -241,18 +268,20 @@ class TestIssueCommentHandler:
         mock_pull_request.id = "PR_kgDOTestId"
         mock_pull_request.number = 123
 
-        with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler, "process_cherry_pick_command") as mock_cherry_pick:
+        with patch.object(issue_comment_handler, "create_comment_reaction", new_callable=AsyncMock) as mock_reaction:
+            with patch.object(
+                issue_comment_handler, "process_cherry_pick_command", new_callable=AsyncMock
+            ) as mock_cherry_pick:
                 await issue_comment_handler.user_commands(
                     pull_request=mock_pull_request,
                     command=f"{COMMAND_CHERRY_PICK_STR} branch1 branch2",
                     reviewed_user="test-user",
                     issue_comment_id=123,
                 )
-                mock_cherry_pick.assert_called_once_with(
+                mock_cherry_pick.assert_awaited_once_with(
                     pull_request=mock_pull_request, command_args="branch1 branch2", reviewed_user="test-user"
                 )
-                mock_reaction.assert_called_once()
+                mock_reaction.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_user_commands_retest_with_args(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -261,18 +290,18 @@ class TestIssueCommentHandler:
         mock_pull_request.id = "PR_kgDOTestId"
         mock_pull_request.number = 123
 
-        with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler, "process_retest_command") as mock_retest:
+        with patch.object(issue_comment_handler, "create_comment_reaction", new_callable=AsyncMock) as mock_reaction:
+            with patch.object(issue_comment_handler, "process_retest_command", new_callable=AsyncMock) as mock_retest:
                 await issue_comment_handler.user_commands(
                     pull_request=mock_pull_request,
                     command=f"{COMMAND_RETEST_STR} tox",
                     reviewed_user="test-user",
                     issue_comment_id=123,
                 )
-                mock_retest.assert_called_once_with(
+                mock_retest.assert_awaited_once_with(
                     pull_request=mock_pull_request, command_args="tox", reviewed_user="test-user"
                 )
-                mock_reaction.assert_called_once()
+                mock_reaction.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_user_commands_build_container_enabled(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -281,7 +310,7 @@ class TestIssueCommentHandler:
         mock_pull_request.id = "PR_kgDOTestId"
         mock_pull_request.number = 123
 
-        with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
+        with patch.object(issue_comment_handler, "create_comment_reaction", new_callable=AsyncMock) as mock_reaction:
             with patch.object(
                 issue_comment_handler.runner_handler, "run_build_container", new=AsyncMock()
             ) as mock_build:
@@ -298,7 +327,7 @@ class TestIssueCommentHandler:
                     reviewed_user="test-user",
                     pull_request=mock_pull_request,
                 )
-                mock_reaction.assert_called_once()
+                mock_reaction.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_user_commands_build_container_disabled(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -308,7 +337,9 @@ class TestIssueCommentHandler:
         mock_pull_request.number = 123
         # Patch build_and_push_container as a bool for this test
         with patch.object(issue_comment_handler.github_webhook, "build_and_push_container", False):
-            with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
+            with patch.object(
+                issue_comment_handler, "create_comment_reaction", new_callable=AsyncMock
+            ) as mock_reaction:
                 with patch.object(
                     issue_comment_handler.github_webhook, "add_pr_comment", new_callable=AsyncMock
                 ) as mock_comment:
@@ -318,8 +349,8 @@ class TestIssueCommentHandler:
                         reviewed_user="test-user",
                         issue_comment_id=123,
                     )
-                    mock_comment.assert_called_once()
-                    mock_reaction.assert_called_once()
+                    mock_comment.assert_awaited_once()
+                    mock_reaction.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_user_commands_wip_add(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -329,20 +360,22 @@ class TestIssueCommentHandler:
         mock_pull_request.number = 123
         mock_pull_request.title = "Test PR"
 
-        with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler.labels_handler, "_add_label") as mock_add_label:
+        with patch.object(issue_comment_handler, "create_comment_reaction", new_callable=AsyncMock) as mock_reaction:
+            with patch.object(
+                issue_comment_handler.labels_handler, "_add_label", new_callable=AsyncMock
+            ) as mock_add_label:
                 with patch.object(
                     issue_comment_handler.github_webhook, "update_pr_title", new_callable=AsyncMock
                 ) as mock_update:
                     await issue_comment_handler.user_commands(
                         pull_request=mock_pull_request, command=WIP_STR, reviewed_user="test-user", issue_comment_id=123
                     )
-                    mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=WIP_STR)
+                    mock_add_label.assert_awaited_once_with(pull_request=mock_pull_request, label=WIP_STR)
                     # Check that update_pr_title was called with the PR and title starting with "WIP:"
-                    mock_update.assert_called_once()
+                    mock_update.assert_awaited_once()
                     call_args = mock_update.call_args
                     assert call_args[0][1].startswith("WIP:")
-                    mock_reaction.assert_called_once()
+                    mock_reaction.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_user_commands_wip_remove(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -352,8 +385,10 @@ class TestIssueCommentHandler:
         mock_pull_request.number = 123
         mock_pull_request.title = "WIP: Test PR"
 
-        with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler.labels_handler, "_remove_label") as mock_remove_label:
+        with patch.object(issue_comment_handler, "create_comment_reaction", new_callable=AsyncMock) as mock_reaction:
+            with patch.object(
+                issue_comment_handler.labels_handler, "_remove_label", new_callable=AsyncMock
+            ) as mock_remove_label:
                 with patch.object(
                     issue_comment_handler.github_webhook, "update_pr_title", new_callable=AsyncMock
                 ) as mock_update:
@@ -363,13 +398,13 @@ class TestIssueCommentHandler:
                         reviewed_user="test-user",
                         issue_comment_id=123,
                     )
-                    mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=WIP_STR)
+                    mock_remove_label.assert_awaited_once_with(pull_request=mock_pull_request, label=WIP_STR)
                     # Verify title has "WIP:" removed
-                    mock_update.assert_called_once()
+                    mock_update.assert_awaited_once()
                     call_args = mock_update.call_args
                     assert "WIP:" not in call_args[0][1]
                     assert "Test PR" in call_args[0][1]
-                    mock_reaction.assert_called_once()
+                    mock_reaction.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_user_commands_hold_unauthorized_user(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -378,16 +413,23 @@ class TestIssueCommentHandler:
         mock_pull_request.id = "PR_kgDOTestId"
         mock_pull_request.number = 123
 
-        with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            # Mock unified_api.create_issue_comment for unauthorized user message
-            issue_comment_handler.github_webhook.unified_api.create_issue_comment = AsyncMock()
+        with patch.object(issue_comment_handler, "create_comment_reaction", new_callable=AsyncMock) as mock_reaction:
             await issue_comment_handler.user_commands(
                 pull_request=mock_pull_request,
                 command=HOLD_LABEL_STR,
                 reviewed_user="unauthorized-user",
                 issue_comment_id=123,
             )
-            mock_reaction.assert_called_once()
+            mock_reaction.assert_awaited_once()
+
+            # Verify unauthorized user comment was posted
+            mock_add_comment = issue_comment_handler.github_webhook.add_pr_comment
+            mock_add_comment.assert_awaited_once()
+            call_args = mock_add_comment.call_args
+            comment_body = call_args[0][1]  # Second argument is the comment body
+            assert "unauthorized-user" in comment_body
+            assert "approver" in comment_body
+            assert "hold" in comment_body
 
     @pytest.mark.asyncio
     async def test_user_commands_hold_authorized_user_add(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -396,10 +438,12 @@ class TestIssueCommentHandler:
         mock_pull_request.id = "PR_kgDOTestId"
         mock_pull_request.number = 123
 
-        with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler.labels_handler, "_add_label") as mock_add_label:
+        with patch.object(issue_comment_handler, "create_comment_reaction", new_callable=AsyncMock) as mock_reaction:
+            with patch.object(
+                issue_comment_handler.labels_handler, "_add_label", new_callable=AsyncMock
+            ) as mock_add_label:
                 with patch.object(
-                    issue_comment_handler.pull_request_handler, "check_if_can_be_merged", new=AsyncMock()
+                    issue_comment_handler.pull_request_handler, "check_if_can_be_merged", new_callable=AsyncMock
                 ) as mock_check:
                     await issue_comment_handler.user_commands(
                         pull_request=mock_pull_request,
@@ -407,9 +451,9 @@ class TestIssueCommentHandler:
                         reviewed_user="approver1",
                         issue_comment_id=123,
                     )
-                    mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=HOLD_LABEL_STR)
+                    mock_add_label.assert_awaited_once_with(pull_request=mock_pull_request, label=HOLD_LABEL_STR)
                     mock_check.assert_awaited_once_with(pull_request=mock_pull_request)
-                    mock_reaction.assert_called_once()
+                    mock_reaction.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_user_commands_hold_authorized_user_remove(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -418,10 +462,12 @@ class TestIssueCommentHandler:
         mock_pull_request.id = "PR_kgDOTestId"
         mock_pull_request.number = 123
 
-        with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler.labels_handler, "_remove_label") as mock_remove_label:
+        with patch.object(issue_comment_handler, "create_comment_reaction", new_callable=AsyncMock) as mock_reaction:
+            with patch.object(
+                issue_comment_handler.labels_handler, "_remove_label", new_callable=AsyncMock
+            ) as mock_remove_label:
                 with patch.object(
-                    issue_comment_handler.pull_request_handler, "check_if_can_be_merged", new=AsyncMock()
+                    issue_comment_handler.pull_request_handler, "check_if_can_be_merged", new_callable=AsyncMock
                 ) as mock_check:
                     await issue_comment_handler.user_commands(
                         pull_request=mock_pull_request,
@@ -429,9 +475,9 @@ class TestIssueCommentHandler:
                         reviewed_user="approver1",
                         issue_comment_id=123,
                     )
-                    mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=HOLD_LABEL_STR)
+                    mock_remove_label.assert_awaited_once_with(pull_request=mock_pull_request, label=HOLD_LABEL_STR)
                     mock_check.assert_awaited_once_with(pull_request=mock_pull_request)
-                    mock_reaction.assert_called_once()
+                    mock_reaction.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_user_commands_verified_add(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -440,18 +486,22 @@ class TestIssueCommentHandler:
         mock_pull_request.id = "PR_kgDOTestId"
         mock_pull_request.number = 123
 
-        with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler.labels_handler, "_add_label") as mock_add_label:
-                with patch.object(issue_comment_handler.check_run_handler, "set_verify_check_success") as mock_success:
+        with patch.object(issue_comment_handler, "create_comment_reaction", new_callable=AsyncMock) as mock_reaction:
+            with patch.object(
+                issue_comment_handler.labels_handler, "_add_label", new_callable=AsyncMock
+            ) as mock_add_label:
+                with patch.object(
+                    issue_comment_handler.check_run_handler, "set_verify_check_success", new_callable=AsyncMock
+                ) as mock_success:
                     await issue_comment_handler.user_commands(
                         pull_request=mock_pull_request,
                         command=VERIFIED_LABEL_STR,
                         reviewed_user="test-user",
                         issue_comment_id=123,
                     )
-                    mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=VERIFIED_LABEL_STR)
-                    mock_success.assert_called_once()
-                    mock_reaction.assert_called_once()
+                    mock_add_label.assert_awaited_once_with(pull_request=mock_pull_request, label=VERIFIED_LABEL_STR)
+                    mock_success.assert_awaited_once()
+                    mock_reaction.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_user_commands_verified_remove(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -460,18 +510,22 @@ class TestIssueCommentHandler:
         mock_pull_request.id = "PR_kgDOTestId"
         mock_pull_request.number = 123
 
-        with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler.labels_handler, "_remove_label") as mock_remove_label:
-                with patch.object(issue_comment_handler.check_run_handler, "set_verify_check_queued") as mock_queued:
+        with patch.object(issue_comment_handler, "create_comment_reaction", new_callable=AsyncMock) as mock_reaction:
+            with patch.object(
+                issue_comment_handler.labels_handler, "_remove_label", new_callable=AsyncMock
+            ) as mock_remove_label:
+                with patch.object(
+                    issue_comment_handler.check_run_handler, "set_verify_check_queued", new_callable=AsyncMock
+                ) as mock_queued:
                     await issue_comment_handler.user_commands(
                         pull_request=mock_pull_request,
                         command=f"{VERIFIED_LABEL_STR} cancel",
                         reviewed_user="test-user",
                         issue_comment_id=123,
                     )
-                    mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=VERIFIED_LABEL_STR)
-                    mock_queued.assert_called_once()
-                    mock_reaction.assert_called_once()
+                    mock_remove_label.assert_awaited_once_with(pull_request=mock_pull_request, label=VERIFIED_LABEL_STR)
+                    mock_queued.assert_awaited_once()
+                    mock_reaction.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_user_commands_custom_label(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -481,7 +535,9 @@ class TestIssueCommentHandler:
         mock_pull_request.number = 123
         # Patch USER_LABELS_DICT to include 'bug'
         with patch("webhook_server.libs.handlers.issue_comment_handler.USER_LABELS_DICT", {"bug": "Bug label"}):
-            with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
+            with patch.object(
+                issue_comment_handler, "create_comment_reaction", new_callable=AsyncMock
+            ) as mock_reaction:
                 with patch.object(
                     issue_comment_handler.labels_handler, "label_by_user_comment", new_callable=AsyncMock
                 ) as mock_label:
@@ -494,7 +550,7 @@ class TestIssueCommentHandler:
                         remove=False,
                         reviewed_user="test-user",
                     )
-                    mock_reaction.assert_called_once()
+                    mock_reaction.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_create_comment_reaction(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -538,7 +594,7 @@ class TestIssueCommentHandler:
                 pull_request=mock_pull_request, reviewer="@reviewer1"
             )
             # Verify request_pr_reviews was called with the PR and reviewer list
-            issue_comment_handler.github_webhook.request_pr_reviews.assert_called_once()
+            issue_comment_handler.github_webhook.request_pr_reviews.assert_awaited_once()
             call_args = issue_comment_handler.github_webhook.request_pr_reviews.call_args
             assert call_args[0][0] == mock_pull_request
             assert "reviewer1" in call_args[0][1]
@@ -565,7 +621,14 @@ class TestIssueCommentHandler:
                 pull_request=mock_pull_request, reviewer="reviewer1"
             )
         # Should add a comment explaining the user is not a contributor
-        issue_comment_handler.github_webhook.add_pr_comment.assert_called_once()
+        issue_comment_handler.github_webhook.add_pr_comment.assert_awaited_once()
+        call_args = issue_comment_handler.github_webhook.add_pr_comment.call_args
+        # Verify the PR object was passed
+        assert call_args[0][0] == mock_pull_request
+        # Verify the comment contains the expected error message
+        comment_text = call_args[0][1]
+        assert "reviewer1" in comment_text
+        assert "not part of contributers" in comment_text
 
     @pytest.mark.asyncio
     async def test_process_cherry_pick_command_existing_branches(
@@ -583,14 +646,23 @@ class TestIssueCommentHandler:
             issue_comment_handler.github_webhook.unified_api.get_pull_request = AsyncMock(
                 return_value={"merged": False}
             )
-            with patch.object(issue_comment_handler.labels_handler, "_add_label") as mock_add_label:
+            with patch.object(
+                issue_comment_handler.labels_handler, "_add_label", new_callable=AsyncMock
+            ) as mock_add_label:
                 await issue_comment_handler.process_cherry_pick_command(
                     pull_request=mock_pull_request, command_args="branch1 branch2", reviewed_user="test-user"
                 )
                 # Verify get_branch was called for both branches
                 assert issue_comment_handler.github_webhook.unified_api.get_branch.call_count == 2
-                issue_comment_handler.github_webhook.add_pr_comment.assert_called_once()
-                assert mock_add_label.call_count == 2
+                issue_comment_handler.github_webhook.add_pr_comment.assert_awaited_once()
+                call_args = issue_comment_handler.github_webhook.add_pr_comment.call_args
+                # Verify the PR object was passed
+                assert call_args[0][0] == mock_pull_request
+                # Verify the comment contains cherry-pick information
+                comment_text = call_args[0][1]
+                assert "Cherry-pick requested" in comment_text
+                assert "test-user" in comment_text
+                assert mock_add_label.await_count == 2
 
     @pytest.mark.asyncio
     async def test_process_cherry_pick_command_non_existing_branches(
@@ -616,7 +688,61 @@ class TestIssueCommentHandler:
                 await issue_comment_handler.process_cherry_pick_command(
                     pull_request=mock_pull_request, command_args="branch1 branch2", reviewed_user="test-user"
                 )
-                mock_comment.assert_called_once()
+                mock_comment.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_process_cherry_pick_command_github_exception_404(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Test processing cherry pick command with GithubException 404 (REST API error)."""
+        from github import GithubException
+
+        mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
+
+        # Mock unified_api.get_branch to raise GithubException with 404
+        with patch.object(
+            issue_comment_handler.github_webhook.unified_api,
+            "get_branch",
+            new_callable=AsyncMock,
+            side_effect=GithubException(404, {"message": "Branch not found"}, None),
+        ):
+            with patch.object(
+                issue_comment_handler.github_webhook, "add_pr_comment", new_callable=AsyncMock
+            ) as mock_comment:
+                await issue_comment_handler.process_cherry_pick_command(
+                    pull_request=mock_pull_request, command_args="branch1 branch2", reviewed_user="test-user"
+                )
+                # Should comment about non-existent branches
+                mock_comment.assert_awaited_once()
+                call_args = mock_comment.call_args[0][1]
+                assert "branch1" in call_args
+                assert "does not exist" in call_args
+
+    @pytest.mark.asyncio
+    async def test_process_cherry_pick_command_github_exception_non_404(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Test processing cherry pick command with GithubException non-404 (should re-raise)."""
+        from github import GithubException
+
+        mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
+
+        # Mock unified_api.get_branch to raise GithubException with 401 (authentication error)
+        with patch.object(
+            issue_comment_handler.github_webhook.unified_api,
+            "get_branch",
+            new_callable=AsyncMock,
+            side_effect=GithubException(401, {"message": "Bad credentials"}, None),
+        ):
+            # Should re-raise non-404 errors
+            with pytest.raises(GithubException):
+                await issue_comment_handler.process_cherry_pick_command(
+                    pull_request=mock_pull_request, command_args="branch1", reviewed_user="test-user"
+                )
 
     @pytest.mark.asyncio
     async def test_process_cherry_pick_command_merged_pr(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -629,7 +755,9 @@ class TestIssueCommentHandler:
             # Mock unified_api methods
             issue_comment_handler.github_webhook.unified_api.get_branch = AsyncMock()
             issue_comment_handler.github_webhook.unified_api.get_pull_request = AsyncMock(return_value={"merged": True})
-            with patch.object(issue_comment_handler.runner_handler, "cherry_pick") as mock_cherry_pick:
+            with patch.object(
+                issue_comment_handler.runner_handler, "cherry_pick", new_callable=AsyncMock
+            ) as mock_cherry_pick:
                 await issue_comment_handler.process_cherry_pick_command(
                     pull_request=mock_pull_request, command_args="branch1", reviewed_user="test-user"
                 )
@@ -650,7 +778,7 @@ class TestIssueCommentHandler:
             await issue_comment_handler.process_retest_command(
                 pull_request=mock_pull_request, command_args="", reviewed_user="test-user"
             )
-            mock_comment.assert_called_once()
+            mock_comment.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_process_retest_command_all_with_other_tests(
@@ -667,7 +795,7 @@ class TestIssueCommentHandler:
             await issue_comment_handler.process_retest_command(
                 pull_request=mock_pull_request, command_args="all tox", reviewed_user="test-user"
             )
-            mock_comment.assert_called_once()
+            mock_comment.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_process_retest_command_all_only(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -676,11 +804,11 @@ class TestIssueCommentHandler:
         mock_pull_request.id = "PR_kgDOTestId"
         mock_pull_request.number = 123
 
-        with patch.object(issue_comment_handler.runner_handler, "run_tox") as mock_run_tox:
+        with patch.object(issue_comment_handler.runner_handler, "run_tox", new_callable=AsyncMock) as mock_run_tox:
             await issue_comment_handler.process_retest_command(
                 pull_request=mock_pull_request, command_args="all", reviewed_user="test-user"
             )
-            mock_run_tox.assert_called_once_with(pull_request=mock_pull_request)
+            mock_run_tox.assert_awaited_once_with(pull_request=mock_pull_request)
 
     @pytest.mark.asyncio
     async def test_process_retest_command_specific_tests(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -689,15 +817,15 @@ class TestIssueCommentHandler:
         mock_pull_request.id = "PR_kgDOTestId"
         mock_pull_request.number = 123
 
-        with patch.object(issue_comment_handler.runner_handler, "run_tox") as mock_run_tox:
+        with patch.object(issue_comment_handler.runner_handler, "run_tox", new_callable=AsyncMock) as mock_run_tox:
             with patch.object(
                 issue_comment_handler.github_webhook, "add_pr_comment", new_callable=AsyncMock
             ) as mock_comment:
                 await issue_comment_handler.process_retest_command(
                     pull_request=mock_pull_request, command_args="tox unsupported-test", reviewed_user="test-user"
                 )
-                mock_run_tox.assert_called_once_with(pull_request=mock_pull_request)
-                mock_comment.assert_called_once()
+                mock_run_tox.assert_awaited_once_with(pull_request=mock_pull_request)
+                mock_comment.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_process_retest_command_unsupported_tests(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -714,7 +842,7 @@ class TestIssueCommentHandler:
                 command_args="unsupported-test1 unsupported-test2",
                 reviewed_user="test-user",
             )
-            mock_comment.assert_called_once()
+            mock_comment.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_process_retest_command_user_not_valid(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -728,7 +856,7 @@ class TestIssueCommentHandler:
             "is_user_valid_to_run_commands",
             new=AsyncMock(return_value=False),
         ):
-            with patch.object(issue_comment_handler.runner_handler, "run_tox") as mock_run_tox:
+            with patch.object(issue_comment_handler.runner_handler, "run_tox", new_callable=AsyncMock) as mock_run_tox:
                 await issue_comment_handler.process_retest_command(
                     pull_request=mock_pull_request, command_args="tox", reviewed_user="test-user"
                 )
