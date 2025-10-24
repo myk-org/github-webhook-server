@@ -14,6 +14,7 @@ from webhook_server.utils.helpers import (
     log_rate_limit,
     get_future_results,
     _redact_secrets,
+    _truncate_output,
 )
 
 # Test tokens for security scanners
@@ -323,31 +324,42 @@ class TestHelpers:
     @pytest.mark.asyncio
     async def test_run_command_success(self):
         """Test run_command with a successful command."""
-        result = await run_command("echo hello", log_prefix="[TEST]")
+        result = await run_command("echo hello", log_prefix="[TEST]", redact_secrets=[])
         assert result[0] is True
         assert "hello" in result[1]
+        assert isinstance(result[1], str)
+        assert isinstance(result[2], str)
 
     @pytest.mark.asyncio
     async def test_run_command_failure(self):
         """Test run_command with a failing command."""
-        result = await run_command("false", log_prefix="[TEST]")
+        result = await run_command("false", log_prefix="[TEST]", redact_secrets=[])
         assert result[0] is False
+        assert isinstance(result[1], str)
+        assert isinstance(result[2], str)
 
     @pytest.mark.asyncio
     async def test_run_command_stderr(self):
         """Test run_command with stderr and verify_stderr=True."""
         # Use python to print to stderr
         result = await run_command(
-            f'{sys.executable} -c "import sys; sys.stderr.write("err")"', log_prefix="[TEST]", verify_stderr=True
+            f'{sys.executable} -c "import sys; sys.stderr.write("err")"',
+            log_prefix="[TEST]",
+            verify_stderr=True,
+            redact_secrets=[],
         )
         assert result[0] is False
         assert "err" in result[2]
+        assert isinstance(result[1], str)
+        assert isinstance(result[2], str)
 
     @pytest.mark.asyncio
     async def test_run_command_exception(self):
         """Test run_command with an invalid command to trigger exception."""
-        result = await run_command("nonexistent_command_xyz", log_prefix="[TEST]")
+        result = await run_command("nonexistent_command_xyz", log_prefix="[TEST]", redact_secrets=[])
         assert result[0] is False
+        assert isinstance(result[1], str)
+        assert isinstance(result[2], str)
 
     def test_redact_secrets_helper_basic(self):
         """Test _redact_secrets helper function with basic redaction."""
@@ -384,7 +396,7 @@ class TestHelpers:
 
     @pytest.mark.asyncio
     async def test_run_command_redaction_does_not_mutate_return_values(self):
-        """Test that redaction creates copies and doesn't mutate returned values."""
+        """Test that redaction sanitizes output before returning."""
         # Run a command that will output a secret in stdout
         secret = TEST_SECRET_1
         command = f'echo "{secret}"'
@@ -393,22 +405,26 @@ class TestHelpers:
         # Verify command succeeded
         assert result[0] is True
 
-        # CRITICAL: Verify the returned stdout contains the ORIGINAL secret (not redacted)
-        # This ensures callers get the real command output
-        assert secret in result[1], "Return value should contain original secret, not redacted version"
-        assert "***REDACTED***" not in result[1], "Return value should not be redacted"
+        # CRITICAL: Verify the returned stdout is REDACTED before being returned
+        # This ensures secrets are not leaked in return values
+        assert secret not in result[1], "Return value should NOT contain original secret"
+        assert "***REDACTED***" in result[1], "Return value should be redacted"
+        assert isinstance(result[1], str), "stdout should be a string"
+        assert isinstance(result[2], str), "stderr should be a string"
 
     @pytest.mark.asyncio
     async def test_run_command_redaction_in_stderr(self):
-        """Test that redaction works for stderr without mutating return values."""
+        """Test that redaction sanitizes stderr before returning."""
         secret = TEST_SECRET_2
         # Use python to output secret to stderr
         command = f'{sys.executable} -c "import sys; sys.stderr.write(\\"{secret}\\")"'
         result = await run_command(command, log_prefix="[TEST]", redact_secrets=[secret])
 
-        # Verify the returned stderr contains the ORIGINAL secret (not redacted)
-        assert secret in result[2], "Stderr return value should contain original secret"
-        assert "***REDACTED***" not in result[2], "Stderr return value should not be redacted"
+        # Verify the returned stderr is REDACTED before being returned
+        assert secret not in result[2], "Stderr return value should NOT contain original secret"
+        assert "***REDACTED***" in result[2], "Stderr return value should be redacted"
+        assert isinstance(result[1], str), "stdout should be a string"
+        assert isinstance(result[2], str), "stderr should be a string"
 
     def test_log_rate_limit_all_branches(self):
         """Test log_rate_limit for all color/warning branches."""
@@ -477,3 +493,79 @@ class TestHelpers:
         # Patch as_completed to just yield the futures
         with patch("webhook_server.utils.helpers.as_completed", return_value=futures):
             get_future_results(futures)
+
+    def test_truncate_output_short_text(self):
+        """Test _truncate_output with text shorter than max_length."""
+        text = "This is a short text"
+        result = _truncate_output(text, max_length=500)
+        assert result == text, "Short text should not be truncated"
+
+    def test_truncate_output_exact_length(self):
+        """Test _truncate_output with text exactly at max_length."""
+        text = "a" * 500
+        result = _truncate_output(text, max_length=500)
+        assert result == text, "Text at exact max_length should not be truncated"
+
+    def test_truncate_output_long_text(self):
+        """Test _truncate_output with text longer than max_length."""
+        text = "a" * 1000
+        result = _truncate_output(text, max_length=500)
+        assert result.startswith("a" * 500), "Truncated text should start with first 500 chars"
+        assert "... [truncated 500 chars]" in result, "Should include truncation message with char count"
+        assert len(result) < len(text), "Truncated text should be shorter than original"
+
+    def test_truncate_output_custom_max_length(self):
+        """Test _truncate_output with custom max_length."""
+        text = "a" * 200
+        result = _truncate_output(text, max_length=100)
+        assert result.startswith("a" * 100), "Should truncate at custom max_length"
+        assert "... [truncated 100 chars]" in result, "Should show correct truncation count"
+
+    def test_truncate_output_multiline_text(self):
+        """Test _truncate_output with multiline text."""
+        text = "line1\nline2\nline3\n" * 100  # Create long multiline text
+        result = _truncate_output(text, max_length=100)
+        assert len(result.split("...")[0]) == 100, "Should truncate multiline text correctly"
+        assert "truncated" in result, "Should include truncation indicator"
+
+    @pytest.mark.asyncio
+    async def test_run_command_truncates_long_output_in_logs(self):
+        """Test that run_command truncates long output in error logs."""
+        # Create a command that will fail with very long output
+        long_text = "a" * 1000
+        command = f'{sys.executable} -c "print(\\"{long_text}\\"); exit(1)"'
+
+        with patch("webhook_server.utils.helpers.get_logger_with_params") as mock_get_logger:
+            mock_logger = Mock()
+            mock_get_logger.return_value = mock_logger
+
+            result = await run_command(command, log_prefix="[TEST]", redact_secrets=[])
+
+            # Verify command failed
+            assert result[0] is False
+
+            # Verify error was logged
+            assert mock_logger.error.called, "Error should be logged for failed command"
+
+            # Get the logged error message
+            error_msg = mock_logger.error.call_args[0][0]
+
+            # Verify the error message is truncated (contains truncation indicator)
+            assert "truncated" in error_msg, "Error log should contain truncation indicator"
+            assert len(error_msg) < 2000, "Error message should be truncated to reasonable length"
+
+    @pytest.mark.asyncio
+    async def test_run_command_returns_full_output_despite_log_truncation(self):
+        """Test that run_command returns full output even though logs are truncated."""
+        # Create a command that will fail with long output
+        long_text = "a" * 1000
+        command = f'{sys.executable} -c "print(\\"{long_text}\\"); exit(1)"'
+
+        result = await run_command(command, log_prefix="[TEST]", redact_secrets=[])
+
+        # Verify command failed
+        assert result[0] is False
+
+        # CRITICAL: Verify the returned stdout contains the FULL output (not truncated)
+        assert long_text in result[1], "Return value should contain full output, not truncated"
+        assert len(result[1]) >= 1000, "Return value should have full length output"

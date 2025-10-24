@@ -1364,3 +1364,39 @@ async def test_add_pr_assignee_with_wrapper(github_webhook_with_unified):
 
     # Should convert login to ID
     github_webhook_with_unified.unified_api.add_assignees.assert_called_once_with("PR_123", ["U_1"])
+
+
+@pytest.mark.asyncio
+async def test_request_pr_reviews_graphql_error_fallback(github_webhook_with_unified):
+    """Test that GraphQL errors fall back to REST, but other exceptions propagate."""
+    from webhook_server.libs.graphql.graphql_client import GraphQLError
+    from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+
+    wrapper = Mock(spec=PullRequestWrapper)
+    wrapper.id = "PR_123"
+
+    # Mock get_user_id to raise GraphQLError on first call (triggers fallback)
+    github_webhook_with_unified.unified_api.get_user_id = AsyncMock(side_effect=GraphQLError("User not found"))
+    github_webhook_with_unified.unified_api.get_user_id_rest = AsyncMock(return_value="U_1")
+
+    await github_webhook_with_unified.request_pr_reviews(wrapper, [{"login": "reviewer1"}])
+
+    # Should fall back to REST
+    github_webhook_with_unified.unified_api.get_user_id_rest.assert_called_once_with("reviewer1")
+    github_webhook_with_unified.unified_api.request_reviews.assert_called_once_with("PR_123", ["U_1"])
+
+
+@pytest.mark.asyncio
+async def test_request_pr_reviews_unexpected_error_propagates(github_webhook_with_unified):
+    """Test that non-GraphQL/transport exceptions are NOT caught and propagate."""
+    from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+
+    wrapper = Mock(spec=PullRequestWrapper)
+    wrapper.id = "PR_123"
+
+    # Mock get_user_id to raise a non-GraphQL exception (e.g., ValueError)
+    github_webhook_with_unified.unified_api.get_user_id = AsyncMock(side_effect=ValueError("Unexpected error"))
+
+    # This should propagate the ValueError, not catch it
+    with pytest.raises(ValueError, match="Unexpected error"):
+        await github_webhook_with_unified.request_pr_reviews(wrapper, [{"login": "reviewer1"}])

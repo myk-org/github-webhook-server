@@ -88,7 +88,7 @@ class CheckRunHandler:
                         )
                         return False
                     except Exception as ex:
-                        self.logger.error(
+                        self.logger.exception(
                             f"{self.log_prefix} Failed to auto-merge pull request #{pull_request.number}: {ex}"
                         )
                         # Inform user of auto-merge failure
@@ -396,7 +396,16 @@ class CheckRunHandler:
 
         owner, repo_name = self.repository.full_name.split("/")
         branch_protection = await self.unified_api.get_branch_protection(owner, repo_name, pull_request.base.ref)
-        branch_required_status_checks = branch_protection.required_status_checks.contexts
+
+        # Guard against None - PyGithub may return None for required_status_checks if not configured
+        if branch_protection.required_status_checks is None:
+            self.logger.debug(
+                f"{self.log_prefix} No required status checks configured for branch {pull_request.base.ref}"
+            )
+            return []
+
+        # Guard against None contexts - may be None even when required_status_checks exists
+        branch_required_status_checks = branch_protection.required_status_checks.contexts or []
         self.logger.debug(f"branch_required_status_checks: {branch_required_status_checks}")
         return branch_required_status_checks
 

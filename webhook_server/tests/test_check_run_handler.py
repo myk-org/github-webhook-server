@@ -624,6 +624,44 @@ class TestCheckRunHandler:
                 mock_info.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_get_branch_required_status_checks_none_status_checks(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """Test getting branch required status checks when required_status_checks is None."""
+        mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
+        mock_pull_request.base.ref = "main"
+        mock_branch_protection = Mock()
+        mock_branch_protection.required_status_checks = None  # Simulate no status checks configured
+        with patch.object(check_run_handler.repository, "private", False):
+            check_run_handler.repository.full_name = "test/repo"
+            check_run_handler.github_webhook.unified_api.get_branch_protection = AsyncMock(
+                return_value=mock_branch_protection
+            )
+            result = await check_run_handler.get_branch_required_status_checks(mock_pull_request)
+            assert result == []
+
+    @pytest.mark.asyncio
+    async def test_get_branch_required_status_checks_none_contexts(self, check_run_handler: CheckRunHandler) -> None:
+        """Test getting branch required status checks when contexts is None."""
+        mock_pull_request = Mock()
+        mock_pull_request.id = "PR_kgDOTestId"
+        mock_pull_request.number = 123
+        mock_pull_request.base.ref = "main"
+        mock_branch_protection = Mock()
+        mock_required_status_checks = Mock()
+        mock_required_status_checks.contexts = None  # Simulate contexts being None
+        mock_branch_protection.required_status_checks = mock_required_status_checks
+        with patch.object(check_run_handler.repository, "private", False):
+            check_run_handler.repository.full_name = "test/repo"
+            check_run_handler.github_webhook.unified_api.get_branch_protection = AsyncMock(
+                return_value=mock_branch_protection
+            )
+            result = await check_run_handler.get_branch_required_status_checks(mock_pull_request)
+            assert result == []
+
+    @pytest.mark.asyncio
     async def test_required_check_in_progress(self, check_run_handler: CheckRunHandler) -> None:
         """Test checking for required checks in progress."""
         mock_pull_request = Mock()

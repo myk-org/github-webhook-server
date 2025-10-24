@@ -84,7 +84,9 @@ Publish to PYPI failed: `{_error}`
                 return await _issue_on_error(_error=_error)
 
             rc, out, err = await run_command(
-                command=f"uv {uv_cmd_dir} build --sdist --out-dir {_dist_dir}", log_prefix=self.log_prefix
+                command=f"uv {uv_cmd_dir} build --sdist --out-dir {_dist_dir}",
+                log_prefix=self.log_prefix,
+                redact_secrets=[],
             )
             if not rc:
                 _error = self.check_run_handler.get_check_run_text(out=out, err=err)
@@ -95,6 +97,7 @@ Publish to PYPI failed: `{_error}`
             rc, tar_gz_file, err = await run_command(
                 command=f"find {_dist_dir} -name '*.tar.gz' -type f | sort | head -n 1",
                 log_prefix=self.log_prefix,
+                redact_secrets=[],
             )
             if not rc:
                 _error = self.check_run_handler.get_check_run_text(out=tar_gz_file, err=err)

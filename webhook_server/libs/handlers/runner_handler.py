@@ -68,7 +68,9 @@ class RunnerHandler:
 
             if success:
                 rc, out, err = await run_command(
-                    command=f"{git_cmd} config user.name '{self.repository.owner.login}'", log_prefix=self.log_prefix
+                    command=f"{git_cmd} config user.name '{self.repository.owner.login}'",
+                    log_prefix=self.log_prefix,
+                    redact_secrets=[],
                 )
                 if not rc:
                     result = (rc, out, err)
@@ -76,7 +78,9 @@ class RunnerHandler:
 
             if success:
                 rc, out, err = await run_command(
-                    f"{git_cmd} config user.email '{self.repository.owner.email}'", log_prefix=self.log_prefix
+                    command=f"{git_cmd} config user.email '{self.repository.owner.email}'",
+                    log_prefix=self.log_prefix,
+                    redact_secrets=[],
                 )
                 if not rc:
                     result = (rc, out, err)
@@ -86,28 +90,38 @@ class RunnerHandler:
                 rc, out, err = await run_command(
                     command=f"{git_cmd} config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*",
                     log_prefix=self.log_prefix,
+                    redact_secrets=[],
                 )
                 if not rc:
                     result = (rc, out, err)
                     success = False
 
             if success:
-                rc, out, err = await run_command(command=f"{git_cmd} remote update", log_prefix=self.log_prefix)
+                rc, out, err = await run_command(
+                    command=f"{git_cmd} remote update",
+                    log_prefix=self.log_prefix,
+                    redact_secrets=[],
+                )
                 if not rc:
                     result = (rc, out, err)
                     success = False
 
             # Checkout to requested branch/tag
             if checkout and success:
-                rc, out, err = await run_command(f"{git_cmd} checkout {checkout}", log_prefix=self.log_prefix)
+                rc, out, err = await run_command(
+                    command=f"{git_cmd} checkout {checkout}",
+                    log_prefix=self.log_prefix,
+                    redact_secrets=[],
+                )
                 if not rc:
                     result = (rc, out, err)
                     success = False
 
                 if success and pull_request:
                     rc, out, err = await run_command(
-                        f"{git_cmd} merge origin/{pull_request.base.ref} -m 'Merge {pull_request.base.ref}'",
+                        command=f"{git_cmd} merge origin/{pull_request.base.ref} -m 'Merge {pull_request.base.ref}'",
                         log_prefix=self.log_prefix,
+                        redact_secrets=[],
                     )
                     if not rc:
                         result = (rc, out, err)
@@ -120,6 +134,7 @@ class RunnerHandler:
                         rc, out, err = await run_command(
                             command=f"{git_cmd} checkout {pull_request.base.ref}",
                             log_prefix=self.log_prefix,
+                            redact_secrets=[],
                         )
                         if not rc:
                             result = (rc, out, err)
@@ -127,7 +142,9 @@ class RunnerHandler:
 
                     elif tag_name:
                         rc, out, err = await run_command(
-                            command=f"{git_cmd} checkout {tag_name}", log_prefix=self.log_prefix
+                            command=f"{git_cmd} checkout {tag_name}",
+                            log_prefix=self.log_prefix,
+                            redact_secrets=[],
                         )
                         if not rc:
                             result = (rc, out, err)
@@ -139,6 +156,7 @@ class RunnerHandler:
                             rc, out, err = await run_command(
                                 command=f"{git_cmd} checkout origin/pr/{_pull_request.number}",
                                 log_prefix=self.log_prefix,
+                                redact_secrets=[],
                             )
                             if not rc:
                                 result = (rc, out, err)
@@ -146,8 +164,9 @@ class RunnerHandler:
 
                             if pull_request and success:
                                 rc, out, err = await run_command(
-                                    f"{git_cmd} merge origin/{pull_request.base.ref} -m 'Merge {pull_request.base.ref}'",
+                                    command=f"{git_cmd} merge origin/{pull_request.base.ref} -m 'Merge {pull_request.base.ref}'",
                                     log_prefix=self.log_prefix,
+                                    redact_secrets=[],
                                 )
                                 if not rc:
                                     result = (rc, out, err)
@@ -224,7 +243,7 @@ class RunnerHandler:
             self.logger.step(  # type: ignore[attr-defined]
                 f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Executing tox command"
             )
-            rc, out, err = await run_command(command=cmd, log_prefix=self.log_prefix)
+            rc, out, err = await run_command(command=cmd, log_prefix=self.log_prefix, redact_secrets=[])
 
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
 
@@ -276,7 +295,7 @@ class RunnerHandler:
             self.logger.step(  # type: ignore[attr-defined]
                 f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Executing pre-commit command",
             )
-            rc, out, err = await run_command(command=cmd, log_prefix=self.log_prefix)
+            rc, out, err = await run_command(command=cmd, log_prefix=self.log_prefix, redact_secrets=[])
 
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
 
@@ -421,8 +440,10 @@ class RunnerHandler:
 {self.github_webhook.repository_full_name} {push_msg}.
 ```
 """
-                        self.github_webhook.send_slack_message(
-                            message=message, webhook_url=self.github_webhook.slack_webhook_url
+                        await self.github_webhook.unified_api.send_slack_message_async(
+                            send_slack_message_func=self.github_webhook.send_slack_message,
+                            message=message,
+                            webhook_url=self.github_webhook.slack_webhook_url,
                         )
 
                     self.logger.info(f"{self.log_prefix} Done push {_container_repository_and_tag}")
@@ -442,8 +463,10 @@ class RunnerHandler:
 {self.github_webhook.repository_full_name} {err_msg}.
 ```
                         """
-                        self.github_webhook.send_slack_message(
-                            message=message, webhook_url=self.github_webhook.slack_webhook_url
+                        await self.github_webhook.unified_api.send_slack_message_async(
+                            send_slack_message_func=self.github_webhook.send_slack_message,
+                            message=message,
+                            webhook_url=self.github_webhook.slack_webhook_url,
                         )
 
     async def run_install_python_module(self, pull_request: PullRequestWrapper) -> None:
@@ -485,6 +508,7 @@ class RunnerHandler:
             rc, out, err = await run_command(
                 command=f"uvx pip wheel --no-cache-dir -w {clone_repo_dir}/dist {clone_repo_dir}",
                 log_prefix=self.log_prefix,
+                redact_secrets=[],
             )
 
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)

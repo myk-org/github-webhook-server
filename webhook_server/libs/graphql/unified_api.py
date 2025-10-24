@@ -50,16 +50,18 @@ class UnifiedGitHubAPI:
         >>> await api.close()
     """
 
-    def __init__(self, token: str, logger: logging.Logger) -> None:
+    def __init__(self, token: str, logger: logging.Logger, batch_concurrency_limit: int = 10) -> None:
         """
         Initialize unified API client.
 
         Args:
             token: GitHub personal access token or GitHub App token
             logger: Logger instance
+            batch_concurrency_limit: Maximum concurrent batch operations (default: 10, 0 for unlimited)
         """
         self.token = token
         self.logger = logger
+        self.batch_concurrency_limit = batch_concurrency_limit
 
         # GraphQL client (async)
         self.graphql_client: GraphQLClient | None = None
@@ -75,14 +77,18 @@ class UnifiedGitHubAPI:
             if self._initialized:
                 return
 
-            # Initialize GraphQL client
-            self.graphql_client = GraphQLClient(token=self.token, logger=self.logger)
+            # Initialize GraphQL client with batch concurrency limiting
+            self.graphql_client = GraphQLClient(
+                token=self.token, logger=self.logger, batch_concurrency_limit=self.batch_concurrency_limit
+            )
 
             # Initialize REST client (PyGithub)
             self.rest_client = Github(self.token)
 
             self._initialized = True
-            self.logger.info("Unified GitHub API initialized (GraphQL + REST)")
+            self.logger.info(
+                f"Unified GitHub API initialized (GraphQL + REST, batch_concurrency_limit={self.batch_concurrency_limit})"
+            )
 
     async def close(self) -> None:
         """Close and cleanup API clients."""
@@ -577,8 +583,8 @@ class UnifiedGitHubAPI:
             variables = {"login": login}
             result = await self.graphql_client.execute(query, variables)  # type: ignore[union-attr]
             return result["user"]["id"]
-        except Exception:
-            # Fallback to REST API
+        except (GraphQLError, TransportConnectionFailed, TransportQueryError, TransportServerError):
+            # Fallback to REST API only for GraphQL/transport errors
             self.logger.debug(f"GraphQL failed for get_user_id, falling back to REST for user: {login}")
             return await self.get_user_id_rest(login)
 

@@ -217,8 +217,8 @@ async def process_webhook(request: Request, background_tasks: BackgroundTasks) -
         try:
             await _api.process()
             _logger.success(f"{log_context} Webhook processing completed successfully")  # type: ignore
-        except Exception as e:
-            _logger.exception(f"{log_context} Error in background task: {e}")
+        except Exception:
+            _logger.exception(f"{log_context} Error in background task")
 
     try:
         api: GithubWebhook = GithubWebhook(hook_data=hook_data, headers=request.headers, logger=logger)
@@ -243,8 +243,8 @@ async def process_webhook(request: Request, background_tasks: BackgroundTasks) -
     except HTTPException:
         raise
 
-    except Exception as e:
-        logger.exception(f"{log_context} Unexpected error during processing: {e}")
+    except Exception:
+        logger.exception(f"{log_context} Unexpected error during processing")
         exc_type, _, exc_tb = sys.exc_info()
         line_no = exc_tb.tb_lineno if exc_tb else "unknown"
         file_name = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1] if exc_tb else "unknown"

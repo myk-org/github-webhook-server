@@ -6,11 +6,13 @@ import os
 from typing import Any
 
 import requests
+from github import GithubException
 from github.Commit import Commit
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
 # GraphQL wrappers provide PyGithub-compatible interface
+from gql.transport.exceptions import TransportConnectionFailed, TransportQueryError, TransportServerError
 from webhook_server.libs.graphql.graphql_client import (
     GraphQLAuthenticationError,
     GraphQLError,
@@ -359,19 +361,19 @@ class GithubWebhook:
         # (GraphQL doesn't have efficient commit->PR lookup)
         commit: dict[str, Any] = self.hook_data.get("commit", {})
         if commit:
-            owner, repo_name = self.repository.full_name.split("/")
+            owner, repo_name = self.repository_full_name.split("/")
             try:
                 # Get PRs associated with this commit SHA (unified_api handles REST internally)
                 _pulls = await self.unified_api.get_pulls_from_commit_sha(owner, repo_name, commit["sha"])
                 if _pulls:
                     return _pulls[0]
                 self.logger.warning(f"{self.log_prefix} No PRs found for commit {commit['sha']}")
-            except (GraphQLError, IndexError) as ex:
+            except (GraphQLError, GithubException, IndexError) as ex:
                 self.logger.warning(f"{self.log_prefix} Failed to get PR from commit {commit['sha']}: {ex}")
             # Don't suppress authentication or connection errors
 
         if self.github_event == "check_run":
-            owner, repo_name = self.repository.full_name.split("/")
+            owner, repo_name = self.repository_full_name.split("/")
             for _pull_request in await self.unified_api.get_open_pull_requests(owner, repo_name):
                 if _pull_request.head.sha == self.hook_data["check_run"]["head_sha"]:
                     self.logger.debug(
@@ -405,7 +407,7 @@ class GithubWebhook:
             return commits[-1]
         # If no commits in wrapper, fetch PR with commits
         self.logger.warning(f"{self.log_prefix} No commits in GraphQL wrapper, fetching with include_commits=True")
-        owner, repo_name = self.repository.full_name.split("/")
+        owner, repo_name = self.repository_full_name.split("/")
         pr_data = await self.unified_api.get_pull_request(owner, repo_name, pull_request.number, include_commits=True)
         commits_nodes = pr_data.get("commits", {}).get("nodes", [])
         if not commits_nodes:
@@ -436,8 +438,8 @@ class GithubWebhook:
                 self.logger.debug(f"{self.log_prefix} Adding PR comment with pr_id={pr_id}, body length={len(body)}")
                 await self.unified_api.add_comment(pr_id, body)
             self.logger.info(f"{self.log_prefix} Successfully added PR comment")
-        except Exception as ex:
-            self.logger.exception(f"{self.log_prefix} Failed to add PR comment: {ex}")
+        except Exception:
+            self.logger.exception(f"{self.log_prefix} Failed to add PR comment")
             raise
 
     async def update_pr_title(self, pull_request: PullRequest | PullRequestWrapper, title: str) -> None:
@@ -504,8 +506,8 @@ class GithubWebhook:
             except (GraphQLAuthenticationError, GraphQLRateLimitError):
                 # Re-raise auth/rate-limit errors - don't waste time trying REST
                 raise
-            except Exception as ex:
-                # (3) If GraphQL fails (user not found or other error), try to use extracted id from original reviewer
+            except (GraphQLError, TransportConnectionFailed, TransportQueryError, TransportServerError) as ex:
+                # (3) If GraphQL fails (user not found or other GraphQL/transport error), try to use extracted id from original reviewer
                 if reviewer_id:
                     self.logger.debug(f"{self.log_prefix} Using extracted id {reviewer_id} for {username}")
                     reviewer_ids.append(str(reviewer_id))
@@ -517,7 +519,12 @@ class GithubWebhook:
                     except (GraphQLAuthenticationError, GraphQLRateLimitError):
                         # Re-raise auth/rate-limit errors
                         raise
-                    except Exception as rest_ex:
+                    except (
+                        GraphQLError,
+                        TransportConnectionFailed,
+                        TransportQueryError,
+                        TransportServerError,
+                    ) as rest_ex:
                         self.logger.warning(
                             f"{self.log_prefix} Failed to get ID for {username} via GraphQL ({ex}) and REST ({rest_ex})"
                         )
@@ -535,7 +542,7 @@ class GithubWebhook:
                 user_id = await self.unified_api.get_user_id(assignee)
                 await self.unified_api.add_assignees(pr_id, [user_id])
             else:
-                owner, repo_name = self.repository.full_name.split("/")
+                owner, repo_name = self.repository_full_name.split("/")
                 await self.unified_api.add_assignees_by_login(owner, repo_name, pull_request.number, [assignee])
         except Exception as ex:
             self.logger.warning(f"{self.log_prefix} Failed to add assignee {assignee}: {ex}")

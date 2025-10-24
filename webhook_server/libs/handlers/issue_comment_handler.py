@@ -250,10 +250,20 @@ class IssueCommentHandler:
         self, pull_request: PullRequest | PullRequestWrapper, issue_comment_id: int, reaction: str
     ) -> None:
         owner, repo_name = self.repository.full_name.split("/")
-        _comment = await self.github_webhook.unified_api.get_issue_comment(
-            owner, repo_name, pull_request.number, issue_comment_id
-        )
-        await self.github_webhook.unified_api.create_reaction(_comment, reaction)
+        try:
+            _comment = await self.github_webhook.unified_api.get_issue_comment(
+                owner, repo_name, pull_request.number, issue_comment_id
+            )
+            await self.github_webhook.unified_api.create_reaction(_comment, reaction)
+        except GithubException as ex:
+            # Handle deleted or inaccessible comments (404)
+            if hasattr(ex, "status") and ex.status == 404:
+                self.logger.info(
+                    f"{self.log_prefix} Comment {issue_comment_id} not found (deleted or inaccessible), skipping reaction"
+                )
+                return
+            # Re-raise other GitHub exceptions
+            raise
 
     async def _add_reviewer_by_user_comment(
         self, pull_request: PullRequest | PullRequestWrapper, reviewer: str
@@ -319,7 +329,7 @@ class IssueCommentHandler:
                 ]
                 info_msg: str = f"""
 Cherry-pick requested for PR: `{pull_request.title}` by user `{reviewed_user}`
-Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automatic cheery-pick once the PR is merged
+Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automatic cherry-pick once the PR is merged
 """
                 self.logger.info(f"{self.log_prefix} {info_msg}")
                 await self.github_webhook.add_pr_comment(pull_request, info_msg)

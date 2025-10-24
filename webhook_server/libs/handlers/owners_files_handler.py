@@ -36,7 +36,7 @@ class OwnersFileHandler:
         """
         return self.repository.full_name.split("/")
 
-    async def initialize(self, pull_request: PullRequestWrapper) -> "OwnersFileHandler":
+    async def initialize(self, pull_request: PullRequest | PullRequestWrapper) -> "OwnersFileHandler":
         self.changed_files = await self.list_changed_files(pull_request=pull_request)
         self.all_repository_approvers_and_reviewers = await self.get_all_repository_approvers_and_reviewers(
             pull_request=pull_request
@@ -180,7 +180,7 @@ class OwnersFileHandler:
                 exception_type = type(result).__name__
                 self.logger.exception(
                     f"{self.log_prefix} Failed to fetch OWNERS file: [{exception_type}] {result}",
-                    exc_info=result,
+                    exc_info=(type(result), result, result.__traceback__),
                 )
                 continue
             # Type narrowing: result is tuple[ContentFile, str] after exception check

@@ -79,6 +79,11 @@ properties:
     description: Maximum number of OWNERS files to process in a repository (default is 1000)
     default: 1000
     minimum: 1
+  batch-concurrency-limit:
+    type: integer
+    description: Maximum number of concurrent GraphQL batch operations (default is 10 to protect rate/connection limits, 0 for unlimited)
+    default: 10
+    minimum: 0
 
   pr-size-thresholds:
     type: object
@@ -270,6 +275,11 @@ properties:
           description: Maximum number of OWNERS files to process in this repository (default is 1000)
           default: 1000
           minimum: 1
+        batch-concurrency-limit:
+          type: integer
+          description: Maximum number of concurrent GraphQL batch operations for this repository (default is 10, 0 for unlimited)
+          default: 10
+          minimum: 0
         pr-size-thresholds:
           type: object
           description: Custom PR size thresholds with label names and colors (repository-specific override)

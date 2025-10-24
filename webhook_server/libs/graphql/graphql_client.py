@@ -68,6 +68,7 @@ class GraphQLClient:
         logger: logging.Logger,
         retry_count: int = 3,
         timeout: int = 90,
+        batch_concurrency_limit: int = 10,
     ) -> None:
         """
         Initialize GraphQL client.
@@ -77,14 +78,20 @@ class GraphQLClient:
             logger: Logger instance for operation logging
             retry_count: Number of retry attempts for failed requests (default: 3)
             timeout: Request timeout in seconds (default: 90, increased for large mutations)
+            batch_concurrency_limit: Maximum concurrent batch operations (default: 10, 0 for unlimited)
         """
         self.token = token
         self.logger = logger
         self.retry_count = retry_count
         self.timeout = timeout
+        self.batch_concurrency_limit = batch_concurrency_limit
         self._client: Client | None = None
         self._transport: AIOHTTPTransport | None = None
         self._client_lock = asyncio.Lock()  # Protect against concurrent client recreation
+        # Semaphore for batch concurrency limiting (None means unlimited)
+        self._batch_semaphore: asyncio.Semaphore | None = (
+            asyncio.Semaphore(batch_concurrency_limit) if batch_concurrency_limit > 0 else None
+        )
 
     async def __aenter__(self) -> GraphQLClient:
         """Async context manager entry."""
@@ -245,13 +252,23 @@ class GraphQLClient:
                         f"Recreating client and retrying...",
                         exc_info=True,
                     )
-                    # Force recreate client on next iteration
+                    # Close and force recreate client on next iteration
+                    if self._client:
+                        try:
+                            await self._client.close_async()
+                        except Exception:
+                            self.logger.debug("Ignoring error during client close after connection failure")
                     self._client = None
                     self._transport = None
                     await asyncio.sleep(1)  # Brief wait before retry
                     continue  # Retry with fresh client
                 else:
-                    # Final attempt failed
+                    # Final attempt failed — close client before raising
+                    if self._client:
+                        try:
+                            await self._client.close_async()
+                        except Exception:
+                            self.logger.debug("Ignoring error during client close after final connection failure")
                     self.logger.error(
                         f"CONNECTION CLOSED: GraphQL connection closed after {self.retry_count} attempts: {error_msg}",
                         exc_info=True,
@@ -321,7 +338,11 @@ class GraphQLClient:
         queries: list[tuple[str | DocumentNode, dict[str, Any] | None]],
     ) -> list[dict[str, Any]]:
         """
-        Execute multiple GraphQL queries in parallel.
+        Execute multiple GraphQL queries in parallel with optional concurrency limiting.
+
+        Concurrency is controlled by batch_concurrency_limit set during initialization.
+        - If batch_concurrency_limit > 0: Uses semaphore to limit concurrent operations
+        - If batch_concurrency_limit = 0: Unlimited concurrency (all queries run in parallel)
 
         Args:
             queries: List of (query, variables) tuples
@@ -336,7 +357,17 @@ class GraphQLClient:
             ... ]
             >>> results = await client.execute_batch(queries)
         """
-        tasks = [self.execute(query, variables) for query, variables in queries]
+
+        async def _execute_with_semaphore(
+            query: str | DocumentNode, variables: dict[str, Any] | None
+        ) -> dict[str, Any]:
+            """Execute a single query with semaphore protection if configured."""
+            if self._batch_semaphore:
+                async with self._batch_semaphore:
+                    return await self.execute(query, variables)
+            return await self.execute(query, variables)
+
+        tasks = [_execute_with_semaphore(query, variables) for query, variables in queries]
         return await asyncio.gather(*tasks)
 
     async def get_rate_limit(self) -> dict[str, Any]:

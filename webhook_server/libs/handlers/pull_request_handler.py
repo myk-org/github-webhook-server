@@ -517,7 +517,9 @@ For more information, please refer to the project documentation or contact the m
 
         for result in setup_results:
             if isinstance(result, Exception):
-                self.logger.exception(f"{self.log_prefix} Setup task failed")
+                self.logger.exception(
+                    f"{self.log_prefix} Setup task failed", exc_info=(type(result), result, result.__traceback__)
+                )
 
         self.logger.step(  # type: ignore[attr-defined]
             f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'completed')} Setup tasks completed"

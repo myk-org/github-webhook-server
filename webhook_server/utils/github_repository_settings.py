@@ -209,7 +209,11 @@ async def set_repositories_settings(config: Config, apis_dict: dict[str, dict[st
         LOGGER.info("Login in to docker.io")
         docker_username: str = docker["username"]
         docker_password: str = docker["password"]
-        await run_command(log_prefix="", command=f"podman login -u {docker_username} -p {docker_password} docker.io")
+        await run_command(
+            log_prefix="",
+            command=f"podman login -u {docker_username} -p {docker_password} docker.io",
+            redact_secrets=[docker_username, docker_password],
+        )
 
     futures = []
     with ThreadPoolExecutor() as executor:
