@@ -688,6 +688,10 @@ class UnifiedGitHubAPI:
         Uses: REST (wrapped in asyncio.to_thread to avoid blocking)
         Reason: Check Runs API is NOT available in GitHub GraphQL v4
 
+        TODO: Cannot migrate to GraphQL - Check Runs API is not available in GraphQL.
+              GitHub has not announced plans to add check runs to GraphQL v4.
+              This function will likely remain REST-only indefinitely.
+
         Args:
             owner: Repository owner
             name: Repository name
@@ -717,6 +721,10 @@ class UnifiedGitHubAPI:
 
         Uses: REST (not yet in GraphQL)
 
+        TODO: Migrate to GraphQL when available - PR files are not yet accessible in GraphQL v4.
+              Monitor GitHub GraphQL schema updates for PullRequest.files field.
+              Expected GraphQL query: pullRequest(number: X) { files(first: 100) { nodes { path, additions, deletions } } }
+
         Args:
             owner: Repository owner
             name: Repository name
@@ -735,6 +743,11 @@ class UnifiedGitHubAPI:
 
         Uses: REST (wrapped in asyncio.to_thread to avoid blocking)
         Reason: Simpler for iteration over all PRs; GraphQL pagination is more complex for this use case
+
+        TODO: Consider migrating to GraphQL with pagination - GraphQL supports this via:
+              repository(owner: X, name: Y) { pullRequests(states: OPEN, first: 100) { nodes { ... } pageInfo { ... } } }
+              Trade-off: GraphQL requires cursor pagination (more complex) vs REST simple iteration.
+              Migration only worthwhile if we need additional PR data beyond what REST provides.
 
         Args:
             owner: Repository owner
@@ -758,6 +771,10 @@ class UnifiedGitHubAPI:
 
         Uses: REST (not yet in GraphQL)
 
+        TODO: Migrate to GraphQL when available - Issue/PR comments listing is not yet in GraphQL v4.
+              GraphQL has individual comment queries but not efficient bulk listing.
+              Monitor for: pullRequest(number: X) { comments(first: 100) { nodes { ... } } }
+
         Args:
             owner: Repository owner
             name: Repository name
@@ -777,6 +794,11 @@ class UnifiedGitHubAPI:
 
         Uses: REST (helper method)
 
+        TODO: Migrate to GraphQL addAssignees mutation - Already available in GraphQL:
+              mutation { addAssigneesToAssignable(input: {assignableId: PR_ID, assigneeIds: [USER_IDS]}) { ... } }
+              Requires: 1) get_pull_request to fetch PR node ID, 2) get_user_id for each assignee login
+              Trade-off: 2-3 GraphQL calls vs 1 REST call. Only migrate if already fetching PR data.
+
         Args:
             owner: Repository owner
             name: Repository name
@@ -788,52 +810,138 @@ class UnifiedGitHubAPI:
         await asyncio.to_thread(pr.add_to_assignees, *assignees)
 
     async def get_issue_comment(self, owner: str, name: str, number: int, comment_id: int) -> Any:
-        """Get a specific issue comment."""
+        """
+        Get a specific issue comment.
+
+        Uses: REST
+
+        TODO: Migrate to GraphQL when available - Individual comment queries not yet efficient in GraphQL v4.
+              Monitor for: issueComment(id: COMMENT_NODE_ID) { ... } or similar query.
+        """
         repo = await self.get_repository_for_rest_operations(owner, name)
         pr = await asyncio.to_thread(repo.get_pull, number)
         return await asyncio.to_thread(pr.get_issue_comment, comment_id)
 
     async def create_reaction(self, comment: Any, reaction: str) -> None:
-        """Create a reaction on a comment."""
+        """
+        Create a reaction on a comment.
+
+        Uses: REST
+
+        TODO: Cannot migrate to GraphQL - Reactions API is not available in GraphQL v4.
+              GitHub has not announced plans to add reaction mutations to GraphQL.
+              This function will likely remain REST-only indefinitely.
+        """
         await asyncio.to_thread(comment.create_reaction, reaction)
 
     async def get_contributors(self, owner: str, name: str) -> list[Any]:
-        """Get repository contributors."""
+        """
+        Get repository contributors.
+
+        Uses: REST
+
+        TODO: Consider migrating to GraphQL - Available via:
+              repository(owner: X, name: Y) { mentionableUsers(first: 100) { ... } }
+              However, REST is simpler for this use case and already efficient.
+              Migration only worthwhile if we need contributor data in same query as other repo data.
+        """
         repo = await self.get_repository_for_rest_operations(owner, name)
         return list(await asyncio.to_thread(repo.get_contributors))
 
     async def get_collaborators(self, owner: str, name: str) -> list[Any]:
-        """Get repository collaborators."""
+        """
+        Get repository collaborators.
+
+        Uses: REST
+
+        TODO: Consider migrating to GraphQL - Available via:
+              repository(owner: X, name: Y) { collaborators(first: 100) { edges { permission node { ... } } } }
+              However, REST is simpler for this use case and already efficient.
+              Migration only worthwhile if we need collaborator data in same query as other repo data.
+        """
         repo = await self.get_repository_for_rest_operations(owner, name)
         return list(await asyncio.to_thread(repo.get_collaborators))
 
     async def get_branch(self, owner: str, name: str, branch: str) -> Any:
-        """Get branch information."""
+        """
+        Get branch information.
+
+        Uses: REST
+
+        TODO: Consider migrating to GraphQL - Available via:
+              repository(owner: X, name: Y) { ref(qualifiedName: "refs/heads/BRANCH") { target { ... } } }
+              However, REST is simpler for this use case and already efficient.
+              Migration only worthwhile if we need branch data in same query as other repo data.
+        """
         repo = await self.get_repository_for_rest_operations(owner, name)
         return await asyncio.to_thread(repo.get_branch, branch)
 
     async def get_branch_protection(self, owner: str, name: str, branch: str) -> Any:
-        """Get branch protection rules."""
+        """
+        Get branch protection rules.
+
+        Uses: REST
+
+        TODO: Partially available in GraphQL - Branch protection is only partially in GraphQL v4:
+              repository(owner: X, name: Y) { branchProtectionRules(first: 100) { nodes { ... } } }
+              However, many branch protection settings are only available via REST API.
+              Monitor GitHub GraphQL schema for complete branch protection coverage.
+        """
         repo = await self.get_repository_for_rest_operations(owner, name)
         branch_obj = await asyncio.to_thread(repo.get_branch, branch)
         return await asyncio.to_thread(branch_obj.get_protection)
 
     async def get_issues(self, owner: str, name: str) -> list[Any]:
-        """Get repository issues."""
+        """
+        Get repository issues.
+
+        Uses: REST
+
+        TODO: Consider migrating to GraphQL - Available via:
+              repository(owner: X, name: Y) { issues(first: 100, states: [OPEN]) { nodes { ... } } }
+              However, REST is simpler for iteration and already efficient.
+              Migration only worthwhile if we need issue data in same query as other repo data.
+        """
         repo = await self.get_repository_for_rest_operations(owner, name)
         return list(await asyncio.to_thread(repo.get_issues))
 
     async def edit_issue(self, issue: Any, state: str) -> None:
-        """Edit issue state."""
+        """
+        Edit issue state.
+
+        Uses: REST
+
+        TODO: Migrate to GraphQL closeIssue/reopenIssue mutations - Already available:
+              mutation { closeIssue(input: {issueId: ISSUE_NODE_ID}) { issue { state } } }
+              mutation { reopenIssue(input: {issueId: ISSUE_NODE_ID}) { issue { state } } }
+              Requires issue node ID (not REST object). Migrate when we have issue ID from GraphQL queries.
+        """
         await asyncio.to_thread(issue.edit, state=state)
 
     async def get_contents(self, owner: str, name: str, path: str, ref: str) -> Any:
-        """Get file contents from repository."""
+        """
+        Get file contents from repository.
+
+        Uses: REST
+
+        TODO: Already have GraphQL alternative - get_file_contents() uses GraphQL for text files.
+              This REST version is kept as fallback for binary files and as backward compatibility.
+              Consider phasing out this method in favor of get_file_contents() where possible.
+        """
         repo = await self.get_repository_for_rest_operations(owner, name)
         return await asyncio.to_thread(repo.get_contents, path, ref)
 
     async def get_git_tree(self, owner: str, name: str, ref: str, recursive: bool = True) -> Any:
-        """Get git tree."""
+        """
+        Get git tree.
+
+        Uses: REST
+
+        TODO: Consider migrating to GraphQL - Available via:
+              repository(owner: X, name: Y) { object(expression: "REF:") { ... tree { entries { ... } } } }
+              However, REST is more straightforward for recursive tree operations.
+              Migration only worthwhile if we need tree data in same query as other repo data.
+        """
         repo = await self.get_repository_for_rest_operations(owner, name)
         return await asyncio.to_thread(repo.get_git_tree, ref, recursive=recursive)
 
@@ -843,6 +951,12 @@ class UnifiedGitHubAPI:
 
         Works with both REST API Commit objects and CommitWrapper.
         If commit is CommitWrapper, fetches check runs via REST API using commit SHA.
+
+        Uses: REST
+
+        TODO: Cannot migrate to GraphQL - Check Runs API is not available in GraphQL v4.
+              GitHub has not announced plans to add check runs queries to GraphQL.
+              This function will likely remain REST-only indefinitely.
 
         Args:
             commit: REST Commit object or CommitWrapper
@@ -867,17 +981,42 @@ class UnifiedGitHubAPI:
         return []
 
     async def create_check_run(self, repo_by_app: Any, **kwargs: Any) -> None:
-        """Create a check run using GitHub App repository."""
+        """
+        Create a check run using GitHub App repository.
+
+        Uses: REST
+
+        TODO: Cannot migrate to GraphQL - Check Runs API is not available in GraphQL v4.
+              GitHub has not announced plans to add check run mutations to GraphQL.
+              This function will likely remain REST-only indefinitely.
+        """
         await asyncio.to_thread(repo_by_app.create_check_run, **kwargs)
 
     async def merge_pull_request(self, owner: str, name: str, number: int, merge_method: str = "SQUASH") -> None:
-        """Merge a pull request."""
+        """
+        Merge a pull request.
+
+        Uses: REST
+
+        TODO: Consider GraphQL enablePullRequestAutomerge mutation - Different from direct merge:
+              GraphQL: mutation { enablePullRequestAutomerge(input: {pullRequestId: PR_ID, mergeMethod: SQUASH}) { ... } }
+              This enables auto-merge (PR merges when checks pass), not immediate merge like REST.
+              For immediate merge, REST is currently the only option.
+        """
         repo = await self.get_repository_for_rest_operations(owner, name)
         pr = await asyncio.to_thread(repo.get_pull, number)
         await asyncio.to_thread(pr.merge, merge_method=merge_method)
 
     async def get_pulls_from_commit(self, commit: Any) -> list[Any]:
-        """Get pull requests associated with a commit."""
+        """
+        Get pull requests associated with a commit.
+
+        Uses: REST
+
+        TODO: Consider migrating to GraphQL - Available via:
+              repository(owner: X, name: Y) { object(oid: "COMMIT_SHA") { ... associatedPullRequests { nodes { ... } } } }
+              However, requires commit SHA and repo info. Only migrate if we already have this data from GraphQL.
+        """
         return list(await asyncio.to_thread(commit.get_pulls))
 
     async def get_pulls_from_commit_sha(self, owner: str, name: str, sha: str) -> list[Any]:
@@ -886,6 +1025,11 @@ class UnifiedGitHubAPI:
 
         Uses: REST
         Reason: Efficient commit->PR lookup
+
+        TODO: Consider migrating to GraphQL - Available via:
+              repository(owner: X, name: Y) { object(oid: "COMMIT_SHA") { ... associatedPullRequests(first: 10) { nodes { ... } } } }
+              However, REST is already efficient for this specific use case.
+              Migration only worthwhile if we need PR data in same query as other repo data.
 
         Args:
             owner: Repository owner
