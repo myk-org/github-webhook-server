@@ -611,21 +611,26 @@ body {
   position: relative;
 }
 
-.flow-step {
-  display: flex;
-  gap: 16px;
-  margin-bottom: 8px;
+.flow-step-container {
   position: relative;
+  margin-bottom: 8px;
 }
 
-.flow-step:not(:last-child)::before {
+.flow-step-container:not(:last-child)::before {
   content: "";
   position: absolute;
   left: 19px;
   top: 40px;
-  bottom: -8px;
+  bottom: 0;
   width: 2px;
   background: var(--border-color);
+  z-index: 0;
+}
+
+.flow-step {
+  display: flex;
+  gap: 16px;
+  position: relative;
 }
 
 .flow-step-number {
@@ -773,27 +778,20 @@ body {
   }
 }
 
-.flow-logs {
-  margin-top: 24px;
-  padding-top: 24px;
-  border-top: 2px solid var(--border-color);
-}
-
-.flow-logs h3 {
-  margin: 0 0 16px 0;
-  color: var(--text-color);
-}
-
-#flowLogsContent {
+.step-logs-container {
+  margin-top: 12px;
+  margin-left: 56px;
+  margin-bottom: 12px;
   max-height: 300px;
   overflow-y: auto;
   background: var(--log-debug-bg);
   border: 1px solid var(--border-color);
+  border-left: 3px solid var(--level-info-border);
   border-radius: 4px;
   padding: 12px;
 }
 
-#flowLogsContent .log-entry {
+.step-logs-container .log-entry {
   padding: 8px;
   margin-bottom: 8px;
   border-bottom: 1px solid var(--log-entry-border);
@@ -801,7 +799,7 @@ body {
   font-size: 13px;
 }
 
-#flowLogsContent .log-entry:last-child {
+.step-logs-container .log-entry:last-child {
   border-bottom: none;
   margin-bottom: 0;
 }

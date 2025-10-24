@@ -633,14 +633,6 @@ function initializeEventListeners() {
       }
     });
   }
-
-  // Hook ID filter triggers modal
-  const hookIdFilter = document.getElementById("hookIdFilter");
-  if (hookIdFilter) {
-    hookIdFilter.addEventListener("input", () => {
-      setTimeout(checkForTimelineDisplay, 300);
-    });
-  }
 }
 
 // Initialize event listeners
@@ -775,6 +767,9 @@ function renderFlowModal(data) {
     const timeFromStart = `+${(step.relative_time_ms / 1000).toFixed(2)}s`;
     const timestamp = new Date(step.timestamp).toLocaleTimeString();
 
+    const flowStepContainer = document.createElement("div");
+    flowStepContainer.className = "flow-step-container";
+
     const flowStep = document.createElement("div");
     flowStep.className = `flow-step ${stepType}`;
     flowStep.setAttribute("data-step-index", index.toString());
@@ -811,7 +806,16 @@ function renderFlowModal(data) {
     flowStep.appendChild(stepNumber);
     flowStep.appendChild(stepContent);
 
-    vizElement.appendChild(flowStep);
+    // Create logs container for this step (hidden by default)
+    const stepLogsContainer = document.createElement("div");
+    stepLogsContainer.className = "step-logs-container";
+    stepLogsContainer.style.display = "none";
+    stepLogsContainer.setAttribute("data-step-logs", index.toString());
+
+    flowStepContainer.appendChild(flowStep);
+    flowStepContainer.appendChild(stepLogsContainer);
+
+    vizElement.appendChild(flowStepContainer);
   });
 
   // Add final status
@@ -855,20 +859,35 @@ async function filterByStep(stepIndex) {
   if (!currentFlowData || !currentFlowData.steps[stepIndex]) return;
 
   const step = currentFlowData.steps[stepIndex];
+  const logsContainer = document.querySelector(
+    `[data-step-logs="${stepIndex}"]`,
+  );
 
-  // Show logs in the modal instead of closing it
-  await showStepLogsInModal(step);
+  if (!logsContainer) return;
+
+  // Toggle: if this step's logs are already showing, hide them
+  if (logsContainer.style.display === "block") {
+    logsContainer.style.display = "none";
+    logsContainer.innerHTML = "";
+    return;
+  }
+
+  // Hide all other step logs
+  document.querySelectorAll(".step-logs-container").forEach((container) => {
+    container.style.display = "none";
+    container.innerHTML = "";
+  });
+
+  // Show logs for this step
+  await showStepLogsInModal(step, logsContainer);
 }
 
-async function showStepLogsInModal(step) {
-  const flowLogsSection = document.getElementById("flowLogs");
-  const flowLogsContent = document.getElementById("flowLogsContent");
-
-  if (!flowLogsSection || !flowLogsContent) return;
+async function showStepLogsInModal(step, logsContainer) {
+  if (!logsContainer) return;
 
   // Show loading state
-  flowLogsSection.style.display = "block";
-  flowLogsContent.textContent = "Loading logs...";
+  logsContainer.style.display = "block";
+  logsContainer.textContent = "Loading logs...";
 
   try {
     // Fetch logs matching this step message
@@ -887,14 +906,15 @@ async function showStepLogsInModal(step) {
     const data = await response.json();
 
     // Clear and display logs
-    flowLogsContent.innerHTML = "";
+    logsContainer.innerHTML = "";
 
     if (data.entries.length === 0) {
       const emptyMsg = document.createElement("div");
       emptyMsg.textContent = "No logs found for this step";
       emptyMsg.style.textAlign = "center";
       emptyMsg.style.color = "var(--timestamp-color)";
-      flowLogsContent.appendChild(emptyMsg);
+      emptyMsg.style.padding = "12px";
+      logsContainer.appendChild(emptyMsg);
       return;
     }
 
@@ -919,29 +939,13 @@ async function showStepLogsInModal(step) {
       logEntry.appendChild(level);
       logEntry.appendChild(message);
 
-      flowLogsContent.appendChild(logEntry);
+      logsContainer.appendChild(logEntry);
     });
 
-    // Scroll to logs section
-    flowLogsSection.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    // Scroll to the logs container
+    logsContainer.scrollIntoView({ behavior: "smooth", block: "nearest" });
   } catch (error) {
     console.error("Error fetching step logs:", error);
-    flowLogsContent.textContent = "Error loading logs";
+    logsContainer.textContent = "Error loading logs";
   }
 }
-
-// Auto-show modal when hook ID filter is applied, close when cleared
-function checkForTimelineDisplay() {
-  const hookIdFilter = document.getElementById("hookIdFilter");
-  if (!hookIdFilter) return;
-
-  const hookId = hookIdFilter.value.trim();
-  if (hookId) {
-    showFlowModal(hookId);
-  } else {
-    closeFlowModal();
-  }
-}
-
-// Check on initial load
-setTimeout(checkForTimelineDisplay, 1000);
