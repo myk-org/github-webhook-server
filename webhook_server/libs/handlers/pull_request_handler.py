@@ -12,6 +12,7 @@ from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.libs.handlers.labels_handler import LabelsHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.libs.handlers.runner_handler import RunnerHandler
+from webhook_server.utils.helpers import format_task_fields
 from webhook_server.utils.constants import (
     APPROVED_BY_LABEL_PREFIX,
     AUTOMERGE_LABEL_STR,
@@ -76,8 +77,7 @@ class PullRequestHandler:
 
         hook_action: str = self.hook_data["action"]
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Starting pull request processing: action={hook_action}",
-            extra={"task_id": "pr_workflow", "task_type": "workflow"},
+            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'started')} Starting pull request processing: action={hook_action}",
         )
         self.logger.info(f"{self.log_prefix} hook_action is: {hook_action}")
         self.logger.debug(f"{self.log_prefix} pull_request: {pull_request.title} ({pull_request.number})")
@@ -92,8 +92,7 @@ class PullRequestHandler:
 
         if hook_action in ("opened", "reopened", "ready_for_review"):
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Processing PR {hook_action} event: initializing new pull request",
-                extra={"task_id": "pr_setup", "task_type": "setup"},
+                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} Processing PR {hook_action} event: initializing new pull request",
             )
 
             if hook_action in ("opened", "ready_for_review"):
@@ -130,8 +129,7 @@ class PullRequestHandler:
 
         if hook_action == "synchronize":
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Processing PR synchronize event: handling new commits",
-                extra={"task_id": "pr_workflow", "task_type": "workflow"},
+                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} Processing PR synchronize event: handling new commits",
             )
             sync_tasks: list[Coroutine[Any, Any, Any]] = []
 
@@ -149,15 +147,13 @@ class PullRequestHandler:
 
         if hook_action == "closed":
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Processing PR closed event: cleaning up resources",
-                extra={"task_id": "pr_workflow", "task_type": "workflow"},
+                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} Processing PR closed event: cleaning up resources",
             )
             await self.close_issue_for_merged_or_closed_pr(pull_request=pull_request, hook_action=hook_action)
             await self.delete_remote_tag_for_merged_or_closed_pr(pull_request=pull_request)
             if is_merged := pull_request_data.get("merged", False):
                 self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} PR was merged: processing post-merge tasks",
-                    extra={"task_id": "pr_merge_check", "task_type": "workflow"},
+                    f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} PR was merged: processing post-merge tasks",
                 )
                 self.logger.info(f"{self.log_prefix} PR is merged")
 
@@ -185,8 +181,7 @@ class PullRequestHandler:
             labeled_lower = labeled.lower()
 
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Processing label {hook_action} event: {labeled}",
-                extra={"task_id": "pr_workflow", "task_type": "workflow"},
+                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} Processing label {hook_action} event: {labeled}",
             )
 
             if labeled_lower == CAN_BE_MERGED_STR:
@@ -486,14 +481,12 @@ For more information, please refer to the project documentation or contact the m
 
     async def process_opened_or_synchronize_pull_request(self, pull_request: PullRequestWrapper) -> None:
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Starting PR processing workflow",
-            extra={"task_id": "pr_workflow", "task_type": "workflow"},
+            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'started')} Starting PR processing workflow",
         )
 
         # Stage 1: Initial setup and check queue tasks
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Stage: Initial setup and check queuing",
-            extra={"task_id": "pr_setup", "task_type": "setup"},
+            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} Stage: Initial setup and check queuing",
         )
         setup_tasks: list[Coroutine[Any, Any, Any]] = []
 
@@ -518,7 +511,7 @@ For more information, please refer to the project documentation or contact the m
             setup_tasks.append(self.check_run_handler.set_conventional_title_queued())
 
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Executing setup tasks", extra={"task_id": "pr_setup", "task_type": "setup"}
+            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} Executing setup tasks"
         )
         setup_results = await asyncio.gather(*setup_tasks, return_exceptions=True)
 
@@ -527,11 +520,11 @@ For more information, please refer to the project documentation or contact the m
                 self.logger.exception(f"{self.log_prefix} Setup task failed")
 
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Setup tasks completed", extra={"task_id": "pr_setup", "task_type": "setup"}
+            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'completed')} Setup tasks completed"
         )
 
         # Stage 2: CI/CD execution tasks
-        self.logger.step(f"{self.log_prefix} Stage: CI/CD execution", extra={"task_id": "pr_cicd", "task_type": "cicd"})  # type: ignore[attr-defined]
+        self.logger.step(f"{self.log_prefix} Stage: CI/CD execution")  # type: ignore[attr-defined]
         ci_tasks: list[Coroutine[Any, Any, Any]] = []
 
         ci_tasks.append(self.runner_handler.run_tox(pull_request=pull_request))
@@ -542,7 +535,7 @@ For more information, please refer to the project documentation or contact the m
         if self.github_webhook.conventional_title:
             ci_tasks.append(self.runner_handler.run_conventional_title_check(pull_request=pull_request))
 
-        self.logger.step(f"{self.log_prefix} Executing CI/CD tasks", extra={"task_id": "pr_cicd", "task_type": "cicd"})  # type: ignore[attr-defined]
+        self.logger.step(f"{self.log_prefix} Executing CI/CD tasks")  # type: ignore[attr-defined]
         ci_results = await asyncio.gather(*ci_tasks, return_exceptions=True)
 
         for result in ci_results:
@@ -550,8 +543,7 @@ For more information, please refer to the project documentation or contact the m
                 self.logger.error(f"{self.log_prefix} CI/CD task failed: {result}")
 
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} PR processing workflow completed",
-            extra={"task_id": "pr_workflow", "task_type": "workflow"},
+            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'completed')} PR processing workflow completed",
         )
 
     async def create_issue_for_new_pull_request(self, pull_request: PullRequestWrapper) -> None:
@@ -740,8 +732,7 @@ For more information, please refer to the project documentation or contact the m
             PR has no changed requests from approvers.
         """
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Starting merge eligibility check",
-            extra={"task_id": "pr_merge_check", "task_type": "workflow"},
+            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'started')} Starting merge eligibility check",
         )
         if self.skip_if_pull_request_already_merged(pull_request=pull_request):
             self.logger.debug(f"{self.log_prefix} Pull request already merged")

@@ -23,7 +23,6 @@ from github.Repository import Repository as RestRepository
 
 from webhook_server.libs.graphql.graphql_builders import MutationBuilder, QueryBuilder
 from webhook_server.libs.graphql.graphql_client import GraphQLClient, GraphQLError
-from webhook_server.utils.constants import ERROR_IDS
 
 
 class APIType(Enum):
@@ -354,7 +353,6 @@ class UnifiedGitHubAPI:
         except (GraphQLError, TransportQueryError, TransportConnectionFailed, TransportServerError):
             self.logger.exception(
                 f"Failed to add comment to {subject_id}",
-                extra={"error_id": ERROR_IDS.GRAPHQL_ADD_COMMENT_FAILED},
             )
             raise
         else:
@@ -364,7 +362,6 @@ class UnifiedGitHubAPI:
             except KeyError:
                 self.logger.exception(
                     f"Failed to extract comment from GraphQL result for {subject_id}. Result: {result}",
-                    extra={"error_id": ERROR_IDS.GRAPHQL_COMMENT_EXTRACT_FAILED},
                 )
                 raise
             else:

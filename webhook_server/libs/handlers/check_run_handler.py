@@ -23,6 +23,7 @@ from webhook_server.utils.constants import (
     TOX_STR,
     VERIFIED_LABEL_STR,
 )
+from webhook_server.utils.helpers import format_task_fields
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
@@ -51,8 +52,7 @@ class CheckRunHandler:
         check_run_name: str = _check_run["name"]
 
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Processing check run: {check_run_name}",
-            extra={"task_id": "check_run_processing", "task_type": "webhook_event"},
+            f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'processing')} Processing check run: {check_run_name}",
         )
 
         if self.hook_data.get("action", "") != "completed":
@@ -74,16 +74,14 @@ class CheckRunHandler:
                 ):
                     try:
                         self.logger.step(  # type: ignore[attr-defined]
-                            f"{self.log_prefix} Executing auto-merge for PR #{pull_request.number}",
-                            extra={"task_id": "check_run_processing", "task_type": "webhook_event"},
+                            f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'processing')} Executing auto-merge for PR #{pull_request.number}",
                         )
                         owner, repo_name = self.repository.full_name.split("/")
                         await self.unified_api.merge_pull_request(
                             owner, repo_name, pull_request.number, merge_method="SQUASH"
                         )
                         self.logger.step(  # type: ignore[attr-defined]
-                            f"{self.log_prefix} Auto-merge completed successfully",
-                            extra={"task_id": "check_run_processing", "task_type": "webhook_event"},
+                            f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'completed')} Auto-merge completed successfully",
                         )
                         self.logger.info(
                             f"{self.log_prefix} Successfully auto-merged pull request #{pull_request.number}"
@@ -243,23 +241,19 @@ class CheckRunHandler:
         # Log workflow steps for check run status changes
         if status == QUEUED_STR:
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Setting {check_run} check to queued",
-                extra={"task_id": "check_run_processing", "task_type": "webhook_event"},
+                f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'processing')} Setting {check_run} check to queued",
             )
         elif status == IN_PROGRESS_STR:
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Setting {check_run} check to in-progress",
-                extra={"task_id": "check_run_processing", "task_type": "webhook_event"},
+                f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'processing')} Setting {check_run} check to in-progress",
             )
         elif conclusion == SUCCESS_STR:
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Setting {check_run} check to success",
-                extra={"task_id": "check_run_processing", "task_type": "webhook_event"},
+                f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'processing')} Setting {check_run} check to success",
             )
         elif conclusion == FAILURE_STR:
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Setting {check_run} check to failure",
-                extra={"task_id": "check_run_processing", "task_type": "webhook_event"},
+                f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'processing')} Setting {check_run} check to failure",
             )
 
         try:

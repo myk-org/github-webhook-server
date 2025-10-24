@@ -25,6 +25,7 @@ from webhook_server.utils.constants import (
     STATIC_LABELS_DICT,
     WIP_STR,
 )
+from webhook_server.utils.helpers import format_task_fields
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
@@ -64,8 +65,7 @@ class LabelsHandler:
         pull_request = await self._ensure_wrapper(pull_request)
 
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Removing label '{label}' from PR",
-            extra={"task_id": "label_management", "task_type": "pr_management"},
+            f"{self.log_prefix} {format_task_fields('labels', 'pr_management', 'processing')} Removing label '{label}' from PR",
         )
         self.logger.debug(f"{self.log_prefix} Removing label {label}")
         try:
@@ -110,8 +110,7 @@ class LabelsHandler:
 
         label = label.strip()
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Adding label '{label}' to PR",
-            extra={"task_id": "label_management", "task_type": "pr_management"},
+            f"{self.log_prefix} {format_task_fields('labels', 'pr_management', 'processing')} Adding label '{label}' to PR",
         )
         self.logger.debug(f"{self.log_prefix} Adding label {label}")
         if len(label) > 49:
@@ -327,8 +326,7 @@ class LabelsHandler:
     async def add_size_label(self, pull_request: PullRequest | PullRequestWrapper) -> None:
         """Add a size label to the pull request based on its additions and deletions."""
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Calculating and applying PR size label",
-            extra={"task_id": "label_management", "task_type": "pr_management"},
+            f"{self.log_prefix} {format_task_fields('labels', 'pr_management', 'processing')} Calculating and applying PR size label",
         )
         size_label = self.get_size(pull_request=pull_request)
         self.logger.debug(f"{self.log_prefix} size label is {size_label}")
@@ -351,8 +349,7 @@ class LabelsHandler:
 
         await self._add_label(pull_request=pull_request, label=size_label)
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Applied size label '{size_label}' to PR",
-            extra={"task_id": "label_management", "task_type": "pr_management"},
+            f"{self.log_prefix} {format_task_fields('labels', 'pr_management', 'processing')} Applied size label '{size_label}' to PR",
         )
 
     async def label_by_user_comment(

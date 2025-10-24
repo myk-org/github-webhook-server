@@ -42,6 +42,7 @@ from webhook_server.utils.github_repository_settings import (
 )
 from webhook_server.utils.helpers import (
     extract_key_from_dict,
+    format_task_fields,
     get_api_with_highest_rate_limit,
     get_apis_and_tokes_from_config,
     get_github_repo_api,
@@ -123,54 +124,46 @@ class GithubWebhook:
     async def process(self) -> Any:
         event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Starting webhook processing: {event_log}",
-            extra={"task_id": "webhook_processing", "task_type": "webhook_routing"},
+            f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'started')} Starting webhook processing: {event_log}",
         )
 
         if self.github_event == "ping":
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Processing ping event",
-                extra={"task_id": "webhook_processing", "task_type": "webhook_routing"},
+                f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} Processing ping event",
             )
             self.logger.debug(f"{self.log_prefix} {event_log}")
             self.logger.success(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Webhook processing completed successfully: ping event",
-                extra={"task_id": "webhook_processing", "task_type": "webhook_routing"},
+                f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} Webhook processing completed successfully: ping event",
             )
             return {"status": requests.codes.ok, "message": "pong"}
 
         if self.github_event == "push":
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Processing push event",
-                extra={"task_id": "webhook_processing", "task_type": "webhook_routing"},
+                f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} Processing push event",
             )
             self.logger.debug(f"{self.log_prefix} {event_log}")
             await PushHandler(github_webhook=self).process_push_webhook_data()
             self.logger.success(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Webhook processing completed successfully: push event",
-                extra={"task_id": "webhook_processing", "task_type": "webhook_routing"},
+                f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} Webhook processing completed successfully: push event",
             )
             return None
 
         if pull_request := await self.get_pull_request():
             self.log_prefix = self.prepare_log_prefix(pull_request=pull_request)
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Processing pull request event: {event_log}",
-                extra={"task_id": "webhook_processing", "task_type": "webhook_routing"},
+                f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} Processing pull request event: {event_log}",
             )
             self.logger.debug(f"{self.log_prefix} {event_log}")
 
             if pull_request.draft:
                 self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} Pull request is draft, skipping processing",
-                    extra={"task_id": "webhook_processing", "task_type": "webhook_routing"},
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} Pull request is draft, skipping processing",
                 )
                 self.logger.debug(f"{self.log_prefix} Pull request is draft, doing nothing")
                 return None
 
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Initializing pull request data",
-                extra={"task_id": "webhook_processing", "task_type": "webhook_routing"},
+                f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} Initializing pull request data",
             )
             self.last_commit = await self._get_last_commit(pull_request=pull_request)
             self.parent_committer = pull_request.user.login
@@ -178,57 +171,49 @@ class GithubWebhook:
 
             if self.github_event == "issue_comment":
                 self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} Initializing OWNERS file handler for issue comment",
-                    extra={"task_id": "webhook_processing", "task_type": "webhook_routing"},
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} Initializing OWNERS file handler for issue comment",
                 )
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
                 owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
 
                 self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} Processing issue comment with IssueCommentHandler",
-                    extra={"task_id": "webhook_processing", "task_type": "webhook_routing"},
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} Processing issue comment with IssueCommentHandler",
                 )
                 await IssueCommentHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
                 ).process_comment_webhook_data(pull_request=pull_request)
                 self.logger.success(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} Webhook processing completed successfully: issue_comment event",
-                    extra={"task_id": "webhook_processing", "task_type": "webhook_routing"},
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} Webhook processing completed successfully: issue_comment event",
                 )
                 return None
 
             elif self.github_event == "pull_request":
                 self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} Initializing OWNERS file handler for pull request",
-                    extra={"task_id": "webhook_processing", "task_type": "webhook_routing"},
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} Initializing OWNERS file handler for pull request",
                 )
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
                 owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
 
                 self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} Processing pull request with PullRequestHandler",
-                    extra={"task_id": "webhook_processing", "task_type": "webhook_routing"},
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} Processing pull request with PullRequestHandler",
                 )
                 await PullRequestHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
                 ).process_pull_request_webhook_data(pull_request=pull_request)
                 self.logger.success(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} Webhook processing completed successfully: pull_request event",
-                    extra={"task_id": "webhook_processing", "task_type": "webhook_routing"},
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} Webhook processing completed successfully: pull_request event",
                 )
                 return None
 
             elif self.github_event == "pull_request_review":
                 self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} Initializing OWNERS file handler for pull request review",
-                    extra={"task_id": "webhook_processing", "task_type": "webhook_routing"},
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} Initializing OWNERS file handler for pull request review",
                 )
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
                 owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
 
                 self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} Processing pull request review with PullRequestReviewHandler",
-                    extra={"task_id": "webhook_processing", "task_type": "webhook_routing"},
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} Processing pull request review with PullRequestReviewHandler",
                 )
                 await PullRequestReviewHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
@@ -236,41 +221,35 @@ class GithubWebhook:
                     pull_request=pull_request,
                 )
                 self.logger.success(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} Webhook processing completed successfully: pull_request_review event",
-                    extra={"task_id": "webhook_processing", "task_type": "webhook_routing"},
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} Webhook processing completed successfully: pull_request_review event",
                 )
                 return None
 
             elif self.github_event == "check_run":
                 self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} Initializing OWNERS file handler for check run",
-                    extra={"task_id": "webhook_processing", "task_type": "webhook_routing"},
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} Initializing OWNERS file handler for check run",
                 )
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
                 owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
                 self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} Processing check run with CheckRunHandler",
-                    extra={"task_id": "webhook_processing", "task_type": "webhook_routing"},
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} Processing check run with CheckRunHandler",
                 )
                 if await CheckRunHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
                 ).process_pull_request_check_run_webhook_data(pull_request=pull_request):
                     if self.hook_data["check_run"]["name"] != CAN_BE_MERGED_STR:
                         self.logger.step(  # type: ignore[attr-defined]
-                            f"{self.log_prefix} Checking if pull request can be merged after check run",
-                            extra={"task_id": "webhook_processing", "task_type": "webhook_routing"},
+                            f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} Checking if pull request can be merged after check run",
                         )
                         await PullRequestHandler(
                             github_webhook=self, owners_file_handler=owners_file_handler
                         ).check_if_can_be_merged(pull_request=pull_request)
                         self.logger.success(  # type: ignore[attr-defined]
-                            f"{self.log_prefix} Webhook processing completed successfully: check_run event",
-                            extra={"task_id": "webhook_processing", "task_type": "webhook_routing"},
+                            f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} Webhook processing completed successfully: check_run event",
                         )
                         return None
                 self.logger.success(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} Webhook processing completed successfully: check_run event",
-                    extra={"task_id": "webhook_processing", "task_type": "webhook_routing"},
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} Webhook processing completed successfully: check_run event",
                 )
                 return None
 

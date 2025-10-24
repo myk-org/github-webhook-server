@@ -12,6 +12,7 @@ from github.Repository import Repository
 from webhook_server.libs.graphql.graphql_client import GraphQLError
 from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
 from webhook_server.utils.constants import COMMAND_ADD_ALLOWED_USER_STR, ROOT_APPROVERS_KEY
+from webhook_server.utils.helpers import format_task_fields
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
@@ -320,8 +321,7 @@ class OwnersFileHandler:
         self._ensure_initialized()
 
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Starting reviewer assignment based on OWNERS files",
-            extra={"task_id": "reviewer_assignment", "task_type": "pr_management"},
+            f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'started')} Starting reviewer assignment based on OWNERS files",
         )
         self.logger.info(f"{self.log_prefix} Assign reviewers")
 
@@ -330,13 +330,11 @@ class OwnersFileHandler:
 
         if _to_add:
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Assigning {len(_to_add)} reviewers to PR",
-                extra={"task_id": "reviewer_assignment", "task_type": "pr_management"},
+                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'processing')} Assigning {len(_to_add)} reviewers to PR",
             )
         else:
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} No reviewers to assign",
-                extra={"task_id": "reviewer_assignment", "task_type": "pr_management"},
+                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'processing')} No reviewers to assign",
             )
             return
 
@@ -345,8 +343,7 @@ class OwnersFileHandler:
 
         if not reviewers_to_request:
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} No reviewers to assign (all were PR author)",
-                extra={"task_id": "reviewer_assignment", "task_type": "pr_management"},
+                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'processing')} No reviewers to assign (all were PR author)",
             )
             return
 
@@ -355,14 +352,12 @@ class OwnersFileHandler:
             self.logger.debug(f"{self.log_prefix} Batch requesting reviews from: {', '.join(reviewers_to_request)}")
             await self.github_webhook.request_pr_reviews(pull_request, reviewers_to_request)
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Successfully assigned {len(reviewers_to_request)} reviewers",
-                extra={"task_id": "reviewer_assignment", "task_type": "pr_management"},
+                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'completed')} Successfully assigned {len(reviewers_to_request)} reviewers",
             )
 
         except (GithubException, GraphQLError) as ex:
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Failed to assign reviewers in batch",
-                extra={"task_id": "reviewer_assignment", "task_type": "pr_management"},
+                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'processing')} Failed to assign reviewers in batch",
             )
             self.logger.debug(
                 f"{self.log_prefix} Batch review request failed with traceback:\n{traceback.format_exc()}"
@@ -375,8 +370,7 @@ class OwnersFileHandler:
             )
 
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Reviewer assignment completed",
-            extra={"task_id": "reviewer_assignment", "task_type": "pr_management"},
+            f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'completed')} Reviewer assignment completed",
         )
 
     async def is_user_valid_to_run_commands(

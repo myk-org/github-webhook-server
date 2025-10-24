@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.libs.handlers.runner_handler import RunnerHandler
-from webhook_server.utils.helpers import run_command
+from webhook_server.utils.helpers import format_task_fields, run_command
 
 if TYPE_CHECKING:
     from github.Repository import Repository
@@ -26,37 +26,32 @@ class PushHandler:
 
     async def process_push_webhook_data(self) -> None:
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Starting push webhook processing",
-            extra={"task_id": "push_processing", "task_type": "webhook_event"},
+            f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'started')} Starting push webhook processing",
         )
         tag = re.search(r"refs/tags/?(.+)", self.hook_data["ref"])
         if tag:
             tag_name = tag.group(1)
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Processing tag push: {tag_name}",
-                extra={"task_id": "push_processing", "task_type": "webhook_event"},
+                f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'processing')} Processing tag push: {tag_name}",
             )
             self.logger.info(f"{self.log_prefix} Processing push for tag: {tag.group(1)}")
             self.logger.debug(f"{self.log_prefix} Tag: {tag_name}")
             if self.github_webhook.pypi:
                 self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} Starting PyPI upload for tag: {tag_name}",
-                    extra={"task_id": "push_processing", "task_type": "webhook_event"},
+                    f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'started')} Starting PyPI upload for tag: {tag_name}",
                 )
                 self.logger.info(f"{self.log_prefix} Processing upload to pypi for tag: {tag_name}")
                 await self.upload_to_pypi(tag_name=tag_name)
 
             if self.github_webhook.build_and_push_container and self.github_webhook.container_release:
                 self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} Starting container build and push for tag: {tag_name}",
-                    extra={"task_id": "push_processing", "task_type": "webhook_event"},
+                    f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'started')} Starting container build and push for tag: {tag_name}",
                 )
                 self.logger.info(f"{self.log_prefix} Processing build and push container for tag: {tag_name}")
                 await self.runner_handler.run_build_container(push=True, set_check=False, tag=tag_name)
         else:
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Non-tag push detected, skipping processing",
-                extra={"task_id": "push_processing", "task_type": "webhook_event"},
+                f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'processing')} Non-tag push detected, skipping processing",
             )
 
     async def upload_to_pypi(self, tag_name: str) -> None:
@@ -73,8 +68,7 @@ Publish to PYPI failed: `{_error}`
             )
 
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Starting PyPI upload process for tag: {tag_name}",
-            extra={"task_id": "push_processing", "task_type": "webhook_event"},
+            f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'started')} Starting PyPI upload process for tag: {tag_name}",
         )
         clone_repo_dir = f"{self.github_webhook.clone_repo_dir}-{uuid4()}"
         uv_cmd_dir = f"--directory {clone_repo_dir}"
@@ -171,8 +165,7 @@ Publish to PYPI failed: `{_error}`
                     self.logger.warning(f"{self.log_prefix} Failed to remove .pypirc: {ex}")
 
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} PyPI upload completed successfully for tag: {tag_name}",
-                extra={"task_id": "push_processing", "task_type": "webhook_event"},
+                f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'completed')} PyPI upload completed successfully for tag: {tag_name}",
             )
             self.logger.info(f"{self.log_prefix} Publish to pypi finished")
             if self.github_webhook.slack_webhook_url:

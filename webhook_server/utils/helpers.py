@@ -89,6 +89,28 @@ def get_logger_with_params(
     )
 
 
+def format_task_fields(task_id: str | None = None, task_type: str | None = None, task_status: str | None = None) -> str:
+    """Format task correlation fields for log messages.
+
+    Args:
+        task_id: Task identifier (e.g., "check_tox", "webhook_processing")
+        task_type: Task type category (e.g., "ci_check", "webhook_routing")
+        task_status: Task status (e.g., "started", "completed", "failed")
+
+    Returns:
+        Formatted string with task fields in brackets, or empty string if no fields provided.
+        Example: "[task_id=check_tox] [task_type=ci_check] [task_status=started]"
+    """
+    parts = []
+    if task_id:
+        parts.append(f"[task_id={task_id}]")
+    if task_type:
+        parts.append(f"[task_type={task_type}]")
+    if task_status:
+        parts.append(f"[task_status={task_status}]")
+    return " ".join(parts)
+
+
 def extract_key_from_dict(key: Any, _dict: dict[Any, Any]) -> Any:
     if isinstance(_dict, dict):
         for _key, _val in _dict.items():

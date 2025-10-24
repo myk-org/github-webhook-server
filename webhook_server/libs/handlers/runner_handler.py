@@ -21,7 +21,7 @@ from webhook_server.utils.constants import (
     PYTHON_MODULE_INSTALL_STR,
     TOX_STR,
 )
-from webhook_server.utils.helpers import run_command
+from webhook_server.utils.helpers import format_task_fields, run_command
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
@@ -184,7 +184,7 @@ class RunnerHandler:
             return
 
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Starting tox tests execution", extra={"task_id": "check_tox", "task_type": "ci_check"}
+            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'started')} Starting tox tests execution"
         )
 
         if await self.check_run_handler.is_check_run_in_progress(check_run=TOX_STR):
@@ -202,15 +202,13 @@ class RunnerHandler:
             cmd += f" -e {tests}"
 
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Setting tox check status to in-progress",
-            extra={"task_id": "check_tox", "task_type": "ci_check"},
+            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Setting tox check status to in-progress",
         )
         await self.check_run_handler.set_run_tox_check_in_progress()
         self.logger.debug(f"{self.log_prefix} Tox command to run: {cmd}")
 
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Preparing repository clone for tox execution",
-            extra={"task_id": "check_tox", "task_type": "ci_check"},
+            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Preparing repository clone for tox execution",
         )
         async with self._prepare_cloned_repo_dir(clone_repo_dir=clone_repo_dir, pull_request=pull_request) as _res:
             output: dict[str, Any] = {
@@ -224,7 +222,7 @@ class RunnerHandler:
                 return await self.check_run_handler.set_run_tox_check_failure(output=output)
 
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Executing tox command", extra={"task_id": "check_tox", "task_type": "ci_check"}
+                f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Executing tox command"
             )
             rc, out, err = await run_command(command=cmd, log_prefix=self.log_prefix)
 
@@ -232,13 +230,12 @@ class RunnerHandler:
 
             if rc:
                 self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} Tox tests completed successfully",
-                    extra={"task_id": "check_tox", "task_type": "ci_check"},
+                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'completed')} Tox tests completed successfully",
                 )
                 return await self.check_run_handler.set_run_tox_check_success(output=output)
             else:
                 self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} Tox tests failed", extra={"task_id": "check_tox", "task_type": "ci_check"}
+                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Tox tests failed"
                 )
                 return await self.check_run_handler.set_run_tox_check_failure(output=output)
 
@@ -248,8 +245,7 @@ class RunnerHandler:
             return
 
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Starting pre-commit checks execution",
-            extra={"task_id": "check_precommit", "task_type": "ci_check"},
+            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'started')} Starting pre-commit checks execution",
         )
 
         if await self.check_run_handler.is_check_run_in_progress(check_run=PRE_COMMIT_STR):
@@ -259,14 +255,12 @@ class RunnerHandler:
         cmd = f"uvx --directory {clone_repo_dir} {PREK_STR} run --all-files"
 
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Setting pre-commit check status to in-progress",
-            extra={"task_id": "check_precommit", "task_type": "ci_check"},
+            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Setting pre-commit check status to in-progress",
         )
         await self.check_run_handler.set_run_pre_commit_check_in_progress()
 
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Preparing repository clone for pre-commit execution",
-            extra={"task_id": "check_precommit", "task_type": "ci_check"},
+            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Preparing repository clone for pre-commit execution",
         )
         async with self._prepare_cloned_repo_dir(pull_request=pull_request, clone_repo_dir=clone_repo_dir) as _res:
             output: dict[str, Any] = {
@@ -280,8 +274,7 @@ class RunnerHandler:
                 return await self.check_run_handler.set_run_pre_commit_check_failure(output=output)
 
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Executing pre-commit command",
-                extra={"task_id": "check_precommit", "task_type": "ci_check"},
+                f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Executing pre-commit command",
             )
             rc, out, err = await run_command(command=cmd, log_prefix=self.log_prefix)
 
@@ -289,14 +282,12 @@ class RunnerHandler:
 
             if rc:
                 self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} Pre-commit checks completed successfully",
-                    extra={"task_id": "check_precommit", "task_type": "ci_check"},
+                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'completed')} Pre-commit checks completed successfully",
                 )
                 return await self.check_run_handler.set_run_pre_commit_check_success(output=output)
             else:
                 self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} Pre-commit checks failed",
-                    extra={"task_id": "check_precommit", "task_type": "ci_check"},
+                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Pre-commit checks failed",
                 )
                 return await self.check_run_handler.set_run_pre_commit_check_failure(output=output)
 
@@ -314,8 +305,7 @@ class RunnerHandler:
             return
 
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Starting container build process",
-            extra={"task_id": "check_container_build", "task_type": "ci_check"},
+            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'started')} Starting container build process",
         )
 
         if (
@@ -335,8 +325,7 @@ class RunnerHandler:
                 self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {BUILD_CONTAINER_STR}.")
 
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Setting container build check status to in-progress",
-                extra={"task_id": "check_container_build", "task_type": "ci_check"},
+                f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Setting container build check status to in-progress",
             )
             await self.check_run_handler.set_container_build_in_progress()
 
@@ -359,8 +348,7 @@ class RunnerHandler:
         podman_build_cmd: str = f"podman build {build_cmd}"
         self.logger.debug(f"{self.log_prefix} Podman build command to run: {podman_build_cmd}")
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Preparing repository clone for container build",
-            extra={"task_id": "check_container_build", "task_type": "ci_check"},
+            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Preparing repository clone for container build",
         )
         async with self._prepare_cloned_repo_dir(
             pull_request=pull_request,
@@ -379,16 +367,14 @@ class RunnerHandler:
                     return await self.check_run_handler.set_container_build_failure(output=output)
 
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Executing container build command",
-                extra={"task_id": "check_container_build", "task_type": "ci_check"},
+                f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Executing container build command",
             )
             build_rc, build_out, build_err = await self.run_podman_command(command=podman_build_cmd)
             output["text"] = self.check_run_handler.get_check_run_text(err=build_err, out=build_out)
 
             if build_rc:
                 self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} Container build completed successfully",
-                    extra={"task_id": "check_container_build", "task_type": "ci_check"},
+                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'completed')} Container build completed successfully",
                 )
                 self.logger.info(f"{self.log_prefix} Done building {_container_repository_and_tag}")
                 # Set check success if requested, but don't return yet if push is needed
@@ -396,8 +382,7 @@ class RunnerHandler:
                     return await self.check_run_handler.set_container_build_success(output=output)
             else:
                 self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} Container build failed",
-                    extra={"task_id": "check_container_build", "task_type": "ci_check"},
+                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Container build failed",
                 )
                 self.logger.error(f"{self.log_prefix} Failed to build {_container_repository_and_tag}")
                 if pull_request and set_check:
@@ -405,8 +390,7 @@ class RunnerHandler:
 
             if push and build_rc:
                 self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} Starting container push to registry",
-                    extra={"task_id": "check_container_build", "task_type": "ci_check"},
+                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'started')} Starting container push to registry",
                 )
                 cmd = f"podman push --creds {self.github_webhook.container_repository_username}:{self.github_webhook.container_repository_password} {_container_repository_and_tag}"
                 # Redact credentials from logs
@@ -420,8 +404,7 @@ class RunnerHandler:
                 )
                 if push_rc:
                     self.logger.step(  # type: ignore[attr-defined]
-                        f"{self.log_prefix} Container push completed successfully",
-                        extra={"task_id": "check_container_build", "task_type": "ci_check"},
+                        f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'completed')} Container push completed successfully",
                     )
                     push_msg: str = f"New container for {_container_repository_and_tag} published"
                     if pull_request:
@@ -468,8 +451,7 @@ class RunnerHandler:
             return
 
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Starting Python module installation",
-            extra={"task_id": "check_python_install", "task_type": "ci_check"},
+            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'started')} Starting Python module installation",
         )
 
         if await self.check_run_handler.is_check_run_in_progress(check_run=PYTHON_MODULE_INSTALL_STR):
@@ -478,13 +460,11 @@ class RunnerHandler:
         clone_repo_dir = f"{self.github_webhook.clone_repo_dir}-{uuid4()}"
         self.logger.info(f"{self.log_prefix} Installing python module")
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Setting Python module install check status to in-progress",
-            extra={"task_id": "check_python_install", "task_type": "ci_check"},
+            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Setting Python module install check status to in-progress",
         )
         await self.check_run_handler.set_python_module_install_in_progress()
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Preparing repository clone for Python module installation",
-            extra={"task_id": "check_python_install", "task_type": "ci_check"},
+            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Preparing repository clone for Python module installation",
         )
         async with self._prepare_cloned_repo_dir(
             pull_request=pull_request,
@@ -500,8 +480,7 @@ class RunnerHandler:
                 return await self.check_run_handler.set_python_module_install_failure(output=output)
 
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Executing Python module installation command",
-                extra={"task_id": "check_python_install", "task_type": "ci_check"},
+                f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Executing Python module installation command",
             )
             rc, out, err = await run_command(
                 command=f"uvx pip wheel --no-cache-dir -w {clone_repo_dir}/dist {clone_repo_dir}",
@@ -512,14 +491,12 @@ class RunnerHandler:
 
             if rc:
                 self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} Python module installation completed successfully",
-                    extra={"task_id": "check_python_install", "task_type": "ci_check"},
+                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'completed')} Python module installation completed successfully",
                 )
                 return await self.check_run_handler.set_python_module_install_success(output=output)
 
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Python module installation failed",
-                extra={"task_id": "check_python_install", "task_type": "ci_check"},
+                f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Python module installation failed",
             )
             return await self.check_run_handler.set_python_module_install_failure(output=output)
 
@@ -528,8 +505,7 @@ class RunnerHandler:
             return
 
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Starting conventional title check",
-            extra={"task_id": "check_conventional_title", "task_type": "ci_check"},
+            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'started')} Starting conventional title check",
         )
 
         output: dict[str, str] = {
@@ -542,8 +518,7 @@ class RunnerHandler:
             self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {CONVENTIONAL_TITLE_STR}.")
 
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Setting conventional title check status to in-progress",
-            extra={"task_id": "check_conventional_title", "task_type": "ci_check"},
+            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Setting conventional title check status to in-progress",
         )
         await self.check_run_handler.set_conventional_title_in_progress()
         # Strip whitespace from each allowed name to tolerate config whitespace
@@ -556,14 +531,12 @@ class RunnerHandler:
         # Examples: "feat: title", "feat(scope): title", "fix!: breaking change"
         if any([re.search(rf"^{re.escape(_name)}(\([^)]*\))?!?:", title) for _name in allowed_names]):
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Conventional title check completed successfully",
-                extra={"task_id": "check_conventional_title", "task_type": "ci_check"},
+                f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'completed')} Conventional title check completed successfully",
             )
             await self.check_run_handler.set_conventional_title_success(output=output)
         else:
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Conventional title check failed",
-                extra={"task_id": "check_conventional_title", "task_type": "ci_check"},
+                f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Conventional title check failed",
             )
             output["summary"] = "Failed"
             output["text"] = f"Pull request title must start with allowed title: {', '.join(allowed_names)}"
@@ -583,8 +556,7 @@ class RunnerHandler:
     async def cherry_pick(self, pull_request: PullRequest, target_branch: str, reviewed_user: str = "") -> None:
         requested_by = reviewed_user or "by target-branch label"
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} Starting cherry-pick process to {target_branch}",
-            extra={"task_id": "check_cherry_pick", "task_type": "ci_check"},
+            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'started')} Starting cherry-pick process to {target_branch}",
         )
         self.logger.info(f"{self.log_prefix} Cherry-pick requested by user: {requested_by}")
 
@@ -592,8 +564,7 @@ class RunnerHandler:
         if not await self.is_branch_exists(branch=target_branch):
             err_msg = f"cherry-pick failed: {target_branch} does not exist"
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Cherry-pick failed: target branch does not exist",
-                extra={"task_id": "check_cherry_pick", "task_type": "ci_check"},
+                f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Cherry-pick failed: target branch does not exist",
             )
             self.logger.error(err_msg)
             # Get PR node ID for GraphQL comment
@@ -603,8 +574,7 @@ class RunnerHandler:
 
         else:
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Setting cherry-pick check status to in-progress",
-                extra={"task_id": "check_cherry_pick", "task_type": "ci_check"},
+                f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Setting cherry-pick check status to in-progress",
             )
             await self.check_run_handler.set_cherry_pick_in_progress()
             commit_hash = pull_request.merge_commit_sha
@@ -634,8 +604,7 @@ class RunnerHandler:
                     await self.check_run_handler.set_cherry_pick_failure(output=output)
 
                 self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} Executing cherry-pick commands",
-                    extra={"task_id": "check_cherry_pick", "task_type": "ci_check"},
+                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Executing cherry-pick commands",
                 )
                 for cmd in commands:
                     rc, out, err = await run_command(
@@ -643,8 +612,7 @@ class RunnerHandler:
                     )
                     if not rc:
                         self.logger.step(  # type: ignore[attr-defined]
-                            f"{self.log_prefix} Cherry-pick command failed",
-                            extra={"task_id": "check_cherry_pick", "task_type": "ci_check"},
+                            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Cherry-pick command failed",
                         )
                         output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
                         await self.check_run_handler.set_cherry_pick_failure(output=output)
@@ -674,8 +642,7 @@ class RunnerHandler:
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
 
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} Cherry-pick completed successfully",
-                extra={"task_id": "check_cherry_pick", "task_type": "ci_check"},
+                f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'completed')} Cherry-pick completed successfully",
             )
             await self.check_run_handler.set_cherry_pick_success(output=output)
             # Get PR node ID for GraphQL comment
