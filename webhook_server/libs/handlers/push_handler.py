@@ -133,14 +133,14 @@ Publish to PYPI failed: `{_error}`
             # Ensure .pypirc is always removed, even on errors
             try:
                 commands: list[str] = [
-                    f"uvx {uv_cmd_dir} twine check --strict '{_dist_dir}/{tar_gz_file}'",
-                    f"uvx {uv_cmd_dir} twine upload --non-interactive --config-file '{pypirc_path}' '{_dist_dir}/{tar_gz_file}' --skip-existing",
+                    f"uv {uv_cmd_dir} run twine check --strict '{_dist_dir}/{tar_gz_file}'",
+                    f"uv {uv_cmd_dir} run twine upload --non-interactive --config-file '{pypirc_path}' '{_dist_dir}/{tar_gz_file}' --skip-existing",
                 ]
                 # Avoid logging secrets; keep high-level trace only
                 self.logger.debug("Prepared Twine commands (details redacted for security)")
 
                 for cmd in commands:
-                    rc, out, err = await run_command(command=cmd, log_prefix=self.log_prefix)
+                    rc, out, err = await run_command(command=cmd, log_prefix=self.log_prefix, redact_secrets=[token])
                     if not rc:
                         _error = self.check_run_handler.get_check_run_text(out=out, err=err)
                         return await _issue_on_error(_error=_error)

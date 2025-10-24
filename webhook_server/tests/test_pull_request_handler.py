@@ -121,11 +121,12 @@ class TestPullRequestHandler:
         pull_request_handler.hook_data["action"] = "edited"
         pull_request_handler.hook_data["changes"] = {"title": {"from": "old title"}}
 
-        with patch.object(
-            pull_request_handler.runner_handler, "run_conventional_title_check"
-        ) as mock_run_conventional_title_check:
-            await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
-            mock_run_conventional_title_check.assert_called_once_with(pull_request=mock_pull_request)
+        with patch.object(pull_request_handler.labels_handler, "_ensure_wrapper", return_value=mock_pull_request):
+            with patch.object(
+                pull_request_handler.runner_handler, "run_conventional_title_check"
+            ) as mock_run_conventional_title_check:
+                await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
+                mock_run_conventional_title_check.assert_called_once_with(pull_request=mock_pull_request)
 
     @pytest.mark.asyncio
     async def test_process_pull_request_webhook_data_opened_action(
@@ -509,9 +510,10 @@ class TestPullRequestHandler:
         mock_pull_request.mergeable = True
         mock_pull_request.mergeable_state = "behind"
 
-        with patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label:
-            await pull_request_handler.label_pull_request_by_merge_state(pull_request=mock_pull_request)
-            mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=NEEDS_REBASE_LABEL_STR)
+        with patch.object(pull_request_handler.labels_handler, "_ensure_wrapper", return_value=mock_pull_request):
+            with patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label:
+                await pull_request_handler.label_pull_request_by_merge_state(pull_request=mock_pull_request)
+                mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=NEEDS_REBASE_LABEL_STR)
 
     @pytest.mark.asyncio
     async def test_label_pull_request_by_merge_state_has_conflicts(
@@ -521,9 +523,10 @@ class TestPullRequestHandler:
         mock_pull_request.mergeable = False
         mock_pull_request.mergeable_state = "dirty"
 
-        with patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label:
-            await pull_request_handler.label_pull_request_by_merge_state(pull_request=mock_pull_request)
-            mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=HAS_CONFLICTS_LABEL_STR)
+        with patch.object(pull_request_handler.labels_handler, "_ensure_wrapper", return_value=mock_pull_request):
+            with patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label:
+                await pull_request_handler.label_pull_request_by_merge_state(pull_request=mock_pull_request)
+                mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=HAS_CONFLICTS_LABEL_STR)
 
     @pytest.mark.asyncio
     async def test_process_verified_for_update_or_new_pull_request_auto_verified(
@@ -545,13 +548,14 @@ class TestPullRequestHandler:
         """Test processing verified for update or new pull request for non-auto-verified user."""
         pull_request_handler.github_webhook.parent_committer = "other-user"
 
-        with patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label:
-            with patch.object(pull_request_handler.check_run_handler, "set_verify_check_success") as mock_success:
-                await pull_request_handler._process_verified_for_update_or_new_pull_request(
-                    pull_request=mock_pull_request
-                )
-                mock_add_label.assert_not_called()
-                mock_success.assert_not_called()
+        with patch.object(pull_request_handler.labels_handler, "_ensure_wrapper", return_value=mock_pull_request):
+            with patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label:
+                with patch.object(pull_request_handler.check_run_handler, "set_verify_check_success") as mock_success:
+                    await pull_request_handler._process_verified_for_update_or_new_pull_request(
+                        pull_request=mock_pull_request
+                    )
+                    mock_add_label.assert_not_called()
+                    mock_success.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_process_verified_cherry_picked_pr_auto_verify_enabled(

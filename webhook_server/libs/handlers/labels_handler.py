@@ -45,12 +45,8 @@ class LabelsHandler:
         """Convert REST PullRequest to PullRequestWrapper if needed by fetching PR via GraphQL."""
         if isinstance(pull_request, PullRequestWrapper):
             return pull_request
-        # For testing: if it's a Mock with an 'id' attribute, treat it as a wrapper
-        if hasattr(pull_request, "id") and hasattr(pull_request, "_spec_class"):
-            # This is a Mock object used in tests, return it as-is
-            return pull_request
         # Convert REST PR to wrapper by fetching GraphQL data (includes node ID)
-        owner, repo_name = self.github_webhook.repository.full_name.split("/")
+        owner, repo_name = self.repository.full_name.split("/")
         pr_data = await self.unified_api.get_pull_request(owner, repo_name, pull_request.number, include_labels=True)
         return PullRequestWrapper(pr_data, owner, repo_name)
 
@@ -73,7 +69,7 @@ class LabelsHandler:
 
                 # unified_api handles GraphQL vs REST
                 pr_id = pull_request.id
-                owner, repo_name = self.github_webhook.repository.full_name.split("/")
+                owner, repo_name = self.repository.full_name.split("/")
                 label_id = await self.unified_api.get_label_id(owner, repo_name, label)
                 if label_id:
                     await self.unified_api.remove_labels(pr_id, [label_id])
@@ -118,7 +114,7 @@ class LabelsHandler:
             self.logger.debug(f"{self.log_prefix} Label {label} already assign")
             return
 
-        owner, repo_name = self.github_webhook.repository.full_name.split("/")
+        owner, repo_name = self.repository.full_name.split("/")
 
         if label in STATIC_LABELS_DICT:
             self.logger.info(f"{self.log_prefix} Adding pull request label {label}")
@@ -188,7 +184,7 @@ class LabelsHandler:
 
     async def wait_for_label(self, pull_request: PullRequest | PullRequestWrapper, label: str, exists: bool) -> bool:
         self.logger.debug(f"{self.log_prefix} waiting for label {label} to {'exist' if exists else 'not exist'}")
-        owner, repo_name = self.github_webhook.repository.full_name.split("/")
+        owner, repo_name = self.repository.full_name.split("/")
 
         # Create TimeoutWatch once outside the loop to track total elapsed time
         watch = TimeoutWatch(timeout=30)

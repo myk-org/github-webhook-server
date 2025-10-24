@@ -114,7 +114,7 @@ class PullRequestHandler:
                 if isinstance(result, Exception):
                     self.logger.error(
                         f"{self.log_prefix} Async task '{task_name}' FAILED",
-                        exc_info=result,
+                        exc_info=(type(result), result, result.__traceback__),
                     )
                 else:
                     self.logger.debug(f"{self.log_prefix} Async task '{task_name}' completed successfully")
@@ -135,7 +135,7 @@ class PullRequestHandler:
                 if isinstance(result, Exception):
                     self.logger.error(
                         f"{self.log_prefix} Async task failed",
-                        exc_info=result,
+                        exc_info=(type(result), result, result.__traceback__),
                     )
 
         if hook_action == "closed":
@@ -498,7 +498,7 @@ For more information, please refer to the project documentation or contact the m
 
         for result in setup_results:
             if isinstance(result, Exception):
-                self.logger.error(f"{self.log_prefix} Setup task failed: {result}")
+                self.logger.exception(f"{self.log_prefix} Setup task failed")
 
         self.logger.step(f"{self.log_prefix} Setup tasks completed")  # type: ignore
 
@@ -549,8 +549,14 @@ For more information, please refer to the project documentation or contact the m
                         f"{self.log_prefix} Issue already exists for PR #{pull_request.number}: {issue.html_url}"
                     )
                     return
-        except Exception as ex:
-            self.logger.warning(f"{self.log_prefix} Failed to check existing issues, proceeding with creation: {ex}")
+        except (GithubException, GraphQLError):
+            self.logger.exception(
+                f"{self.log_prefix} GitHub API error checking existing issues, proceeding with creation"
+            )
+        except Exception:
+            self.logger.exception(
+                f"{self.log_prefix} Unexpected error checking existing issues, proceeding with creation"
+            )
 
         # Issue doesn't exist, create it
         self.logger.info(f"{self.log_prefix} Creating issue for new PR: {pull_request.title}")
