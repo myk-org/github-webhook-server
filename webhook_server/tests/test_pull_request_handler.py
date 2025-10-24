@@ -70,6 +70,7 @@ class TestPullRequestHandler:
         mock_handler.all_pull_request_reviewers = ["reviewer1", "reviewer2"]
         mock_handler.root_approvers = ["root-approver"]
         mock_handler.root_reviewers = ["root-reviewer"]
+        mock_handler.initialize = AsyncMock()  # Add async initialize method
         return mock_handler
 
     @pytest.fixture
@@ -350,8 +351,9 @@ class TestPullRequestHandler:
         mock_pr1.number = 1
         mock_pr2.number = 2
 
-        mock_pr_wrapper1 = Mock()
-        mock_pr_wrapper2 = Mock()
+        # Return minimal dicts instead of Mock objects for PullRequestWrapper
+        pr_data_1 = {"id": "PR_1", "number": 1, "title": "Test PR 1"}
+        pr_data_2 = {"id": "PR_2", "number": 2, "title": "Test PR 2"}
 
         with patch.object(
             pull_request_handler.github_webhook.unified_api,
@@ -361,7 +363,7 @@ class TestPullRequestHandler:
             with patch.object(
                 pull_request_handler.github_webhook.unified_api,
                 "get_pull_request",
-                new=AsyncMock(side_effect=[mock_pr_wrapper1, mock_pr_wrapper2]),
+                new=AsyncMock(side_effect=[pr_data_1, pr_data_2]),
             ):
                 with patch.object(
                     pull_request_handler, "label_pull_request_by_merge_state", new=AsyncMock()
@@ -829,16 +831,16 @@ class TestPullRequestHandler:
         """Test closing issue for merged or closed PR without issue."""
         mock_pull_request.title = "Test PR"
 
-        with patch.object(pull_request_handler.github_webhook.unified_api, "get_issues", return_value=[]):
+        with patch.object(
+            pull_request_handler.github_webhook.unified_api, "get_issues", new=AsyncMock(return_value=[])
+        ):
             await pull_request_handler.close_issue_for_merged_or_closed_pr(
                 pull_request=mock_pull_request, hook_action="closed"
             )
             # Should not find any matching issues
 
     @pytest.mark.asyncio
-    async def test_handler_with_pull_request_wrapper(
-        self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock
-    ) -> None:
+    async def test_handler_with_pull_request_wrapper(self) -> None:
         """Test handler works with PullRequestWrapper (GraphQL) not just PullRequest (REST)."""
         from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
 

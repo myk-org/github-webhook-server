@@ -3,13 +3,13 @@ import re
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from github.Repository import Repository
-
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.libs.handlers.runner_handler import RunnerHandler
 from webhook_server.utils.helpers import run_command
 
 if TYPE_CHECKING:
+    from github.Repository import Repository
+
     from webhook_server.libs.github_api import GithubWebhook
 
 
@@ -26,7 +26,7 @@ class PushHandler:
 
     async def process_push_webhook_data(self) -> None:
         self.logger.step(f"{self.log_prefix} Starting push webhook processing")  # type: ignore
-        tag = re.search(r"refs/tags/?(.*)", self.hook_data["ref"])
+        tag = re.search(r"refs/tags/?(.+)", self.hook_data["ref"])
         if tag:
             tag_name = tag.group(1)
             self.logger.step(f"{self.log_prefix} Processing tag push: {tag_name}")  # type: ignore

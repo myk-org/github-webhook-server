@@ -16,12 +16,13 @@ import logging
 from enum import Enum
 from typing import Any
 
+from gql.transport.exceptions import TransportConnectionFailed, TransportQueryError, TransportServerError
 from github import Github
 from github.PullRequest import PullRequest as RestPullRequest
 from github.Repository import Repository as RestRepository
 
 from webhook_server.libs.graphql.graphql_builders import MutationBuilder, QueryBuilder
-from webhook_server.libs.graphql.graphql_client import GraphQLClient
+from webhook_server.libs.graphql.graphql_client import GraphQLClient, GraphQLError
 from webhook_server.utils.constants import ERROR_IDS
 
 
@@ -90,7 +91,9 @@ class UnifiedGitHubAPI:
             await self.graphql_client.close()
 
         if self.rest_client:
-            self.rest_client.close()
+            # Guard against older PyGithub versions that may not have close()
+            if hasattr(self.rest_client, "close"):
+                self.rest_client.close()
 
         self._initialized = False
         self.logger.info("Unified GitHub API closed")
@@ -348,10 +351,9 @@ class UnifiedGitHubAPI:
 
         try:
             result = await self.graphql_client.execute(mutation, variables)  # type: ignore[union-attr]
-        except Exception as ex:
-            self.logger.error(
-                f"Failed to add comment to {subject_id}: {ex}",
-                exc_info=True,
+        except (GraphQLError, TransportQueryError, TransportConnectionFailed, TransportServerError):
+            self.logger.exception(
+                f"Failed to add comment to {subject_id}",
                 extra={"error_id": ERROR_IDS.GRAPHQL_ADD_COMMENT_FAILED},
             )
             raise
@@ -359,10 +361,9 @@ class UnifiedGitHubAPI:
             self.logger.debug("GraphQL execute returned, extracting comment node")
             try:
                 comment_node = result["addComment"]["commentEdge"]["node"]
-            except KeyError as ex:
-                self.logger.error(
-                    f"Failed to extract comment from GraphQL result for {subject_id}: {ex}. Result: {result}",
-                    exc_info=True,
+            except KeyError:
+                self.logger.exception(
+                    f"Failed to extract comment from GraphQL result for {subject_id}. Result: {result}",
                     extra={"error_id": ERROR_IDS.GRAPHQL_COMMENT_EXTRACT_FAILED},
                 )
                 raise
@@ -458,6 +459,8 @@ class UnifiedGitHubAPI:
         name: str,
         title: str,
         body: str | None = None,
+        assignee_ids: list[str] | None = None,
+        label_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         """
         Create a new issue on a repository (convenience method).
@@ -470,6 +473,8 @@ class UnifiedGitHubAPI:
             name: Repository name
             title: Issue title
             body: Issue body
+            assignee_ids: Optional list of user node IDs to assign
+            label_ids: Optional list of label node IDs to add
 
         Returns:
             Created issue data
@@ -478,15 +483,17 @@ class UnifiedGitHubAPI:
             >>> issue = await api.create_issue_on_repository(
             ...     "owner", "repo",
             ...     "Bug: Something broke",
-            ...     "Details about the bug..."
+            ...     "Details about the bug...",
+            ...     assignee_ids=["MDQ6VXNlcjEyMzQ1"],
+            ...     label_ids=["MDU6TGFiZWw5ODc2NTQzMjE="]
             ... )
         """
         # Get repository ID first
         repo_data = await self.get_repository(owner, name)
         repository_id = repo_data["id"]
 
-        # Create the issue
-        return await self.create_issue(repository_id, title, body)
+        # Create the issue with optional assignees and labels
+        return await self.create_issue(repository_id, title, body, assignee_ids, label_ids)
 
     async def request_reviews(self, pull_request_id: str, user_ids: list[str]) -> None:
         """
@@ -780,7 +787,7 @@ class UnifiedGitHubAPI:
         """
         repo = await self.get_repository_for_rest_operations(owner, name)
         pr = await asyncio.to_thread(repo.get_pull, number)
-        return list(await asyncio.to_thread(pr.get_files))
+        return await asyncio.to_thread(lambda: list(pr.get_files()))
 
     async def get_open_pull_requests(self, owner: str, name: str) -> list[RestPullRequest]:
         """
@@ -807,8 +814,7 @@ class UnifiedGitHubAPI:
             ...     print(pr.number, pr.title)
         """
         repo = await self.get_repository_for_rest_operations(owner, name)
-        pulls = await asyncio.to_thread(repo.get_pulls, state="open")
-        return list(pulls)
+        return await asyncio.to_thread(lambda: list(repo.get_pulls(state="open")))
 
     async def get_issue_comments(self, owner: str, name: str, number: int) -> list[Any]:
         """
@@ -830,8 +836,7 @@ class UnifiedGitHubAPI:
         """
         repo = await self.get_repository_for_rest_operations(owner, name)
         pr = await asyncio.to_thread(repo.get_pull, number)
-        comments = await asyncio.to_thread(pr.get_issue_comments)
-        return list(comments)
+        return await asyncio.to_thread(lambda: list(pr.get_issue_comments()))
 
     async def add_assignees_by_login(self, owner: str, name: str, number: int, assignees: list[str]) -> None:
         """
@@ -856,9 +861,21 @@ class UnifiedGitHubAPI:
 
     async def get_issue_comment(self, owner: str, name: str, number: int, comment_id: int) -> Any:
         """
-        Get a specific issue comment.
+        Get a specific issue/PR comment.
 
         Uses: REST
+        Scope: Currently fetches comment via PR endpoint (works for both PR comments and issue comments
+               on PRs). For pure issue comments (non-PR), this method works as PyGithub's get_pull()
+               returns an Issue object when the number refers to an issue.
+
+        Args:
+            owner: Repository owner
+            name: Repository name
+            number: PR or issue number
+            comment_id: Comment ID to fetch
+
+        Returns:
+            Comment object from PyGithub
 
         TODO: Migrate to GraphQL when available - Individual comment queries not yet efficient in GraphQL v4.
               Monitor for: issueComment(id: COMMENT_NODE_ID) { ... } or similar query.
@@ -891,7 +908,7 @@ class UnifiedGitHubAPI:
               Migration only worthwhile if we need contributor data in same query as other repo data.
         """
         repo = await self.get_repository_for_rest_operations(owner, name)
-        return list(await asyncio.to_thread(repo.get_contributors))
+        return await asyncio.to_thread(lambda: list(repo.get_contributors()))
 
     async def get_collaborators(self, owner: str, name: str) -> list[Any]:
         """
@@ -905,7 +922,7 @@ class UnifiedGitHubAPI:
               Migration only worthwhile if we need collaborator data in same query as other repo data.
         """
         repo = await self.get_repository_for_rest_operations(owner, name)
-        return list(await asyncio.to_thread(repo.get_collaborators))
+        return await asyncio.to_thread(lambda: list(repo.get_collaborators()))
 
     async def get_branch(self, owner: str, name: str, branch: str) -> Any:
         """
@@ -948,7 +965,7 @@ class UnifiedGitHubAPI:
               Migration only worthwhile if we need issue data in same query as other repo data.
         """
         repo = await self.get_repository_for_rest_operations(owner, name)
-        return list(await asyncio.to_thread(repo.get_issues))
+        return await asyncio.to_thread(lambda: list(repo.get_issues()))
 
     async def edit_issue(self, issue: Any, state: str) -> None:
         """
@@ -1025,13 +1042,13 @@ class UnifiedGitHubAPI:
         """
         # Check if this is a REST commit object (has get_check_runs method)
         if hasattr(commit, "get_check_runs") and callable(commit.get_check_runs):
-            return list(await asyncio.to_thread(commit.get_check_runs))
+            return await asyncio.to_thread(lambda: list(commit.get_check_runs()))
 
         # CommitWrapper from GraphQL - fetch check runs via REST API
         if hasattr(commit, "sha") and owner and name:
             repo = await self.get_repository_for_rest_operations(owner, name)
             rest_commit = await asyncio.to_thread(repo.get_commit, commit.sha)
-            return list(await asyncio.to_thread(rest_commit.get_check_runs))
+            return await asyncio.to_thread(lambda: list(rest_commit.get_check_runs()))
 
         # Fallback - return empty list with warning
         self.logger.warning(
@@ -1077,7 +1094,7 @@ class UnifiedGitHubAPI:
               repository(owner: X, name: Y) { object(oid: "COMMIT_SHA") { ... associatedPullRequests { nodes { ... } } } }
               However, requires commit SHA and repo info. Only migrate if we already have this data from GraphQL.
         """
-        return list(await asyncio.to_thread(commit.get_pulls))
+        return await asyncio.to_thread(lambda: list(commit.get_pulls()))
 
     async def get_pulls_from_commit_sha(self, owner: str, name: str, sha: str) -> list[Any]:
         """
@@ -1101,7 +1118,7 @@ class UnifiedGitHubAPI:
         """
         repo = await self.get_repository_for_rest_operations(owner, name)
         commit = await asyncio.to_thread(repo.get_commit, sha)
-        return list(await asyncio.to_thread(commit.get_pulls))
+        return await asyncio.to_thread(lambda: list(commit.get_pulls()))
 
     async def send_slack_message_async(self, send_slack_message_func: Any, message: str, webhook_url: str) -> None:
         """
@@ -1148,12 +1165,12 @@ class UnifiedGitHubAPI:
         }
 
         # Operations better in GraphQL (fewer API calls)
+        # Note: Only includes operations that have actual method implementations
         graphql_preferred = {
             "get_pull_request",
             "get_pull_requests",
             "get_commit",
-            "get_commits",
-            "get_labels",
+            # Note: get_commits, get_labels removed - not currently implemented as unified_api methods
             "add_comment",
             "add_labels",
             "remove_labels",

@@ -176,7 +176,7 @@ async def test_connection_failed_retry_success(graphql_client, monkeypatch):
     # Track calls to verify retry behavior
     call_count = {"count": 0}
 
-    def execute_side_effect(*args, **kwargs):
+    def execute_side_effect(*_args, **_kwargs):
         call_count["count"] += 1
         if call_count["count"] == 1:
             # First attempt fails with connection error
@@ -259,7 +259,7 @@ async def test_rate_limit_wait_and_retry_success(graphql_client, monkeypatch):
     # Track calls to verify retry behavior
     call_count = {"count": 0}
 
-    def execute_side_effect(*args, **kwargs):
+    def execute_side_effect(*_args, **_kwargs):
         call_count["count"] += 1
         if call_count["count"] == 1:
             # First attempt fails with rate limit error
@@ -278,10 +278,13 @@ async def test_rate_limit_wait_and_retry_success(graphql_client, monkeypatch):
     graphql_client._client = mock_client
     graphql_client._ensure_client = AsyncMock()
 
-    # Mock the current time
-    current_time = datetime.now(timezone.utc)
-    reset_time = current_time + timedelta(seconds=60)  # Reset in 60 seconds
+    # Freeze time to fixed value for deterministic testing
+    fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    reset_time = fixed_time + timedelta(seconds=60)  # Reset in 60 seconds
     reset_timestamp = int(reset_time.timestamp())
+
+    # Mock datetime.now to return fixed time
+    monkeypatch.setattr("webhook_server.libs.graphql.graphql_client.datetime", Mock(now=Mock(return_value=fixed_time)))
 
     # Mock aiohttp session for rate limit API call
     # resp.json() returns the rate limit data
@@ -317,11 +320,11 @@ async def test_rate_limit_wait_and_retry_success(graphql_client, monkeypatch):
         assert call_count["count"] == 2
         assert result == {"viewer": {"login": "test-user"}}
 
-        # Verify sleep was called with correct wait time (60s + 5s buffer = 65s, but timing may vary slightly)
+        # Verify sleep was called with correct wait time (60s + 5s buffer = 65s exactly)
         assert mock_sleep.call_count == 1
-        # Check that wait time is approximately 60-70 seconds (accounting for 5s buffer and timing variations)
+        # With frozen time, wait time should be exactly 65 seconds (60s until reset + 5s buffer)
         actual_wait = mock_sleep.call_args[0][0]
-        assert 55 <= actual_wait <= 70, f"Expected wait time ~65s, got {actual_wait}s"
+        assert actual_wait == 65, f"Expected wait time exactly 65s, got {actual_wait}s"
 
 
 @pytest.mark.asyncio

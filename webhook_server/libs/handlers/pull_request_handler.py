@@ -71,9 +71,8 @@ class PullRequestHandler:
         return owner, repo_name
 
     async def process_pull_request_webhook_data(self, pull_request: PullRequestWrapper) -> None:
-        # Ensure OwnersFileHandler is initialized before any processing
-        # This is a defensive check to catch refactoring errors where initialization might be skipped
-        self.owners_file_handler._ensure_initialized()
+        # Initialize OwnersFileHandler with current pull request before any processing
+        await self.owners_file_handler.initialize(pull_request)
 
         hook_action: str = self.hook_data["action"]
         self.logger.step(f"{self.log_prefix} Starting pull request processing: action={hook_action}")  # type: ignore
@@ -329,9 +328,6 @@ For more information, please refer to the project documentation or contact the m
     """
 
     def _prepare_owners_welcome_comment(self) -> str:
-        # Defensive check: ensure OwnersFileHandler is initialized
-        self.owners_file_handler._ensure_initialized()
-
         body_approvers: str = "**Approvers:**\n"
         body_reviewers: str = "**Reviewers:**\n"
 
@@ -789,9 +785,6 @@ For more information, please refer to the project documentation or contact the m
             await self.check_run_handler.set_merge_check_failure(output=output)
 
     async def _check_if_pr_approved(self, labels: list[str]) -> str:
-        # Defensive check: ensure OwnersFileHandler is initialized
-        self.owners_file_handler._ensure_initialized()
-
         self.logger.info(f"{self.log_prefix} Check if pull request is approved by pull request labels.")
         self.logger.debug(f"labels are {labels}")
 
@@ -869,9 +862,6 @@ For more information, please refer to the project documentation or contact the m
         return error
 
     def _check_labels_for_can_be_merged(self, labels: list[str]) -> str:
-        # Defensive check: ensure OwnersFileHandler is initialized
-        self.owners_file_handler._ensure_initialized()
-
         self.logger.debug(f"{self.log_prefix} _check_labels_for_can_be_merged.")
         failure_output = ""
 

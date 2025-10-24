@@ -35,8 +35,10 @@ class Config:
             with open(self.config_path) as fd:
                 return yaml.safe_load(fd)
         except FileNotFoundError:
-            self.logger.error(f"Config file not found: {self.config_path}")
-            return {}
+            # Since existence is validated in __init__, this indicates a race condition.
+            # Re-raise to propagate the error rather than returning empty dict.
+            self.logger.exception(f"Config file not found: {self.config_path}")
+            raise
         except yaml.YAMLError:
             self.logger.exception(f"Config file has invalid YAML syntax: {self.config_path}")
             raise  # Don't continue with invalid config
@@ -67,8 +69,8 @@ class Config:
                 repo_config = yaml.safe_load(config_file.decoded_content)
                 return repo_config
 
-            except yaml.YAMLError as ex:
-                self.logger.exception(f"Repository {repository_full_name} config has invalid YAML syntax: {ex}")
+            except yaml.YAMLError:
+                self.logger.exception(f"Repository {repository_full_name} config has invalid YAML syntax")
                 raise  # Don't continue with invalid config
 
             except Exception as ex:
