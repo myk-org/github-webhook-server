@@ -84,25 +84,20 @@
             </div>
         </div>
 
-        <!-- Hook ID Flow Timeline -->
-        <div class="timeline-section" id="timelineSection">
-            <div id="timelineHeader" class="timeline-header">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <h3>Hook ID Flow Timeline</h3>
-                    <button class="timeline-toggle" id="timelineToggle">
-                        ▶ Expand
-                    </button>
+        <!-- Hook Flow Modal (Popup) -->
+        <div class="modal" id="flowModal" style="display: none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Webhook Flow Timeline</h2>
+                    <button class="modal-close" id="closeFlowModal">&times;</button>
                 </div>
-                <div class="timeline-info" id="timelineInfo">
-                    <!-- Timeline metadata will be populated here -->
-                </div>
-            </div>
-            <div class="timeline-content collapsed" id="timelineContent">
-                <div class="timeline-container">
-                    <svg class="timeline-svg" id="timelineSvg">
-                        <!-- Timeline visualization will be generated here -->
-                    </svg>
-                    <div class="timeline-tooltip" id="timelineTooltip"></div>
+                <div class="modal-body">
+                    <div class="flow-summary" id="flowSummary">
+                        <!-- Flow summary will be populated here -->
+                    </div>
+                    <div class="flow-visualization" id="flowVisualization">
+                        <!-- Vertical step-by-step flow will be generated here -->
+                    </div>
                 </div>
             </div>
         </div>

@@ -1,3 +1,4 @@
+File: /tmp/log_viewer_part1.js
 let ws = null;
 let logEntries = [];
 
@@ -573,22 +574,29 @@ initializeEventListeners();
 // Load initial data
 loadHistoricalLogs();
 
-// Timeline functionality
-let currentTimelineData = null;
+
+File: /tmp/flow_modal_code.js
+
+// Flow Modal functionality
+let currentFlowData = null;
 
 function showTimeline(hookId) {
+  // Redirect old timeline calls to new modal
+  showFlowModal(hookId);
+}
+
+function showFlowModal(hookId) {
   if (!hookId) {
-    hideTimeline();
+    closeFlowModal();
     return;
   }
-
 
   // Fetch workflow steps data
   fetch(`/logs/api/workflow-steps/${hookId}`)
     .then(response => {
       if (!response.ok) {
         if (response.status === 404) {
-          hideTimeline();
+          console.log('No flow data found for hook ID:', hookId);
           return;
         }
         throw new Error('Failed to fetch workflow steps');
@@ -596,309 +604,208 @@ function showTimeline(hookId) {
       return response.json();
     })
     .then(data => {
-      currentTimelineData = data;
-      renderTimeline(data);
-      document.getElementById('timelineSection').style.display = 'block';
-
-      // Ensure the correct collapse state is maintained when showing timeline
-      initializeTimelineState();
+      if (data) {
+        currentFlowData = data;
+        renderFlowModal(data);
+        document.getElementById('flowModal').style.display = 'flex';
+      }
     })
-    .catch(error => {
-      hideTimeline();
-    });
+    .catch(error => console.error('Error fetching flow data:', error));
 }
 
-function hideTimeline() {
-  document.getElementById('timelineSection').style.display = 'none';
-  currentTimelineData = null;
-}
-
-function toggleTimeline() {
-  const content = document.getElementById('timelineContent');
-  const toggle = document.getElementById('timelineToggle');
-
-  if (content.classList.contains('expanded')) {
-    // Collapse
-    content.classList.remove('expanded');
-    content.classList.add('collapsed');
-    toggle.textContent = '▶ Expand';
-
-    // Store collapse state in localStorage
-    localStorage.setItem('timeline-collapsed', 'true');
-  } else {
-    // Expand
-    content.classList.remove('collapsed');
-    content.classList.add('expanded');
-    toggle.textContent = '▼ Collapse';
-
-    // Store expand state in localStorage
-    localStorage.setItem('timeline-collapsed', 'false');
+function closeFlowModal() {
+  const modal = document.getElementById('flowModal');
+  if (modal) {
+    modal.style.display = 'none';
   }
+  currentFlowData = null;
 }
 
-function initializeTimelineState() {
-  // Initialize timeline collapse state from localStorage - default to collapsed
-  const timelineState = localStorage.getItem('timeline-collapsed');
-  const isCollapsed = timelineState === null ? true : timelineState === 'true'; // Default collapsed if no preference set
-  const content = document.getElementById('timelineContent');
-  const toggle = document.getElementById('timelineToggle');
-
-  if (isCollapsed) {
-    content.classList.remove('expanded');
-    content.classList.add('collapsed');
-    toggle.textContent = '▶ Expand';
-  } else {
-    content.classList.remove('collapsed');
-    content.classList.add('expanded');
-    toggle.textContent = '▼ Collapse';
-  }
-}
-
-function updateTimelineInfo(data) {
-  const info = document.getElementById('timelineInfo');
-  const duration = data.total_duration_ms > 0 ? `${(data.total_duration_ms / 1000).toFixed(2)}s` : '< 1s';
-  info.innerHTML = `
-    <div>Hook ID: <strong>${data.hook_id}</strong></div>
-    <div>Steps: <strong>${data.step_count}</strong></div>
-    <div>Duration: <strong>${duration}</strong></div>
-  `;
-}
-
-function renderEmptyTimeline() {
-  const svg = document.getElementById('timelineSvg');
-  svg.innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="var(--text-color)">No workflow steps found</text>';
-}
-
-function renderTimelineVisualization(layout, data) {
-  const svg = document.getElementById('timelineSvg');
+function renderFlowModal(data) {
+  // Render summary section using safe DOM methods
+  const summaryElement = document.getElementById('flowSummary');
+  if (!summaryElement) return;
 
   // Clear existing content
-  svg.innerHTML = '';
+  while (summaryElement.firstChild) {
+    summaryElement.removeChild(summaryElement.firstChild);
+  }
 
-  // SVG dimensions - much larger and adaptive
-  const width = Math.max(1400, layout.totalWidth + 200);
-  const height = layout.totalHeight + 150;
-  const margin = { left: 75, right: 75, top: 75, bottom: 75 };
+  const title = document.createElement('h3');
+  title.textContent = 'Flow Overview';
+  summaryElement.appendChild(title);
 
-  // Update SVG size
-  svg.setAttribute('width', width);
-  svg.setAttribute('height', height);
+  const grid = document.createElement('div');
+  grid.className = 'flow-summary-grid';
 
-  // Draw timeline lines and steps
-  layout.lines.forEach((line, lineIndex) => {
-    const lineY = margin.top + (lineIndex * layout.lineHeight) + layout.lineHeight / 2;
+  // Helper to create summary items safely
+  const createSummaryItem = (label, value) => {
+    const item = document.createElement('div');
+    item.className = 'flow-summary-item';
 
-    // Draw horizontal timeline line for this row
-    if (line.steps.length > 0) {
-      const lineElement = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      lineElement.setAttribute('class', 'step-line');
-      lineElement.setAttribute('x1', margin.left);
-      lineElement.setAttribute('y1', lineY);
-      lineElement.setAttribute('x2', margin.left + layout.lineWidth);
-      lineElement.setAttribute('y2', lineY);
-      svg.appendChild(lineElement);
-    }
+    const labelDiv = document.createElement('div');
+    labelDiv.className = 'flow-summary-label';
+    labelDiv.textContent = label;
 
-    // Draw steps for this line
-    line.steps.forEach((step, stepIndex) => {
-      const stepX = margin.left + (stepIndex * layout.stepSpacing) + layout.stepSpacing / 2;
+    const valueDiv = document.createElement('div');
+    valueDiv.className = 'flow-summary-value';
+    valueDiv.textContent = value;
 
-      const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-      group.setAttribute('class', 'timeline-step');
-      group.setAttribute('data-step-index', step.originalIndex);
+    item.appendChild(labelDiv);
+    item.appendChild(valueDiv);
+    return item;
+  };
 
-      // Step circle - larger
-      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-      circle.setAttribute('class', `step-circle ${getStepType(step.message)}`);
-      circle.setAttribute('cx', stepX);
-      circle.setAttribute('cy', lineY);
-      circle.setAttribute('r', 12); // Larger circle
-      svg.appendChild(circle);
-      group.appendChild(circle);
+  const duration = data.total_duration_ms > 0 ? `${(data.total_duration_ms / 1000).toFixed(2)}s` : '< 1s';
 
-      // Step label - with multi-line text wrapping
-      const labelLines = wrapTextToLines(step.message, 25); // Longer text allowed
-      labelLines.forEach((line, lineIndex) => {
-        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        label.setAttribute('class', 'step-label');
-        label.setAttribute('x', stepX);
-        label.setAttribute('y', lineY - 35 + (lineIndex * 14)); // Multi-line spacing
-        label.setAttribute('text-anchor', 'middle');
-        label.setAttribute('font-size', '12'); // Larger font
-        label.textContent = line;
-        svg.appendChild(label);
-        group.appendChild(label);
-      });
+  grid.appendChild(createSummaryItem('Hook ID', data.hook_id));
+  grid.appendChild(createSummaryItem('Total Steps', data.step_count.toString()));
+  grid.appendChild(createSummaryItem('Duration', duration));
 
-      // Time label - larger and positioned better
-      const timeLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-      timeLabel.setAttribute('class', 'step-time');
-      timeLabel.setAttribute('x', stepX);
-      timeLabel.setAttribute('y', lineY + 35);
-      timeLabel.setAttribute('text-anchor', 'middle');
-      timeLabel.setAttribute('font-size', '11'); // Larger time font
-      timeLabel.textContent = `+${(step.relative_time_ms / 1000).toFixed(1)}s`;
-      svg.appendChild(timeLabel);
-      group.appendChild(timeLabel);
+  if (data.steps[0] && data.steps[0].repository) {
+    grid.appendChild(createSummaryItem('Repository', data.steps[0].repository));
+  }
 
-      // Step index number - larger and better positioned
-      const indexLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-      indexLabel.setAttribute('class', 'step-index');
-      indexLabel.setAttribute('x', stepX);
-      indexLabel.setAttribute('y', lineY + 5);
-      indexLabel.setAttribute('text-anchor', 'middle');
-      indexLabel.setAttribute('font-size', '13'); // Larger index font
-      indexLabel.setAttribute('font-weight', 'bold');
-      indexLabel.setAttribute('fill', 'white'); // White text for better contrast
-      indexLabel.textContent = (step.originalIndex + 1).toString();
-      svg.appendChild(indexLabel);
-      group.appendChild(indexLabel);
+  summaryElement.appendChild(grid);
 
-      // Add hover events
-      group.addEventListener('mouseenter', (e) => showTooltip(e, step));
-      group.addEventListener('mouseleave', hideTooltip);
-      group.addEventListener('click', () => filterByStep(step));
+  // Render vertical flow visualization using safe DOM methods
+  const vizElement = document.getElementById('flowVisualization');
+  if (!vizElement) return;
 
-      svg.appendChild(group);
-    });
-  });
-}
+  // Clear existing content
+  while (vizElement.firstChild) {
+    vizElement.removeChild(vizElement.firstChild);
+  }
 
-function renderTimeline(data) {
-  // Update timeline information
-  updateTimelineInfo(data);
-
-  // Handle empty state
   if (data.steps.length === 0) {
-    renderEmptyTimeline();
+    const emptyMsg = document.createElement('p');
+    emptyMsg.style.textAlign = 'center';
+    emptyMsg.style.color = 'var(--timestamp-color)';
+    emptyMsg.textContent = 'No workflow steps found';
+    vizElement.appendChild(emptyMsg);
     return;
   }
 
-  // Calculate layout for multi-line timeline
-  const layout = calculateMultiLineLayout(data.steps, data.total_duration_ms);
+  // Create flow steps
+  data.steps.forEach((step, index) => {
+    const stepType = getStepType(step.message);
+    const timeFromStart = `+${(step.relative_time_ms / 1000).toFixed(2)}s`;
+    const timestamp = new Date(step.timestamp).toLocaleTimeString();
 
-  // Render the timeline visualization
-  renderTimelineVisualization(layout, data);
+    const flowStep = document.createElement('div');
+    flowStep.className = `flow-step ${stepType}`;
+    flowStep.setAttribute('data-step-index', index.toString());
+    flowStep.style.cursor = 'pointer';
+    flowStep.addEventListener('click', () => filterByStep(index));
+
+    const stepNumber = document.createElement('div');
+    stepNumber.className = 'flow-step-number';
+    stepNumber.textContent = (index + 1).toString();
+
+    const stepContent = document.createElement('div');
+    stepContent.className = 'flow-step-content';
+
+    const stepTitle = document.createElement('div');
+    stepTitle.className = 'flow-step-title';
+    stepTitle.textContent = step.message;
+
+    const stepTime = document.createElement('div');
+    stepTime.className = 'flow-step-time';
+
+    const timestampSpan = document.createElement('span');
+    timestampSpan.textContent = timestamp;
+
+    const durationSpan = document.createElement('span');
+    durationSpan.className = 'flow-step-duration';
+    durationSpan.textContent = timeFromStart;
+
+    stepTime.appendChild(timestampSpan);
+    stepTime.appendChild(durationSpan);
+
+    stepContent.appendChild(stepTitle);
+    stepContent.appendChild(stepTime);
+
+    flowStep.appendChild(stepNumber);
+    flowStep.appendChild(stepContent);
+
+    vizElement.appendChild(flowStep);
+  });
+
+  // Add final status
+  const hasErrors = data.steps.some(step => step.level === 'ERROR');
+  const finalStatus = document.createElement('div');
+  finalStatus.className = hasErrors ? 'flow-error' : 'flow-success';
+
+  const statusTitle = document.createElement('h3');
+  statusTitle.textContent = hasErrors ? '⚠️ Flow Completed with Errors' : '✓ Flow Completed Successfully';
+  finalStatus.appendChild(statusTitle);
+
+  if (hasErrors) {
+    const errorMsg = document.createElement('div');
+    errorMsg.className = 'flow-error-message';
+    errorMsg.textContent = 'Some steps encountered errors. Check the logs for details.';
+    finalStatus.appendChild(errorMsg);
+  }
+
+  vizElement.appendChild(finalStatus);
 }
 
 function getStepType(message) {
   if (message.includes('completed successfully') || message.includes('success')) {
     return 'success';
   } else if (message.includes('failed') || message.includes('error')) {
-    return 'failure';
-  } else if (message.includes('Starting') || message.includes('Executing')) {
-    return 'progress';
+    return 'error';
+  } else if (message.includes('warning')) {
+    return 'warning';
   } else {
     return 'info';
   }
 }
 
-function truncateText(text, maxLength) {
-  return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
-}
+function filterByStep(stepIndex) {
+  if (!currentFlowData || !currentFlowData.steps[stepIndex]) return;
 
-function calculateMultiLineLayout(steps, totalDuration) {
-  // Layout configuration - much larger for better readability
-  const stepsPerLine = 6; // Fewer steps per line for more space
-  const stepSpacing = 200; // Much larger horizontal space between steps
-  const lineHeight = 120; // Much larger vertical space between lines
-  const lineWidth = stepsPerLine * stepSpacing;
+  const step = currentFlowData.steps[stepIndex];
 
-  // Organize steps into lines
-  const lines = [];
-  for (let i = 0; i < steps.length; i += stepsPerLine) {
-    const lineSteps = steps.slice(i, i + stepsPerLine).map((step, index) => ({
-      ...step,
-      originalIndex: i + index
-    }));
-    lines.push({ steps: lineSteps });
-  }
+  // Close modal
+  closeFlowModal();
 
-  return {
-    lines,
-    lineHeight,
-    lineWidth,
-    stepSpacing,
-    totalWidth: lineWidth,
-    totalHeight: lines.length * lineHeight
-  };
-}
-
-
-function wrapTextToLines(text, maxCharacters) {
-  // Smart text wrapping for timeline labels
-  const words = text.split(' ');
-  const lines = [];
-  let currentLine = '';
-
-  for (const word of words) {
-    const testLine = currentLine ? `${currentLine} ${word}` : word;
-    if (testLine.length <= maxCharacters) {
-      currentLine = testLine;
-    } else {
-      if (currentLine) {
-        lines.push(currentLine);
-        currentLine = word;
-      } else {
-        // Single word is too long, truncate it
-        lines.push(word.substring(0, maxCharacters - 3) + '...');
-        currentLine = '';
-      }
-    }
-  }
-
-  if (currentLine) {
-    lines.push(currentLine);
-  }
-
-  // Return max 2 lines to prevent overcrowding
-  return lines.slice(0, 2);
-}
-
-function showTooltip(event, step) {
-  const tooltip = document.getElementById('timelineTooltip');
-  const timeFromStart = `+${(step.relative_time_ms / 1000).toFixed(2)}s`;
-
-  tooltip.innerHTML = `
-    <div><strong>Step:</strong> ${step.message}</div>
-    <div><strong>Time:</strong> ${timeFromStart}</div>
-    <div><strong>Timestamp:</strong> ${new Date(step.timestamp).toLocaleTimeString()}</div>
-    ${step.pr_number ? `<div><strong>PR:</strong> #${step.pr_number}</div>` : ''}
-    <div style="margin-top: 5px; font-size: 10px; color: var(--timestamp-color);">Click to filter logs by this step</div>
-  `;
-
-  const rect = event.target.getBoundingClientRect();
-  const containerRect = document.getElementById('timelineSection').getBoundingClientRect();
-
-  tooltip.style.left = (rect.left - containerRect.left + rect.width / 2) + 'px';
-  tooltip.style.top = (rect.top - containerRect.top - tooltip.offsetHeight - 10) + 'px';
-  tooltip.style.display = 'block';
-}
-
-function hideTooltip() {
-  document.getElementById('timelineTooltip').style.display = 'none';
-}
-
-function filterByStep(step) {
-  // Set search filter to find this specific step message
-  document.getElementById('searchFilter').value = step.message.substring(0, 30);
+  // Set search filter to find logs related to this step
+  const searchText = step.message.substring(0, 50);
+  document.getElementById('searchFilter').value = searchText;
   debounceFilter();
 }
 
-// Auto-show timeline when hook ID filter is applied
+// Auto-show modal when hook ID filter is applied, close when cleared
 function checkForTimelineDisplay() {
   const hookId = document.getElementById('hookIdFilter').value.trim();
   if (hookId) {
-    showTimeline(hookId);
+    showFlowModal(hookId);
   } else {
-    hideTimeline();
+    closeFlowModal();
   }
 }
 
-// Add timeline check to hook ID filter specifically
+// Add modal check to hook ID filter specifically
 document.getElementById('hookIdFilter').addEventListener('input', () => {
   setTimeout(checkForTimelineDisplay, 300); // Small delay to let the value settle
 });
+
+// Close modal button handler
+const closeModalBtn = document.getElementById('closeFlowModal');
+if (closeModalBtn) {
+  closeModalBtn.addEventListener('click', closeFlowModal);
+}
+
+// Close modal when clicking outside
+const flowModal = document.getElementById('flowModal');
+if (flowModal) {
+  flowModal.addEventListener('click', (e) => {
+    if (e.target === flowModal) {
+      closeFlowModal();
+    }
+  });
+}
 
 // Also check on initial load
 setTimeout(checkForTimelineDisplay, 1000);
