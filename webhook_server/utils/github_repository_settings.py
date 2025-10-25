@@ -153,7 +153,8 @@ def get_required_status_checks(
         while status_check in default_status_checks:
             default_status_checks.remove(status_check)
 
-    return default_status_checks
+    # Deduplicate while preserving order using dict.fromkeys()
+    return list(dict.fromkeys(default_status_checks))
 
 
 def get_user_configures_status_checks(status_checks: dict[str, Any]) -> tuple[list[str], list[str]]:
@@ -372,7 +373,7 @@ def set_repository_check_runs_to_queued(
         for check_run in last_commit.get_check_runs():
             if check_run.name in check_runs and check_run.status == IN_PROGRESS_STR:
                 LOGGER.warning(
-                    f"[API user {api_user}] - {repository}: [PR:{pull_request.number}] {check_run.name} status is {IN_PROGRESS_STR}, "
+                    f"[API user {api_user}] - {repository}: [PR:{_pull_request.number}] {check_run.name} status is {IN_PROGRESS_STR}, "
                     f"Setting check run {check_run.name} to {QUEUED_STR}"
                 )
                 _api.create_check_run(name=check_run.name, head_sha=last_commit.sha, status=QUEUED_STR)

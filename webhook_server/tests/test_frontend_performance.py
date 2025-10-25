@@ -168,9 +168,13 @@ class TestFrontendPerformanceOptimizations:
         assert "createElement" in js_content, "Should use createElement for DOM manipulation"
 
         # Verify that user content is safely rendered using textContent
-        js_lower = js_content.lower()
-        assert "textcontent" in js_lower and "message" in js_lower, (
-            "Should set message content using textContent for security"
+        # Use regex to check that textContent is actually used with message-related content
+        import re
+
+        # Look for patterns like: .textContent = entry.message or element.textContent = message
+        textcontent_pattern = re.compile(r"\.textContent\s*=\s*[^;]*message", re.IGNORECASE)
+        assert textcontent_pattern.search(js_content), (
+            "Should set message content using textContent for security (pattern: .textContent = ...message...)"
         )
 
     def test_progressive_loading_threshold(self, controller, static_files):
@@ -183,7 +187,14 @@ class TestFrontendPerformanceOptimizations:
 
         # Test for threshold-based progressive loading activation
         assert "entries.length >" in js_content, "Should check entry count for progressive loading"
-        assert "200" in js_content or "100" in js_content, "Should have a reasonable threshold for progressive loading"
+        # Check for threshold in proper context - look for patterns like "entries.length > 200" or "> 100"
+        import re
+
+        threshold_pattern = re.compile(r"entries\.length\s*>\s*(\d+)")
+        thresholds = threshold_pattern.findall(js_content)
+        assert len(thresholds) > 0 and any(int(t) in [100, 200, 250, 500] for t in thresholds), (
+            "Should have a reasonable threshold (100-500) for progressive loading check"
+        )
         assert "progressiv" in js_content.lower(), "Should activate progressive loading for large datasets"
 
     def test_chunked_loading_configuration(self, controller, static_files):

@@ -256,6 +256,67 @@ class TestGetRequiredStatusChecks:
 
         assert "verified" not in result
 
+    def test_get_required_status_checks_deduplication_with_pre_existing_values(self) -> None:
+        """Test that deduplication works when default_status_checks already contains values that will be appended."""
+
+        mock_repo = Mock()
+        # Simulate .pre-commit-config.yaml exists
+        mock_repo.get_contents.return_value = Mock()
+
+        # Enable multiple checks
+        data: dict = {
+            "tox": True,
+            "container": True,
+            "pypi": True,
+            "pre-commit": True,
+            "conventional-title": True,
+            "verified-job": True,
+        }
+
+        # Pre-populate with values that will also be added by the function
+        default_status_checks: list[str] = [
+            "can-be-merged",
+            "verified",
+            "tox",  # Will be added again by data["tox"]
+            PRE_COMMIT_STR,  # Will be added again by data["pre-commit"]
+        ]
+        exclude_status_checks: list[str] = []
+
+        result = get_required_status_checks(mock_repo, data, default_status_checks, exclude_status_checks)
+
+        # Verify deduplication works
+        assert len(result) == len(set(result)), f"Duplicates found in result: {result}"
+
+        # Verify expected values are present (once each)
+        assert result.count("can-be-merged") == 1
+        assert result.count("verified") == 1
+        assert result.count("tox") == 1
+        assert result.count(PRE_COMMIT_STR) == 1
+        assert result.count(BUILD_CONTAINER_STR) == 1
+        assert result.count(PYTHON_MODULE_INSTALL_STR) == 1
+        assert result.count(CONVENTIONAL_TITLE_STR) == 1
+        assert result.count("pre-commit.ci - pr") == 1
+
+    def test_get_required_status_checks_preserves_order_while_deduplicating(self) -> None:
+        """Test that deduplication preserves the order of first occurrence."""
+        from github.GithubException import UnknownObjectException
+
+        mock_repo = Mock()
+        mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
+
+        data: dict = {}
+
+        # Create list with intentional duplicates in specific order
+        default_status_checks: list[str] = ["check1", "check2", "check1", "check3", "check2"]
+        exclude_status_checks: list[str] = []
+
+        result = get_required_status_checks(mock_repo, data, default_status_checks, exclude_status_checks)
+
+        # Should preserve first occurrence order: check1, check2, check3, verified
+        expected_order_prefix = ["check1", "check2", "check3"]
+        assert result[:3] == expected_order_prefix, f"Order not preserved: {result}"
+        assert len(result) == len(set(result)), f"Duplicates found: {result}"
+
 
 class TestGetUserConfiguresStatusChecks:
     """Test suite for get_user_configures_status_checks function."""

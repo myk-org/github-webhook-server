@@ -362,7 +362,7 @@ class RunnerHandler:
             pull_request=pull_request, is_merged=is_merged, tag=tag
         )
         no_cache: str = " --no-cache" if is_merged else ""
-        build_cmd: str = f"--network=host {no_cache} -f {clone_repo_dir}/{self.github_webhook.dockerfile} {clone_repo_dir} -t {_container_repository_and_tag}"
+        build_cmd: str = f'--network=host {no_cache} -f "{clone_repo_dir}/{self.github_webhook.dockerfile}" "{clone_repo_dir}" -t {_container_repository_and_tag}'
 
         if self.github_webhook.container_build_args:
             build_args = " ".join(f"--build-arg {arg}" for arg in self.github_webhook.container_build_args)
@@ -398,7 +398,13 @@ class RunnerHandler:
             self.logger.step(  # type: ignore[attr-defined]
                 f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Executing container build command",
             )
-            build_rc, build_out, build_err = await self.run_podman_command(command=podman_build_cmd)
+            # Collect all potential secrets from build args and container credentials
+            build_secrets = [self.github_webhook.token]
+            if self.github_webhook.container_build_args:
+                build_secrets.extend(self.github_webhook.container_build_args)
+            build_rc, build_out, build_err = await self.run_podman_command(
+                command=podman_build_cmd, redact_secrets=build_secrets
+            )
             output["text"] = self.check_run_handler.get_check_run_text(err=build_err, out=build_out)
 
             if build_rc:
@@ -448,19 +454,30 @@ class RunnerHandler:
 
                 # Push without credentials in command (already authenticated)
                 push_cmd = f"podman push {_container_repository_and_tag}"
-                push_rc, _, _ = await self.run_podman_command(command=push_cmd)
+                # Redact all container-related secrets (token, username, password)
+                push_secrets = [
+                    self.github_webhook.token,
+                    self.github_webhook.container_repository_username,
+                    self.github_webhook.container_repository_password,
+                ]
+                push_rc, _, _ = await self.run_podman_command(command=push_cmd, redact_secrets=push_secrets)
                 if push_rc:
                     self.logger.step(  # type: ignore[attr-defined]
                         f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'completed')} Container push completed successfully",
                     )
                     push_msg: str = f"New container for {_container_repository_and_tag} published"
                     if pull_request:
-                        # Get PR node ID for GraphQL comment
-                        owner, repo = self.repository.full_name.split("/")
-                        pr_data = await self.github_webhook.unified_api.get_pull_request(
-                            owner, repo, pull_request.number
-                        )
-                        await self.github_webhook.unified_api.add_comment(pr_data["id"], push_msg)
+                        # Use wrapper.id if available to skip extra API call
+                        if isinstance(pull_request, PullRequestWrapper):
+                            pr_id = pull_request.id
+                        else:
+                            # Fallback: Get PR node ID for GraphQL comment
+                            owner, repo = self.repository.full_name.split("/")
+                            pr_data = await self.github_webhook.unified_api.get_pull_request(
+                                owner, repo, pull_request.number
+                            )
+                            pr_id = pr_data["id"]
+                        await self.github_webhook.unified_api.add_comment(pr_id, push_msg)
 
                     if self.github_webhook.slack_webhook_url:
                         message = f"""
@@ -478,12 +495,17 @@ class RunnerHandler:
                 else:
                     err_msg: str = f"Failed to build and push {_container_repository_and_tag}"
                     if pull_request:
-                        # Get PR node ID for GraphQL comment
-                        owner, repo = self.repository.full_name.split("/")
-                        pr_data = await self.github_webhook.unified_api.get_pull_request(
-                            owner, repo, pull_request.number
-                        )
-                        await self.github_webhook.unified_api.add_comment(pr_data["id"], err_msg)
+                        # Use wrapper.id if available to skip extra API call
+                        if isinstance(pull_request, PullRequestWrapper):
+                            pr_id = pull_request.id
+                        else:
+                            # Fallback: Get PR node ID for GraphQL comment
+                            owner, repo = self.repository.full_name.split("/")
+                            pr_data = await self.github_webhook.unified_api.get_pull_request(
+                                owner, repo, pull_request.number
+                            )
+                            pr_id = pr_data["id"]
+                        await self.github_webhook.unified_api.add_comment(pr_id, err_msg)
 
                     if self.github_webhook.slack_webhook_url:
                         message = f"""
@@ -681,7 +703,8 @@ class RunnerHandler:
                 )
                 for cmd in commands:
                     # Pass hub_env for hub commands, regular env for git commands
-                    env_to_use = hub_env if "hub" in cmd else None
+                    # Use explicit check for hub_cmd prefix to avoid false positives
+                    env_to_use = hub_env if cmd.startswith(hub_cmd) else None
                     rc, out, err = await run_command(
                         command=cmd,
                         log_prefix=self.log_prefix,

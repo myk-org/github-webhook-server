@@ -324,7 +324,7 @@ class TestHelpers:
     @pytest.mark.asyncio
     async def test_run_command_success(self):
         """Test run_command with a successful command."""
-        result = await run_command("echo hello", log_prefix="[TEST]", redact_secrets=[])
+        result = await run_command(f"{sys.executable} -c \"print('hello')\"", log_prefix="[TEST]", redact_secrets=[])
         assert result[0] is True
         assert "hello" in result[1]
         assert isinstance(result[1], str)
@@ -333,7 +333,9 @@ class TestHelpers:
     @pytest.mark.asyncio
     async def test_run_command_failure(self):
         """Test run_command with a failing command."""
-        result = await run_command("false", log_prefix="[TEST]", redact_secrets=[])
+        result = await run_command(
+            f'{sys.executable} -c "import sys; sys.exit(1)"', log_prefix="[TEST]", redact_secrets=[]
+        )
         assert result[0] is False
         assert isinstance(result[1], str)
         assert isinstance(result[2], str)

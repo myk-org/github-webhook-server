@@ -186,13 +186,19 @@ def _redact_secrets(text: str, secrets: list[str] | None, case_insensitive: bool
     if not secrets:
         return text
 
-    # Filter out empty secrets and escape special regex characters
-    escaped_secrets = [re.escape(secret) for secret in secrets if secret]
+    # Filter out empty secrets, deduplicate, and escape special regex characters
+    # Sort by length descending to prevent substring leaks
+    # (e.g., if "abc" and "abcdef" are both secrets, match "abcdef" first)
+    escaped_secrets = sorted(
+        {re.escape(secret) for secret in secrets if secret},
+        key=len,
+        reverse=True,
+    )
     if not escaped_secrets:
         return text
 
-    # Create cache key from sorted tuple of secrets and case_insensitive flag
-    cache_key = (tuple(sorted(escaped_secrets)), case_insensitive)
+    # Create cache key from tuple of sorted secrets and case_insensitive flag
+    cache_key = (tuple(escaped_secrets), case_insensitive)
 
     # Check cache for existing compiled regex
     if cache_key in _REDACT_REGEX_CACHE:
@@ -201,6 +207,7 @@ def _redact_secrets(text: str, secrets: list[str] | None, case_insensitive: bool
         # Build single regex pattern with non-capturing group: (?:secret1|secret2|secret3)
         # Non-capturing group for alternation without word boundaries
         # (tokens can appear anywhere in strings, not just as whole words)
+        # Longer secrets first prevents partial redaction
         pattern = f"(?:{'|'.join(escaped_secrets)})"
 
         # Compile regex with optional case-insensitive flag
@@ -523,10 +530,10 @@ def prepare_log_prefix(
     else:
         repository_color = repository_name or ""
 
-    # Build prefix components
-    components = [event_type, delivery_id]
+    # Build prefix components (sanitize to prevent log injection)
+    components = [_sanitize_log_value(event_type), _sanitize_log_value(delivery_id)]
     if api_user:
-        components.append(api_user)
+        components.append(_sanitize_log_value(api_user))
 
     prefix = f"{repository_color} [{']['.join(components)}]"
 

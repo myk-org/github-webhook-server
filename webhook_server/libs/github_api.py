@@ -519,9 +519,13 @@ class GithubWebhook:
 
         reviewer_ids = []
         for reviewer in reviewers:
-            # (1) Accept numeric reviewer IDs directly
+            # (1) Skip numeric reviewer IDs - they're not valid GraphQL node IDs
+            # GraphQL expects node IDs like "U_kgDOA...", not numeric REST IDs
+            # Numeric IDs will be handled via REST API fallback below
             if isinstance(reviewer, int):
-                reviewer_ids.append(str(reviewer))
+                self.logger.debug(
+                    f"{self.log_prefix} Skipping numeric reviewer ID {reviewer}, will use REST API if needed"
+                )
                 continue
 
             # (2) Normalize reviewer to username string (keep existing normalization logic)
@@ -545,9 +549,17 @@ class GithubWebhook:
                     reviewer_id = reviewer.user.id
             elif isinstance(reviewer, dict):
                 username = reviewer.get("login") or (reviewer.get("user") or {}).get("login")
-                # (3) Try to extract 'id' from dict
+                # (3) Try to extract 'id' from dict - but only if it's a GraphQL node ID
                 if not username and reviewer.get("id"):
-                    reviewer_ids.append(str(reviewer["id"]))
+                    extracted_id = str(reviewer["id"])
+                    # Filter out numeric IDs - GraphQL expects node IDs like "U_kgDOA..."
+                    if not extracted_id.isdigit():
+                        reviewer_ids.append(extracted_id)
+                        continue
+                    # Skip numeric IDs - they'll be handled by REST fallback
+                    self.logger.debug(
+                        f"{self.log_prefix} Skipping numeric ID {extracted_id} from dict, will use REST API if needed"
+                    )
                     continue
                 reviewer_id = reviewer.get("id")
 
@@ -592,8 +604,31 @@ class GithubWebhook:
             except (GraphQLError, TransportConnectionFailed, TransportQueryError, TransportServerError) as ex:
                 # (3) If GraphQL fails (user not found or other GraphQL/transport error), try to use extracted id from original reviewer
                 if reviewer_id:
-                    self.logger.debug(f"{self.log_prefix} Using extracted id {reviewer_id} for {username}")
-                    reviewer_ids.append(str(reviewer_id))
+                    extracted_id_str = str(reviewer_id)
+                    # Filter out numeric IDs - GraphQL expects node IDs like "U_kgDOA..."
+                    if not extracted_id_str.isdigit():
+                        self.logger.debug(f"{self.log_prefix} Using extracted id {reviewer_id} for {username}")
+                        reviewer_ids.append(extracted_id_str)
+                    else:
+                        # Numeric ID detected - skip GraphQL and try REST fallback
+                        self.logger.debug(
+                            f"{self.log_prefix} Extracted ID {reviewer_id} is numeric, attempting REST fallback for {username}"
+                        )
+                        try:
+                            user_id = await self.unified_api.get_user_id_rest(username)
+                            reviewer_ids.append(user_id)
+                        except (GraphQLAuthenticationError, GraphQLRateLimitError):
+                            raise
+                        except (
+                            GraphQLError,
+                            TransportConnectionFailed,
+                            TransportQueryError,
+                            TransportServerError,
+                            GithubException,
+                        ) as rest_ex:
+                            self.logger.warning(
+                                f"{self.log_prefix} Failed to get ID for {username} via GraphQL ({ex}) and REST ({rest_ex})"
+                            )
                 else:
                     # (4) Final fallback: try REST API via unified_api
                     try:

@@ -1,22 +1,28 @@
 module.exports = [
+  // Frontend configuration - for browser-based JavaScript
   {
-    files: ["**/*.js"],
+    files: ["webhook_server/web/static/**/*.js"],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "script",
       globals: {
-        console: "readonly",
-        document: "readonly",
+        // Browser environment globals
         window: "readonly",
+        document: "readonly",
+        console: "readonly",
         fetch: "readonly",
-        setTimeout: "readonly",
-        clearTimeout: "readonly",
         WebSocket: "readonly",
         localStorage: "readonly",
-        Date: "readonly",
+        sessionStorage: "readonly",
+        alert: "readonly",
+        confirm: "readonly",
+        prompt: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+        setInterval: "readonly",
+        clearInterval: "readonly",
         URLSearchParams: "readonly",
         AbortController: "readonly",
-        Set: "readonly",
       },
     },
     rules: {

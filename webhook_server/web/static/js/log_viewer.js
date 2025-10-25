@@ -1,6 +1,13 @@
 let ws = null;
 let logEntries = [];
 
+// Configuration constants
+const CONFIG = {
+  // Maximum number of entries to fetch when loading PR details
+  // This prevents performance issues with very large datasets
+  PR_FETCH_LIMIT: 10000,
+};
+
 function updateConnectionStatus(connected) {
   const status = document.getElementById("connectionStatus");
   const statusText = document.getElementById("statusText");
@@ -698,6 +705,11 @@ function showFlowModal(hookId) {
   // Create new AbortController for this fetch
   currentFlowController = new AbortController();
 
+  // Show modal with loading indicator
+  const modal = document.getElementById("flowModal");
+  modal.style.display = "flex";
+  showFlowModalLoading();
+
   // Fetch workflow steps data
   fetch(`/logs/api/workflow-steps/${hookId}`, {
     signal: currentFlowController.signal,
@@ -706,10 +718,10 @@ function showFlowModal(hookId) {
       if (!response.ok) {
         if (response.status === 404) {
           console.log("No flow data found for hook ID:", hookId);
-          showErrorMessage("No workflow data found for this hook");
+          showFlowModalError("No workflow data found for this hook");
           return;
         }
-        throw new Error("Failed to fetch workflow steps");
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
       return response.json();
     })
@@ -717,8 +729,6 @@ function showFlowModal(hookId) {
       if (data) {
         currentFlowData = data;
         renderFlowModal(data);
-        const modal = document.getElementById("flowModal");
-        modal.style.display = "flex";
         setupFlowModalAccessibility();
       }
     })
@@ -728,6 +738,7 @@ function showFlowModal(hookId) {
         return;
       }
       console.error("Error fetching flow data:", error);
+      showFlowModalError("Failed to load workflow data. Please try again.");
     });
 }
 
@@ -770,16 +781,21 @@ function showPrModal(prNumber) {
   // Create new AbortController for this fetch
   currentPrController = new AbortController();
 
+  // Show modal with loading indicator
+  const modal = document.getElementById("prModal");
+  modal.style.display = "flex";
+  showPrModalLoading();
+
   // Fetch all log entries for this PR number
   const params = new URLSearchParams({
     pr_number: prNumber,
-    limit: "10000",
+    limit: CONFIG.PR_FETCH_LIMIT.toString(),
   });
 
   fetch(`/logs/api/entries?${params}`, { signal: currentPrController.signal })
     .then((response) => {
       if (!response.ok) {
-        throw new Error("Failed to fetch PR entries");
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
       return response.json();
     })
@@ -793,14 +809,14 @@ function showPrModal(prNumber) {
 
         if (uniqueHookIds.length === 0) {
           console.log("No hook IDs found for PR:", prNumber);
-          showErrorMessage(`No workflow events found for PR #${prNumber}`);
+          showPrModalError(`No workflow events found for PR #${prNumber}`);
           return;
         }
 
         renderPrModal(prNumber, uniqueHookIds, data.entries[0].repository);
-        const modal = document.getElementById("prModal");
-        modal.style.display = "flex";
         setupPrModalAccessibility();
+      } else {
+        showPrModalError(`No log entries found for PR #${prNumber}`);
       }
     })
     .catch((error) => {
@@ -809,6 +825,7 @@ function showPrModal(prNumber) {
         return;
       }
       console.error("Error fetching PR data:", error);
+      showPrModalError("Failed to load PR data. Please try again.");
     });
 }
 
@@ -835,6 +852,12 @@ function closePrModal() {
 function setupFlowModalAccessibility() {
   const modal = document.getElementById("flowModal");
   if (!modal) return;
+
+  // Set ARIA attributes for screen reader support
+  modal.setAttribute("role", "dialog");
+  modal.setAttribute("aria-modal", "true");
+  modal.setAttribute("aria-labelledby", "flowModalTitle");
+  modal.setAttribute("aria-describedby", "flowSummary");
 
   // Save the element that had focus before modal opened
   flowModalPreviousFocus = document.activeElement;
@@ -885,6 +908,12 @@ function setupFlowModalAccessibility() {
 function setupPrModalAccessibility() {
   const modal = document.getElementById("prModal");
   if (!modal) return;
+
+  // Set ARIA attributes for screen reader support
+  modal.setAttribute("role", "dialog");
+  modal.setAttribute("aria-modal", "true");
+  modal.setAttribute("aria-labelledby", "prModalTitle");
+  modal.setAttribute("aria-describedby", "prSummary");
 
   // Save the element that had focus before modal opened
   prModalPreviousFocus = document.activeElement;
@@ -992,6 +1021,166 @@ function renderPrModal(prNumber, hookIds, repository) {
     hookItem.appendChild(hookIdSpan);
     listElement.appendChild(hookItem);
   });
+}
+
+// Flow Modal loading and error helper functions
+function showFlowModalLoading() {
+  const summaryElement = document.getElementById("flowSummary");
+  const vizElement = document.getElementById("flowVisualization");
+
+  if (summaryElement) {
+    while (summaryElement.firstChild) {
+      summaryElement.removeChild(summaryElement.firstChild);
+    }
+    const loadingDiv = document.createElement("div");
+    loadingDiv.className = "modal-loading";
+    loadingDiv.style.textAlign = "center";
+    loadingDiv.style.padding = "24px";
+    loadingDiv.style.color = "var(--timestamp-color)";
+
+    const spinner = document.createElement("div");
+    spinner.className = "loading-spinner";
+    spinner.textContent = "⏳";
+    spinner.style.fontSize = "32px";
+    spinner.style.marginBottom = "12px";
+
+    const text = document.createElement("div");
+    text.textContent = "Loading workflow data...";
+
+    loadingDiv.appendChild(spinner);
+    loadingDiv.appendChild(text);
+    summaryElement.appendChild(loadingDiv);
+  }
+
+  if (vizElement) {
+    while (vizElement.firstChild) {
+      vizElement.removeChild(vizElement.firstChild);
+    }
+  }
+}
+
+function showFlowModalError(errorMessage) {
+  const summaryElement = document.getElementById("flowSummary");
+  const vizElement = document.getElementById("flowVisualization");
+
+  if (summaryElement) {
+    while (summaryElement.firstChild) {
+      summaryElement.removeChild(summaryElement.firstChild);
+    }
+    const errorDiv = document.createElement("div");
+    errorDiv.className = "modal-error";
+    errorDiv.style.textAlign = "center";
+    errorDiv.style.padding = "24px";
+
+    const icon = document.createElement("div");
+    icon.style.fontSize = "48px";
+    icon.style.marginBottom = "12px";
+    icon.textContent = "⚠️";
+
+    const message = document.createElement("div");
+    message.style.color = "var(--error-color, #dc3545)";
+    message.style.fontSize = "16px";
+    message.style.marginBottom = "16px";
+    message.textContent = errorMessage;
+
+    const closeBtn = document.createElement("button");
+    closeBtn.textContent = "Close";
+    closeBtn.className = "btn-secondary";
+    closeBtn.style.padding = "8px 16px";
+    closeBtn.style.cursor = "pointer";
+    closeBtn.addEventListener("click", closeFlowModal);
+
+    errorDiv.appendChild(icon);
+    errorDiv.appendChild(message);
+    errorDiv.appendChild(closeBtn);
+    summaryElement.appendChild(errorDiv);
+  }
+
+  if (vizElement) {
+    while (vizElement.firstChild) {
+      vizElement.removeChild(vizElement.firstChild);
+    }
+  }
+}
+
+// PR Modal loading and error helper functions
+function showPrModalLoading() {
+  const summaryElement = document.getElementById("prSummary");
+  const listElement = document.getElementById("prHookList");
+
+  if (summaryElement) {
+    while (summaryElement.firstChild) {
+      summaryElement.removeChild(summaryElement.firstChild);
+    }
+    const loadingDiv = document.createElement("div");
+    loadingDiv.className = "modal-loading";
+    loadingDiv.style.textAlign = "center";
+    loadingDiv.style.padding = "24px";
+    loadingDiv.style.color = "var(--timestamp-color)";
+
+    const spinner = document.createElement("div");
+    spinner.className = "loading-spinner";
+    spinner.textContent = "⏳";
+    spinner.style.fontSize = "32px";
+    spinner.style.marginBottom = "12px";
+
+    const text = document.createElement("div");
+    text.textContent = "Loading PR data...";
+
+    loadingDiv.appendChild(spinner);
+    loadingDiv.appendChild(text);
+    summaryElement.appendChild(loadingDiv);
+  }
+
+  if (listElement) {
+    while (listElement.firstChild) {
+      listElement.removeChild(listElement.firstChild);
+    }
+  }
+}
+
+function showPrModalError(errorMessage) {
+  const summaryElement = document.getElementById("prSummary");
+  const listElement = document.getElementById("prHookList");
+
+  if (summaryElement) {
+    while (summaryElement.firstChild) {
+      summaryElement.removeChild(summaryElement.firstChild);
+    }
+    const errorDiv = document.createElement("div");
+    errorDiv.className = "modal-error";
+    errorDiv.style.textAlign = "center";
+    errorDiv.style.padding = "24px";
+
+    const icon = document.createElement("div");
+    icon.style.fontSize = "48px";
+    icon.style.marginBottom = "12px";
+    icon.textContent = "⚠️";
+
+    const message = document.createElement("div");
+    message.style.color = "var(--error-color, #dc3545)";
+    message.style.fontSize = "16px";
+    message.style.marginBottom = "16px";
+    message.textContent = errorMessage;
+
+    const closeBtn = document.createElement("button");
+    closeBtn.textContent = "Close";
+    closeBtn.className = "btn-secondary";
+    closeBtn.style.padding = "8px 16px";
+    closeBtn.style.cursor = "pointer";
+    closeBtn.addEventListener("click", closePrModal);
+
+    errorDiv.appendChild(icon);
+    errorDiv.appendChild(message);
+    errorDiv.appendChild(closeBtn);
+    summaryElement.appendChild(errorDiv);
+  }
+
+  if (listElement) {
+    while (listElement.firstChild) {
+      listElement.removeChild(listElement.firstChild);
+    }
+  }
 }
 
 function groupStepsByTaskId(steps) {
