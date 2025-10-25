@@ -555,6 +555,33 @@ class GithubWebhook:
                 self.logger.warning(f"{self.log_prefix} Could not resolve username from reviewer: {reviewer}")
                 continue
 
+            # Check if reviewer_id is numeric - if so, use REST API instead of GraphQL
+            # GraphQL requires node IDs (e.g., MDExOlB1b...), not numeric IDs
+            if reviewer_id and isinstance(reviewer_id, (int, str)) and str(reviewer_id).isdigit():
+                self.logger.debug(
+                    f"{self.log_prefix} Reviewer ID {reviewer_id} is numeric, using REST API for {username}"
+                )
+                try:
+                    # Get owner/repo from pull_request object (works for both PullRequest and PullRequestWrapper)
+                    if isinstance(pull_request, PullRequest):
+                        _owner = pull_request.base.repo.owner.login
+                        _repo = pull_request.base.repo.name
+                    else:
+                        # For PullRequestWrapper, use already extracted owner/repo from method start
+                        _owner, _repo = self.repository_full_name.split("/")
+                    pr_num = pull_request.number
+                    # Use REST API for numeric IDs via create_issue_comment pattern
+                    await self.unified_api.request_reviewers_rest(_owner, _repo, pr_num, [username])
+                    # Skip adding to reviewer_ids since we already made the REST call
+                    continue
+                except (GraphQLAuthenticationError, GraphQLRateLimitError):
+                    raise
+                except (GraphQLError, GithubException) as rest_ex:
+                    self.logger.warning(
+                        f"{self.log_prefix} Failed to request reviewer {username} via REST API: {rest_ex}"
+                    )
+                    continue
+
             # Try GraphQL first
             try:
                 user_id = await self.unified_api.get_user_id(username)

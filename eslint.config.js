@@ -16,6 +16,7 @@ module.exports = [
         Date: "readonly",
         URLSearchParams: "readonly",
         AbortController: "readonly",
+        Set: "readonly",
       },
     },
     rules: {

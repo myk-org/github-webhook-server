@@ -366,8 +366,7 @@ async function loadHistoricalLogs() {
 
 async function loadEntriesDirectly(entries) {
   // Backend-filtered entries are assigned and rendered all at once
-  // No progressive loading - all entries are displayed immediately
-  // Backend handles chunked streaming to reduce memory usage during transport
+  // All entries are displayed immediately - backend handles chunked streaming
   logEntries = entries;
   // Apply memory bounding after direct assignment
   applyMemoryBounding();
@@ -1348,8 +1347,7 @@ async function showStepLogsInModal(step, logsContainer) {
   currentStepLogsController = new AbortController();
 
   try {
-    // Fetch logs matching this step message using full message for precision
-    // Using full message to avoid ambiguous matches that can occur with truncated text
+    // Using full message for precision to avoid ambiguous matches
     const searchText = step.message;
     const hookId = currentFlowData.hook_id;
 

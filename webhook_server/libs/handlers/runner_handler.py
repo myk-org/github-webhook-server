@@ -631,6 +631,18 @@ class RunnerHandler:
             )
             await self.check_run_handler.set_cherry_pick_in_progress()
             commit_hash = pull_request.merge_commit_sha
+            # Validate that PR has been merged before attempting cherry-pick
+            if not commit_hash:
+                err_msg = "cherry-pick failed: pull request has not been merged yet (merge_commit_sha is None)"
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Cherry-pick failed: PR not merged",
+                )
+                self.logger.error(f"{self.log_prefix} {err_msg}")
+                # Get PR node ID for GraphQL comment
+                owner, repo = self.repository.full_name.split("/")
+                pr_data = await self.github_webhook.unified_api.get_pull_request(owner, repo, pull_request.number)
+                await self.github_webhook.unified_api.add_comment(pr_data["id"], err_msg)
+                return
             # Escape single quotes for shell safety
             commit_msg_escaped = pull_request.title.replace("'", "'\\''")
             requested_by_escaped = requested_by.replace("'", "'\\''")

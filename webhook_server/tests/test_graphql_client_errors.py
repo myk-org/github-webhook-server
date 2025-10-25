@@ -293,10 +293,20 @@ async def test_rate_limit_wait_and_retry_success(graphql_client, monkeypatch):
     reset_time = fixed_time + timedelta(seconds=60)  # Reset in 60 seconds
     reset_timestamp = int(reset_time.timestamp())
 
-    # Mock datetime.now to return fixed time and fromtimestamp to return reset time
+    # Create MockDatetime class that implements both now() and fromtimestamp()
+    class MockDatetime:
+        @staticmethod
+        def now(tz=None):  # noqa: ARG004
+            return fixed_time
+
+        @staticmethod
+        def fromtimestamp(timestamp, tz=None):  # noqa: ARG004
+            return reset_time
+
+    # Mock datetime module to return MockDatetime
     monkeypatch.setattr(
         "webhook_server.libs.graphql.graphql_client.datetime",
-        Mock(now=Mock(return_value=fixed_time), fromtimestamp=Mock(return_value=reset_time)),
+        MockDatetime,
     )
 
     # Mock aiohttp session for rate limit API call

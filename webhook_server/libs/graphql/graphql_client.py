@@ -215,9 +215,8 @@ class GraphQLClient:
 
                 # Check for authentication errors
                 if "401" in error_msg or "Unauthorized" in error_msg or "Bad credentials" in error_msg:
-                    self.logger.error(
+                    self.logger.exception(
                         f"AUTH FAILED: GraphQL authentication failed: {error_msg}",
-                        exc_info=True,
                     )
                     raise GraphQLAuthenticationError(f"Authentication failed: {error_msg}") from error
 

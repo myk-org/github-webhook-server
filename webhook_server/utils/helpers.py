@@ -87,6 +87,7 @@ def get_logger_with_params(
         file_max_bytes=1024 * 1024 * 10,
         mask_sensitive=mask_sensitive,
         mask_sensitive_patterns=mask_sensitive_patterns,
+        console=True,  # Enable console output for docker logs with FORCE_COLOR support
     )
 
 
@@ -245,16 +246,18 @@ async def run_command(
         command (str): Command to run (will be split with shlex.split for safety)
         log_prefix (str): Prefix for log messages
         verify_stderr (bool, default False): Check command stderr
-        redact_secrets (list[str], optional): List of sensitive strings to redact from output before returning
+        redact_secrets (list[str], optional): List of sensitive strings to redact from logs only
         stdin_input (str | bytes | None, optional): Input to pass to command via stdin (for passwords, etc.)
 
     Returns:
-        tuple[bool, str, str]: (success, stdout, stderr) where stdout and stderr are always strings,
-                               redacted if redact_secrets is provided.
+        tuple[bool, str, str]: (success, stdout, stderr) where stdout and stderr are UNREDACTED strings.
+                               Redaction is ONLY applied to log output, not return values.
+                               Callers may need to parse unredacted output for command results.
 
     Security:
         Uses asyncio.create_subprocess_exec (NOT shell=True) to prevent command injection.
         stdin_input is passed via pipe, not command line arguments.
+        Secrets are redacted in logs but NOT in return values - callers must handle sensitive data.
     """
     logger = get_logger_with_params()
     out_decoded: str = ""
@@ -369,9 +372,16 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
 
         try:
             _api_user = _api.get_user().login
-        except (github.GithubException, github.RateLimitExceededException) as ex:
+        except github.GithubException as ex:
             logger.warning(f"Failed to get API user for API {_api}, skipping. {ex}")
             continue
+        except Exception as ex:
+            # Catch RateLimitExceededException if it exists in this PyGithub version
+            # In older versions, this may not be a separate exception class
+            if type(ex).__name__ == "RateLimitExceededException":
+                logger.warning(f"Failed to get API user for API {_api}, skipping. {ex}")
+                continue
+            raise
 
         _rate_limit = _api.get_rate_limit()
 

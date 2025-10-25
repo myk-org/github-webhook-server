@@ -51,6 +51,7 @@ ENV UV_PYTHON=python3.13
 ENV UV_COMPILE_BYTECODE=1
 ENV UV_NO_SYNC=1
 ENV UV_CACHE_DIR=${APP_DIR}/.cache
+ENV PYTHONUNBUFFERED=1
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx ${BIN_DIR}/
 RUN uv tool install pre-commit && uv tool install poetry && uv tool install prek

@@ -362,7 +362,8 @@ def set_repository_check_runs_to_queued(
         # This is O(1) memory instead of O(N) for large PRs
         commits = _pull_request.get_commits()
         last_commit: Commit | None = None
-        for last_commit in commits:
+        for last_commit in commits:  # noqa: B007
+            # Tail iteration: loop variable updated on each iteration to get final value
             pass  # Iterate to end without materializing full list
         if last_commit is None:
             LOGGER.error(f"[API user {api_user}] - {repository}: [PR:{_pull_request.number}] No commits found")
