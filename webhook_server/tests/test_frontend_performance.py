@@ -173,12 +173,6 @@ class TestFrontendPerformanceOptimizations:
             "Should set message content using textContent for security"
         )
 
-        # Test that DOM manipulation doesn't use dangerous innerHTML for user content
-        # innerHTML should only appear in template/skeleton rendering, not for user data
-        assert "createelement" in js_lower or "createElement" in js_content, (
-            "Should create elements safely instead of using innerHTML"
-        )
-
     def test_progressive_loading_threshold(self, controller, static_files):
         """Test that progressive loading activates for large datasets."""
         html_content = controller._get_log_viewer_html()

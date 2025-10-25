@@ -321,26 +321,33 @@ class TestRunnerHandler:
                             mock_prepare.return_value = AsyncMock()
                             mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(True, "", ""))
                             mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
-                            with patch.object(
-                                runner_handler, "run_podman_command", new=AsyncMock(return_value=(True, "success", ""))
-                            ) as mock_run_podman:
-                                # Mock unified_api methods for comment
-                                runner_handler.github_webhook.unified_api.get_pull_request = AsyncMock(
-                                    return_value={"id": "PR_test123"}
-                                )
-                                runner_handler.github_webhook.unified_api.add_comment = AsyncMock()
-                                await runner_handler.run_build_container(pull_request=mock_pull_request, push=True)
-                                mock_set_progress.assert_called_once()
-                                # When push=True, set_container_build_success should NOT be called after build
-                                # (it would be called after successful push instead, which is not part of this test)
-                                mock_set_success.assert_not_called()
-                                # Verify both build and push commands were executed
-                                assert mock_run_podman.call_count == 2
-                                # Verify success comment was posted
-                                runner_handler.github_webhook.unified_api.add_comment.assert_called_once()
-                                call_args = runner_handler.github_webhook.unified_api.add_comment.call_args
-                                assert call_args[0][0] == "PR_test123"  # PR node ID
-                                assert "New container for test/repo:latest published" in call_args[0][1]
+                            # Mock run_command for podman login
+                            with patch(
+                                "webhook_server.libs.handlers.runner_handler.run_command",
+                                new=AsyncMock(return_value=(True, "Login Succeeded", "")),
+                            ):
+                                with patch.object(
+                                    runner_handler,
+                                    "run_podman_command",
+                                    new=AsyncMock(return_value=(True, "success", "")),
+                                ) as mock_run_podman:
+                                    # Mock unified_api methods for comment
+                                    runner_handler.github_webhook.unified_api.get_pull_request = AsyncMock(
+                                        return_value={"id": "PR_test123"}
+                                    )
+                                    runner_handler.github_webhook.unified_api.add_comment = AsyncMock()
+                                    await runner_handler.run_build_container(pull_request=mock_pull_request, push=True)
+                                    mock_set_progress.assert_called_once()
+                                    # When push=True, set_container_build_success should NOT be called after build
+                                    # (it would be called after successful push instead, which is not part of this test)
+                                    mock_set_success.assert_not_called()
+                                    # Verify both build and push commands were executed
+                                    assert mock_run_podman.call_count == 2
+                                    # Verify success comment was posted
+                                    runner_handler.github_webhook.unified_api.add_comment.assert_called_once()
+                                    call_args = runner_handler.github_webhook.unified_api.add_comment.call_args
+                                    assert call_args[0][0] == "PR_test123"  # PR node ID
+                                    assert "New container for test/repo:latest published" in call_args[0][1]
 
     @pytest.mark.asyncio
     async def test_run_install_python_module_disabled(
@@ -813,32 +820,37 @@ class TestRunnerHandler:
                                 mock_prepare.return_value = AsyncMock()
                                 mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(True, "", ""))
                                 mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
-                                with patch.object(
-                                    runner_handler, "run_podman_command", new_callable=AsyncMock
-                                ) as mock_run_podman:
-                                    # First call (build) succeeds, second call (push) fails
-                                    mock_run_podman.side_effect = [
-                                        (True, "build success", ""),
-                                        (False, "push fail", "push error"),
-                                    ]
+                                # Mock run_command for podman login
+                                with patch(
+                                    "webhook_server.libs.handlers.runner_handler.run_command",
+                                    new=AsyncMock(return_value=(True, "Login Succeeded", "")),
+                                ):
                                     with patch.object(
-                                        runner_handler.github_webhook, "slack_webhook_url", "http://slack"
-                                    ):
-                                        # Mock unified_api methods
-                                        runner_handler.github_webhook.unified_api.get_pull_request = AsyncMock(
-                                            return_value={"id": "PR_test123"}
-                                        )
-                                        runner_handler.github_webhook.unified_api.add_comment = AsyncMock()
-                                        # Set set_check=False to avoid setting check status
-                                        await runner_handler.run_build_container(
-                                            pull_request=mock_pull_request, push=True, set_check=False
-                                        )
-                                        # Should not call set_progress because set_check=False
-                                        mock_set_progress.assert_not_called()
-                                        # Should not call set_success because set_check=False
-                                        mock_set_success.assert_not_called()
-                                        # Comment should be added when push fails
-                                        runner_handler.github_webhook.unified_api.add_comment.assert_called_once()
+                                        runner_handler, "run_podman_command", new_callable=AsyncMock
+                                    ) as mock_run_podman:
+                                        # First call (build) succeeds, second call (push) fails
+                                        mock_run_podman.side_effect = [
+                                            (True, "build success", ""),
+                                            (False, "push fail", "push error"),
+                                        ]
+                                        with patch.object(
+                                            runner_handler.github_webhook, "slack_webhook_url", "http://slack"
+                                        ):
+                                            # Mock unified_api methods
+                                            runner_handler.github_webhook.unified_api.get_pull_request = AsyncMock(
+                                                return_value={"id": "PR_test123"}
+                                            )
+                                            runner_handler.github_webhook.unified_api.add_comment = AsyncMock()
+                                            # Set set_check=False to avoid setting check status
+                                            await runner_handler.run_build_container(
+                                                pull_request=mock_pull_request, push=True, set_check=False
+                                            )
+                                            # Should not call set_progress because set_check=False
+                                            mock_set_progress.assert_not_called()
+                                            # Should not call set_success because set_check=False
+                                            mock_set_success.assert_not_called()
+                                            # Comment should be added when push fails
+                                            runner_handler.github_webhook.unified_api.add_comment.assert_called_once()
                                         # Should be called twice: build and push
                                         assert mock_run_podman.call_count == 2, (
                                             f"Expected 2 calls, got {mock_run_podman.call_count}"

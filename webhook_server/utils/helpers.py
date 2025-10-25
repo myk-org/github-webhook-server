@@ -289,13 +289,14 @@ async def run_command(
         out_decoded = stdout.decode(errors="ignore") if isinstance(stdout, bytes) else (stdout or "")
         err_decoded = stderr.decode(errors="ignore") if isinstance(stderr, bytes) else (stderr or "")
 
-        # Redact secrets from output before returning
-        out_decoded = _redact_secrets(out_decoded, redact_secrets)
-        err_decoded = _redact_secrets(err_decoded, redact_secrets)
+        # Redact secrets ONLY for logging, keep original for return value
+        # Callers may need to parse unredacted output
+        out_redacted = _redact_secrets(out_decoded, redact_secrets)
+        err_redacted = _redact_secrets(err_decoded, redact_secrets)
 
         # Truncate output for error messages to prevent log explosion (logging only)
-        truncated_out = _truncate_output(out_decoded)
-        truncated_err = _truncate_output(err_decoded)
+        truncated_out = _truncate_output(out_redacted)
+        truncated_err = _truncate_output(err_redacted)
 
         error_msg = (
             f"{log_prefix} Failed to run '{logged_command}'. "

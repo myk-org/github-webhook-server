@@ -1,4 +1,5 @@
 import contextlib
+import os
 import re
 import shutil
 from typing import TYPE_CHECKING, Any, AsyncGenerator
@@ -56,12 +57,16 @@ class RunnerHandler:
         success = True
 
         try:
-            # Clone the repository
+            # Clone the repository securely using GIT_HTTP_EXTRAHEADER to avoid exposing token in process args
+            # Build environment with Authorization header instead of embedding token in URL
+            git_env = os.environ.copy()
+            git_env["GIT_HTTP_EXTRAHEADER"] = f"Authorization: bearer {self.github_webhook.token}"
+
             rc, out, err = await run_command(
-                command=f"git clone {self.repository.clone_url.replace('https://', f'https://{self.github_webhook.token}@')} "
-                f"{clone_repo_dir}",
+                command=f"git clone {self.repository.clone_url} {clone_repo_dir}",
                 log_prefix=self.log_prefix,
                 redact_secrets=[self.github_webhook.token],
+                env=git_env,
             )
             if not rc:
                 result = (rc, out, err)
@@ -416,16 +421,34 @@ class RunnerHandler:
                 self.logger.step(  # type: ignore[attr-defined]
                     f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'started')} Starting container push to registry",
                 )
-                cmd = f"podman push --creds {self.github_webhook.container_repository_username}:{self.github_webhook.container_repository_password} {_container_repository_and_tag}"
-                # Redact credentials from logs
-                push_rc, _, _ = await self.run_podman_command(
-                    command=cmd,
+                # Extract registry from image tag (format: registry/repo:tag)
+                if not _container_repository_and_tag:
+                    self.logger.error(f"{self.log_prefix} No container repository and tag specified for push")
+                    return
+
+                registry = (
+                    _container_repository_and_tag.split("/")[0] if "/" in _container_repository_and_tag else "docker.io"
+                )
+
+                # Login securely via stdin to avoid exposing credentials in process args
+                login_cmd = f"podman login --username {self.github_webhook.container_repository_username} --password-stdin {registry}"
+                login_rc, _, _ = await run_command(
+                    command=login_cmd,
+                    log_prefix=self.log_prefix,
+                    stdin_input=self.github_webhook.container_repository_password,
                     redact_secrets=[
                         self.github_webhook.container_repository_username,
                         self.github_webhook.container_repository_password,
-                        f"{self.github_webhook.container_repository_username}:{self.github_webhook.container_repository_password}",
                     ],
                 )
+
+                if not login_rc:
+                    self.logger.error(f"{self.log_prefix} Failed to login to container registry {registry}")
+                    return
+
+                # Push without credentials in command (already authenticated)
+                push_cmd = f"podman push {_container_repository_and_tag}"
+                push_rc, _, _ = await self.run_podman_command(command=push_cmd)
                 if push_rc:
                     self.logger.step(  # type: ignore[attr-defined]
                         f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'completed')} Container push completed successfully",
@@ -616,16 +639,18 @@ class RunnerHandler:
             # Quote paths to handle spaces
             git_cmd = f'git --work-tree="{clone_repo_dir}" --git-dir="{clone_repo_dir}/.git"'
             hub_cmd = f'hub --work-tree="{clone_repo_dir}" --git-dir="{clone_repo_dir}/.git"'
-            # Pass token via env var instead of command line for security
-            hub_env_cmd = f"GITHUB_TOKEN={self.github_webhook.token} {hub_cmd}"
+            # Build environment dict for passing token securely via subprocess env parameter
+            hub_env = os.environ.copy()
+            hub_env["GITHUB_TOKEN"] = self.github_webhook.token
+
             commands: list[str] = [
                 f"{git_cmd} checkout {target_branch}",
                 f"{git_cmd} pull origin {target_branch}",
                 f"{git_cmd} checkout -b {new_branch_name} origin/{target_branch}",
                 f"{git_cmd} cherry-pick {commit_hash}",
                 f"{git_cmd} push origin {new_branch_name}",
-                # Avoid shell=True by calling hub directly instead of via bash -c
-                f"{hub_env_cmd} pull-request -b {target_branch} -h {new_branch_name} -l {CHERRY_PICKED_LABEL_PREFIX} -m '{CHERRY_PICKED_LABEL_PREFIX}: [{target_branch}] {commit_msg_escaped}' -m 'cherry-pick {pull_request_url} into {target_branch}' -m 'requested-by {requested_by_escaped}'",
+                # Hub command without env prefix in command string (env passed via env parameter)
+                f"{hub_cmd} pull-request -b {target_branch} -h {new_branch_name} -l {CHERRY_PICKED_LABEL_PREFIX} -m '{CHERRY_PICKED_LABEL_PREFIX}: [{target_branch}] {commit_msg_escaped}' -m 'cherry-pick {pull_request_url} into {target_branch}' -m 'requested-by {requested_by_escaped}'",
             ]
 
             rc, out, err = None, "", ""
@@ -643,8 +668,13 @@ class RunnerHandler:
                     f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Executing cherry-pick commands",
                 )
                 for cmd in commands:
+                    # Pass hub_env for hub commands, regular env for git commands
+                    env_to_use = hub_env if "hub" in cmd else None
                     rc, out, err = await run_command(
-                        command=cmd, log_prefix=self.log_prefix, redact_secrets=[self.github_webhook.token]
+                        command=cmd,
+                        log_prefix=self.log_prefix,
+                        redact_secrets=[self.github_webhook.token],
+                        env=env_to_use,
                     )
                     if not rc:
                         self.logger.step(  # type: ignore[attr-defined]

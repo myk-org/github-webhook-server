@@ -504,9 +504,19 @@ class GithubWebhook:
         pr_id = pull_request.id
         await self.unified_api.enable_pull_request_automerge(pr_id, merge_method)
 
-    async def request_pr_reviews(self, pull_request: PullRequestWrapper, reviewers: list[str]) -> None:
-        """Request reviews on PR via unified_api."""
-        pr_id = pull_request.id
+    async def request_pr_reviews(self, pull_request: PullRequest | PullRequestWrapper, reviewers: list[str]) -> None:
+        """Request reviews on PR via unified_api (supports both REST and GraphQL PRs)."""
+        # Handle PyGithub PullRequest (REST) - convert to GraphQL ID
+        if isinstance(pull_request, PullRequest):
+            owner = pull_request.base.repo.owner.login
+            repo = pull_request.base.repo.name
+            # Get PR node ID for GraphQL mutation
+            pr_data = await self.unified_api.get_pull_request(owner, repo, pull_request.number)
+            pr_id = pr_data["id"]
+        else:
+            # Handle PullRequestWrapper (GraphQL)
+            pr_id = pull_request.id
+
         reviewer_ids = []
         for reviewer in reviewers:
             # (1) Accept numeric reviewer IDs directly

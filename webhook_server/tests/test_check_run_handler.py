@@ -362,8 +362,8 @@ class TestCheckRunHandler:
         """Test setting cherry pick check to in progress status."""
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_cherry_pick_in_progress()
-            # Assign result to variable to silence B007 (loop variable not used)
-            _ = mock_set_status.assert_called_once_with(check_run=CHERRY_PICKED_LABEL_PREFIX, status=IN_PROGRESS_STR)
+            # Verify assertion synchronously (not chunked streaming - all data loaded at once)
+            mock_set_status.assert_called_once_with(check_run=CHERRY_PICKED_LABEL_PREFIX, status=IN_PROGRESS_STR)
 
     @pytest.mark.asyncio
     async def test_set_cherry_pick_success(self, check_run_handler: CheckRunHandler) -> None:
@@ -388,42 +388,33 @@ class TestCheckRunHandler:
     @pytest.mark.asyncio
     async def test_set_check_run_status_success(self, check_run_handler: CheckRunHandler) -> None:
         """Test setting check run status successfully."""
-        with patch.object(
-            check_run_handler.github_webhook.repository_by_github_app, "create_check_run", return_value=None
-        ):
-            with patch.object(check_run_handler.github_webhook.logger, "step") as mock_step:
-                await check_run_handler.set_check_run_status(
-                    check_run="test-check", status="queued", conclusion="", output=None
-                )
-                # Verify step was called for queued status
-                mock_step.assert_called()
+        with patch.object(check_run_handler.github_webhook.logger, "step") as mock_step:
+            await check_run_handler.set_check_run_status(
+                check_run="test-check", status="queued", conclusion="", output=None
+            )
+            # Verify step was called for queued status
+            mock_step.assert_called()
 
     @pytest.mark.asyncio
     async def test_set_check_run_status_with_conclusion(self, check_run_handler: CheckRunHandler) -> None:
         """Test setting check run status with conclusion."""
-        with patch.object(
-            check_run_handler.github_webhook.repository_by_github_app, "create_check_run", return_value=None
-        ):
-            with patch.object(check_run_handler.github_webhook.logger, "step") as mock_step:
-                await check_run_handler.set_check_run_status(
-                    check_run="test-check", status="", conclusion="success", output=None
-                )
-                # Verify step was called for success conclusion
-                mock_step.assert_called()
+        with patch.object(check_run_handler.github_webhook.logger, "step") as mock_step:
+            await check_run_handler.set_check_run_status(
+                check_run="test-check", status="", conclusion="success", output=None
+            )
+            # Verify step was called for success conclusion
+            mock_step.assert_called()
 
     @pytest.mark.asyncio
     async def test_set_check_run_status_with_output(self, check_run_handler: CheckRunHandler) -> None:
         """Test setting check run status with output."""
-        with patch.object(
-            check_run_handler.github_webhook.repository_by_github_app, "create_check_run", return_value=None
-        ):
-            with patch.object(check_run_handler.github_webhook.logger, "step") as mock_step:
-                output = {"title": "Test", "summary": "Summary"}
-                await check_run_handler.set_check_run_status(
-                    check_run="test-check", status="queued", conclusion="", output=output
-                )
-                # Verify step was called for queued status with output
-                mock_step.assert_called()
+        with patch.object(check_run_handler.github_webhook.logger, "step") as mock_step:
+            output = {"title": "Test", "summary": "Summary"}
+            await check_run_handler.set_check_run_status(
+                check_run="test-check", status="queued", conclusion="", output=output
+            )
+            # Verify step was called for queued status with output
+            mock_step.assert_called()
 
     @pytest.mark.asyncio
     async def test_set_check_run_status_exception_handling(self, check_run_handler: CheckRunHandler) -> None:

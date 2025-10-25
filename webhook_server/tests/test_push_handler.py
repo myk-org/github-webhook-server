@@ -27,9 +27,9 @@ class TestPushHandler:
         mock_webhook.slack_webhook_url = "https://hooks.slack.com/test"
         mock_webhook.repository_name = "test-repo"
         mock_webhook.send_slack_message = Mock()
-        mock_webhook.container_repository_username = "test-user"  # Always a string
+        mock_webhook.container_repository_username = "test-user"  # Always a string # pragma: allowlist secret
         mock_webhook.container_repository_password = "test-password"  # Always a string # pragma: allowlist secret
-        mock_webhook.token = "test-token"  # Always a string
+        mock_webhook.token = "test-token"  # Always a string # pragma: allowlist secret
         # Mock unified_api for async operations
         mock_webhook.unified_api = Mock()
         mock_webhook.unified_api.create_issue_on_repository = AsyncMock()

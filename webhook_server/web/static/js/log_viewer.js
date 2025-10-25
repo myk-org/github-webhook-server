@@ -668,9 +668,14 @@ loadHistoricalLogs();
 
 // Flow Modal functionality
 let currentFlowData = null;
+let currentFlowController = null;
+let flowModalKeydownHandler = null;
+let flowModalPreviousFocus = null;
+let currentStepLogsController = null;
 
+// eslint-disable-next-line no-unused-vars
 function showTimeline(hookId) {
-  // Redirect old timeline calls to new modal
+  // Redirect old timeline calls to new modal (backward compatibility shim)
   showFlowModal(hookId);
 }
 
@@ -686,8 +691,18 @@ function showFlowModal(hookId) {
     flowLogsSection.style.display = "none";
   }
 
+  // Cancel previous fetch if still in progress
+  if (currentFlowController) {
+    currentFlowController.abort();
+  }
+
+  // Create new AbortController for this fetch
+  currentFlowController = new AbortController();
+
   // Fetch workflow steps data
-  fetch(`/logs/api/workflow-steps/${hookId}`)
+  fetch(`/logs/api/workflow-steps/${hookId}`, {
+    signal: currentFlowController.signal,
+  })
     .then((response) => {
       if (!response.ok) {
         if (response.status === 404) {
@@ -703,10 +718,18 @@ function showFlowModal(hookId) {
       if (data) {
         currentFlowData = data;
         renderFlowModal(data);
-        document.getElementById("flowModal").style.display = "flex";
+        const modal = document.getElementById("flowModal");
+        modal.style.display = "flex";
+        setupFlowModalAccessibility();
       }
     })
-    .catch((error) => console.error("Error fetching flow data:", error));
+    .catch((error) => {
+      if (error.name === "AbortError") {
+        // Request was cancelled, ignore silently
+        return;
+      }
+      console.error("Error fetching flow data:", error);
+    });
 }
 
 function closeFlowModal() {
@@ -715,14 +738,38 @@ function closeFlowModal() {
     modal.style.display = "none";
   }
   currentFlowData = null;
+
+  // Remove keyboard event listener
+  if (flowModalKeydownHandler) {
+    document.removeEventListener("keydown", flowModalKeydownHandler);
+    flowModalKeydownHandler = null;
+  }
+
+  // Restore focus to the element that opened the modal
+  if (flowModalPreviousFocus) {
+    flowModalPreviousFocus.focus();
+    flowModalPreviousFocus = null;
+  }
 }
 
 // PR Modal functionality
+let currentPrController = null;
+let prModalKeydownHandler = null;
+let prModalPreviousFocus = null;
+
 function showPrModal(prNumber) {
   if (!prNumber) {
     closePrModal();
     return;
   }
+
+  // Cancel previous fetch if still in progress
+  if (currentPrController) {
+    currentPrController.abort();
+  }
+
+  // Create new AbortController for this fetch
+  currentPrController = new AbortController();
 
   // Fetch all log entries for this PR number
   const params = new URLSearchParams({
@@ -730,7 +777,7 @@ function showPrModal(prNumber) {
     limit: "10000",
   });
 
-  fetch(`/logs/api/entries?${params}`)
+  fetch(`/logs/api/entries?${params}`, { signal: currentPrController.signal })
     .then((response) => {
       if (!response.ok) {
         throw new Error("Failed to fetch PR entries");
@@ -752,10 +799,18 @@ function showPrModal(prNumber) {
         }
 
         renderPrModal(prNumber, uniqueHookIds, data.entries[0].repository);
-        document.getElementById("prModal").style.display = "flex";
+        const modal = document.getElementById("prModal");
+        modal.style.display = "flex";
+        setupPrModalAccessibility();
       }
     })
-    .catch((error) => console.error("Error fetching PR data:", error));
+    .catch((error) => {
+      if (error.name === "AbortError") {
+        // Request was cancelled, ignore silently
+        return;
+      }
+      console.error("Error fetching PR data:", error);
+    });
 }
 
 function closePrModal() {
@@ -763,6 +818,118 @@ function closePrModal() {
   if (modal) {
     modal.style.display = "none";
   }
+
+  // Remove keyboard event listener
+  if (prModalKeydownHandler) {
+    document.removeEventListener("keydown", prModalKeydownHandler);
+    prModalKeydownHandler = null;
+  }
+
+  // Restore focus to the element that opened the modal
+  if (prModalPreviousFocus) {
+    prModalPreviousFocus.focus();
+    prModalPreviousFocus = null;
+  }
+}
+
+// Keyboard accessibility for Flow Modal
+function setupFlowModalAccessibility() {
+  const modal = document.getElementById("flowModal");
+  if (!modal) return;
+
+  // Save the element that had focus before modal opened
+  flowModalPreviousFocus = document.activeElement;
+
+  // Find all focusable elements in the modal
+  const focusableElements = modal.querySelectorAll(
+    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+  );
+  const firstFocusable = focusableElements[0];
+  const lastFocusable = focusableElements[focusableElements.length - 1];
+
+  // Move focus to first interactive element in modal
+  if (firstFocusable) {
+    firstFocusable.focus();
+  }
+
+  // Create and attach keyboard handler
+  flowModalKeydownHandler = function (e) {
+    // Close modal on Escape key
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeFlowModal();
+      return;
+    }
+
+    // Trap focus within modal using Tab
+    if (e.key === "Tab") {
+      if (e.shiftKey) {
+        // Shift+Tab: moving backwards
+        if (document.activeElement === firstFocusable) {
+          e.preventDefault();
+          lastFocusable.focus();
+        }
+      } else {
+        // Tab: moving forwards
+        if (document.activeElement === lastFocusable) {
+          e.preventDefault();
+          firstFocusable.focus();
+        }
+      }
+    }
+  };
+
+  document.addEventListener("keydown", flowModalKeydownHandler);
+}
+
+// Keyboard accessibility for PR Modal
+function setupPrModalAccessibility() {
+  const modal = document.getElementById("prModal");
+  if (!modal) return;
+
+  // Save the element that had focus before modal opened
+  prModalPreviousFocus = document.activeElement;
+
+  // Find all focusable elements in the modal
+  const focusableElements = modal.querySelectorAll(
+    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+  );
+  const firstFocusable = focusableElements[0];
+  const lastFocusable = focusableElements[focusableElements.length - 1];
+
+  // Move focus to first interactive element in modal
+  if (firstFocusable) {
+    firstFocusable.focus();
+  }
+
+  // Create and attach keyboard handler
+  prModalKeydownHandler = function (e) {
+    // Close modal on Escape key
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closePrModal();
+      return;
+    }
+
+    // Trap focus within modal using Tab
+    if (e.key === "Tab") {
+      if (e.shiftKey) {
+        // Shift+Tab: moving backwards
+        if (document.activeElement === firstFocusable) {
+          e.preventDefault();
+          lastFocusable.focus();
+        }
+      } else {
+        // Tab: moving forwards
+        if (document.activeElement === lastFocusable) {
+          e.preventDefault();
+          firstFocusable.focus();
+        }
+      }
+    }
+  };
+
+  document.addEventListener("keydown", prModalKeydownHandler);
 }
 
 function renderPrModal(prNumber, hookIds, repository) {
@@ -1172,6 +1339,14 @@ async function showStepLogsInModal(step, logsContainer) {
   logsContainer.style.display = "block";
   logsContainer.textContent = "Loading logs...";
 
+  // Cancel previous fetch if still in progress
+  if (currentStepLogsController) {
+    currentStepLogsController.abort();
+  }
+
+  // Create new AbortController for this fetch
+  currentStepLogsController = new AbortController();
+
   try {
     // Fetch logs matching this step message using full message for precision
     // Using full message to avoid ambiguous matches that can occur with truncated text
@@ -1184,13 +1359,15 @@ async function showStepLogsInModal(step, logsContainer) {
       limit: "100",
     });
 
-    const response = await fetch(`/logs/api/entries?${params}`);
+    const response = await fetch(`/logs/api/entries?${params}`, {
+      signal: currentStepLogsController.signal,
+    });
     if (!response.ok) throw new Error("Failed to fetch logs");
 
     const data = await response.json();
 
-    // Clear and display logs
-    logsContainer.innerHTML = "";
+    // Clear and display logs using safe DOM methods
+    logsContainer.textContent = "";
 
     if (data.entries.length === 0) {
       const emptyMsg = document.createElement("div");
@@ -1229,6 +1406,10 @@ async function showStepLogsInModal(step, logsContainer) {
     // Scroll to the logs container
     logsContainer.scrollIntoView({ behavior: "smooth", block: "nearest" });
   } catch (error) {
+    if (error.name === "AbortError") {
+      // Request was cancelled, ignore silently
+      return;
+    }
     console.error("Error fetching step logs:", error);
     logsContainer.textContent = "Error loading logs";
   }

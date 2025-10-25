@@ -318,7 +318,7 @@ class UnifiedGitHubAPI:
 
         # Check if file exists
         if blob is None:
-            raise FileNotFoundError(f"File not found: owner={owner}, repo={name}, path={path}, ref={ref}")
+            raise FileNotFoundError(f"File not found: {path} (ref={ref})")
 
         # Handle binary files - text will be null for binary files
         if blob.get("isBinary") or blob.get("text") is None:
@@ -357,18 +357,14 @@ class UnifiedGitHubAPI:
         try:
             result = await self.graphql_client.execute(mutation, variables)  # type: ignore[union-attr]
         except (GraphQLError, TransportQueryError, TransportConnectionFailed, TransportServerError):
-            self.logger.exception(
-                f"Failed to add comment to {subject_id}",
-            )
+            self.logger.exception(f"Failed to add comment to {subject_id}")
             raise
         else:
             self.logger.debug("GraphQL execute returned, extracting comment node")
             try:
                 comment_node = result["addComment"]["commentEdge"]["node"]
             except KeyError:
-                self.logger.exception(
-                    f"Failed to extract comment from GraphQL result for {subject_id}. Result: {result}",
-                )
+                self.logger.exception(f"Failed to extract comment from GraphQL result for {subject_id}")
                 raise
             else:
                 self.logger.info(f"SUCCESS: Comment added to {subject_id}, comment_id={comment_node.get('id')}")

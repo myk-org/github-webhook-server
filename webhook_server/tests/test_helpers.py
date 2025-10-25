@@ -396,7 +396,7 @@ class TestHelpers:
 
     @pytest.mark.asyncio
     async def test_run_command_redaction_does_not_mutate_return_values(self):
-        """Test that redaction sanitizes output before returning."""
+        """Test that redaction keeps original values in return, redacts only in logs."""
         # Run a command that will output a secret in stdout
         secret = TEST_SECRET_1
         command = f'echo "{secret}"'
@@ -405,24 +405,26 @@ class TestHelpers:
         # Verify command succeeded
         assert result[0] is True
 
-        # CRITICAL: Verify the returned stdout is REDACTED before being returned
-        # This ensures secrets are not leaked in return values
-        assert secret not in result[1], "Return value should NOT contain original secret"
-        assert "***REDACTED***" in result[1], "Return value should be redacted"
+        # CRITICAL: Verify the returned stdout is UNREDACTED (original design intent)
+        # Redaction applies only to logs, not return values
+        # Callers may need to parse unredacted output
+        assert secret in result[1], "Return value should contain original secret (unredacted)"
+        assert "***REDACTED***" not in result[1], "Return value should NOT be redacted"
         assert isinstance(result[1], str), "stdout should be a string"
         assert isinstance(result[2], str), "stderr should be a string"
 
     @pytest.mark.asyncio
     async def test_run_command_redaction_in_stderr(self):
-        """Test that redaction sanitizes stderr before returning."""
+        """Test that redaction keeps original stderr in return, redacts only in logs."""
         secret = TEST_SECRET_2
         # Use python to output secret to stderr
         command = f'{sys.executable} -c "import sys; sys.stderr.write(\\"{secret}\\")"'
         result = await run_command(command, log_prefix="[TEST]", redact_secrets=[secret])
 
-        # Verify the returned stderr is REDACTED before being returned
-        assert secret not in result[2], "Stderr return value should NOT contain original secret"
-        assert "***REDACTED***" in result[2], "Stderr return value should be redacted"
+        # Verify the returned stderr is UNREDACTED (original design intent)
+        # Redaction applies only to logs, not return values
+        assert secret in result[2], "Stderr return value should contain original secret (unredacted)"
+        assert "***REDACTED***" not in result[2], "Stderr return value should NOT be redacted"
         assert isinstance(result[1], str), "stdout should be a string"
         assert isinstance(result[2], str), "stderr should be a string"
 

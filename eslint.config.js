@@ -15,6 +15,7 @@ module.exports = [
         localStorage: "readonly",
         Date: "readonly",
         URLSearchParams: "readonly",
+        AbortController: "readonly",
       },
     },
     rules: {
