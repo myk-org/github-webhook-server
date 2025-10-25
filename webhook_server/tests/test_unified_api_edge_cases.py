@@ -62,18 +62,25 @@ def create_mock_to_thread_simple(rest_client, repo_mock=None, result_mock=None):
     """
 
     async def mock_to_thread(_func, *_args):
+        # Route: REST client -> get repository
         if _func == rest_client.get_repo:
             return repo_mock
+        # Route: Repository -> get pull request by number
         elif repo_mock and hasattr(repo_mock, "get_pull") and _func == repo_mock.get_pull:
             return result_mock
+        # Route: Repository -> get branch by name
         elif repo_mock and hasattr(repo_mock, "get_branch") and _func == repo_mock.get_branch:
             return result_mock
+        # Route: Repository -> get file contents
         elif repo_mock and hasattr(repo_mock, "get_contents") and _func == repo_mock.get_contents:
             return result_mock
+        # Route: Branch -> get protection settings
         elif result_mock and hasattr(result_mock, "get_protection") and _func == result_mock.get_protection:
             return result_mock.get_protection.return_value
+        # Route: PR -> get specific issue comment
         elif result_mock and hasattr(result_mock, "get_issue_comment") and _func == result_mock.get_issue_comment:
             return result_mock.get_issue_comment.return_value
+        # Route: Lambda function execution (e.g., list comprehensions)
         elif callable(_func):
             # Handle lambda functions
             return _func()
@@ -96,13 +103,47 @@ def create_mock_to_thread_with_kwargs(rest_client, repo_mock=None, result_mock=N
     """
 
     async def mock_to_thread(_func, *_args, **_kwargs):
+        # Route: REST client -> get repository
         if _func == rest_client.get_repo:
             return repo_mock
+        # Route: Repository -> get git tree (recursive=True)
         elif repo_mock and hasattr(repo_mock, "get_git_tree") and _func == repo_mock.get_git_tree:
             return result_mock
+        # Route: Lambda function execution
         elif callable(_func):
             # Handle lambda functions
             return _func()
+        return None
+
+    return mock_to_thread
+
+
+def create_mock_to_thread_for_review_request(rest_client, repo_mock, pr_mock):
+    """
+    Create a robust mock_to_thread helper for request_reviewers_rest tests.
+
+    This replaces fragile string checking with explicit function reference checking.
+
+    Args:
+        rest_client: Mock REST client
+        repo_mock: Mock repository object
+        pr_mock: Mock pull request object with create_review_request method
+
+    Returns:
+        Async function that mocks asyncio.to_thread behavior
+    """
+
+    async def mock_to_thread(func, *args, **kwargs):
+        # Route: REST client -> get repository
+        if func == rest_client.get_repo:
+            return repo_mock
+        # Route: Repository -> get pull request
+        elif func == repo_mock.get_pull:
+            return pr_mock
+        # Route: Lambda function calling create_review_request
+        elif callable(func):
+            # Execute lambda that calls pr.create_review_request(...)
+            return func(*args, **kwargs)
         return None
 
     return mock_to_thread
@@ -518,6 +559,16 @@ async def test_get_file_contents_non_utf8_binary(initialized_api, mock_graphql_c
     assert "\ufffd" in result, f"Expected replacement character in result, got: {result!r}"
 
 
+@pytest.mark.asyncio
+async def test_get_file_contents_file_not_found(initialized_api, mock_graphql_client):
+    """Test get_file_contents raises FileNotFoundError when blob is None."""
+    # Mock GraphQL returning None for object (file doesn't exist)
+    mock_graphql_client.execute.return_value = {"repository": {"object": None}}
+
+    with pytest.raises(FileNotFoundError, match="File not found"):
+        await initialized_api.get_file_contents("owner", "repo", "nonexistent.txt")
+
+
 # ===== Error Handling Tests =====
 
 
@@ -548,6 +599,9 @@ async def test_add_comment_missing_node(initialized_api, mock_graphql_client, mo
 
 
 # ===== REST Operations Tests =====
+# NOTE: Remaining inline mock_to_thread implementations below are test-specific
+# and don't benefit from extraction. They handle unique lambda patterns or
+# single-use routing logic that would be harder to understand as generic helpers.
 
 
 @pytest.mark.asyncio
@@ -667,19 +721,10 @@ async def test_request_reviewers_rest(initialized_api, mock_rest_client):
     mock_repo = MagicMock()
     mock_pr = MagicMock()
     mock_create_review_request = MagicMock()
-
-    async def mock_to_thread(func, *args, **kwargs):
-        if func == mock_rest_client.get_repo:
-            return mock_repo
-        elif func == mock_repo.get_pull:
-            return mock_pr
-        elif callable(func) and hasattr(func, "__name__") and "create_review_request" in str(func):
-            # Execute the actual call
-            func(*args, **kwargs)
-            return None
-        return func(*args, **kwargs) if callable(func) else None
-
     mock_pr.create_review_request = mock_create_review_request
+
+    # Use robust helper instead of fragile string checking
+    mock_to_thread = create_mock_to_thread_for_review_request(mock_rest_client, mock_repo, mock_pr)
 
     with patch("asyncio.to_thread", side_effect=mock_to_thread):
         await initialized_api.request_reviewers_rest("owner", "repo", 1, ["reviewer1", "reviewer2"])
@@ -694,19 +739,10 @@ async def test_request_reviewers_rest_with_teams(initialized_api, mock_rest_clie
     mock_repo = MagicMock()
     mock_pr = MagicMock()
     mock_create_review_request = MagicMock()
-
-    async def mock_to_thread(func, *args, **kwargs):
-        if func == mock_rest_client.get_repo:
-            return mock_repo
-        elif func == mock_repo.get_pull:
-            return mock_pr
-        elif callable(func) and hasattr(func, "__name__") and "create_review_request" in str(func):
-            # Execute the actual call
-            func(*args, **kwargs)
-            return None
-        return func(*args, **kwargs) if callable(func) else None
-
     mock_pr.create_review_request = mock_create_review_request
+
+    # Use robust helper instead of fragile string checking
+    mock_to_thread = create_mock_to_thread_for_review_request(mock_rest_client, mock_repo, mock_pr)
 
     with patch("asyncio.to_thread", side_effect=mock_to_thread):
         await initialized_api.request_reviewers_rest("owner", "repo", 1, ["reviewer1"], ["team1", "team2"])

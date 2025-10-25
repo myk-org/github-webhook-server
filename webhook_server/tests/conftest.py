@@ -121,6 +121,27 @@ def pull_request():
     return PullRequestWrapper(pr_data)
 
 
+def create_mock_pull_request(pr_id: str = "PR_kgDOTestId", pr_number: int = 123):
+    """
+    Shared helper to create Mock PullRequest objects with id and number.
+
+    This helper DRYs up multiple tests that need mock PRs with consistent structure.
+
+    Args:
+        pr_id: GraphQL node ID for the PR (default: "PR_kgDOTestId")
+        pr_number: PR number (default: 123)
+
+    Returns:
+        Mock object with id and number attributes
+    """
+    from unittest.mock import Mock
+
+    mock_pr = Mock()
+    mock_pr.id = pr_id
+    mock_pr.number = pr_number
+    return mock_pr
+
+
 @pytest.fixture(scope="function")
 def github_webhook(mocker, request):
     base_import_path = "webhook_server.libs.github_api"
