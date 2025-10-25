@@ -106,7 +106,6 @@ class TestGithubWebhook:
     def logger(self):
         return get_logger(name="test")
 
-    @pytest.fixture
     @patch("webhook_server.libs.github_api.Config")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.libs.github_api.get_github_repo_api")
@@ -1152,9 +1151,7 @@ class TestGithubWebhook:
                             assert "conventional-title" in result
 
     @pytest.mark.asyncio
-    async def test_get_pull_request_without_unified_api(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
-    ) -> None:
+    async def test_get_pull_request_without_unified_api(self, minimal_hook_data: dict, minimal_headers: dict) -> None:
         """Test get_pull_request raises error when unified_api is not initialized."""
         from webhook_server.libs.exceptions import UnifiedAPINotInitializedError
 
@@ -1174,7 +1171,10 @@ class TestGithubWebhook:
                         with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
                             mock_color.return_value = "test-repo"
 
-                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
+                            # Use _logger from fixture (prefixed with _ to indicate intentionally unused)
+                            from simple_logger.logger import get_logger
+
+                            gh = GithubWebhook(minimal_hook_data, minimal_headers, get_logger(name="test"))
                             gh.unified_api = None  # Force unified_api to None
 
                             # Should raise UnifiedAPINotInitializedError
@@ -1182,9 +1182,7 @@ class TestGithubWebhook:
                                 await gh.get_pull_request()
 
     @pytest.mark.asyncio
-    async def test_get_pull_request_commit_no_prs_found(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
-    ) -> None:
+    async def test_get_pull_request_commit_no_prs_found(self, minimal_hook_data: dict, minimal_headers: dict) -> None:
         """Test get_pull_request with commit data when no PRs are found."""
         commit_data = {
             "repository": {"name": "test-repo", "full_name": "my-org/test-repo"},
@@ -1207,7 +1205,9 @@ class TestGithubWebhook:
                         with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
                             mock_color.return_value = "test-repo"
 
-                            gh = GithubWebhook(commit_data, minimal_headers, logger)
+                            from simple_logger.logger import get_logger
+
+                            gh = GithubWebhook(commit_data, minimal_headers, get_logger(name="test"))
                             gh.repository.full_name = "my-org/test-repo"
                             gh.unified_api = AsyncMock()
                             # Mock unified_api to return empty list (no PRs found)
@@ -1218,9 +1218,7 @@ class TestGithubWebhook:
                             assert result is None
 
     @pytest.mark.asyncio
-    async def test_get_pull_request_commit_graphql_error(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
-    ) -> None:
+    async def test_get_pull_request_commit_graphql_error(self, minimal_hook_data: dict, minimal_headers: dict) -> None:
         """Test get_pull_request with commit data when GraphQL error occurs."""
         from webhook_server.libs.graphql.graphql_client import GraphQLError
 
@@ -1245,7 +1243,9 @@ class TestGithubWebhook:
                         with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
                             mock_color.return_value = "test-repo"
 
-                            gh = GithubWebhook(commit_data, minimal_headers, logger)
+                            from simple_logger.logger import get_logger
+
+                            gh = GithubWebhook(commit_data, minimal_headers, get_logger(name="test"))
                             gh.repository.full_name = "my-org/test-repo"
                             gh.unified_api = AsyncMock()
                             # Mock unified_api to raise GraphQLError

@@ -469,7 +469,12 @@ class TestSetRepositoriesSettings:
 
         await set_repositories_settings(mock_config, mock_apis_dict)
 
+        # Verify run_command was called with proper security parameters
         mock_run_command.assert_called_once()
+        call_kwargs = mock_run_command.call_args[1]
+        assert "stdin_input" in call_kwargs, "Should pass stdin_input for docker login"
+        assert "redact_secrets" in call_kwargs, "Should pass redact_secrets to protect credentials"
+
         mock_executor.submit.assert_called_once()
         mock_get_futures.assert_called_once()
 

@@ -439,8 +439,14 @@ class GithubWebhook:
                 # Return last commit (wrapped)
                 last_commit_data = commits_nodes[-1].get("commit", {})
                 return CommitWrapper(last_commit_data)
-            except (GraphQLError, GraphQLRateLimitError, TransportQueryError) as ex:
-                # Fallback to REST API if GraphQL fails
+            except (
+                GraphQLError,
+                GraphQLRateLimitError,
+                TransportQueryError,
+                TransportServerError,
+                TransportConnectionFailed,
+            ) as ex:
+                # Fallback to REST API if GraphQL fails (including transport errors)
                 self.logger.warning(f"{self.log_prefix} GraphQL failed to get commits, falling back to REST: {ex}")
                 rest_commits = await self.unified_api.get_pr_commits_rest(pull_request)
                 if not rest_commits:

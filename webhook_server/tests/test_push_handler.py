@@ -27,9 +27,9 @@ def pypi_upload_mocks() -> Generator[dict[str, Any], None, None]:
     with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
         with patch("webhook_server.libs.handlers.push_handler.uuid4") as mock_uuid:
             with patch("webhook_server.libs.handlers.push_handler.Path") as mock_path:
-                with patch("os.open") as mock_os_open:
-                    with patch("os.fdopen", create=True) as mock_fdopen:
-                        with patch("os.remove") as mock_remove:
+                with patch("webhook_server.libs.handlers.push_handler.os.open") as mock_os_open:
+                    with patch("webhook_server.libs.handlers.push_handler.os.fdopen", create=True) as mock_fdopen:
+                        with patch("webhook_server.libs.handlers.push_handler.os.remove") as mock_remove:
                             # Set up mock file object
                             mock_file = Mock()
                             mock_file.__enter__ = Mock(return_value=mock_file)
@@ -190,6 +190,9 @@ class TestPushHandler:
                 twine_check_call = mocks["run_command"].call_args_list[1]
                 assert "twine check" in twine_check_call.kwargs["command"]
                 assert "package-1.0.0.tar.gz" in twine_check_call.kwargs["command"]
+                # Verify token redaction is enabled for twine check
+                assert "redact_secrets" in twine_check_call.kwargs
+                assert "test-token" in twine_check_call.kwargs["redact_secrets"]
 
                 # Verify twine upload command uses --config-file and redacts token
                 twine_upload_call = mocks["run_command"].call_args_list[2]
@@ -259,8 +262,8 @@ class TestPushHandler:
                 assert "Build failed" in call_args[1]["title"]
 
     @pytest.mark.asyncio
-    async def test_upload_to_pypi_ls_failure(self, push_handler: PushHandler) -> None:
-        """Test upload to pypi when no tar.gz file found."""
+    async def test_upload_to_pypi_glob_no_tarball_found(self, push_handler: PushHandler) -> None:
+        """Test upload to pypi when Path.glob finds no tar.gz file."""
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
             with pypi_upload_mocks() as mocks:
                 # Mock successful clone
@@ -402,6 +405,9 @@ class TestPushHandler:
                 # Verify twine check (doesn't use --config-file)
                 assert "twine check" in calls[1].kwargs["command"]
                 assert "package-1.0.0.tar.gz" in calls[1].kwargs["command"]
+                # Verify token redaction is enabled for twine check
+                assert "redact_secrets" in calls[1].kwargs
+                assert "test-token" in calls[1].kwargs["redact_secrets"]
 
                 # Verify twine upload has --config-file and token redaction
                 assert "twine upload" in calls[2].kwargs["command"]
@@ -453,9 +459,9 @@ class TestPushHandler:
             push_handler.github_webhook.unified_api.create_issue_on_repository.assert_called_once()
             call_args = push_handler.github_webhook.unified_api.create_issue_on_repository.call_args
 
-            # The title should be the full formatted error text from get_check_run_text
-            expected_title = "```\nError details\n\nClone failed\n```"
-            assert call_args[1]["title"] == expected_title
+            # The title should contain the error message (substring assertion to avoid brittleness)
+            assert "Clone failed" in call_args[1]["title"]
+            assert "Error details" in call_args[1]["title"]
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_slack_message_format(self, push_handler: PushHandler) -> None:
@@ -545,3 +551,31 @@ class TestPushHandler:
                 push_handler.github_webhook.unified_api.create_issue_on_repository.assert_called_once()
                 call_args = push_handler.github_webhook.unified_api.create_issue_on_repository.call_args
                 assert ".pypirc file already exists" in call_args[1]["title"]
+
+    @pytest.mark.asyncio
+    async def test_upload_to_pypi_generic_oserror(self, push_handler: PushHandler) -> None:
+        """Test upload to pypi when generic OSError (non-FileExistsError) occurs during .pypirc creation."""
+        with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
+            with pypi_upload_mocks() as mocks:
+                # Mock successful clone
+                mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+
+                # Mock successful build
+                mocks["run_command"].side_effect = [
+                    (True, "", ""),  # uv build
+                ]
+
+                # Mock Path.glob() to return tar.gz file
+                mock_tarball = Mock()
+                mock_tarball.name = "package-1.0.0.tar.gz"
+                mocks["path"].return_value.glob.return_value = [mock_tarball]
+
+                # Simulate generic OSError when creating .pypirc
+                mocks["os_open"].side_effect = OSError("Permission denied")
+
+                await push_handler.upload_to_pypi(tag_name="v1.0.0")
+
+                # Verify issue was created for generic OSError
+                push_handler.github_webhook.unified_api.create_issue_on_repository.assert_called_once()
+                call_args = push_handler.github_webhook.unified_api.create_issue_on_repository.call_args
+                assert "Failed to create .pypirc file" in call_args[1]["title"]
