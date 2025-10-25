@@ -858,6 +858,35 @@ class UnifiedGitHubAPI:
         pr = await asyncio.to_thread(repo.get_pull, number)
         await asyncio.to_thread(pr.add_to_assignees, *assignees)
 
+    async def request_reviewers_rest(
+        self, owner: str, name: str, number: int, reviewers: list[str], team_reviewers: list[str] | None = None
+    ) -> None:
+        """
+        Request reviewers on a pull request using REST API.
+
+        Uses: REST (helper method)
+        Reason: Fallback when reviewer IDs are numeric instead of node IDs
+
+        TODO: Migrate to GraphQL requestReviews mutation - Already available in GraphQL:
+              mutation { requestReviews(input: {pullRequestId: PR_ID, userIds: [USER_IDS], teamIds: [TEAM_IDS]}) { ... } }
+              Requires: 1) get_pull_request to fetch PR node ID, 2) get_user_id for each reviewer login
+              Trade-off: 2-3 GraphQL calls vs 1 REST call. Only migrate if already fetching PR data.
+
+        Args:
+            owner: Repository owner
+            name: Repository name
+            number: PR number
+            reviewers: List of user logins to request reviews from
+            team_reviewers: Optional list of team slugs to request reviews from
+
+        Note:
+            This method is used when reviewer IDs are numeric (REST IDs) instead of GraphQL node IDs.
+            For GraphQL node IDs, use the request_reviews() method instead.
+        """
+        repo = await self.get_repository_for_rest_operations(owner, name)
+        pr = await asyncio.to_thread(repo.get_pull, number)
+        await asyncio.to_thread(pr.create_review_request, reviewers=reviewers, team_reviewers=team_reviewers or [])
+
     async def get_issue_comment(self, owner: str, name: str, number: int, comment_id: int) -> Any:
         """
         Get a specific issue/PR comment.

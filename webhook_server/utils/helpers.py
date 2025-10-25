@@ -380,15 +380,9 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
         try:
             _api_user = _api.get_user().login
         except github.GithubException as ex:
+            # This catches RateLimitExceededException as it's a subclass of GithubException
             logger.warning(f"Failed to get API user for API {_api}, skipping. {ex}")
             continue
-        except Exception as ex:
-            # Catch RateLimitExceededException if it exists in this PyGithub version
-            # In older versions, this may not be a separate exception class
-            if type(ex).__name__ == "RateLimitExceededException":
-                logger.warning(f"Failed to get API user for API {_api}, skipping. {ex}")
-                continue
-            raise
 
         _rate_limit = _api.get_rate_limit()
 

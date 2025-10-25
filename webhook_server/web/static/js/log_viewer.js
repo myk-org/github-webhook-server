@@ -418,19 +418,29 @@ function hideLoadingSkeleton() {
 
 function showErrorMessage(message) {
   const container = document.getElementById("logEntries");
-  container.innerHTML = `
-    <div class="error-message">
-      <span class="error-icon">⚠️</span>
-      <span>${message}</span>
-      <button id="retryBtn" class="retry-btn">Retry</button>
-    </div>
-  `;
 
-  // Add event listener to the dynamically created retry button
-  const retryBtn = document.getElementById("retryBtn");
-  if (retryBtn) {
-    retryBtn.addEventListener("click", loadHistoricalLogs);
-  }
+  // Create error message structure safely using DOM methods to prevent XSS
+  const errorDiv = document.createElement("div");
+  errorDiv.className = "error-message";
+
+  const iconSpan = document.createElement("span");
+  iconSpan.className = "error-icon";
+  iconSpan.textContent = "⚠️";
+
+  const messageSpan = document.createElement("span");
+  messageSpan.textContent = message; // Safe - automatically escapes HTML
+
+  const retryBtn = document.createElement("button");
+  retryBtn.id = "retryBtn";
+  retryBtn.className = "retry-btn";
+  retryBtn.textContent = "Retry";
+  retryBtn.addEventListener("click", loadHistoricalLogs);
+
+  errorDiv.appendChild(iconSpan);
+  errorDiv.appendChild(messageSpan);
+  errorDiv.appendChild(retryBtn);
+
+  container.replaceChildren(errorDiv);
 }
 
 function updateLogStatistics(data) {
@@ -451,7 +461,20 @@ function updateLogStatistics(data) {
 
   // Add indicator for partial scans
   if (data.is_partial_scan) {
-    processedCount.innerHTML = `${data.entries_processed} <small style="color: var(--timestamp-color);">(partial scan)</small>`;
+    // Clear existing content and rebuild safely to prevent XSS
+    processedCount.textContent = ""; // Clear first
+
+    // Add the count as safe text
+    const countText = document.createTextNode(
+      String(data.entries_processed || "0") + " ",
+    );
+    processedCount.appendChild(countText);
+
+    // Add the partial scan indicator
+    const partialIndicator = document.createElement("small");
+    partialIndicator.style.color = "var(--timestamp-color)";
+    partialIndicator.textContent = "(partial scan)";
+    processedCount.appendChild(partialIndicator);
   }
 }
 

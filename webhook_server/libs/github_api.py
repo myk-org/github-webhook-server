@@ -484,7 +484,7 @@ class GithubWebhook:
                 self.logger.debug(f"{self.log_prefix} Adding PR comment with pr_id={pr_id}, body length={len(body)}")
                 await self.unified_api.add_comment(pr_id, body)
             self.logger.info(f"{self.log_prefix} Successfully added PR comment")
-        except Exception:
+        except (GraphQLError, TransportConnectionFailed, TransportQueryError, TransportServerError, GithubException):
             self.logger.exception(f"{self.log_prefix} Failed to add PR comment")
             raise
 
@@ -500,7 +500,11 @@ class GithubWebhook:
             await self.unified_api.update_pull_request(pr_id, title=title)
 
     async def enable_pr_automerge(self, pull_request: PullRequestWrapper, merge_method: str = "SQUASH") -> None:
-        """Enable automerge on PR via unified_api."""
+        """Enable automerge on PR via unified_api.
+
+        Note: This method only accepts PullRequestWrapper (GraphQL) because
+        automerge is a GraphQL-only operation not available via REST API.
+        """
         pr_id = pull_request.id
         await self.unified_api.enable_pull_request_automerge(pr_id, merge_method)
 

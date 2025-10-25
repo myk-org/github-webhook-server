@@ -1152,6 +1152,154 @@ class TestGithubWebhook:
                             assert "conventional-title" in result
 
     @pytest.mark.asyncio
+    async def test_get_pull_request_without_unified_api(
+        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
+    ) -> None:
+        """Test get_pull_request raises error when unified_api is not initialized."""
+        from webhook_server.libs.exceptions import UnifiedAPINotInitializedError
+
+        with patch("webhook_server.libs.github_api.Config") as mock_config:
+            mock_config.return_value.repository = True
+            mock_config.return_value.repository_local_data.return_value = {}
+
+            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+                mock_get_api.return_value = (Mock(), "token", "apiuser")
+
+                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
+                    mock_get_repo_api.return_value = Mock()
+
+                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
+                        mock_get_app_api.return_value = Mock()
+
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
+                            mock_color.return_value = "test-repo"
+
+                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
+                            gh.unified_api = None  # Force unified_api to None
+
+                            # Should raise UnifiedAPINotInitializedError
+                            with pytest.raises(UnifiedAPINotInitializedError, match="UnifiedAPI must be initialized"):
+                                await gh.get_pull_request()
+
+    @pytest.mark.asyncio
+    async def test_get_pull_request_commit_no_prs_found(
+        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
+    ) -> None:
+        """Test get_pull_request with commit data when no PRs are found."""
+        commit_data = {
+            "repository": {"name": "test-repo", "full_name": "my-org/test-repo"},
+            "commit": {"sha": "abc123"},
+        }
+
+        with patch("webhook_server.libs.github_api.Config") as mock_config:
+            mock_config.return_value.repository = True
+            mock_config.return_value.repository_local_data.return_value = {}
+
+            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+                mock_get_api.return_value = (Mock(), "token", "apiuser")
+
+                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
+                    mock_get_repo_api.return_value = Mock()
+
+                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
+                        mock_get_app_api.return_value = Mock()
+
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
+                            mock_color.return_value = "test-repo"
+
+                            gh = GithubWebhook(commit_data, minimal_headers, logger)
+                            gh.repository.full_name = "my-org/test-repo"
+                            gh.unified_api = AsyncMock()
+                            # Mock unified_api to return empty list (no PRs found)
+                            gh.unified_api.get_pulls_from_commit_sha = AsyncMock(return_value=[])
+
+                            result = await gh.get_pull_request()
+                            # Should return None and log warning
+                            assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_pull_request_commit_graphql_error(
+        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
+    ) -> None:
+        """Test get_pull_request with commit data when GraphQL error occurs."""
+        from webhook_server.libs.graphql.graphql_client import GraphQLError
+
+        commit_data = {
+            "repository": {"name": "test-repo", "full_name": "my-org/test-repo"},
+            "commit": {"sha": "def456"},
+        }
+
+        with patch("webhook_server.libs.github_api.Config") as mock_config:
+            mock_config.return_value.repository = True
+            mock_config.return_value.repository_local_data.return_value = {}
+
+            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+                mock_get_api.return_value = (Mock(), "token", "apiuser")
+
+                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
+                    mock_get_repo_api.return_value = Mock()
+
+                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
+                        mock_get_app_api.return_value = Mock()
+
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
+                            mock_color.return_value = "test-repo"
+
+                            gh = GithubWebhook(commit_data, minimal_headers, logger)
+                            gh.repository.full_name = "my-org/test-repo"
+                            gh.unified_api = AsyncMock()
+                            # Mock unified_api to raise GraphQLError
+                            gh.unified_api.get_pulls_from_commit_sha = AsyncMock(
+                                side_effect=GraphQLError("Failed to fetch PR")
+                            )
+
+                            result = await gh.get_pull_request()
+                            # Should return None and log warning about GraphQL error
+                            assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_pull_request_check_run_no_match(
+        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
+    ) -> None:
+        """Test get_pull_request for check_run when no matching PR is found."""
+        check_run_data = {
+            "repository": {"name": "test-repo", "full_name": "org/test-repo"},
+            "check_run": {"name": "test-check", "head_sha": "xyz789", "status": "completed", "conclusion": "success"},
+        }
+        headers = minimal_headers.copy()
+        headers["X-GitHub-Event"] = "check_run"
+
+        with patch("webhook_server.libs.github_api.Config") as mock_config:
+            mock_config.return_value.repository = True
+            mock_config.return_value.repository_local_data.return_value = {}
+
+            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+                mock_get_api.return_value = (Mock(), "token", "apiuser")
+
+                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
+                    mock_repo = Mock()
+                    mock_get_repo_api.return_value = mock_repo
+
+                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
+                        mock_get_app_api.return_value = Mock()
+
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
+                            mock_color.return_value = "test-repo"
+
+                            gh = GithubWebhook(check_run_data, headers, logger)
+                            gh.repository.full_name = "org/test-repo"
+                            gh.unified_api = AsyncMock()
+
+                            # Mock get_open_pull_requests to return PR with different SHA
+                            mock_pr = Mock()
+                            mock_pr.head.sha = "different-sha"  # Different SHA, won't match
+                            gh.unified_api.get_open_pull_requests = AsyncMock(return_value=[mock_pr])
+
+                            result = await gh.get_pull_request()
+                            # Should return None when no matching PR found
+                            assert result is None
+
+    @pytest.mark.asyncio
     async def test_get_last_commit(self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock) -> None:
         """Test _get_last_commit method with PullRequestWrapper (GraphQL)."""
         from webhook_server.libs.graphql.graphql_wrappers import CommitWrapper, PullRequestWrapper
@@ -1400,3 +1548,156 @@ async def test_request_pr_reviews_unexpected_error_propagates(github_webhook_wit
     # This should propagate the ValueError, not catch it
     with pytest.raises(ValueError, match="Unexpected error"):
         await github_webhook_with_unified.request_pr_reviews(wrapper, [{"login": "reviewer1"}])
+
+
+@pytest.mark.asyncio
+async def test_get_last_commit_no_commits_in_pr(github_webhook_with_unified) -> None:
+    """Test _get_last_commit raises ValueError when PR has no commits."""
+    from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+
+    # Mock PullRequestWrapper with no commits
+    mock_pr_wrapper = Mock(spec=PullRequestWrapper)
+    mock_pr_wrapper.get_commits.return_value = []  # No commits
+    mock_pr_wrapper.number = 999
+
+    # Mock unified_api.get_pull_request to return PR data with no commits
+    github_webhook_with_unified.unified_api.get_pull_request = AsyncMock(
+        return_value={"commits": {"nodes": []}}  # No commits in GraphQL response
+    )
+
+    # Should raise ValueError
+    with pytest.raises(ValueError, match="No commits found in PR 999"):
+        await github_webhook_with_unified._get_last_commit(mock_pr_wrapper)
+
+
+@pytest.mark.asyncio
+async def test_get_last_commit_graphql_error_no_rest_fallback() -> None:
+    """Test _get_last_commit with GraphQL error and REST fallback returning no commits."""
+    from unittest.mock import patch
+    from github.PullRequest import PullRequest
+    from webhook_server.libs.graphql.graphql_client import GraphQLError
+
+    minimal_hook_data = {"repository": {"full_name": "test-org/test-repo", "name": "test-repo"}}
+    minimal_headers = {"X-GitHub-Event": "pull_request", "X-GitHub-Delivery": "abc"}
+    logger = get_logger(name="test")
+
+    with (
+        patch("webhook_server.libs.github_api.Config") as mock_config,
+        patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api,
+        patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo,
+        patch("webhook_server.libs.github_api.get_repository_github_app_api"),
+        patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix"),
+    ):
+        mock_config.return_value.repository = True
+        mock_config.return_value.repository_local_data.return_value = {}
+        mock_get_api.return_value = (Mock(), "token", "apiuser")
+        mock_get_repo.return_value = Mock(name="repo_api")
+
+        webhook = GithubWebhook(
+            hook_data=minimal_hook_data,
+            headers=minimal_headers,
+            logger=logger,
+        )
+        webhook.unified_api = AsyncMock()
+
+        mock_pr = Mock(spec=PullRequest)
+        mock_pr.number = 123
+        mock_pr.base.repo.owner.login = "test-owner"
+        mock_pr.base.repo.name = "test-repo"
+
+        # Mock GraphQL to raise error
+        webhook.unified_api.get_pull_request = AsyncMock(side_effect=GraphQLError("GraphQL failed"))
+        # Mock REST fallback to return empty list
+        webhook.unified_api.get_pr_commits_rest = AsyncMock(return_value=[])
+
+        # Should raise ValueError after both GraphQL and REST fail
+        with pytest.raises(ValueError, match="No commits found in PR 123"):
+            await webhook._get_last_commit(mock_pr)
+
+
+@pytest.mark.asyncio
+async def test_get_last_commit_graphql_no_commits() -> None:
+    """Test _get_last_commit with REST PR when GraphQL returns no commits."""
+    from unittest.mock import patch
+    from github.PullRequest import PullRequest
+
+    minimal_hook_data = {"repository": {"full_name": "test-org/test-repo", "name": "test-repo"}}
+    minimal_headers = {"X-GitHub-Event": "pull_request", "X-GitHub-Delivery": "abc"}
+    logger = get_logger(name="test")
+
+    with (
+        patch("webhook_server.libs.github_api.Config") as mock_config,
+        patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api,
+        patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo,
+        patch("webhook_server.libs.github_api.get_repository_github_app_api"),
+        patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix"),
+    ):
+        mock_config.return_value.repository = True
+        mock_config.return_value.repository_local_data.return_value = {}
+        mock_get_api.return_value = (Mock(), "token", "apiuser")
+        mock_get_repo.return_value = Mock(name="repo_api")
+
+        webhook = GithubWebhook(
+            hook_data=minimal_hook_data,
+            headers=minimal_headers,
+            logger=logger,
+        )
+        webhook.unified_api = AsyncMock()
+
+        mock_pr = Mock(spec=PullRequest)
+        mock_pr.number = 789
+        mock_pr.base.repo.owner.login = "test-owner"
+        mock_pr.base.repo.name = "test-repo"
+
+        # Mock GraphQL to return PR data with empty commits
+        webhook.unified_api.get_pull_request = AsyncMock(return_value={"commits": {"nodes": []}})
+
+        # Should raise ValueError when no commits found
+        with pytest.raises(ValueError, match="No commits found in PR 789"):
+            await webhook._get_last_commit(mock_pr)
+
+
+@pytest.mark.asyncio
+async def test_request_pr_reviews_with_numeric_reviewer_id() -> None:
+    """Test request_pr_reviews calls request_reviewers_rest for numeric IDs."""
+    from unittest.mock import patch
+    from github.PullRequest import PullRequest
+
+    minimal_hook_data = {"repository": {"full_name": "test-org/test-repo", "name": "test-repo"}}
+    minimal_headers = {"X-GitHub-Event": "pull_request", "X-GitHub-Delivery": "abc"}
+    logger = get_logger(name="test")
+
+    with (
+        patch("webhook_server.libs.github_api.Config") as mock_config,
+        patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api,
+        patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo,
+        patch("webhook_server.libs.github_api.get_repository_github_app_api"),
+        patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix"),
+    ):
+        mock_config.return_value.repository = True
+        mock_config.return_value.repository_local_data.return_value = {}
+        mock_get_api.return_value = (Mock(), "token", "apiuser")
+        mock_get_repo.return_value = Mock(name="repo_api")
+
+        webhook = GithubWebhook(
+            hook_data=minimal_hook_data,
+            headers=minimal_headers,
+            logger=logger,
+        )
+        webhook.unified_api = AsyncMock()
+        webhook.unified_api.request_reviewers_rest = AsyncMock()
+
+        mock_pr = Mock(spec=PullRequest)
+        mock_pr.number = 456
+        mock_pr.base.repo.owner.login = "test-owner"
+        mock_pr.base.repo.name = "test-repo"
+
+        # Reviewer with numeric ID (should trigger REST API call)
+        reviewers = [{"login": "reviewer1", "id": "12345"}]
+
+        await webhook.request_pr_reviews(mock_pr, reviewers)
+
+        # Should call request_reviewers_rest for numeric ID
+        webhook.unified_api.request_reviewers_rest.assert_called_once_with(
+            "test-owner", "test-repo", 456, ["reviewer1"]
+        )

@@ -556,7 +556,7 @@ class RunnerHandler:
                 f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Executing Python module installation command",
             )
             rc, out, err = await run_command(
-                command=f"uvx pip wheel --no-cache-dir -w {clone_repo_dir}/dist {clone_repo_dir}",
+                command=f"uv build --wheel --out-dir {clone_repo_dir}/dist --no-cache {clone_repo_dir}",
                 log_prefix=self.log_prefix,
                 redact_secrets=[],
             )

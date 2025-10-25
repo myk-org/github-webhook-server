@@ -143,8 +143,6 @@ class TestGetRequiredStatusChecks:
 
     def test_get_required_status_checks_basic(self) -> None:
         """Test getting required status checks with basic configuration."""
-        from github.GithubException import UnknownObjectException
-
         mock_repo = Mock()
         # Patch get_contents to raise UnknownObjectException so 'pre-commit.ci - pr' is not added
         mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
@@ -231,8 +229,6 @@ class TestGetRequiredStatusChecks:
 
     def test_get_required_status_checks_with_exclusions(self) -> None:
         """Test getting required status checks with exclusions."""
-        from github.GithubException import UnknownObjectException
-
         mock_repo = Mock()
         # Patch get_contents to raise UnknownObjectException so 'pre-commit.ci - pr' is not added
         mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
@@ -299,8 +295,6 @@ class TestGetRequiredStatusChecks:
 
     def test_get_required_status_checks_preserves_order_while_deduplicating(self) -> None:
         """Test that deduplication preserves the order of first occurrence."""
-        from github.GithubException import UnknownObjectException
-
         mock_repo = Mock()
         mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
 
@@ -684,7 +678,6 @@ class TestSetRepositoryCheckRunsToQueued:
         # Mock pull request and commits
         mock_pull_request = Mock()
         mock_pull_request.id = "PR_kgDOTestId"
-        mock_pull_request.number = 123
         mock_pull_request.number = 123
         mock_repo.get_pulls.return_value = [mock_pull_request]
 

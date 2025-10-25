@@ -612,6 +612,60 @@ async def test_add_assignees_by_login(initialized_api, mock_rest_client):
 
 
 @pytest.mark.asyncio
+async def test_request_reviewers_rest(initialized_api, mock_rest_client):
+    """Test request_reviewers_rest method."""
+    mock_repo = MagicMock()
+    mock_pr = MagicMock()
+    mock_create_review_request = MagicMock()
+
+    async def mock_to_thread(func, *args, **kwargs):
+        if func == mock_rest_client.get_repo:
+            return mock_repo
+        elif func == mock_repo.get_pull:
+            return mock_pr
+        elif callable(func) and hasattr(func, "__name__") and "create_review_request" in str(func):
+            # Execute the actual call
+            func(*args, **kwargs)
+            return None
+        return func(*args, **kwargs) if callable(func) else None
+
+    mock_pr.create_review_request = mock_create_review_request
+
+    with patch("asyncio.to_thread", side_effect=mock_to_thread):
+        await initialized_api.request_reviewers_rest("owner", "repo", 1, ["reviewer1", "reviewer2"])
+
+    # Verify create_review_request was called with correct arguments
+    mock_create_review_request.assert_called_once_with(reviewers=["reviewer1", "reviewer2"], team_reviewers=[])
+
+
+@pytest.mark.asyncio
+async def test_request_reviewers_rest_with_teams(initialized_api, mock_rest_client):
+    """Test request_reviewers_rest method with team reviewers."""
+    mock_repo = MagicMock()
+    mock_pr = MagicMock()
+    mock_create_review_request = MagicMock()
+
+    async def mock_to_thread(func, *args, **kwargs):
+        if func == mock_rest_client.get_repo:
+            return mock_repo
+        elif func == mock_repo.get_pull:
+            return mock_pr
+        elif callable(func) and hasattr(func, "__name__") and "create_review_request" in str(func):
+            # Execute the actual call
+            func(*args, **kwargs)
+            return None
+        return func(*args, **kwargs) if callable(func) else None
+
+    mock_pr.create_review_request = mock_create_review_request
+
+    with patch("asyncio.to_thread", side_effect=mock_to_thread):
+        await initialized_api.request_reviewers_rest("owner", "repo", 1, ["reviewer1"], ["team1", "team2"])
+
+    # Verify create_review_request was called with correct arguments
+    mock_create_review_request.assert_called_once_with(reviewers=["reviewer1"], team_reviewers=["team1", "team2"])
+
+
+@pytest.mark.asyncio
 async def test_get_issue_comment(initialized_api, mock_rest_client):
     """Test get_issue_comment."""
     mock_repo = MagicMock()

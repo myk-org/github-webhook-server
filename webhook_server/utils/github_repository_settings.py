@@ -141,20 +141,18 @@ def get_required_status_checks(
 
     try:
         repo.get_contents(".pre-commit-config.yaml")
-        default_status_checks.append("pre-commit.ci - pr")
     except UnknownObjectException:
         # 404 is expected if file doesn't exist
         pass
     except GithubException as ex:
         # Handle other GitHub API errors (rate limits, permissions, etc.)
         LOGGER.warning(f"Failed to check for .pre-commit-config.yaml in {repo.full_name}: {ex}")
+    else:
+        # Only append if no exception occurred (file exists)
+        default_status_checks.append("pre-commit.ci - pr")
 
-    for status_check in exclude_status_checks:
-        while status_check in default_status_checks:
-            default_status_checks.remove(status_check)
-
-    # Deduplicate while preserving order using dict.fromkeys()
-    return list(dict.fromkeys(default_status_checks))
+    # Remove excluded checks and deduplicate while preserving order using dict comprehension
+    return list(dict.fromkeys([check for check in default_status_checks if check not in exclude_status_checks]))
 
 
 def get_user_configures_status_checks(status_checks: dict[str, Any]) -> tuple[list[str], list[str]]:
@@ -209,7 +207,7 @@ async def set_repositories_settings(config: Config, apis_dict: dict[str, dict[st
         docker_username: str = docker["username"]
         docker_password: str = docker["password"]
         await run_command(
-            log_prefix="",
+            log_prefix="docker-login",
             command=f"podman login -u {docker_username} --password-stdin docker.io",
             stdin_input=docker_password,
             redact_secrets=[docker_username, docker_password],
@@ -359,13 +357,11 @@ def set_repository_check_runs_to_queued(
     api_user: str,
 ) -> tuple[bool, str, Callable]:
     def _set_checkrun_queued(_api: Repository, _pull_request: PullRequest) -> None:
-        # Avoid materializing all commits - use single-pass tail iteration
+        # Avoid materializing all commits - use single-pass iteration to find last commit
         # This is O(1) memory instead of O(N) for large PRs
-        commits = _pull_request.get_commits()
         last_commit: Commit | None = None
-        for last_commit in commits:  # noqa: B007
-            # Tail iteration: loop variable updated on each iteration to get final value
-            pass  # Iterate to end without materializing full list
+        for commit in _pull_request.get_commits():
+            last_commit = commit  # Assign on each iteration to get final value
         if last_commit is None:
             LOGGER.error(f"[API user {api_user}] - {repository}: [PR:{_pull_request.number}] No commits found")
             return

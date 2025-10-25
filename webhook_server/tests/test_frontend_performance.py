@@ -1,6 +1,7 @@
 """Tests for frontend performance optimizations in log viewer."""
 
 import datetime
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -168,13 +169,21 @@ class TestFrontendPerformanceOptimizations:
         assert "createElement" in js_content, "Should use createElement for DOM manipulation"
 
         # Verify that user content is safely rendered using textContent
-        # Use regex to check that textContent is actually used with message-related content
-        import re
-
         # Look for patterns like: .textContent = entry.message or element.textContent = message
         textcontent_pattern = re.compile(r"\.textContent\s*=\s*[^;]*message", re.IGNORECASE)
         assert textcontent_pattern.search(js_content), (
             "Should set message content using textContent for security (pattern: .textContent = ...message...)"
+        )
+
+        # CRITICAL SECURITY: Verify innerHTML is NOT used with user-controlled data
+        # This prevents XSS attacks from malicious log messages, user data, or entry content
+        innerHTML_with_user_data = re.search(
+            r"\.innerHTML\s*=\s*[^;]*(message|entry\.|user)", js_content, re.IGNORECASE
+        )
+        assert not innerHTML_with_user_data, (
+            f"SECURITY: innerHTML must NOT be used with user-controlled data to prevent XSS. "
+            f"Found: {innerHTML_with_user_data.group(0) if innerHTML_with_user_data else 'N/A'}. "
+            f"Use textContent or createElement instead."
         )
 
     def test_progressive_loading_threshold(self, controller, static_files):
@@ -188,8 +197,6 @@ class TestFrontendPerformanceOptimizations:
         # Test for threshold-based progressive loading activation
         assert "entries.length >" in js_content, "Should check entry count for progressive loading"
         # Check for threshold in proper context - look for patterns like "entries.length > 200" or "> 100"
-        import re
-
         threshold_pattern = re.compile(r"entries\.length\s*>\s*(\d+)")
         thresholds = threshold_pattern.findall(js_content)
         assert len(thresholds) > 0 and any(int(t) in [100, 200, 250, 500] for t in thresholds), (
