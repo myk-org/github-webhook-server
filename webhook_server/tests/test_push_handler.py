@@ -285,6 +285,52 @@ class TestPushHandler:
                 assert "No .tar.gz file found" in call_args[1]["title"]
 
     @pytest.mark.asyncio
+    async def test_upload_to_pypi_multiple_artifacts(self, push_handler: PushHandler) -> None:
+        """Test upload to pypi when multiple tar.gz files are found (multi-artifact selection scenario).
+
+        This test verifies that when multiple artifacts exist, the implementation correctly
+        selects the first one (sorted) for upload.
+        """
+        with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
+            with pypi_upload_mocks() as mocks:
+                # Mock successful clone
+                mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+
+                # Mock successful build, twine check, and upload
+                mocks["run_command"].side_effect = [
+                    (True, "", ""),  # uv build
+                    (True, "", ""),  # twine check
+                    (True, "", ""),  # twine upload
+                ]
+
+                # Mock Path.glob() to return multiple tar.gz files (sorted)
+                # Need to use MagicMock to support comparison for sorted()
+                from unittest.mock import MagicMock
+
+                mock_tarball1 = MagicMock()
+                mock_tarball1.name = "aaa-package-1.0.0.tar.gz"
+                mock_tarball1.__lt__ = lambda self, other: self.name < other.name
+                mock_tarball2 = MagicMock()
+                mock_tarball2.name = "zzz-package-1.0.0.tar.gz"
+                mock_tarball2.__lt__ = lambda self, other: self.name < other.name
+                # Return in specific order to verify sorting behavior
+                mocks["path"].return_value.glob.return_value = [mock_tarball2, mock_tarball1]
+
+                await push_handler.upload_to_pypi(tag_name="v1.0.0")
+
+                # Verify twine check was called with first artifact (alphabetically sorted)
+                twine_check_call = mocks["run_command"].call_args_list[1][1]
+                assert "aaa-package-1.0.0.tar.gz" in twine_check_call["command"]
+
+                # Verify twine upload was called with first artifact
+                twine_upload_call = mocks["run_command"].call_args_list[2][1]
+                assert "aaa-package-1.0.0.tar.gz" in twine_upload_call["command"]
+
+                # Verify .pypirc cleanup
+                mocks["remove"].assert_called_once()
+                assert mocks["remove"].call_args[0][0].endswith(".pypirc")
+
+    @pytest.mark.asyncio
     async def test_upload_to_pypi_twine_check_failure(self, push_handler: PushHandler) -> None:
         """Test upload to pypi when twine check fails."""
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:

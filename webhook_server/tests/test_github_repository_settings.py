@@ -150,7 +150,7 @@ class TestGetRequiredStatusChecks:
         default_status_checks: list[str] = ["basic-check"]
         exclude_status_checks: list[str] = []
 
-        result = get_required_status_checks(mock_repo, data, default_status_checks, exclude_status_checks)
+        result = get_required_status_checks(mock_repo, data, default_status_checks.copy(), exclude_status_checks.copy())
 
         # Should contain at least 'basic-check' and 'verified' (default)
         assert "basic-check" in result
@@ -236,7 +236,7 @@ class TestGetRequiredStatusChecks:
         default_status_checks: list[str] = ["tox", "verified"]
         exclude_status_checks: list[str] = ["tox"]
 
-        result = get_required_status_checks(mock_repo, data, default_status_checks, exclude_status_checks)
+        result = get_required_status_checks(mock_repo, data, default_status_checks.copy(), exclude_status_checks.copy())
 
         assert result.count("tox") == 0
         assert "verified" in result
@@ -474,6 +474,8 @@ class TestSetRepositoriesSettings:
         call_kwargs = mock_run_command.call_args[1]
         assert "stdin_input" in call_kwargs, "Should pass stdin_input for docker login"
         assert "redact_secrets" in call_kwargs, "Should pass redact_secrets to protect credentials"
+        # Verify exact password is in redact_secrets list for proper masking
+        assert "test-pass" in call_kwargs["redact_secrets"], "Should include exact password in redact_secrets"
 
         mock_executor.submit.assert_called_once()
         mock_get_futures.assert_called_once()

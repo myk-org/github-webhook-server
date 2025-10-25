@@ -11,6 +11,11 @@ from starlette.datastructures import Headers
 from webhook_server.libs.exceptions import RepositoryNotFoundInConfigError
 from webhook_server.libs.github_api import GithubWebhook
 
+# Test token constant to avoid S106 security warnings
+TEST_GITHUB_TOKEN = (
+    "ghp_test1234567890abcdefghijklmnopqrstuvwxyz"  # pragma: allowlist secret  # noqa: S105  # gitleaks:allow
+)
+
 
 @pytest.fixture
 def github_webhook_with_unified():
@@ -1182,7 +1187,7 @@ class TestGithubWebhook:
                                 await gh.get_pull_request()
 
     @pytest.mark.asyncio
-    async def test_get_pull_request_commit_no_prs_found(self, minimal_hook_data: dict, minimal_headers: dict) -> None:
+    async def test_get_pull_request_commit_no_prs_found(self, minimal_headers: dict) -> None:
         """Test get_pull_request with commit data when no PRs are found."""
         commit_data = {
             "repository": {"name": "test-repo", "full_name": "my-org/test-repo"},
@@ -1218,7 +1223,7 @@ class TestGithubWebhook:
                             assert result is None
 
     @pytest.mark.asyncio
-    async def test_get_pull_request_commit_graphql_error(self, minimal_hook_data: dict, minimal_headers: dict) -> None:
+    async def test_get_pull_request_commit_graphql_error(self, minimal_headers: dict) -> None:
         """Test get_pull_request with commit data when GraphQL error occurs."""
         from webhook_server.libs.graphql.graphql_client import GraphQLError
 
@@ -1258,9 +1263,7 @@ class TestGithubWebhook:
                             assert result is None
 
     @pytest.mark.asyncio
-    async def test_get_pull_request_check_run_no_match(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
-    ) -> None:
+    async def test_get_pull_request_check_run_no_match(self, minimal_headers: dict, logger: Mock) -> None:
         """Test get_pull_request for check_run when no matching PR is found."""
         check_run_data = {
             "repository": {"name": "test-repo", "full_name": "org/test-repo"},
@@ -1451,7 +1454,7 @@ async def test_update_pr_title_with_rest_pr():
         )
 
         # Create real UnifiedGitHubAPI instance (will be used for the edit_pull_request_rest method)
-        webhook.unified_api = UnifiedGitHubAPI(token="test_token", logger=logger)
+        webhook.unified_api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=logger)
 
         mock_pr = Mock(spec=PullRequest)
         mock_pr.number = 456

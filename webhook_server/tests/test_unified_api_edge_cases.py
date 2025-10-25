@@ -45,6 +45,69 @@ async def initialized_api(mock_graphql_client, mock_rest_client, mock_logger):
     return api
 
 
+# ===== Helper Functions =====
+
+
+def create_mock_to_thread_simple(rest_client, repo_mock=None, result_mock=None):
+    """
+    Create a simple mock_to_thread helper for basic repo operations.
+
+    Args:
+        rest_client: Mock REST client
+        repo_mock: Mock repository object (optional)
+        result_mock: Mock result object (optional)
+
+    Returns:
+        Async function that mocks asyncio.to_thread behavior
+    """
+
+    async def mock_to_thread(_func, *_args):
+        if _func == rest_client.get_repo:
+            return repo_mock
+        elif repo_mock and hasattr(repo_mock, "get_pull") and _func == repo_mock.get_pull:
+            return result_mock
+        elif repo_mock and hasattr(repo_mock, "get_branch") and _func == repo_mock.get_branch:
+            return result_mock
+        elif repo_mock and hasattr(repo_mock, "get_contents") and _func == repo_mock.get_contents:
+            return result_mock
+        elif result_mock and hasattr(result_mock, "get_protection") and _func == result_mock.get_protection:
+            return result_mock.get_protection.return_value
+        elif result_mock and hasattr(result_mock, "get_issue_comment") and _func == result_mock.get_issue_comment:
+            return result_mock.get_issue_comment.return_value
+        elif callable(_func):
+            # Handle lambda functions
+            return _func()
+        return None
+
+    return mock_to_thread
+
+
+def create_mock_to_thread_with_kwargs(rest_client, repo_mock=None, result_mock=None):
+    """
+    Create a mock_to_thread helper that accepts kwargs.
+
+    Args:
+        rest_client: Mock REST client
+        repo_mock: Mock repository object (optional)
+        result_mock: Mock result object (optional)
+
+    Returns:
+        Async function that mocks asyncio.to_thread behavior
+    """
+
+    async def mock_to_thread(_func, *_args, **_kwargs):
+        if _func == rest_client.get_repo:
+            return repo_mock
+        elif repo_mock and hasattr(repo_mock, "get_git_tree") and _func == repo_mock.get_git_tree:
+            return result_mock
+        elif callable(_func):
+            # Handle lambda functions
+            return _func()
+        return None
+
+    return mock_to_thread
+
+
 # ===== Lazy Initialization Tests =====
 
 
@@ -514,12 +577,7 @@ async def test_get_pr_for_check_runs(initialized_api, mock_rest_client):
     mock_repo = MagicMock()
     mock_pr = MagicMock()
 
-    async def mock_to_thread(_func, *_args):
-        if _func == mock_rest_client.get_repo:
-            return mock_repo
-        elif _func == mock_repo.get_pull:
-            return mock_pr
-        return None
+    mock_to_thread = create_mock_to_thread_simple(mock_rest_client, mock_repo, mock_pr)
 
     with patch("asyncio.to_thread", side_effect=mock_to_thread):
         result = await initialized_api.get_pr_for_check_runs("owner", "repo", 1)
@@ -535,15 +593,7 @@ async def test_get_pull_request_files(initialized_api, mock_rest_client):
     mock_files = [MagicMock(), MagicMock()]
     mock_pr.get_files.return_value = iter(mock_files)
 
-    async def mock_to_thread(_func, *_args):
-        if _func == mock_rest_client.get_repo:
-            return mock_repo
-        elif _func == mock_repo.get_pull:
-            return mock_pr
-        elif callable(_func):
-            # Handle lambda functions like: lambda: list(pr.get_files())
-            return _func()
-        return None
+    mock_to_thread = create_mock_to_thread_simple(mock_rest_client, mock_repo, mock_pr)
 
     with patch("asyncio.to_thread", side_effect=mock_to_thread):
         result = await initialized_api.get_pull_request_files("owner", "repo", 1)
@@ -578,14 +628,14 @@ async def test_get_issue_comments(initialized_api, mock_rest_client):
     mock_comments = [MagicMock(), MagicMock()]
     mock_pr.get_issue_comments.return_value = mock_comments
 
-    async def mock_to_thread(func, *args):
-        if func == mock_rest_client.get_repo:
+    async def mock_to_thread(_func, *_args):
+        if _func == mock_rest_client.get_repo:
             return mock_repo
-        elif func == mock_repo.get_pull:
+        elif _func == mock_repo.get_pull:
             return mock_pr
-        elif callable(func):
+        elif callable(_func):
             # Handle lambda functions like: lambda: pr.get_issue_comments()
-            return func()
+            return _func()
         return None
 
     with patch("asyncio.to_thread", side_effect=mock_to_thread):
@@ -600,10 +650,10 @@ async def test_add_assignees_by_login(initialized_api, mock_rest_client):
     mock_repo = MagicMock()
     mock_pr = MagicMock()
 
-    async def mock_to_thread(func, *args, **kwargs):
-        if func == mock_rest_client.get_repo:
+    async def mock_to_thread(_func, *_args, **_kwargs):
+        if _func == mock_rest_client.get_repo:
             return mock_repo
-        elif func == mock_repo.get_pull:
+        elif _func == mock_repo.get_pull:
             return mock_pr
         return None
 
@@ -671,15 +721,9 @@ async def test_get_issue_comment(initialized_api, mock_rest_client):
     mock_repo = MagicMock()
     mock_pr = MagicMock()
     mock_comment = MagicMock()
+    mock_pr.get_issue_comment.return_value = mock_comment
 
-    async def mock_to_thread(_func, *_args):
-        if _func == mock_rest_client.get_repo:
-            return mock_repo
-        elif _func == mock_repo.get_pull:
-            return mock_pr
-        elif _func == mock_pr.get_issue_comment:
-            return mock_comment
-        return None
+    mock_to_thread = create_mock_to_thread_simple(mock_rest_client, mock_repo, mock_pr)
 
     with patch("asyncio.to_thread", side_effect=mock_to_thread):
         result = await initialized_api.get_issue_comment("owner", "repo", 1, 123)
@@ -703,13 +747,7 @@ async def test_get_contributors(initialized_api, mock_rest_client):
     mock_contributors = [MagicMock(), MagicMock()]
     mock_repo.get_contributors.return_value = iter(mock_contributors)
 
-    async def mock_to_thread(_func, *_args):
-        if _func == mock_rest_client.get_repo:
-            return mock_repo
-        elif callable(_func):
-            # Handle lambda functions like: lambda: list(repo.get_contributors())
-            return _func()
-        return None
+    mock_to_thread = create_mock_to_thread_simple(mock_rest_client, mock_repo)
 
     with patch("asyncio.to_thread", side_effect=mock_to_thread):
         result = await initialized_api.get_contributors("owner", "repo")
@@ -724,13 +762,7 @@ async def test_get_collaborators(initialized_api, mock_rest_client):
     mock_collaborators = [MagicMock(), MagicMock()]
     mock_repo.get_collaborators.return_value = iter(mock_collaborators)
 
-    async def mock_to_thread(_func, *_args):
-        if _func == mock_rest_client.get_repo:
-            return mock_repo
-        elif callable(_func):
-            # Handle lambda functions like: lambda: list(repo.get_collaborators())
-            return _func()
-        return None
+    mock_to_thread = create_mock_to_thread_simple(mock_rest_client, mock_repo)
 
     with patch("asyncio.to_thread", side_effect=mock_to_thread):
         result = await initialized_api.get_collaborators("owner", "repo")
@@ -744,12 +776,7 @@ async def test_get_branch(initialized_api, mock_rest_client):
     mock_repo = MagicMock()
     mock_branch = MagicMock()
 
-    async def mock_to_thread(_func, *_args):
-        if _func == mock_rest_client.get_repo:
-            return mock_repo
-        elif _func == mock_repo.get_branch:
-            return mock_branch
-        return None
+    mock_to_thread = create_mock_to_thread_simple(mock_rest_client, mock_repo, mock_branch)
 
     with patch("asyncio.to_thread", side_effect=mock_to_thread):
         result = await initialized_api.get_branch("owner", "repo", "main")
@@ -763,15 +790,9 @@ async def test_get_branch_protection(initialized_api, mock_rest_client):
     mock_repo = MagicMock()
     mock_branch = MagicMock()
     mock_protection = MagicMock()
+    mock_branch.get_protection.return_value = mock_protection
 
-    async def mock_to_thread(_func, *_args):
-        if _func == mock_rest_client.get_repo:
-            return mock_repo
-        elif _func == mock_repo.get_branch:
-            return mock_branch
-        elif _func == mock_branch.get_protection:
-            return mock_protection
-        return None
+    mock_to_thread = create_mock_to_thread_simple(mock_rest_client, mock_repo, mock_branch)
 
     with patch("asyncio.to_thread", side_effect=mock_to_thread):
         result = await initialized_api.get_branch_protection("owner", "repo", "main")
@@ -786,13 +807,7 @@ async def test_get_issues(initialized_api, mock_rest_client):
     mock_issues = [MagicMock(), MagicMock()]
     mock_repo.get_issues.return_value = iter(mock_issues)
 
-    async def mock_to_thread(_func, *_args):
-        if _func == mock_rest_client.get_repo:
-            return mock_repo
-        elif callable(_func):
-            # Handle lambda functions like: lambda: list(repo.get_issues())
-            return _func()
-        return None
+    mock_to_thread = create_mock_to_thread_simple(mock_rest_client, mock_repo)
 
     with patch("asyncio.to_thread", side_effect=mock_to_thread):
         result = await initialized_api.get_issues("owner", "repo")
@@ -815,12 +830,7 @@ async def test_get_contents(initialized_api, mock_rest_client):
     mock_repo = MagicMock()
     mock_contents = MagicMock()
 
-    async def mock_to_thread(_func, *_args):
-        if _func == mock_rest_client.get_repo:
-            return mock_repo
-        elif _func == mock_repo.get_contents:
-            return mock_contents
-        return None
+    mock_to_thread = create_mock_to_thread_simple(mock_rest_client, mock_repo, mock_contents)
 
     with patch("asyncio.to_thread", side_effect=mock_to_thread):
         result = await initialized_api.get_contents("owner", "repo", "path", "main")
@@ -834,12 +844,7 @@ async def test_get_git_tree(initialized_api, mock_rest_client):
     mock_repo = MagicMock()
     mock_tree = MagicMock()
 
-    async def mock_to_thread(_func, *_args, **_kwargs):
-        if _func == mock_rest_client.get_repo:
-            return mock_repo
-        elif _func == mock_repo.get_git_tree:
-            return mock_tree
-        return None
+    mock_to_thread = create_mock_to_thread_with_kwargs(mock_rest_client, mock_repo, mock_tree)
 
     with patch("asyncio.to_thread", side_effect=mock_to_thread):
         result = await initialized_api.get_git_tree("owner", "repo", "main")
