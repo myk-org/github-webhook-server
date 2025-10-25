@@ -44,12 +44,13 @@ class RunnerHandler:
     async def _prepare_cloned_repo_dir(
         self,
         clone_repo_dir: str,
-        pull_request: PullRequest | None = None,
+        pull_request: PullRequest | PullRequestWrapper | None = None,
         is_merged: bool = False,
         checkout: str = "",
         tag_name: str = "",
     ) -> AsyncGenerator[tuple[bool, Any, Any], None]:
-        git_cmd = f"git --work-tree={clone_repo_dir} --git-dir={clone_repo_dir}/.git"
+        # Quote paths to handle spaces in directory names
+        git_cmd = f'git --work-tree="{clone_repo_dir}" --git-dir="{clone_repo_dir}/.git"'
         self.logger.debug(f"{self.log_prefix} Preparing cloned repo dir {clone_repo_dir} with git cmd: {git_cmd}")
         result: tuple[bool, str, str] = (True, "", "")
         success = True
@@ -70,7 +71,7 @@ class RunnerHandler:
                 rc, out, err = await run_command(
                     command=f"{git_cmd} config user.name '{self.repository.owner.login}'",
                     log_prefix=self.log_prefix,
-                    redact_secrets=[],
+                    redact_secrets=[self.github_webhook.token],
                 )
                 if not rc:
                     result = (rc, out, err)
@@ -82,7 +83,7 @@ class RunnerHandler:
                 rc, out, err = await run_command(
                     command=f"{git_cmd} config user.email '{owner_email}'",
                     log_prefix=self.log_prefix,
-                    redact_secrets=[],
+                    redact_secrets=[self.github_webhook.token],
                 )
                 if not rc:
                     result = (rc, out, err)
@@ -92,7 +93,7 @@ class RunnerHandler:
                 rc, out, err = await run_command(
                     command=f"{git_cmd} config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*",
                     log_prefix=self.log_prefix,
-                    redact_secrets=[],
+                    redact_secrets=[self.github_webhook.token],
                 )
                 if not rc:
                     result = (rc, out, err)
@@ -102,7 +103,7 @@ class RunnerHandler:
                 rc, out, err = await run_command(
                     command=f"{git_cmd} remote update",
                     log_prefix=self.log_prefix,
-                    redact_secrets=[],
+                    redact_secrets=[self.github_webhook.token],
                 )
                 if not rc:
                     result = (rc, out, err)
@@ -113,7 +114,7 @@ class RunnerHandler:
                 rc, out, err = await run_command(
                     command=f"{git_cmd} checkout {checkout}",
                     log_prefix=self.log_prefix,
-                    redact_secrets=[],
+                    redact_secrets=[self.github_webhook.token],
                 )
                 if not rc:
                     result = (rc, out, err)
@@ -123,7 +124,7 @@ class RunnerHandler:
                     rc, out, err = await run_command(
                         command=f"{git_cmd} merge origin/{pull_request.base.ref} -m 'Merge {pull_request.base.ref}'",
                         log_prefix=self.log_prefix,
-                        redact_secrets=[],
+                        redact_secrets=[self.github_webhook.token],
                     )
                     if not rc:
                         result = (rc, out, err)
@@ -136,7 +137,7 @@ class RunnerHandler:
                         rc, out, err = await run_command(
                             command=f"{git_cmd} checkout {pull_request.base.ref}",
                             log_prefix=self.log_prefix,
-                            redact_secrets=[],
+                            redact_secrets=[self.github_webhook.token],
                         )
                         if not rc:
                             result = (rc, out, err)
@@ -146,7 +147,7 @@ class RunnerHandler:
                         rc, out, err = await run_command(
                             command=f"{git_cmd} checkout {tag_name}",
                             log_prefix=self.log_prefix,
-                            redact_secrets=[],
+                            redact_secrets=[self.github_webhook.token],
                         )
                         if not rc:
                             result = (rc, out, err)
@@ -158,7 +159,7 @@ class RunnerHandler:
                             rc, out, err = await run_command(
                                 command=f"{git_cmd} checkout origin/pr/{_pull_request.number}",
                                 log_prefix=self.log_prefix,
-                                redact_secrets=[],
+                                redact_secrets=[self.github_webhook.token],
                             )
                             if not rc:
                                 result = (rc, out, err)
@@ -168,7 +169,7 @@ class RunnerHandler:
                                 rc, out, err = await run_command(
                                     command=f"{git_cmd} merge origin/{pull_request.base.ref} -m 'Merge {pull_request.base.ref}'",
                                     log_prefix=self.log_prefix,
-                                    redact_secrets=[],
+                                    redact_secrets=[self.github_webhook.token],
                                 )
                                 if not rc:
                                     result = (rc, out, err)
@@ -215,7 +216,8 @@ class RunnerHandler:
         python_ver = (
             f"--python={self.github_webhook.tox_python_version}" if self.github_webhook.tox_python_version else ""
         )
-        cmd = f"uvx {python_ver} {TOX_STR} --workdir {clone_repo_dir} --root {clone_repo_dir} -c {clone_repo_dir}"
+        # Quote directory paths to handle spaces
+        cmd = f'uvx {python_ver} {TOX_STR} --workdir "{clone_repo_dir}" --root "{clone_repo_dir}" -c "{clone_repo_dir}"'
         _tox_tests = self.github_webhook.tox.get(pull_request.base.ref, "")
 
         if _tox_tests and _tox_tests != "all":
@@ -273,7 +275,8 @@ class RunnerHandler:
             self.logger.debug(f"{self.log_prefix} Check run is in progress, re-running {PRE_COMMIT_STR}.")
 
         clone_repo_dir = f"{self.github_webhook.clone_repo_dir}-{uuid4()}"
-        cmd = f"uv run --directory {clone_repo_dir} {PREK_STR} run --all-files"
+        # Quote directory path to handle spaces
+        cmd = f'uv run --directory "{clone_repo_dir}" {PREK_STR} run --all-files'
 
         self.logger.step(  # type: ignore[attr-defined]
             f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Setting pre-commit check status to in-progress",
@@ -314,7 +317,7 @@ class RunnerHandler:
 
     async def run_build_container(
         self,
-        pull_request: PullRequest | None = None,
+        pull_request: PullRequest | PullRequestWrapper | None = None,
         set_check: bool = True,
         push: bool = False,
         is_merged: bool = False,
@@ -548,7 +551,8 @@ class RunnerHandler:
         )
         await self.check_run_handler.set_conventional_title_in_progress()
         # Strip whitespace from each allowed name to tolerate config whitespace
-        allowed_names = [name.strip() for name in self.github_webhook.conventional_title.split(",")]
+        # Filter out empty strings to prevent regex matching any title
+        allowed_names = [name.strip() for name in self.github_webhook.conventional_title.split(",") if name.strip()]
         # Strip leading/trailing whitespace from title to be more forgiving
         title = pull_request.title.strip()
 
@@ -604,18 +608,24 @@ class RunnerHandler:
             )
             await self.check_run_handler.set_cherry_pick_in_progress()
             commit_hash = pull_request.merge_commit_sha
-            commit_msg_striped = pull_request.title.replace("'", "")
+            # Escape single quotes for shell safety
+            commit_msg_escaped = pull_request.title.replace("'", "'\\''")
+            requested_by_escaped = requested_by.replace("'", "'\\''")
             pull_request_url = pull_request.html_url
             clone_repo_dir = f"{self.github_webhook.clone_repo_dir}-{uuid4()}"
-            git_cmd = f"git --work-tree={clone_repo_dir} --git-dir={clone_repo_dir}/.git"
-            hub_cmd = f"GITHUB_TOKEN={self.github_webhook.token} hub --work-tree={clone_repo_dir} --git-dir={clone_repo_dir}/.git"
+            # Quote paths to handle spaces
+            git_cmd = f'git --work-tree="{clone_repo_dir}" --git-dir="{clone_repo_dir}/.git"'
+            hub_cmd = f'hub --work-tree="{clone_repo_dir}" --git-dir="{clone_repo_dir}/.git"'
+            # Pass token via env var instead of command line for security
+            hub_env_cmd = f"GITHUB_TOKEN={self.github_webhook.token} {hub_cmd}"
             commands: list[str] = [
                 f"{git_cmd} checkout {target_branch}",
                 f"{git_cmd} pull origin {target_branch}",
                 f"{git_cmd} checkout -b {new_branch_name} origin/{target_branch}",
                 f"{git_cmd} cherry-pick {commit_hash}",
                 f"{git_cmd} push origin {new_branch_name}",
-                f"bash -c \"{hub_cmd} pull-request -b {target_branch} -h {new_branch_name} -l {CHERRY_PICKED_LABEL_PREFIX} -m '{CHERRY_PICKED_LABEL_PREFIX}: [{target_branch}] {commit_msg_striped}' -m 'cherry-pick {pull_request_url} into {target_branch}' -m 'requested-by {requested_by}'\"",
+                # Avoid shell=True by calling hub directly instead of via bash -c
+                f"{hub_env_cmd} pull-request -b {target_branch} -h {new_branch_name} -l {CHERRY_PICKED_LABEL_PREFIX} -m '{CHERRY_PICKED_LABEL_PREFIX}: [{target_branch}] {commit_msg_escaped}' -m 'cherry-pick {pull_request_url} into {target_branch}' -m 'requested-by {requested_by_escaped}'",
             ]
 
             rc, out, err = None, "", ""

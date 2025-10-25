@@ -6,7 +6,11 @@ from typing import TYPE_CHECKING, Any, Coroutine
 from github.GithubException import GithubException
 from github.Repository import Repository
 
-from webhook_server.libs.graphql.graphql_client import GraphQLError
+from webhook_server.libs.graphql.graphql_client import (
+    GraphQLAuthenticationError,
+    GraphQLError,
+    GraphQLRateLimitError,
+)
 from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.libs.handlers.labels_handler import LabelsHandler
@@ -632,7 +636,8 @@ For more information, please refer to the project documentation or contact the m
                 else:
                     self.logger.debug(f"{self.log_prefix} is already set to auto merge")
 
-            except (GraphQLError, GithubException):
+            except (GraphQLError, GithubException, GraphQLAuthenticationError, GraphQLRateLimitError):
+                # Catch only API-layer exceptions; re-raise critical errors
                 self.logger.exception(f"{self.log_prefix} Exception while setting auto merge")
 
     async def remove_labels_when_pull_request_sync(self, pull_request: PullRequestWrapper) -> None:

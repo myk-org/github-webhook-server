@@ -315,39 +315,40 @@ class TestPushHandler:
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
             with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
                 with patch("webhook_server.libs.handlers.push_handler.uuid4") as mock_uuid:
-                    with patch("os.open") as mock_os_open:
-                        with patch("os.fdopen", create=True) as mock_fdopen:
-                            with patch("os.remove"):
-                                # Mock successful clone
-                                mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+                    with patch("webhook_server.libs.handlers.push_handler.Path") as mock_path:
+                        with patch("os.open") as mock_os_open:
+                            with patch("os.fdopen", create=True) as mock_fdopen:
+                                with patch("os.remove"):
+                                    # Mock successful clone
+                                    mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
-                                # Mock successful build
-                                mock_run_command.side_effect = [
-                                    (True, "", ""),  # uv build
-                                    (
-                                        True,
-                                        "/path/to/dist/package-1.0.0.tar.gz",
-                                        "",
-                                    ),  # find command (returns full path)
-                                    (True, "", ""),  # twine check
-                                    (True, "", ""),  # twine upload
-                                ]
+                                    # Mock successful build (no find command anymore)
+                                    mock_run_command.side_effect = [
+                                        (True, "", ""),  # uv build
+                                        (True, "", ""),  # twine check
+                                        (True, "", ""),  # twine upload
+                                    ]
 
-                                mock_uuid.return_value = "test-uuid"
+                                    # Mock Path.glob() to return tar.gz file
+                                    mock_tarball = Mock()
+                                    mock_tarball.name = "package-1.0.0.tar.gz"
+                                    mock_path.return_value.glob.return_value = [mock_tarball]
 
-                                # Mock os.open to return a fake file descriptor
-                                mock_os_open.return_value = 3
+                                    mock_uuid.return_value = "test-uuid"
 
-                                # Mock os.fdopen to return a mock file object
-                                mock_file = Mock()
-                                mock_file.__enter__ = Mock(return_value=mock_file)
-                                mock_file.__exit__ = Mock(return_value=False)
-                                mock_fdopen.return_value = mock_file
+                                    # Mock os.open to return a fake file descriptor
+                                    mock_os_open.return_value = 3
 
-                                await push_handler.upload_to_pypi(tag_name="v1.0.0")
+                                    # Mock os.fdopen to return a mock file object
+                                    mock_file = Mock()
+                                    mock_file.__enter__ = Mock(return_value=mock_file)
+                                    mock_file.__exit__ = Mock(return_value=False)
+                                    mock_fdopen.return_value = mock_file
 
-                                # Verify slack message was not sent via unified_api
-                                push_handler.github_webhook.unified_api.send_slack_message_async.assert_not_awaited()
+                                    await push_handler.upload_to_pypi(tag_name="v1.0.0")
+
+                                    # Verify slack message was not sent via unified_api
+                                    push_handler.github_webhook.unified_api.send_slack_message_async.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_commands_execution_order(self, push_handler: PushHandler) -> None:
@@ -404,42 +405,43 @@ class TestPushHandler:
         with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
             with patch("webhook_server.libs.handlers.push_handler.run_command") as mock_run_command:
                 with patch("webhook_server.libs.handlers.push_handler.uuid4") as mock_uuid:
-                    with patch("os.open") as mock_os_open:
-                        with patch("os.fdopen", create=True) as mock_fdopen:
-                            with patch("os.remove"):
-                                # Mock successful clone
-                                mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+                    with patch("webhook_server.libs.handlers.push_handler.Path") as mock_path:
+                        with patch("os.open") as mock_os_open:
+                            with patch("os.fdopen", create=True) as mock_fdopen:
+                                with patch("os.remove"):
+                                    # Mock successful clone
+                                    mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
-                                # Mock successful build
-                                mock_run_command.side_effect = [
-                                    (True, "", ""),  # uv build
-                                    (
-                                        True,
-                                        "/path/to/dist/package-1.0.0.tar.gz",
-                                        "",
-                                    ),  # find command (returns full path)
-                                    (True, "", ""),  # twine check
-                                    (True, "", ""),  # twine upload
-                                ]
+                                    # Mock successful build (no find command anymore)
+                                    mock_run_command.side_effect = [
+                                        (True, "", ""),  # uv build
+                                        (True, "", ""),  # twine check
+                                        (True, "", ""),  # twine upload
+                                    ]
 
-                                mock_uuid.return_value = "test-uuid"
+                                    # Mock Path.glob() to return tar.gz file
+                                    mock_tarball = Mock()
+                                    mock_tarball.name = "package-1.0.0.tar.gz"
+                                    mock_path.return_value.glob.return_value = [mock_tarball]
 
-                                # Mock os.open to return a fake file descriptor
-                                mock_os_open.return_value = 3
+                                    mock_uuid.return_value = "test-uuid"
 
-                                # Mock os.fdopen to return a mock file object
-                                mock_file = Mock()
-                                mock_file.__enter__ = Mock(return_value=mock_file)
-                                mock_file.__exit__ = Mock(return_value=False)
-                                mock_fdopen.return_value = mock_file
+                                    # Mock os.open to return a fake file descriptor
+                                    mock_os_open.return_value = 3
 
-                                await push_handler.upload_to_pypi(tag_name="v1.0.0")
+                                    # Mock os.fdopen to return a mock file object
+                                    mock_file = Mock()
+                                    mock_file.__enter__ = Mock(return_value=mock_file)
+                                    mock_file.__exit__ = Mock(return_value=False)
+                                    mock_fdopen.return_value = mock_file
 
-                                # Verify clone directory includes UUID
-                                mock_prepare.assert_called_once()
-                                call_args = mock_prepare.call_args
-                                assert "test-uuid" in call_args[1]["clone_repo_dir"]
-                                assert call_args[1]["clone_repo_dir"].endswith("test-repo-test-uuid")
+                                    await push_handler.upload_to_pypi(tag_name="v1.0.0")
+
+                                    # Verify clone directory includes UUID
+                                    mock_prepare.assert_called_once()
+                                    call_args = mock_prepare.call_args
+                                    assert "test-uuid" in call_args[1]["clone_repo_dir"]
+                                    assert call_args[1]["clone_repo_dir"].endswith("test-repo-test-uuid")
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_issue_creation_format(self, push_handler: PushHandler) -> None:

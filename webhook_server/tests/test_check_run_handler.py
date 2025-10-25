@@ -362,7 +362,8 @@ class TestCheckRunHandler:
         """Test setting cherry pick check to in progress status."""
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_cherry_pick_in_progress()
-            mock_set_status.assert_called_once_with(check_run=CHERRY_PICKED_LABEL_PREFIX, status=IN_PROGRESS_STR)
+            # Assign result to variable to silence B007 (loop variable not used)
+            _ = mock_set_status.assert_called_once_with(check_run=CHERRY_PICKED_LABEL_PREFIX, status=IN_PROGRESS_STR)
 
     @pytest.mark.asyncio
     async def test_set_cherry_pick_success(self, check_run_handler: CheckRunHandler) -> None:

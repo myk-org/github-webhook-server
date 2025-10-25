@@ -423,21 +423,29 @@ class GithubWebhook:
 
     async def _get_last_commit(self, pull_request: PullRequest | PullRequestWrapper) -> Commit | CommitWrapper:
         """Get last commit from pull request (supports both REST and GraphQL PR types)."""
-        # Handle PyGithub PullRequest (REST) - use GraphQL
+        # Handle PyGithub PullRequest (REST) - use GraphQL with REST fallback
         if isinstance(pull_request, PullRequest):
             owner = pull_request.base.repo.owner.login
             repo_name = pull_request.base.repo.name
-            # Use GraphQL to get PR with commits
-            pr_data = await self.unified_api.get_pull_request(
-                owner, repo_name, pull_request.number, include_commits=True
-            )
-            # Extract commits from GraphQL response
-            commits_nodes = pr_data.get("commits", {}).get("nodes", [])
-            if not commits_nodes:
-                raise ValueError(f"No commits found in PR {pull_request.number}")
-            # Return last commit (wrapped)
-            last_commit_data = commits_nodes[-1].get("commit", {})
-            return CommitWrapper(last_commit_data)
+            # Try GraphQL first for performance
+            try:
+                pr_data = await self.unified_api.get_pull_request(
+                    owner, repo_name, pull_request.number, include_commits=True
+                )
+                # Extract commits from GraphQL response
+                commits_nodes = pr_data.get("commits", {}).get("nodes", [])
+                if not commits_nodes:
+                    raise ValueError(f"No commits found in PR {pull_request.number}")
+                # Return last commit (wrapped)
+                last_commit_data = commits_nodes[-1].get("commit", {})
+                return CommitWrapper(last_commit_data)
+            except (GraphQLError, GraphQLRateLimitError, TransportQueryError) as ex:
+                # Fallback to REST API if GraphQL fails
+                self.logger.warning(f"{self.log_prefix} GraphQL failed to get commits, falling back to REST: {ex}")
+                rest_commits = await self.unified_api.get_pr_commits_rest(pull_request)
+                if not rest_commits:
+                    raise ValueError(f"No commits found in PR {pull_request.number}") from ex
+                return rest_commits[-1]
 
         # Handle PullRequestWrapper (GraphQL)
         commits = pull_request.get_commits()
@@ -555,14 +563,16 @@ class GithubWebhook:
                         user_id = await self.unified_api.get_user_id_rest(username)
                         reviewer_ids.append(user_id)
                     except (GraphQLAuthenticationError, GraphQLRateLimitError):
-                        # Re-raise auth/rate-limit errors
+                        # Re-raise auth/rate-limit errors - these are critical
                         raise
                     except (
                         GraphQLError,
                         TransportConnectionFailed,
                         TransportQueryError,
                         TransportServerError,
+                        GithubException,
                     ) as rest_ex:
+                        # Log API-layer errors for diagnostics but continue
                         self.logger.warning(
                             f"{self.log_prefix} Failed to get ID for {username} via GraphQL ({ex}) and REST ({rest_ex})"
                         )
@@ -582,7 +592,7 @@ class GithubWebhook:
             else:
                 owner, repo_name = self.repository_full_name.split("/")
                 await self.unified_api.add_assignees_by_login(owner, repo_name, pull_request.number, [assignee])
-        except Exception as ex:
+        except (GraphQLError, GithubException, ValueError) as ex:
             self.logger.warning(f"{self.log_prefix} Failed to add assignee {assignee}: {ex}")
 
     @staticmethod

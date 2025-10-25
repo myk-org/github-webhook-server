@@ -1123,6 +1123,21 @@ class UnifiedGitHubAPI:
         commit = await asyncio.to_thread(repo.get_commit, sha)
         return await asyncio.to_thread(lambda: list(commit.get_pulls()))
 
+    async def get_pr_commits_rest(self, pull_request: Any) -> list[Any]:
+        """
+        Get commits from a pull request using REST API.
+
+        Uses: REST
+        Reason: Fallback when GraphQL fails to retrieve commits
+
+        Args:
+            pull_request: PyGithub PullRequest object
+
+        Returns:
+            List of commits in the pull request
+        """
+        return await asyncio.to_thread(lambda: list(pull_request.get_commits()))
+
     async def send_slack_message_async(self, send_slack_message_func: Any, message: str, webhook_url: str) -> None:
         """
         Send Slack message asynchronously.

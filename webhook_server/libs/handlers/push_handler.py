@@ -27,7 +27,7 @@ class PushHandler:
 
     async def process_push_webhook_data(self) -> None:
         self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'started')} Starting push webhook processing",
+            f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'started')} Starting push webhook processing",  # pragma: allowlist secret
         )
         tag = re.search(r"refs/tags/?(.+)", self.hook_data["ref"])
         if tag:

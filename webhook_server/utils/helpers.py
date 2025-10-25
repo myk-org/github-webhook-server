@@ -197,10 +197,10 @@ def _redact_secrets(text: str, secrets: list[str] | None, case_insensitive: bool
     if cache_key in _REDACT_REGEX_CACHE:
         regex = _REDACT_REGEX_CACHE[cache_key]
     else:
-        # Build single regex pattern: (secret1|secret2|secret3)
+        # Build single regex pattern with non-capturing group: (?:secret1|secret2|secret3)
         # Non-capturing group for alternation without word boundaries
         # (tokens can appear anywhere in strings, not just as whole words)
-        pattern = "|".join(escaped_secrets)
+        pattern = f"(?:{'|'.join(escaped_secrets)})"
 
         # Compile regex with optional case-insensitive flag
         flags = re.IGNORECASE if case_insensitive else 0

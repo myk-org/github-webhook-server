@@ -225,12 +225,6 @@ function createLogEntryElement(entry) {
   return div;
 }
 
-function escapeHtml(text) {
-  const div = document.createElement("div");
-  div.textContent = text;
-  return div.innerHTML;
-}
-
 // Alias for backward compatibility
 function renderLogEntries() {
   renderLogEntriesOptimized();
@@ -352,7 +346,7 @@ async function loadHistoricalLogs() {
 
     // Progressive loading for large datasets
     if (data.entries.length > 200) {
-      await loadEntriesProgressivelyDirect(data.entries);
+      await loadEntriesDirectly(data.entries);
     } else {
       logEntries = data.entries;
       // Apply memory bounding after loading entries
@@ -370,16 +364,18 @@ async function loadHistoricalLogs() {
   }
 }
 
-async function loadEntriesProgressivelyDirect(entries) {
-  // For backend-filtered data, just render all entries at once
-  // Progressive loading isn't needed since data is already filtered and limited
-  // Backend handles chunked streaming to reduce memory usage
+async function loadEntriesDirectly(entries) {
+  // Backend-filtered entries are assigned and rendered all at once
+  // No progressive loading - all entries are displayed immediately
+  // Backend handles chunked streaming to reduce memory usage during transport
   logEntries = entries;
   // Apply memory bounding after direct assignment
   applyMemoryBounding();
   hideLoadingSkeleton();
   renderLogEntriesDirectly(logEntries);
-  console.log(`Loaded ${entries.length} backend-filtered entries`);
+  console.log(
+    `Loaded and rendered ${entries.length} backend-filtered entries at once`,
+  );
 }
 
 function showLoadingSkeleton() {
@@ -1177,8 +1173,9 @@ async function showStepLogsInModal(step, logsContainer) {
   logsContainer.textContent = "Loading logs...";
 
   try {
-    // Fetch logs matching this step message
-    const searchText = step.message.substring(0, 50);
+    // Fetch logs matching this step message using full message for precision
+    // Using full message to avoid ambiguous matches that can occur with truncated text
+    const searchText = step.message;
     const hookId = currentFlowData.hook_id;
 
     const params = new URLSearchParams({

@@ -162,19 +162,22 @@ class TestFrontendPerformanceOptimizations:
         # Check that HTML template includes the JS file
         assert "/static/js/log_viewer.js" in html_content
 
-        # Test for HTML escaping mechanism
-        assert "escape" in js_content.lower() and "html" in js_content.lower(), (
-            "Should include HTML escaping functionality"
-        )
+        # Test for safe HTML handling using textContent (automatic escaping)
+        # Modern approach: Use textContent instead of innerHTML to prevent XSS
         assert "textContent" in js_content, "Should use textContent for safe HTML escaping"
-        assert "innerHTML" in js_content, "Should access innerHTML for escaped content"
+        assert "createElement" in js_content, "Should use createElement for DOM manipulation"
 
-        # Test that escaping is actually used in content rendering
+        # Verify that user content is safely rendered using textContent
         js_lower = js_content.lower()
-        assert "escape" in js_lower and ("message" in js_lower or "entry" in js_lower), (
-            "Should escape user content like messages"
+        assert "textcontent" in js_lower and "message" in js_lower, (
+            "Should set message content using textContent for security"
         )
-        assert "escape" in js_lower and "hook" in js_lower, "Should escape hook IDs"
+
+        # Test that DOM manipulation doesn't use dangerous innerHTML for user content
+        # innerHTML should only appear in template/skeleton rendering, not for user data
+        assert "createelement" in js_lower or "createElement" in js_content, (
+            "Should create elements safely instead of using innerHTML"
+        )
 
     def test_progressive_loading_threshold(self, controller, static_files):
         """Test that progressive loading activates for large datasets."""

@@ -241,23 +241,20 @@ class GraphQLClient:
                                     )
                                     await asyncio.sleep(wait_seconds)
                                     continue  # Retry after waiting
-                    except Exception as ex:
-                        self.logger.error(
-                            f"Failed to get rate limit info: {ex}",
-                            exc_info=True,
+                    except Exception:
+                        self.logger.exception(
+                            "Failed to get rate limit info",
                         )
 
                     # If we can't get rate limit info, fail
-                    self.logger.error(
+                    self.logger.exception(
                         f"RATE LIMIT: GraphQL rate limit exceeded: {error_msg}",
-                        exc_info=True,
                     )
                     raise GraphQLRateLimitError(f"Rate limit exceeded: {error_msg}") from error
 
                 # For other query errors, fail immediately
-                self.logger.error(
+                self.logger.exception(
                     f"GraphQL query error: {error_msg}",
-                    exc_info=True,
                 )
                 raise GraphQLError(f"GraphQL query failed: {error_msg}") from error
 
@@ -268,7 +265,6 @@ class GraphQLClient:
                     self.logger.warning(
                         f"CONNECTION CLOSED: GraphQL connection closed (attempt {attempt + 1}/{self.retry_count}): {error_msg}. "
                         f"Recreating client and retrying...",
-                        exc_info=True,
                     )
                     # Close and force recreate client on next iteration
                     if self._client:
@@ -288,9 +284,8 @@ class GraphQLClient:
                             await self._client.close_async()
                         except Exception:
                             self.logger.debug("Ignoring error during client close after final connection failure")
-                    self.logger.error(
+                    self.logger.exception(
                         f"CONNECTION CLOSED: GraphQL connection closed after {self.retry_count} attempts: {error_msg}",
-                        exc_info=True,
                     )
                     raise GraphQLError(f"GraphQL connection closed: {error_msg}") from error
 
@@ -302,23 +297,20 @@ class GraphQLClient:
                     self.logger.warning(
                         f"SERVER ERROR: GraphQL server error (attempt {attempt + 1}/{self.retry_count}): {error_msg}. "
                         f"Retrying in {wait_seconds}s...",
-                        exc_info=True,
                     )
                     await asyncio.sleep(wait_seconds)
                     continue  # Retry with exponential backoff
                 else:
                     # Final attempt failed
-                    self.logger.error(
+                    self.logger.exception(
                         f"SERVER ERROR: GraphQL server error after {self.retry_count} attempts: {error_msg}",
-                        exc_info=True,
                     )
                     raise GraphQLError(f"GraphQL server error: {error_msg}") from error
 
             except asyncio.TimeoutError as error:
                 # Explicit timeout handling - NEVER silent!
-                self.logger.error(
+                self.logger.exception(
                     f"TIMEOUT: GraphQL query timeout after {self.timeout}s",
-                    exc_info=True,
                 )
                 # Force close the client to stop any pending connections
                 if self._client:
@@ -344,9 +336,8 @@ class GraphQLClient:
                 error_type = type(error).__name__
 
                 # Log ALL exceptions with full context and re-raise immediately
-                self.logger.error(
+                self.logger.exception(
                     f"FATAL: GraphQL error [{error_type}]: {error_msg}",
-                    exc_info=True,
                 )
                 raise GraphQLError(f"Unexpected error [{error_type}]: {error_msg}") from error
 
