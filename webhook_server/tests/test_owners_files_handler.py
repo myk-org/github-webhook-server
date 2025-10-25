@@ -1,9 +1,9 @@
-from unittest.mock import AsyncMock, Mock, call, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 import yaml
 
-from webhook_server.libs.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.tests.conftest import ContentFile
 
 
@@ -17,12 +17,26 @@ class TestOwnersFileHandler:
         mock_webhook.logger = Mock()
         mock_webhook.log_prefix = "[TEST]"
         mock_webhook.repository = Mock()
+        mock_webhook.repository.full_name = "test-owner/test-repo"
+        mock_webhook.repository_full_name = "test-org/test-repo"
+        mock_webhook.add_pr_comment = AsyncMock()
+        mock_webhook.request_pr_reviews = AsyncMock()
+        # unified_api needs to be a Mock with async methods, not an AsyncMock itself
+        mock_webhook.unified_api = Mock()
+        mock_webhook.unified_api.request_reviews = AsyncMock()
+        mock_webhook.unified_api.get_user_id = AsyncMock()
+        mock_webhook.unified_api.add_assignees_by_login = AsyncMock()
+        # Mock config
+        mock_webhook.config = Mock()
+        mock_webhook.config.get_value = Mock(return_value=1000)
         return mock_webhook
 
     @pytest.fixture
     def mock_pull_request(self) -> Mock:
         """Create a mock PullRequest instance."""
         mock_pr = Mock()
+        mock_pr.id = "PR_kgDOTestId"
+        mock_pr.number = 123
         mock_pr.base.ref = "main"
         mock_pr.user.login = "test-user"
         return mock_pr
@@ -81,6 +95,11 @@ class TestOwnersFileHandler:
     @pytest.mark.asyncio
     async def test_initialize(self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock) -> None:
         """Test the initialize method."""
+        # Mock collaborators and contributors for caching
+        mock_collaborator1 = Mock(login="collab1", permissions=Mock(admin=False, maintain=False))
+        mock_collaborator2 = Mock(login="collab2", permissions=Mock(admin=True, maintain=False))
+        mock_contributor1 = Mock(login="contrib1")
+
         with patch.object(owners_file_handler, "list_changed_files", new=AsyncMock()) as mock_list_files:
             with patch.object(
                 owners_file_handler, "get_all_repository_approvers_and_reviewers", new=AsyncMock()
@@ -103,6 +122,13 @@ class TestOwnersFileHandler:
                                 mock_get_reviewers.return_value = ["user2"]
                                 mock_get_pr_approvers.return_value = ["user1"]
                                 mock_get_pr_reviewers.return_value = ["user2"]
+                                # Mock unified_api methods for caching
+                                owners_file_handler.unified_api.get_collaborators = AsyncMock(
+                                    return_value=[mock_collaborator1, mock_collaborator2]
+                                )
+                                owners_file_handler.unified_api.get_contributors = AsyncMock(
+                                    return_value=[mock_contributor1]
+                                )
 
                                 result = await owners_file_handler.initialize(mock_pull_request)
 
@@ -115,6 +141,17 @@ class TestOwnersFileHandler:
                                 assert owners_file_handler.all_repository_reviewers == ["user2"]
                                 assert owners_file_handler.all_pull_request_approvers == ["user1"]
                                 assert owners_file_handler.all_pull_request_reviewers == ["user2"]
+                                # Verify cached collaborators and contributors
+                                assert owners_file_handler._repository_collaborators == [
+                                    mock_collaborator1,
+                                    mock_collaborator2,
+                                ]
+                                assert owners_file_handler._repository_contributors == [mock_contributor1]
+                                assert "collab1" in owners_file_handler._valid_users_to_run_commands
+                                assert "collab2" in owners_file_handler._valid_users_to_run_commands
+                                assert "contrib1" in owners_file_handler._valid_users_to_run_commands
+                                assert "user1" in owners_file_handler._valid_users_to_run_commands
+                                assert "user2" in owners_file_handler._valid_users_to_run_commands
 
     @pytest.mark.asyncio
     async def test_ensure_initialized_not_initialized(self, owners_file_handler: OwnersFileHandler) -> None:
@@ -137,12 +174,15 @@ class TestOwnersFileHandler:
         mock_file1.filename = "file1.py"
         mock_file2 = Mock()
         mock_file2.filename = "file2.py"
-        mock_pull_request.get_files.return_value = [mock_file1, mock_file2]
+        owners_file_handler.repository.full_name = "test/repo"
+        owners_file_handler.github_webhook.unified_api.get_pull_request_files = AsyncMock(
+            return_value=[mock_file1, mock_file2]
+        )
 
         result = await owners_file_handler.list_changed_files(mock_pull_request)
 
         assert result == ["file1.py", "file2.py"]
-        mock_pull_request.get_files.assert_called_once()
+        owners_file_handler.github_webhook.unified_api.get_pull_request_files.assert_called_once()
 
     def test_validate_owners_content_valid(self, owners_file_handler: OwnersFileHandler) -> None:
         """Test _validate_owners_content with valid content."""
@@ -178,12 +218,13 @@ class TestOwnersFileHandler:
     async def test_get_file_content(self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock) -> None:
         """Test _get_file_content method."""
         mock_content = ContentFile("test content")
-        owners_file_handler.repository.get_contents = Mock(return_value=mock_content)
+        owners_file_handler.repository.full_name = "test/repo"
+        owners_file_handler.github_webhook.unified_api.get_contents = AsyncMock(return_value=mock_content)
 
         result = await owners_file_handler._get_file_content("test/path", mock_pull_request)
 
         assert result == (mock_content, "test/path")
-        owners_file_handler.repository.get_contents.assert_called_once_with("test/path", "main")
+        owners_file_handler.github_webhook.unified_api.get_contents.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_file_content_list_result(
@@ -191,7 +232,8 @@ class TestOwnersFileHandler:
     ) -> None:
         """Test _get_file_content when repository returns a list."""
         mock_content = ContentFile("test content")
-        owners_file_handler.repository.get_contents = Mock(return_value=[mock_content])
+        owners_file_handler.repository.full_name = "test/repo"
+        owners_file_handler.github_webhook.unified_api.get_contents = AsyncMock(return_value=[mock_content])
 
         result = await owners_file_handler._get_file_content("test/path", mock_pull_request)
 
@@ -205,12 +247,16 @@ class TestOwnersFileHandler:
         mock_tree: Mock,
         mock_content_files: dict[str, ContentFile],
     ) -> None:
-        owners_file_handler.repository.get_git_tree = Mock(return_value=mock_tree)
+        owners_file_handler.repository.full_name = "test/repo"
 
-        def mock_get_contents(path: str, ref: str) -> ContentFile:
+        async def get_tree_wrapper(_o, _n, _ref, recursive=False):
+            return mock_tree
+
+        async def get_contents_wrapper(_o, _n, path, _ref):
             return mock_content_files.get(path, ContentFile(""))
 
-        owners_file_handler.repository.get_contents = Mock(side_effect=mock_get_contents)
+        owners_file_handler.github_webhook.unified_api.get_git_tree = get_tree_wrapper
+        owners_file_handler.github_webhook.unified_api.get_contents = get_contents_wrapper
         result = await owners_file_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
         expected = {
             ".": {"approvers": ["root_approver1", "root_approver2"], "reviewers": ["root_reviewer1", "root_reviewer2"]},
@@ -237,14 +283,40 @@ class TestOwnersFileHandler:
     ) -> None:
         mock_tree = Mock()
         mock_tree.tree = [Mock(type="blob", path=f"file{i}/OWNERS") for i in range(1001)]
-        owners_file_handler.repository.get_git_tree = Mock(return_value=mock_tree)
-        owners_file_handler.logger.error = Mock()
-        owners_file_handler.repository.get_contents = Mock(
+        owners_file_handler.repository.full_name = "test/repo"
+        owners_file_handler.github_webhook.unified_api.get_git_tree = AsyncMock(return_value=mock_tree)
+        owners_file_handler.github_webhook.unified_api.get_contents = AsyncMock(
             return_value=ContentFile(yaml.dump({"approvers": [], "reviewers": []}))
         )
+        owners_file_handler.logger.error = Mock()
         result = await owners_file_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
         assert len(result) == 1000
         owners_file_handler.logger.error.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_get_all_repository_approvers_and_reviewers_custom_max_limit(
+        self, mock_github_webhook: Mock, mock_pull_request: Mock
+    ) -> None:
+        """Test that custom max-owners-files config is respected."""
+        # Set custom limit to 5
+        mock_github_webhook.config.get_value = Mock(return_value=5)
+        custom_handler = OwnersFileHandler(mock_github_webhook)
+
+        mock_tree = Mock()
+        mock_tree.tree = [Mock(type="blob", path=f"file{i}/OWNERS") for i in range(10)]
+        custom_handler.repository.full_name = "test/repo"
+        custom_handler.github_webhook.unified_api.get_git_tree = AsyncMock(return_value=mock_tree)
+        custom_handler.github_webhook.unified_api.get_contents = AsyncMock(
+            return_value=ContentFile(yaml.dump({"approvers": [], "reviewers": []}))
+        )
+        custom_handler.logger.error = Mock()
+
+        result = await custom_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
+
+        # Should only process 5 files because custom limit is 5
+        assert len(result) == 5
+        custom_handler.logger.error.assert_called_once()
+        assert ">5" in str(custom_handler.logger.error.call_args)
 
     @pytest.mark.asyncio
     async def test_get_all_repository_approvers_and_reviewers_invalid_yaml(
@@ -252,9 +324,10 @@ class TestOwnersFileHandler:
     ) -> None:
         mock_tree = Mock()
         mock_tree.tree = [Mock(type="blob", path="OWNERS")]
-        owners_file_handler.repository.get_git_tree = Mock(return_value=mock_tree)
+        owners_file_handler.repository.full_name = "test/repo"
+        owners_file_handler.github_webhook.unified_api.get_git_tree = AsyncMock(return_value=mock_tree)
         mock_content = ContentFile("invalid: yaml: content: [")
-        owners_file_handler.repository.get_contents = Mock(return_value=mock_content)
+        owners_file_handler.github_webhook.unified_api.get_contents = AsyncMock(return_value=mock_content)
         owners_file_handler.logger.error = Mock()
         result = await owners_file_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
         assert result == {}
@@ -266,13 +339,40 @@ class TestOwnersFileHandler:
     ) -> None:
         mock_tree = Mock()
         mock_tree.tree = [Mock(type="blob", path="OWNERS")]
-        owners_file_handler.repository.get_git_tree = Mock(return_value=mock_tree)
+        owners_file_handler.repository.full_name = "test/repo"
+        owners_file_handler.github_webhook.unified_api.get_git_tree = AsyncMock(return_value=mock_tree)
         mock_content = ContentFile(yaml.dump({"approvers": "not_a_list"}))
-        owners_file_handler.repository.get_contents = Mock(return_value=mock_content)
+        owners_file_handler.github_webhook.unified_api.get_contents = AsyncMock(return_value=mock_content)
         owners_file_handler.logger.error = Mock()
         result = await owners_file_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
         assert result == {}
         owners_file_handler.logger.error.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_get_all_repository_approvers_and_reviewers_fetch_exception(
+        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that exceptions during OWNERS file fetch include exception type in log."""
+        mock_tree = Mock()
+        mock_tree.tree = [Mock(type="blob", path="test/OWNERS")]
+        owners_file_handler.repository.full_name = "test/repo"
+        owners_file_handler.github_webhook.unified_api.get_git_tree = AsyncMock(return_value=mock_tree)
+
+        # Make get_contents raise a specific exception type
+        test_exception = FileNotFoundError("OWNERS file not found")
+        owners_file_handler.github_webhook.unified_api.get_contents = AsyncMock(side_effect=test_exception)
+        owners_file_handler.logger.exception = Mock()
+
+        result = await owners_file_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
+
+        # Should return empty dict since file fetch failed
+        assert result == {}
+
+        # Verify exception log was called with exception type in the message
+        owners_file_handler.logger.exception.assert_called_once()
+        error_message = str(owners_file_handler.logger.exception.call_args[0][0])
+        assert "[FileNotFoundError]" in error_message
+        assert "OWNERS file not found" in error_message
 
     @pytest.mark.asyncio
     async def test_get_all_repository_approvers(self, owners_file_handler: OwnersFileHandler) -> None:
@@ -307,7 +407,7 @@ class TestOwnersFileHandler:
         """Test get_all_pull_request_approvers method."""
         owners_file_handler.changed_files = ["file1.py"]
 
-        with patch.object(owners_file_handler, "owners_data_for_changed_files") as mock_owners_data:
+        with patch.object(owners_file_handler, "owners_data_for_changed_files", new=AsyncMock()) as mock_owners_data:
             mock_owners_data.return_value = {
                 ".": {"approvers": ["user1", "user2"], "reviewers": ["user3"]},
                 "folder1": {"approvers": ["user4"], "reviewers": ["user5"]},
@@ -322,7 +422,7 @@ class TestOwnersFileHandler:
         """Test get_all_pull_request_reviewers method."""
         owners_file_handler.changed_files = ["file1.py"]
 
-        with patch.object(owners_file_handler, "owners_data_for_changed_files") as mock_owners_data:
+        with patch.object(owners_file_handler, "owners_data_for_changed_files", new=AsyncMock()) as mock_owners_data:
             mock_owners_data.return_value = {
                 ".": {"approvers": ["user1"], "reviewers": ["user2", "user3"]},
                 "folder1": {"approvers": ["user4"], "reviewers": ["user5"]},
@@ -402,12 +502,17 @@ class TestOwnersFileHandler:
         owners_file_handler.all_pull_request_reviewers = ["reviewer1", "reviewer2", "test-user"]
         mock_pull_request.user.login = "test-user"
 
-        with patch.object(mock_pull_request, "create_review_request") as mock_create_request:
+        with patch.object(
+            owners_file_handler.github_webhook, "request_pr_reviews", new_callable=AsyncMock
+        ) as mock_request:
             await owners_file_handler.assign_reviewers(mock_pull_request)
-            # Should only add reviewers that are not the PR author
-            expected_calls = [call(["reviewer1"]), call(["reviewer2"])]
-            actual_calls = mock_create_request.call_args_list
-            assert sorted(actual_calls, key=str) == sorted(expected_calls, key=str)
+            # Should be called once with all reviewers (batch assignment), excluding PR author
+            assert mock_request.call_count == 1
+            # Verify the call has both reviewers
+            call_args = mock_request.call_args
+            assert call_args[0][0] == mock_pull_request
+            reviewers_added = call_args[0][1]
+            assert set(reviewers_added) == {"reviewer1", "reviewer2"}
 
     @pytest.mark.asyncio
     async def test_assign_reviewers_github_exception(
@@ -420,12 +525,25 @@ class TestOwnersFileHandler:
 
         from github.GithubException import GithubException
 
-        with patch.object(mock_pull_request, "create_review_request", side_effect=GithubException(404, "Not found")):
-            with patch.object(mock_pull_request, "create_issue_comment") as mock_comment:
-                await owners_file_handler.assign_reviewers(mock_pull_request)
-
-                mock_comment.assert_called_once()
-                assert "reviewer1 can not be added as reviewer" in mock_comment.call_args[0][0]
+        with patch.object(
+            owners_file_handler.github_webhook,
+            "request_pr_reviews",
+            new_callable=AsyncMock,
+            side_effect=GithubException(404, "Not found"),
+        ):
+            # Mock unified_api.add_comment for error comment (GraphQL mutation)
+            owners_file_handler.unified_api.add_comment = AsyncMock()
+            await owners_file_handler.assign_reviewers(mock_pull_request)
+            # Verify add_comment was called for the error
+            owners_file_handler.unified_api.add_comment.assert_called_once()
+            # Check the error message was included - call_args is (args, kwargs)
+            call_args = owners_file_handler.unified_api.add_comment.call_args
+            # The PR node ID is call_args.args[0] or call_args[0][0]
+            # The body is call_args.args[1] or call_args[0][1]
+            assert call_args.args[0] == "PR_kgDOTestId"  # PR node ID
+            # New format: "Failed to assign reviewers reviewer1: [GithubException] 404 'Not found'"
+            assert "Failed to assign reviewers reviewer1" in call_args.args[1]
+            assert "GithubException" in call_args.args[1]
 
     @pytest.mark.asyncio
     async def test_is_user_valid_to_run_commands_valid_user(
@@ -434,15 +552,14 @@ class TestOwnersFileHandler:
         owners_file_handler.changed_files = ["file1.py"]
         owners_file_handler.all_repository_approvers = ["approver1", "user1"]
         owners_file_handler.all_pull_request_reviewers = ["reviewer1"]
+        # Cache valid users
+        owners_file_handler._valid_users_to_run_commands = {"approver1", "user1", "reviewer1"}
+
         with patch.object(owners_file_handler, "get_all_repository_maintainers") as mock_maintainers:
-            with patch.object(owners_file_handler, "get_all_repository_collaborators") as mock_collaborators:
-                with patch.object(owners_file_handler, "get_all_repository_contributors") as mock_contributors:
-                    mock_maintainers.return_value = []
-                    mock_collaborators.return_value = []
-                    mock_contributors.return_value = []
-                    with patch.object(mock_pull_request, "get_issue_comments", return_value=[]):
-                        result = await owners_file_handler.is_user_valid_to_run_commands(mock_pull_request, "user1")
-                        assert result is True
+            mock_maintainers.return_value = []
+            with patch.object(mock_pull_request, "get_issue_comments", return_value=[]):
+                result = await owners_file_handler.is_user_valid_to_run_commands(mock_pull_request, "user1")
+                assert result is True
 
     @pytest.mark.asyncio
     async def test_is_user_valid_to_run_commands_invalid_user_with_approval(
@@ -451,26 +568,22 @@ class TestOwnersFileHandler:
         owners_file_handler.changed_files = ["file1.py"]
         owners_file_handler.all_repository_approvers = ["approver1"]
         owners_file_handler.all_pull_request_reviewers = ["reviewer1"]
+        # Cache valid users (invalid_user not in cache)
+        owners_file_handler._valid_users_to_run_commands = {"approver1", "reviewer1"}
 
         with patch.object(owners_file_handler, "get_all_repository_maintainers") as mock_maintainers:
-            with patch.object(owners_file_handler, "get_all_repository_collaborators") as mock_collaborators:
-                with patch.object(owners_file_handler, "get_all_repository_contributors") as mock_contributors:
-                    mock_maintainers.return_value = ["maintainer1"]
-                    mock_collaborators.return_value = []
-                    mock_contributors.return_value = []
+            mock_maintainers.return_value = ["maintainer1"]
 
-                    mock_comment = Mock()
-                    mock_comment.user.login = "maintainer1"
-                    mock_comment.body = "/add-allowed-user @invalid_user"
+            mock_comment = Mock()
+            mock_comment.user.login = "maintainer1"
+            mock_comment.body = "/add-allowed-user @invalid_user"
 
-                    with patch.object(mock_pull_request, "get_issue_comments") as mock_get_comments:
-                        mock_get_comments.return_value = [mock_comment]
+            owners_file_handler.repository.full_name = "test/repo"
+            owners_file_handler.github_webhook.unified_api.get_issue_comments = AsyncMock(return_value=[mock_comment])
 
-                        result = await owners_file_handler.is_user_valid_to_run_commands(
-                            mock_pull_request, "invalid_user"
-                        )
+            result = await owners_file_handler.is_user_valid_to_run_commands(mock_pull_request, "invalid_user")
 
-                        assert result is True
+            assert result is True
 
     @pytest.mark.asyncio
     async def test_is_user_valid_to_run_commands_invalid_user_no_approval(
@@ -479,32 +592,28 @@ class TestOwnersFileHandler:
         owners_file_handler.changed_files = ["file1.py"]
         owners_file_handler.all_repository_approvers = ["approver1"]
         owners_file_handler.all_pull_request_reviewers = ["reviewer1"]
+        # Cache valid users (invalid_user not in cache)
+        owners_file_handler._valid_users_to_run_commands = {"approver1", "reviewer1"}
 
         with patch.object(owners_file_handler, "get_all_repository_maintainers") as mock_maintainers:
-            with patch.object(owners_file_handler, "get_all_repository_collaborators") as mock_collaborators:
-                with patch.object(owners_file_handler, "get_all_repository_contributors") as mock_contributors:
-                    mock_maintainers.return_value = ["maintainer1"]
-                    mock_collaborators.return_value = []
-                    mock_contributors.return_value = []
+            mock_maintainers.return_value = ["maintainer1"]
 
-                    mock_comment = Mock()
-                    mock_comment.user.login = "maintainer1"
-                    mock_comment.body = "Some other comment"
+            mock_comment = Mock()
+            mock_comment.user.login = "maintainer1"
+            mock_comment.body = "Some other comment"
 
-                    with patch.object(mock_pull_request, "get_issue_comments") as mock_get_comments:
-                        with patch.object(mock_pull_request, "create_issue_comment") as mock_create_comment:
-                            mock_get_comments.return_value = [mock_comment]
+            # Mock unified_api.get_issue_comments
+            owners_file_handler.repository.full_name = "test/repo"
+            owners_file_handler.github_webhook.unified_api.get_issue_comments = AsyncMock(return_value=[mock_comment])
 
-                            result = await owners_file_handler.is_user_valid_to_run_commands(
-                                mock_pull_request, "invalid_user"
-                            )
+            with patch.object(
+                owners_file_handler.github_webhook, "add_pr_comment", new_callable=AsyncMock
+            ) as mock_add_comment:
+                result = await owners_file_handler.is_user_valid_to_run_commands(mock_pull_request, "invalid_user")
 
-                            assert result is False
-                            mock_create_comment.assert_called_once()
-                            assert (
-                                "invalid_user is not allowed to run retest commands"
-                                in mock_create_comment.call_args[0][0]
-                            )
+                assert result is False
+                mock_add_comment.assert_called_once()
+                assert "invalid_user is not allowed to run retest commands" in mock_add_comment.call_args[0][1]
 
     @pytest.mark.asyncio
     async def test_valid_users_to_run_commands(self, owners_file_handler: OwnersFileHandler) -> None:
@@ -512,102 +621,71 @@ class TestOwnersFileHandler:
         owners_file_handler.changed_files = ["file1.py"]
         owners_file_handler.all_repository_approvers = ["approver1", "approver2"]
         owners_file_handler.all_pull_request_reviewers = ["reviewer1", "reviewer2"]
+        # Cache valid users
+        owners_file_handler._valid_users_to_run_commands = {
+            "approver1",
+            "approver2",
+            "reviewer1",
+            "reviewer2",
+            "collaborator1",
+            "collaborator2",
+            "contributor1",
+            "contributor2",
+        }
 
-        with patch.object(owners_file_handler, "get_all_repository_collaborators") as mock_collaborators:
-            with patch.object(owners_file_handler, "get_all_repository_contributors") as mock_contributors:
-                mock_collaborators.return_value = ["collaborator1", "collaborator2"]
-                mock_contributors.return_value = ["contributor1", "contributor2"]
+        result = owners_file_handler.valid_users_to_run_commands
 
-                result = await owners_file_handler.valid_users_to_run_commands
-
-                expected = {
-                    "approver1",
-                    "approver2",
-                    "reviewer1",
-                    "reviewer2",
-                    "collaborator1",
-                    "collaborator2",
-                    "contributor1",
-                    "contributor2",
-                }
-                assert result == expected
+        expected = {
+            "approver1",
+            "approver2",
+            "reviewer1",
+            "reviewer2",
+            "collaborator1",
+            "collaborator2",
+            "contributor1",
+            "contributor2",
+        }
+        assert result == expected
 
     @pytest.mark.asyncio
     async def test_get_all_repository_contributors(self, owners_file_handler: OwnersFileHandler) -> None:
-        mock_contributor1 = Mock()
-        mock_contributor1.login = "contributor1"
-        mock_contributor2 = Mock()
-        mock_contributor2.login = "contributor2"
+        """Test get_all_repository_contributors method."""
+        mock_contributor1 = Mock(login="contributor1")
+        mock_contributor2 = Mock(login="contributor2")
 
-        with patch.object(
-            owners_file_handler.repository, "get_contributors", return_value=[mock_contributor1, mock_contributor2]
-        ):
-            result = await owners_file_handler.get_all_repository_contributors()
+        # Initialize the handler with cached contributors
+        owners_file_handler.changed_files = ["file1.py"]
+        owners_file_handler._repository_contributors = [mock_contributor1, mock_contributor2]
 
-            assert result == ["contributor1", "contributor2"]
+        result = await owners_file_handler.get_all_repository_contributors()
+        assert result == ["contributor1", "contributor2"]
 
     @pytest.mark.asyncio
     async def test_get_all_repository_collaborators(self, owners_file_handler: OwnersFileHandler) -> None:
-        mock_collaborator1 = Mock()
-        mock_collaborator1.login = "collaborator1"
-        mock_collaborator2 = Mock()
-        mock_collaborator2.login = "collaborator2"
+        """Test get_all_repository_collaborators method."""
+        mock_collaborator1 = Mock(login="collaborator1")
+        mock_collaborator2 = Mock(login="collaborator2")
 
-        with patch.object(
-            owners_file_handler.repository, "get_collaborators", return_value=[mock_collaborator1, mock_collaborator2]
-        ):
-            result = await owners_file_handler.get_all_repository_collaborators()
+        # Initialize the handler with cached collaborators
+        owners_file_handler.changed_files = ["file1.py"]
+        owners_file_handler._repository_collaborators = [mock_collaborator1, mock_collaborator2]
 
-            assert result == ["collaborator1", "collaborator2"]
+        result = await owners_file_handler.get_all_repository_collaborators()
+        assert result == ["collaborator1", "collaborator2"]
 
     @pytest.mark.asyncio
     async def test_get_all_repository_maintainers(self, owners_file_handler: OwnersFileHandler) -> None:
         """Test get_all_repository_maintainers method."""
-        mock_admin = Mock()
-        mock_admin.login = "admin_user"
-        mock_admin.permissions.admin = True
-        mock_admin.permissions.maintain = False
+        mock_admin = Mock(login="admin_user", permissions=Mock(admin=True, maintain=False))
+        mock_maintainer = Mock(login="maintainer_user", permissions=Mock(admin=False, maintain=True))
+        mock_regular = Mock(login="regular_user", permissions=Mock(admin=False, maintain=False))
 
-        mock_maintainer = Mock()
-        mock_maintainer.login = "maintainer_user"
-        mock_maintainer.permissions.admin = False
-        mock_maintainer.permissions.maintain = True
+        # Initialize the handler with cached collaborators
+        owners_file_handler.changed_files = ["file1.py"]
+        owners_file_handler._repository_collaborators = [mock_admin, mock_maintainer, mock_regular]
 
-        mock_regular = Mock()
-        mock_regular.login = "regular_user"
-        mock_regular.permissions.admin = False
-        mock_regular.permissions.maintain = False
-
-        with patch.object(
-            owners_file_handler.repository,
-            "get_collaborators",
-            return_value=[mock_admin, mock_maintainer, mock_regular],
-        ):
-            result = await owners_file_handler.get_all_repository_maintainers()
-
-            assert result == ["admin_user", "maintainer_user"]
-
-    @pytest.mark.asyncio
-    async def test_repository_collaborators(self, owners_file_handler: OwnersFileHandler) -> None:
-        """Test repository_collaborators property."""
-        mock_collaborators = ["collaborator1", "collaborator2"]
-        owners_file_handler.repository.get_collaborators.return_value = mock_collaborators
-
-        result = await owners_file_handler.repository_collaborators
-
-        assert result == mock_collaborators
-        owners_file_handler.repository.get_collaborators.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_repository_contributors(self, owners_file_handler: OwnersFileHandler) -> None:
-        """Test repository_contributors property."""
-        mock_contributors = ["contributor1", "contributor2"]
-        owners_file_handler.repository.get_contributors.return_value = mock_contributors
-
-        result = await owners_file_handler.repository_contributors
-
-        assert result == mock_contributors
-        owners_file_handler.repository.get_contributors.assert_called_once()
+        result = await owners_file_handler.get_all_repository_maintainers()
+        assert result == ["admin_user", "maintainer_user"]
 
     @pytest.mark.asyncio
     async def test_root_reviewers_property(self, owners_file_handler: OwnersFileHandler) -> None:

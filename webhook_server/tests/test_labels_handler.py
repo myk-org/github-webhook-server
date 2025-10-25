@@ -1,10 +1,10 @@
+from contextlib import suppress
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from github.GithubException import UnknownObjectException
 from github.PullRequest import PullRequest
 
-from webhook_server.libs.labels_handler import LabelsHandler
+from webhook_server.libs.handlers.labels_handler import LabelsHandler
 from webhook_server.utils.constants import (
     ADD_STR,
     APPROVE_STR,
@@ -44,8 +44,21 @@ class TestLabelsHandler:
         """Mock GitHub webhook handler."""
         webhook = Mock()
         webhook.repository = Mock()
+        webhook.repository.full_name = "test-owner/test-repo"
+        webhook.repository_full_name = "test-org/test-repo"
         webhook.log_prefix = "[TEST]"
         webhook.logger = Mock()
+        webhook.unified_api = AsyncMock()  # Enable GraphQL
+        webhook.unified_api.get_label_id = AsyncMock(return_value="LA_123")
+        webhook.unified_api.get_repository = AsyncMock(return_value={"id": "R_456"})
+        webhook.unified_api.create_label = AsyncMock()
+        webhook.unified_api.update_label = AsyncMock()
+        webhook.unified_api.add_labels = AsyncMock()
+        webhook.unified_api.remove_labels = AsyncMock()
+        # Mock get_pull_request to return dict structure expected by PullRequestWrapper
+        webhook.unified_api.get_pull_request = AsyncMock(
+            return_value={"number": 123, "labels": {"nodes": []}, "title": "Test PR"}
+        )
         # Configure config.get_value to return None for pr-size-thresholds by default
         # This ensures existing tests use static defaults
         webhook.config.get_value.return_value = None
@@ -66,7 +79,10 @@ class TestLabelsHandler:
     @pytest.fixture
     def mock_pull_request(self) -> Mock:
         """Mock pull request object."""
-        return Mock(spec=PullRequest)
+        mock = Mock(spec=PullRequest)
+        mock.id = "PR_kgDOTestId"
+        mock.number = 123
+        return mock
 
     @pytest.mark.parametrize(
         "additions,deletions,expected_size",
@@ -125,12 +141,22 @@ class TestLabelsHandler:
     @pytest.mark.asyncio
     async def test_add_label_success(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
         """Test successful label addition."""
-        with patch("timeout_sampler.TimeoutWatch") as mock_timeout:
-            mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
-            with patch("asyncio.sleep", new_callable=AsyncMock):
-                with patch.object(labels_handler, "label_exists_in_pull_request", side_effect=[False, True]):
-                    await labels_handler._add_label(mock_pull_request, "test-label")
-                    mock_pull_request.add_to_labels.assert_called_once_with("test-label")
+        # Mock that label doesn't exist initially
+        with patch.object(labels_handler, "label_exists_in_pull_request", new=AsyncMock(return_value=False)):
+            with patch.object(labels_handler, "wait_for_label", new=AsyncMock(return_value=True)):
+                # Mock _ensure_wrapper to return the same mock PR (prevents new object creation)
+                with patch.object(labels_handler, "_ensure_wrapper", return_value=mock_pull_request):
+                    # Mock unified_api for static label (skips dynamic label logic)
+                    labels_handler.unified_api.get_label_id.return_value = "LA_test"
+                    labels_handler.unified_api.add_labels.return_value = None
+
+                    await labels_handler._add_label(mock_pull_request, "lgtm")  # Static label
+
+                    # Verify unified_api was called with correct arguments
+                    labels_handler.unified_api.add_labels.assert_called_once()
+                    call_args = labels_handler.unified_api.add_labels.call_args
+                    assert call_args[0][0] == mock_pull_request.id
+                    assert "LA_test" in call_args[0][1]
 
     @pytest.mark.asyncio
     async def test_add_label_exception_handling(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
@@ -138,38 +164,48 @@ class TestLabelsHandler:
         with patch("timeout_sampler.TimeoutWatch") as mock_timeout:
             mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
             with patch("asyncio.sleep", new_callable=AsyncMock):
-                with patch.object(labels_handler, "label_exists_in_pull_request", side_effect=[False, True]):
-                    with patch.object(mock_pull_request, "add_to_labels", side_effect=Exception("Test error")):
-                        # Should not raise exception - the method should handle it gracefully
-                        try:
+                with patch.object(
+                    labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock, side_effect=[False, True]
+                ):
+                    with patch.object(
+                        labels_handler, "_ensure_wrapper", new_callable=AsyncMock, return_value=mock_pull_request
+                    ):
+                        # Mock unified_api.add_labels to raise exception (unified_api is used, not add_to_labels)
+                        labels_handler.unified_api.add_labels = AsyncMock(side_effect=Exception("Test error"))
+                        # Exception handling - method may raise but test continues
+                        with suppress(Exception):
                             await labels_handler._add_label(mock_pull_request, "test-label")
-                        except Exception:
-                            # This is expected behavior - the method doesn't catch all exceptions
-                            pass
 
     @pytest.mark.asyncio
     async def test_remove_label_success(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
         """Test successful label removal."""
-        with patch("timeout_sampler.TimeoutWatch") as mock_timeout:
-            mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
-            with patch("asyncio.sleep", new_callable=AsyncMock):
-                with patch.object(labels_handler, "label_exists_in_pull_request", side_effect=[True, False]):
+        with patch.object(labels_handler, "label_exists_in_pull_request", new=AsyncMock(return_value=True)):
+            with patch.object(labels_handler, "wait_for_label", new=AsyncMock(return_value=True)):
+                # Mock _ensure_wrapper to return the same mock PR (prevents new object creation)
+                with patch.object(labels_handler, "_ensure_wrapper", return_value=mock_pull_request):
+                    labels_handler.unified_api.get_label_id.return_value = "LA_test"
+                    labels_handler.unified_api.remove_labels.return_value = None
+
                     result = await labels_handler._remove_label(mock_pull_request, "test-label")
+
                     assert result is True
-                    mock_pull_request.remove_from_labels.assert_called_once_with("test-label")
+                    # Verify unified_api was called with correct arguments
+                    labels_handler.unified_api.remove_labels.assert_called_once()
+                    call_args = labels_handler.unified_api.remove_labels.call_args
+                    assert call_args[0][0] == mock_pull_request.id
+                    assert "LA_test" in call_args[0][1]
 
     @pytest.mark.asyncio
     async def test_remove_label_exception_handling(
         self, labels_handler: LabelsHandler, mock_pull_request: Mock
     ) -> None:
         """Test label removal with exception handling."""
-        with patch("timeout_sampler.TimeoutWatch") as mock_timeout:
-            mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
-            with patch("asyncio.sleep", new_callable=AsyncMock):
-                with patch.object(labels_handler, "label_exists_in_pull_request", side_effect=[True, False]):
-                    with patch.object(mock_pull_request, "remove_from_labels", side_effect=Exception("Test error")):
-                        result = await labels_handler._remove_label(mock_pull_request, "test-label")
-                        assert result is False
+        with patch.object(labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock, return_value=True):
+            labels_handler.unified_api.get_label_id.return_value = "LA_test"
+            labels_handler.unified_api.remove_labels.side_effect = Exception("Test error")
+
+            result = await labels_handler._remove_label(mock_pull_request, "test-label")
+            assert result is False
 
     @pytest.mark.asyncio
     async def test_remove_label_exception_during_wait(
@@ -179,8 +215,12 @@ class TestLabelsHandler:
         with patch("timeout_sampler.TimeoutWatch") as mock_timeout:
             mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
             with patch("asyncio.sleep", new_callable=AsyncMock):
-                with patch.object(labels_handler, "label_exists_in_pull_request", side_effect=[True, False]):
-                    with patch.object(labels_handler, "wait_for_label", side_effect=Exception("Wait failed")):
+                with patch.object(
+                    labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock, side_effect=[True, False]
+                ):
+                    with patch.object(
+                        labels_handler, "wait_for_label", new_callable=AsyncMock, side_effect=Exception("Wait failed")
+                    ):
                         result = await labels_handler._remove_label(mock_pull_request, "test-label")
                         assert result is False
 
@@ -192,8 +232,12 @@ class TestLabelsHandler:
         with patch("timeout_sampler.TimeoutWatch") as mock_timeout:
             mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
             with patch("asyncio.sleep", new_callable=AsyncMock):
-                with patch.object(labels_handler, "label_exists_in_pull_request", side_effect=[True, False]):
-                    with patch.object(labels_handler, "wait_for_label", side_effect=Exception("Wait failed")):
+                with patch.object(
+                    labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock, side_effect=[True, False]
+                ):
+                    with patch.object(
+                        labels_handler, "wait_for_label", new_callable=AsyncMock, side_effect=Exception("Wait failed")
+                    ):
                         result = await labels_handler._remove_label(mock_pull_request, "test-label")
                         assert result is False
 
@@ -206,18 +250,15 @@ class TestLabelsHandler:
         with patch("timeout_sampler.TimeoutWatch") as mock_timeout:
             mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
             with patch("asyncio.sleep", new_callable=AsyncMock):
-                with patch.object(labels_handler, "label_exists_in_pull_request", side_effect=[False, True]):
+                with patch.object(
+                    labels_handler, "label_exists_in_pull_request", new=AsyncMock(side_effect=[False, True])
+                ):
                     with patch.object(
-                        labels_handler.repository, "get_label", side_effect=Exception("Get label failed")
+                        labels_handler, "wait_for_label", new=AsyncMock(side_effect=Exception("Wait failed"))
                     ):
-                        with patch.object(labels_handler.repository, "create_label"):
-                            with patch.object(labels_handler, "wait_for_label", side_effect=Exception("Wait failed")):
-                                # Should not raise exception
-                                try:
-                                    await labels_handler._add_label(mock_pull_request, dynamic_label)
-                                except Exception:
-                                    # This is expected behavior
-                                    pass
+                        # Exception handling - method may raise but test continues
+                        with suppress(Exception):
+                            await labels_handler._add_label(mock_pull_request, dynamic_label)
 
     @pytest.mark.asyncio
     async def test_add_label_static_label_wait_exception(
@@ -228,10 +269,16 @@ class TestLabelsHandler:
         with patch("timeout_sampler.TimeoutWatch") as mock_timeout:
             mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
             with patch("asyncio.sleep", new_callable=AsyncMock):
-                with patch.object(labels_handler, "label_exists_in_pull_request", side_effect=[False, True]):
-                    with patch.object(labels_handler, "wait_for_label", side_effect=Exception("Wait failed")):
-                        # Should not raise exception
-                        await labels_handler._add_label(mock_pull_request, static_label)
+                with patch.object(
+                    labels_handler, "label_exists_in_pull_request", new=AsyncMock(side_effect=[False, True])
+                ):
+                    # Mock _ensure_wrapper to return the same mock PR (prevents new object creation)
+                    with patch.object(labels_handler, "_ensure_wrapper", new=AsyncMock(return_value=mock_pull_request)):
+                        with patch.object(
+                            labels_handler, "wait_for_label", new=AsyncMock(side_effect=Exception("Wait failed"))
+                        ):
+                            # Should not raise exception
+                            await labels_handler._add_label(mock_pull_request, static_label)
 
     @pytest.mark.asyncio
     async def test_wait_for_label_success(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
@@ -239,7 +286,9 @@ class TestLabelsHandler:
         with patch("timeout_sampler.TimeoutWatch") as mock_timeout:
             mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
             with patch("asyncio.sleep", new_callable=AsyncMock):
-                with patch.object(labels_handler, "label_exists_in_pull_request", side_effect=[True]):
+                with patch.object(
+                    labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock, side_effect=[True]
+                ):
                     result = await labels_handler.wait_for_label(mock_pull_request, "test-label", exists=True)
                     assert result is True
 
@@ -252,7 +301,10 @@ class TestLabelsHandler:
             mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
             with patch("asyncio.sleep", new_callable=AsyncMock):
                 with patch.object(
-                    labels_handler, "label_exists_in_pull_request", side_effect=Exception("Check failed")
+                    labels_handler,
+                    "label_exists_in_pull_request",
+                    new_callable=AsyncMock,
+                    side_effect=Exception("Check failed"),
                 ):
                     with pytest.raises(Exception, match="Check failed"):
                         await labels_handler.wait_for_label(mock_pull_request, "test-label", exists=True)
@@ -265,7 +317,7 @@ class TestLabelsHandler:
 
         with (
             patch.object(labels_handler, "_add_label") as mock_add,
-            patch.object(labels_handler, "wait_for_label", return_value=True),
+            patch.object(labels_handler, "wait_for_label", new_callable=AsyncMock, return_value=True),
         ):
             await labels_handler.label_by_user_comment(
                 pull_request=pull_request, user_requested_label=label_name, remove=False, reviewed_user=user
@@ -281,7 +333,7 @@ class TestLabelsHandler:
 
         with (
             patch.object(labels_handler, "_add_label") as mock_add,
-            patch.object(labels_handler, "wait_for_label", return_value=True),
+            patch.object(labels_handler, "wait_for_label", new_callable=AsyncMock, return_value=True),
         ):
             await labels_handler.label_by_user_comment(
                 pull_request=pull_request, user_requested_label=label_name, remove=False, reviewed_user=user
@@ -298,7 +350,7 @@ class TestLabelsHandler:
 
         with (
             patch.object(labels_handler, "_remove_label") as mock_remove,
-            patch.object(labels_handler, "wait_for_label", return_value=True),
+            patch.object(labels_handler, "wait_for_label", new_callable=AsyncMock, return_value=True),
         ):
             await labels_handler.label_by_user_comment(
                 pull_request=pull_request, user_requested_label=label_name, remove=True, reviewed_user=user
@@ -323,7 +375,8 @@ class TestLabelsHandler:
             patch.object(pull_request, "get_labels", return_value=existing_labels),
             patch.object(labels_handler, "_remove_label") as mock_remove,
             patch.object(labels_handler, "_add_label") as mock_add,
-            patch.object(labels_handler, "wait_for_label", return_value=True),
+            patch.object(labels_handler, "wait_for_label", new_callable=AsyncMock, return_value=True),
+            patch.object(labels_handler, "_ensure_wrapper", new=AsyncMock(return_value=pull_request)),
         ):
             await labels_handler.add_size_label(pull_request=pull_request)
 
@@ -348,7 +401,7 @@ class TestLabelsHandler:
             patch.object(pull_request, "get_labels", return_value=existing_labels),
             patch.object(labels_handler, "_remove_label") as mock_remove,
             patch.object(labels_handler, "_add_label") as mock_add,
-            patch.object(labels_handler, "wait_for_label", return_value=True),
+            patch.object(labels_handler, "wait_for_label", new_callable=AsyncMock, return_value=True),
         ):
             await labels_handler.add_size_label(pull_request=pull_request)
 
@@ -388,7 +441,7 @@ class TestLabelsHandler:
         with (
             patch.object(labels_handler, "_add_label") as mock_add,
             patch.object(labels_handler, "_remove_label") as mock_remove,
-            patch.object(labels_handler, "wait_for_label", return_value=True),
+            patch.object(labels_handler, "wait_for_label", new_callable=AsyncMock, return_value=True),
         ):
             import asyncio
 
@@ -408,16 +461,14 @@ class TestLabelsHandler:
     async def test_add_label_dynamic_label_edit_exception(
         self, labels_handler: LabelsHandler, mock_pull_request: Mock
     ) -> None:
-        """Test _add_label with dynamic label where edit raises exception and label is created."""
-        with patch.object(labels_handler, "label_exists_in_pull_request", return_value=False):
+        """Test _add_label with dynamic label where creation fails."""
+        with patch.object(labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock, return_value=False):
             with patch.object(mock_pull_request, "get_labels", return_value=[]):
-                with patch("asyncio.to_thread") as mock_to_thread:
-                    # get_label raises UnknownObjectException, create_label raises Exception
-                    mock_to_thread.side_effect = [
-                        UnknownObjectException(404, "Not found"),
-                        Exception("Create failed"),
-                        None,
-                    ]
+                with patch.object(labels_handler, "wait_for_label", new_callable=AsyncMock, return_value=True):
+                    # Mock unified_api to raise exception during create
+                    labels_handler.github_webhook.unified_api.get_label_id.return_value = None  # Label doesn't exist
+                    labels_handler.github_webhook.unified_api.create_label.side_effect = Exception("Create failed")
+
                     with pytest.raises(Exception, match="Create failed"):
                         await labels_handler._add_label(mock_pull_request, "dynamic-label")
 
@@ -426,16 +477,18 @@ class TestLabelsHandler:
         self, labels_handler: LabelsHandler, mock_pull_request: Mock
     ) -> None:
         """Test _add_label with dynamic label where edit succeeds."""
-        with patch.object(labels_handler, "label_exists_in_pull_request", return_value=False):
+        with patch.object(labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock, return_value=False):
             with patch.object(mock_pull_request, "get_labels", return_value=[]):
-                with patch.object(labels_handler, "wait_for_label", return_value=True):
-                    with patch("asyncio.to_thread") as mock_to_thread:
-                        # get_label returns label, edit succeeds, add_to_labels succeeds
-                        mock_label = Mock()
-                        mock_to_thread.side_effect = [mock_label, None, None]
+                with patch.object(labels_handler, "wait_for_label", new_callable=AsyncMock, return_value=True):
+                    # Mock _ensure_wrapper to return the same mock PR (prevents new object creation)
+                    with patch.object(labels_handler, "_ensure_wrapper", return_value=mock_pull_request):
+                        # Mock unified_api for successful label update
+                        # First call returns label_id (line 98), second call returns label_id (line 116)
+                        labels_handler.github_webhook.unified_api.get_label_id.side_effect = ["LA_123", "LA_123"]
+                        labels_handler.github_webhook.unified_api.update_label.return_value = {"id": "LA_123"}
+                        labels_handler.github_webhook.unified_api.add_labels.return_value = None
+
                         await labels_handler._add_label(mock_pull_request, "dynamic-label")
-                        # The method calls to_thread for: get_label, edit, add_to_labels, wait_for_label
-                        assert mock_to_thread.call_count >= 3
 
     @pytest.mark.asyncio
     async def test_manage_reviewed_by_label_approve_not_in_approvers(

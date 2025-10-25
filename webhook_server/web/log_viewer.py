@@ -541,7 +541,7 @@ class LogViewerController:
             hook_id: The hook ID for this timeline
 
         Returns:
-            Dictionary with timeline data structure
+            Dictionary with timeline data structure including task correlation fields
         """
         # Sort steps by timestamp
         sorted_steps = sorted(workflow_steps, key=lambda x: x.timestamp)
@@ -564,6 +564,9 @@ class LogViewerController:
                 "repository": step.repository,
                 "event_type": step.event_type,
                 "pr_number": step.pr_number,
+                "task_id": step.task_id,
+                "task_type": step.task_type,
+                "task_status": step.task_status,
             })
 
         # Calculate total duration
@@ -606,17 +609,9 @@ class LogViewerController:
         log_files.extend(log_dir.glob("*.log"))
         log_files.extend(log_dir.glob("*.log.*"))
 
-        # Sort log files to process in correct order (current log first, then rotated by number)
-        def sort_key(f: Path) -> tuple:
-            name_parts = f.name.split(".")
-            if len(name_parts) > 2 and name_parts[-1].isdigit():
-                # Rotated file: extract rotation number
-                return (1, int(name_parts[-1]))
-            else:
-                # Current log file
-                return (0, 0)
-
-        log_files.sort(key=sort_key)
+        # Sort log files by modification time (newest first) to ensure latest logs are processed first
+        # This handles log rotation correctly - after rotation, .log.1 has the most recent entries
+        log_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
         log_files = log_files[:max_files]
 
         self.logger.info(f"Streaming from {len(log_files)} most recent files: {[f.name for f in log_files]}")
@@ -629,39 +624,29 @@ class LogViewerController:
                 break
 
             try:
+                # Parse entire file and sort by timestamp (newest first)
+                # Files are typically reasonable size individually, so load completely
                 file_entries: list[LogEntry] = []
 
-                # Parse file in one go (files are typically reasonable size individually)
                 with open(log_file, "r", encoding="utf-8") as f:
-                    for line_num, line in enumerate(f, 1):
-                        if total_yielded >= max_entries:
-                            break
-
+                    for line in f:
                         entry = self.log_parser.parse_log_entry(line)
                         if entry:
                             file_entries.append(entry)
 
-                        # Process in chunks to avoid memory buildup for large files
-                        if len(file_entries) >= chunk_size:
-                            # Sort chunk by timestamp (newest first) and yield
-                            file_entries.sort(key=lambda x: x.timestamp, reverse=True)
-                            for entry in file_entries:
-                                yield entry
-                                total_yielded += 1
-                                if total_yielded >= max_entries:
-                                    break
-                            file_entries.clear()  # Free memory
+                # Sort all entries from this file by timestamp (newest first)
+                file_entries.sort(key=lambda x: x.timestamp, reverse=True)
 
-                # Yield remaining entries from this file
-                if file_entries and total_yielded < max_entries:
-                    file_entries.sort(key=lambda x: x.timestamp, reverse=True)
-                    for entry in file_entries:
-                        if total_yielded >= max_entries:
-                            break
-                        yield entry
-                        total_yielded += 1
+                # Yield entries until we reach max_entries
+                for entry in file_entries:
+                    if total_yielded >= max_entries:
+                        break
+                    yield entry
+                    total_yielded += 1
 
-                self.logger.debug(f"Streamed entries from {log_file.name}, total so far: {total_yielded}")
+                self.logger.debug(
+                    f"Streamed {len(file_entries)} entries from {log_file.name}, total so far: {total_yielded}"
+                )
 
             except Exception as e:
                 self.logger.warning(f"Error streaming log file {log_file}: {e}")

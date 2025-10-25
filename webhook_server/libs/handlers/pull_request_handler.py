@@ -3,13 +3,20 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any, Coroutine
 
-from github.PullRequest import PullRequest
+from github.GithubException import GithubException
 from github.Repository import Repository
 
-from webhook_server.libs.check_run_handler import CheckRunHandler
-from webhook_server.libs.labels_handler import LabelsHandler
-from webhook_server.libs.owners_files_handler import OwnersFileHandler
-from webhook_server.libs.runner_handler import RunnerHandler
+from webhook_server.libs.graphql.graphql_client import (
+    GraphQLAuthenticationError,
+    GraphQLError,
+    GraphQLRateLimitError,
+)
+from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
+from webhook_server.libs.handlers.labels_handler import LabelsHandler
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.handlers.runner_handler import RunnerHandler
+from webhook_server.utils.helpers import format_task_fields
 from webhook_server.utils.constants import (
     APPROVED_BY_LABEL_PREFIX,
     AUTOMERGE_LABEL_STR,
@@ -58,9 +65,24 @@ class PullRequestHandler:
             github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
         )
 
-    async def process_pull_request_webhook_data(self, pull_request: PullRequest) -> None:
+    @property
+    def _owner_and_repo(self) -> tuple[str, str]:
+        """Split repository full name into owner and repo name.
+
+        Returns:
+            Tuple of (owner, repo_name)
+        """
+        owner, repo_name = self.repository.full_name.split("/")
+        return owner, repo_name
+
+    async def process_pull_request_webhook_data(self, pull_request: PullRequestWrapper) -> None:
+        # Initialize OwnersFileHandler with current pull request before any processing
+        await self.owners_file_handler.initialize(pull_request)
+
         hook_action: str = self.hook_data["action"]
-        self.logger.step(f"{self.log_prefix} Starting pull request processing: action={hook_action}")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'started')} Starting pull request processing: action={hook_action}",
+        )
         self.logger.info(f"{self.log_prefix} hook_action is: {hook_action}")
         self.logger.debug(f"{self.log_prefix} pull_request: {pull_request.title} ({pull_request.number})")
 
@@ -73,27 +95,46 @@ class PullRequestHandler:
                 await self.runner_handler.run_conventional_title_check(pull_request=pull_request)
 
         if hook_action in ("opened", "reopened", "ready_for_review"):
-            self.logger.step(f"{self.log_prefix} Processing PR {hook_action} event: initializing new pull request")  # type: ignore
-            tasks: list[Coroutine[Any, Any, Any]] = []
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} Processing PR {hook_action} event: initializing new pull request",
+            )
 
             if hook_action in ("opened", "ready_for_review"):
+                self.logger.info(f"{self.log_prefix} WELCOME: Triggering welcome message for action={hook_action}")
                 welcome_msg = self._prepare_welcome_comment()
-                tasks.append(asyncio.to_thread(pull_request.create_issue_comment, body=welcome_msg))
+                await self.github_webhook.add_pr_comment(pull_request, welcome_msg)
+            else:
+                self.logger.debug(f"{self.log_prefix} WELCOME: Skipping welcome message for action={hook_action}")
+
+            tasks: list[Coroutine[Any, Any, Any]] = []
+            task_names: list[str] = []
 
             tasks.append(self.create_issue_for_new_pull_request(pull_request=pull_request))
+            task_names.append("create_issue")
             tasks.append(self.set_wip_label_based_on_title(pull_request=pull_request))
+            task_names.append("set_wip_label")
             tasks.append(self.process_opened_or_synchronize_pull_request(pull_request=pull_request))
+            task_names.append("process_pr")
 
+            self.logger.info(f"{self.log_prefix} Executing {len(tasks)} parallel tasks: {task_names}")
             results = await asyncio.gather(*tasks, return_exceptions=True)
-            for result in results:
+            for idx, result in enumerate(results):
+                task_name = task_names[idx] if idx < len(task_names) else f"task_{idx}"
                 if isinstance(result, Exception):
-                    self.logger.error(f"{self.log_prefix} Async task failed: {result}")
+                    self.logger.error(
+                        f"{self.log_prefix} Async task '{task_name}' FAILED",
+                        exc_info=(type(result), result, result.__traceback__),
+                    )
+                else:
+                    self.logger.debug(f"{self.log_prefix} Async task '{task_name}' completed successfully")
 
             # Set auto merge only after all initialization of a new PR is done.
             await self.set_pull_request_automerge(pull_request=pull_request)
 
         if hook_action == "synchronize":
-            self.logger.step(f"{self.log_prefix} Processing PR synchronize event: handling new commits")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} Processing PR synchronize event: handling new commits",
+            )
             sync_tasks: list[Coroutine[Any, Any, Any]] = []
 
             sync_tasks.append(self.process_opened_or_synchronize_pull_request(pull_request=pull_request))
@@ -103,17 +144,24 @@ class PullRequestHandler:
 
             for result in results:
                 if isinstance(result, Exception):
-                    self.logger.error(f"{self.log_prefix} Async task failed: {result}")
+                    self.logger.error(
+                        f"{self.log_prefix} Async task failed",
+                        exc_info=(type(result), result, result.__traceback__),
+                    )
 
         if hook_action == "closed":
-            self.logger.step(f"{self.log_prefix} Processing PR closed event: cleaning up resources")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} Processing PR closed event: cleaning up resources",
+            )
             await self.close_issue_for_merged_or_closed_pr(pull_request=pull_request, hook_action=hook_action)
             await self.delete_remote_tag_for_merged_or_closed_pr(pull_request=pull_request)
             if is_merged := pull_request_data.get("merged", False):
-                self.logger.step(f"{self.log_prefix} PR was merged: processing post-merge tasks")  # type: ignore
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} PR was merged: processing post-merge tasks",
+                )
                 self.logger.info(f"{self.log_prefix} PR is merged")
 
-                for _label in pull_request.labels:
+                for _label in pull_request.get_labels():
                     _label_name = _label.name
                     if _label_name.startswith(CHERRY_PICK_LABEL_PREFIX):
                         await self.runner_handler.cherry_pick(
@@ -136,13 +184,16 @@ class PullRequestHandler:
             labeled = self.hook_data["label"]["name"]
             labeled_lower = labeled.lower()
 
-            self.logger.step(f"{self.log_prefix} Processing label {hook_action} event: {labeled}")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} Processing label {hook_action} event: {labeled}",
+            )
 
             if labeled_lower == CAN_BE_MERGED_STR:
                 return
 
             self.logger.info(f"{self.log_prefix} PR {pull_request.number} {hook_action} with {labeled}")
-            self.logger.debug(f"PR labels are {pull_request.labels}")
+            label_names = [label.name for label in pull_request.get_labels()]
+            self.logger.debug(f"PR labels are {label_names}")
 
             _split_label = labeled.split(LABELS_SEPARATOR, 1)
 
@@ -179,7 +230,7 @@ class PullRequestHandler:
             if _check_for_merge:
                 await self.check_if_can_be_merged(pull_request=pull_request)
 
-    async def set_wip_label_based_on_title(self, pull_request: PullRequest) -> None:
+    async def set_wip_label_based_on_title(self, pull_request: PullRequestWrapper) -> None:
         if pull_request.title.lower().startswith(f"{WIP_STR}:"):
             self.logger.debug(f"{self.log_prefix} Found {WIP_STR} in {pull_request.title}; adding {WIP_STR} label.")
             await self.labels_handler._add_label(pull_request=pull_request, label=WIP_STR)
@@ -344,11 +395,17 @@ For more information, please refer to the project documentation or contact the m
         self.logger.info(f"{self.log_prefix} Sleep for {time_sleep} seconds before getting all opened PRs")
         await asyncio.sleep(time_sleep)
 
-        for pull_request in self.repository.get_pulls(state="open"):
+        owner, repo_name = self._owner_and_repo
+        # Use unified_api to avoid blocking the event loop (asyncio.to_thread in unified_api.py)
+        open_prs = await self.github_webhook.unified_api.get_open_pull_requests(owner, repo_name)
+        for pull_request in open_prs:
             self.logger.info(f"{self.log_prefix} check label pull request after merge")
-            await self.label_pull_request_by_merge_state(pull_request=pull_request)
+            # Fetch PullRequestWrapper for GraphQL compatibility
+            pr_data = await self.github_webhook.unified_api.get_pull_request(owner, repo_name, pull_request.number)
+            pr_wrapper = PullRequestWrapper(pr_data, owner, repo_name)
+            await self.label_pull_request_by_merge_state(pull_request=pr_wrapper)
 
-    async def delete_remote_tag_for_merged_or_closed_pr(self, pull_request: PullRequest) -> None:
+    async def delete_remote_tag_for_merged_or_closed_pr(self, pull_request: PullRequestWrapper) -> None:
         self.logger.debug(f"{self.log_prefix} Checking if need to delete remote tag for {pull_request.number}")
         if not self.github_webhook.build_and_push_container:
             self.logger.info(f"{self.log_prefix} repository do not have container configured")
@@ -388,8 +445,10 @@ For more information, please refer to the project documentation or contact the m
 
                     rc, _, _ = await self.runner_handler.run_podman_command(command=tag_del_cmd)
                     if rc:
-                        await asyncio.to_thread(
-                            pull_request.create_issue_comment, f"Successfully removed PR tag: {repository_full_tag}."
+                        # Use GraphQL add_comment mutation
+                        await self.github_webhook.unified_api.add_comment(
+                            pull_request.id,
+                            f"Successfully removed PR tag: {repository_full_tag}.",
                         )
                     else:
                         self.logger.error(
@@ -404,29 +463,35 @@ For more information, please refer to the project documentation or contact the m
                 await self.runner_handler.run_podman_command(command="regctl registry logout")
 
         else:
-            await asyncio.to_thread(
-                pull_request.create_issue_comment,
+            # Use GraphQL add_comment mutation
+            await self.github_webhook.unified_api.add_comment(
+                pull_request.id,
                 f"Failed to delete tag: {repository_full_tag}. Please delete it manually.",
             )
             self.logger.error(f"{self.log_prefix} Failed to delete tag: {repository_full_tag}. OUT:{out}. ERR:{err}")
 
-    async def close_issue_for_merged_or_closed_pr(self, pull_request: PullRequest, hook_action: str) -> None:
-        for issue in await asyncio.to_thread(self.repository.get_issues):
+    async def close_issue_for_merged_or_closed_pr(self, pull_request: PullRequestWrapper, hook_action: str) -> None:
+        owner, repo_name = self._owner_and_repo
+        for issue in await self.github_webhook.unified_api.get_issues(owner, repo_name):
             if issue.body == self._generate_issue_body(pull_request=pull_request):
                 self.logger.info(f"{self.log_prefix} Closing issue {issue.title} for PR: {pull_request.title}")
-                await asyncio.to_thread(
-                    issue.create_comment,
+                await self.github_webhook.unified_api.add_comment(
+                    issue.node_id,
                     f"{self.log_prefix} Closing issue for PR: {pull_request.title}.\nPR was {hook_action}.",
                 )
-                await asyncio.to_thread(issue.edit, state="closed")
+                await self.github_webhook.unified_api.edit_issue(issue, state="closed")
 
                 break
 
-    async def process_opened_or_synchronize_pull_request(self, pull_request: PullRequest) -> None:
-        self.logger.step(f"{self.log_prefix} Starting PR processing workflow")  # type: ignore
+    async def process_opened_or_synchronize_pull_request(self, pull_request: PullRequestWrapper) -> None:
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'started')} Starting PR processing workflow",
+        )
 
         # Stage 1: Initial setup and check queue tasks
-        self.logger.step(f"{self.log_prefix} Stage: Initial setup and check queuing")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} Stage: Initial setup and check queuing",
+        )
         setup_tasks: list[Coroutine[Any, Any, Any]] = []
 
         setup_tasks.append(self.owners_file_handler.assign_reviewers(pull_request=pull_request))
@@ -444,22 +509,28 @@ For more information, please refer to the project documentation or contact the m
         setup_tasks.append(self.check_run_handler.set_container_build_queued())
         setup_tasks.append(self._process_verified_for_update_or_new_pull_request(pull_request=pull_request))
         setup_tasks.append(self.labels_handler.add_size_label(pull_request=pull_request))
-        setup_tasks.append(self.add_pull_request_owner_as_assingee(pull_request=pull_request))
+        setup_tasks.append(self.add_pull_request_owner_as_assignee(pull_request=pull_request))
 
         if self.github_webhook.conventional_title:
             setup_tasks.append(self.check_run_handler.set_conventional_title_queued())
 
-        self.logger.step(f"{self.log_prefix} Executing setup tasks")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} Executing setup tasks"
+        )
         setup_results = await asyncio.gather(*setup_tasks, return_exceptions=True)
 
         for result in setup_results:
             if isinstance(result, Exception):
-                self.logger.error(f"{self.log_prefix} Setup task failed: {result}")
+                self.logger.exception(
+                    f"{self.log_prefix} Setup task failed", exc_info=(type(result), result, result.__traceback__)
+                )
 
-        self.logger.step(f"{self.log_prefix} Setup tasks completed")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'completed')} Setup tasks completed"
+        )
 
         # Stage 2: CI/CD execution tasks
-        self.logger.step(f"{self.log_prefix} Stage: CI/CD execution")  # type: ignore
+        self.logger.step(f"{self.log_prefix} Stage: CI/CD execution")  # type: ignore[attr-defined]
         ci_tasks: list[Coroutine[Any, Any, Any]] = []
 
         ci_tasks.append(self.runner_handler.run_tox(pull_request=pull_request))
@@ -470,16 +541,18 @@ For more information, please refer to the project documentation or contact the m
         if self.github_webhook.conventional_title:
             ci_tasks.append(self.runner_handler.run_conventional_title_check(pull_request=pull_request))
 
-        self.logger.step(f"{self.log_prefix} Executing CI/CD tasks")  # type: ignore
+        self.logger.step(f"{self.log_prefix} Executing CI/CD tasks")  # type: ignore[attr-defined]
         ci_results = await asyncio.gather(*ci_tasks, return_exceptions=True)
 
         for result in ci_results:
             if isinstance(result, Exception):
                 self.logger.error(f"{self.log_prefix} CI/CD task failed: {result}")
 
-        self.logger.step(f"{self.log_prefix} PR processing workflow completed")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'completed')} PR processing workflow completed",
+        )
 
-    async def create_issue_for_new_pull_request(self, pull_request: PullRequest) -> None:
+    async def create_issue_for_new_pull_request(self, pull_request: PullRequestWrapper) -> None:
         if not self.github_webhook.create_issue_for_new_pr:
             self.logger.info(f"{self.log_prefix} Issue creation for new PRs is disabled for this repository")
             return
@@ -491,21 +564,52 @@ For more information, please refer to the project documentation or contact the m
             )
             return
 
+        owner, repo_name = self._owner_and_repo
+        issue_title = self._generate_issue_title(pull_request=pull_request)
+
+        # Check if issue already exists
+        self.logger.debug(f"{self.log_prefix} Checking if issue already exists for PR #{pull_request.number}")
+        try:
+            existing_issues = await self.github_webhook.unified_api.get_issues(owner, repo_name)
+
+            for issue in existing_issues:
+                if issue.title == issue_title:
+                    self.logger.info(
+                        f"{self.log_prefix} Issue already exists for PR #{pull_request.number}: {issue.html_url}"
+                    )
+                    return
+        except (GithubException, GraphQLError):
+            self.logger.exception(
+                f"{self.log_prefix} GitHub API error checking existing issues, proceeding with creation"
+            )
+        except Exception:
+            self.logger.exception(
+                f"{self.log_prefix} Unexpected error checking existing issues, proceeding with creation"
+            )
+
+        # Issue doesn't exist, create it
         self.logger.info(f"{self.log_prefix} Creating issue for new PR: {pull_request.title}")
-        await asyncio.to_thread(
-            self.repository.create_issue,
-            title=self._generate_issue_title(pull_request=pull_request),
+
+        # Get repository ID and assignee ID for GraphQL mutation
+        repo_data = await self.github_webhook.unified_api.get_repository(owner, repo_name)
+        repository_id = repo_data["id"]
+
+        assignee_id = await self.github_webhook.unified_api.get_user_id(pull_request.user.login)
+
+        await self.github_webhook.unified_api.create_issue(
+            repository_id=repository_id,
+            title=issue_title,
             body=self._generate_issue_body(pull_request=pull_request),
-            assignee=pull_request.user.login,
+            assignee_ids=[assignee_id],
         )
 
-    def _generate_issue_title(self, pull_request: PullRequest) -> str:
+    def _generate_issue_title(self, pull_request: PullRequestWrapper) -> str:
         return f"{pull_request.title} - {pull_request.number}"
 
-    def _generate_issue_body(self, pull_request: PullRequest) -> str:
+    def _generate_issue_body(self, pull_request: PullRequestWrapper) -> str:
         return f"[Auto generated]\nNumber: [#{pull_request.number}]"
 
-    async def set_pull_request_automerge(self, pull_request: PullRequest) -> None:
+    async def set_pull_request_automerge(self, pull_request: PullRequestWrapper) -> None:
         set_auto_merge_base_branch = pull_request.base.ref in self.github_webhook.set_auto_merge_prs
         self.logger.debug(f"{self.log_prefix} set auto merge for base branch is {set_auto_merge_base_branch}")
         parent_committer_in_auto_merge_users = (
@@ -528,16 +632,17 @@ For more information, please refer to the project documentation or contact the m
                         f"is part of auto merge enabled rules"
                     )
 
-                    await asyncio.to_thread(pull_request.enable_automerge, merge_method="SQUASH")
+                    await self.github_webhook.enable_pr_automerge(pull_request, "SQUASH")
                 else:
                     self.logger.debug(f"{self.log_prefix} is already set to auto merge")
 
-            except Exception as exp:
-                self.logger.error(f"{self.log_prefix} Exception while setting auto merge: {exp}")
+            except (GraphQLError, GithubException, GraphQLAuthenticationError, GraphQLRateLimitError):
+                # Catch only API-layer exceptions; re-raise critical errors
+                self.logger.exception(f"{self.log_prefix} Exception while setting auto merge")
 
-    async def remove_labels_when_pull_request_sync(self, pull_request: PullRequest) -> None:
+    async def remove_labels_when_pull_request_sync(self, pull_request: PullRequestWrapper) -> None:
         tasks: list[Coroutine[Any, Any, Any]] = []
-        for _label in pull_request.labels:
+        for _label in pull_request.get_labels():
             _label_name = _label.name
             if (
                 _label_name.startswith(APPROVED_BY_LABEL_PREFIX)
@@ -558,7 +663,7 @@ For more information, please refer to the project documentation or contact the m
             if isinstance(result, Exception):
                 self.logger.error(f"{self.log_prefix} Async task failed: {result}")
 
-    async def label_pull_request_by_merge_state(self, pull_request: PullRequest) -> None:
+    async def label_pull_request_by_merge_state(self, pull_request: PullRequestWrapper) -> None:
         merge_state = pull_request.mergeable_state
         self.logger.debug(f"{self.log_prefix} Mergeable state is {merge_state}")
         if merge_state == "unknown":
@@ -574,12 +679,12 @@ For more information, please refer to the project documentation or contact the m
         else:
             await self.labels_handler._remove_label(pull_request=pull_request, label=HAS_CONFLICTS_LABEL_STR)
 
-    async def _process_verified_for_update_or_new_pull_request(self, pull_request: PullRequest) -> None:
+    async def _process_verified_for_update_or_new_pull_request(self, pull_request: PullRequestWrapper) -> None:
         if not self.github_webhook.verified_job:
             return
 
         # Check if this is a cherry-picked PR
-        labels = await asyncio.to_thread(lambda: list(pull_request.labels))
+        labels = pull_request.get_labels()
         is_cherry_picked = any(label.name == CHERRY_PICKED_LABEL_PREFIX for label in labels)
 
         # If it's a cherry-picked PR and auto-verify is disabled for cherry-picks, skip auto-verification
@@ -604,18 +709,24 @@ For more information, please refer to the project documentation or contact the m
             await self.labels_handler._remove_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
             await self.check_run_handler.set_verify_check_queued()
 
-    async def add_pull_request_owner_as_assingee(self, pull_request: PullRequest) -> None:
+    async def add_pull_request_owner_as_assignee(self, pull_request: PullRequestWrapper) -> None:
+        # Use unified_api for add_assignees
+        owner, repo_name = self._owner_and_repo
         try:
             self.logger.info(f"{self.log_prefix} Adding PR owner as assignee")
-            pull_request.add_to_assignees(pull_request.user.login)
-        except Exception as exp:
-            self.logger.debug(f"{self.log_prefix} Exception while adding PR owner as assignee: {exp}")
+            await self.github_webhook.unified_api.add_assignees_by_login(
+                owner, repo_name, pull_request.number, [pull_request.user.login]
+            )
+        except Exception:
+            self.logger.exception(f"{self.log_prefix} Exception while adding PR owner as assignee")
 
             if self.owners_file_handler.root_approvers:
                 self.logger.debug(f"{self.log_prefix} Falling back to first approver as assignee")
-                pull_request.add_to_assignees(self.owners_file_handler.root_approvers[0])
+                await self.github_webhook.unified_api.add_assignees_by_login(
+                    owner, repo_name, pull_request.number, [self.owners_file_handler.root_approvers[0]]
+                )
 
-    async def check_if_can_be_merged(self, pull_request: PullRequest) -> None:
+    async def check_if_can_be_merged(self, pull_request: PullRequestWrapper) -> None:
         """
         Check if PR can be merged and set the job for it
 
@@ -627,7 +738,9 @@ For more information, please refer to the project documentation or contact the m
             PR status is not 'dirty'.
             PR has no changed requests from approvers.
         """
-        self.logger.step(f"{self.log_prefix} Starting merge eligibility check")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'started')} Starting merge eligibility check",
+        )
         if self.skip_if_pull_request_already_merged(pull_request=pull_request):
             self.logger.debug(f"{self.log_prefix} Pull request already merged")
             return
@@ -642,8 +755,10 @@ For more information, please refer to the project documentation or contact the m
         try:
             self.logger.info(f"{self.log_prefix} Check if {CAN_BE_MERGED_STR}.")
             await self.check_run_handler.set_merge_check_in_progress()
-            _last_commit_check_runs = await asyncio.to_thread(self.github_webhook.last_commit.get_check_runs)
-            last_commit_check_runs = list(_last_commit_check_runs)
+            owner, repo_name = self._owner_and_repo
+            last_commit_check_runs = await self.github_webhook.unified_api.get_commit_check_runs(
+                self.github_webhook.last_commit, owner, repo_name
+            )
             _labels = await self.labels_handler.pull_request_labels_names(pull_request=pull_request)
             self.logger.debug(f"{self.log_prefix} check if can be merged. PR labels are: {_labels}")
 
@@ -699,7 +814,7 @@ For more information, please refer to the project documentation or contact the m
             await self.check_run_handler.set_merge_check_failure(output=output)
 
         except Exception as ex:
-            self.logger.error(
+            self.logger.exception(
                 f"{self.log_prefix} Failed to check if can be merged, set check run to {FAILURE_STR} {ex}"
             )
             _err = "Failed to check if can be merged, check logs"
@@ -806,8 +921,8 @@ For more information, please refer to the project documentation or contact the m
 
         return failure_output
 
-    def skip_if_pull_request_already_merged(self, pull_request: PullRequest) -> bool:
-        if pull_request and pull_request.is_merged():
+    def skip_if_pull_request_already_merged(self, pull_request: PullRequestWrapper) -> bool:
+        if pull_request and pull_request.merged:
             self.logger.info(f"{self.log_prefix}: PR is merged, not processing")
             return True
 

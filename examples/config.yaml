@@ -31,6 +31,8 @@ auto-verify-cherry-picked-prs: true  # Default: true - automatically verify cher
 
 create-issue-for-new-pr: true  # Global default: create tracking issues for new PRs
 
+max-owners-files: 1000  # Maximum number of OWNERS files to process in a repository (default: 1000)
+
 # Global PR size label configuration (optional)
 # Define custom categories based on total lines changed (additions + deletions)
 # threshold: positive integer representing minimum lines changed for this category

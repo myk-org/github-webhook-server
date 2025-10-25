@@ -1,10 +1,11 @@
 import os
+from unittest.mock import AsyncMock
 
 import pytest
 import yaml
 from starlette.datastructures import Headers
 
-from webhook_server.libs.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 
 os.environ["WEBHOOK_SERVER_DATA_DIR"] = "webhook_server/tests/manifests"
 os.environ["ENABLE_LOG_SERVER"] = "true"
@@ -92,24 +93,53 @@ class Label:
         self.name = name
 
 
-class PullRequest:
-    def __init__(self, additions: int | None = None, deletions: int | None = None):
-        self.additions = additions
-        self.deletions = deletions
-
-    class base:
-        ref = "refs/heads/main"
-
-    def create_issue_comment(self, *args, **kwargs): ...
-
-    def create_review_request(self, *args, **kwargs): ...
-
-    def get_files(self): ...
-
-
 @pytest.fixture(scope="function")
 def pull_request():
-    return PullRequest()
+    """Return PullRequestWrapper for GraphQL migration."""
+    from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+
+    pr_data = {
+        "id": "PR_kgDOTestId",
+        "number": 123,
+        "title": "Test PR",
+        "body": "Test body",
+        "state": "OPEN",
+        "merged": False,
+        "mergeable": "MERGEABLE",
+        "draft": False,
+        "additions": 100,
+        "deletions": 50,
+        "baseRef": {"name": "main", "target": {"oid": "abc123"}},
+        "headRef": {"name": "feature", "target": {"oid": "def456"}},
+        "author": {"login": "testuser"},
+        "createdAt": "2025-01-01T00:00:00Z",
+        "updatedAt": "2025-01-01T01:00:00Z",
+        "permalink": "https://github.com/test/repo/pull/123",
+        "commits": {"nodes": []},
+        "labels": {"nodes": []},
+    }
+    return PullRequestWrapper(pr_data)
+
+
+def create_mock_pull_request(pr_id: str = "PR_kgDOTestId", pr_number: int = 123):
+    """
+    Shared helper to create Mock PullRequest objects with id and number.
+
+    This helper DRYs up multiple tests that need mock PRs with consistent structure.
+
+    Args:
+        pr_id: GraphQL node ID for the PR (default: "PR_kgDOTestId")
+        pr_number: PR number (default: 123)
+
+    Returns:
+        Mock object with id and number attributes
+    """
+    from unittest.mock import Mock
+
+    mock_pr = Mock()
+    mock_pr.id = pr_id
+    mock_pr.number = pr_number
+    return mock_pr
 
 
 @pytest.fixture(scope="function")
@@ -133,6 +163,31 @@ def github_webhook(mocker, request):
         headers=Headers({"X-GitHub-Event": "test-event"}),
         logger=test_logger,
     )
+    process_github_webhook.repository.full_name = "test-owner/test-repo"
+
+    # Mock unified_api for all tests
+    process_github_webhook.unified_api = AsyncMock()
+    process_github_webhook.unified_api.get_pull_request_files = AsyncMock(return_value=[])
+    process_github_webhook.unified_api.create_issue_comment = AsyncMock()
+    process_github_webhook.unified_api.get_issue_comments = AsyncMock(return_value=[])
+    process_github_webhook.unified_api.get_issue_comment = AsyncMock()
+    process_github_webhook.unified_api.create_reaction = AsyncMock()
+    process_github_webhook.unified_api.get_contributors = AsyncMock(return_value=[])
+    process_github_webhook.unified_api.get_collaborators = AsyncMock(return_value=[])
+    process_github_webhook.unified_api.get_branch = AsyncMock()
+    process_github_webhook.unified_api.get_branch_protection = AsyncMock()
+    process_github_webhook.unified_api.get_issues = AsyncMock(return_value=[])
+    process_github_webhook.unified_api.create_issue = AsyncMock()
+    process_github_webhook.unified_api.edit_issue = AsyncMock()
+    process_github_webhook.unified_api.add_comment = AsyncMock()
+    process_github_webhook.unified_api.get_contents = AsyncMock()
+    process_github_webhook.unified_api.get_git_tree = AsyncMock()
+    process_github_webhook.unified_api.get_commit_check_runs = AsyncMock(return_value=[])
+    process_github_webhook.unified_api.create_check_run = AsyncMock()
+    process_github_webhook.unified_api.merge_pull_request = AsyncMock()
+    process_github_webhook.unified_api.get_pull_request = AsyncMock(return_value={"merged": False, "id": "PR_node_id"})
+    process_github_webhook.unified_api.add_assignees_by_login = AsyncMock()
+
     owners_file_handler = OwnersFileHandler(github_webhook=process_github_webhook)
 
     return process_github_webhook, owners_file_handler

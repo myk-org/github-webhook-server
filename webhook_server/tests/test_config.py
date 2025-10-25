@@ -153,8 +153,9 @@ class TestConfig:
         config.config_path = config_file
         config.logger = Mock()
 
-        root_data = config.root_data
-        assert root_data == {}
+        # Corrupted YAML should raise exception, not return empty dict
+        with pytest.raises(yaml.YAMLError):
+            _ = config.root_data
 
     def test_repository_data_with_repository(self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test repository_data property when repository is specified."""
@@ -247,6 +248,27 @@ class TestConfig:
         result = config.repository_local_data(mock_github_api, "org/test-repo")
 
         assert result == {}
+
+    @patch("webhook_server.utils.helpers.get_github_repo_api")
+    def test_repository_local_data_invalid_yaml(
+        self, mock_get_repo_api: Mock, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test repository_local_data method with invalid YAML syntax."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        # Mock repository with invalid YAML content
+        mock_repo = Mock()
+        mock_config_file = Mock()
+        mock_config_file.decoded_content = b"invalid: yaml: content: ["
+        mock_repo.get_contents.return_value = mock_config_file
+        mock_get_repo_api.return_value = mock_repo
+
+        config = Config(repository="test-repo")
+        mock_github_api = Mock()
+
+        # Invalid YAML should raise YAMLError, not return empty dict
+        with pytest.raises(yaml.YAMLError):
+            config.repository_local_data(mock_github_api, "org/test-repo")
 
     @patch("webhook_server.utils.helpers.get_github_repo_api")
     def test_repository_local_data_exception_handling(

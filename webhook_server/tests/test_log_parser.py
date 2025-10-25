@@ -520,6 +520,9 @@ class TestLogEntry:
             "repository": "org/repo",
             "pr_number": None,
             "github_user": None,
+            "task_id": None,
+            "task_type": None,
+            "task_status": None,
         }
 
         assert result == expected
@@ -553,11 +556,197 @@ class TestLogEntry:
         assert entry1 != entry3
 
 
+class TestTaskFieldParsing:
+    """Test cases for task correlation field parsing."""
+
+    def test_parse_log_with_all_task_fields(self) -> None:
+        """Test parsing log line with all task correlation fields."""
+        log_line = (
+            "2025-07-31T10:30:00.123000 GithubWebhook INFO "
+            "test-repo [pull_request][abc123][test-user]: "
+            "[task_id=check_tox] [task_type=ci_check] [task_status=started] Running tox checks"
+        )
+
+        parser = LogParser()
+        entry = parser.parse_log_entry(log_line)
+
+        assert entry is not None
+        assert entry.task_id == "check_tox"
+        assert entry.task_type == "ci_check"
+        assert entry.task_status == "started"
+        assert entry.hook_id == "abc123"
+        assert entry.repository == "test-repo"
+        assert "[task_id=check_tox] [task_type=ci_check] [task_status=started] Running tox checks" in entry.message
+
+    def test_parse_log_with_partial_task_fields_task_id_only(self) -> None:
+        """Test parsing log line with only task_id field."""
+        log_line = (
+            "2025-07-31T10:30:00.123000 GithubWebhook INFO "
+            "test-repo [pull_request][abc123][test-user]: "
+            "[task_id=build_container] Building container image"
+        )
+
+        parser = LogParser()
+        entry = parser.parse_log_entry(log_line)
+
+        assert entry is not None
+        assert entry.task_id == "build_container"
+        assert entry.task_type is None
+        assert entry.task_status is None
+
+    def test_parse_log_with_partial_task_fields_task_type_only(self) -> None:
+        """Test parsing log line with only task_type field."""
+        log_line = (
+            "2025-07-31T10:30:00.123000 GithubWebhook INFO "
+            "test-repo [pull_request][abc123][test-user]: "
+            "[task_type=deployment] Deploying application"
+        )
+
+        parser = LogParser()
+        entry = parser.parse_log_entry(log_line)
+
+        assert entry is not None
+        assert entry.task_id is None
+        assert entry.task_type == "deployment"
+        assert entry.task_status is None
+
+    def test_parse_log_with_partial_task_fields_task_status_only(self) -> None:
+        """Test parsing log line with only task_status field."""
+        log_line = (
+            "2025-07-31T10:30:00.123000 GithubWebhook INFO "
+            "test-repo [pull_request][abc123][test-user]: "
+            "[task_status=completed] Task finished successfully"
+        )
+
+        parser = LogParser()
+        entry = parser.parse_log_entry(log_line)
+
+        assert entry is not None
+        assert entry.task_id is None
+        assert entry.task_type is None
+        assert entry.task_status == "completed"
+
+    def test_parse_log_with_task_id_and_task_type(self) -> None:
+        """Test parsing log line with task_id and task_type but no task_status."""
+        log_line = (
+            "2025-07-31T10:30:00.123000 GithubWebhook INFO "
+            "test-repo [pull_request][abc123][test-user]: "
+            "[task_id=run_tests] [task_type=testing] Running unit tests"
+        )
+
+        parser = LogParser()
+        entry = parser.parse_log_entry(log_line)
+
+        assert entry is not None
+        assert entry.task_id == "run_tests"
+        assert entry.task_type == "testing"
+        assert entry.task_status is None
+
+    def test_parse_log_backward_compatibility_no_task_fields(self) -> None:
+        """Test parsing old log format without task fields maintains backward compatibility."""
+        log_line = (
+            "2025-07-31T10:30:00.123000 GithubWebhook INFO "
+            "test-repo [pull_request][abc123][test-user]: Processing webhook"
+        )
+
+        parser = LogParser()
+        entry = parser.parse_log_entry(log_line)
+
+        assert entry is not None
+        assert entry.task_id is None
+        assert entry.task_type is None
+        assert entry.task_status is None
+        # Verify other fields still parse correctly
+        assert entry.hook_id == "abc123"
+        assert entry.event_type == "pull_request"
+        assert entry.github_user == "test-user"
+        assert entry.repository == "test-repo"
+        assert entry.message == "Processing webhook"
+
+    def test_parse_log_without_hook_context_no_task_fields(self) -> None:
+        """Test parsing log without GitHub context and without task fields."""
+        log_line = "2025-07-31T12:45:00.789000 helpers WARNING API rate limit remaining: 1500"
+
+        parser = LogParser()
+        entry = parser.parse_log_entry(log_line)
+
+        assert entry is not None
+        assert entry.task_id is None
+        assert entry.task_type is None
+        assert entry.task_status is None
+        assert entry.hook_id is None
+        assert entry.event_type is None
+
+    def test_parse_log_with_task_fields_and_pr_number(self) -> None:
+        """Test parsing log with task fields, PR number, and all GitHub context."""
+        log_line = (
+            "2025-07-31T10:30:00.123000 GithubWebhook INFO "
+            "test-repo [pull_request][abc123][test-user][PR 456]: "
+            "[task_id=merge_check] [task_type=validation] [task_status=in_progress] Checking PR mergeability"
+        )
+
+        parser = LogParser()
+        entry = parser.parse_log_entry(log_line)
+
+        assert entry is not None
+        assert entry.task_id == "merge_check"
+        assert entry.task_type == "validation"
+        assert entry.task_status == "in_progress"
+        assert entry.hook_id == "abc123"
+        assert entry.pr_number == 456
+        assert entry.repository == "test-repo"
+        assert entry.event_type == "pull_request"
+        assert entry.github_user == "test-user"
+
+    def test_parse_log_with_special_characters_in_task_fields(self) -> None:
+        """Test parsing task fields with special characters like underscores and hyphens."""
+        log_line = (
+            "2025-07-31T10:30:00.123000 GithubWebhook INFO "
+            "test-repo [pull_request][abc123][test-user]: "
+            "[task_id=check_tox-py311] [task_type=ci_check-unit] [task_status=success] Tests passed"
+        )
+
+        parser = LogParser()
+        entry = parser.parse_log_entry(log_line)
+
+        assert entry is not None
+        assert entry.task_id == "check_tox-py311"
+        assert entry.task_type == "ci_check-unit"
+        assert entry.task_status == "success"
+
+    def test_task_fields_in_to_dict(self) -> None:
+        """Test that task fields are included in to_dict() output."""
+        timestamp = datetime.datetime(2025, 7, 31, 10, 30, 0)
+        entry = LogEntry(
+            timestamp=timestamp,
+            level="INFO",
+            logger_name="main",
+            message="Task execution",
+            hook_id="hook123",
+            event_type="push",
+            repository="org/repo",
+            pr_number=None,
+            github_user="user1",
+            task_id="test_task",
+            task_type="testing",
+            task_status="completed",
+        )
+
+        result = entry.to_dict()
+
+        assert "task_id" in result
+        assert "task_type" in result
+        assert "task_status" in result
+        assert result["task_id"] == "test_task"
+        assert result["task_type"] == "testing"
+        assert result["task_status"] == "completed"
+
+
 class TestWorkflowSteps:
     """Test class for workflow step related functionality."""
 
     def test_is_workflow_step_true(self) -> None:
-        """Test is_workflow_step method with STEP level entries."""
+        """Test is_workflow_step method with task_id and task_status."""
         parser = LogParser()
 
         step_entry = LogEntry(
@@ -566,9 +755,27 @@ class TestWorkflowSteps:
             logger_name="test_logger",
             message="Starting CI/CD workflow",
             hook_id="hook-123",
+            task_id="check_tox",
+            task_status="started",
         )
 
         assert parser.is_workflow_step(step_entry) is True
+
+    def test_is_workflow_step_success_level(self) -> None:
+        """Test is_workflow_step method returns True with task_id and task_status."""
+        parser = LogParser()
+
+        success_entry = LogEntry(
+            timestamp="2025-07-31T12:00:00",
+            level="SUCCESS",
+            logger_name="test_logger",
+            message="Workflow completed successfully",
+            hook_id="hook-123",
+            task_id="check_tox",
+            task_status="completed",
+        )
+
+        assert parser.is_workflow_step(success_entry) is True
 
     def test_is_workflow_step_false(self) -> None:
         """Test is_workflow_step method with non-STEP level entries."""
@@ -605,6 +812,8 @@ class TestWorkflowSteps:
                 logger_name="test_logger",
                 message="Starting workflow",
                 hook_id=target_hook_id,
+                task_id="check_tox",
+                task_status="started",
             ),
             LogEntry(
                 timestamp="2025-07-31T12:00:01",
@@ -619,6 +828,8 @@ class TestWorkflowSteps:
                 logger_name="test_logger",
                 message="Processing stage",
                 hook_id=target_hook_id,
+                task_id="check_precommit",
+                task_status="started",
             ),
             LogEntry(
                 timestamp="2025-07-31T12:00:03",
@@ -626,16 +837,127 @@ class TestWorkflowSteps:
                 logger_name="test_logger",
                 message="Different hook workflow",
                 hook_id="hook-456",
+                task_id="check_tox",
+                task_status="started",
             ),
         ]
 
         workflow_steps = parser.extract_workflow_steps(entries, target_hook_id)
 
         assert len(workflow_steps) == 2
-        assert all(step.level == "STEP" for step in workflow_steps)
+        assert all(step.task_id and step.task_status for step in workflow_steps)
         assert all(step.hook_id == target_hook_id for step in workflow_steps)
         assert workflow_steps[0].message == "Starting workflow"
         assert workflow_steps[1].message == "Processing stage"
+
+    def test_extract_workflow_steps_includes_success_entries(self) -> None:
+        """Test extract_workflow_steps includes entries with task_id and task_status."""
+        parser = LogParser()
+        target_hook_id = "hook-123"
+
+        entries = [
+            LogEntry(
+                timestamp="2025-07-31T12:00:00",
+                level="STEP",
+                logger_name="test_logger",
+                message="Starting workflow",
+                hook_id=target_hook_id,
+                task_id="check_tox",
+                task_status="started",
+            ),
+            LogEntry(
+                timestamp="2025-07-31T12:00:01",
+                level="INFO",
+                logger_name="test_logger",
+                message="Regular info message",
+                hook_id=target_hook_id,
+            ),
+            LogEntry(
+                timestamp="2025-07-31T12:00:02",
+                level="STEP",
+                logger_name="test_logger",
+                message="Processing stage",
+                hook_id=target_hook_id,
+                task_id="check_precommit",
+                task_status="started",
+            ),
+            LogEntry(
+                timestamp="2025-07-31T12:00:03",
+                level="SUCCESS",
+                logger_name="test_logger",
+                message="Workflow completed successfully",
+                hook_id=target_hook_id,
+                task_id="check_tox",
+                task_status="completed",
+            ),
+            LogEntry(
+                timestamp="2025-07-31T12:00:04",
+                level="DEBUG",
+                logger_name="test_logger",
+                message="Debug message",
+                hook_id=target_hook_id,
+            ),
+            LogEntry(
+                timestamp="2025-07-31T12:00:05",
+                level="SUCCESS",
+                logger_name="test_logger",
+                message="Different hook success",
+                hook_id="hook-456",
+                task_id="check_tox",
+                task_status="completed",
+            ),
+        ]
+
+        workflow_steps = parser.extract_workflow_steps(entries, target_hook_id)
+
+        assert len(workflow_steps) == 3
+        assert workflow_steps[0].level == "STEP"
+        assert workflow_steps[0].message == "Starting workflow"
+        assert workflow_steps[1].level == "STEP"
+        assert workflow_steps[1].message == "Processing stage"
+        assert workflow_steps[2].level == "SUCCESS"
+        assert workflow_steps[2].message == "Workflow completed successfully"
+        assert all(step.hook_id == target_hook_id for step in workflow_steps)
+
+    def test_extract_workflow_steps_only_success_entries(self) -> None:
+        """Test extract_workflow_steps with only entries that have task_id and task_status."""
+        parser = LogParser()
+        target_hook_id = "hook-789"
+
+        entries = [
+            LogEntry(
+                timestamp="2025-07-31T12:00:00",
+                level="SUCCESS",
+                logger_name="test_logger",
+                message="First success",
+                hook_id=target_hook_id,
+                task_id="check_tox",
+                task_status="completed",
+            ),
+            LogEntry(
+                timestamp="2025-07-31T12:00:01",
+                level="INFO",
+                logger_name="test_logger",
+                message="Regular info message",
+                hook_id=target_hook_id,
+            ),
+            LogEntry(
+                timestamp="2025-07-31T12:00:02",
+                level="SUCCESS",
+                logger_name="test_logger",
+                message="Second success",
+                hook_id=target_hook_id,
+                task_id="check_precommit",
+                task_status="completed",
+            ),
+        ]
+
+        workflow_steps = parser.extract_workflow_steps(entries, target_hook_id)
+
+        assert len(workflow_steps) == 2
+        assert all(step.task_id and step.task_status for step in workflow_steps)
+        assert workflow_steps[0].message == "First success"
+        assert workflow_steps[1].message == "Second success"
 
     def test_extract_workflow_steps_no_matching_entries(self) -> None:
         """Test extract_workflow_steps with no matching entries."""

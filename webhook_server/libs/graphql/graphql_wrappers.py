@@ -1,0 +1,307 @@
+"""
+GraphQL response wrappers that provide PyGithub-compatible interfaces.
+
+This module contains wrapper classes that make GraphQL dictionary responses
+behave like PyGithub objects, enabling gradual migration without breaking
+existing handler code.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any
+
+
+class UserWrapper:
+    """Wrapper for GitHub user data from GraphQL responses."""
+
+    def __init__(self, data: dict[str, Any] | None):
+        self._data = data or {}
+
+    @property
+    def login(self) -> str:
+        return self._data.get("login", "")
+
+
+class RepositoryWrapper:
+    """Minimal wrapper for repository information."""
+
+    def __init__(self, owner: str, name: str):
+        self._owner = owner
+        self._name = name
+
+    @property
+    def owner(self) -> UserWrapper:
+        """Return owner as UserWrapper."""
+        return UserWrapper({"login": self._owner})
+
+    @property
+    def name(self) -> str:
+        """Return repository name."""
+        return self._name
+
+
+class RefWrapper:
+    """Wrapper for GitHub ref (branch) data from GraphQL responses."""
+
+    def __init__(self, data: dict[str, Any] | None, repository: RepositoryWrapper | None = None):
+        self._data = data or {}
+        self._repository = repository
+
+    @property
+    def name(self) -> str:
+        return self._data.get("name", "")
+
+    @property
+    def ref(self) -> str:
+        """Alias for name to match PyGithub interface."""
+        return self.name
+
+    @property
+    def sha(self) -> str:
+        """Get the commit SHA from target.oid."""
+        target = self._data.get("target", {})
+        return target.get("oid", "")
+
+    @property
+    def repo(self) -> RepositoryWrapper:
+        """Return repository wrapper for PyGithub compatibility."""
+        if self._repository is None:
+            raise AttributeError("Repository information not available in this RefWrapper")
+        return self._repository
+
+
+class LabelWrapper:
+    """Wrapper for GitHub label data from GraphQL responses."""
+
+    def __init__(self, data: dict[str, Any]):
+        self._data = data
+
+    @property
+    def name(self) -> str:
+        return self._data.get("name", "")
+
+    @property
+    def color(self) -> str:
+        return self._data.get("color", "")
+
+    @property
+    def id(self) -> str:
+        return self._data.get("id", "")
+
+
+class CommitWrapper:
+    """Wrapper for GitHub commit data from GraphQL responses."""
+
+    def __init__(self, data: dict[str, Any]):
+        self._data = data
+
+    @property
+    def sha(self) -> str:
+        return self._data.get("oid", "")
+
+    @property
+    def committer(self) -> UserWrapper:
+        """Get committer information."""
+        # GraphQL commit data is already extracted (not nested under "commit" key)
+        # Access committer directly from self._data
+        committer_data = self._data.get("committer", {})
+
+        # Map committer.user to UserWrapper if available
+        if "user" in committer_data:
+            return UserWrapper(committer_data["user"])
+
+        # If committer has name but no user, use name as login
+        if "name" in committer_data:
+            return UserWrapper({"login": committer_data.get("name", "")})
+
+        # Fall back to author if no committer data
+        author_data = self._data.get("author", {})
+        if "user" in author_data:
+            return UserWrapper(author_data["user"])
+
+        # Final fallback: use author name as login
+        return UserWrapper({"login": author_data.get("name", "")})
+
+
+class PullRequestWrapper:
+    """
+    Wrapper for GitHub pull request data from GraphQL responses.
+
+    Provides a PyGithub-compatible interface for PullRequest objects,
+    allowing existing handler code to work unchanged while using
+    GraphQL responses internally.
+    """
+
+    def __init__(self, data: dict[str, Any], owner: str | None = None, repo_name: str | None = None):
+        self._data = data
+        self._owner = owner
+        self._repo_name = repo_name
+        # Create repository wrapper if owner and repo_name provided
+        self._repository = RepositoryWrapper(owner, repo_name) if owner and repo_name else None
+
+    @property
+    def raw_data(self) -> dict[str, Any]:
+        """Get raw data dict for compatibility."""
+        return self._data
+
+    @property
+    def number(self) -> int:
+        return self._data.get("number", 0)
+
+    @property
+    def title(self) -> str:
+        return self._data.get("title", "")
+
+    @property
+    def body(self) -> str | None:
+        return self._data.get("body")
+
+    @property
+    def state(self) -> str:
+        """Return state in lowercase to match PyGithub (open/closed)."""
+        state = self._data.get("state", "OPEN")
+        return state.lower()
+
+    @property
+    def draft(self) -> bool:
+        return self._data.get("isDraft", False)
+
+    @property
+    def merged(self) -> bool:
+        return self._data.get("merged", False)
+
+    @property
+    def mergeable(self) -> bool | None:
+        """
+        Return mergeable state.
+        GraphQL returns: MERGEABLE, CONFLICTING, UNKNOWN
+        PyGithub returns: bool | None (True if mergeable, False if conflicting, None if unknown)
+        """
+        mergeable = self._data.get("mergeable")
+        if mergeable == "MERGEABLE":
+            return True
+        elif mergeable == "CONFLICTING":
+            return False
+        else:  # "UNKNOWN" or None
+            return None
+
+    @property
+    def user(self) -> UserWrapper:
+        """Get the pull request author."""
+        return UserWrapper(self._data.get("author"))
+
+    @property
+    def base(self) -> RefWrapper:
+        """Get the base (target) branch."""
+        return RefWrapper(self._data.get("baseRef"), self._repository)
+
+    @property
+    def head(self) -> RefWrapper:
+        """Get the head (source) branch."""
+        return RefWrapper(self._data.get("headRef"), self._repository)
+
+    @property
+    def created_at(self) -> datetime | None:
+        """Parse ISO8601 timestamp from GraphQL."""
+        created = self._data.get("createdAt")
+        if created:
+            return datetime.fromisoformat(created.replace("Z", "+00:00"))
+        return None
+
+    @property
+    def updated_at(self) -> datetime | None:
+        """Parse ISO8601 timestamp from GraphQL."""
+        updated = self._data.get("updatedAt")
+        if updated:
+            return datetime.fromisoformat(updated.replace("Z", "+00:00"))
+        return None
+
+    @property
+    def closed_at(self) -> datetime | None:
+        """Parse ISO8601 timestamp from GraphQL."""
+        closed = self._data.get("closedAt")
+        if closed:
+            return datetime.fromisoformat(closed.replace("Z", "+00:00"))
+        return None
+
+    @property
+    def merged_at(self) -> datetime | None:
+        """Parse ISO8601 timestamp from GraphQL."""
+        merged = self._data.get("mergedAt")
+        if merged:
+            return datetime.fromisoformat(merged.replace("Z", "+00:00"))
+        return None
+
+    @property
+    def html_url(self) -> str:
+        """Get the permalink (HTML URL) to the PR."""
+        return self._data.get("permalink", "")
+
+    @property
+    def merge_commit_sha(self) -> str | None:
+        """Get the merge commit SHA if PR is merged."""
+        return self._data.get("mergeCommit", {}).get("oid")
+
+    @property
+    def additions(self) -> int:
+        """Get number of additions."""
+        return self._data.get("additions", 0)
+
+    @property
+    def deletions(self) -> int:
+        """Get number of deletions."""
+        return self._data.get("deletions", 0)
+
+    def get_labels(self) -> list[LabelWrapper]:
+        """
+        Get list of labels attached to the PR.
+
+        Note: This matches PyGithub's lazy-loading pattern.
+        GraphQL data should already include labels.nodes in the query.
+        """
+        labels_data = self._data.get("labels", {})
+        nodes = labels_data.get("nodes", [])
+        return [LabelWrapper(label) for label in nodes]
+
+    def get_commits(self) -> list[CommitWrapper]:
+        """
+        Get list of commits in the PR.
+
+        Note: This matches PyGithub's lazy-loading pattern.
+        GraphQL data should already include commits.nodes in the query.
+        """
+        commits_data = self._data.get("commits", {})
+        nodes = commits_data.get("nodes", [])
+        # GraphQL commits are nested: nodes[].commit
+        return [CommitWrapper(node.get("commit", {})) for node in nodes]
+
+    @property
+    def id(self) -> str:
+        """Get the GraphQL node ID (used for mutations)."""
+        return self._data.get("id", "")
+
+    @property
+    def labels(self) -> list[LabelWrapper]:
+        """Property alias for get_labels() to match PyGithub interface."""
+        return self.get_labels()
+
+    @property
+    def mergeable_state(self) -> str:
+        """
+        Get mergeable state.
+        GraphQL returns mergeStateStatus: BEHIND, BLOCKED, CLEAN, DIRTY, DRAFT, HAS_HOOKS, UNKNOWN, UNSTABLE
+        PyGithub returns mergeable_state: behind, blocked, clean, dirty, draft, has_hooks, unknown, unstable
+        """
+        state = self._data.get("mergeStateStatus", "UNKNOWN")
+        return state.lower()
+
+    def is_merged(self) -> bool:
+        """Method wrapper for merged property to match PyGithub interface."""
+        return self.merged
+
+    def __repr__(self) -> str:
+        # Use getattr with fallback to handle mock objects safely
+        number = getattr(self, "_data", {}).get("number", "?")
+        title = getattr(self, "_data", {}).get("title", "?")
+        return f"PullRequestWrapper(number={number}, title='{title}')"

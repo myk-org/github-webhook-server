@@ -1,17 +1,20 @@
 import asyncio
+import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Coroutine
 
 import yaml
-from asyncstdlib import functools
 from github.ContentFile import ContentFile
 from github.GithubException import GithubException
-from github.NamedUser import NamedUser
-from github.PaginatedList import PaginatedList
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
-from webhook_server.utils.constants import COMMAND_ADD_ALLOWED_USER_STR
+from gql.transport.exceptions import TransportConnectionFailed, TransportQueryError, TransportServerError
+
+from webhook_server.libs.graphql.graphql_client import GraphQLError
+from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+from webhook_server.utils.constants import COMMAND_ADD_ALLOWED_USER_STR, ROOT_APPROVERS_KEY
+from webhook_server.utils.helpers import format_task_fields
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
@@ -23,8 +26,19 @@ class OwnersFileHandler:
         self.logger = self.github_webhook.logger
         self.log_prefix: str = self.github_webhook.log_prefix
         self.repository: Repository = self.github_webhook.repository
+        self.unified_api = self.github_webhook.unified_api
+        self.config = self.github_webhook.config
+        self.max_owners_files = self.config.get_value("max-owners-files", return_on_none=1000)
 
-    async def initialize(self, pull_request: PullRequest) -> "OwnersFileHandler":
+    def _get_owner_and_repo(self) -> tuple[str, str]:
+        """Extract owner and repository name from full repository name.
+
+        Returns:
+            Tuple of (owner, repo_name).
+        """
+        return self.repository.full_name.split("/")
+
+    async def initialize(self, pull_request: PullRequest | PullRequestWrapper) -> "OwnersFileHandler":
         self.changed_files = await self.list_changed_files(pull_request=pull_request)
         self.all_repository_approvers_and_reviewers = await self.get_all_repository_approvers_and_reviewers(
             pull_request=pull_request
@@ -34,14 +48,37 @@ class OwnersFileHandler:
         self.all_pull_request_approvers = await self.get_all_pull_request_approvers()
         self.all_pull_request_reviewers = await self.get_all_pull_request_reviewers()
 
+        # Cache collaborators and contributors during initialization
+        owner, repo_name = self._get_owner_and_repo()
+        self._repository_collaborators = await self.unified_api.get_collaborators(owner, repo_name)
+        self._repository_contributors = await self.unified_api.get_contributors(owner, repo_name)
+
+        # Cache valid users to avoid repeated API calls
+        self._valid_users_to_run_commands = {
+            *{val.login for val in self._repository_collaborators},
+            *{val.login for val in self._repository_contributors},
+            *self.all_repository_approvers,
+            *self.all_pull_request_reviewers,
+        }
+
         return self
 
     def _ensure_initialized(self) -> None:
+        """Verify that initialize() has been called before using instance methods.
+
+        Raises:
+            RuntimeError: If initialize() has not been called yet.
+        """
         if not hasattr(self, "changed_files"):
             raise RuntimeError("OwnersFileHandler.initialize() must be called before using this method")
 
     @property
     def root_reviewers(self) -> list[str]:
+        """Get reviewers from the root OWNERS file.
+
+        Returns:
+            List of reviewer usernames from the root (.) OWNERS file, or empty list if not defined.
+        """
         self._ensure_initialized()
 
         _reviewers = self.all_repository_approvers_and_reviewers.get(".", {}).get("reviewers", [])
@@ -50,6 +87,11 @@ class OwnersFileHandler:
 
     @property
     def root_approvers(self) -> list[str]:
+        """Get approvers from the root OWNERS file.
+
+        Returns:
+            List of approver usernames from the root (.) OWNERS file, or empty list if not defined.
+        """
         self._ensure_initialized()
 
         _approvers = self.all_repository_approvers_and_reviewers.get(".", {}).get("approvers", [])
@@ -64,8 +106,11 @@ class OwnersFileHandler:
         self.logger.debug(f"{self.log_prefix} ROOT allowed users: {_allowed_users}")
         return _allowed_users
 
-    async def list_changed_files(self, pull_request: PullRequest) -> list[str]:
-        changed_files = [_file.filename for _file in await asyncio.to_thread(pull_request.get_files)]
+    async def list_changed_files(self, pull_request: PullRequest | PullRequestWrapper) -> list[str]:
+        # Use unified_api for get_files
+        owner, repo_name = self._get_owner_and_repo()
+        files = await self.unified_api.get_pull_request_files(owner, repo_name, pull_request.number)
+        changed_files = [_file.filename for _file in files]
         self.logger.debug(f"{self.log_prefix} Changed files: {changed_files}")
         return changed_files
 
@@ -89,43 +134,61 @@ class OwnersFileHandler:
             self.logger.error(f"{self.log_prefix} Invalid OWNERS file {path}: {e}")
             return False
 
-    async def _get_file_content(self, content_path: str, pull_request: PullRequest) -> tuple[ContentFile, str]:
+    async def _get_file_content(
+        self, content_path: str, pull_request: PullRequest | PullRequestWrapper
+    ) -> tuple[ContentFile, str]:
         self.logger.debug(f"{self.log_prefix} Get OWNERS file from {content_path}")
 
-        _path = await asyncio.to_thread(self.repository.get_contents, content_path, pull_request.base.ref)
+        owner, repo_name = self._get_owner_and_repo()
+        _path = await self.unified_api.get_contents(owner, repo_name, content_path, pull_request.base.ref)
 
         if isinstance(_path, list):
+            if not _path:
+                raise FileNotFoundError(f"OWNERS file not found at {content_path} in ref {pull_request.base.ref}")
             _path = _path[0]
 
         return _path, content_path
 
-    @functools.lru_cache
-    async def get_all_repository_approvers_and_reviewers(self, pull_request: PullRequest) -> dict[str, dict[str, Any]]:
+    async def get_all_repository_approvers_and_reviewers(
+        self, pull_request: PullRequest | PullRequestWrapper
+    ) -> dict[str, dict[str, Any]]:
         # Dictionary mapping OWNERS file paths to their approvers and reviewers
         _owners: dict[str, dict[str, Any]] = {}
         tasks: list[Coroutine[Any, Any, Any]] = []
 
-        max_owners_files = 1000  # Configurable limit
         owners_count = 0
 
         self.logger.debug(f"{self.log_prefix} Get git tree")
-        tree = await asyncio.to_thread(self.repository.get_git_tree, pull_request.base.ref, recursive=True)
+        owner, repo_name = self._get_owner_and_repo()
+        tree = await self.unified_api.get_git_tree(owner, repo_name, pull_request.base.ref, recursive=True)
 
         for element in tree.tree:
             if element.type == "blob" and element.path.endswith("OWNERS"):
                 owners_count += 1
-                if owners_count > max_owners_files:
-                    self.logger.error(f"{self.log_prefix} Too many OWNERS files (>{max_owners_files})")
+                if owners_count > self.max_owners_files:
+                    self.logger.error(
+                        f"{self.log_prefix} Too many OWNERS files (>{self.max_owners_files}), "
+                        "stopping processing to avoid performance issues"
+                    )
                     break
 
                 content_path = element.path
                 self.logger.debug(f"{self.log_prefix} Found OWNERS file: {content_path}")
                 tasks.append(self._get_file_content(content_path, pull_request))
 
-        results = await asyncio.gather(*tasks)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
         for result in results:
-            _path, _content_path = result
+            # Skip exceptions from failed OWNERS file fetches
+            if isinstance(result, Exception):
+                exception_type = type(result).__name__
+                self.logger.exception(
+                    f"{self.log_prefix} Failed to fetch OWNERS file: [{exception_type}] {result}",
+                    exc_info=(type(result), result, result.__traceback__),
+                )
+                continue
+            # Type narrowing: result is tuple[ContentFile, str] after exception check
+            _path, _content_path = result  # type: ignore[misc]
 
             try:
                 content = yaml.safe_load(_path.decoded_content)
@@ -155,6 +218,12 @@ class OwnersFileHandler:
         return _approvers
 
     async def get_all_repository_reviewers(self) -> list[str]:
+        """
+        Get all reviewers from repository OWNERS files.
+
+        Returns:
+            List of reviewer usernames
+        """
         self._ensure_initialized()
 
         _reviewers: list[str] = []
@@ -168,6 +237,12 @@ class OwnersFileHandler:
         return _reviewers
 
     async def get_all_pull_request_approvers(self) -> list[str]:
+        """
+        Get all approvers required for the current pull request based on changed files.
+
+        Returns:
+            Sorted list of unique approver usernames
+        """
         _approvers: list[str] = []
         changed_files = await self.owners_data_for_changed_files()
 
@@ -181,6 +256,12 @@ class OwnersFileHandler:
         return _approvers
 
     async def get_all_pull_request_reviewers(self) -> list[str]:
+        """
+        Get all reviewers required for the current pull request based on changed files.
+
+        Returns:
+            Sorted list of unique reviewer usernames
+        """
         _reviewers: list[str] = []
         changed_files = await self.owners_data_for_changed_files()
 
@@ -219,10 +300,12 @@ class OwnersFileHandler:
                         f"{self.log_prefix} Matched changed folder: {changed_folder} with owners dir: {_owners_dir}"
                     )
                     if require_root_approvers is None:
-                        require_root_approvers = owners_data.get("root-approvers", True)
+                        require_root_approvers = owners_data.get(ROOT_APPROVERS_KEY, True)
 
         if require_root_approvers or require_root_approvers is None:
-            self.logger.debug(f"{self.log_prefix} require root_approvers")
+            self.logger.debug(
+                f"{self.log_prefix} Including root OWNERS approvers/reviewers (not disabled by {ROOT_APPROVERS_KEY})"
+            )
             data["."] = self.all_repository_approvers_and_reviewers.get(".", {})
 
         else:
@@ -238,38 +321,71 @@ class OwnersFileHandler:
         self.logger.debug(f"Final owners data for changed files: {data}")
         return data
 
-    async def assign_reviewers(self, pull_request: PullRequest) -> None:
+    async def assign_reviewers(self, pull_request: PullRequestWrapper) -> None:
         self._ensure_initialized()
 
-        self.logger.step(f"{self.log_prefix} Starting reviewer assignment based on OWNERS files")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'started')} Starting reviewer assignment based on OWNERS files",
+        )
         self.logger.info(f"{self.log_prefix} Assign reviewers")
 
         _to_add: list[str] = list(set(self.all_pull_request_reviewers))
         self.logger.debug(f"{self.log_prefix} Reviewers to add: {', '.join(_to_add)}")
 
         if _to_add:
-            self.logger.step(f"{self.log_prefix} Assigning {len(_to_add)} reviewers to PR")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'processing')} Assigning {len(_to_add)} reviewers to PR",
+            )
         else:
-            self.logger.step(f"{self.log_prefix} No reviewers to assign")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'processing')} No reviewers to assign",
+            )
             return
 
-        for reviewer in _to_add:
-            if reviewer != pull_request.user.login:
-                self.logger.debug(f"{self.log_prefix} Adding reviewer {reviewer}")
-                try:
-                    await asyncio.to_thread(pull_request.create_review_request, [reviewer])
-                    self.logger.step(f"{self.log_prefix} Successfully assigned reviewer {reviewer}")  # type: ignore
+        # Filter out PR author from reviewers list
+        reviewers_to_request = [r for r in _to_add if r != pull_request.user.login]
 
-                except GithubException as ex:
-                    self.logger.step(f"{self.log_prefix} Failed to assign reviewer {reviewer}")  # type: ignore
-                    self.logger.debug(f"{self.log_prefix} Failed to add reviewer {reviewer}. {ex}")
-                    await asyncio.to_thread(
-                        pull_request.create_issue_comment, f"{reviewer} can not be added as reviewer. {ex}"
-                    )
+        if not reviewers_to_request:
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'processing')} No reviewers to assign (all were PR author)",
+            )
+            return
 
-        self.logger.step(f"{self.log_prefix} Reviewer assignment completed")  # type: ignore
+        # Batch review request in one mutation instead of looping
+        try:
+            self.logger.debug(f"{self.log_prefix} Batch requesting reviews from: {', '.join(reviewers_to_request)}")
+            await self.github_webhook.request_pr_reviews(pull_request, reviewers_to_request)
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'completed')} Successfully assigned {len(reviewers_to_request)} reviewers",
+            )
 
-    async def is_user_valid_to_run_commands(self, pull_request: PullRequest, reviewed_user: str) -> bool:
+        except (
+            GithubException,
+            GraphQLError,
+            TransportConnectionFailed,
+            TransportQueryError,
+            TransportServerError,
+        ) as ex:
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'processing')} Failed to assign reviewers in batch",
+            )
+            self.logger.debug(
+                f"{self.log_prefix} Batch review request failed with traceback:\n{traceback.format_exc()}"
+            )
+            # Use GraphQL add_comment mutation
+            error_type = type(ex).__name__
+            await self.unified_api.add_comment(
+                pull_request.id,
+                f"Failed to assign reviewers {', '.join(reviewers_to_request)}: [{error_type}] {ex}",
+            )
+
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'completed')} Reviewer assignment completed",
+        )
+
+    async def is_user_valid_to_run_commands(
+        self, pull_request: PullRequest | PullRequestWrapper, reviewed_user: str
+    ) -> bool:
         self._ensure_initialized()
 
         _allowed_user_to_approve = await self.get_all_repository_maintainers() + self.all_repository_approvers
@@ -282,15 +398,14 @@ maintainers can allow it by comment `{allow_user_comment}`
 Maintainers:
  - {"\n - ".join(allowed_user_to_approve)}
 """
-        valid_users = await self.valid_users_to_run_commands
+        valid_users = self.valid_users_to_run_commands
         self.logger.debug(f"Valid users to run commands: {valid_users}")
 
         if reviewed_user not in valid_users:
-            for comment in [
-                _comment
-                for _comment in await asyncio.to_thread(pull_request.get_issue_comments)
-                if _comment.user.login in allowed_user_to_approve
-            ]:
+            # Use unified_api for get_issue_comments
+            owner, repo_name = self._get_owner_and_repo()
+            comments = await self.unified_api.get_issue_comments(owner, repo_name, pull_request.number)
+            for comment in [_comment for _comment in comments if _comment.user.login in allowed_user_to_approve]:
                 if allow_user_comment in comment.body:
                     self.logger.debug(
                         f"{self.log_prefix} {reviewed_user} is approved by {comment.user.login} to run commands"
@@ -298,37 +413,29 @@ Maintainers:
                     return True
 
             self.logger.debug(f"{self.log_prefix} {reviewed_user} is not in {valid_users}")
-            await asyncio.to_thread(pull_request.create_issue_comment, comment_msg)
+            await self.github_webhook.add_pr_comment(pull_request, comment_msg)
             return False
 
         return True
 
-    @functools.cached_property
-    async def valid_users_to_run_commands(self) -> set[str]:
+    @property
+    def valid_users_to_run_commands(self) -> set[str]:
         self._ensure_initialized()
-
-        repository_collaborators = await self.get_all_repository_collaborators()
-        repository_contributors = await self.get_all_repository_contributors()
-
-        return set((
-            *repository_collaborators,
-            *repository_contributors,
-            *self.all_repository_approvers,
-            *self.all_pull_request_reviewers,
-        ))
+        return self._valid_users_to_run_commands
 
     async def get_all_repository_contributors(self) -> list[str]:
-        contributors = await self.repository_contributors
-        return [val.login for val in contributors]
+        self._ensure_initialized()
+        return [val.login for val in self._repository_contributors]
 
     async def get_all_repository_collaborators(self) -> list[str]:
-        collaborators = await self.repository_collaborators
-        return [val.login for val in collaborators]
+        self._ensure_initialized()
+        return [val.login for val in self._repository_collaborators]
 
     async def get_all_repository_maintainers(self) -> list[str]:
+        self._ensure_initialized()
         maintainers: list[str] = []
 
-        for user in await self.repository_collaborators:
+        for user in self._repository_collaborators:
             permissions = user.permissions
             self.logger.debug(f"User {user.login} permissions: {permissions}")
 
@@ -337,11 +444,3 @@ Maintainers:
 
         self.logger.debug(f"Maintainers: {maintainers}")
         return maintainers
-
-    @functools.cached_property
-    async def repository_collaborators(self) -> PaginatedList[NamedUser]:
-        return await asyncio.to_thread(self.repository.get_collaborators)
-
-    @functools.cached_property
-    async def repository_contributors(self) -> PaginatedList[NamedUser]:
-        return await asyncio.to_thread(self.repository.get_contributors)
