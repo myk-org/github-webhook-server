@@ -140,7 +140,7 @@ class TestLabelsHandler:
     @pytest.mark.asyncio
     async def test_add_label_exception_handling(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
         """Test label addition with exception handling."""
-        with patch("timeout_sampler.TimeoutWatch") as mock_timeout:
+        with patch("webhook_server.libs.handlers.labels_handler.TimeoutWatch") as mock_timeout:
             mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
             with patch("asyncio.sleep", new_callable=AsyncMock):
                 with patch.object(
@@ -186,7 +186,7 @@ class TestLabelsHandler:
         self, labels_handler: LabelsHandler, mock_pull_request: Mock
     ) -> None:
         """Test _remove_label with exception during wait operation."""
-        with patch("timeout_sampler.TimeoutWatch") as mock_timeout:
+        with patch("webhook_server.libs.handlers.labels_handler.TimeoutWatch") as mock_timeout:
             mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
             with patch("asyncio.sleep", new_callable=AsyncMock):
                 with patch.object(
@@ -203,7 +203,7 @@ class TestLabelsHandler:
         self, labels_handler: LabelsHandler, mock_pull_request: Mock
     ) -> None:
         """Test _remove_label with exception during wait_for_label."""
-        with patch("timeout_sampler.TimeoutWatch") as mock_timeout:
+        with patch("webhook_server.libs.handlers.labels_handler.TimeoutWatch") as mock_timeout:
             mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
             with patch("asyncio.sleep", new_callable=AsyncMock):
                 with patch.object(
@@ -221,7 +221,7 @@ class TestLabelsHandler:
     ) -> None:
         """Test _add_label with exception during wait for dynamic label."""
         dynamic_label = "dynamic-label"
-        with patch("timeout_sampler.TimeoutWatch") as mock_timeout:
+        with patch("webhook_server.libs.handlers.labels_handler.TimeoutWatch") as mock_timeout:
             mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
             with patch("asyncio.sleep", new_callable=AsyncMock):
                 with patch.object(
@@ -240,7 +240,7 @@ class TestLabelsHandler:
     ) -> None:
         """Test _add_label with exception during wait for static label."""
         static_label = list(STATIC_LABELS_DICT.keys())[0]
-        with patch("timeout_sampler.TimeoutWatch") as mock_timeout:
+        with patch("webhook_server.libs.handlers.labels_handler.TimeoutWatch") as mock_timeout:
             mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
             with patch("asyncio.sleep", new_callable=AsyncMock):
                 with patch.object(
@@ -255,7 +255,7 @@ class TestLabelsHandler:
     @pytest.mark.asyncio
     async def test_wait_for_label_success(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
         """Test wait_for_label with success."""
-        with patch("timeout_sampler.TimeoutWatch") as mock_timeout:
+        with patch("webhook_server.libs.handlers.labels_handler.TimeoutWatch") as mock_timeout:
             mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
             with patch("asyncio.sleep", new_callable=AsyncMock):
                 with patch.object(
@@ -269,7 +269,7 @@ class TestLabelsHandler:
         self, labels_handler: LabelsHandler, mock_pull_request: Mock
     ) -> None:
         """Test wait_for_label with exception during label check."""
-        with patch("timeout_sampler.TimeoutWatch") as mock_timeout:
+        with patch("webhook_server.libs.handlers.labels_handler.TimeoutWatch") as mock_timeout:
             mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
             with patch("asyncio.sleep", new_callable=AsyncMock):
                 with patch.object(
@@ -1104,15 +1104,34 @@ class TestLabelsHandler:
         async def mock_sleep(duration):
             sleep_times.append(duration)
 
-        with patch("timeout_sampler.TimeoutWatch") as mock_timeout_watch:
-            # Simulate 3 retry iterations before timeout
-            # Each iteration checks label twice (initial check + refetch check)
-            # So we need at least 6 False responses plus enough remaining_time checks
-            mock_timeout_watch.return_value.remaining_time.side_effect = [30, 29, 28, 27, 25, 23, 20, 15, 10, 5, 0]
+        with patch("webhook_server.libs.handlers.labels_handler.TimeoutWatch") as mock_timeout_watch:
+            # Each iteration of the loop calls remaining_time() 3 times:
+            # 1. while condition check (line 243)
+            # 2. if check before refetch (line 250)
+            # 3. sleep_time calculation (line 261)
+            # Need enough values for multiple iterations before timeout (returns 0)
+            mock_timeout_watch.return_value.remaining_time.side_effect = [
+                30,
+                30,
+                30,  # Iteration 1: while, if, sleep
+                29,
+                29,
+                29,  # Iteration 2: while, if, sleep
+                27,
+                27,
+                27,  # Iteration 3: while, if, sleep
+                23,
+                23,
+                23,  # Iteration 4: while, if, sleep
+                15,
+                15,
+                15,  # Iteration 5: while, if, sleep
+                0,  # Final while check - exits loop
+            ]
 
             with patch("asyncio.sleep", new=mock_sleep):
                 # Return False enough times for all checks
-                async def mock_label_exists(*args, **kwargs):
+                async def mock_label_exists(*_args, **_kwargs):
                     return False
 
                 with patch.object(labels_handler, "label_exists_in_pull_request", new=mock_label_exists):
@@ -1127,7 +1146,7 @@ class TestLabelsHandler:
                     # Should return False after timeout
                     assert result is False
 
-                    # Verify exponential backoff occurred: 0.5s, 1s, 2s, 4s, etc (capped at 5s max)
+                    # Verify exponential backoff occurred: 0.5s, 1s, 2s, 4s, 5s (capped at 5s max)
                     assert len(sleep_times) > 0
                     # First sleep should be 0.5 second
                     assert sleep_times[0] == 0.5

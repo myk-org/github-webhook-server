@@ -741,3 +741,20 @@ class TestCheckRunHandler:
 
             assert msg == ""
             assert in_progress_checks == []
+
+    def test_get_check_run_text_strips_ansi_codes(self, check_run_handler: CheckRunHandler) -> None:
+        """Test get_check_run_text strips ANSI escape codes from output."""
+        # Simulate tox output with ANSI color codes
+        err = "\x1b[31mERROR:\x1b[0m Test failed"
+        out = "\x1b[32mSUCCESS:\x1b[0m \x1b[1mBold text\x1b[0m"
+
+        result = check_run_handler.get_check_run_text(err, out)
+
+        # Should not contain ANSI escape codes
+        assert "\x1b" not in result
+        # Should contain actual text content
+        assert "ERROR: Test failed" in result
+        assert "SUCCESS: Bold text" in result
+        # Should be wrapped in code block
+        assert result.startswith("```")
+        assert result.endswith("```")

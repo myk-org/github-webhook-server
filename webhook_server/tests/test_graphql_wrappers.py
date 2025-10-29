@@ -1226,3 +1226,17 @@ def test_ref_wrapper_graphql_format_with_name():
     assert ref.name == "main"  # Uses "name" field
     assert ref.ref == "main"
     assert ref.sha == "graphql123"  # Uses "target.oid"
+
+
+def test_pull_request_wrapper_all_none_fallbacks():
+    """Test PullRequestWrapper default return values when both _data and _rest_pr are None."""
+    # Create wrapper with no data at all (both _data and _rest_pr are None)
+    wrapper = PullRequestWrapper()
+
+    # Test all fallback return statements (lines 286, 295, 304, 317, 326, 335)
+    assert wrapper.number == 0  # Line 286
+    assert wrapper.title == ""  # Line 295
+    assert wrapper.body is None  # Line 304
+    assert wrapper.state == "open"  # Line 317
+    assert wrapper.draft is False  # Line 326
+    assert wrapper.merged is False  # Line 335

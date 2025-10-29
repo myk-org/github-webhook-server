@@ -164,7 +164,7 @@ class TestGetContainerRepositoryAndTag:
 
         assert result == "quay.io/myorg/myimage:v1.2.3-rc.1"
 
-    def test_without_logger(self, mock_pull_request: Mock) -> None:
+    def test_without_logger(self) -> None:
         """Test function works without logger (logger is optional)."""
         result = get_container_repository_and_tag(
             container_repository="quay.io/myorg/myimage",

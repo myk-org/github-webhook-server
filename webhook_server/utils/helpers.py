@@ -238,6 +238,37 @@ def _truncate_output(text: str, max_length: int = 500) -> str:
     return f"{text[:max_length]}... [truncated {len(text) - max_length} chars]"
 
 
+def strip_ansi_codes(text: str) -> str:
+    """
+    Remove ANSI escape codes from text.
+
+    ANSI escape codes are special character sequences used for terminal formatting
+    (colors, bold, underline, etc.) that appear as scrambled characters when displayed
+    in non-terminal contexts like GitHub check-run details.
+
+    Args:
+        text: Text potentially containing ANSI escape codes
+
+    Returns:
+        Clean text with all ANSI escape codes removed
+
+    Examples:
+        >>> strip_ansi_codes("\\x1b[31mRed text\\x1b[0m")
+        'Red text'
+        >>> strip_ansi_codes("\\x1b[1m\\x1b[32mBold green\\x1b[0m")
+        'Bold green'
+        >>> strip_ansi_codes("No ANSI codes here")
+        'No ANSI codes here'
+    """
+    # Comprehensive regex pattern for ANSI escape sequences:
+    # \x1B = ESC character (can also be \033)
+    # (?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]) = matches all ANSI escape sequences:
+    #   - [@-Z\\-_] = single-character sequences (ESC followed by one char)
+    #   - \[[0-?]*[ -/]*[@-~] = CSI sequences (colors, cursor movement, etc.)
+    ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+    return ansi_escape.sub("", text)
+
+
 async def run_command(
     command: str,
     log_prefix: str,

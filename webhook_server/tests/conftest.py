@@ -190,7 +190,9 @@ def github_webhook(mocker, request):
     process_github_webhook.unified_api.get_commit_check_runs = AsyncMock(return_value=[])
     process_github_webhook.unified_api.create_check_run = AsyncMock()
     process_github_webhook.unified_api.merge_pull_request = AsyncMock()
-    process_github_webhook.unified_api.get_pull_request = AsyncMock(return_value={"merged": False, "id": "PR_node_id"})
+    mock_pr = create_mock_pull_request(pr_id="PR_node_id")
+    mock_pr.merged = False
+    process_github_webhook.unified_api.get_pull_request = AsyncMock(return_value=mock_pr)
     process_github_webhook.unified_api.add_assignees_by_login = AsyncMock()
 
     # Mock repository_data for pre-fetched data access (Task 70)

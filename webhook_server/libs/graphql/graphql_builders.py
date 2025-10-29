@@ -348,6 +348,12 @@ class QueryBuilder:
                         orderBy: {{field: UPDATED_AT, direction: DESC}}
                     ) {{
                         totalCount
+                        pageInfo {{
+                            hasNextPage
+                            hasPreviousPage
+                            startCursor
+                            endCursor
+                        }}
                         nodes {{
                             ...PullRequestFields
                             labels(first: 100) {{

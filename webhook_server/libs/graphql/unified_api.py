@@ -589,13 +589,19 @@ class UnifiedGitHubAPI:
 
         Supports two calling patterns:
         1. add_pr_comment(owner, repo, pull_request, body) - full signature
-        2. add_pr_comment(pull_request, body) - test compatibility signature
+        2. add_pr_comment(pull_request, body=...) - test compatibility signature with keyword body
         """
         # Handle both calling patterns
+        # First check if owner is PullRequestWrapper (pattern 2)
         if isinstance(owner, PullRequestWrapper) or (hasattr(owner, "id") and hasattr(owner, "number")):
-            # Pattern 2: add_pr_comment(pull_request, body)
+            # Pattern 2: add_pr_comment(pull_request, body=...)
             actual_pull_request: PullRequestWrapper = owner  # type: ignore[assignment]
-            actual_body: str = repo  # type: ignore[assignment]
+            # Check if body was passed as keyword argument
+            if body is not None:
+                actual_body: str = body
+            else:
+                # Body passed as positional argument in repo position
+                actual_body = repo  # type: ignore[assignment]
         else:
             # Pattern 1: add_pr_comment(owner, repo, pull_request, body)
             actual_pull_request = pull_request  # type: ignore[assignment]
@@ -1678,7 +1684,7 @@ class UnifiedGitHubAPI:
 
         try:
             result = await self.graphql_client.execute(query, variables)
-            return result.get("data", {}).get("repository", {}).get("ref") is not None
+            return result.get("repository", {}).get("ref") is not None
         except GraphQLError:
             return False
 

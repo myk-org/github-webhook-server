@@ -828,7 +828,7 @@ class TestGithubWebhook:
         # Mock config and API
         mock_config_instance = Mock()
         mock_config_instance.repository_data = True
-        mock_config_instance.get_value.side_effect = lambda value, **kwargs: {
+        mock_config_instance.get_value.side_effect = lambda value, **_kwargs: {
             "auto-verified-and-merged-users": [],
             "container": {},
             "can-be-merged-required-labels": [],

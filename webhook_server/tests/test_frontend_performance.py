@@ -195,12 +195,19 @@ class TestFrontendPerformanceOptimizations:
         # Pattern 2: Template literals with raw user variables
         template_literal_pattern = rf"\.{inner_html_prop}\s*=\s*`[^`]*\$\{{(message|entry\.\w+|user\w*)\}}[^`]*`"
 
+        # Pattern 3: Concatenation with user-controlled variables
+        # Matches: element.innerHTML = "<span>" + message + "</span>"
+        # Matches: element.innerHTML = something + entry.field + other
+        # Matches: element.innerHTML = prefix + userName + suffix
+        concatenation_pattern = rf"\.{inner_html_prop}\s*=\s*[^;)]*\+\s*(message|entry\.\w+|user\w*)\s*[+;\)]"
+
         unsafe_direct = re.search(direct_assignment_pattern, js_content_filtered, re.IGNORECASE)
         unsafe_template = re.search(template_literal_pattern, js_content_filtered, re.IGNORECASE)
+        unsafe_concat = re.search(concatenation_pattern, js_content_filtered, re.IGNORECASE)
 
-        assert not (unsafe_direct or unsafe_template), (
+        assert not (unsafe_direct or unsafe_template or unsafe_concat), (
             f"SECURITY: {inner_html_prop} must NOT be used with unsanitized user-controlled data to prevent XSS. "
-            f"Found: {(unsafe_direct or unsafe_template).group(0) if (unsafe_direct or unsafe_template) else 'N/A'}. "
+            f"Found: {(unsafe_direct or unsafe_template or unsafe_concat).group(0) if (unsafe_direct or unsafe_template or unsafe_concat) else 'N/A'}. "  # noqa: E501
             f"Use textContent, createElement, or sanitize with DOMPurify.sanitize() first."
         )
 

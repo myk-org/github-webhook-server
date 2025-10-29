@@ -258,6 +258,16 @@ def get_multiple_prs_batch_query(owner: str, name: str, pr_numbers: list[int]) -
         >>> pr_123 = result['pr_123']
         >>> pr_124 = result['pr_124']
     """
+    if not pr_numbers:
+        # Return minimal valid query with repository id when no PRs requested
+        return f"""
+            query {{
+                repository(owner: "{owner}", name: "{name}") {{
+                    id
+                }}
+            }}
+        """
+
     pr_queries = []
     for num in pr_numbers:
         pr_queries.append(f"""

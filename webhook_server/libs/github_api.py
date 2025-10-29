@@ -362,9 +362,10 @@ class GithubWebhook:
                 shutil.rmtree(self.clone_repo_dir, ignore_errors=True)
                 if hasattr(self, "logger"):
                     self.logger.debug(f"Cleaned up temp directory: {self.clone_repo_dir}")
-            except Exception:
-                # Silently ignore cleanup errors in destructor to avoid issues during shutdown
-                pass
+            except OSError as ex:
+                # Log cleanup errors for debugging but don't raise in destructor to avoid issues during shutdown
+                if hasattr(self, "logger"):
+                    self.logger.debug(f"Failed to clean up temp directory {self.clone_repo_dir}: {ex}")
 
     def add_api_users_to_auto_verified_and_merged_users(self) -> None:
         apis_and_tokens = get_apis_and_tokes_from_config(config=self.config)

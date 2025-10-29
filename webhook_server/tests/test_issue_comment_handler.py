@@ -79,19 +79,24 @@ class TestIssueCommentHandler:
         return mock_handler
 
     @pytest.fixture
+    def mock_pr(self) -> Mock:
+        """Create a mock PullRequestWrapper with required attributes."""
+        mock_pull_request = Mock()
+        mock_pull_request.title = "Test PR"
+        mock_pull_request.number = 123
+        return mock_pull_request
+
+    @pytest.fixture
     def issue_comment_handler(self, mock_github_webhook: Mock, mock_owners_file_handler: Mock) -> IssueCommentHandler:
         """Create an IssueCommentHandler instance with mocked dependencies."""
         return IssueCommentHandler(mock_github_webhook, mock_owners_file_handler)
 
     @pytest.mark.asyncio
-    async def test_process_comment_webhook_data_edited_action(self, issue_comment_handler: IssueCommentHandler) -> None:
+    async def test_process_comment_webhook_data_edited_action(
+        self, issue_comment_handler: IssueCommentHandler, mock_pr: Mock
+    ) -> None:
         """Test processing comment webhook data when action is edited."""
         issue_comment_handler.hook_data["action"] = "edited"
-
-        # Create a mock PullRequestWrapper with required attributes
-        mock_pr = Mock()
-        mock_pr.title = "Test PR"
-        mock_pr.number = 123
 
         with patch.object(issue_comment_handler, "user_commands", new_callable=AsyncMock) as mock_user_commands:
             await issue_comment_handler.process_comment_webhook_data(mock_pr)
@@ -99,15 +104,10 @@ class TestIssueCommentHandler:
 
     @pytest.mark.asyncio
     async def test_process_comment_webhook_data_deleted_action(
-        self, issue_comment_handler: IssueCommentHandler
+        self, issue_comment_handler: IssueCommentHandler, mock_pr: Mock
     ) -> None:
         """Test processing comment webhook data when action is deleted."""
         issue_comment_handler.hook_data["action"] = "deleted"
-
-        # Create a mock PullRequestWrapper with required attributes
-        mock_pr = Mock()
-        mock_pr.title = "Test PR"
-        mock_pr.number = 123
 
         with patch.object(issue_comment_handler, "user_commands", new_callable=AsyncMock) as mock_user_commands:
             await issue_comment_handler.process_comment_webhook_data(mock_pr)
@@ -115,15 +115,10 @@ class TestIssueCommentHandler:
 
     @pytest.mark.asyncio
     async def test_process_comment_webhook_data_welcome_message(
-        self, issue_comment_handler: IssueCommentHandler
+        self, issue_comment_handler: IssueCommentHandler, mock_pr: Mock
     ) -> None:
         """Test processing comment webhook data with welcome message."""
         issue_comment_handler.hook_data["comment"]["body"] = "welcome-message-url"
-
-        # Create a mock PullRequestWrapper with required attributes
-        mock_pr = Mock()
-        mock_pr.title = "Test PR"
-        mock_pr.number = 123
 
         with patch.object(issue_comment_handler, "user_commands", new_callable=AsyncMock) as mock_user_commands:
             await issue_comment_handler.process_comment_webhook_data(mock_pr)
@@ -131,15 +126,10 @@ class TestIssueCommentHandler:
 
     @pytest.mark.asyncio
     async def test_process_comment_webhook_data_normal_comment(
-        self, issue_comment_handler: IssueCommentHandler
+        self, issue_comment_handler: IssueCommentHandler, mock_pr: Mock
     ) -> None:
         """Test processing comment webhook data with normal comment."""
         issue_comment_handler.hook_data["comment"]["body"] = "/retest tox"
-
-        # Create a mock PullRequestWrapper with required attributes
-        mock_pr = Mock()
-        mock_pr.title = "Test PR"
-        mock_pr.number = 123
 
         with patch.object(issue_comment_handler, "user_commands", new_callable=AsyncMock) as mock_user_commands:
             await issue_comment_handler.process_comment_webhook_data(mock_pr)
@@ -147,15 +137,10 @@ class TestIssueCommentHandler:
 
     @pytest.mark.asyncio
     async def test_process_comment_webhook_data_multiple_commands(
-        self, issue_comment_handler: IssueCommentHandler
+        self, issue_comment_handler: IssueCommentHandler, mock_pr: Mock
     ) -> None:
         """Test processing comment webhook data with multiple commands."""
         issue_comment_handler.hook_data["comment"]["body"] = "/retest tox\n/assign reviewer"
-
-        # Create a mock PullRequestWrapper with required attributes
-        mock_pr = Mock()
-        mock_pr.title = "Test PR"
-        mock_pr.number = 123
 
         with patch.object(issue_comment_handler, "user_commands", new_callable=AsyncMock) as mock_user_commands:
             await issue_comment_handler.process_comment_webhook_data(mock_pr)

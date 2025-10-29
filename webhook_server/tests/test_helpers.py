@@ -19,6 +19,7 @@ from webhook_server.utils.helpers import (
     get_logger_with_params,
     log_rate_limit,
     run_command,
+    strip_ansi_codes,
 )
 
 # Test tokens for security scanners
@@ -594,3 +595,62 @@ class TestHelpers:
         # CRITICAL: Verify the returned stdout contains the FULL output (not truncated)
         assert long_text in result[1], "Return value should contain full output, not truncated"
         assert len(result[1]) >= 1000, "Return value should have full length output"
+
+    def test_strip_ansi_codes_with_color_codes(self) -> None:
+        """Test strip_ansi_codes removes color codes."""
+        # Red text with reset
+        text = "\x1b[31mRed text\x1b[0m"
+        result = strip_ansi_codes(text)
+        assert result == "Red text"
+        assert "\x1b" not in result
+
+    def test_strip_ansi_codes_with_bold_and_colors(self) -> None:
+        """Test strip_ansi_codes removes bold and color codes."""
+        # Bold + green text + reset
+        text = "\x1b[1m\x1b[32mBold green\x1b[0m"
+        result = strip_ansi_codes(text)
+        assert result == "Bold green"
+        assert "\x1b" not in result
+
+    def test_strip_ansi_codes_without_ansi(self) -> None:
+        """Test strip_ansi_codes with no ANSI codes."""
+        text = "Plain text without ANSI codes"
+        result = strip_ansi_codes(text)
+        assert result == text
+
+    def test_strip_ansi_codes_empty_string(self) -> None:
+        """Test strip_ansi_codes with empty string."""
+        result = strip_ansi_codes("")
+        assert result == ""
+
+    def test_strip_ansi_codes_mixed_text(self) -> None:
+        """Test strip_ansi_codes with mixed ANSI and normal text."""
+        # Simulating tox output with colors
+        text = "\x1b[2mInstalled\x1b[0m packages \x1b[31mERROR\x1b[0m: test failed"
+        result = strip_ansi_codes(text)
+        assert result == "Installed packages ERROR: test failed"
+        assert "\x1b" not in result
+
+    def test_strip_ansi_codes_multiline_with_ansi(self) -> None:
+        """Test strip_ansi_codes with multiline text containing ANSI codes."""
+        text = "\x1b[31mLine 1 error\x1b[0m\n\x1b[32mLine 2 success\x1b[0m\nLine 3 plain"
+        result = strip_ansi_codes(text)
+        assert result == "Line 1 error\nLine 2 success\nLine 3 plain"
+        assert "\x1b" not in result
+
+    def test_strip_ansi_codes_real_tox_output(self) -> None:
+        """Test strip_ansi_codes with realistic tox/pytest output."""
+        # Realistic tox output with various ANSI codes
+        text = (
+            "\x1b[36m\x1b[1mDownloading\x1b[0m\x1b[39m setuptools\n"
+            "\x1b[31munused-code: FAIL ✖ in 22.12 seconds\x1b[39m\n"
+            "\x1b[1m\x1b[35munittests:\x1b[0m\x1b[36m commands[0]\x1b[22m"
+        )
+        result = strip_ansi_codes(text)
+        # Should have no ANSI codes
+        assert "\x1b" not in result
+        # Should preserve actual content
+        assert "Downloading" in result
+        assert "setuptools" in result
+        assert "unused-code: FAIL" in result
+        assert "unittests:" in result

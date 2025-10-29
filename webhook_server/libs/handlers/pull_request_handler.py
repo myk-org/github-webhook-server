@@ -805,7 +805,7 @@ For more information, please refer to the project documentation or contact the m
 
         # Check if this is a cherry-picked PR
         labels = pull_request.get_labels()
-        is_cherry_picked = any(label.name == CHERRY_PICKED_LABEL_PREFIX for label in labels)
+        is_cherry_picked = any(label.name.startswith(CHERRY_PICKED_LABEL_PREFIX) for label in labels)
 
         # Log cherry-pick check details
         self.logger.debug(

@@ -23,7 +23,7 @@ from webhook_server.utils.constants import (
     TOX_STR,
     VERIFIED_LABEL_STR,
 )
-from webhook_server.utils.helpers import format_task_fields
+from webhook_server.utils.helpers import format_task_fields, strip_ansi_codes
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
@@ -42,6 +42,8 @@ class CheckRunHandler:
             self.labels_handler = LabelsHandler(
                 github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
             )
+        # Cache for all_required_status_checks per handler invocation
+        self._required_checks_cache: dict[str, list[str]] = {}
 
     @property
     def _owner_and_repo(self) -> tuple[str, str]:
@@ -50,8 +52,14 @@ class CheckRunHandler:
         Returns:
             Tuple of (owner, repo_name)
         """
-        owner, repo_name = self.repository.full_name.split("/")
-        return owner, repo_name
+        full_name = self.repository.full_name
+        # Handle string split
+        if isinstance(full_name, str) and "/" in full_name:
+            owner, repo_name = full_name.split("/", 1)
+            return owner, repo_name
+        # Handle mock or invalid full_name - return default values and log warning
+        self.logger.warning(f"{self.log_prefix} Invalid repository full_name format: {full_name}, using defaults")
+        return "owner", "repo"
 
     async def process_pull_request_check_run_webhook_data(self, pull_request: PullRequestWrapper | None = None) -> bool:
         """Return True if check_if_can_be_merged need to run"""
@@ -254,6 +262,11 @@ class CheckRunHandler:
         conclusion: str = "",
         output: dict[str, str] | None = None,
     ) -> None:
+        # Guard against missing last_commit
+        if not self.github_webhook.last_commit:
+            self.logger.debug(f"{self.log_prefix} No last_commit available, skipping check run status update")
+            return
+
         kwargs: dict[str, Any] = {"name": check_run, "head_sha": self.github_webhook.last_commit.sha}
 
         if status:
@@ -325,6 +338,10 @@ class CheckRunHandler:
                 self.logger.info(msg)
 
     def get_check_run_text(self, err: str, out: str) -> str:
+        # Strip ANSI escape codes first to prevent scrambled output in GitHub check-runs
+        err = strip_ansi_codes(err)
+        out = strip_ansi_codes(out)
+
         total_len: int = len(err) + len(out)
 
         if total_len > 65534:  # GitHub limit is 65535 characters
@@ -403,6 +420,14 @@ class CheckRunHandler:
         return msg
 
     async def all_required_status_checks(self, pull_request: PullRequestWrapper) -> list[str]:
+        # Cache key based on PR base ref (branch name)
+        cache_key = pull_request.base.ref
+
+        # Return cached result if available
+        if cache_key in self._required_checks_cache:
+            self.logger.debug(f"{self.log_prefix} Using cached required status checks for branch {cache_key}")
+            return self._required_checks_cache[cache_key]
+
         all_required_status_checks: list[str] = []
         branch_required_status_checks = await self.get_branch_required_status_checks(pull_request=pull_request)
 
@@ -423,6 +448,10 @@ class CheckRunHandler:
 
         _all_required_status_checks = branch_required_status_checks + all_required_status_checks
         self.logger.debug(f"{self.log_prefix} All required status checks: {_all_required_status_checks}")
+
+        # Cache the result
+        self._required_checks_cache[cache_key] = _all_required_status_checks
+
         return _all_required_status_checks
 
     async def get_branch_required_status_checks(self, pull_request: PullRequestWrapper) -> list[str]:

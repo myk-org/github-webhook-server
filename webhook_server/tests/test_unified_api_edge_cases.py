@@ -90,35 +90,6 @@ def create_mock_to_thread_simple(rest_client, repo_mock=None, result_mock=None):
     return mock_to_thread
 
 
-def create_mock_to_thread_with_kwargs(rest_client, repo_mock=None, result_mock=None):
-    """
-    Create a mock_to_thread helper that accepts kwargs.
-
-    Args:
-        rest_client: Mock REST client
-        repo_mock: Mock repository object (optional)
-        result_mock: Mock result object (optional)
-
-    Returns:
-        Async function that mocks asyncio.to_thread behavior
-    """
-
-    async def mock_to_thread(_func, *_args, **_kwargs):
-        # Route: REST client -> get repository
-        if _func == rest_client.get_repo:
-            return repo_mock
-        # Route: Repository -> get git tree (recursive=True)
-        elif repo_mock and hasattr(repo_mock, "get_git_tree") and _func == repo_mock.get_git_tree:
-            return result_mock
-        # Route: Lambda function execution
-        elif callable(_func):
-            # Handle lambda functions
-            return _func()
-        return None
-
-    return mock_to_thread
-
-
 # ===== Lazy Initialization Tests =====
 
 
@@ -784,8 +755,8 @@ async def test_get_collaborators(initialized_api, mock_graphql_client):
 @pytest.mark.asyncio
 async def test_get_branch(initialized_api):
     """Test get_branch with GraphQL - returns True if branch exists."""
-    # Mock GraphQL response for existing branch
-    mock_response = {"data": {"repository": {"ref": {"id": "REF_123"}}}}
+    # Mock GraphQL response for existing branch (without "data" wrapper - GraphQLClient.execute returns raw result)
+    mock_response = {"repository": {"ref": {"id": "REF_123"}}}
 
     with patch.object(initialized_api.graphql_client, "execute", return_value=mock_response):
         result = await initialized_api.get_branch("owner", "repo", "main")
@@ -796,8 +767,8 @@ async def test_get_branch(initialized_api):
 @pytest.mark.asyncio
 async def test_get_branch_not_found(initialized_api):
     """Test get_branch with GraphQL - returns False if branch doesn't exist."""
-    # Mock GraphQL response for non-existent branch
-    mock_response = {"data": {"repository": {"ref": None}}}
+    # Mock GraphQL response for non-existent branch (without "data" wrapper - GraphQLClient.execute returns raw result)
+    mock_response = {"repository": {"ref": None}}
 
     with patch.object(initialized_api.graphql_client, "execute", return_value=mock_response):
         result = await initialized_api.get_branch("owner", "repo", "nonexistent")
