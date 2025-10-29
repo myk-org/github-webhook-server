@@ -806,16 +806,25 @@ class TestIssueCommentHandler:
 
     @pytest.mark.asyncio
     async def test_process_retest_command_all_only(self, issue_comment_handler: IssueCommentHandler) -> None:
-        """Test processing retest command with 'all' only."""
+        """Test processing retest command with 'all' only.
+
+        Patches all runners referenced in current_pull_request_supported_retest to ensure
+        fast, deterministic test execution without triggering real runner methods.
+        """
         mock_pull_request = Mock()
         mock_pull_request.id = "PR_kgDOTestId"
         mock_pull_request.number = 123
 
+        # Patch all runners in current_pull_request_supported_retest: ["tox", "pre-commit"]
         with patch.object(issue_comment_handler.runner_handler, "run_tox", new_callable=AsyncMock) as mock_run_tox:
-            await issue_comment_handler.process_retest_command(
-                pull_request=mock_pull_request, command_args="all", reviewed_user="test-user"
-            )
-            mock_run_tox.assert_awaited_once_with(pull_request=mock_pull_request)
+            with patch.object(
+                issue_comment_handler.runner_handler, "run_pre_commit", new_callable=AsyncMock
+            ) as mock_run_pre_commit:
+                await issue_comment_handler.process_retest_command(
+                    pull_request=mock_pull_request, command_args="all", reviewed_user="test-user"
+                )
+                mock_run_tox.assert_awaited_once_with(pull_request=mock_pull_request)
+                mock_run_pre_commit.assert_awaited_once_with(pull_request=mock_pull_request)
 
     @pytest.mark.asyncio
     async def test_process_retest_command_specific_tests(self, issue_comment_handler: IssueCommentHandler) -> None:

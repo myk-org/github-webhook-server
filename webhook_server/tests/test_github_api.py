@@ -853,6 +853,16 @@ class TestGithubWebhook:
         mock_color.return_value = "test-repo"
         mock_get_apis.return_value = []
 
+        # Stub repository_data with expected shape for comprehensive_repository_data optimization
+        # Provides minimal dict structure so GithubWebhook.process() can access
+        # repository_data["collaborators"]["edges"], ["mentionableUsers"]["nodes"], etc.
+        mock_repo_data_stub = {
+            "collaborators": {"edges": []},
+            "mentionableUsers": {"nodes": []},
+            "issues": {"nodes": []},
+            "pullRequests": {"nodes": []},
+        }
+
         # Mock handlers to prevent actual processing
         mock_owners_instance = AsyncMock()
         mock_owners_instance.initialize = AsyncMock(return_value=mock_owners_instance)
@@ -863,6 +873,9 @@ class TestGithubWebhook:
 
         # Create webhook instance
         webhook = GithubWebhook(hook_data=webhook_payload, headers=webhook_headers, logger=Mock())
+
+        # Assign repository_data stub to support optimized path in process()
+        webhook.repository_data = mock_repo_data_stub
 
         # Mock unified_api methods - these should NOT be called for pull_request events
         webhook.unified_api = AsyncMock()

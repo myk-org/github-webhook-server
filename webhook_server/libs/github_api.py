@@ -165,11 +165,17 @@ class GithubWebhook:
             pr_data = self.hook_data["pull_request"]
 
             # Construct PullRequestWrapper directly from webhook payload
+            # CRITICAL: Webhook payload contains REST numeric 'id' but GraphQL mutations need 'node_id'
+            # Transform the payload to use node_id as id for GraphQL compatibility
+            graphql_pr_data = pr_data.copy()
+            if "node_id" in pr_data:
+                graphql_pr_data["id"] = pr_data["node_id"]  # Override numeric id with GraphQL node_id
+
             pull_request = PullRequestWrapper(
-                data=pr_data,  # GraphQL-style data from webhook
+                data=graphql_pr_data,  # GraphQL-compatible data with node_id as id
                 owner=owner,
                 repo_name=repo,
-                webhook_data=pr_data,  # Ensures accurate user.login for bots
+                webhook_data=pr_data,  # Preserve original webhook data for user.login and other fields
             )
 
             # Extract last commit from webhook data (eliminates second API call)

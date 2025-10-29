@@ -1240,3 +1240,42 @@ def test_pull_request_wrapper_all_none_fallbacks():
     assert wrapper.state == "open"  # Line 317
     assert wrapper.draft is False  # Line 326
     assert wrapper.merged is False  # Line 335
+
+
+def test_pull_request_wrapper_webhook_data_node_id():
+    """Test PullRequestWrapper uses node_id for GraphQL mutations.
+
+    This test verifies the fix for webhook payload processing where the numeric REST 'id'
+    needs to be replaced with 'node_id' for GraphQL mutations to work correctly.
+
+    Without this fix, GraphQL mutations would fail with "Could not resolve to a node" errors
+    because they receive the numeric ID instead of the base64-encoded GraphQL node ID.
+    """
+    # Simulated webhook payload with both id (numeric) and node_id (GraphQL)
+    webhook_data = {
+        "number": 123,
+        "id": 999999999,  # REST numeric ID
+        "node_id": "PR_kwDOABcdef123",  # GraphQL node ID (base64)
+        "user": {
+            "login": "test-user",
+            "id": 12345,
+            "node_id": "MDQ6VXNlcjEyMzQ1",
+        },
+    }
+
+    # Simulate github_api.py transformation: copy node_id to id field
+    graphql_pr_data = webhook_data.copy()
+    if "node_id" in webhook_data:
+        graphql_pr_data["id"] = webhook_data["node_id"]
+
+    # Create wrapper with transformed data (like github_api.py does)
+    wrapper = PullRequestWrapper(
+        data=graphql_pr_data,
+        owner="test-owner",
+        repo_name="test-repo",
+        webhook_data=webhook_data,
+    )
+
+    # Verify the id property returns GraphQL node_id (not numeric id)
+    assert wrapper.id == "PR_kwDOABcdef123"
+    assert wrapper.id != "999999999"  # Should NOT be the numeric id

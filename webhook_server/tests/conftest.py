@@ -101,7 +101,11 @@ class Label:
 
 @pytest.fixture(scope="function")
 def pull_request():
-    """Return PullRequestWrapper for GraphQL migration."""
+    """Return PullRequestWrapper for GraphQL migration.
+
+    Uses GraphQL schema field names (e.g., 'isDraft' not 'draft')
+    to ensure test data mirrors actual GitHub GraphQL API responses.
+    """
 
     pr_data = {
         "id": "PR_kgDOTestId",
@@ -111,7 +115,7 @@ def pull_request():
         "state": "OPEN",
         "merged": False,
         "mergeable": "MERGEABLE",
-        "draft": False,
+        "isDraft": False,  # GraphQL schema field name
         "additions": 100,
         "deletions": 50,
         "baseRef": {"name": "main", "target": {"oid": "abc123"}},

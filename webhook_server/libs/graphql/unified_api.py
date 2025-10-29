@@ -1821,7 +1821,7 @@ class UnifiedGitHubAPI:
         repo = await self.get_repository_for_rest_operations(owner, name)
         return await asyncio.to_thread(repo.get_contents, path, ref)
 
-    async def get_git_tree(self, owner: str, name: str, ref: str, recursive: bool = True) -> dict[str, Any]:
+    async def get_git_tree(self, owner: str, name: str, ref: str) -> dict[str, Any]:
         """
         Get git tree.
 
@@ -1832,8 +1832,6 @@ class UnifiedGitHubAPI:
             owner: Repository owner
             name: Repository name
             ref: Git reference (branch, tag, commit SHA)
-            recursive: Get tree recursively (Note: GraphQL doesn't support recursive directly,
-                      returns top-level tree only. For recursive behavior, multiple queries needed)
 
         Returns:
             Tree data (dict with sha, tree entries)

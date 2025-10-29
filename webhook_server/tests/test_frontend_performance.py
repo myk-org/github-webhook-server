@@ -205,9 +205,10 @@ class TestFrontendPerformanceOptimizations:
         unsafe_template = re.search(template_literal_pattern, js_content_filtered, re.IGNORECASE)
         unsafe_concat = re.search(concatenation_pattern, js_content_filtered, re.IGNORECASE)
 
-        assert not (unsafe_direct or unsafe_template or unsafe_concat), (
+        unsafe_match = unsafe_direct or unsafe_template or unsafe_concat
+        assert not unsafe_match, (
             f"SECURITY: {inner_html_prop} must NOT be used with unsanitized user-controlled data to prevent XSS. "
-            f"Found: {(unsafe_direct or unsafe_template or unsafe_concat).group(0) if (unsafe_direct or unsafe_template or unsafe_concat) else 'N/A'}. "  # noqa: E501
+            f"Found: {unsafe_match.group(0) if unsafe_match else 'N/A'}. "
             f"Use textContent, createElement, or sanitize with DOMPurify.sanitize() first."
         )
 

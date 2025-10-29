@@ -59,8 +59,12 @@ class TestLabelsHandler:
 
     @pytest.fixture
     def mock_pull_request(self) -> Mock:
-        """Mock pull request object."""
-        mock = Mock(spec=PullRequest)
+        """Mock pull request object.
+
+        No spec to allow test code to dynamically add attributes
+        like update_labels that aren't in the PullRequest spec.
+        """
+        mock = Mock()
         mock.id = "PR_kgDOTestId"
         mock.number = 123
         return mock
