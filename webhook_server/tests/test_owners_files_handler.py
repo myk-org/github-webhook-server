@@ -5,7 +5,6 @@ import yaml
 from github.GithubException import GithubException
 
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler, OwnersFileNotInitializedError
-from webhook_server.tests.conftest import ContentFile
 
 
 class TestOwnersFileHandler:
@@ -70,35 +69,27 @@ class TestOwnersFileHandler:
         }
 
     @pytest.fixture
-    def mock_content_files(self) -> dict[str, ContentFile]:
+    def mock_content_files(self) -> dict[str, str]:
         """Create mock content files for different OWNERS files."""
         return {
-            "OWNERS": ContentFile(
-                yaml.dump({
-                    "approvers": ["root_approver1", "root_approver2"],
-                    "reviewers": ["root_reviewer1", "root_reviewer2"],
-                })
-            ),
-            "folder1/OWNERS": ContentFile(
-                yaml.dump({
-                    "approvers": ["folder1_approver1", "folder1_approver2"],
-                    "reviewers": ["folder1_reviewer1", "folder1_reviewer2"],
-                })
-            ),
-            "folder2/OWNERS": ContentFile(yaml.dump({})),
-            "folder/folder4/OWNERS": ContentFile(
-                yaml.dump({
-                    "approvers": ["folder4_approver1", "folder4_approver2"],
-                    "reviewers": ["folder4_reviewer1", "folder4_reviewer2"],
-                })
-            ),
-            "folder5/OWNERS": ContentFile(
-                yaml.dump({
-                    "root-approvers": False,
-                    "approvers": ["folder5_approver1", "folder5_approver2"],
-                    "reviewers": ["folder5_reviewer1", "folder5_reviewer2"],
-                })
-            ),
+            "OWNERS": yaml.dump({
+                "approvers": ["root_approver1", "root_approver2"],
+                "reviewers": ["root_reviewer1", "root_reviewer2"],
+            }),
+            "folder1/OWNERS": yaml.dump({
+                "approvers": ["folder1_approver1", "folder1_approver2"],
+                "reviewers": ["folder1_reviewer1", "folder1_reviewer2"],
+            }),
+            "folder2/OWNERS": yaml.dump({}),
+            "folder/folder4/OWNERS": yaml.dump({
+                "approvers": ["folder4_approver1", "folder4_approver2"],
+                "reviewers": ["folder4_reviewer1", "folder4_reviewer2"],
+            }),
+            "folder5/OWNERS": yaml.dump({
+                "root-approvers": False,
+                "approvers": ["folder5_approver1", "folder5_approver2"],
+                "reviewers": ["folder5_reviewer1", "folder5_reviewer2"],
+            }),
         }
 
     @pytest.mark.asyncio
@@ -228,23 +219,23 @@ class TestOwnersFileHandler:
     @pytest.mark.asyncio
     async def test_get_file_content(self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock) -> None:
         """Test _get_file_content method."""
-        mock_content = ContentFile("test content")
+        mock_content = "test content"
         owners_file_handler.repository.full_name = "test/repo"
-        owners_file_handler.github_webhook.unified_api.get_contents = AsyncMock(return_value=mock_content)
+        owners_file_handler.github_webhook.unified_api.get_file_contents = AsyncMock(return_value=mock_content)
 
         result = await owners_file_handler._get_file_content("test/path", mock_pull_request)
 
         assert result == (mock_content, "test/path")
-        owners_file_handler.github_webhook.unified_api.get_contents.assert_called_once()
+        owners_file_handler.github_webhook.unified_api.get_file_contents.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_file_content_list_result(
         self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
     ) -> None:
-        """Test _get_file_content when repository returns a list."""
-        mock_content = ContentFile("test content")
+        """Test _get_file_content returns string from GraphQL API."""
+        mock_content = "test content"
         owners_file_handler.repository.full_name = "test/repo"
-        owners_file_handler.github_webhook.unified_api.get_contents = AsyncMock(return_value=[mock_content])
+        owners_file_handler.github_webhook.unified_api.get_file_contents = AsyncMock(return_value=mock_content)
 
         result = await owners_file_handler._get_file_content("test/path", mock_pull_request)
 
@@ -256,13 +247,13 @@ class TestOwnersFileHandler:
         owners_file_handler: OwnersFileHandler,
         mock_pull_request: Mock,
         mock_tree: dict,
-        mock_content_files: dict[str, ContentFile],
+        mock_content_files: dict[str, str],
     ) -> None:
         owners_file_handler.repository.full_name = "test/repo"
 
         owners_file_handler.github_webhook.unified_api.get_git_tree = AsyncMock(return_value=mock_tree)
-        owners_file_handler.github_webhook.unified_api.get_contents = AsyncMock(
-            side_effect=lambda _o, _n, path, _ref: mock_content_files.get(path, ContentFile(""))
+        owners_file_handler.github_webhook.unified_api.get_file_contents = AsyncMock(
+            side_effect=lambda _o, _n, path, _ref: mock_content_files.get(path, "")
         )
         result = await owners_file_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
         expected = {
@@ -303,18 +294,16 @@ class TestOwnersFileHandler:
         }
 
         mock_content_files = {
-            "OWNERS": ContentFile(yaml.dump({"approvers": ["root1"], "reviewers": ["root2"]})),
-            "src/OWNERS": ContentFile(yaml.dump({"approvers": ["src1"], "reviewers": ["src2"]})),
-            "src/backend/OWNERS": ContentFile(yaml.dump({"approvers": ["backend1"], "reviewers": ["backend2"]})),
-            "src/backend/handlers/OWNERS": ContentFile(
-                yaml.dump({"approvers": ["handler1"], "reviewers": ["handler2"]})
-            ),
+            "OWNERS": yaml.dump({"approvers": ["root1"], "reviewers": ["root2"]}),
+            "src/OWNERS": yaml.dump({"approvers": ["src1"], "reviewers": ["src2"]}),
+            "src/backend/OWNERS": yaml.dump({"approvers": ["backend1"], "reviewers": ["backend2"]}),
+            "src/backend/handlers/OWNERS": yaml.dump({"approvers": ["handler1"], "reviewers": ["handler2"]}),
         }
 
         owners_file_handler.repository.full_name = "test/repo"
         owners_file_handler.github_webhook.unified_api.get_git_tree = AsyncMock(return_value=nested_tree)
-        owners_file_handler.github_webhook.unified_api.get_contents = AsyncMock(
-            side_effect=lambda _o, _n, path, _ref: mock_content_files.get(path, ContentFile(""))
+        owners_file_handler.github_webhook.unified_api.get_file_contents = AsyncMock(
+            side_effect=lambda _o, _n, path, _ref: mock_content_files.get(path, "")
         )
 
         result = await owners_file_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
@@ -338,8 +327,8 @@ class TestOwnersFileHandler:
         mock_tree = {"tree": [{"type": "blob", "path": f"file{i}/OWNERS"} for i in range(1001)]}
         owners_file_handler.repository.full_name = "test/repo"
         owners_file_handler.github_webhook.unified_api.get_git_tree = AsyncMock(return_value=mock_tree)
-        owners_file_handler.github_webhook.unified_api.get_contents = AsyncMock(
-            return_value=ContentFile(yaml.dump({"approvers": [], "reviewers": []}))
+        owners_file_handler.github_webhook.unified_api.get_file_contents = AsyncMock(
+            return_value=yaml.dump({"approvers": [], "reviewers": []})
         )
         owners_file_handler.logger.error = Mock()
         result = await owners_file_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
@@ -358,8 +347,8 @@ class TestOwnersFileHandler:
         mock_tree = {"tree": [{"type": "blob", "path": f"file{i}/OWNERS"} for i in range(10)]}
         custom_handler.repository.full_name = "test/repo"
         custom_handler.github_webhook.unified_api.get_git_tree = AsyncMock(return_value=mock_tree)
-        custom_handler.github_webhook.unified_api.get_contents = AsyncMock(
-            return_value=ContentFile(yaml.dump({"approvers": [], "reviewers": []}))
+        custom_handler.github_webhook.unified_api.get_file_contents = AsyncMock(
+            return_value=yaml.dump({"approvers": [], "reviewers": []})
         )
         custom_handler.logger.error = Mock()
 
@@ -380,8 +369,8 @@ class TestOwnersFileHandler:
         mock_tree = {"tree": [{"type": "blob", "path": "OWNERS"}]}
         owners_file_handler.repository.full_name = "test/repo"
         owners_file_handler.github_webhook.unified_api.get_git_tree = AsyncMock(return_value=mock_tree)
-        mock_content = ContentFile("invalid: yaml: content: [")
-        owners_file_handler.github_webhook.unified_api.get_contents = AsyncMock(return_value=mock_content)
+        mock_content = "invalid: yaml: content: ["
+        owners_file_handler.github_webhook.unified_api.get_file_contents = AsyncMock(return_value=mock_content)
         owners_file_handler.logger.exception = Mock()
         result = await owners_file_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
         assert result == {}
@@ -394,8 +383,8 @@ class TestOwnersFileHandler:
         mock_tree = {"tree": [{"type": "blob", "path": "OWNERS"}]}
         owners_file_handler.repository.full_name = "test/repo"
         owners_file_handler.github_webhook.unified_api.get_git_tree = AsyncMock(return_value=mock_tree)
-        mock_content = ContentFile(yaml.dump({"approvers": "not_a_list"}))
-        owners_file_handler.github_webhook.unified_api.get_contents = AsyncMock(return_value=mock_content)
+        mock_content = yaml.dump({"approvers": "not_a_list"})
+        owners_file_handler.github_webhook.unified_api.get_file_contents = AsyncMock(return_value=mock_content)
         owners_file_handler.logger.warning = Mock()
         result = await owners_file_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
         assert result == {}
@@ -410,9 +399,9 @@ class TestOwnersFileHandler:
         owners_file_handler.repository.full_name = "test/repo"
         owners_file_handler.github_webhook.unified_api.get_git_tree = AsyncMock(return_value=mock_tree)
 
-        # Make get_contents raise a specific exception type
+        # Make get_file_contents raise a specific exception type
         test_exception = FileNotFoundError("OWNERS file not found")
-        owners_file_handler.github_webhook.unified_api.get_contents = AsyncMock(side_effect=test_exception)
+        owners_file_handler.github_webhook.unified_api.get_file_contents = AsyncMock(side_effect=test_exception)
         owners_file_handler.logger.error = Mock()
 
         result = await owners_file_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
@@ -638,19 +627,17 @@ class TestOwnersFileHandler:
             side_effect=GithubException(404, "Not found"),
         ):
             await owners_file_handler.assign_reviewers(mock_pull_request)
-            # Verify create_issue_comment was called for the error
+            # Verify add_pr_comment was called for the error
             # Method doesn't fail but posts error comment via unified_api
-            mock_add_comment = owners_file_handler.github_webhook.unified_api.create_issue_comment
+            mock_add_comment = owners_file_handler.github_webhook.unified_api.add_pr_comment
             assert mock_add_comment.call_count == 1
             # Check the error message was included - call_args is (args, kwargs)
             call_args = mock_add_comment.call_args
-            # Arguments are: owner, repo, number, body
-            assert call_args[0][0] == "test-owner"  # owner
-            assert call_args[0][1] == "test-repo"  # repo
-            assert call_args[0][2] == 123  # PR number
+            # Arguments are: pull_request, body
+            assert call_args[0][0] == mock_pull_request  # pull_request
             # Format: "Failed to assign reviewers reviewer1: [GithubException]"
-            assert "Failed to assign reviewers reviewer1" in call_args[0][3]
-            assert "GithubException" in call_args[0][3]
+            assert "Failed to assign reviewers reviewer1" in call_args[0][1]
+            assert "GithubException" in call_args[0][1]
 
     @pytest.mark.asyncio
     async def test_is_user_valid_to_run_commands_valid_user(

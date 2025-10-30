@@ -135,11 +135,17 @@ async def test_get_all_repository_approvers_and_reviewers(
         tree_obj = repo.get_git_tree(ref, recursive)
         return {"tree": tree_obj.tree}  # Convert Tree object to dict
 
-    async def get_contents_wrapper(_owner, _repo, path, ref):
-        return repo.get_contents(path, ref)
+    async def get_file_contents_wrapper(_owner, _repo, path, ref):
+        content_file = repo.get_contents(path, ref)
+        # get_file_contents should return decoded string, not ContentFile
+        # decoded_content is already a string in conftest Repository
+        decoded = content_file.decoded_content
+        if isinstance(decoded, bytes):
+            return decoded.decode("utf-8")
+        return decoded
 
     process_github_webhook.unified_api.get_git_tree = get_tree_wrapper
-    process_github_webhook.unified_api.get_contents = get_contents_wrapper
+    process_github_webhook.unified_api.get_file_contents = get_file_contents_wrapper
     read_owners_result = await owners_file_handler.get_all_repository_approvers_and_reviewers(pull_request=pull_request)
     assert read_owners_result == owners_file_handler.all_repository_approvers_and_reviewers
 

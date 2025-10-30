@@ -11,7 +11,7 @@ import aiohttp
 from gql import Client, gql
 from gql.transport.aiohttp import AIOHTTPTransport
 from gql.transport.exceptions import (
-    TransportConnectionFailed,
+    TransportError,
     TransportQueryError,
     TransportServerError,
 )
@@ -282,7 +282,7 @@ class GraphQLClient:
 
                 raise GraphQLError(f"GraphQL query failed: {error_msg}") from error
 
-            except TransportConnectionFailed as error:
+            except TransportError as error:
                 # Handle connection closed errors - recreate client and retry
                 error_msg = str(error)
                 if attempt < self.retry_count - 1:

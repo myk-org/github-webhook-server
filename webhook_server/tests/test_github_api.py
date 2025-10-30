@@ -289,8 +289,8 @@ class TestGithubWebhook:
         webhook.unified_api.get_pull_request_files = AsyncMock(return_value=[Mock(filename="test.py")])
         # Return dict format for GraphQL compatibility
         webhook.unified_api.get_git_tree = AsyncMock(return_value={"tree": [{"path": "OWNERS", "type": "blob"}]})
-        webhook.unified_api.get_contents = AsyncMock(
-            return_value=Mock(decoded_content=b"approvers:\\n  - user1\\nreviewers:\\n  - user2")
+        webhook.unified_api.get_file_contents = AsyncMock(
+            return_value="approvers:\\n  - user1\\nreviewers:\\n  - user2"
         )
         webhook.unified_api.add_assignees_by_login = AsyncMock()
 
@@ -316,16 +316,9 @@ class TestGithubWebhook:
         webhook.unified_api.get_pull_request = AsyncMock(return_value=mock_pr)
         webhook.unified_api.get_last_commit = AsyncMock(return_value=mock_commit)
 
-        with (
-            patch.object(webhook.repository, "get_git_tree", return_value=mock_tree),
-            patch.object(
-                webhook.repository,
-                "get_contents",
-                return_value=Mock(decoded_content=b"approvers:\n  - user1\nreviewers:\n  - user2"),
-            ),
-        ):
-            await webhook.process()
-            mock_process_pr.assert_called_once()
+        # No need to patch repository methods anymore - unified_api is already mocked
+        await webhook.process()
+        mock_process_pr.assert_called_once()
 
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
@@ -408,8 +401,8 @@ class TestGithubWebhook:
         webhook.unified_api.get_pull_request_files = AsyncMock(return_value=[Mock(filename="test.py")])
         # Return dict format for GraphQL compatibility
         webhook.unified_api.get_git_tree = AsyncMock(return_value={"tree": [{"path": "OWNERS", "type": "blob"}]})
-        webhook.unified_api.get_contents = AsyncMock(
-            return_value=Mock(decoded_content=b"approvers:\\n  - user1\\nreviewers:\\n  - user2")
+        webhook.unified_api.get_file_contents = AsyncMock(
+            return_value="approvers:\\n  - user1\\nreviewers:\\n  - user2"
         )
 
         # Mock get_pull_request to return a valid pull request object
@@ -434,16 +427,9 @@ class TestGithubWebhook:
         webhook.unified_api.get_pull_request = AsyncMock(return_value=mock_pr)
         webhook.unified_api.get_last_commit = AsyncMock(return_value=mock_commit)
 
-        with (
-            patch.object(webhook.repository, "get_git_tree", return_value=mock_tree),
-            patch.object(
-                webhook.repository,
-                "get_contents",
-                return_value=Mock(decoded_content=b"approvers:\n  - user1\nreviewers:\n  - user2"),
-            ),
-        ):
-            await webhook.process()
-            mock_process_comment.assert_called_once()
+        # No need to patch repository methods anymore - unified_api is already mocked
+        await webhook.process()
+        mock_process_comment.assert_called_once()
 
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")

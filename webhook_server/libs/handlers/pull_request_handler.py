@@ -742,9 +742,9 @@ For more information, please refer to the project documentation or contact the m
             except (GraphQLAuthenticationError, GraphQLRateLimitError):
                 # Re-raise critical authentication and rate-limit errors
                 raise
-            except (GraphQLError, GithubException) as ex:
+            except (GraphQLError, GithubException):
                 # Catch API-layer exceptions; log with exception details
-                self.logger.exception(f"{self.log_prefix} Exception while setting auto merge: {ex}")
+                self.logger.exception(f"{self.log_prefix} Exception while setting auto merge")
 
         self.logger.step(  # type: ignore[attr-defined]
             f"{self.log_prefix} {format_task_fields('pr_handler', 'automerge', 'completed')} "

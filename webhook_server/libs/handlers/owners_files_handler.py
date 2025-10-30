@@ -6,10 +6,9 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import yaml
-from github.ContentFile import ContentFile
 from github.GithubException import GithubException
 from github.Repository import Repository
-from gql.transport.exceptions import TransportConnectionFailed, TransportQueryError, TransportServerError
+from gql.transport.exceptions import TransportError, TransportQueryError, TransportServerError
 
 from webhook_server.libs.graphql.graphql_client import GraphQLError
 from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
@@ -49,7 +48,9 @@ class OwnersFileHandler:
         """
         parts = self.repository.full_name.split("/", 1)
         if len(parts) != 2:
-            raise ValueError(f"Invalid repository full_name format: {self.repository.full_name}")
+            raise ValueError(  # noqa: TRY003
+                f"Invalid repository full_name format: {self.repository.full_name}"
+            )
         return parts[0], parts[1]
 
     async def initialize(self, pull_request: PullRequestWrapper) -> "OwnersFileHandler":
@@ -64,6 +65,13 @@ class OwnersFileHandler:
 
         # Use pre-fetched repository data from webhook processing (no API calls)
         # Convert raw GraphQL dict data to objects with .login and .permissions attributes
+        # Fallback to fetching if repository_data is not available (edge case)
+        if not hasattr(self.github_webhook, "repository_data") or not self.github_webhook.repository_data:
+            owner, repo_name = self._get_owner_and_repo()
+            self.github_webhook.repository_data = await self.unified_api.get_comprehensive_repository_data(
+                owner, repo_name
+            )
+
         collaborators_data = self.github_webhook.repository_data["collaborators"]["edges"]
         self._repository_collaborators = [
             SimpleNamespace(
@@ -166,18 +174,29 @@ class OwnersFileHandler:
 
         return True
 
-    async def _get_file_content(self, content_path: str, pull_request: PullRequestWrapper) -> tuple[ContentFile, str]:
+    async def _get_file_content(self, content_path: str, pull_request: PullRequestWrapper) -> tuple[str, str]:
+        """Fetch OWNERS file content using GraphQL API.
+
+        Args:
+            content_path: Path to OWNERS file in repository
+            pull_request: Pull request wrapper with base ref information
+
+        Returns:
+            Tuple of (file_content_string, content_path)
+
+        Raises:
+            OwnersFileNotFoundError: If file not found at path
+        """
         self.logger.debug(f"{self.log_prefix} Get OWNERS file from {content_path}")
 
         owner, repo_name = self._get_owner_and_repo()
-        _path = await self.unified_api.get_contents(owner, repo_name, content_path, pull_request.base.ref)
+        # Use GraphQL get_file_contents which returns decoded string directly
+        file_content = await self.unified_api.get_file_contents(owner, repo_name, content_path, pull_request.base.ref)
 
-        if isinstance(_path, list):
-            if not _path:
-                raise OwnersFileNotFoundError(f"Not found at {content_path} in ref {pull_request.base.ref}")
-            _path = _path[0]
+        if not file_content:
+            raise OwnersFileNotFoundError(f"Not found at {content_path} in ref {pull_request.base.ref}")
 
-        return _path, content_path
+        return file_content, content_path
 
     async def get_all_repository_approvers_and_reviewers(
         self, pull_request: PullRequestWrapper
@@ -214,11 +233,11 @@ class OwnersFileHandler:
                 exc_info = (type(result), result, result.__traceback__)
                 self.logger.error(f"{self.log_prefix} Failed to fetch OWNERS file", exc_info=exc_info)
                 continue
-            # Type narrowing: result is tuple[ContentFile, str] after exception check
-            _path, _content_path = result  # type: ignore[misc]
+            # Type narrowing: result is tuple[str, str] after exception check (file_content, content_path)
+            file_content, _content_path = result  # type: ignore[misc]
 
             try:
-                content = yaml.safe_load(_path.decoded_content)
+                content = yaml.safe_load(file_content)
                 if self._validate_owners_content(content, _content_path):
                     parent_path = str(Path(_content_path).parent)
                     if not parent_path:
@@ -404,7 +423,7 @@ class OwnersFileHandler:
         except (
             GithubException,
             GraphQLError,
-            TransportConnectionFailed,
+            TransportError,
             TransportQueryError,
             TransportServerError,
         ) as ex:
@@ -419,23 +438,14 @@ class OwnersFileHandler:
             try:
                 error_type = type(ex).__name__
                 # Sanitized message - no exception details in PR comment
-                # Extract owner/repo/number from pull_request for unified_api
-                if isinstance(pull_request, PullRequestWrapper):
-                    owner = pull_request.baseRepository.owner.login
-                    repo = pull_request.baseRepository.name
-                    number = pull_request.number
-                else:  # REST PullRequest
-                    owner = pull_request.base.repo.owner.login
-                    repo = pull_request.base.repo.name
-                    number = pull_request.number
-
-                await self.github_webhook.unified_api.create_issue_comment(
-                    owner, repo, number, f"Failed to assign reviewers {', '.join(reviewers_to_request)}: [{error_type}]"
+                # Use add_pr_comment since we already have PullRequestWrapper - avoids extra GraphQL lookup
+                await self.github_webhook.unified_api.add_pr_comment(
+                    pull_request, f"Failed to assign reviewers {', '.join(reviewers_to_request)}: [{error_type}]"
                 )
             except (
                 GithubException,
                 GraphQLError,
-                TransportConnectionFailed,
+                TransportError,
                 TransportQueryError,
                 TransportServerError,
             ):

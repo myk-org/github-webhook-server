@@ -276,7 +276,8 @@ def test_get_api_type_for_operation():
     # REST only operations
     assert api.get_api_type_for_operation("check_runs") == APIType.REST
     assert api.get_api_type_for_operation("create_webhook") == APIType.REST
-    assert api.get_api_type_for_operation("get_issues") == APIType.REST
+    # get_issues now uses GraphQL for better performance
+    assert api.get_api_type_for_operation("get_issues") == APIType.GRAPHQL
 
     # GraphQL preferred operations
     assert api.get_api_type_for_operation("get_pull_request") == APIType.GRAPHQL

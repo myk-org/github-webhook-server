@@ -21,7 +21,7 @@ from github import Auth, Github, GithubException
 from github.Commit import Commit
 from github.PullRequest import PullRequest as RestPullRequest
 from github.Repository import Repository as RestRepository
-from gql.transport.exceptions import TransportConnectionFailed, TransportQueryError, TransportServerError
+from gql.transport.exceptions import TransportError, TransportQueryError, TransportServerError
 
 from webhook_server.libs.config import Config
 from webhook_server.libs.graphql.graphql_builders import MutationBuilder, QueryBuilder
@@ -767,7 +767,7 @@ class UnifiedGitHubAPI:
             except (GraphQLAuthenticationError, GraphQLRateLimitError):
                 # Re-raise critical errors
                 raise
-            except (GraphQLError, TransportConnectionFailed, TransportQueryError, TransportServerError) as ex:
+            except (GraphQLError, TransportError, TransportQueryError, TransportServerError) as ex:
                 # Log and skip this reviewer if conversion fails
                 self.logger.warning(f"Failed to get GraphQL node ID for reviewer '{username}': {ex}")
                 continue
@@ -894,7 +894,7 @@ class UnifiedGitHubAPI:
 
         try:
             result = await self.graphql_client.execute(mutation, variables)  # type: ignore[union-attr]
-        except (GraphQLError, TransportQueryError, TransportConnectionFailed, TransportServerError):
+        except (GraphQLError, TransportQueryError, TransportError, TransportServerError):
             self.logger.exception("Failed to add comment to %s", subject_id)
             raise
         else:
@@ -1920,14 +1920,15 @@ class UnifiedGitHubAPI:
 
         Note:
             Uses dynamic query building to traverse tree to configurable depth.
-            Default: 9 levels (max safe value for GitHub's 25 depth limit).
-            Configure via: graphql.tree-max-depth in config.yaml
+            Default: 20 levels (balanced for monorepos while respecting GitHub's 25 depth limit).
+            Configure via: graphql.tree-max-depth in config.yaml (max: 25 per GitHub limits).
         """
         if not self.graphql_client:
             await self.initialize()
 
-        # Get max depth from config (default: 9 levels - max safe value for GitHub's 25 depth limit)
-        max_depth = self.config.get_value("graphql.tree-max-depth", return_on_none=9)
+        # Get max depth from config (default: 20 levels - balanced for large monorepos)
+        # Increase from 9 to 20 to better handle deeply nested OWNERS files in monorepos
+        max_depth = self.config.get_value("graphql.tree-max-depth", return_on_none=20)
 
         # Build recursive query with configured depth
         entries_fragment = self._build_tree_entries_fragment(0, max_depth)
@@ -2148,7 +2149,6 @@ class UnifiedGitHubAPI:
             "create_webhook",
             "repository_settings",
             "branch_protection",  # Partial - some in GraphQL
-            "get_issues",  # REST-backed, see TODO in method for GraphQL migration consideration
         }
 
         # Operations better in GraphQL (fewer API calls)
@@ -2165,6 +2165,7 @@ class UnifiedGitHubAPI:
             "create_issue",
             "get_rate_limit",
             "get_user_id",  # Aligned with actual method name
+            "get_issues",  # Uses GraphQL implementation
         }
 
         if operation in rest_only:
