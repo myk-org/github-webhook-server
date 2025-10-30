@@ -579,42 +579,18 @@ class UnifiedGitHubAPI:
 
     async def add_pr_comment(
         self,
-        owner: str | PullRequestWrapper,
-        repo: str | None = None,
-        pull_request: PullRequestWrapper | str | None = None,
-        body: str | None = None,
+        pull_request: PullRequestWrapper,
+        body: str,
     ) -> None:
         """Add comment to PR via GraphQL.
 
         Uses: GraphQL
         Reason: addComment mutation is fully supported
-
-        Supports two calling patterns:
-        1. add_pr_comment(owner, repo, pull_request, body) - full signature
-        2. add_pr_comment(pull_request, body=...) - test compatibility signature with keyword body
         """
-        # Handle both calling patterns
-        # First check if owner is PullRequestWrapper (pattern 2)
-        if isinstance(owner, PullRequestWrapper) or (hasattr(owner, "id") and hasattr(owner, "number")):
-            # Pattern 2: add_pr_comment(pull_request, body=...)
-            actual_pull_request: PullRequestWrapper = owner  # type: ignore[assignment]
-            # Check if body was passed as keyword argument
-            if body is not None:
-                actual_body: str = body
-            else:
-                # Body passed as positional argument in repo position
-                actual_body = repo  # type: ignore[assignment]
-        else:
-            # Pattern 1: add_pr_comment(owner, repo, pull_request, body)
-            actual_pull_request = pull_request  # type: ignore[assignment]
-            actual_body = body  # type: ignore[assignment]
-
-        # Use GraphQL mutation with PR node ID
-        pr_id = actual_pull_request.id
-        if actual_body:
-            self.logger.debug(f"Adding PR comment with pr_id={pr_id}, body length={len(actual_body)}")
-            await self.add_comment(pr_id, actual_body)
-            self.logger.info("Successfully added PR comment")
+        pr_id = pull_request.id
+        self.logger.debug(f"Adding PR comment with pr_id={pr_id}, body length={len(body)}")
+        await self.add_comment(pr_id, body)
+        self.logger.info("Successfully added PR comment")
 
     async def update_pr_title(self, pull_request: PullRequestWrapper, title: str) -> None:
         """Update PR title via unified_api."""

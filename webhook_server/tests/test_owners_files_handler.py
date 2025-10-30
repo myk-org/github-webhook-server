@@ -728,11 +728,11 @@ class TestOwnersFileHandler:
                 result = await owners_file_handler.is_user_valid_to_run_commands(mock_pull_request, "invalid_user")
 
                 assert result is False
-                # The method calls unified_api.add_pr_comment(owner, repo, pr, comment)
+                # The method calls unified_api.add_pr_comment(pr, comment)
                 assert mock_add_comment.call_count == 1
-                # Arguments are: owner, repo, pull_request, comment_message
+                # Arguments are: pull_request, comment_message
                 call_args = mock_add_comment.call_args
-                assert "invalid_user is not allowed to run retest commands" in call_args[0][3]
+                assert "invalid_user is not allowed to run retest commands" in call_args[0][1]
 
     @pytest.mark.asyncio
     async def test_valid_users_to_run_commands(self, owners_file_handler: OwnersFileHandler) -> None:

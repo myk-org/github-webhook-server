@@ -477,8 +477,7 @@ Maintainers:
                     return True
 
             self.logger.debug(f"{self.log_prefix} {reviewed_user} is not in {valid_users}")
-            owner, repo = self._get_owner_and_repo()
-            await self.github_webhook.unified_api.add_pr_comment(owner, repo, pull_request, comment_msg)
+            await self.github_webhook.unified_api.add_pr_comment(pull_request, comment_msg)
             return False
 
         return True

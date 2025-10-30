@@ -134,8 +134,7 @@ class CheckRunHandler:
                             f"but auto-merge encountered an error.\n\n"
                             f"Please merge manually or contact the repository maintainers for assistance."
                         )
-                        owner, repo = self._owner_and_repo
-                        await self.github_webhook.unified_api.add_pr_comment(owner, repo, pull_request, failure_msg)
+                        await self.github_webhook.unified_api.add_pr_comment(pull_request, failure_msg)
                         return False
 
             else:

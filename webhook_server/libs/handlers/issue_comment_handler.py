@@ -167,10 +167,7 @@ class IssueCommentHandler:
             missing_command_arg_comment_msg: str = f"{_command} requires an argument"
             error_msg: str = f"{self.log_prefix} {missing_command_arg_comment_msg}"
             self.logger.debug(error_msg)
-            owner, repo = self._owner_and_repo
-            await self.github_webhook.unified_api.add_pr_comment(
-                owner, repo, pull_request, missing_command_arg_comment_msg
-            )
+            await self.github_webhook.unified_api.add_pr_comment(pull_request, missing_command_arg_comment_msg)
             return
 
         if _command == AUTOMERGE_LABEL_STR:
@@ -180,8 +177,7 @@ class IssueCommentHandler:
             ):
                 msg = "Only maintainers or approvers can set pull request to auto-merge"
                 self.logger.debug(f"{self.log_prefix} {msg}")
-                owner, repo = self._owner_and_repo
-                await self.github_webhook.unified_api.add_pr_comment(owner, repo, pull_request, msg)
+                await self.github_webhook.unified_api.add_pr_comment(pull_request, msg)
                 return
 
             await self.labels_handler._add_label(pull_request=pull_request, label=AUTOMERGE_LABEL_STR)
@@ -195,9 +191,8 @@ class IssueCommentHandler:
             await self._add_reviewer_by_user_comment(pull_request=pull_request, reviewer=_args)
 
         elif _command == COMMAND_ADD_ALLOWED_USER_STR:
-            owner, repo = self._owner_and_repo
             await self.github_webhook.unified_api.add_pr_comment(
-                owner, repo, pull_request, f"{_args} is now allowed to run commands"
+                pull_request, f"{_args} is now allowed to run commands"
             )
 
         elif _command == COMMAND_ASSIGN_REVIEWERS_STR:
@@ -229,8 +224,7 @@ class IssueCommentHandler:
                 msg = f"No {BUILD_AND_PUSH_CONTAINER_STR} configured for this repository"
                 error_msg = f"{self.log_prefix} {msg}"
                 self.logger.debug(error_msg)
-                owner, repo = self._owner_and_repo
-                await self.github_webhook.unified_api.add_pr_comment(owner, repo, pull_request, msg)
+                await self.github_webhook.unified_api.add_pr_comment(pull_request, msg)
 
         elif _command == WIP_STR:
             wip_for_title: str = f"{WIP_STR.upper()}:"
@@ -316,8 +310,7 @@ class IssueCommentHandler:
 
         _err = f"not adding reviewer {reviewer} by user comment, {reviewer} is not part of contributors"
         self.logger.debug(f"{self.log_prefix} {_err}")
-        owner, repo = self._owner_and_repo
-        await self.github_webhook.unified_api.add_pr_comment(owner, repo, pull_request, _err)
+        await self.github_webhook.unified_api.add_pr_comment(pull_request, _err)
 
     async def process_cherry_pick_command(
         self, pull_request: PullRequestWrapper, command_args: str, reviewed_user: str
@@ -346,10 +339,7 @@ class IssueCommentHandler:
 
         if _non_exits_target_branches_msg:
             self.logger.info(f"{self.log_prefix} {_non_exits_target_branches_msg}")
-            owner, repo = self._owner_and_repo
-            await self.github_webhook.unified_api.add_pr_comment(
-                owner, repo, pull_request, _non_exits_target_branches_msg
-            )
+            await self.github_webhook.unified_api.add_pr_comment(pull_request, _non_exits_target_branches_msg)
 
         if _exits_target_branches:
             # Optimization: Use webhook data directly - merged status is immutable once set
@@ -363,8 +353,7 @@ Cherry-pick requested for PR: `{pull_request.title}` by user `{reviewed_user}`
 Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automatic cherry-pick once the PR is merged
 """
                 self.logger.info(f"{self.log_prefix} {info_msg}")
-                owner, repo = self._owner_and_repo
-                await self.github_webhook.unified_api.add_pr_comment(owner, repo, pull_request, info_msg)
+                await self.github_webhook.unified_api.add_pr_comment(pull_request, info_msg)
                 for _cp_label in cp_labels:
                     await self.labels_handler._add_label(pull_request=pull_request, label=_cp_label)
             else:
@@ -413,8 +402,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             msg = "No test defined to retest"
             error_msg = f"{self.log_prefix} {msg}."
             self.logger.debug(error_msg)
-            owner, repo = self._owner_and_repo
-            await self.github_webhook.unified_api.add_pr_comment(owner, repo, pull_request, msg)
+            await self.github_webhook.unified_api.add_pr_comment(pull_request, msg)
             return
 
         if "all" in command_args:
@@ -422,8 +410,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                 msg = "Invalid command. `all` cannot be used with other tests"
                 error_msg = f"{self.log_prefix} {msg}."
                 self.logger.debug(error_msg)
-                owner, repo = self._owner_and_repo
-                await self.github_webhook.unified_api.add_pr_comment(owner, repo, pull_request, msg)
+                await self.github_webhook.unified_api.add_pr_comment(pull_request, msg)
                 return
 
             else:
@@ -444,8 +431,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             msg = f"No {' '.join(_not_supported_retests)} configured for this repository"
             error_msg = f"{self.log_prefix} {msg}."
             self.logger.debug(error_msg)
-            owner, repo = self._owner_and_repo
-            await self.github_webhook.unified_api.add_pr_comment(owner, repo, pull_request, msg)
+            await self.github_webhook.unified_api.add_pr_comment(pull_request, msg)
 
         if _supported_retests:
             tasks: list[Coroutine[Any, Any, Any] | Task[Any]] = []

@@ -15,7 +15,10 @@ fix = true
 output-format = "grouped"
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "B", "UP", "PLC0415"]
+select = ["E", "F", "W", "I", "B", "UP", "PLC0415", "ARG"]
+
+[tool.ruff.lint.per-file-ignores]
+"webhook_server/tests/*" = ["ARG"]
 
 [tool.ruff.format]
 exclude = [".git", ".venv", ".mypy_cache", ".tox", "__pycache__"]

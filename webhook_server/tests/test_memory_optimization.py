@@ -96,7 +96,7 @@ class TestStreamingMemoryOptimization:
         start_time = time.perf_counter()
 
         entries_processed = 0
-        for _ in self.controller._stream_log_entries(chunk_size=500, max_entries=5000):
+        for _ in self.controller._stream_log_entries(max_entries=5000):
             entries_processed += 1
             if entries_processed >= 2000:  # Stop after processing 2000 entries
                 break

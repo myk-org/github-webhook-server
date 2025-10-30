@@ -627,12 +627,10 @@ class TestIssueCommentHandler:
         # Should add a comment explaining the user is not a contributor via unified_api
         issue_comment_handler.github_webhook.unified_api.add_pr_comment.assert_awaited_once()
         call_args = issue_comment_handler.github_webhook.unified_api.add_pr_comment.call_args
-        # Verify the arguments: owner, repo, PR object, message
-        assert call_args[0][0] == "test-owner"
-        assert call_args[0][1] == "test-repo"
-        assert call_args[0][2] == mock_pull_request
+        # Verify the arguments: PR object, message (owner/repo removed from signature)
+        assert call_args[0][0] == mock_pull_request
         # Verify the comment contains the expected error message
-        comment_text = call_args[0][3]
+        comment_text = call_args[0][1]
         assert "reviewer1" in comment_text
         assert "not part of contributors" in comment_text
 
@@ -660,12 +658,10 @@ class TestIssueCommentHandler:
             assert issue_comment_handler.github_webhook.unified_api.get_branch.call_count == 2
             issue_comment_handler.github_webhook.unified_api.add_pr_comment.assert_awaited_once()
             call_args = issue_comment_handler.github_webhook.unified_api.add_pr_comment.call_args
-            # Verify the arguments: owner, repo, PR object, message
-            assert call_args[0][0] == "test-owner"
-            assert call_args[0][1] == "test-repo"
-            assert call_args[0][2] == mock_pull_request
+            # Verify the arguments: PR object, message
+            assert call_args[0][0] == mock_pull_request
             # Verify the comment contains cherry-pick information
-            comment_text = call_args[0][3]
+            comment_text = call_args[0][1]
             assert "Cherry-pick requested" in comment_text
             assert "test-user" in comment_text
             assert mock_add_label.await_count == 2
@@ -720,9 +716,9 @@ class TestIssueCommentHandler:
                 )
                 # Should comment about non-existent branches
                 mock_comment.assert_awaited_once()
-                # Arguments are: owner, repo, pull_request, body
+                # Arguments are: pull_request, body
                 call_args = mock_comment.call_args
-                comment_body = call_args[0][3]
+                comment_body = call_args[0][1]
                 assert "branch1" in comment_body
                 assert "does not exist" in comment_body
 

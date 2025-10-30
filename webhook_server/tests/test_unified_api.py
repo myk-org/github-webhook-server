@@ -939,9 +939,7 @@ class TestUnifiedAPIPRMethods:
             mock_gql_class.return_value = mock_gql
 
             await api.initialize()
-            await api.add_pr_comment(
-                owner="test-owner", repo="test-repo", pull_request=mock_pr_wrapper, body="Test comment"
-            )
+            await api.add_pr_comment(pull_request=mock_pr_wrapper, body="Test comment")
 
             # Verify GraphQL mutation was called
             mock_gql.execute.assert_called_once()

@@ -583,9 +583,7 @@ class LogViewerController:
             "steps": timeline_steps,
         }
 
-    def _stream_log_entries(
-        self, max_files: int = 10, chunk_size: int = 1000, max_entries: int = 50000
-    ) -> Iterator[LogEntry]:
+    def _stream_log_entries(self, max_files: int = 10, max_entries: int = 50000) -> Iterator[LogEntry]:
         """Stream log entries from configured log files in chunks to reduce memory usage.
 
         This replaces _load_log_entries() to prevent memory exhaustion from loading
@@ -593,7 +591,6 @@ class LogViewerController:
 
         Args:
             max_files: Maximum number of log files to process (newest first)
-            chunk_size: Number of entries to yield per chunk from each file
             max_entries: Maximum total entries to yield (safety limit)
 
         Yields:

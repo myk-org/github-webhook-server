@@ -131,8 +131,7 @@ class PullRequestHandler:
             if hook_action in ("opened", "ready_for_review"):
                 self.logger.info(f"{self.log_prefix} WELCOME: Triggering welcome message for action={hook_action}")
                 welcome_msg = self._prepare_welcome_comment()
-                owner, repo = self._owner_and_repo
-                await self.github_webhook.unified_api.add_pr_comment(owner, repo, pull_request, welcome_msg)
+                await self.github_webhook.unified_api.add_pr_comment(pull_request, welcome_msg)
             else:
                 self.logger.debug(f"{self.log_prefix} WELCOME: Skipping welcome message for action={hook_action}")
 
