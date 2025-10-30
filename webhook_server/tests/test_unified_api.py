@@ -1035,46 +1035,45 @@ class TestUnifiedAPIPRMethods:
 
     @pytest.mark.asyncio
     async def test_request_pr_reviews_single_reviewer(self, api, mock_pr_wrapper):
-        """Test request_pr_reviews with single reviewer."""
+        """Test request_pr_reviews with single reviewer (batched resolution)."""
         with (
             patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
             patch("webhook_server.libs.graphql.unified_api.Github"),
         ):
             mock_gql = AsyncMock()
-            # Mock get_user_id call
-            mock_gql.execute = AsyncMock(
-                side_effect=[
-                    {"user": {"id": "U_kgDOABcD1M"}},  # get_user_id
-                    {"requestReviews": {"pullRequest": {"id": "PR_123"}}},  # request_reviews
-                ]
-            )
+            # Mock execute_batch for batched user ID resolution
+            mock_gql.execute_batch = AsyncMock(return_value=[{"user": {"id": "U_kgDOABcD1M"}}])
+            # Mock execute for request_reviews mutation
+            mock_gql.execute = AsyncMock(return_value={"requestReviews": {"pullRequest": {"id": "PR_123"}}})
             mock_gql.close = AsyncMock()
             mock_gql_class.return_value = mock_gql
 
             await api.initialize()
             await api.request_pr_reviews(pull_request=mock_pr_wrapper, reviewers=["reviewer1"])
 
-            # Should call GraphQL twice: get_user_id + request_reviews
-            assert mock_gql.execute.call_count == 2
+            # Should call execute_batch once (batched user resolution) + execute once (request_reviews)
+            assert mock_gql.execute_batch.call_count == 1
+            assert mock_gql.execute.call_count == 1
 
         await api.close()
 
     @pytest.mark.asyncio
     async def test_request_pr_reviews_multiple_reviewers(self, api, mock_pr_wrapper):
-        """Test request_pr_reviews with multiple reviewers."""
+        """Test request_pr_reviews with multiple reviewers (batched resolution)."""
         with (
             patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
             patch("webhook_server.libs.graphql.unified_api.Github"),
         ):
             mock_gql = AsyncMock()
-            # Mock get_user_id calls for each reviewer
-            mock_gql.execute = AsyncMock(
-                side_effect=[
+            # Mock execute_batch for batched user ID resolution (returns list of results)
+            mock_gql.execute_batch = AsyncMock(
+                return_value=[
                     {"user": {"id": "U_kgDOABcD1M1"}},  # reviewer1
                     {"user": {"id": "U_kgDOABcD1M2"}},  # reviewer2
-                    {"requestReviews": {"pullRequest": {"id": "PR_123"}}},  # request_reviews
                 ]
             )
+            # Mock execute for request_reviews mutation
+            mock_gql.execute = AsyncMock(return_value={"requestReviews": {"pullRequest": {"id": "PR_123"}}})
             mock_gql.close = AsyncMock()
             mock_gql_class.return_value = mock_gql
 
@@ -1084,8 +1083,9 @@ class TestUnifiedAPIPRMethods:
                 reviewers=["reviewer1", "reviewer2"],
             )
 
-            # Should call GraphQL 3 times: 2x get_user_id + 1x request_reviews
-            assert mock_gql.execute.call_count == 3
+            # Should call execute_batch once (batched user resolution) + execute once (request_reviews)
+            assert mock_gql.execute_batch.call_count == 1
+            assert mock_gql.execute.call_count == 1
 
         await api.close()
 
@@ -1221,7 +1221,7 @@ class TestUnifiedAPIPRMethods:
 
 @pytest.mark.asyncio
 async def test_request_pr_reviews_with_graphql_errors(mock_logger, mock_config):
-    """Test request_pr_reviews logs warning when GraphQL user lookup fails."""
+    """Test request_pr_reviews logs warning when batch and sequential GraphQL user lookup fails."""
     api = UnifiedGitHubAPI(token="test_token", logger=mock_logger, config=mock_config)  # pragma: allowlist secret
 
     with (
@@ -1236,7 +1236,9 @@ async def test_request_pr_reviews_with_graphql_errors(mock_logger, mock_config):
 
         await api.initialize()
 
-        # Mock get_user_id to fail with GraphQL error
+        # Mock execute_batch to fail (triggers fallback to sequential)
+        mock_graphql.execute_batch = AsyncMock(side_effect=GraphQLError("Batch failed"))
+        # Mock get_user_id to fail in sequential fallback
         api.get_user_id = AsyncMock(side_effect=GraphQLError("User not found"))
 
         pr_wrapper = MagicMock()
@@ -1244,14 +1246,16 @@ async def test_request_pr_reviews_with_graphql_errors(mock_logger, mock_config):
 
         await api.request_pr_reviews(pr_wrapper, ["testuser"])
 
-        # Verify warning was logged about failed GraphQL lookup
-        mock_logger.warning.assert_called()
-        assert "Failed to get GraphQL node ID for reviewer 'testuser'" in str(mock_logger.warning.call_args)
+        # Verify warnings were logged about both batch failure and sequential failure
+        assert mock_logger.warning.call_count >= 2
+        log_messages = [str(call) for call in mock_logger.warning.call_args_list]
+        assert any("Batch user ID resolution failed" in msg for msg in log_messages)
+        assert any("Failed to get GraphQL node ID for reviewer 'testuser'" in msg for msg in log_messages)
 
 
 @pytest.mark.asyncio
 async def test_request_pr_reviews_with_auth_error_raises(mock_logger, mock_config):
-    """Test request_pr_reviews re-raises authentication errors."""
+    """Test request_pr_reviews re-raises authentication errors from batch operation."""
     api = UnifiedGitHubAPI(token="test_token", logger=mock_logger, config=mock_config)  # pragma: allowlist secret
 
     with (
@@ -1263,8 +1267,8 @@ async def test_request_pr_reviews_with_auth_error_raises(mock_logger, mock_confi
 
         await api.initialize()
 
-        # Mock get_user_id to fail with auth error
-        api.get_user_id = AsyncMock(side_effect=GraphQLAuthenticationError("Bad credentials"))
+        # Mock execute_batch to fail with auth error (critical error, should re-raise)
+        mock_graphql.execute_batch = AsyncMock(side_effect=GraphQLAuthenticationError("Bad credentials"))
 
         pr_wrapper = MagicMock()
         pr_wrapper.id = "PR_test123"
@@ -1301,7 +1305,7 @@ async def test_request_pr_reviews_with_invalid_node_id_in_dict(mock_logger, mock
 
 @pytest.mark.asyncio
 async def test_request_pr_reviews_with_graphql_failure_skips_reviewer(mock_logger, mock_config):
-    """Test request_pr_reviews skips reviewer when GraphQL user lookup fails."""
+    """Test request_pr_reviews skips reviewer when batch and sequential GraphQL lookup fails."""
     api = UnifiedGitHubAPI(token="test_token", logger=mock_logger, config=mock_config)  # pragma: allowlist secret
 
     with (
@@ -1313,7 +1317,9 @@ async def test_request_pr_reviews_with_graphql_failure_skips_reviewer(mock_logge
 
         await api.initialize()
 
-        # Mock get_user_id to fail with transport error
+        # Mock execute_batch to fail (triggers fallback to sequential)
+        mock_graphql.execute_batch = AsyncMock(side_effect=TransportQueryError("Network error"))
+        # Mock get_user_id to fail in sequential fallback
         api.get_user_id = AsyncMock(side_effect=TransportQueryError("Network error"))
 
         pr_wrapper = MagicMock()
@@ -1322,18 +1328,20 @@ async def test_request_pr_reviews_with_graphql_failure_skips_reviewer(mock_logge
         # Pass reviewer object with login
         reviewer = MagicMock()
         reviewer.login = "testuser"
-        reviewer.id = "U_kgDOABcD1M"
+        reviewer.id = "U_kgDOABcD1M"  # Invalid user node ID - should be treated as username
 
         await api.request_pr_reviews(pr_wrapper, [reviewer])
 
-        # Should log warning and skip reviewer
-        mock_logger.warning.assert_called()
-        assert "Failed to get GraphQL node ID for reviewer 'testuser'" in str(mock_logger.warning.call_args)
+        # Should log warnings and skip reviewer
+        assert mock_logger.warning.call_count >= 2
+        log_messages = [str(call) for call in mock_logger.warning.call_args_list]
+        assert any("Batch user ID resolution failed" in msg for msg in log_messages)
+        assert any("Failed to get GraphQL node ID for reviewer 'testuser'" in msg for msg in log_messages)
 
 
 @pytest.mark.asyncio
 async def test_request_pr_reviews_skips_on_graphql_failure(mock_logger, mock_config):
-    """Test request_pr_reviews logs and skips reviewer when GraphQL lookup fails."""
+    """Test request_pr_reviews logs and skips reviewer when batch and sequential GraphQL lookup fails."""
     api = UnifiedGitHubAPI(token="test_token", logger=mock_logger, config=mock_config)  # pragma: allowlist secret
 
     with (
@@ -1345,7 +1353,9 @@ async def test_request_pr_reviews_skips_on_graphql_failure(mock_logger, mock_con
 
         await api.initialize()
 
-        # Mock get_user_id to fail with server error
+        # Mock execute_batch to fail (triggers fallback to sequential)
+        mock_graphql.execute_batch = AsyncMock(side_effect=TransportServerError("Server error"))
+        # Mock get_user_id to fail in sequential fallback
         api.get_user_id = AsyncMock(side_effect=TransportServerError("Server error"))
 
         pr_wrapper = MagicMock()
@@ -1358,14 +1368,16 @@ async def test_request_pr_reviews_skips_on_graphql_failure(mock_logger, mock_con
 
         await api.request_pr_reviews(pr_wrapper, [reviewer])
 
-        # Should log warning and skip reviewer
-        mock_logger.warning.assert_called()
-        assert "Failed to get GraphQL node ID for reviewer 'testuser'" in str(mock_logger.warning.call_args)
+        # Should log warnings and skip reviewer
+        assert mock_logger.warning.call_count >= 2
+        log_messages = [str(call) for call in mock_logger.warning.call_args_list]
+        assert any("Batch user ID resolution failed" in msg for msg in log_messages)
+        assert any("Failed to get GraphQL node ID for reviewer 'testuser'" in msg for msg in log_messages)
 
 
 @pytest.mark.asyncio
 async def test_request_pr_reviews_graphql_lookup_fails(mock_logger, mock_config):
-    """Test request_pr_reviews when GraphQL user lookup fails."""
+    """Test request_pr_reviews when batch and sequential GraphQL user lookup fails."""
     api = UnifiedGitHubAPI(token="test_token", logger=mock_logger, config=mock_config)  # pragma: allowlist secret
 
     with (
@@ -1377,18 +1389,22 @@ async def test_request_pr_reviews_graphql_lookup_fails(mock_logger, mock_config)
 
         await api.initialize()
 
-        # Mock GraphQL user lookup to fail
+        # Mock execute_batch to fail (triggers fallback to sequential)
+        mock_graphql.execute_batch = AsyncMock(side_effect=GraphQLError("Batch failed"))
+        # Mock GraphQL user lookup to fail in sequential fallback
         api.get_user_id = AsyncMock(side_effect=GraphQLError("GraphQL failed"))
 
         pr_wrapper = MagicMock()
         pr_wrapper.id = "PR_test123"
 
-        # Should log warning but not raise
+        # Should log warnings but not raise
         await api.request_pr_reviews(pr_wrapper, ["testuser"])
 
-        # Verify warning was logged
-        mock_logger.warning.assert_called()
-        assert "Failed to get GraphQL node ID for reviewer 'testuser'" in str(mock_logger.warning.call_args)
+        # Verify warnings were logged
+        assert mock_logger.warning.call_count >= 2
+        log_messages = [str(call) for call in mock_logger.warning.call_args_list]
+        assert any("Batch user ID resolution failed" in msg for msg in log_messages)
+        assert any("Failed to get GraphQL node ID for reviewer 'testuser'" in msg for msg in log_messages)
 
 
 @pytest.mark.asyncio
@@ -1547,3 +1563,120 @@ async def test_get_open_pull_requests_with_details_empty_result(unified_api):
         mock_gql.execute.assert_called_once()
 
     await unified_api.close()
+
+
+@pytest.mark.asyncio
+async def test_get_pulls_from_commit_fallback_warning(mock_logger, mock_config):
+    """Test get_pulls_from_commit logs warning when commit cannot be processed."""
+    api = UnifiedGitHubAPI(token="test_token", logger=mock_logger, config=mock_config)  # pragma: allowlist secret
+
+    with (
+        patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
+        patch("webhook_server.libs.graphql.unified_api.Github"),
+    ):
+        mock_gql = AsyncMock()
+        mock_gql_class.return_value = mock_gql
+
+        await api.initialize()
+
+        # Create mock commit without sha and without get_pulls method
+        # This will skip both GraphQL and REST paths and trigger warning
+        mock_commit = MagicMock(spec=[])  # Empty spec - no attributes/methods
+        # No owner/name provided -> should trigger warning path (lines 2213-2217)
+
+        result = await api.get_pulls_from_commit(mock_commit)
+
+        # Should return empty list
+        assert result == []
+
+        # Should log warning about unable to get PRs
+        warning_calls = [str(call) for call in mock_logger.warning.call_args_list]
+        assert any("Unable to get PRs for commit" in msg for msg in warning_calls)
+
+
+@pytest.mark.asyncio
+async def test_get_contributors_fallback_to_query(mock_logger, mock_config):
+    """Test get_contributors falls back to individual query when repository_data is None."""
+    api = UnifiedGitHubAPI(token="test_token", logger=mock_logger, config=mock_config)  # pragma: allowlist secret
+
+    mock_contributors = [
+        {"id": "U_1", "login": "user1", "name": "User One"},
+        {"id": "U_2", "login": "user2", "name": "User Two"},
+    ]
+
+    with (
+        patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
+        patch("webhook_server.libs.graphql.unified_api.Github"),
+    ):
+        mock_gql = AsyncMock()
+        mock_gql.execute = AsyncMock(return_value={"repository": {"mentionableUsers": {"nodes": mock_contributors}}})
+        mock_gql_class.return_value = mock_gql
+
+        # Initialize without graphql_client first (triggers auto-init path)
+        api.graphql_client = None
+        api._initialized = False
+
+        result = await api.get_contributors("test-owner", "test-repo", repository_data=None)
+
+        # Should have initialized
+        assert api._initialized
+
+        # Should return contributors
+        assert result == mock_contributors
+
+        # Should have called GraphQL
+        mock_gql.execute.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_get_collaborators_fallback_to_query(mock_logger, mock_config):
+    """Test get_collaborators falls back to individual query when repository_data is None."""
+    api = UnifiedGitHubAPI(token="test_token", logger=mock_logger, config=mock_config)  # pragma: allowlist secret
+
+    mock_collaborators = [
+        {"permission": "ADMIN", "node": {"id": "U_1", "login": "admin1"}},
+        {"permission": "WRITE", "node": {"id": "U_2", "login": "collaborator1"}},
+    ]
+
+    with (
+        patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
+        patch("webhook_server.libs.graphql.unified_api.Github"),
+    ):
+        mock_gql = AsyncMock()
+        mock_gql.execute = AsyncMock(return_value={"repository": {"collaborators": {"edges": mock_collaborators}}})
+        mock_gql_class.return_value = mock_gql
+
+        # Initialize without graphql_client first (triggers auto-init path)
+        api.graphql_client = None
+        api._initialized = False
+
+        result = await api.get_collaborators("test-owner", "test-repo", repository_data=None)
+
+        # Should have initialized
+        assert api._initialized
+
+        # Should return collaborators
+        assert result == mock_collaborators
+
+        # Should have called GraphQL
+        mock_gql.execute.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_get_user_id_graphql_error(mock_logger, mock_config):
+    """Test get_user_id propagates GraphQL errors."""
+    api = UnifiedGitHubAPI(token="test_token", logger=mock_logger, config=mock_config)  # pragma: allowlist secret
+
+    with (
+        patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
+        patch("webhook_server.libs.graphql.unified_api.Github"),
+    ):
+        mock_gql = AsyncMock()
+        mock_gql.execute = AsyncMock(side_effect=GraphQLError("User not found"))
+        mock_gql_class.return_value = mock_gql
+
+        await api.initialize()
+
+        # Should raise GraphQL error
+        with pytest.raises(GraphQLError, match="User not found"):
+            await api.get_user_id("nonexistent_user")

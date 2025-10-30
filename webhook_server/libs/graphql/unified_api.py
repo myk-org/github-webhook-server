@@ -83,6 +83,11 @@ class UnifiedGitHubAPI:
         self._initialized = False
         self._init_lock = asyncio.Lock()  # Protect against concurrent initialization
 
+        # Instance-level caches for performance optimization
+        self._user_id_cache: dict[str, str] = {}  # login -> user_id mapping
+        # (owner, name, label_name) -> label_id mapping
+        self._label_id_cache: dict[tuple[str, str, str], str | None] = {}
+
     async def initialize(self) -> None:
         """Initialize both GraphQL and REST clients."""
         async with self._init_lock:
@@ -266,7 +271,13 @@ class UnifiedGitHubAPI:
             await self.initialize()
 
         # Read configurable query limits from config
-        config = Config(repository=f"{owner}/{name}")
+        # Reuse self.config if available, only create new if needed
+        if self.config:
+            config = self.config
+            config.repository = f"{owner}/{name}"
+        else:
+            config = Config(repository=f"{owner}/{name}")
+
         query_limits = {
             "collaborators": config.get_value("graphql.query-limits.collaborators", return_on_none=100),
             "contributors": config.get_value("graphql.query-limits.contributors", return_on_none=100),
@@ -713,8 +724,12 @@ class UnifiedGitHubAPI:
 
         Reviewer ID Handling:
         - GraphQL node IDs (U_kgDOA...): Used directly
-        - Usernames (str): Converted to GraphQL node IDs via get_user_id()
+        - Usernames (str): Converted to GraphQL node IDs via batched get_user_id()
         - Invalid/unknown formats: Logged and skipped
+
+        Performance Optimization:
+        - Batches username->ID resolution for parallel execution
+        - Reduces N sequential API calls to 1 batch request
 
         Args:
             pull_request: PR object (PullRequestWrapper)
@@ -726,6 +741,7 @@ class UnifiedGitHubAPI:
         """
         pr_id = pull_request.id
         reviewer_ids = []
+        usernames_to_resolve = []
 
         for reviewer in reviewers:
             # Skip numeric IDs (not supported in pure GraphQL mode)
@@ -760,17 +776,51 @@ class UnifiedGitHubAPI:
                 self.logger.warning(f"Could not resolve username from reviewer: {reviewer}")
                 continue
 
-            # Convert username to GraphQL node ID
+            # Collect usernames for batched resolution
+            usernames_to_resolve.append(username)
+
+        # Batch resolve all usernames to node IDs in parallel
+        if usernames_to_resolve:
+            # Build queries for usernames (not already node IDs)
+            queries: list[tuple[str, dict[str, Any] | None]] = [
+                (
+                    """
+                    query($login: String!) {
+                        user(login: $login) {
+                            id
+                        }
+                    }
+                    """,
+                    {"login": username},
+                )
+                for username in usernames_to_resolve
+            ]
+
             try:
-                user_id = await self.get_user_id(username)
-                reviewer_ids.append(user_id)
+                # Execute batch - all queries in parallel
+                results = await self.execute_batch(queries)
+
+                # Map results back to reviewer IDs
+                for username, result in zip(usernames_to_resolve, results, strict=True):
+                    if result and result.get("user"):
+                        reviewer_ids.append(result["user"]["id"])
+                    else:
+                        self.logger.warning(f"User not found: {username}")
             except (GraphQLAuthenticationError, GraphQLRateLimitError):
                 # Re-raise critical errors
                 raise
             except (GraphQLError, TransportError, TransportQueryError, TransportServerError) as ex:
-                # Log and skip this reviewer if conversion fails
-                self.logger.warning(f"Failed to get GraphQL node ID for reviewer '{username}': {ex}")
-                continue
+                # Log batch failure and fall back to sequential
+                self.logger.warning(f"Batch user ID resolution failed: {ex}, falling back to sequential")
+                for username in usernames_to_resolve:
+                    try:
+                        user_id = await self.get_user_id(username)
+                        reviewer_ids.append(user_id)
+                    except (GraphQLAuthenticationError, GraphQLRateLimitError):
+                        raise
+                    except (GraphQLError, TransportError, TransportQueryError, TransportServerError) as ex:
+                        self.logger.warning(f"Failed to get GraphQL node ID for reviewer '{username}': {ex}")
+                        continue
 
         # Deduplicate and request reviews
         if reviewer_ids:
@@ -1196,6 +1246,11 @@ class UnifiedGitHubAPI:
         Uses: GraphQL
         Reason: User query is fully supported
 
+        Performance Optimization:
+        - Instance-level cache for login->user_id mappings
+        - Huge win for review/assignee flows with repeat users
+        - Cache persists for lifetime of UnifiedGitHubAPI instance
+
         Args:
             login: User login name
 
@@ -1205,6 +1260,10 @@ class UnifiedGitHubAPI:
         Raises:
             GraphQLError: If user not found or GraphQL query fails
         """
+        # Check cache first
+        if login in self._user_id_cache:
+            return self._user_id_cache[login]
+
         if not self.graphql_client:
             await self.initialize()
 
@@ -1217,7 +1276,12 @@ class UnifiedGitHubAPI:
         """
         variables = {"login": login}
         result = await self.graphql_client.execute(query, variables)  # type: ignore[union-attr]
-        return result["user"]["id"]
+        user_id = result["user"]["id"]
+
+        # Cache successful lookup
+        self._user_id_cache[login] = user_id
+
+        return user_id
 
     async def get_label_id(self, owner: str, name: str, label_name: str) -> str | None:
         """
@@ -1225,6 +1289,10 @@ class UnifiedGitHubAPI:
 
         Uses: GraphQL
         Reason: Need node ID for mutations
+
+        Performance Optimization:
+        - Instance-level cache for (owner, name, label_name)->label_id mappings
+        - Cache persists for lifetime of UnifiedGitHubAPI instance
 
         Args:
             owner: Repository owner
@@ -1234,6 +1302,11 @@ class UnifiedGitHubAPI:
         Returns:
             Label node ID or None if not found
         """
+        # Check cache first
+        cache_key = (owner, name, label_name)
+        if cache_key in self._label_id_cache:
+            return self._label_id_cache[cache_key]
+
         if not self.graphql_client:
             await self.initialize()
 
@@ -1249,7 +1322,12 @@ class UnifiedGitHubAPI:
         variables = {"owner": owner, "name": name, "labelName": label_name}
         result = await self.graphql_client.execute(query, variables)  # type: ignore[union-attr]
         label = result["repository"].get("label")
-        return label["id"] if label else None
+        label_id: str | None = label["id"] if label else None
+
+        # Cache successful lookup (including None results to avoid repeated lookups)
+        self._label_id_cache[cache_key] = label_id
+
+        return label_id
 
     async def create_label(self, repository_id: str, name: str, color: str) -> dict[str, Any]:
         """
@@ -1497,6 +1575,70 @@ class UnifiedGitHubAPI:
             except GraphQLError as ex:
                 self.logger.warning(f"Failed to get user ID for assignee '{username}': {ex}")
                 continue
+
+        # Add assignees via GraphQL mutation
+        if assignee_ids:
+            await self.add_assignees(pr_id, assignee_ids)
+
+    async def add_assignees_by_login_with_pr_id(self, pr_id: str, assignees: list[str]) -> None:
+        """
+        Add assignees to a pull request by login name when PR node ID is already known.
+
+        Uses: GraphQL
+        Reason: Optimized version that skips redundant get_pull_request_data call
+
+        Performance Optimization:
+        - Batches assignee username->ID resolution for parallel execution
+        - Reduces N sequential API calls to 1 batch request
+
+        Args:
+            pr_id: PR node ID (already fetched)
+            assignees: List of user logins
+
+        Note:
+            This is an optimization for cases where PR node ID is already available,
+            avoiding an extra GraphQL query compared to add_assignees_by_login.
+        """
+        # Batch resolve all assignees to node IDs in parallel
+        if not assignees:
+            return
+
+        # Build queries for all assignees
+        queries: list[tuple[str, dict[str, Any] | None]] = [
+            (
+                """
+                query($login: String!) {
+                    user(login: $login) {
+                        id
+                    }
+                }
+                """,
+                {"login": username},
+            )
+            for username in assignees
+        ]
+
+        assignee_ids = []
+        try:
+            # Execute batch - all queries in parallel
+            results = await self.execute_batch(queries)
+
+            # Map results back to assignee IDs
+            for username, result in zip(assignees, results, strict=True):
+                if result and result.get("user"):
+                    assignee_ids.append(result["user"]["id"])
+                else:
+                    self.logger.warning(f"User not found: {username}")
+        except (GraphQLError, TransportError, TransportQueryError, TransportServerError) as ex:
+            # Log batch failure and fall back to sequential
+            self.logger.warning(f"Batch assignee ID resolution failed: {ex}, falling back to sequential")
+            for username in assignees:
+                try:
+                    user_id = await self.get_user_id(username)
+                    assignee_ids.append(user_id)
+                except GraphQLError as ex:
+                    self.logger.warning(f"Failed to get user ID for assignee '{username}': {ex}")
+                    continue
 
         # Add assignees via GraphQL mutation
         if assignee_ids:

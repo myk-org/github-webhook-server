@@ -45,6 +45,7 @@ class TestPullRequestHandler:
         mock_webhook.log_prefix = "[TEST]"
         mock_webhook.repository = Mock()
         mock_webhook.repository.full_name = "test-owner/test-repo"
+        mock_webhook.repository_full_name = "test-owner/test-repo"  # Direct attribute for _owner_and_repo property
         mock_webhook.issue_url_for_welcome_msg = "welcome-message-url"
         mock_webhook.parent_committer = "test-user"
         mock_webhook.auto_verified_and_merged_users = ["test-user"]
@@ -56,6 +57,9 @@ class TestPullRequestHandler:
         mock_webhook.set_auto_merge_prs = []
         mock_webhook.auto_merge_enabled = True
         mock_webhook.container_repository = "docker.io/org/repo"
+        # Add config mock for background task delay
+        mock_webhook.config = Mock()
+        mock_webhook.config.get_value = Mock(return_value=30)  # Default delay for post-merge-relabel-delay
         # Add async helper methods
         mock_webhook.add_pr_comment = AsyncMock()
         mock_webhook.update_pr_title = AsyncMock()
@@ -398,7 +402,11 @@ class TestPullRequestHandler:
     async def test_label_all_opened_pull_requests_merge_state_after_merged(
         self, pull_request_handler: PullRequestHandler
     ) -> None:
-        """Test labeling all opened pull requests merge state after merged with batched API."""
+        """Test labeling all opened pull requests merge state after merged with batched API (background task).
+
+        Note: Tests the background method directly since testing background tasks in pytest
+        requires special handling that complicates the test.
+        """
         # Create PullRequestWrapper objects with all data (labels, merge state)
         pr_data_1 = {
             "id": "PR_1",
@@ -425,10 +433,13 @@ class TestPullRequestHandler:
             new=AsyncMock(return_value=[mock_pr1, mock_pr2]),
         ):
             with patch.object(pull_request_handler, "label_pull_request_by_merge_state", new=AsyncMock()) as mock_label:
-                with patch("asyncio.sleep", new=AsyncMock()):
-                    await pull_request_handler.label_all_opened_pull_requests_merge_state_after_merged()
+                with patch("asyncio.sleep", new=AsyncMock()) as mock_sleep:
+                    # Test the background method directly (public method just schedules it)
+                    await pull_request_handler._label_all_opened_pull_requests_background()
                     # Should process both PRs with only 1 API call (not N+1)
                     assert mock_label.await_count == 2
+                    # Verify delay was used (configurable via config, default 30s)
+                    assert mock_sleep.await_count == 1
 
     @pytest.mark.asyncio
     async def test_delete_remote_tag_for_merged_or_closed_pr_with_tag(
@@ -669,14 +680,15 @@ class TestPullRequestHandler:
     async def test_add_pull_request_owner_as_assignee(
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
-        """Test adding pull request owner as assignee."""
+        """Test adding pull request owner as assignee (optimized - uses pr_id directly)."""
         mock_pull_request.user.login = "owner1"
         mock_pull_request.number = 123
+        mock_pull_request.id = "PR_kwDOABC123"  # Mock PR node ID
 
-        # Now it uses unified_api.add_assignees_by_login, not pr.add_to_assignees
+        # Now it uses unified_api.add_assignees_by_login_with_pr_id (optimized method)
         await pull_request_handler.add_pull_request_owner_as_assignee(pull_request=mock_pull_request)
-        pull_request_handler.github_webhook.unified_api.add_assignees_by_login.assert_called_once_with(
-            "test-owner", "test-repo", 123, ["owner1"]
+        pull_request_handler.github_webhook.unified_api.add_assignees_by_login_with_pr_id.assert_called_once_with(
+            "PR_kwDOABC123", ["owner1"]
         )
 
     @pytest.mark.asyncio
@@ -967,6 +979,12 @@ class TestCreateIssueForNewPullRequest:
         webhook.unified_api = Mock()
         # Add repository_id property that returns the value from hook_data
         webhook.repository_id = webhook.hook_data["repository"]["node_id"]
+        # Add repository mock with proper full_name
+        webhook.repository = Mock()
+        webhook.repository.full_name = "owner/test-repo"
+        # Add logger and log_prefix for compatibility
+        webhook.logger = Mock()
+        webhook.log_prefix = "[TEST]"
         return webhook
 
     @pytest.fixture

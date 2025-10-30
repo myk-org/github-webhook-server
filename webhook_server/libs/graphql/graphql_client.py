@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 from datetime import UTC, datetime
 from typing import Any
 
@@ -16,6 +17,8 @@ from gql.transport.exceptions import (
     TransportServerError,
 )
 from graphql import DocumentNode
+
+from webhook_server.libs.graphql.graphql_builders import QueryBuilder
 
 
 class GraphQLError(Exception):
@@ -92,6 +95,7 @@ class GraphQLClient:
         self.retry_count = retry_count
         self.timeout = timeout
         # Clamp batch_concurrency_limit to sane bounds (0 = unlimited, max 100)
+        # Negative values are clamped to 0 (unlimited)
         if batch_concurrency_limit > 0:
             self.batch_concurrency_limit = min(batch_concurrency_limit, 100)
             if batch_concurrency_limit != self.batch_concurrency_limit:
@@ -99,7 +103,8 @@ class GraphQLClient:
                     f"batch_concurrency_limit clamped from {batch_concurrency_limit} to {self.batch_concurrency_limit}"
                 )
         else:
-            self.batch_concurrency_limit = batch_concurrency_limit  # 0 = unlimited
+            # Clamp negative to 0 for explicit "unlimited" intent
+            self.batch_concurrency_limit = max(0, batch_concurrency_limit)
         self._client: Client | None = None
         self._session: Any = None  # Store connected session explicitly (not internal detail)
         self._transport: AIOHTTPTransport | None = None
@@ -226,18 +231,10 @@ class GraphQLClient:
                 if "rate limit" in error_str.lower() or "RATE_LIMITED" in error_str:
                     # Use GraphQL rateLimit query instead of REST /rate_limit for consistency
                     try:
-                        # Use lightweight GraphQL query to get rate limit info
+                        # Use QueryBuilder.get_rate_limit() for consistency
                         # Execute directly with session to bypass retry logic and avoid infinite loop
                         if self._session:
-                            rate_limit_query = gql(
-                                """
-                                query {
-                                    rateLimit {
-                                        resetAt
-                                    }
-                                }
-                                """
-                            )
+                            rate_limit_query = gql(QueryBuilder.get_rate_limit())
                             rate_result = await self._session.execute(rate_limit_query)
                             reset_at = rate_result["rateLimit"]["resetAt"]
                             reset_timestamp = datetime.fromisoformat(reset_at.replace("Z", "+00:00")).timestamp()
@@ -287,10 +284,11 @@ class GraphQLClient:
                 # Handle server errors (5xx) with exponential backoff
                 error_msg = str(error)
                 if attempt < self.retry_count - 1:
-                    wait_seconds = 2**attempt
+                    # Add jitter to reduce retry stampedes under 5xx bursts
+                    wait_seconds = (2**attempt) + random.uniform(0, 1)
                     self.logger.warning(
                         f"SERVER ERROR: GraphQL server error (attempt {attempt + 1}/{self.retry_count}): {error_msg}. "
-                        f"Retrying in {wait_seconds}s...",
+                        f"Retrying in {wait_seconds:.1f}s...",
                     )
                     await asyncio.sleep(wait_seconds)
                     continue  # Retry with exponential backoff
@@ -339,6 +337,7 @@ class GraphQLClient:
 
             except TimeoutError as error:
                 # Explicit timeout handling - NEVER silent!
+                # Catch both builtin TimeoutError and asyncio.TimeoutError from async transports
                 self.logger.exception(
                     f"TIMEOUT: GraphQL query timeout after {self.timeout}s",
                 )

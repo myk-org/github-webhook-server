@@ -84,6 +84,11 @@ properties:
     description: Maximum number of concurrent GraphQL batch operations (default is 10 to protect rate/connection limits, 0 for unlimited)
     default: 10
     minimum: 0
+  post-merge-relabel-delay:
+    type: integer
+    description: Delay in seconds before relabeling open PRs after a PR is merged (default is 30 seconds to allow GitHub to update merge states)
+    default: 30
+    minimum: 0
 
   graphql:
     type: object

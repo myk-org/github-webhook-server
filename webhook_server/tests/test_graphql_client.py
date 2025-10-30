@@ -255,10 +255,10 @@ async def test_batch_concurrency_limit_zero_unlimited(mock_logger):
 
 @pytest.mark.asyncio
 async def test_batch_concurrency_limit_negative_unlimited(mock_logger):
-    """Test batch_concurrency_limit < 0 means unlimited (no semaphore)."""
-    # Test with limit < 0 (unlimited)
+    """Test batch_concurrency_limit < 0 is clamped to 0 (unlimited, no semaphore)."""
+    # Test with limit < 0 - should be clamped to 0 for explicit "unlimited" intent
     client = GraphQLClient(token=TEST_GITHUB_TOKEN, logger=mock_logger, batch_concurrency_limit=-1)
-    assert client.batch_concurrency_limit == -1
+    assert client.batch_concurrency_limit == 0  # Negative values clamped to 0
     assert client._batch_semaphore is None
     mock_logger.warning.assert_not_called()
 

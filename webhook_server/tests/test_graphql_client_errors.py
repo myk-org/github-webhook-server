@@ -154,9 +154,11 @@ async def test_server_error_with_retry(graphql_client, monkeypatch):
     assert mock_session.execute.call_count == 3
     # TransportServerError handler uses exponential backoff (2^0=1s, 2^1=2s)
     assert mock_sleep.call_count == 2  # 2 sleeps between 3 attempts
-    # Verify exponential backoff pattern: 1s, 2s
-    assert mock_sleep.call_args_list[0][0][0] == 1  # First retry: 2^0 = 1s
-    assert mock_sleep.call_args_list[1][0][0] == 2  # Second retry: 2^1 = 2s
+    # Verify exponential backoff pattern with jitter: base + random(0,1)
+    # First retry: 2^0 + jitter = 1s-2s range
+    assert 1.0 <= mock_sleep.call_args_list[0][0][0] <= 2.0
+    # Second retry: 2^1 + jitter = 2s-3s range
+    assert 2.0 <= mock_sleep.call_args_list[1][0][0] <= 3.0
 
 
 @pytest.mark.asyncio

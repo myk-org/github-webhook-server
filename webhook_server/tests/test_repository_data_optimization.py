@@ -35,6 +35,7 @@ def mock_config():
     """Create a mock config."""
     config = Mock()
     config.get_value = Mock(return_value=9)  # For tree-max-depth
+    config.repository = None  # Allow repository attribute to be set dynamically
     return config
 
 
@@ -153,21 +154,16 @@ def mock_comprehensive_data() -> dict[str, Any]:
 
 
 @pytest.mark.asyncio
-async def test_comprehensive_data_default_limits(unified_api, mock_logger, mock_comprehensive_data):
+async def test_comprehensive_data_default_limits(unified_api, mock_logger, mock_comprehensive_data, mock_config):
     """Test get_comprehensive_repository_data uses default limits (100) when config not specified."""
+    # Reset mock_config for this test
+    mock_config.get_value.reset_mock()
+    mock_config.get_value.return_value = 100  # Default limit
+
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
         patch("webhook_server.libs.graphql.unified_api.Github"),
-        patch("webhook_server.libs.graphql.unified_api.Config") as mock_config_class,
     ):
-        # Mock Config to return default values (Config.get_value with return_on_none=100)
-        # The actual code path is: config.get_value('key', return_on_none=100)
-        # When config value is None, return_on_none kicks in and returns 100
-        mock_config = Mock()
-        # Simulate the return_on_none behavior by returning 100 when called
-        mock_config.get_value.return_value = 100
-        mock_config_class.return_value = mock_config
-
         # Mock GraphQL client
         mock_gql = AsyncMock()
         mock_gql.execute = AsyncMock(return_value={"repository": mock_comprehensive_data})
@@ -179,6 +175,7 @@ async def test_comprehensive_data_default_limits(unified_api, mock_logger, mock_
         result = await unified_api.get_comprehensive_repository_data("owner", "repo")
 
         # Verify config calls (4 config lookups for limits)
+        # Since unified_api has self.config set, it reuses it instead of creating new Config
         assert mock_config.get_value.call_count == 4
 
         # Verify GraphQL query used default limits (100)
@@ -196,23 +193,21 @@ async def test_comprehensive_data_default_limits(unified_api, mock_logger, mock_
 
 
 @pytest.mark.asyncio
-async def test_comprehensive_data_custom_limits_from_config(unified_api, mock_comprehensive_data):
+async def test_comprehensive_data_custom_limits_from_config(unified_api, mock_comprehensive_data, mock_config):
     """Test get_comprehensive_repository_data respects custom config limits."""
+    # Reset and configure mock_config with custom limits
+    mock_config.get_value.reset_mock()
+    mock_config.get_value.side_effect = [
+        50,  # collaborators
+        75,  # contributors
+        30,  # issues
+        60,  # pull-requests
+    ]
+
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
         patch("webhook_server.libs.graphql.unified_api.Github"),
-        patch("webhook_server.libs.graphql.unified_api.Config") as mock_config_class,
     ):
-        # Mock Config with custom limits
-        mock_config = Mock()
-        mock_config.get_value.side_effect = [
-            50,  # collaborators
-            75,  # contributors
-            30,  # issues
-            60,  # pull-requests
-        ]
-        mock_config_class.return_value = mock_config
-
         # Mock GraphQL client
         mock_gql = AsyncMock()
         mock_gql.execute = AsyncMock(return_value={"repository": mock_comprehensive_data})
@@ -236,23 +231,21 @@ async def test_comprehensive_data_custom_limits_from_config(unified_api, mock_co
 
 
 @pytest.mark.asyncio
-async def test_comprehensive_data_per_repository_override(unified_api, mock_comprehensive_data):
+async def test_comprehensive_data_per_repository_override(unified_api, mock_comprehensive_data, mock_config):
     """Test per-repository override from .github-webhook-server.yaml."""
+    # Reset and configure mock_config with per-repo overrides
+    mock_config.get_value.reset_mock()
+    mock_config.get_value.side_effect = [
+        200,  # collaborators (per-repo override)
+        150,  # contributors (per-repo override)
+        100,  # issues
+        100,  # pull-requests
+    ]
+
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
         patch("webhook_server.libs.graphql.unified_api.Github"),
-        patch("webhook_server.libs.graphql.unified_api.Config") as mock_config_class,
     ):
-        # Mock Config with per-repo overrides
-        mock_config = Mock()
-        mock_config.get_value.side_effect = [
-            200,  # collaborators (per-repo override)
-            150,  # contributors (per-repo override)
-            100,  # issues
-            100,  # pull-requests
-        ]
-        mock_config_class.return_value = mock_config
-
         # Mock GraphQL client
         mock_gql = AsyncMock()
         mock_gql.execute = AsyncMock(return_value={"repository": mock_comprehensive_data})
@@ -779,6 +772,7 @@ async def test_pull_request_handler_passes_repository_data():
     mock_webhook.log_prefix = "[TEST]"
     mock_webhook.repository = Mock()
     mock_webhook.repository.full_name = "owner/test-repo"
+    mock_webhook.repository_full_name = "owner/test-repo"  # Direct attribute for _owner_and_repo property
     mock_webhook.config = Mock()
     mock_webhook.repository_data = {
         "issues": {

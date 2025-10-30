@@ -80,14 +80,8 @@ class PullRequestHandler:
         Returns:
             Tuple of (owner, repo_name)
         """
-        full_name = self.repository.full_name
-        # Handle string split
-        if isinstance(full_name, str) and "/" in full_name:
-            owner, repo_name = full_name.split("/", 1)
-            return owner, repo_name
-        # Handle mock or invalid full_name - return default values and log warning
-        self.logger.warning(f"Invalid repository full_name format: {full_name}, using defaults")
-        return "owner", "repo"
+        owner, repo_name = self.github_webhook.repository_full_name.split("/", 1)
+        return owner, repo_name
 
     def _log_task_error(self, result: Exception, task_name: str = "") -> None:
         """Log error from async task result.
@@ -425,20 +419,39 @@ For more information, please refer to the project documentation or contact the m
 
         Performance: Uses batched GraphQL query to fetch all open PRs with labels/state
         in a single API call, eliminating N+1 query pattern.
-        """
-        time_sleep = 30
-        self.logger.info(f"{self.log_prefix} Sleep for {time_sleep} seconds before getting all opened PRs")
-        await asyncio.sleep(time_sleep)
 
-        owner, repo_name = self._owner_and_repo
-        # NEW: Single batched GraphQL query gets all open PRs with labels and merge state
-        # Replaces: get_open_pull_requests() + get_pull_request_data() for each PR
-        # Savings: If N PRs exist, saves N API calls (N+1 → 1)
-        open_prs = await self.github_webhook.unified_api.get_open_pull_requests_with_details(owner, repo_name)
-        for pull_request in open_prs:
-            self.logger.info(f"{self.log_prefix} check label pull request after merge")
-            # No additional API calls needed - labels and merge state already loaded in pull_request
-            await self.label_pull_request_by_merge_state(pull_request=pull_request)
+        Note: Runs in background (non-blocking) with configurable delay via 'post-merge-relabel-delay'
+        config setting (default: 30 seconds).
+        """
+        # Schedule background task to avoid blocking webhook processing
+        asyncio.create_task(self._label_all_opened_pull_requests_background())
+
+    async def _label_all_opened_pull_requests_background(self) -> None:
+        """Background task for relabeling open PRs after merge.
+
+        Runs with configurable delay to allow GitHub to update merge states.
+        Error handling ensures failures don't crash the background task.
+        """
+        try:
+            # Get configurable delay (default: 30 seconds)
+            delay = self.github_webhook.config.get_value("post-merge-relabel-delay", return_on_none=30)
+            self.logger.info(f"{self.log_prefix} Scheduled background relabeling of open PRs in {delay} seconds")
+            await asyncio.sleep(delay)
+
+            owner, repo_name = self._owner_and_repo
+            # NEW: Single batched GraphQL query gets all open PRs with labels and merge state
+            # Replaces: get_open_pull_requests() + get_pull_request_data() for each PR
+            # Savings: If N PRs exist, saves N API calls (N+1 → 1)
+            open_prs = await self.github_webhook.unified_api.get_open_pull_requests_with_details(owner, repo_name)
+            for pull_request in open_prs:
+                self.logger.info(f"{self.log_prefix} check label pull request after merge")
+                # No additional API calls needed - labels and merge state already loaded in pull_request
+                await self.label_pull_request_by_merge_state(pull_request=pull_request)
+
+            self.logger.info(f"{self.log_prefix} Background relabeling of open PRs completed")
+        except Exception:
+            # Log error but don't crash - this is a background task
+            self.logger.exception(f"{self.log_prefix} Background relabeling task failed")
 
     async def delete_remote_tag_for_merged_or_closed_pr(self, pull_request: PullRequestWrapper) -> None:
         self.logger.debug(f"{self.log_prefix} Checking if need to delete remote tag for {pull_request.number}")
@@ -869,7 +882,8 @@ For more information, please refer to the project documentation or contact the m
             )
 
     async def add_pull_request_owner_as_assignee(self, pull_request: PullRequestWrapper) -> None:
-        # Use unified_api for add_assignees
+        # Optimization: Use PR node ID directly instead of fetching PR data again
+        # pull_request.id is already available from earlier fetch, saving one GraphQL query
         owner, repo_name = self._owner_and_repo
         author_login = pull_request.user.login
 
@@ -889,9 +903,8 @@ For more information, please refer to the project documentation or contact the m
 
         try:
             self.logger.info(f"{self.log_prefix} Adding PR owner '{author_login}' as assignee")
-            await self.github_webhook.unified_api.add_assignees_by_login(
-                owner, repo_name, pull_request.number, [author_login]
-            )
+            # Use optimized method that accepts pr_id directly (saves one GraphQL query)
+            await self.github_webhook.unified_api.add_assignees_by_login_with_pr_id(pull_request.id, [author_login])
         except UnknownObjectException:
             # 404 error - user not found (external contributor, deleted account, or bot)
             self.logger.debug(
