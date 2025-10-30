@@ -111,7 +111,7 @@ class GithubWebhook:
         # Create unique temp directory to avoid collisions and security issues
         # Format: /tmp/tmp{random}/github-webhook-{repo_name}
         # This prevents predictable paths and ensures isolation between concurrent webhook handlers
-        self.clone_repo_dir: str = tempfile.mkdtemp(prefix=f"github-webhook-{self.repository.name}-")
+        self.clone_repo_dir: str = tempfile.mkdtemp(prefix=f"github-webhook-{self.repository_name}-")
         # Populate auto-verified and auto-merged users from API users
         self.add_api_users_to_auto_verified_and_merged_users()
 

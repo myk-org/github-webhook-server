@@ -895,8 +895,8 @@ async def test_get_contents(initialized_api, mock_rest_client):
 
 @pytest.mark.asyncio
 async def test_get_git_tree(initialized_api, mock_graphql_client):
-    """Test get_git_tree with GraphQL."""
-    # Mock GraphQL response for git tree
+    """Test get_git_tree with GraphQL recursive tree traversal."""
+    # Mock GraphQL response for git tree with nested structure
     mock_graphql_client.execute.return_value = {
         "repository": {
             "object": {
@@ -912,7 +912,33 @@ async def test_get_git_tree(initialized_api, mock_graphql_client):
                         "name": "subdir",
                         "type": "TREE",
                         "mode": "040000",
-                        "object": {"oid": "tree456"},
+                        "object": {
+                            "oid": "tree456",
+                            "entries": [
+                                {
+                                    "name": "OWNERS",
+                                    "type": "BLOB",
+                                    "mode": "100644",
+                                    "object": {"oid": "blob456", "byteSize": 512},
+                                },
+                                {
+                                    "name": "nested",
+                                    "type": "TREE",
+                                    "mode": "040000",
+                                    "object": {
+                                        "oid": "tree789",
+                                        "entries": [
+                                            {
+                                                "name": "deep_file.py",
+                                                "type": "BLOB",
+                                                "mode": "100644",
+                                                "object": {"oid": "blob789", "byteSize": 2048},
+                                            }
+                                        ],
+                                    },
+                                },
+                            ],
+                        },
                     },
                 ],
             }
@@ -922,12 +948,31 @@ async def test_get_git_tree(initialized_api, mock_graphql_client):
     result = await initialized_api.get_git_tree("owner", "repo", "main")
 
     assert result["sha"] == "tree123"
-    assert len(result["tree"]) == 2
+    assert len(result["tree"]) == 5  # file1.txt, subdir, subdir/OWNERS, subdir/nested, subdir/nested/deep_file.py
+
+    # Check top-level file
     assert result["tree"][0]["path"] == "file1.txt"
-    assert result["tree"][0]["type"] == "blob"  # lowercase for REST compatibility
+    assert result["tree"][0]["type"] == "blob"
     assert result["tree"][0]["size"] == 1024
+
+    # Check top-level directory
     assert result["tree"][1]["path"] == "subdir"
-    assert result["tree"][1]["type"] == "tree"  # lowercase for REST compatibility
+    assert result["tree"][1]["type"] == "tree"
+
+    # Check nested file with full path
+    assert result["tree"][2]["path"] == "subdir/OWNERS"
+    assert result["tree"][2]["type"] == "blob"
+    assert result["tree"][2]["size"] == 512
+
+    # Check nested directory with full path
+    assert result["tree"][3]["path"] == "subdir/nested"
+    assert result["tree"][3]["type"] == "tree"
+
+    # Check deeply nested file with full path
+    assert result["tree"][4]["path"] == "subdir/nested/deep_file.py"
+    assert result["tree"][4]["type"] == "blob"
+    assert result["tree"][4]["size"] == 2048
+
     mock_graphql_client.execute.assert_called_once()
 
 

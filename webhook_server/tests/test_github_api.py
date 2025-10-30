@@ -164,6 +164,51 @@ class TestGithubWebhook:
         gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
         assert not hasattr(gh, "repository_by_github_app")
 
+    @patch("webhook_server.libs.github_api.Config")
+    @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
+    @patch("webhook_server.libs.github_api.get_github_repo_api")
+    @patch("webhook_server.libs.github_api.get_repository_github_app_api")
+    @patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix")
+    @patch("webhook_server.libs.github_api.get_apis_and_tokes_from_config")
+    def test_init_with_only_github_app_repository(
+        self,
+        mock_get_apis,
+        mock_color,
+        mock_get_app_api,
+        mock_get_repo_api,
+        mock_get_api,
+        mock_config,
+        minimal_hook_data,
+        minimal_headers,
+        logger,
+    ):
+        """Test initialization when only github_app repository is available.
+
+        Edge case: self.repository is None but self.repository_by_github_app is valid.
+        Should use self.repository_name for clone_repo_dir, not self.repository.name.
+        This tests the fix for AttributeError on line 114 of github_api.py.
+        """
+        mock_config.return_value.repository = True
+        mock_config.return_value.repository_local_data.return_value = {}
+        mock_get_api.return_value = (Mock(), "token", "apiuser")
+
+        # First call returns None (self.repository), second returns valid (self.repository_by_github_app)
+        mock_github_app_repo = Mock(name="github_app_repo")
+        mock_get_repo_api.side_effect = [None, mock_github_app_repo]
+
+        mock_get_app_api.return_value = Mock()
+        mock_color.return_value = "test-repo"
+        mock_get_apis.return_value = []
+
+        gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
+
+        # Verify clone_repo_dir was created successfully using repository_name
+        assert hasattr(gh, "clone_repo_dir")
+        assert "test-repo" in gh.clone_repo_dir
+        assert gh.repository is None
+        assert gh.repository_by_github_app is not None
+        assert gh.repository_by_github_app == mock_github_app_repo
+
     @patch("webhook_server.libs.github_api.PushHandler")
     @patch("webhook_server.libs.github_api.IssueCommentHandler")
     @patch("webhook_server.libs.github_api.PullRequestHandler")
