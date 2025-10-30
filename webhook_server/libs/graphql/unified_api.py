@@ -1920,15 +1920,15 @@ class UnifiedGitHubAPI:
 
         Note:
             Uses dynamic query building to traverse tree to configurable depth.
-            Default: 20 levels (balanced for monorepos while respecting GitHub's 25 depth limit).
-            Configure via: graphql.tree-max-depth in config.yaml (max: 25 per GitHub limits).
+            Default: 9 levels (stays within GitHub's query depth limit of 25).
+            Configure via: graphql.tree-max-depth in config.yaml (max: 9 recommended).
         """
         if not self.graphql_client:
             await self.initialize()
 
-        # Get max depth from config (default: 20 levels - balanced for large monorepos)
-        # Increase from 9 to 20 to better handle deeply nested OWNERS files in monorepos
-        max_depth = self.config.get_value("graphql.tree-max-depth", return_on_none=20)
+        # Get max depth from config (default: 9 levels to stay within GitHub's query depth limit of 25)
+        # The recursive query structure means actual depth is ~2.5x the max_depth parameter
+        max_depth = self.config.get_value("graphql.tree-max-depth", return_on_none=9)
 
         # Build recursive query with configured depth
         entries_fragment = self._build_tree_entries_fragment(0, max_depth)

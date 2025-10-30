@@ -142,6 +142,7 @@ class GraphQLClient:
                     "User-Agent": "github-webhook-server/graphql-client",
                 },
                 timeout=self.timeout,
+                ssl=True,  # Enable SSL certificate verification
                 client_session_args={
                     "connector": connector,
                     "connector_owner": True,  # Session owns connector to ensure proper cleanup
