@@ -189,17 +189,27 @@ class TestFrontendPerformanceOptimizations:
 
         # Check for unsafe patterns:
         # Pattern 1: Direct variable assignment with user data
+        # IMPROVED: Supports nested properties like entry.user.login, entry.data.content, etc.
+        # Excludes function calls (identifiers followed by "(")
         inner_html_prop = "innerHTML"  # Split to avoid triggering pre-commit hooks
-        direct_assignment_pattern = rf"\.{inner_html_prop}\s*=\s*(message|entry\.\w+|user\w*)\s*[;\)]"
+        user_token = r"(?:message|entry(?:\.\w+)*|user\w*)"  # Matches nested properties
+        direct_assignment_pattern = rf"\.{inner_html_prop}\s*=\s*{user_token}\b(?!\s*\()"
 
         # Pattern 2: Template literals with raw user variables
-        template_literal_pattern = rf"\.{inner_html_prop}\s*=\s*`[^`]*\$\{{(message|entry\.\w+|user\w*)\}}[^`]*`"
+        # IMPROVED: Matches nested properties inside template literals
+        # Excludes function calls by checking that token is NOT followed by "("
+        template_literal_pattern = rf"\.{inner_html_prop}\s*=\s*`[^`]*\$\{{[^`]*{user_token}\b(?!\s*\()[^`]*\}}[^`]*`"
 
         # Pattern 3: Concatenation with user-controlled variables
-        # Matches: element.innerHTML = "<span>" + message + "</span>"
-        # Matches: element.innerHTML = something + entry.field + other
-        # Matches: element.innerHTML = prefix + userName + suffix
-        concatenation_pattern = rf"\.{inner_html_prop}\s*=\s*[^;)]*\+\s*(message|entry\.\w+|user\w*)\s*[+;\)]"
+        # IMPROVED: Matches user token on BOTH sides of + operator
+        # Matches: element.innerHTML = message + "<br>" (token on LEFT)
+        # Matches: element.innerHTML = "<span>" + entry.user.login (token on RIGHT)
+        # Matches: element.innerHTML = prefix + userName + suffix (token in MIDDLE)
+        # Excludes function calls by checking that token is NOT followed by "("
+        concatenation_pattern = (
+            rf"\.{inner_html_prop}\s*=\s*[^;)]*"
+            rf"(?:{user_token}\b(?!\s*\()\s*\+|\+[^;)]*{user_token}\b(?!\s*\())"
+        )
 
         unsafe_direct = re.search(direct_assignment_pattern, js_content_filtered, re.IGNORECASE)
         unsafe_template = re.search(template_literal_pattern, js_content_filtered, re.IGNORECASE)

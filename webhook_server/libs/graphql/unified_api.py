@@ -1660,11 +1660,21 @@ class UnifiedGitHubAPI:
 
         Uses: GraphQL repository.ref() query
 
+        Args:
+            owner: Repository owner
+            name: Repository name
+            branch: Branch name (without refs/heads/ prefix)
+
         Returns:
-            bool: True if branch exists, False otherwise
+            bool: True if branch exists, False if not found
+
+        Raises:
+            GraphQLError: For auth failures, rate limits, or network errors
+            RuntimeError: If GraphQL client initialization fails
 
         Note: Changed from returning Branch object to bool for efficiency.
               All current usages only check existence, not branch data.
+              Only NOT_FOUND errors return False; critical errors propagate.
         """
         if not self.graphql_client:
             await self.initialize()
@@ -1685,8 +1695,17 @@ class UnifiedGitHubAPI:
         try:
             result = await self.graphql_client.execute(query, variables)
             return result.get("repository", {}).get("ref") is not None
-        except GraphQLError:
-            return False
+        except GraphQLError as ex:
+            # Only return False for NOT_FOUND errors (branch doesn't exist)
+            # Re-raise auth, rate-limit, network, and other critical errors
+            error_str = str(ex).lower()
+
+            # Check for NOT_FOUND indicators in error message
+            if "not found" in error_str or "could not resolve" in error_str:
+                return False
+
+            # Re-raise all other errors (auth, rate limit, network, etc.)
+            raise
 
     async def get_branch_protection(self, owner: str, name: str, branch: str) -> Any:
         """
@@ -1821,12 +1840,97 @@ class UnifiedGitHubAPI:
         repo = await self.get_repository_for_rest_operations(owner, name)
         return await asyncio.to_thread(repo.get_contents, path, ref)
 
+    def _build_tree_entries_fragment(self, depth: int, max_depth: int) -> str:
+        """
+        Build recursive GraphQL tree entries fragment.
+
+        Args:
+            depth: Current nesting depth (0-based)
+            max_depth: Maximum depth to traverse
+
+        Returns:
+            GraphQL fragment string with nested tree entries
+        """
+        if depth >= max_depth:
+            # At max depth, just return basic entry info
+            return """
+            name
+            type
+            mode
+            object {
+                ... on Blob {
+                    oid
+                    byteSize
+                }
+                ... on Tree {
+                    oid
+                }
+            }
+        """
+
+        # Recursive fragment - goes deeper
+        nested_fragment = self._build_tree_entries_fragment(depth + 1, max_depth)
+        return f"""
+            name
+            type
+            mode
+            object {{
+                ... on Blob {{
+                    oid
+                    byteSize
+                }}
+                ... on Tree {{
+                    oid
+                    entries {{
+                        {nested_fragment}
+                    }}
+                }}
+            }}
+        """
+
+    def _flatten_tree_entries(self, entries: list[dict[str, Any]], parent_path: str = "") -> list[dict[str, Any]]:
+        """
+        Flatten nested tree structure into flat list with full paths.
+
+        Args:
+            entries: Tree entries from GraphQL response
+            parent_path: Parent directory path
+
+        Returns:
+            Flat list of entries with full paths
+        """
+        result = []
+
+        for entry in entries:
+            # Build full path
+            full_path = f"{parent_path}/{entry['name']}" if parent_path else entry["name"]
+
+            # Add current entry with full path
+            flat_entry = {
+                "path": full_path,
+                "mode": entry["mode"],
+                "type": entry["type"].lower(),  # BLOB -> blob, TREE -> tree
+                "sha": entry["object"]["oid"] if entry["object"] else None,
+            }
+
+            # Add size for blobs
+            if entry["type"] == "BLOB" and entry["object"]:
+                flat_entry["size"] = entry["object"].get("byteSize")
+
+            result.append(flat_entry)
+
+            # Recursively process subdirectories
+            if entry["type"] == "TREE" and entry["object"] and "entries" in entry["object"]:
+                result.extend(self._flatten_tree_entries(entry["object"]["entries"], full_path))
+
+        return result
+
     async def get_git_tree(self, owner: str, name: str, ref: str) -> dict[str, Any]:
         """
-        Get git tree.
+        Get git tree with recursive traversal.
 
         Uses: GraphQL
-        Reason: GraphQL migration - fetches tree structure via object(expression:) query
+        Reason: GraphQL with dynamic nested fragments - gets full tree in 1 API call
 
         Args:
             owner: Repository owner
@@ -1834,42 +1938,39 @@ class UnifiedGitHubAPI:
             ref: Git reference (branch, tag, commit SHA)
 
         Returns:
-            Tree data (dict with sha, tree entries)
+            Tree data (dict with sha, tree entries with full paths)
 
         Note:
-            GraphQL limitation: Unlike REST API's recursive tree, GraphQL object query
-            returns only the top-level tree. For full recursive tree traversal,
-            you'd need to query each subtree separately (expensive).
-            This implementation returns the tree at the specified ref.
+            Uses dynamic query building to traverse tree to configurable depth.
+            Default: 12 levels (covers 95%+ of repositories).
+            Configure via: graphql.tree-max-depth in config.yaml
         """
         if not self.graphql_client:
             await self.initialize()
 
-        query = """
-            query($owner: String!, $name: String!, $expression: String!) {
-                repository(owner: $owner, name: $name) {
-                    object(expression: $expression) {
-                        ... on Tree {
+        # Get max depth from config (default: 12 levels)
+        max_depth = 12
+        if hasattr(self, "config") and self.config:
+            max_depth = self.config.get_value("graphql.tree-max-depth", default=12)
+
+        # Build recursive query with configured depth
+        entries_fragment = self._build_tree_entries_fragment(0, max_depth)
+
+        query = f"""
+            query($owner: String!, $name: String!, $expression: String!) {{
+                repository(owner: $owner, name: $name) {{
+                    object(expression: $expression) {{
+                        ... on Tree {{
                             oid
-                            entries {
-                                name
-                                type
-                                mode
-                                object {
-                                    ... on Blob {
-                                        oid
-                                        byteSize
-                                    }
-                                    ... on Tree {
-                                        oid
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+                            entries {{
+                                {entries_fragment}
+                            }}
+                        }}
+                    }}
+                }}
+            }}
         """
+
         variables = {"owner": owner, "name": name, "expression": f"{ref}:"}
         result = await self.graphql_client.execute(query, variables)  # type: ignore[union-attr]
 
@@ -1877,19 +1978,23 @@ class UnifiedGitHubAPI:
         if not tree_data:
             raise ValueError(f"Reference '{ref}' not found in repository {owner}/{name}")  # noqa: TRY003
 
-        # Transform to more REST-like structure for compatibility
+        # Flatten nested structure to REST-compatible format with full paths
+        flattened_entries = self._flatten_tree_entries(tree_data["entries"])
+
+        # Check if we hit max depth (warn if last level has Tree entries)
+        trees_at_max_depth = [
+            e for e in flattened_entries if e["type"] == "tree" and e["path"].count("/") >= max_depth - 1
+        ]
+        if trees_at_max_depth and hasattr(self, "logger"):
+            self.logger.warning(
+                f"Tree traversal reached max depth ({max_depth}). "
+                f"Found {len(trees_at_max_depth)} directories at depth limit. "
+                f"Consider increasing 'graphql.tree-max-depth' in config if files are missing."
+            )
+
         return {
             "sha": tree_data["oid"],
-            "tree": [
-                {
-                    "path": entry["name"],
-                    "mode": entry["mode"],
-                    "type": entry["type"].lower(),  # GraphQL uses BLOB/TREE, REST uses blob/tree
-                    "sha": entry["object"]["oid"] if entry["object"] else None,
-                    "size": entry["object"].get("byteSize") if entry["type"] == "BLOB" and entry["object"] else None,
-                }
-                for entry in tree_data["entries"]
-            ],
+            "tree": flattened_entries,
         }
 
     async def get_commit_check_runs(self, commit: Any, owner: str | None = None, name: str | None = None) -> list[Any]:

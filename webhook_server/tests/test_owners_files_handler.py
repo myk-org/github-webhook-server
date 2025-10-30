@@ -51,7 +51,13 @@ class TestOwnersFileHandler:
 
     @pytest.fixture
     def mock_tree(self) -> dict:
-        """Create a mock git tree with OWNERS files as dict for GraphQL compatibility."""
+        """
+        Create a mock git tree with OWNERS files (realistic after recursive tree fix).
+
+        This represents the OUTPUT of get_git_tree() after recursive traversal,
+        with full paths like "folder1/OWNERS", "folder2/OWNERS", etc.
+        The new implementation builds these full paths during tree traversal.
+        """
         return {
             "tree": [
                 {"type": "blob", "path": "OWNERS"},
@@ -277,6 +283,53 @@ class TestOwnersFileHandler:
             },
         }
         assert result == expected
+
+    @pytest.mark.asyncio
+    async def test_get_all_repository_approvers_and_reviewers_nested_paths(
+        self,
+        owners_file_handler: OwnersFileHandler,
+        mock_pull_request: Mock,
+    ) -> None:
+        """Test that nested OWNERS files are discovered with full paths."""
+        # Mock tree with deeply nested structure (realistic output from recursive get_git_tree)
+        nested_tree = {
+            "tree": [
+                {"type": "blob", "path": "OWNERS"},
+                {"type": "blob", "path": "src/OWNERS"},
+                {"type": "blob", "path": "src/backend/OWNERS"},
+                {"type": "blob", "path": "src/backend/handlers/OWNERS"},
+                {"type": "blob", "path": "tests/unit/test_file.py"},
+            ]
+        }
+
+        mock_content_files = {
+            "OWNERS": ContentFile(yaml.dump({"approvers": ["root1"], "reviewers": ["root2"]})),
+            "src/OWNERS": ContentFile(yaml.dump({"approvers": ["src1"], "reviewers": ["src2"]})),
+            "src/backend/OWNERS": ContentFile(yaml.dump({"approvers": ["backend1"], "reviewers": ["backend2"]})),
+            "src/backend/handlers/OWNERS": ContentFile(
+                yaml.dump({"approvers": ["handler1"], "reviewers": ["handler2"]})
+            ),
+        }
+
+        owners_file_handler.repository.full_name = "test/repo"
+        owners_file_handler.github_webhook.unified_api.get_git_tree = AsyncMock(return_value=nested_tree)
+        owners_file_handler.github_webhook.unified_api.get_contents = AsyncMock(
+            side_effect=lambda _o, _n, path, _ref: mock_content_files.get(path, ContentFile(""))
+        )
+
+        result = await owners_file_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
+
+        # Verify all nested OWNERS were discovered
+        assert "." in result
+        assert "src" in result
+        assert "src/backend" in result
+        assert "src/backend/handlers" in result
+
+        # Verify content is correct
+        assert result["."]["approvers"] == ["root1"]
+        assert result["src"]["approvers"] == ["src1"]
+        assert result["src/backend"]["approvers"] == ["backend1"]
+        assert result["src/backend/handlers"]["approvers"] == ["handler1"]
 
     @pytest.mark.asyncio
     async def test_get_all_repository_approvers_and_reviewers_too_many_files(
