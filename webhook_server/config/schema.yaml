@@ -126,6 +126,48 @@ properties:
             minimum: 1
             maximum: 100
             description: "Max open pull requests to fetch"
+          labels:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 100
+            description: "Max labels to fetch per PR/issue"
+          reviews:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 100
+            description: "Max reviews to fetch per PR"
+          commits:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 100
+            description: "Max commits to fetch per PR"
+          comments:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 100
+            description: "Max comments to fetch per PR"
+          assignees:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 100
+            description: "Max assignees to fetch per PR"
+          files:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 100
+            description: "Max changed files to fetch per PR"
+          associated-pull-requests:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 100
+            description: "Max associated PRs to fetch per commit"
       tree-max-depth:
         type: integer
         default: 9
@@ -369,6 +411,48 @@ properties:
                   minimum: 1
                   maximum: 100
                   description: "Max open pull requests to fetch"
+                labels:
+                  type: integer
+                  default: 100
+                  minimum: 1
+                  maximum: 100
+                  description: "Max labels to fetch per PR/issue"
+                reviews:
+                  type: integer
+                  default: 100
+                  minimum: 1
+                  maximum: 100
+                  description: "Max reviews to fetch per PR"
+                commits:
+                  type: integer
+                  default: 100
+                  minimum: 1
+                  maximum: 100
+                  description: "Max commits to fetch per PR"
+                comments:
+                  type: integer
+                  default: 100
+                  minimum: 1
+                  maximum: 100
+                  description: "Max comments to fetch per PR"
+                assignees:
+                  type: integer
+                  default: 100
+                  minimum: 1
+                  maximum: 100
+                  description: "Max assignees to fetch per PR"
+                files:
+                  type: integer
+                  default: 100
+                  minimum: 1
+                  maximum: 100
+                  description: "Max changed files to fetch per PR"
+                associated-pull-requests:
+                  type: integer
+                  default: 100
+                  minimum: 1
+                  maximum: 100
+                  description: "Max associated PRs to fetch per commit"
             tree-max-depth:
               type: integer
               default: 9

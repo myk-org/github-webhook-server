@@ -108,10 +108,17 @@ create-issue-for-new-pr: true  # Create tracking issues for new PRs
 # Maximum: 100 (GitHub GraphQL API limit)
 graphql:
   query-limits:
-    collaborators: 100      # Max collaborators to fetch
-    contributors: 100       # Max contributors (mentionableUsers)
-    issues: 100             # Max open issues to fetch
-    pull-requests: 100      # Max open pull requests to fetch
+    collaborators: 100              # Max collaborators to fetch per query
+    contributors: 100               # Max contributors (mentionableUsers) to fetch
+    issues: 100                     # Max open issues to fetch
+    pull-requests: 100              # Max open pull requests to fetch
+    labels: 100                     # Max labels to fetch per PR/issue
+    reviews: 100                    # Max reviews to fetch per PR
+    commits: 100                    # Max commits to fetch per PR
+    comments: 100                   # Max comments to fetch per PR
+    assignees: 100                  # Max assignees to fetch per PR
+    files: 100                      # Max changed files to fetch per PR
+    associated-pull-requests: 100   # Max associated PRs to fetch per commit
 
 # Custom PR size labels for this repository (overrides global configuration)
 # Define custom categories based on total lines changed (additions + deletions)

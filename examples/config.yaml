@@ -39,10 +39,17 @@ max-owners-files: 1000  # Maximum number of OWNERS files to process in a reposit
 # Maximum: 100 (GitHub GraphQL API limit)
 graphql:
   query-limits:
-    collaborators: 100      # Max collaborators to fetch
-    contributors: 100       # Max contributors (mentionableUsers)
-    issues: 100             # Max open issues to fetch
-    pull-requests: 100      # Max open pull requests to fetch
+    collaborators: 100              # Max collaborators to fetch per query
+    contributors: 100               # Max contributors (mentionableUsers) to fetch
+    issues: 100                     # Max open issues to fetch
+    pull-requests: 100              # Max open pull requests to fetch
+    labels: 100                     # NEW: Max labels to fetch per PR/issue
+    reviews: 100                    # NEW: Max reviews to fetch per PR
+    commits: 100                    # NEW: Max commits to fetch per PR
+    comments: 100                   # NEW: Max comments to fetch per PR
+    assignees: 100                  # NEW: Max assignees to fetch per PR
+    files: 100                      # NEW: Max changed files to fetch per PR
+    associated-pull-requests: 100   # NEW: Max associated PRs to fetch per commit
 
 # Global PR size label configuration (optional)
 # Define custom categories based on total lines changed (additions + deletions)

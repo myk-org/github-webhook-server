@@ -154,6 +154,9 @@ class QueryBuilder:
         include_commits: bool = False,
         include_labels: bool = False,
         include_reviews: bool = False,
+        commits_limit: int = 100,
+        labels_limit: int = 100,
+        reviews_limit: int = 100,
     ) -> tuple[str, dict[str, Any]]:
         """
         Get pull request information.
@@ -165,44 +168,47 @@ class QueryBuilder:
             include_commits: Include commit history
             include_labels: Include labels
             include_reviews: Include reviews
+            commits_limit: Maximum number of commits to fetch (default: 100)
+            labels_limit: Maximum number of labels to fetch (default: 100)
+            reviews_limit: Maximum number of reviews to fetch (default: 100)
 
         Returns:
             Tuple of (GraphQL query string, variables dict)
         """
         commits_field = (
-            """
-            commits(first: 100) {
+            f"""
+            commits(first: {commits_limit}) {{
                 totalCount
-                nodes {
-                    commit {
+                nodes {{
+                    commit {{
                         ...CommitFields
-                    }
-                }
-            }
+                    }}
+                }}
+            }}
         """
             if include_commits
             else ""
         )
 
         labels_field = (
-            """
-            labels(first: 100) {
-                nodes {
+            f"""
+            labels(first: {labels_limit}) {{
+                nodes {{
                     ...LabelFields
-                }
-            }
+                }}
+            }}
         """
             if include_labels
             else ""
         )
 
         reviews_field = (
-            """
-            reviews(first: 100) {
-                nodes {
+            f"""
+            reviews(first: {reviews_limit}) {{
+                nodes {{
                     ...ReviewFields
-                }
-            }
+                }}
+            }}
         """
             if include_reviews
             else ""
@@ -321,7 +327,9 @@ class QueryBuilder:
         return query, variables
 
     @staticmethod
-    def get_open_pull_requests_with_labels(owner: str, name: str, first: int = 100) -> tuple[str, dict[str, Any]]:
+    def get_open_pull_requests_with_labels(
+        owner: str, name: str, first: int = 100, labels_limit: int = 100
+    ) -> tuple[str, dict[str, Any]]:
         """
         Get all open pull requests with labels and merge state in a single query.
 
@@ -335,6 +343,7 @@ class QueryBuilder:
             owner: Repository owner
             name: Repository name
             first: Maximum number of PRs to fetch (default: 100)
+            labels_limit: Maximum number of labels to fetch per PR (default: 100)
 
         Returns:
             Tuple of (GraphQL query string, variables dict)
@@ -356,7 +365,7 @@ class QueryBuilder:
                         }}
                         nodes {{
                             ...PullRequestFields
-                            labels(first: 100) {{
+                            labels(first: {labels_limit}) {{
                                 nodes {{
                                     ...LabelFields
                                 }}
@@ -553,23 +562,31 @@ class MutationBuilder:
         return mutation, variables
 
     @staticmethod
-    def add_labels(labelable_id: str, label_ids: list[str]) -> tuple[str, dict[str, Any]]:
+    def add_labels(labelable_id: str, label_ids: list[str], labels_limit: int = 100) -> tuple[str, dict[str, Any]]:
         """
         Add labels to a PR or issue.
 
         Args:
             labelable_id: The node ID of the PR or issue
             label_ids: List of label node IDs
+            labels_limit: Maximum number of labels to fetch in response (default: 100)
 
         Returns:
             Tuple of (mutation string, variables dict)
         """
-        mutation = """
-            mutation($labelableId: ID!, $labelIds: [ID!]!) {
-                addLabelsToLabelable(input: {labelableId: $labelableId, labelIds: $labelIds}) {
-                    clientMutationId
-                }
-            }
+        mutation = f"""
+            {LABEL_FRAGMENT}
+            mutation($labelableId: ID!, $labelIds: [ID!]!) {{
+                addLabelsToLabelable(input: {{labelableId: $labelableId, labelIds: $labelIds}}) {{
+                    labelable {{
+                        labels(first: {labels_limit}) {{
+                            nodes {{
+                                ...LabelFields
+                            }}
+                        }}
+                    }}
+                }}
+            }}
         """
         variables = {
             "labelableId": labelable_id,
@@ -578,23 +595,31 @@ class MutationBuilder:
         return mutation, variables
 
     @staticmethod
-    def remove_labels(labelable_id: str, label_ids: list[str]) -> tuple[str, dict[str, Any]]:
+    def remove_labels(labelable_id: str, label_ids: list[str], labels_limit: int = 100) -> tuple[str, dict[str, Any]]:
         """
         Remove labels from a PR or issue.
 
         Args:
             labelable_id: The node ID of the PR or issue
             label_ids: List of label node IDs to remove
+            labels_limit: Maximum number of labels to fetch in response (default: 100)
 
         Returns:
             Tuple of (mutation string, variables dict)
         """
-        mutation = """
-            mutation($labelableId: ID!, $labelIds: [ID!]!) {
-                removeLabelsFromLabelable(input: {labelableId: $labelableId, labelIds: $labelIds}) {
-                    clientMutationId
-                }
-            }
+        mutation = f"""
+            {LABEL_FRAGMENT}
+            mutation($labelableId: ID!, $labelIds: [ID!]!) {{
+                removeLabelsFromLabelable(input: {{labelableId: $labelableId, labelIds: $labelIds}}) {{
+                    labelable {{
+                        labels(first: {labels_limit}) {{
+                            nodes {{
+                                ...LabelFields
+                            }}
+                        }}
+                    }}
+                }}
+            }}
         """
         variables = {
             "labelableId": labelable_id,

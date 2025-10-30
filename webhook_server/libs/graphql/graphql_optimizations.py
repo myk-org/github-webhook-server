@@ -7,7 +7,13 @@ multiple operations into single GraphQL calls.
 from __future__ import annotations
 
 
-def get_pr_can_be_merged_batch_query(owner: str, name: str, number: int) -> str:
+def get_pr_can_be_merged_batch_query(
+    owner: str,
+    name: str,
+    number: int,
+    labels_limit: int = 100,
+    reviews_limit: int = 100,
+) -> str:
     """
     Optimized batch query for check_if_can_be_merged operation.
 
@@ -24,6 +30,8 @@ def get_pr_can_be_merged_batch_query(owner: str, name: str, number: int) -> str:
         owner: Repository owner
         name: Repository name
         number: Pull request number
+        labels_limit: Maximum number of labels to fetch (default: 100)
+        reviews_limit: Maximum number of reviews to fetch (default: 100)
 
     Returns:
         GraphQL query string
@@ -64,7 +72,7 @@ def get_pr_can_be_merged_batch_query(owner: str, name: str, number: int) -> str:
                     }}
 
                     # Labels (for blocking labels like "do-not-merge")
-                    labels(first: 100) {{
+                    labels(first: {labels_limit}) {{
                         nodes {{
                             id
                             name
@@ -73,7 +81,7 @@ def get_pr_can_be_merged_batch_query(owner: str, name: str, number: int) -> str:
                     }}
 
                     # Reviews (for approval requirements)
-                    reviews(first: 100, states: [APPROVED, CHANGES_REQUESTED]) {{
+                    reviews(first: {reviews_limit}, states: [APPROVED, CHANGES_REQUESTED]) {{
                         nodes {{
                             id
                             state
@@ -101,7 +109,16 @@ def get_pr_can_be_merged_batch_query(owner: str, name: str, number: int) -> str:
     """
 
 
-def get_pr_full_context_query(owner: str, name: str, number: int) -> str:
+def get_pr_full_context_query(
+    owner: str,
+    name: str,
+    number: int,
+    assignees_limit: int = 100,
+    labels_limit: int = 100,
+    commits_limit: int = 100,
+    reviews_limit: int = 100,
+    comments_limit: int = 100,
+) -> str:
     """
     Ultra-optimized query for full PR context in ONE call.
 
@@ -120,6 +137,11 @@ def get_pr_full_context_query(owner: str, name: str, number: int) -> str:
         owner: Repository owner
         name: Repository name
         number: Pull request number
+        assignees_limit: Maximum number of assignees to fetch (default: 100)
+        labels_limit: Maximum number of labels to fetch (default: 100)
+        commits_limit: Maximum number of commits to fetch (default: 100)
+        reviews_limit: Maximum number of reviews to fetch (default: 100)
+        comments_limit: Maximum number of comments to fetch (default: 100)
 
     Returns:
         GraphQL query string
@@ -168,7 +190,7 @@ def get_pr_full_context_query(owner: str, name: str, number: int) -> str:
                     }}
 
                     # Assignees
-                    assignees(first: 10) {{
+                    assignees(first: {assignees_limit}) {{
                         nodes {{
                             id
                             login
@@ -177,7 +199,7 @@ def get_pr_full_context_query(owner: str, name: str, number: int) -> str:
                     }}
 
                     # Labels
-                    labels(first: 100) {{
+                    labels(first: {labels_limit}) {{
                         totalCount
                         nodes {{
                             id
@@ -188,7 +210,7 @@ def get_pr_full_context_query(owner: str, name: str, number: int) -> str:
                     }}
 
                     # Commits
-                    commits(first: 100) {{
+                    commits(first: {commits_limit}) {{
                         totalCount
                         nodes {{
                             commit {{
@@ -207,7 +229,7 @@ def get_pr_full_context_query(owner: str, name: str, number: int) -> str:
                     }}
 
                     # Reviews
-                    reviews(first: 100) {{
+                    reviews(first: {reviews_limit}) {{
                         totalCount
                         nodes {{
                             id
@@ -221,7 +243,7 @@ def get_pr_full_context_query(owner: str, name: str, number: int) -> str:
                     }}
 
                     # Comments
-                    comments(first: 100) {{
+                    comments(first: {comments_limit}) {{
                         totalCount
                         nodes {{
                             id

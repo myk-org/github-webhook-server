@@ -981,3 +981,496 @@ class TestConfig:
         # Verify API interactions
         mock_github_api.get_repo.assert_called_once_with("org/test-repo")
         mock_repo.get_contents.assert_called_once_with(".github-webhook-server.yaml")
+
+    # =================================================================
+    # GraphQL Query-Limits Tests (7 New Config Keys)
+    # =================================================================
+
+    def test_graphql_query_limits_labels_default_value(
+        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that graphql.query-limits.labels returns default value of 100 when not specified."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        # Create minimal config without graphql.query-limits.labels
+        config_data = {
+            "github-app-id": 123456,
+            "github-tokens": ["token1"],
+            "webhook-ip": "http://localhost:5000",
+            "repositories": {"test-repo": {"name": "org/test-repo"}},
+        }
+
+        config_file = os.path.join(temp_config_dir, "config.yaml")
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        config = Config(repository="test-repo")
+
+        # Default value should be 100 (from schema)
+        result = config.get_value("graphql.query-limits.labels", return_on_none=100)
+        assert result == 100
+
+    def test_graphql_query_limits_labels_custom_value(
+        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that graphql.query-limits.labels returns custom value when specified in root config."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        config_data = {
+            "github-app-id": 123456,
+            "github-tokens": ["token1"],
+            "webhook-ip": "http://localhost:5000",
+            "repositories": {"test-repo": {"name": "org/test-repo"}},
+            "graphql": {"query-limits": {"labels": 50}},  # Custom value
+        }
+
+        config_file = os.path.join(temp_config_dir, "config.yaml")
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        config = Config(repository="test-repo")
+        result = config.get_value("graphql.query-limits.labels")
+
+        assert result == 50
+
+    def test_graphql_query_limits_reviews_default_value(
+        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that graphql.query-limits.reviews returns default value of 100 when not specified."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        config_data = {
+            "github-app-id": 123456,
+            "github-tokens": ["token1"],
+            "webhook-ip": "http://localhost:5000",
+            "repositories": {"test-repo": {"name": "org/test-repo"}},
+        }
+
+        config_file = os.path.join(temp_config_dir, "config.yaml")
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        config = Config(repository="test-repo")
+        result = config.get_value("graphql.query-limits.reviews", return_on_none=100)
+
+        assert result == 100
+
+    def test_graphql_query_limits_reviews_custom_value(
+        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that graphql.query-limits.reviews returns custom value when specified."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        config_data = {
+            "github-app-id": 123456,
+            "github-tokens": ["token1"],
+            "webhook-ip": "http://localhost:5000",
+            "repositories": {"test-repo": {"name": "org/test-repo"}},
+            "graphql": {"query-limits": {"reviews": 75}},
+        }
+
+        config_file = os.path.join(temp_config_dir, "config.yaml")
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        config = Config(repository="test-repo")
+        result = config.get_value("graphql.query-limits.reviews")
+
+        assert result == 75
+
+    def test_graphql_query_limits_commits_default_value(
+        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that graphql.query-limits.commits returns default value of 100 when not specified."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        config_data = {
+            "github-app-id": 123456,
+            "github-tokens": ["token1"],
+            "webhook-ip": "http://localhost:5000",
+            "repositories": {"test-repo": {"name": "org/test-repo"}},
+        }
+
+        config_file = os.path.join(temp_config_dir, "config.yaml")
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        config = Config(repository="test-repo")
+        result = config.get_value("graphql.query-limits.commits", return_on_none=100)
+
+        assert result == 100
+
+    def test_graphql_query_limits_commits_custom_value(
+        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that graphql.query-limits.commits returns custom value when specified."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        config_data = {
+            "github-app-id": 123456,
+            "github-tokens": ["token1"],
+            "webhook-ip": "http://localhost:5000",
+            "repositories": {"test-repo": {"name": "org/test-repo"}},
+            "graphql": {"query-limits": {"commits": 25}},
+        }
+
+        config_file = os.path.join(temp_config_dir, "config.yaml")
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        config = Config(repository="test-repo")
+        result = config.get_value("graphql.query-limits.commits")
+
+        assert result == 25
+
+    def test_graphql_query_limits_comments_default_value(
+        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that graphql.query-limits.comments returns default value of 100 when not specified."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        config_data = {
+            "github-app-id": 123456,
+            "github-tokens": ["token1"],
+            "webhook-ip": "http://localhost:5000",
+            "repositories": {"test-repo": {"name": "org/test-repo"}},
+        }
+
+        config_file = os.path.join(temp_config_dir, "config.yaml")
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        config = Config(repository="test-repo")
+        result = config.get_value("graphql.query-limits.comments", return_on_none=100)
+
+        assert result == 100
+
+    def test_graphql_query_limits_comments_custom_value(
+        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that graphql.query-limits.comments returns custom value when specified."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        config_data = {
+            "github-app-id": 123456,
+            "github-tokens": ["token1"],
+            "webhook-ip": "http://localhost:5000",
+            "repositories": {"test-repo": {"name": "org/test-repo"}},
+            "graphql": {"query-limits": {"comments": 30}},
+        }
+
+        config_file = os.path.join(temp_config_dir, "config.yaml")
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        config = Config(repository="test-repo")
+        result = config.get_value("graphql.query-limits.comments")
+
+        assert result == 30
+
+    def test_graphql_query_limits_assignees_default_value(
+        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that graphql.query-limits.assignees returns default value of 100 when not specified."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        config_data = {
+            "github-app-id": 123456,
+            "github-tokens": ["token1"],
+            "webhook-ip": "http://localhost:5000",
+            "repositories": {"test-repo": {"name": "org/test-repo"}},
+        }
+
+        config_file = os.path.join(temp_config_dir, "config.yaml")
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        config = Config(repository="test-repo")
+        result = config.get_value("graphql.query-limits.assignees", return_on_none=100)
+
+        assert result == 100
+
+    def test_graphql_query_limits_assignees_custom_value(
+        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that graphql.query-limits.assignees returns custom value when specified."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        config_data = {
+            "github-app-id": 123456,
+            "github-tokens": ["token1"],
+            "webhook-ip": "http://localhost:5000",
+            "repositories": {"test-repo": {"name": "org/test-repo"}},
+            "graphql": {"query-limits": {"assignees": 20}},
+        }
+
+        config_file = os.path.join(temp_config_dir, "config.yaml")
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        config = Config(repository="test-repo")
+        result = config.get_value("graphql.query-limits.assignees")
+
+        assert result == 20
+
+    def test_graphql_query_limits_files_default_value(
+        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that graphql.query-limits.files returns default value of 100 when not specified."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        config_data = {
+            "github-app-id": 123456,
+            "github-tokens": ["token1"],
+            "webhook-ip": "http://localhost:5000",
+            "repositories": {"test-repo": {"name": "org/test-repo"}},
+        }
+
+        config_file = os.path.join(temp_config_dir, "config.yaml")
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        config = Config(repository="test-repo")
+        result = config.get_value("graphql.query-limits.files", return_on_none=100)
+
+        assert result == 100
+
+    def test_graphql_query_limits_files_custom_value(
+        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that graphql.query-limits.files returns custom value when specified."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        config_data = {
+            "github-app-id": 123456,
+            "github-tokens": ["token1"],
+            "webhook-ip": "http://localhost:5000",
+            "repositories": {"test-repo": {"name": "org/test-repo"}},
+            "graphql": {"query-limits": {"files": 60}},
+        }
+
+        config_file = os.path.join(temp_config_dir, "config.yaml")
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        config = Config(repository="test-repo")
+        result = config.get_value("graphql.query-limits.files")
+
+        assert result == 60
+
+    def test_graphql_query_limits_associated_pull_requests_default_value(
+        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that graphql.query-limits.associated-pull-requests returns default value of 100 when not specified."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        config_data = {
+            "github-app-id": 123456,
+            "github-tokens": ["token1"],
+            "webhook-ip": "http://localhost:5000",
+            "repositories": {"test-repo": {"name": "org/test-repo"}},
+        }
+
+        config_file = os.path.join(temp_config_dir, "config.yaml")
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        config = Config(repository="test-repo")
+        result = config.get_value("graphql.query-limits.associated-pull-requests", return_on_none=100)
+
+        assert result == 100
+
+    def test_graphql_query_limits_associated_pull_requests_custom_value(
+        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that graphql.query-limits.associated-pull-requests returns custom value when specified."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        config_data = {
+            "github-app-id": 123456,
+            "github-tokens": ["token1"],
+            "webhook-ip": "http://localhost:5000",
+            "repositories": {"test-repo": {"name": "org/test-repo"}},
+            "graphql": {"query-limits": {"associated-pull-requests": 40}},
+        }
+
+        config_file = os.path.join(temp_config_dir, "config.yaml")
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        config = Config(repository="test-repo")
+        result = config.get_value("graphql.query-limits.associated-pull-requests")
+
+        assert result == 40
+
+    def test_graphql_query_limits_all_11_keys_together(
+        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that all 11 GraphQL query-limits keys work together correctly."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        config_data = {
+            "github-app-id": 123456,
+            "github-tokens": ["token1"],
+            "webhook-ip": "http://localhost:5000",
+            "repositories": {"test-repo": {"name": "org/test-repo"}},
+            "graphql": {
+                "query-limits": {
+                    "collaborators": 95,  # Existing key
+                    "contributors": 90,  # Existing key
+                    "issues": 85,  # Existing key
+                    "pull-requests": 80,  # Existing key
+                    "labels": 75,  # New key
+                    "reviews": 70,  # New key
+                    "commits": 65,  # New key
+                    "comments": 60,  # New key
+                    "assignees": 55,  # New key
+                    "files": 50,  # New key
+                    "associated-pull-requests": 45,  # New key
+                }
+            },
+        }
+
+        config_file = os.path.join(temp_config_dir, "config.yaml")
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        config = Config(repository="test-repo")
+
+        # Test all 11 keys
+        assert config.get_value("graphql.query-limits.collaborators") == 95
+        assert config.get_value("graphql.query-limits.contributors") == 90
+        assert config.get_value("graphql.query-limits.issues") == 85
+        assert config.get_value("graphql.query-limits.pull-requests") == 80
+        assert config.get_value("graphql.query-limits.labels") == 75
+        assert config.get_value("graphql.query-limits.reviews") == 70
+        assert config.get_value("graphql.query-limits.commits") == 65
+        assert config.get_value("graphql.query-limits.comments") == 60
+        assert config.get_value("graphql.query-limits.assignees") == 55
+        assert config.get_value("graphql.query-limits.files") == 50
+        assert config.get_value("graphql.query-limits.associated-pull-requests") == 45
+
+    def test_graphql_query_limits_repository_override_priority(
+        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that repository-level graphql.query-limits override global-level settings."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        config_data = {
+            "github-app-id": 123456,
+            "github-tokens": ["token1"],
+            "webhook-ip": "http://localhost:5000",
+            "graphql": {
+                "query-limits": {
+                    "labels": 100,  # Global level
+                    "reviews": 100,
+                    "commits": 100,
+                    "comments": 100,
+                    "assignees": 100,
+                    "files": 100,
+                    "associated-pull-requests": 100,
+                }
+            },
+            "repositories": {
+                "test-repo": {
+                    "name": "org/test-repo",
+                    "graphql": {
+                        "query-limits": {
+                            "labels": 25,  # Repository override
+                            "reviews": 30,
+                            "commits": 35,
+                            "comments": 40,
+                            "assignees": 45,
+                            "files": 50,
+                            "associated-pull-requests": 55,
+                        }
+                    },
+                }
+            },
+        }
+
+        config_file = os.path.join(temp_config_dir, "config.yaml")
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        config = Config(repository="test-repo")
+
+        # Repository-level should override global-level
+        assert config.get_value("graphql.query-limits.labels") == 25
+        assert config.get_value("graphql.query-limits.reviews") == 30
+        assert config.get_value("graphql.query-limits.commits") == 35
+        assert config.get_value("graphql.query-limits.comments") == 40
+        assert config.get_value("graphql.query-limits.assignees") == 45
+        assert config.get_value("graphql.query-limits.files") == 50
+        assert config.get_value("graphql.query-limits.associated-pull-requests") == 55
+
+    def test_graphql_query_limits_github_webhook_server_yaml_override(
+        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that .github-webhook-server.yaml overrides both global and repository config for query-limits."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        # Create config with values in both root and repository sections
+        config_data = {
+            "github-app-id": 123456,
+            "github-tokens": ["token1"],
+            "webhook-ip": "http://localhost:5000",
+            "graphql": {
+                "query-limits": {
+                    "labels": 100,  # Root level (lowest priority)
+                    "reviews": 100,
+                }
+            },
+            "repositories": {
+                "test-repo": {
+                    "name": "org/test-repo",
+                    "graphql": {
+                        "query-limits": {
+                            "labels": 50,  # Repository section (middle priority)
+                            "reviews": 50,
+                        }
+                    },
+                }
+            },
+        }
+
+        config_file = os.path.join(temp_config_dir, "config.yaml")
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        config = Config(repository="test-repo")
+
+        # Mock GitHub API
+        mock_github_api = Mock()
+        mock_repo = Mock()
+        mock_github_api.get_repo.return_value = mock_repo
+
+        # Mock .github-webhook-server.yaml with highest priority values
+        local_config_yaml = yaml.dump({"graphql": {"query-limits": {"labels": 10, "reviews": 15}}})
+        mock_contents = Mock()
+        mock_contents.decoded_content = local_config_yaml.encode("utf-8")
+        mock_repo.get_contents.return_value = mock_contents
+
+        # Fetch local config
+        local_repo_config = config.repository_local_data(mock_github_api, "org/test-repo")
+
+        # Verify local config structure
+        assert local_repo_config == {"graphql": {"query-limits": {"labels": 10, "reviews": 15}}}
+
+        # Test priority: .github-webhook-server.yaml should win
+        result_labels = config.get_value("graphql.query-limits.labels", extra_dict=local_repo_config)
+        assert result_labels == 10
+
+        result_reviews = config.get_value("graphql.query-limits.reviews", extra_dict=local_repo_config)
+        assert result_reviews == 15
+
+        # Test without extra_dict: repository section should win over root
+        result_without_local_labels = config.get_value("graphql.query-limits.labels")
+        assert result_without_local_labels == 50
+
+        result_without_local_reviews = config.get_value("graphql.query-limits.reviews")
+        assert result_without_local_reviews == 50
+
+        # Verify API interactions
+        mock_github_api.get_repo.assert_called_once_with("org/test-repo")
+        mock_repo.get_contents.assert_called_once_with(".github-webhook-server.yaml")

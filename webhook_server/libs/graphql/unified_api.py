@@ -108,6 +108,24 @@ class UnifiedGitHubAPI:
                 f"batch_concurrency_limit={self.batch_concurrency_limit})"
             )
 
+    def _get_query_limit(self, resource_type: str, default: int = 100) -> int:
+        """Get configured query limit for resource type.
+
+        Args:
+            resource_type: Resource type (e.g., 'labels', 'reviews', 'commits')
+            default: Default limit if not configured (default: 100)
+
+        Returns:
+            Configured limit (1-100)
+
+        Example:
+            >>> api._get_query_limit("labels")
+            100
+            >>> api._get_query_limit("reviews", default=50)
+            50
+        """
+        return self.config.get_value(f"graphql.query-limits.{resource_type}", return_on_none=default)
+
     async def close(self) -> None:
         """Close and cleanup API clients."""
         if self.graphql_client:
@@ -271,12 +289,8 @@ class UnifiedGitHubAPI:
             await self.initialize()
 
         # Read configurable query limits from config
-        # Reuse self.config if available, only create new if needed
-        if self.config:
-            config = self.config
-            config.repository = f"{owner}/{name}"
-        else:
-            config = Config(repository=f"{owner}/{name}")
+        config = self.config
+        config.repository = f"{owner}/{name}"
 
         query_limits = {
             "collaborators": config.get_value("graphql.query-limits.collaborators", return_on_none=100),
@@ -329,7 +343,7 @@ class UnifiedGitHubAPI:
                             author {{
                                 login
                             }}
-                            labels(first: 10) {{
+                            labels(first: 100) {{
                                 nodes {{
                                     id
                                     name
@@ -402,6 +416,11 @@ class UnifiedGitHubAPI:
         if not self.graphql_client:
             await self.initialize()
 
+        # Get configurable limits from config
+        commits_limit = self._get_query_limit("commits")
+        labels_limit = self._get_query_limit("labels")
+        reviews_limit = self._get_query_limit("reviews")
+
         query, variables = QueryBuilder.get_pull_request(
             owner,
             name,
@@ -409,6 +428,9 @@ class UnifiedGitHubAPI:
             include_commits=include_commits,
             include_labels=include_labels,
             include_reviews=include_reviews,
+            commits_limit=commits_limit,
+            labels_limit=labels_limit,
+            reviews_limit=reviews_limit,
         )
         result = await self.graphql_client.execute(query, variables)  # type: ignore[union-attr]
         return result["repository"]["pullRequest"]
@@ -1035,7 +1057,10 @@ class UnifiedGitHubAPI:
         if not self.graphql_client:
             await self.initialize()
 
-        mutation, variables = MutationBuilder.add_labels(labelable_id, label_ids)
+        # Get configurable limit from config
+        labels_limit = self._get_query_limit("labels")
+
+        mutation, variables = MutationBuilder.add_labels(labelable_id, label_ids, labels_limit=labels_limit)
         result = await self.graphql_client.execute(mutation, variables)  # type: ignore[union-attr]
         return result
 
@@ -1066,7 +1091,10 @@ class UnifiedGitHubAPI:
         if not self.graphql_client:
             await self.initialize()
 
-        mutation, variables = MutationBuilder.remove_labels(labelable_id, label_ids)
+        # Get configurable limit from config
+        labels_limit = self._get_query_limit("labels")
+
+        mutation, variables = MutationBuilder.remove_labels(labelable_id, label_ids, labels_limit=labels_limit)
 
         try:
             result = await self.graphql_client.execute(mutation, variables)  # type: ignore[union-attr]
@@ -1090,7 +1118,9 @@ class UnifiedGitHubAPI:
                     f"Retrying remove_labels with fresh node ID: {fresh_labelable_id} (old: {labelable_id})"
                 )
                 # Retry mutation with fresh node ID (only once to avoid infinite loops)
-                mutation, variables = MutationBuilder.remove_labels(fresh_labelable_id, label_ids)
+                mutation, variables = MutationBuilder.remove_labels(
+                    fresh_labelable_id, label_ids, labels_limit=labels_limit
+                )
                 result = await self.graphql_client.execute(mutation, variables)  # type: ignore[union-attr]
                 return result
             # Re-raise if not NOT_FOUND or if missing context for retry
@@ -1551,7 +1581,12 @@ class UnifiedGitHubAPI:
         if not self.graphql_client:
             await self.initialize()
 
-        query, variables = QueryBuilder.get_open_pull_requests_with_labels(owner, repo, first=max_prs)
+        # Get configurable limit from config
+        labels_limit = self._get_query_limit("labels")
+
+        query, variables = QueryBuilder.get_open_pull_requests_with_labels(
+            owner, repo, first=max_prs, labels_limit=labels_limit
+        )
         result = await self.graphql_client.execute(query, variables)  # type: ignore[union-attr]
 
         pr_nodes = result.get("repository", {}).get("pullRequests", {}).get("nodes", [])
@@ -1919,7 +1954,7 @@ class UnifiedGitHubAPI:
                             author {
                                 login
                             }
-                            labels(first: 10) {
+                            labels(first: 100) {
                                 nodes {
                                     id
                                     name
@@ -2270,7 +2305,7 @@ class UnifiedGitHubAPI:
                 repository(owner: $owner, name: $name) {
                     object(oid: $oid) {
                         ... on Commit {
-                            associatedPullRequests(first: 10) {
+                            associatedPullRequests(first: 100) {
                                 nodes {
                                     id
                                     number
