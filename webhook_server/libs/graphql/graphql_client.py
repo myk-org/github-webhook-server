@@ -283,6 +283,24 @@ class GraphQLClient:
 
                 raise GraphQLError(f"GraphQL query failed: {error_msg}") from error
 
+            except TransportServerError as error:
+                # Handle server errors (5xx) with exponential backoff
+                error_msg = str(error)
+                if attempt < self.retry_count - 1:
+                    wait_seconds = 2**attempt
+                    self.logger.warning(
+                        f"SERVER ERROR: GraphQL server error (attempt {attempt + 1}/{self.retry_count}): {error_msg}. "
+                        f"Retrying in {wait_seconds}s...",
+                    )
+                    await asyncio.sleep(wait_seconds)
+                    continue  # Retry with exponential backoff
+                else:
+                    # Final attempt failed
+                    self.logger.exception(
+                        f"SERVER ERROR: GraphQL server error after {self.retry_count} attempts: {error_msg}",
+                    )
+                    raise GraphQLError(f"GraphQL server error: {error_msg}") from error
+
             except TransportError as error:
                 # Handle connection closed errors - recreate client and retry
                 error_msg = str(error)
@@ -318,24 +336,6 @@ class GraphQLClient:
                         f"CONNECTION CLOSED: GraphQL connection closed after {self.retry_count} attempts: {error_msg}",
                     )
                     raise GraphQLError(f"GraphQL connection closed: {error_msg}") from error
-
-            except TransportServerError as error:
-                # Handle server errors (5xx) with exponential backoff
-                error_msg = str(error)
-                if attempt < self.retry_count - 1:
-                    wait_seconds = 2**attempt
-                    self.logger.warning(
-                        f"SERVER ERROR: GraphQL server error (attempt {attempt + 1}/{self.retry_count}): {error_msg}. "
-                        f"Retrying in {wait_seconds}s...",
-                    )
-                    await asyncio.sleep(wait_seconds)
-                    continue  # Retry with exponential backoff
-                else:
-                    # Final attempt failed
-                    self.logger.exception(
-                        f"SERVER ERROR: GraphQL server error after {self.retry_count} attempts: {error_msg}",
-                    )
-                    raise GraphQLError(f"GraphQL server error: {error_msg}") from error
 
             except TimeoutError as error:
                 # Explicit timeout handling - NEVER silent!

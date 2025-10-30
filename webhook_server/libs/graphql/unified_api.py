@@ -523,7 +523,7 @@ class UnifiedGitHubAPI:
                     pr_data = _pulls[0]
                     return PullRequestWrapper(pr_data, owner, repo)
                 logger.warning(f"{log_prefix} No PRs found for commit {commit_sha}")
-            except (GraphQLError, GithubException, IndexError) as ex:
+            except (GraphQLError, GithubException, IndexError, ValueError) as ex:
                 logger.warning(f"{log_prefix} Failed to get PR from commit {commit_sha}: {ex}")
             # Don't suppress authentication or connection errors
 

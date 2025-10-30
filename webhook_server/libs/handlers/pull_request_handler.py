@@ -638,6 +638,10 @@ For more information, please refer to the project documentation or contact the m
         issue_title = self._generate_issue_title(pull_request=pull_request)
 
         # Check if issue already exists
+        # Note: GitHub GraphQL API does not support issue search by title.
+        # Current approach reuses pre-fetched repository_data (zero additional API calls).
+        # Alternative (REST search API) would add an API call, making it slower.
+        # O(N) iteration is acceptable: typical repos have <100 open issues.
         self.logger.debug(
             f"{self.log_prefix} Checking if issue already exists for PR #{pull_request.number} "
             f"in repository {owner}/{repo_name}"
@@ -843,6 +847,27 @@ For more information, please refer to the project documentation or contact the m
             await self.labels_handler._remove_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
             await self.check_run_handler.set_verify_check_queued()
 
+    async def _assign_first_approver_as_fallback(
+        self,
+        owner: str,
+        repo_name: str,
+        pr_number: int,
+        reason: str,
+    ) -> None:
+        """Assign first approver as assignee fallback.
+
+        Args:
+            owner: Repository owner
+            repo_name: Repository name
+            pr_number: Pull request number
+            reason: Reason for fallback (for logging)
+        """
+        if self.owners_file_handler.root_approvers:
+            self.logger.debug(f"{self.log_prefix} {reason}")
+            await self.github_webhook.unified_api.add_assignees_by_login(
+                owner, repo_name, pr_number, [self.owners_file_handler.root_approvers[0]]
+            )
+
     async def add_pull_request_owner_as_assignee(self, pull_request: PullRequestWrapper) -> None:
         # Use unified_api for add_assignees
         owner, repo_name = self._owner_and_repo
@@ -857,11 +882,9 @@ For more information, please refer to the project documentation or contact the m
                 "skipping assignee assignment. Will use first approver instead."
             )
             # Skip assignment attempt and go straight to fallback
-            if self.owners_file_handler.root_approvers:
-                self.logger.debug(f"{self.log_prefix} Assigning first approver as assignee")
-                await self.github_webhook.unified_api.add_assignees_by_login(
-                    owner, repo_name, pull_request.number, [self.owners_file_handler.root_approvers[0]]
-                )
+            await self._assign_first_approver_as_fallback(
+                owner, repo_name, pull_request.number, "Assigning first approver as assignee"
+            )
             return
 
         try:
@@ -875,27 +898,21 @@ For more information, please refer to the project documentation or contact the m
                 f"{self.log_prefix} Could not add '{author_login}' as assignee (404 Not Found). "
                 f"Likely external contributor or bot account."
             )
-            if self.owners_file_handler.root_approvers:
-                self.logger.debug(f"{self.log_prefix} Falling back to first approver as assignee")
-                await self.github_webhook.unified_api.add_assignees_by_login(
-                    owner, repo_name, pull_request.number, [self.owners_file_handler.root_approvers[0]]
-                )
+            await self._assign_first_approver_as_fallback(
+                owner, repo_name, pull_request.number, "Falling back to first approver as assignee"
+            )
         except GithubException as ex:
             # Other GitHub API errors (rate limit, permissions, etc.)
             self.logger.exception(f"{self.log_prefix} GitHub API error while adding PR owner as assignee: {ex.status}")
-            if self.owners_file_handler.root_approvers:
-                self.logger.debug(f"{self.log_prefix} Falling back to first approver as assignee")
-                await self.github_webhook.unified_api.add_assignees_by_login(
-                    owner, repo_name, pull_request.number, [self.owners_file_handler.root_approvers[0]]
-                )
+            await self._assign_first_approver_as_fallback(
+                owner, repo_name, pull_request.number, "Falling back to first approver as assignee"
+            )
         except Exception:
             # Unexpected errors
             self.logger.exception(f"{self.log_prefix} Unexpected error while adding PR owner as assignee")
-            if self.owners_file_handler.root_approvers:
-                self.logger.debug(f"{self.log_prefix} Falling back to first approver as assignee")
-                await self.github_webhook.unified_api.add_assignees_by_login(
-                    owner, repo_name, pull_request.number, [self.owners_file_handler.root_approvers[0]]
-                )
+            await self._assign_first_approver_as_fallback(
+                owner, repo_name, pull_request.number, "Falling back to first approver as assignee"
+            )
 
     async def check_if_can_be_merged(self, pull_request: PullRequestWrapper) -> None:
         """

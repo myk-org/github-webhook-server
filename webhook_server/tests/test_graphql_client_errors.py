@@ -145,16 +145,18 @@ async def test_server_error_with_retry(graphql_client, monkeypatch):
     mock_sleep = AsyncMock()
     monkeypatch.setattr("asyncio.sleep", mock_sleep)
 
-    # Server errors are caught by TransportError handler (since TransportServerError is a subclass)
-    # This causes connection retry behavior instead of exponential backoff
-    with pytest.raises(GraphQLError, match="GraphQL connection closed"):
+    # Server errors are now caught by TransportServerError handler (before TransportError)
+    # This uses exponential backoff retry behavior
+    with pytest.raises(GraphQLError, match="GraphQL server error: 500: Internal server error"):
         await graphql_client.execute("query { viewer { login } }")
 
     # Verify retries happened (default retry_count=3 means 3 attempts)
     assert mock_session.execute.call_count == 3
-    # TransportError handler uses 1s fixed delay between retries (not exponential backoff)
+    # TransportServerError handler uses exponential backoff (2^0=1s, 2^1=2s)
     assert mock_sleep.call_count == 2  # 2 sleeps between 3 attempts
-    mock_sleep.assert_any_call(1)
+    # Verify exponential backoff pattern: 1s, 2s
+    assert mock_sleep.call_args_list[0][0][0] == 1  # First retry: 2^0 = 1s
+    assert mock_sleep.call_args_list[1][0][0] == 2  # Second retry: 2^1 = 2s
 
 
 @pytest.mark.asyncio
