@@ -72,6 +72,8 @@ class GraphQLClient:
         retry_count: int = 3,
         timeout: int = 90,
         batch_concurrency_limit: int = 10,
+        connection_timeout: int = 10,
+        sock_read_timeout: int = 30,
     ) -> None:
         """
         Initialize GraphQL client.
@@ -80,20 +82,29 @@ class GraphQLClient:
             token: GitHub personal access token or GitHub App token
             logger: Logger instance for operation logging
             retry_count: Number of retry attempts for failed requests (default: 3)
-            timeout: Request timeout in seconds (default: 90, increased for large mutations)
+            timeout: Total request timeout in seconds (default: 90, increased for large mutations)
             batch_concurrency_limit: Maximum concurrent batch operations.
                 - Default: 10 (recommended to protect rate limits and connection pools)
                 - Range: 1-100 (clamped at runtime)
                 - 0: Unlimited concurrency (use with caution - may overload server/rate limits)
+            connection_timeout: DNS resolution + TCP handshake timeout in seconds (default: 10)
+            sock_read_timeout: Socket read timeout in seconds (default: 30)
 
         Note:
             Setting batch_concurrency_limit to 0 enables unlimited concurrency which may
             overload rate limits or connection pools. Use only when necessary.
+
+            Granular timeouts allow better error handling:
+            - connection_timeout: Fast fail on DNS/connection issues (default: 10s)
+            - sock_read_timeout: Timeout for reading response data (default: 30s)
+            - timeout: Overall operation timeout (default: 90s)
         """
         self.token = token
         self.logger = logger
         self.retry_count = retry_count
         self.timeout = timeout
+        self.connection_timeout = connection_timeout
+        self.sock_read_timeout = sock_read_timeout
         # Clamp batch_concurrency_limit to sane bounds (0 = unlimited, max 100)
         # Negative values are clamped to 0 (unlimited)
         if batch_concurrency_limit > 0:
@@ -139,6 +150,16 @@ class GraphQLClient:
                 keepalive_timeout=30,  # Keep connections alive for reuse
             )
 
+            # Create granular timeout configuration for better error handling
+            # - total: Overall operation timeout (default: 90s)
+            # - connect: DNS resolution + TCP handshake timeout (default: 10s)
+            # - sock_read: Socket read timeout (default: 30s)
+            timeout_config = aiohttp.ClientTimeout(
+                total=self.timeout,
+                connect=self.connection_timeout,
+                sock_read=self.sock_read_timeout,
+            )
+
             self._transport = AIOHTTPTransport(
                 url=self.GITHUB_GRAPHQL_URL,
                 headers={
@@ -146,11 +167,11 @@ class GraphQLClient:
                     "Accept": "application/vnd.github.v4+json",
                     "User-Agent": "github-webhook-server/graphql-client",
                 },
-                timeout=self.timeout,
                 ssl=True,  # Enable SSL certificate verification
                 client_session_args={
                     "connector": connector,
                     "connector_owner": True,  # Session owns connector to ensure proper cleanup
+                    "timeout": timeout_config,  # Pass ClientTimeout via client_session_args
                 },
             )
 
@@ -206,7 +227,10 @@ class GraphQLClient:
                 # Ensure client is available for this attempt (may need recreation after error)
                 await self._ensure_client()
 
-                self.logger.debug(f"Executing GraphQL query with {self.timeout}s timeout")
+                self.logger.debug(
+                    f"Executing GraphQL query (total={self.timeout}s, "
+                    f"connect={self.connection_timeout}s, sock_read={self.sock_read_timeout}s)"
+                )
 
                 # Use stored session reference (avoid accessing internal .session attribute)
                 # The session was connected in _ensure_client and stays connected for connection pooling
@@ -339,7 +363,8 @@ class GraphQLClient:
                 # Explicit timeout handling - NEVER silent!
                 # TimeoutError catches both builtin and asyncio.TimeoutError (aliases in Python 3.8+)
                 self.logger.exception(
-                    f"TIMEOUT: GraphQL query timeout after {self.timeout}s",
+                    f"TIMEOUT: GraphQL query timeout (total={self.timeout}s, "
+                    f"connect={self.connection_timeout}s, sock_read={self.sock_read_timeout}s)",
                 )
                 # Force close the client to stop any pending connections
                 if self._client:

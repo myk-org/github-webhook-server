@@ -182,3 +182,145 @@ async def test_ensure_client_idempotent(mock_logger):
         assert first_client is mock_client
         # connect_async should only be called once (connection pooling)
         mock_client.connect_async.assert_called_once()
+
+
+# ============================================================================
+# Granular Timeout Configuration Tests (Async-Specific)
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_graphql_client_timeout_configuration_with_context_manager(mock_logger):
+    """Test that timeout configuration works with async context manager."""
+    client = GraphQLClient(
+        token=TEST_GITHUB_TOKEN,
+        logger=mock_logger,
+        timeout=100,
+        connection_timeout=20,
+        sock_read_timeout=40,
+    )
+
+    mock_result = {"viewer": {"login": "test"}}
+
+    with (
+        patch("webhook_server.libs.graphql.graphql_client.aiohttp.ClientTimeout") as mock_client_timeout,
+        patch("webhook_server.libs.graphql.graphql_client.AIOHTTPTransport"),
+        patch("webhook_server.libs.graphql.graphql_client.Client") as mock_client_class,
+    ):
+        mock_timeout_instance = MagicMock()
+        mock_client_timeout.return_value = mock_timeout_instance
+
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        mock_gql_client = AsyncMock()
+        mock_gql_client.connect_async = AsyncMock()
+        mock_gql_client.close_async = AsyncMock()
+        mock_gql_client.session = mock_session
+
+        mock_client_class.return_value = mock_gql_client
+
+        async with client as ctx_client:
+            # Verify timeout configuration was used
+            mock_client_timeout.assert_called_once_with(
+                total=100,
+                connect=20,
+                sock_read=40,
+            )
+
+            # Manually set session for test
+            ctx_client._session = mock_session
+
+            result = await ctx_client.execute("query { viewer { login } }")
+            assert result == mock_result
+
+
+@pytest.mark.asyncio
+async def test_graphql_client_connection_timeout_separate_from_total(mock_logger):
+    """Test that connection_timeout is configured separately from total timeout."""
+    client = GraphQLClient(
+        token=TEST_GITHUB_TOKEN,
+        logger=mock_logger,
+        timeout=90,  # Total timeout
+        connection_timeout=5,  # Much smaller connection timeout
+        sock_read_timeout=30,
+    )
+
+    with patch("webhook_server.libs.graphql.graphql_client.aiohttp.ClientTimeout") as mock_client_timeout:
+        with (
+            patch("webhook_server.libs.graphql.graphql_client.AIOHTTPTransport"),
+            patch("webhook_server.libs.graphql.graphql_client.Client") as mock_client_class,
+        ):
+            mock_client = AsyncMock()
+            mock_client.connect_async = AsyncMock()
+            mock_client_class.return_value = mock_client
+
+            await client._ensure_client()
+
+            # Verify connection timeout is configured separately and is much smaller than total
+            call_args = mock_client_timeout.call_args
+            assert call_args[1]["total"] == 90
+            assert call_args[1]["connect"] == 5
+            assert call_args[1]["sock_read"] == 30
+            # Connection timeout should be much smaller than total timeout
+            assert call_args[1]["connect"] < call_args[1]["total"]
+
+
+@pytest.mark.asyncio
+async def test_graphql_client_sock_read_timeout_configuration(mock_logger):
+    """Test that sock_read_timeout is correctly configured in ClientTimeout."""
+    client = GraphQLClient(
+        token=TEST_GITHUB_TOKEN,
+        logger=mock_logger,
+        timeout=90,
+        connection_timeout=10,
+        sock_read_timeout=60,  # Custom sock_read timeout
+    )
+
+    with patch("webhook_server.libs.graphql.graphql_client.aiohttp.ClientTimeout") as mock_client_timeout:
+        with (
+            patch("webhook_server.libs.graphql.graphql_client.AIOHTTPTransport"),
+            patch("webhook_server.libs.graphql.graphql_client.Client") as mock_client_class,
+        ):
+            mock_client = AsyncMock()
+            mock_client.connect_async = AsyncMock()
+            mock_client_class.return_value = mock_client
+
+            await client._ensure_client()
+
+            # Verify sock_read timeout is configured
+            call_args = mock_client_timeout.call_args
+            assert call_args[1]["sock_read"] == 60
+
+
+@pytest.mark.asyncio
+async def test_graphql_client_all_timeout_types_independent(mock_logger):
+    """Test that all three timeout types can be configured independently."""
+    client = GraphQLClient(
+        token=TEST_GITHUB_TOKEN,
+        logger=mock_logger,
+        timeout=150,  # Total
+        connection_timeout=25,  # Connection
+        sock_read_timeout=75,  # Socket read
+    )
+
+    with patch("webhook_server.libs.graphql.graphql_client.aiohttp.ClientTimeout") as mock_client_timeout:
+        with (
+            patch("webhook_server.libs.graphql.graphql_client.AIOHTTPTransport"),
+            patch("webhook_server.libs.graphql.graphql_client.Client") as mock_client_class,
+        ):
+            mock_client = AsyncMock()
+            mock_client.connect_async = AsyncMock()
+            mock_client_class.return_value = mock_client
+
+            await client._ensure_client()
+
+            # Verify all three timeouts are independent and custom
+            call_args = mock_client_timeout.call_args
+            assert call_args[1]["total"] == 150
+            assert call_args[1]["connect"] == 25
+            assert call_args[1]["sock_read"] == 75
+            # All values should be different to prove independence
+            assert call_args[1]["total"] != call_args[1]["connect"]
+            assert call_args[1]["total"] != call_args[1]["sock_read"]
+            assert call_args[1]["connect"] != call_args[1]["sock_read"]

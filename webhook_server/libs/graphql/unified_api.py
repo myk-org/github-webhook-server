@@ -290,7 +290,6 @@ class UnifiedGitHubAPI:
 
         # Read configurable query limits from config
         config = self.config
-        config.repository = f"{owner}/{name}"
 
         query_limits = {
             "collaborators": config.get_value("graphql.query-limits.collaborators", return_on_none=100),
