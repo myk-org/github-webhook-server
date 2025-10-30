@@ -9,6 +9,8 @@ ENV PATH="$PATH:$BIN_DIR"
 ENV DATA_DIR="$HOME_DIR/data"
 ENV APP_DIR="$HOME_DIR/github-webhook-server"
 
+RUN systemd-machine-id-setup
+
 RUN dnf -y install dnf-plugins-core \
   && dnf -y update \
   && dnf -y install \
