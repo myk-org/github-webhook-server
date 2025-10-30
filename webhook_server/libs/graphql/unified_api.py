@@ -510,7 +510,38 @@ class UnifiedGitHubAPI:
 
         # If we have a PR number, use GraphQL
         if pr_number:
-            # Fetch PR with commits and labels (commonly needed data)
+            # OPTIMIZATION: Reuse webhook payload if it contains complete PR data
+            # GitHub's pull_request webhook events include the full PR object with node_id,
+            # which can save 1 API call per webhook when the payload is complete.
+            webhook_pr = hook_data.get("pull_request")
+            if webhook_pr and isinstance(webhook_pr, dict):
+                # Check if webhook payload contains the GraphQL node_id (required for GraphQL operations)
+                # GitHub webhook payloads include node_id for the PR object
+                has_node_id = "node_id" in webhook_pr
+                has_number = "number" in webhook_pr
+
+                # If webhook has node_id and number, we can construct PullRequestWrapper directly
+                # Note: Webhook payloads don't have the same structure as GraphQL responses,
+                # but PullRequestWrapper can handle both via webhook_data parameter
+                if has_node_id and has_number:
+                    logger.debug(f"{log_prefix} Using webhook payload for PR #{pr_number} (skipping GraphQL fetch)")
+                    # Construct minimal GraphQL-compatible data structure from webhook
+                    # The webhook_data parameter will provide the actual data
+                    minimal_pr_data = {
+                        "id": webhook_pr["node_id"],  # GraphQL node ID from webhook
+                        "number": webhook_pr["number"],
+                        "title": webhook_pr.get("title", ""),
+                        "body": webhook_pr.get("body"),
+                        "state": webhook_pr.get("state", "open").upper(),
+                        "isDraft": webhook_pr.get("draft", False),
+                        "merged": webhook_pr.get("merged", False),
+                        "mergeable": webhook_pr.get("mergeable_state", "UNKNOWN").upper(),
+                    }
+                    # Pass both minimal GraphQL structure and full webhook payload
+                    # webhook_data takes priority for user.login and other fields
+                    return PullRequestWrapper(minimal_pr_data, owner, repo, webhook_data=webhook_pr)
+
+            # Fallback: Fetch PR with commits and labels via GraphQL if webhook payload incomplete
             pr_data = await self.get_pull_request_data(
                 owner, repo, pr_number, include_commits=True, include_labels=True
             )

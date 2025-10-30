@@ -337,7 +337,7 @@ class GraphQLClient:
 
             except TimeoutError as error:
                 # Explicit timeout handling - NEVER silent!
-                # Catch both builtin TimeoutError and asyncio.TimeoutError from async transports
+                # TimeoutError catches both builtin and asyncio.TimeoutError (aliases in Python 3.8+)
                 self.logger.exception(
                     f"TIMEOUT: GraphQL query timeout after {self.timeout}s",
                 )

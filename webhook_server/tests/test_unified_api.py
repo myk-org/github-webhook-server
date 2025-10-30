@@ -511,6 +511,96 @@ class TestUnifiedAPIPRMethods:
         await api.close()
 
     @pytest.mark.asyncio
+    async def test_get_pull_request_webhook_payload_optimization(self, api, mock_logger):
+        """Test that get_pull_request reuses webhook payload when node_id is present (optimization)."""
+        # Webhook payload with complete PR data including node_id
+        hook_data = {
+            "pull_request": {
+                "number": 42,
+                "node_id": "PR_kwDOABcD1M5abc123",  # GraphQL node ID from webhook
+                "title": "Test PR from webhook",
+                "body": "Description from webhook",
+                "state": "open",
+                "draft": False,
+                "merged": False,
+                "mergeable_state": "clean",
+                "user": {"login": "testuser", "type": "User"},
+            }
+        }
+
+        with (
+            patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
+            patch("webhook_server.libs.graphql.unified_api.Github"),
+        ):
+            mock_gql = AsyncMock()
+            mock_gql.execute = AsyncMock()  # Should NOT be called due to optimization
+            mock_gql.close = AsyncMock()
+            mock_gql_class.return_value = mock_gql
+
+            await api.initialize()
+            result = await api.get_pull_request(
+                owner="test-owner",
+                repo="test-repo",
+                hook_data=hook_data,
+                github_event="pull_request",
+                logger=mock_logger,
+                number=42,
+            )
+
+            # Verify PR was constructed from webhook payload
+            assert isinstance(result, PullRequestWrapper)
+            assert result.number == 42
+            assert result.title == "Test PR from webhook"
+            assert result.id == "PR_kwDOABcD1M5abc123"
+
+            # CRITICAL: Verify GraphQL was NOT called (optimization worked)
+            mock_gql.execute.assert_not_called()
+
+        await api.close()
+
+    @pytest.mark.asyncio
+    async def test_get_pull_request_webhook_payload_incomplete_fallback(self, api, mock_logger):
+        """Test that get_pull_request falls back to GraphQL when webhook payload lacks node_id."""
+        # Webhook payload WITHOUT node_id (incomplete)
+        hook_data = {
+            "pull_request": {
+                "number": 42,
+                # Missing node_id - will trigger GraphQL fallback
+                "title": "Test PR",
+            }
+        }
+
+        pr_graphql_data = {"id": "PR_123", "number": 42, "title": "Test PR from GraphQL"}
+
+        with (
+            patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
+            patch("webhook_server.libs.graphql.unified_api.Github"),
+        ):
+            mock_gql = AsyncMock()
+            mock_gql.execute = AsyncMock(return_value={"repository": {"pullRequest": pr_graphql_data}})
+            mock_gql.close = AsyncMock()
+            mock_gql_class.return_value = mock_gql
+
+            await api.initialize()
+            result = await api.get_pull_request(
+                owner="test-owner",
+                repo="test-repo",
+                hook_data=hook_data,
+                github_event="pull_request",
+                logger=mock_logger,
+                number=42,
+            )
+
+            # Verify PR was fetched from GraphQL (fallback)
+            assert isinstance(result, PullRequestWrapper)
+            assert result.number == 42
+
+            # CRITICAL: Verify GraphQL WAS called (fallback happened)
+            mock_gql.execute.assert_called_once()
+
+        await api.close()
+
+    @pytest.mark.asyncio
     async def test_get_pull_request_with_commit_sha(self, api, mock_logger):
         """Test get_pull_request with commit SHA lookup via GraphQL."""
         hook_data = {"commit": {"sha": "abc123def456"}}  # pragma: allowlist secret

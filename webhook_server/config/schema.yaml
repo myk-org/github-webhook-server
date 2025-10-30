@@ -81,7 +81,12 @@ properties:
     minimum: 1
   batch-concurrency-limit:
     type: integer
-    description: Maximum number of concurrent GraphQL batch operations (default is 10 to protect rate/connection limits, 0 for unlimited)
+    description: >
+      Maximum number of concurrent GraphQL batch operations (default is 10 to protect rate/connection limits, 0 for unlimited).
+      Works together with 'graphql.query-limits': batch-concurrency-limit controls HOW MANY batch operations run in parallel,
+      while query-limits controls HOW MUCH data each individual query fetches. For performance tuning, consider both settings -
+      high concurrency with large query limits may exceed rate limits, while low values may slow processing. Recommended: Keep
+      defaults unless you encounter rate limit errors (decrease) or slow webhook processing (increase).
     default: 10
     minimum: 0
   post-merge-relabel-delay:
@@ -320,8 +325,18 @@ properties:
           minimum: 1
         batch-concurrency-limit:
           type: integer
-          description: Maximum number of concurrent GraphQL batch operations for this repository (default is 10, 0 for unlimited)
+          description: >
+            Maximum number of concurrent GraphQL batch operations for this repository (default is 10, 0 for unlimited).
+            Works together with 'graphql.query-limits': batch-concurrency-limit controls HOW MANY batch operations run in parallel,
+            while query-limits controls HOW MUCH data each individual query fetches. For performance tuning, consider both settings -
+            high concurrency with large query limits may exceed rate limits, while low values may slow processing. Recommended: Keep
+            defaults unless you encounter rate limit errors (decrease) or slow webhook processing (increase).
           default: 10
+          minimum: 0
+        post-merge-relabel-delay:
+          type: integer
+          description: Delay in seconds before relabeling open PRs after a PR is merged (overrides global value for this repository)
+          default: 30
           minimum: 0
         graphql:
           type: object

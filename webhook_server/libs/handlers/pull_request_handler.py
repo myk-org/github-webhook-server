@@ -79,8 +79,18 @@ class PullRequestHandler:
 
         Returns:
             Tuple of (owner, repo_name)
+
+        Raises:
+            ValueError: If repository full_name is malformed (missing "/" separator)
         """
-        owner, repo_name = self.github_webhook.repository_full_name.split("/", 1)
+        full_name = self.github_webhook.repository_full_name
+        if "/" not in full_name:
+            raise ValueError(
+                f"Malformed repository full_name: '{full_name}'. "
+                f"Expected format: 'owner/repo' (e.g., 'octocat/Hello-World'). "
+                f"The full_name must contain a '/' separator between owner and repository name."
+            )
+        owner, repo_name = full_name.split("/", 1)
         return owner, repo_name
 
     def _log_task_error(self, result: Exception, task_name: str = "") -> None:
@@ -424,7 +434,11 @@ For more information, please refer to the project documentation or contact the m
         config setting (default: 30 seconds).
         """
         # Schedule background task to avoid blocking webhook processing
-        asyncio.create_task(self._label_all_opened_pull_requests_background())
+        # Store task reference to prevent garbage collection (RUF006)
+        task = asyncio.create_task(self._label_all_opened_pull_requests_background())
+        # Task runs independently - we don't await it but keep the reference
+        # to prevent premature garbage collection
+        _ = task
 
     async def _label_all_opened_pull_requests_background(self) -> None:
         """Background task for relabeling open PRs after merge.
