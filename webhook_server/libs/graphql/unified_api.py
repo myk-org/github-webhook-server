@@ -60,17 +60,19 @@ class UnifiedGitHubAPI:
         >>> await api.close()
     """
 
-    def __init__(self, token: str, logger: logging.Logger, batch_concurrency_limit: int = 10) -> None:
+    def __init__(self, token: str, logger: logging.Logger, config: Config, batch_concurrency_limit: int = 10) -> None:
         """
         Initialize unified API client.
 
         Args:
             token: GitHub personal access token or GitHub App token
             logger: Logger instance
+            config: Configuration object for reading settings
             batch_concurrency_limit: Maximum concurrent batch operations (default: 10, 0 for unlimited)
         """
         self.token = token
         self.logger = logger
+        self.config = config
         self.batch_concurrency_limit = batch_concurrency_limit
 
         # GraphQL client (async)
@@ -1942,16 +1944,14 @@ class UnifiedGitHubAPI:
 
         Note:
             Uses dynamic query building to traverse tree to configurable depth.
-            Default: 12 levels (covers 95%+ of repositories).
+            Default: 9 levels (max safe value for GitHub's 25 depth limit).
             Configure via: graphql.tree-max-depth in config.yaml
         """
         if not self.graphql_client:
             await self.initialize()
 
-        # Get max depth from config (default: 12 levels)
-        max_depth = 12
-        if hasattr(self, "config") and self.config:
-            max_depth = self.config.get_value("graphql.tree-max-depth", default=12)
+        # Get max depth from config (default: 9 levels - max safe value for GitHub's 25 depth limit)
+        max_depth = self.config.get_value("graphql.tree-max-depth", return_on_none=9)
 
         # Build recursive query with configured depth
         entries_fragment = self._build_tree_entries_fragment(0, max_depth)

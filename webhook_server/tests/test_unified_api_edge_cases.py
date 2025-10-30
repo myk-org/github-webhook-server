@@ -20,6 +20,14 @@ def mock_logger():
 
 
 @pytest.fixture
+def mock_config():
+    """Create a mock config."""
+    config = MagicMock()
+    config.get_value = MagicMock(return_value=9)  # For tree-max-depth
+    return config
+
+
+@pytest.fixture
 def mock_graphql_client():
     """Create a mock GraphQL client."""
     client = AsyncMock()
@@ -37,9 +45,9 @@ def mock_rest_client():
 
 
 @pytest.fixture
-async def initialized_api(mock_graphql_client, mock_rest_client, mock_logger):
+async def initialized_api(mock_graphql_client, mock_rest_client, mock_logger, mock_config):
     """Create initialized UnifiedGitHubAPI."""
-    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger)
+    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger, config=mock_config)
     api.graphql_client = mock_graphql_client
     api.rest_client = mock_rest_client
     api._initialized = True
@@ -94,9 +102,9 @@ def create_mock_to_thread_simple(rest_client, repo_mock=None, result_mock=None):
 
 
 @pytest.mark.asyncio
-async def test_lazy_init_already_initialized(mock_logger):
+async def test_lazy_init_already_initialized(mock_logger, mock_config):
     """Test that initialize() returns early if already initialized."""
-    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger)
+    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger, config=mock_config)
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
@@ -118,9 +126,9 @@ async def test_lazy_init_already_initialized(mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_lazy_init_get_rate_limit(mock_logger):
+async def test_lazy_init_get_rate_limit(mock_logger, mock_config):
     """Test lazy initialization in get_rate_limit."""
-    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger)
+    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger, config=mock_config)
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
@@ -137,9 +145,9 @@ async def test_lazy_init_get_rate_limit(mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_lazy_init_get_viewer(mock_logger):
+async def test_lazy_init_get_viewer(mock_logger, mock_config):
     """Test lazy initialization in get_viewer."""
-    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger)
+    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger, config=mock_config)
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
@@ -156,9 +164,9 @@ async def test_lazy_init_get_viewer(mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_lazy_init_get_repository(mock_logger):
+async def test_lazy_init_get_repository(mock_logger, mock_config):
     """Test lazy initialization in get_repository."""
-    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger)
+    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger, config=mock_config)
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
@@ -175,9 +183,9 @@ async def test_lazy_init_get_repository(mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_lazy_init_get_pull_request(mock_logger):
+async def test_lazy_init_get_pull_request(mock_logger, mock_config):
     """Test lazy initialization in get_pull_request_data."""
-    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger)
+    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger, config=mock_config)
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
@@ -194,9 +202,9 @@ async def test_lazy_init_get_pull_request(mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_lazy_init_get_pull_requests(mock_logger):
+async def test_lazy_init_get_pull_requests(mock_logger, mock_config):
     """Test lazy initialization in get_pull_requests."""
-    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger)
+    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger, config=mock_config)
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
@@ -213,9 +221,9 @@ async def test_lazy_init_get_pull_requests(mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_lazy_init_get_commit(mock_logger):
+async def test_lazy_init_get_commit(mock_logger, mock_config):
     """Test lazy initialization in get_commit."""
-    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger)
+    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger, config=mock_config)
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
@@ -232,9 +240,9 @@ async def test_lazy_init_get_commit(mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_lazy_init_remove_labels(mock_logger):
+async def test_lazy_init_remove_labels(mock_logger, mock_config):
     """Test lazy initialization in remove_labels."""
-    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger)
+    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger, config=mock_config)
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
@@ -250,9 +258,9 @@ async def test_lazy_init_remove_labels(mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_lazy_init_add_assignees(mock_logger):
+async def test_lazy_init_add_assignees(mock_logger, mock_config):
     """Test lazy initialization in add_assignees."""
-    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger)
+    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger, config=mock_config)
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
@@ -268,9 +276,9 @@ async def test_lazy_init_add_assignees(mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_lazy_init_create_issue(mock_logger):
+async def test_lazy_init_create_issue(mock_logger, mock_config):
     """Test lazy initialization in create_issue."""
-    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger)
+    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger, config=mock_config)
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
@@ -287,9 +295,9 @@ async def test_lazy_init_create_issue(mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_lazy_init_request_reviews(mock_logger):
+async def test_lazy_init_request_reviews(mock_logger, mock_config):
     """Test lazy initialization in request_reviews."""
-    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger)
+    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger, config=mock_config)
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
@@ -305,9 +313,9 @@ async def test_lazy_init_request_reviews(mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_lazy_init_update_pull_request(mock_logger):
+async def test_lazy_init_update_pull_request(mock_logger, mock_config):
     """Test lazy initialization in update_pull_request."""
-    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger)
+    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger, config=mock_config)
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
@@ -324,9 +332,9 @@ async def test_lazy_init_update_pull_request(mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_lazy_init_enable_automerge(mock_logger):
+async def test_lazy_init_enable_automerge(mock_logger, mock_config):
     """Test lazy initialization in enable_pull_request_automerge."""
-    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger)
+    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger, config=mock_config)
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
@@ -342,9 +350,9 @@ async def test_lazy_init_enable_automerge(mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_lazy_init_get_user_id(mock_logger):
+async def test_lazy_init_get_user_id(mock_logger, mock_config):
     """Test lazy initialization in get_user_id."""
-    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger)
+    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger, config=mock_config)
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
@@ -361,9 +369,9 @@ async def test_lazy_init_get_user_id(mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_lazy_init_get_label_id(mock_logger):
+async def test_lazy_init_get_label_id(mock_logger, mock_config):
     """Test lazy initialization in get_label_id."""
-    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger)
+    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger, config=mock_config)
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
@@ -380,9 +388,9 @@ async def test_lazy_init_get_label_id(mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_lazy_init_create_label(mock_logger):
+async def test_lazy_init_create_label(mock_logger, mock_config):
     """Test lazy initialization in create_label."""
-    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger)
+    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger, config=mock_config)
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
@@ -399,9 +407,9 @@ async def test_lazy_init_create_label(mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_lazy_init_update_label(mock_logger):
+async def test_lazy_init_update_label(mock_logger, mock_config):
     """Test lazy initialization in update_label."""
-    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger)
+    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger, config=mock_config)
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
@@ -421,9 +429,9 @@ async def test_lazy_init_update_label(mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_lazy_init_get_file_contents(mock_logger):
+async def test_lazy_init_get_file_contents(mock_logger, mock_config):
     """Test lazy initialization in get_file_contents."""
-    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger)
+    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger, config=mock_config)
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
@@ -537,9 +545,9 @@ async def test_add_comment_missing_node(initialized_api, mock_graphql_client, mo
 
 
 @pytest.mark.asyncio
-async def test_get_repository_for_rest_operations(mock_logger):
+async def test_get_repository_for_rest_operations(mock_logger, mock_config):
     """Test get_repository_for_rest_operations lazy initialization."""
-    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger)
+    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger, config=mock_config)
 
     mock_repo = MagicMock()
 

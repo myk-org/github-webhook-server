@@ -118,10 +118,10 @@ properties:
             description: "Max open pull requests to fetch"
       tree-max-depth:
         type: integer
-        default: 12
+        default: 9
         minimum: 1
-        maximum: 20
-        description: "Max directory depth for recursive tree traversal (default: 12, covers 95%+ of repos)"
+        maximum: 9
+        description: "Max directory depth for recursive tree traversal (default: 9, max safe value for GitHub's 25 depth limit)"
 
   pr-size-thresholds:
     type: object
@@ -351,10 +351,10 @@ properties:
                   description: "Max open pull requests to fetch"
             tree-max-depth:
               type: integer
-              default: 12
+              default: 9
               minimum: 1
-              maximum: 20
-              description: "Max directory depth for recursive tree traversal (repository-specific override)"
+              maximum: 9
+              description: "Max directory depth for recursive tree traversal (repository-specific override, max safe value: 9)"
         pr-size-thresholds:
           type: object
           description: Custom PR size thresholds with label names and colors (repository-specific override)

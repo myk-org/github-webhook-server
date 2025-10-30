@@ -18,9 +18,17 @@ def mock_logger():
 
 
 @pytest.fixture
-def unified_api(mock_logger):
+def mock_config():
+    """Create a mock config."""
+    config = MagicMock()
+    config.get_value = MagicMock(return_value=9)  # For tree-max-depth
+    return config
+
+
+@pytest.fixture
+def unified_api(mock_logger, mock_config):
     """Create UnifiedGitHubAPI instance."""
-    return UnifiedGitHubAPI(token="test_token", logger=mock_logger)  # pragma: allowlist secret
+    return UnifiedGitHubAPI(token="test_token", logger=mock_logger, config=mock_config)  # pragma: allowlist secret
 
 
 @pytest.mark.asyncio
@@ -261,7 +269,9 @@ async def test_get_pr_for_check_runs(unified_api):
 
 def test_get_api_type_for_operation():
     """Test API type selection logic."""
-    api = UnifiedGitHubAPI("token", MagicMock())  # pragma: allowlist secret
+    mock_config = MagicMock()
+    mock_config.get_value = MagicMock(return_value=9)
+    api = UnifiedGitHubAPI("token", MagicMock(), mock_config)  # pragma: allowlist secret
 
     # REST only operations
     assert api.get_api_type_for_operation("check_runs") == APIType.REST
@@ -288,7 +298,9 @@ async def test_concurrent_initialize_creates_single_client():
     Verify: Only one GraphQL client and one REST client created
     """
     logger = MagicMock()
-    api = UnifiedGitHubAPI("test_token", logger)  # pragma: allowlist secret
+    mock_config = MagicMock()
+    mock_config.get_value = MagicMock(return_value=9)
+    api = UnifiedGitHubAPI("test_token", logger, mock_config)  # pragma: allowlist secret
 
     # Track how many times each client constructor is called
     graphql_client_count = {"count": 0}
@@ -343,7 +355,9 @@ async def test_concurrent_initialize_idempotency():
     doesn't change the client instances.
     """
     logger = MagicMock()
-    api = UnifiedGitHubAPI("test_token", logger)  # pragma: allowlist secret
+    mock_config = MagicMock()
+    mock_config.get_value = MagicMock(return_value=9)
+    api = UnifiedGitHubAPI("test_token", logger, mock_config)  # pragma: allowlist secret
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
@@ -388,7 +402,9 @@ async def test_text_file_uses_graphql_no_fallback():
     Verifies that normal text files don't trigger REST fallback.
     """
     logger = MagicMock()
-    api = UnifiedGitHubAPI("test_token", logger)  # pragma: allowlist secret
+    mock_config = MagicMock()
+    mock_config.get_value = MagicMock(return_value=9)
+    api = UnifiedGitHubAPI("test_token", logger, mock_config)  # pragma: allowlist secret
 
     # Mock GraphQL response for text file
     text_blob_response = {
@@ -441,9 +457,9 @@ class TestUnifiedAPIPRMethods:
     """Comprehensive tests for the 7 PR methods moved from GithubWebhook to UnifiedGitHubAPI."""
 
     @pytest.fixture
-    def api(self, mock_logger):
+    def api(self, mock_logger, mock_config):
         """Create UnifiedGitHubAPI instance."""
-        return UnifiedGitHubAPI(token="test_token", logger=mock_logger)  # pragma: allowlist secret
+        return UnifiedGitHubAPI(token="test_token", logger=mock_logger, config=mock_config)  # pragma: allowlist secret
 
     @pytest.fixture
     def mock_pr_wrapper(self):
@@ -1205,9 +1221,9 @@ class TestUnifiedAPIPRMethods:
 
 
 @pytest.mark.asyncio
-async def test_request_pr_reviews_with_graphql_errors(mock_logger):
+async def test_request_pr_reviews_with_graphql_errors(mock_logger, mock_config):
     """Test request_pr_reviews logs warning when GraphQL user lookup fails."""
-    api = UnifiedGitHubAPI(token="test_token", logger=mock_logger)  # pragma: allowlist secret
+    api = UnifiedGitHubAPI(token="test_token", logger=mock_logger, config=mock_config)  # pragma: allowlist secret
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_graphql_client_cls,
@@ -1235,9 +1251,9 @@ async def test_request_pr_reviews_with_graphql_errors(mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_request_pr_reviews_with_auth_error_raises(mock_logger):
+async def test_request_pr_reviews_with_auth_error_raises(mock_logger, mock_config):
     """Test request_pr_reviews re-raises authentication errors."""
-    api = UnifiedGitHubAPI(token="test_token", logger=mock_logger)  # pragma: allowlist secret
+    api = UnifiedGitHubAPI(token="test_token", logger=mock_logger, config=mock_config)  # pragma: allowlist secret
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_graphql_client_cls,
@@ -1260,9 +1276,9 @@ async def test_request_pr_reviews_with_auth_error_raises(mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_request_pr_reviews_with_invalid_node_id_in_dict(mock_logger):
+async def test_request_pr_reviews_with_invalid_node_id_in_dict(mock_logger, mock_config):
     """Test request_pr_reviews handles dict with invalid node ID."""
-    api = UnifiedGitHubAPI(token="test_token", logger=mock_logger)  # pragma: allowlist secret
+    api = UnifiedGitHubAPI(token="test_token", logger=mock_logger, config=mock_config)  # pragma: allowlist secret
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_graphql_client_cls,
@@ -1285,9 +1301,9 @@ async def test_request_pr_reviews_with_invalid_node_id_in_dict(mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_request_pr_reviews_with_graphql_failure_skips_reviewer(mock_logger):
+async def test_request_pr_reviews_with_graphql_failure_skips_reviewer(mock_logger, mock_config):
     """Test request_pr_reviews skips reviewer when GraphQL user lookup fails."""
-    api = UnifiedGitHubAPI(token="test_token", logger=mock_logger)  # pragma: allowlist secret
+    api = UnifiedGitHubAPI(token="test_token", logger=mock_logger, config=mock_config)  # pragma: allowlist secret
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_graphql_client_cls,
@@ -1317,9 +1333,9 @@ async def test_request_pr_reviews_with_graphql_failure_skips_reviewer(mock_logge
 
 
 @pytest.mark.asyncio
-async def test_request_pr_reviews_skips_on_graphql_failure(mock_logger):
+async def test_request_pr_reviews_skips_on_graphql_failure(mock_logger, mock_config):
     """Test request_pr_reviews logs and skips reviewer when GraphQL lookup fails."""
-    api = UnifiedGitHubAPI(token="test_token", logger=mock_logger)  # pragma: allowlist secret
+    api = UnifiedGitHubAPI(token="test_token", logger=mock_logger, config=mock_config)  # pragma: allowlist secret
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_graphql_client_cls,
@@ -1349,9 +1365,9 @@ async def test_request_pr_reviews_skips_on_graphql_failure(mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_request_pr_reviews_graphql_lookup_fails(mock_logger):
+async def test_request_pr_reviews_graphql_lookup_fails(mock_logger, mock_config):
     """Test request_pr_reviews when GraphQL user lookup fails."""
-    api = UnifiedGitHubAPI(token="test_token", logger=mock_logger)  # pragma: allowlist secret
+    api = UnifiedGitHubAPI(token="test_token", logger=mock_logger, config=mock_config)  # pragma: allowlist secret
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_graphql_client_cls,
@@ -1377,9 +1393,9 @@ async def test_request_pr_reviews_graphql_lookup_fails(mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_get_last_commit_no_commits_error(mock_logger):
+async def test_get_last_commit_no_commits_error(mock_logger, mock_config):
     """Test get_last_commit raises error when no commits found."""
-    api = UnifiedGitHubAPI(token="test_token", logger=mock_logger)  # pragma: allowlist secret
+    api = UnifiedGitHubAPI(token="test_token", logger=mock_logger, config=mock_config)  # pragma: allowlist secret
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_graphql_client_cls,
@@ -1399,9 +1415,9 @@ async def test_get_last_commit_no_commits_error(mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_ensure_initialized_auto_initializes(mock_logger):
+async def test_ensure_initialized_auto_initializes(mock_logger, mock_config):
     """Test _ensure_initialized auto-initializes clients."""
-    api = UnifiedGitHubAPI(token="test_token", logger=mock_logger)  # pragma: allowlist secret
+    api = UnifiedGitHubAPI(token="test_token", logger=mock_logger, config=mock_config)  # pragma: allowlist secret
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient"),

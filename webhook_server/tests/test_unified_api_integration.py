@@ -16,8 +16,16 @@ def mock_logger():
     return Mock()
 
 
+@pytest.fixture
+def mock_config():
+    """Create a mock config."""
+    config = Mock()
+    config.get_value = Mock(return_value=9)  # For tree-max-depth
+    return config
+
+
 @pytest.mark.asyncio
-async def test_complete_pr_workflow_uses_graphql(mock_logger):
+async def test_complete_pr_workflow_uses_graphql(mock_logger, mock_config):
     """
     Test complete PR workflow uses GraphQL for all operations, not REST.
 
@@ -25,7 +33,7 @@ async def test_complete_pr_workflow_uses_graphql(mock_logger):
     Verify: All operations use GraphQL client, no REST fallback
     """
     # Create UnifiedGitHubAPI instance
-    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger)
+    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger, config=mock_config)
 
     # Mock GraphQL client to track calls
     mock_graphql_client = AsyncMock()
@@ -113,14 +121,14 @@ async def test_complete_pr_workflow_uses_graphql(mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_pr_workflow_with_error_recovery(mock_logger):
+async def test_pr_workflow_with_error_recovery(mock_logger, mock_config):
     """
     Test PR workflow with GraphQL error and recovery.
 
     Verifies that errors in multi-step workflows are properly propagated
     and don't leave the API in an inconsistent state.
     """
-    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger)
+    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger, config=mock_config)
 
     # Mock GraphQL client that fails on second operation
     mock_graphql_client = AsyncMock()
@@ -182,14 +190,14 @@ async def test_pr_workflow_with_error_recovery(mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_batch_operations_use_graphql(mock_logger):
+async def test_batch_operations_use_graphql(mock_logger, mock_config):
     """
     Test that batch operations efficiently use GraphQL, not multiple REST calls.
 
     Verifies that batch fetching uses GraphQL's ability to fetch multiple
     resources in a single query rather than N REST API calls.
     """
-    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger)
+    api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger, config=mock_config)
 
     # Mock GraphQL client
     mock_graphql_client = AsyncMock()
@@ -248,7 +256,7 @@ async def test_batch_operations_use_graphql(mock_logger):
 
 
 @pytest.mark.asyncio
-async def test_context_manager_workflow(mock_logger):
+async def test_context_manager_workflow(mock_logger, mock_config):
     """
     Test complete workflow using async context manager.
 
@@ -297,7 +305,7 @@ async def test_context_manager_workflow(mock_logger):
         MockGithub.return_value = mock_rest_instance
 
         # Use context manager for workflow
-        async with UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger) as api:
+        async with UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger, config=mock_config) as api:
             # Fetch PR
             pr = await api.get_pull_request_data("test-owner", "test-repo", 456)
             assert pr["number"] == 456

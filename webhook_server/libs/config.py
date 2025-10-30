@@ -84,20 +84,46 @@ class Config:
         """
         Get value from config
 
+        Supports dot notation for nested values (e.g., "graphql.tree-max-depth")
+
         Order of getting value:
             1. Local repository file (.github-webhook-server.yaml)
             2. Repository level global config file (config.yaml)
             3. Root level global config file (config.yaml)
         """
-        if extra_dict and extra_dict.get(value):
-            value = extra_dict[value]
-            if value is not None:
-                return value
+        # Try extra_dict first
+        if extra_dict:
+            result = self._get_nested_value(value, extra_dict)
+            if result is not None:
+                return result
 
+        # Try repository_data and root_data
         for scope in (self.repository_data, self.root_data):
-            if value in scope:
-                value_data = scope[value]
-                if value_data is not None:
-                    return value_data
+            result = self._get_nested_value(value, scope)
+            if result is not None:
+                return result
 
         return return_on_none
+
+    def _get_nested_value(self, key: str, data: dict[str, Any]) -> Any:
+        """
+        Get value from nested dict using dot notation.
+
+        Args:
+            key: Key with optional dot notation (e.g., "graphql.tree-max-depth")
+            data: Dictionary to search
+
+        Returns:
+            Value if found, None otherwise
+        """
+        # Split by dots for nested access
+        keys = key.split(".")
+        current = data
+
+        for k in keys:
+            if isinstance(current, dict) and k in current:
+                current = current[k]
+            else:
+                return None
+
+        return current

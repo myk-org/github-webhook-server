@@ -75,7 +75,9 @@ class GithubWebhook:
         if github_api and self.token:
             self.repository = get_github_repo_api(github_app_api=github_api, repository=self.repository_full_name)
             # Initialize UnifiedGitHubAPI for GraphQL operations
-            self.unified_api: UnifiedGitHubAPI = UnifiedGitHubAPI(token=self.token, logger=self.logger)
+            self.unified_api: UnifiedGitHubAPI = UnifiedGitHubAPI(
+                token=self.token, logger=self.logger, config=self.config
+            )
             # Once we have a repository, we can get the config from .github-webhook-server.yaml
             local_repository_config = self.config.repository_local_data(
                 github_api=github_api, repository_full_name=self.repository_full_name

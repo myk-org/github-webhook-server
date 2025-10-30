@@ -31,9 +31,17 @@ def mock_logger():
 
 
 @pytest.fixture
-def unified_api(mock_logger):
+def mock_config():
+    """Create a mock config."""
+    config = Mock()
+    config.get_value = Mock(return_value=9)  # For tree-max-depth
+    return config
+
+
+@pytest.fixture
+def unified_api(mock_logger, mock_config):
     """Create UnifiedGitHubAPI instance."""
-    return UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger)
+    return UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=mock_logger, config=mock_config)
 
 
 @pytest.fixture
@@ -946,11 +954,15 @@ async def test_comprehensive_data_api_reduction():
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient", return_value=mock_gql),
         patch("webhook_server.libs.graphql.unified_api.Github"),
-        patch("webhook_server.libs.graphql.unified_api.Config") as mock_config,
+        patch("webhook_server.libs.graphql.unified_api.Config") as mock_config_class,
     ):
-        mock_config.return_value.get_value.return_value = 100
+        mock_config_class.return_value.get_value.return_value = 100
 
-        api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=Mock())
+        # Create mock config with get_value
+        test_config = Mock()
+        test_config.get_value = Mock(return_value=100)
+
+        api = UnifiedGitHubAPI(token=TEST_GITHUB_TOKEN, logger=Mock(), config=test_config)
         await api.initialize()
 
         # Get comprehensive data (1 API call)

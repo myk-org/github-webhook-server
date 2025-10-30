@@ -12,10 +12,17 @@ class TestGraphQLErrorHandling:
     """Test error handling in GraphQL operations."""
 
     @pytest.fixture
-    def unified_api(self) -> UnifiedGitHubAPI:
+    def mock_config(self):
+        """Create mock config."""
+        config = Mock()
+        config.get_value = Mock(return_value=9)  # For tree-max-depth
+        return config
+
+    @pytest.fixture
+    def unified_api(self, mock_config) -> UnifiedGitHubAPI:
         """Create UnifiedGitHubAPI instance for testing."""
         logger = Mock()
-        api = UnifiedGitHubAPI(token="test_token", logger=logger)  # pragma: allowlist secret
+        api = UnifiedGitHubAPI(token="test_token", logger=logger, config=mock_config)  # pragma: allowlist secret
         api.graphql_client = AsyncMock()
         return api
 

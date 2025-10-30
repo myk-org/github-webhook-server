@@ -8,6 +8,14 @@ from webhook_server.libs.graphql.unified_api import UnifiedGitHubAPI
 
 
 @pytest.fixture
+def mock_config():
+    """Create a mock config."""
+    config = MagicMock()
+    config.get_value = MagicMock(return_value=9)  # For tree-max-depth
+    return config
+
+
+@pytest.fixture
 def mock_graphql_client():
     """Create a mock GraphQL client."""
     client = AsyncMock()
@@ -22,9 +30,9 @@ def mock_rest_client():
 
 
 @pytest.fixture
-async def initialized_api(mock_graphql_client, mock_rest_client):
+async def initialized_api(mock_graphql_client, mock_rest_client, mock_config):
     """Create initialized UnifiedGitHubAPI."""
-    api = UnifiedGitHubAPI(token="test_token", logger=MagicMock())
+    api = UnifiedGitHubAPI(token="test_token", logger=MagicMock(), config=mock_config)
     api.graphql_client = mock_graphql_client
     api.rest_client = mock_rest_client
     api._initialized = True
@@ -340,9 +348,9 @@ async def test_get_pull_request_with_reviews(initialized_api, mock_graphql_clien
 
 
 @pytest.mark.asyncio
-async def test_lazy_initialization_in_add_comment(mock_graphql_client):
+async def test_lazy_initialization_in_add_comment(mock_graphql_client, mock_config):
     """Test that methods auto-initialize if not initialized."""
-    api = UnifiedGitHubAPI(token="test_token", logger=MagicMock())
+    api = UnifiedGitHubAPI(token="test_token", logger=MagicMock(), config=mock_config)
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient", return_value=mock_graphql_client),
@@ -357,9 +365,9 @@ async def test_lazy_initialization_in_add_comment(mock_graphql_client):
 
 
 @pytest.mark.asyncio
-async def test_lazy_initialization_in_add_labels(mock_graphql_client):
+async def test_lazy_initialization_in_add_labels(mock_graphql_client, mock_config):
     """Test lazy initialization in add_labels with label node IDs."""
-    api = UnifiedGitHubAPI(token="test_token", logger=MagicMock())
+    api = UnifiedGitHubAPI(token="test_token", logger=MagicMock(), config=mock_config)
 
     with (
         patch("webhook_server.libs.graphql.unified_api.GraphQLClient", return_value=mock_graphql_client),
