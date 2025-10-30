@@ -21,7 +21,22 @@ def mock_logger():
 def mock_config():
     """Create a mock config."""
     config = MagicMock()
-    config.get_value = MagicMock(return_value=9)  # For tree-max-depth
+
+    # Mock config values with different defaults for different keys
+    def get_value_side_effect(key, return_on_none=None):
+        config_values = {
+            "graphql.tree-max-depth": 9,
+            "graphql.query-limits.labels": 100,
+            "graphql.query-limits.reviews": 100,
+            "graphql.query-limits.commits": 100,
+            "graphql.query-limits.collaborators": 100,
+            "graphql.query-limits.contributors": 100,
+            "graphql.query-limits.issues": 100,
+            "graphql.query-limits.pull-requests": 100,
+        }
+        return config_values.get(key, return_on_none)
+
+    config.get_value = MagicMock(side_effect=get_value_side_effect)
     return config
 
 
@@ -199,11 +214,17 @@ async def test_add_labels(unified_api):
         mutation = call_args[0][0]  # First positional argument
         variables = call_args[0][1]  # Second positional argument
 
-        # Assert the mutation starts with "mutation"
-        assert mutation.strip().startswith("mutation"), "Mutation should start with 'mutation' keyword"
+        # Assert the mutation contains fragment and mutation definitions
+        assert "fragment LabelFields" in mutation, "Mutation should contain LabelFields fragment definition"
+        assert "mutation" in mutation, "Mutation should contain mutation keyword"
 
         # Assert the mutation contains the addLabelsToLabelable operation
         assert "addLabelsToLabelable" in mutation, "Mutation should contain addLabelsToLabelable operation"
+
+        # Assert the mutation returns the full labelable object with updated labels
+        assert "labelable {" in mutation, "Mutation should return labelable object"
+        assert "labels(first: 100)" in mutation, "Mutation should return updated labels"
+        assert "...LabelFields" in mutation, "Mutation should use LabelFields fragment for labels"
 
         # Assert variables contain the correct labelableId
         assert variables["labelableId"] == labelable_id, (
