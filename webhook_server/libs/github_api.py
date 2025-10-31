@@ -151,7 +151,7 @@ class GithubWebhook:
             )
             return None
 
-        owner, repo = self.repository_full_name.split("/")
+        owner, repo = self.owner_and_repo
 
         # Optimization: For pull_request events, construct PullRequestWrapper directly from webhook data
         # This eliminates redundant API calls since webhook already contains complete PR data
@@ -342,6 +342,16 @@ class GithubWebhook:
                 return None
 
         return None
+
+    @property
+    def owner_and_repo(self) -> tuple[str, str]:
+        """Split repository full name into owner and repo name.
+
+        Returns:
+            Tuple of (owner, repo_name)
+        """
+        owner, repo_name = self.repository_full_name.split("/", 1)
+        return owner, repo_name
 
     def __del__(self) -> None:
         """Cleanup temporary clone directory on object destruction.

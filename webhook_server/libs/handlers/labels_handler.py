@@ -57,17 +57,16 @@ class LabelsHandler:
         try:
             if await self.label_exists_in_pull_request(pull_request=pull_request, label=label):
                 self.logger.info(f"{self.log_prefix} Removing label {label}")
+                owner, repo = self.github_webhook.owner_and_repo
 
-                # unified_api handles GraphQL vs REST
                 pr_id = pull_request.id
-                owner, repo_name = self.repository.full_name.split("/")
-                label_id = await self.unified_api.get_label_id(owner, repo_name, label)
-                if not label_id:
-                    self.logger.info(
-                        f"{self.log_prefix} Label '{label}' does not exist at repository level, skipping removal"
-                    )
-                    return True
-
+                owner, repo_name = self.github_webhook.owner_and_repo
+                pull_request_data = await self.unified_api.get_pull_request_data(
+                    owner=owner, name=repo, number=pull_request.number, include_labels=True
+                )
+                webhook_format = self.unified_api.convert_graphql_to_webhook(pull_request_data, owner, repo)
+                updated_pull_request = PullRequestWrapper(owner, repo, webhook_format)
+                label_id = [_label.node_id for _label in updated_pull_request.get_labels() if label == _label.name][0]
                 # Remove labels and use mutation response to update wrapper
                 # Pass owner/repo/number for automatic retry on stale PR node ID
                 result = await self.unified_api.remove_labels(
@@ -122,7 +121,7 @@ class LabelsHandler:
             self.logger.debug(f"{self.log_prefix} Label {label} already assigned")
             return
 
-        owner, repo_name = self.repository.full_name.split("/")
+        owner, repo_name = self.github_webhook.owner_and_repo
 
         if label in STATIC_LABELS_DICT:
             self.logger.info(f"{self.log_prefix} Adding pull request label {label}")
@@ -229,7 +228,7 @@ class LabelsHandler:
 
     async def wait_for_label(self, pull_request: PullRequestWrapper, label: str, exists: bool) -> bool:
         self.logger.debug(f"{self.log_prefix} waiting for label {label} to {'exist' if exists else 'not exist'}")
-        owner, repo_name = self.repository.full_name.split("/")
+        owner, repo_name = self.github_webhook.owner_and_repo
 
         # Create TimeoutWatch once outside the loop to track total elapsed time
         watch = TimeoutWatch(timeout=30)
@@ -248,7 +247,7 @@ class LabelsHandler:
                 refreshed_pr_data = await self.unified_api.get_pull_request_data(
                     owner, repo_name, pull_request.number, include_labels=True
                 )
-                webhook_format = self.unified_api._convert_graphql_to_webhook(refreshed_pr_data, owner, repo_name)
+                webhook_format = self.unified_api.convert_graphql_to_webhook(refreshed_pr_data, owner, repo_name)
                 refreshed_pr = PullRequestWrapper(owner, repo_name, webhook_format)
                 res = await self.label_exists_in_pull_request(pull_request=refreshed_pr, label=label)
                 if res == exists:

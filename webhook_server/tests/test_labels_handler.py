@@ -1143,7 +1143,7 @@ class TestLabelsHandler:
                         return_value={"number": 123, "labels": {"nodes": []}}
                     )
                     # Mock _convert_graphql_to_webhook as a regular Mock (not async) since it's a static method
-                    labels_handler.unified_api._convert_graphql_to_webhook = Mock(
+                    labels_handler.unified_api.convert_graphql_to_webhook = Mock(
                         return_value={
                             "node_id": "PR_kgDOTestId",
                             "number": 123,

@@ -35,24 +35,11 @@ class OwnersFileHandler:
         self.repository: Repository = self.github_webhook.repository
         self.unified_api = self.github_webhook.unified_api
         self.config = self.github_webhook.config
-        self.max_owners_files = self.config.get_value("max-owners-files", return_on_none=1000)
+        max_owners_files_configured = self.config.get_value("max-owners-files", return_on_none=1000)
+        # Hard ceiling for safety to avoid excessive traversal
+        self.max_owners_files = min(int(max_owners_files_configured), 1000)
         self.initialized = False
-
-    def _get_owner_and_repo(self) -> tuple[str, str]:
-        """Extract owner and repository name from full repository name.
-
-        Returns:
-            Tuple of (owner, repo_name).
-
-        Raises:
-            ValueError: If repository full_name is malformed.
-        """
-        parts = self.repository.full_name.split("/", 1)
-        if len(parts) != 2:
-            raise ValueError(  # noqa: TRY003
-                f"Invalid repository full_name format: {self.repository.full_name}"
-            )
-        return parts[0], parts[1]
+        self.exists_owners_data_for_changed_files: dict[str, dict[str, Any]] = {}
 
     async def initialize(self, pull_request: PullRequestWrapper) -> "OwnersFileHandler":
         self.changed_files = await self.list_changed_files(pull_request=pull_request)
@@ -143,7 +130,7 @@ class OwnersFileHandler:
         return _allowed_users
 
     async def list_changed_files(self, pull_request: PullRequestWrapper) -> list[str]:
-        owner, repo_name = self._get_owner_and_repo()
+        owner, repo_name = self.github_webhook.owner_and_repo
         files = await self.unified_api.get_pull_request_files(owner, repo_name, pull_request.number)
         changed_files = [_file.filename for _file in files]
         self.logger.debug(f"{self.log_prefix} Changed files: {changed_files}")
@@ -185,7 +172,7 @@ class OwnersFileHandler:
         """
         self.logger.debug(f"{self.log_prefix} Get OWNERS file from {content_path}")
 
-        owner, repo_name = self._get_owner_and_repo()
+        owner, repo_name = self.github_webhook.owner_and_repo
         # Use GraphQL get_file_contents which returns decoded string directly
         file_content = await self.unified_api.get_file_contents(owner, repo_name, content_path, pull_request.base.ref)
 
@@ -204,7 +191,7 @@ class OwnersFileHandler:
         owners_count = 0
 
         self.logger.debug(f"{self.log_prefix} Get git tree")
-        owner, repo_name = self._get_owner_and_repo()
+        owner, repo_name = self.github_webhook.owner_and_repo
         tree = await self.unified_api.get_git_tree(owner, repo_name, pull_request.base.ref)
 
         for element in tree["tree"]:
@@ -318,7 +305,9 @@ class OwnersFileHandler:
     async def owners_data_for_changed_files(self) -> dict[str, dict[str, Any]]:
         # NOTE: No _ensure_initialized() check here - this method is called DURING initialize()
         # via get_all_pull_request_approvers() and get_all_pull_request_reviewers() (lines 64-65)
-        data: dict[str, dict[str, Any]] = {}
+        data = self.exists_owners_data_for_changed_files
+        if data:
+            return data
 
         changed_folders = {Path(cf).parent for cf in self.changed_files}
         self.logger.debug(f"{self.log_prefix} Changed folders: {changed_folders}")
@@ -470,7 +459,7 @@ Maintainers:
         self.logger.debug(f"Valid users to run commands: {valid_users}")
 
         if reviewed_user not in valid_users:
-            owner, repo_name = self._get_owner_and_repo()
+            owner, repo_name = self.github_webhook.owner_and_repo
             comments = await self.unified_api.get_issue_comments(owner, repo_name, pull_request.number)
             for comment in [_comment for _comment in comments if _comment.user.login in allowed_user_to_approve]:
                 if allow_user_comment in comment.body:

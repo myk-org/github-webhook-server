@@ -156,7 +156,7 @@ class UnifiedGitHubAPI:
             await self.initialize()
 
     @staticmethod
-    def _convert_graphql_to_webhook(graphql_data: dict[str, Any], owner: str, repo: str) -> dict[str, Any]:
+    def convert_graphql_to_webhook(graphql_data: dict[str, Any], owner: str, repo: str) -> dict[str, Any]:
         """Convert GraphQL PR format to webhook format."""
         base_repo = {"owner": {"login": owner}, "name": repo}
         result = {
@@ -534,7 +534,7 @@ class UnifiedGitHubAPI:
                     # Fetch complete PR data by number (check_run webhook's pull_requests array is incomplete)
                     # pr_ref only contains: {id, number, url, head, base} - missing user, title, body, state, labels
                     pr_data = await self.get_pull_request_data(owner, repo, pr_number)
-                    webhook_format = self._convert_graphql_to_webhook(pr_data, owner, repo)
+                    webhook_format = self.convert_graphql_to_webhook(pr_data, owner, repo)
                     return PullRequestWrapper(owner, repo, webhook_format)
                 # If pr_ref exists but doesn't have number, log warning and fall through
                 logger.warning(f"{log_prefix} check_run pull_requests array entry missing 'number' field: {pr_ref}")
@@ -594,7 +594,7 @@ class UnifiedGitHubAPI:
             pr_data = await self.get_pull_request_data(
                 owner, repo, pr_number, include_commits=False, include_labels=False
             )
-            webhook_format = self._convert_graphql_to_webhook(pr_data, owner, repo)
+            webhook_format = self.convert_graphql_to_webhook(pr_data, owner, repo)
             return PullRequestWrapper(owner, repo, webhook_format)
 
         commit: dict[str, Any] = hook_data.get("commit", {})
@@ -608,7 +608,7 @@ class UnifiedGitHubAPI:
                 _pulls = await self.get_pulls_from_commit_sha(owner, repo, commit_sha)
                 if _pulls:
                     pr_data = _pulls[0]
-                    webhook_format = self._convert_graphql_to_webhook(pr_data, owner, repo)
+                    webhook_format = self.convert_graphql_to_webhook(pr_data, owner, repo)
                     return PullRequestWrapper(owner, repo, webhook_format)
                 logger.warning(f"{log_prefix} No PRs found for commit {commit_sha}")
             except (GraphQLError, GithubException, IndexError, ValueError) as ex:
@@ -994,35 +994,6 @@ class UnifiedGitHubAPI:
             else:
                 self.logger.info(f"SUCCESS: Comment added to {subject_id}, comment_id={comment_node.get('id')}")
                 return comment_node
-
-    async def create_issue_comment(self, owner: str, name: str, number: int, body: str) -> dict[str, Any]:
-        """
-        Add comment to PR or issue using owner/repo/number.
-
-        This is a convenience method that wraps add_comment by first fetching the PR/issue node ID.
-
-        Uses: GraphQL
-        Reason: Two-step process: 1) Fetch PR/issue node ID, 2) Add comment
-
-        Args:
-            owner: Repository owner
-            name: Repository name
-            number: PR or issue number
-            body: Comment text body
-
-        Returns:
-            Created comment data from GraphQL
-
-        Note:
-            This method makes 2 GraphQL calls (get PR + add comment).
-            If you already have the PR node ID, use add_comment() directly for better performance.
-        """
-        # Fetch PR to get node ID
-        pr_data = await self.get_pull_request_data(owner, name, number)
-        pr_node_id = pr_data["id"]
-
-        # Add comment using node ID
-        return await self.add_comment(pr_node_id, body)
 
     async def add_labels(self, labelable_id: str, label_ids: list[str]) -> dict[str, Any]:
         """
@@ -1562,7 +1533,7 @@ class UnifiedGitHubAPI:
         pr_nodes = result.get("repository", {}).get("pullRequests", {}).get("nodes", [])
 
         return [
-            PullRequestWrapper(owner, repo, self._convert_graphql_to_webhook(pr_data, owner, repo))
+            PullRequestWrapper(owner, repo, self.convert_graphql_to_webhook(pr_data, owner, repo))
             for pr_data in pr_nodes
         ]
 

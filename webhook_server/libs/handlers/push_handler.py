@@ -65,7 +65,7 @@ class PushHandler:
     async def upload_to_pypi(self, tag_name: str) -> None:
         async def _issue_on_error(*, _error: str) -> None:
             """Create an issue for PyPI upload errors using GraphQL API."""
-            owner, repo_name = self.repository.full_name.split("/")
+            owner, repo_name = self.github_webhook.owner_and_repo
             await self.github_webhook.unified_api.create_issue_on_repository(
                 owner=owner,
                 name=repo_name,
@@ -146,8 +146,8 @@ Publish to PYPI failed: `{_error}`
             # Ensure .pypirc is always removed, even on errors
             try:
                 commands: list[str] = [
-                    f"uv {uv_cmd_dir} run twine check --strict '{_dist_dir}/{tar_gz_file}'",
-                    f"uv {uv_cmd_dir} run twine upload --non-interactive --config-file '{pypirc_path}' "
+                    f"uv {uv_cmd_dir} run --with twine twine check --strict '{_dist_dir}/{tar_gz_file}'",
+                    f"uv {uv_cmd_dir} run --with twine twine upload --non-interactive --config-file '{pypirc_path}' "
                     f"'{_dist_dir}/{tar_gz_file}' --skip-existing",
                 ]
                 # Avoid logging secrets; keep high-level trace only

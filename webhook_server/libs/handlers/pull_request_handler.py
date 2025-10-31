@@ -73,26 +73,6 @@ class PullRequestHandler:
             github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
         )
 
-    @property
-    def _owner_and_repo(self) -> tuple[str, str]:
-        """Split repository full name into owner and repo name.
-
-        Returns:
-            Tuple of (owner, repo_name)
-
-        Raises:
-            ValueError: If repository full_name is malformed (missing "/" separator)
-        """
-        full_name = self.github_webhook.repository_full_name
-        if "/" not in full_name:
-            raise ValueError(
-                f"Malformed repository full_name: '{full_name}'. "
-                f"Expected format: 'owner/repo' (e.g., 'octocat/Hello-World'). "
-                f"The full_name must contain a '/' separator between owner and repository name."
-            )
-        owner, repo_name = full_name.split("/", 1)
-        return owner, repo_name
-
     def _log_task_error(self, result: Exception, task_name: str = "") -> None:
         """Log error from async task result.
 
@@ -449,7 +429,7 @@ For more information, please refer to the project documentation or contact the m
             self.logger.info(f"{self.log_prefix} Scheduled background relabeling of open PRs in {delay} seconds")
             await asyncio.sleep(delay)
 
-            owner, repo_name = self._owner_and_repo
+            owner, repo_name = self.github_webhook.owner_and_repo
             # NEW: Single batched GraphQL query gets all open PRs with labels and merge state
             # Replaces: get_open_pull_requests() + get_pull_request_data() for each PR
             # Savings: If N PRs exist, saves N API calls (N+1 → 1)
@@ -528,9 +508,9 @@ For more information, please refer to the project documentation or contact the m
                         ],
                     )
                     if rc:
-                        await self.github_webhook.unified_api.add_comment(
-                            pull_request.id,
-                            f"Successfully removed PR tag: {repository_full_tag}.",
+                        await self.github_webhook.unified_api.add_pr_comment(
+                            pull_request=pull_request,
+                            body=f"Successfully removed PR tag: {repository_full_tag}.",
                         )
                     else:
                         self.logger.error(
@@ -545,14 +525,14 @@ For more information, please refer to the project documentation or contact the m
                 await self.runner_handler.run_podman_command(command="regctl registry logout")
 
         else:
-            await self.github_webhook.unified_api.add_comment(
-                pull_request.id,
-                f"Failed to delete tag: {repository_full_tag}. Please delete it manually.",
+            await self.github_webhook.unified_api.add_pr_comment(
+                pull_request=pull_request,
+                body=f"Failed to delete tag: {repository_full_tag}. Please delete it manually.",
             )
             self.logger.error(f"{self.log_prefix} Failed to delete tag: {repository_full_tag}. OUT:{out}. ERR:{err}")
 
     async def close_issue_for_merged_or_closed_pr(self, pull_request: PullRequestWrapper, hook_action: str) -> None:
-        owner, repo_name = self._owner_and_repo
+        owner, repo_name = self.github_webhook.owner_and_repo
         for issue in await self.github_webhook.unified_api.get_issues(
             owner, repo_name, repository_data=self.github_webhook.repository_data
         ):
@@ -656,7 +636,7 @@ For more information, please refer to the project documentation or contact the m
             )
             return
 
-        owner, repo_name = self._owner_and_repo
+        owner, repo_name = self.github_webhook.owner_and_repo
         issue_title = self._generate_issue_title(pull_request=pull_request)
 
         # Check if issue already exists
@@ -890,7 +870,7 @@ For more information, please refer to the project documentation or contact the m
     async def add_pull_request_owner_as_assignee(self, pull_request: PullRequestWrapper) -> None:
         # Optimization: Use PR node ID directly instead of fetching PR data again
         # pull_request.id is already available from earlier fetch, saving one GraphQL query
-        owner, repo_name = self._owner_and_repo
+        owner, repo_name = self.github_webhook.owner_and_repo
         author_login = pull_request.user.login
 
         # Check if author is a bot before attempting assignment
@@ -963,7 +943,7 @@ For more information, please refer to the project documentation or contact the m
         try:
             self.logger.info(f"{self.log_prefix} Check if {CAN_BE_MERGED_STR}.")
             await self.check_run_handler.set_merge_check_in_progress()
-            owner, repo_name = self._owner_and_repo
+            owner, repo_name = self.github_webhook.owner_and_repo
             if self.github_webhook.last_commit:
                 last_commit_check_runs = await self.github_webhook.unified_api.get_commit_check_runs(
                     self.github_webhook.last_commit, owner, repo_name

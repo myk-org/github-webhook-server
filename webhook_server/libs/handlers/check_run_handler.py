@@ -45,21 +45,6 @@ class CheckRunHandler:
         # Cache for all_required_status_checks per handler invocation
         self._required_checks_cache: dict[str, list[str]] = {}
 
-    @property
-    def _owner_and_repo(self) -> tuple[str, str]:
-        """Split repository full name into owner and repo name.
-
-        Returns:
-            Tuple of (owner, repo_name)
-        """
-        full_name = self.repository.full_name
-        if isinstance(full_name, str) and "/" in full_name:
-            owner, repo_name = full_name.split("/", 1)
-            return owner, repo_name
-        # Handle mock or invalid full_name - return default values and log warning
-        self.logger.warning(f"{self.log_prefix} Invalid repository full_name format: {full_name}, using defaults")
-        return "owner", "repo"
-
     async def process_pull_request_check_run_webhook_data(self, pull_request: PullRequestWrapper | None = None) -> bool:
         """Return True if check_if_can_be_merged need to run"""
 
@@ -109,7 +94,7 @@ class CheckRunHandler:
                             f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'processing')} "
                             f"Executing auto-merge for PR #{pull_request.number}",
                         )
-                        owner, repo_name = self._owner_and_repo
+                        owner, repo_name = self.github_webhook.owner_and_repo
                         await self.unified_api.merge_pull_request(
                             owner, repo_name, pull_request.number, merge_method="SQUASH"
                         )
@@ -364,7 +349,7 @@ class CheckRunHandler:
 
     async def is_check_run_in_progress(self, check_run: str) -> bool:
         if self.github_webhook.last_commit:
-            owner, repo_name = self._owner_and_repo
+            owner, repo_name = self.github_webhook.owner_and_repo
             for run in await self.unified_api.get_commit_check_runs(self.github_webhook.last_commit, owner, repo_name):
                 if run.name == check_run and run.status == IN_PROGRESS_STR:
                     self.logger.debug(f"{self.log_prefix} Check run {check_run} is in progress.")
@@ -456,7 +441,7 @@ class CheckRunHandler:
             )
             return []
 
-        owner, repo_name = self.repository.full_name.split("/")
+        owner, repo_name = self.github_webhook.owner_and_repo
 
         try:
             branch_protection = await self.unified_api.get_branch_protection(owner, repo_name, pull_request.base.ref)

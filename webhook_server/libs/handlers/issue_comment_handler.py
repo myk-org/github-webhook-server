@@ -61,21 +61,6 @@ class IssueCommentHandler:
             github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
         )
 
-    @property
-    def _owner_and_repo(self) -> tuple[str, str]:
-        """Split repository full name into owner and repo name.
-
-        Returns:
-            Tuple of (owner, repo_name)
-        """
-        full_name = self.repository.full_name
-        if isinstance(full_name, str) and "/" in full_name:
-            owner, repo_name = full_name.split("/", 1)
-            return owner, repo_name
-        # Handle mock or invalid full_name - return default values and log warning
-        self.logger.warning(f"Invalid repository full_name format: {full_name}, using defaults")
-        return "owner", "repo"
-
     async def process_comment_webhook_data(self, pull_request: PullRequestWrapper) -> None:
         comment_action = self.hook_data["action"]
         self.logger.step(  # type: ignore[attr-defined]
@@ -243,12 +228,11 @@ class IssueCommentHandler:
                 self.logger.debug(
                     f"{self.log_prefix} {reviewed_user} is not an approver, not adding {HOLD_LABEL_STR} label"
                 )
-                owner, repo = self._owner_and_repo
-                await self.github_webhook.unified_api.create_issue_comment(
-                    owner,
-                    repo,
-                    pull_request.number,
-                    f"{reviewed_user} is not part of the approvers, only approvers can mark pull request with hold",
+                await self.github_webhook.unified_api.add_pr_comment(
+                    pull_request=pull_request,
+                    body=(
+                        f"{reviewed_user} is not part of the approversonly approvers can mark pull request with hold"
+                    ),
                 )
             else:
                 if remove:
@@ -277,7 +261,7 @@ class IssueCommentHandler:
     async def create_comment_reaction(
         self, pull_request: PullRequestWrapper, issue_comment_id: int, reaction: str
     ) -> None:
-        owner, repo_name = self._owner_and_repo
+        owner, repo_name = self.github_webhook.owner_and_repo
         try:
             _comment = await self.github_webhook.unified_api.get_issue_comment(
                 owner, repo_name, pull_request.number, issue_comment_id
@@ -298,7 +282,7 @@ class IssueCommentHandler:
     async def _add_reviewer_by_user_comment(self, pull_request: PullRequestWrapper, reviewer: str) -> None:
         reviewer = reviewer.strip("@")
         self.logger.info(f"{self.log_prefix} Adding reviewer {reviewer} by user comment")
-        owner, repo_name = self._owner_and_repo
+        owner, repo_name = self.github_webhook.owner_and_repo
         repo_contributors = await self.github_webhook.unified_api.get_contributors(owner, repo_name)
         self.logger.debug(f"Repo contributors are: {repo_contributors}")
 
@@ -325,13 +309,19 @@ class IssueCommentHandler:
         self.logger.debug(f"{self.log_prefix} Processing cherry pick for branches {_target_branches}")
 
         for _target_branch in _target_branches:
-            owner, repo_name = self._owner_and_repo
-            branch_exists = await self.github_webhook.unified_api.get_branch(owner, repo_name, _target_branch)
+            owner, repo_name = self.github_webhook.owner_and_repo
+            tasks = {
+                b: asyncio.create_task(self.github_webhook.unified_api.get_branch(owner, repo_name, b))
+                for b in _target_branches
+            }
+            for b, t in tasks.items():
+                branch_exists = await t
+                if branch_exists:
+                    _exits_target_branches.add(b)
+                else:
+                    _non_exits_target_branches_msg += f"Target branch `{b}` does not exist\n"
+                branch_exists = await self.github_webhook.unified_api.get_branch(owner, repo_name, _target_branch)
 
-            if branch_exists:
-                _exits_target_branches.add(_target_branch)
-            else:
-                _non_exits_target_branches_msg += f"Target branch `{_target_branch}` does not exist\n"
         self.logger.debug(
             f"{self.log_prefix} Found target branches {_exits_target_branches} and not found "
             f"{_non_exits_target_branches_msg}"

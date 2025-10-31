@@ -312,8 +312,7 @@ class RunnerHandler:
             )
             push_msg: str = f"New container for {container_repository_and_tag} published"
             if pull_request:
-                pr_id = await self._get_pr_node_id(pull_request)
-                await self.github_webhook.unified_api.add_comment(pr_id, push_msg)
+                await self.github_webhook.unified_api.add_pr_comment(pull_request=pull_request, body=push_msg)
 
             if self.github_webhook.slack_webhook_url:
                 message = f"""
@@ -333,8 +332,7 @@ class RunnerHandler:
             err_msg: str = f"Failed to build and push {container_repository_and_tag}"
             self.logger.error(f"{self.log_prefix} {err_msg} - stdout: {push_out}, stderr: {push_err}")
             if pull_request:
-                pr_id = await self._get_pr_node_id(pull_request)
-                await self.github_webhook.unified_api.add_comment(pr_id, err_msg)
+                await self.github_webhook.unified_api.add_pr_comment(pull_request=pull_request, body=err_msg)
 
             if self.github_webhook.slack_webhook_url:
                 message = f"""
@@ -702,7 +700,7 @@ class RunnerHandler:
             await self.check_run_handler.set_conventional_title_failure(output=output)
 
     async def is_branch_exists(self, branch: str) -> bool:
-        owner, repo_name = self.repository.full_name.split("/")
+        owner, repo_name = self.github_webhook.owner_and_repo
         return await self.github_webhook.unified_api.get_branch(owner, repo_name, branch)
 
     async def cherry_pick(self, pull_request: PullRequestWrapper, target_branch: str, reviewed_user: str = "") -> None:
@@ -721,8 +719,7 @@ class RunnerHandler:
                 f"Cherry-pick failed: target branch does not exist",
             )
             self.logger.error(err_msg)
-            pr_id = await self._get_pr_node_id(pull_request)
-            await self.github_webhook.unified_api.add_comment(pr_id, err_msg)
+            await self.github_webhook.unified_api.add_pr_comment(pull_request=pull_request, body=err_msg)
 
         else:
             self.logger.step(  # type: ignore[attr-defined]
@@ -734,7 +731,7 @@ class RunnerHandler:
             # Validate that PR has been merged before attempting cherry-pick
             if not commit_hash:
                 # Fallback: Try to get last commit OID via GraphQL (or REST)
-                owner, repo = self.repository.full_name.split("/")
+                owner, repo = self.github_webhook.owner_and_repo
                 try:
                     # Use get_pull_request_data to get raw dict data with commits
                     pr_data = await self.github_webhook.unified_api.get_pull_request_data(
@@ -759,8 +756,7 @@ class RunnerHandler:
                         f"Cherry-pick failed: PR not merged",
                     )
                     self.logger.error(f"{self.log_prefix} {err_msg}")
-                    pr_id = await self._get_pr_node_id(pull_request)
-                    await self.github_webhook.unified_api.add_comment(pr_id, err_msg)
+                    await self.github_webhook.unified_api.add_pr_comment(pull_request=pull_request, body=err_msg)
                     return
             # Note: shlex.quote() is used inline in hub command for safe shell escaping
             pull_request_url = pull_request.html_url
@@ -822,10 +818,9 @@ class RunnerHandler:
                         await self.check_run_handler.set_cherry_pick_failure(output=output)
                         self.logger.error(f"{self.log_prefix} Cherry pick failed: {out} --- {err}")
                         local_branch_name = f"{pull_request.head.ref}-{target_branch}"
-                        pr_id = await self._get_pr_node_id(pull_request)
-                        await self.github_webhook.unified_api.add_comment(
-                            pr_id,
-                            f"**Manual cherry-pick is needed**\nCherry pick failed for "
+                        await self.github_webhook.unified_api.add_pr_comment(
+                            pull_request=pull_request,
+                            body=f"**Manual cherry-pick is needed**\nCherry pick failed for "
                             f"{commit_hash} to {target_branch}:\n"
                             f"To cherry-pick run:\n"
                             "```\n"
@@ -846,7 +841,6 @@ class RunnerHandler:
                 f"Cherry-pick completed successfully",
             )
             await self.check_run_handler.set_cherry_pick_success(output=output)
-            pr_id = await self._get_pr_node_id(pull_request)
-            await self.github_webhook.unified_api.add_comment(
-                pr_id, f"Cherry-picked PR {pull_request.title} into {target_branch}"
+            await self.github_webhook.unified_api.add_pr_comment(
+                pull_request=pull_request, body=f"Cherry-picked PR {pull_request.title} into {target_branch}"
             )

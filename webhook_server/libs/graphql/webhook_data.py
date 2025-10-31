@@ -122,6 +122,18 @@ class LabelWrapper:
             raise ValueError("No name in label data - webhook/GraphQL incomplete")
         return self._data["name"]
 
+    @property
+    def id(self) -> int:
+        if "id" not in self._data:
+            raise ValueError("No id in label data")
+        return self._data["id"]
+
+    @property
+    def node_id(self) -> str:
+        if "node_id" not in self._data:
+            raise ValueError("No node_id in label data")
+        return self._data["node_id"]
+
 
 class CommitWrapper:
     """Wrapper for GitHub commit data from webhook payloads."""
