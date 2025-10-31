@@ -525,7 +525,7 @@ class UnifiedGitHubAPI:
                     # pr_ref only contains: {id, number, url, head, base} - missing user, title, body, state, labels
                     pr_data = await self.get_pull_request_data(owner, repo, pr_number)
                     webhook_format = self.convert_graphql_to_webhook(pr_data, owner, repo)
-                    return PullRequestWrapper(owner, repo, webhook_format)
+                    return PullRequestWrapper(owner=owner, repo_name=repo, webhook_data=webhook_format)
                 # If pr_ref exists but doesn't have number, log warning and fall through
                 logger.warning(f"{log_prefix} check_run pull_requests array entry missing 'number' field: {pr_ref}")
 
@@ -569,14 +569,14 @@ class UnifiedGitHubAPI:
                     logger.debug(f"{log_prefix} Using webhook payload for PR #{pr_number} (skipping GraphQL fetch)")
                     # Use webhook payload directly - it has all required fields
                     # webhook_pr contains: {node_id, number, title, body, state, draft, merged, base, head, user, ...}
-                    return PullRequestWrapper(owner, repo, webhook_pr)
+                    return PullRequestWrapper(owner=owner, repo_name=repo, webhook_data=webhook_pr)
 
             # Fallback: Fetch PR with commits and labels via GraphQL if webhook payload incomplete
             # Use webhook payload if available (contains accurate user.login with [bot] suffix)
             webhook_pr_data = hook_data.get("pull_request")
             if webhook_pr_data:
                 # Webhook payload available - use it directly for accurate user information
-                return PullRequestWrapper(owner, repo, webhook_pr_data)
+                return PullRequestWrapper(owner=owner, repo_name=repo, webhook_data=webhook_pr_data)
 
             # No webhook payload - need to fetch PR data
             # For events without pull_request in payload, fetch minimal data
@@ -584,7 +584,7 @@ class UnifiedGitHubAPI:
                 owner, repo, pr_number, include_commits=False, include_labels=False
             )
             webhook_format = self.convert_graphql_to_webhook(pr_data, owner, repo)
-            return PullRequestWrapper(owner, repo, webhook_format)
+            return PullRequestWrapper(owner=owner, repo_name=repo, webhook_data=webhook_format)
 
         commit: dict[str, Any] = hook_data.get("commit", {})
         if commit:
@@ -598,7 +598,7 @@ class UnifiedGitHubAPI:
                 if _pulls:
                     pr_data = _pulls[0]
                     webhook_format = self.convert_graphql_to_webhook(pr_data, owner, repo)
-                    return PullRequestWrapper(owner, repo, webhook_format)
+                    return PullRequestWrapper(owner=owner, repo_name=repo, webhook_data=webhook_format)
                 logger.warning(f"{log_prefix} No PRs found for commit {commit_sha}")
             except (GraphQLError, GithubException, IndexError, ValueError) as ex:
                 logger.warning(f"{log_prefix} Failed to get PR from commit {commit_sha}: {ex}")
@@ -1522,7 +1522,9 @@ class UnifiedGitHubAPI:
         pr_nodes = result.get("repository", {}).get("pullRequests", {}).get("nodes", [])
 
         return [
-            PullRequestWrapper(owner, repo, self.convert_graphql_to_webhook(pr_data, owner, repo))
+            PullRequestWrapper(
+                owner=owner, repo_name=repo, webhook_data=self.convert_graphql_to_webhook(pr_data, owner, repo)
+            )
             for pr_data in pr_nodes
         ]
 

@@ -65,7 +65,7 @@ class LabelsHandler:
                     owner=owner, name=repo, number=pull_request.number, include_labels=True
                 )
                 webhook_format = self.unified_api.convert_graphql_to_webhook(pull_request_data, owner, repo)
-                updated_pull_request = PullRequestWrapper(owner, repo, webhook_format)
+                updated_pull_request = PullRequestWrapper(owner=owner, repo_name=repo, webhook_data=webhook_format)
                 label_id = [_label.id for _label in updated_pull_request.get_labels() if label == _label.name][0]
                 # Remove labels and use mutation response to update wrapper
                 # Pass owner/repo/number for automatic retry on stale PR node ID
@@ -248,7 +248,7 @@ class LabelsHandler:
                     owner, repo_name, pull_request.number, include_labels=True
                 )
                 webhook_format = self.unified_api.convert_graphql_to_webhook(refreshed_pr_data, owner, repo_name)
-                refreshed_pr = PullRequestWrapper(owner, repo_name, webhook_format)
+                refreshed_pr = PullRequestWrapper(owner=owner, repo_name=repo_name, webhook_data=webhook_format)
                 res = await self.label_exists_in_pull_request(pull_request=refreshed_pr, label=label)
                 if res == exists:
                     return True

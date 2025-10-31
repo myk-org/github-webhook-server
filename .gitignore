@@ -153,6 +153,7 @@ log-colors.json
 webhook_server/tests/manifests/logs
 .coverage_report.txt
 webhook-examples
+find_unused_code.py
 
 # AI
 .cursor/

@@ -682,17 +682,21 @@ For more information, please refer to the project documentation or contact the m
 
         # Try to get assignee ID, but handle bots/apps gracefully
         # Bots (like renovate, dependabot) can't be assigned as they're not users
-        try:
-            # Use node_id from webhook - ALWAYS present in webhook/GraphQL data
-            assignee_id = pull_request.user.node_id
-            assignee_ids = [assignee_id]
-        except (GraphQLError, UnknownObjectException):
-            # Author is likely a bot/app (e.g., renovate, dependabot)
+        assignee_ids: list[str] | None = None
+        if pull_request.user.type != "Bot":
+            try:
+                # Use node_id from webhook - ALWAYS present in webhook/GraphQL data
+                assignee_ids = [pull_request.user.node_id]
+            except (GraphQLError, UnknownObjectException):
+                self.logger.info(
+                    f"{self.log_prefix} Could not get user ID for '{pull_request.user.login}'. "
+                    "Creating issue without assignee."
+                )
+                assignee_ids = None
+        else:
             self.logger.info(
-                f"{self.log_prefix} Could not get user ID for '{pull_request.user.login}' "
-                f"(likely a bot/app). Creating issue without assignee."
+                f"{self.log_prefix} PR author '{pull_request.user.login}' is a bot/app,creating issue without assignee."
             )
-            assignee_ids = []
 
         await self.github_webhook.unified_api.create_issue(
             repository_id=repository_id,
