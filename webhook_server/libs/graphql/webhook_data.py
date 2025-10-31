@@ -146,18 +146,19 @@ class CommitWrapper:
     @property
     def committer(self) -> UserWrapper:
         """Get committer information."""
+        data: dict[str, str] = {"login": "unknown"}
+
         committer_data = self._data.get("committer") or {}
-        if isinstance(committer_data, dict):
-            committer = committer_data.get("login", committer_data.get("username"))
-            if committer:
-                return UserWrapper(committer)
+        committer = committer_data.get("login", committer_data.get("username"))
+        if committer:
+            data["login"] = committer
 
         author_data = self._data.get("author") or {}
-        if isinstance(author_data, dict):
-            author = author_data.get("login", author_data.get("username"))
-            if author:
-                return UserWrapper(author_data)
-        return UserWrapper({"login": "unknown"})
+        author = author_data.get("login", author_data.get("username"))
+        if author:
+            data["login"] = author
+
+        return UserWrapper(data=data)
 
 
 class PullRequestWrapper:

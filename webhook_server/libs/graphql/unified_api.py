@@ -612,7 +612,7 @@ class UnifiedGitHubAPI:
         repo: str,
         pull_request: PullRequestWrapper | int,
         pr_number: int | None = None,
-    ) -> Commit | CommitWrapper:
+    ) -> CommitWrapper:
         """Get last commit from pull request.
 
         Uses: GraphQL

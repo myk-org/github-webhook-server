@@ -7,7 +7,6 @@ import tempfile
 from typing import Any
 
 import requests
-from github.Commit import Commit
 from github.Repository import Repository
 from starlette.datastructures import Headers
 
@@ -59,7 +58,7 @@ class GithubWebhook:
         self.repository_by_github_app: Repository
         self.token: str
         self.api_user: str
-        self.last_commit: Commit | CommitWrapper
+        self.last_commit: CommitWrapper
         self.last_committer: str
         self.current_pull_request_supported_retest: list[str] = []
         if not self.config.repository_data:
