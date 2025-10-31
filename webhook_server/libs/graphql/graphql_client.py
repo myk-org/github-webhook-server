@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import traceback
 from datetime import UTC, datetime
 from typing import Any
 
@@ -332,7 +333,7 @@ class GraphQLClient:
                     await asyncio.sleep(1)
                     continue
                 else:
-                    # Final attempt failed — close client before raising
+                    # Final attempt failed ? close client before raising
                     if self._client:
                         try:
                             await self._client.close_async()
@@ -349,9 +350,73 @@ class GraphQLClient:
             except TimeoutError as error:
                 # Explicit timeout handling - NEVER silent!
                 # TimeoutError catches both builtin and asyncio.TimeoutError (aliases in Python 3.8+)
+
+                # Determine which timeout was actually hit by inspecting the exception chain and traceback
+                timeout_type = "total"
+                timeout_value = self.timeout
+
+                # Get full traceback as string for analysis
+                tb_lines = traceback.format_exception(type(error), error, error.__traceback__)
+                tb_str = "".join(tb_lines)
+
+                # Check traceback for clues about which timeout occurred
+                # DNS resolution/connection = connect timeout
+                is_connect_timeout = (
+                    "_resolve_host" in tb_str or "_create_connection" in tb_str or "_create_direct_connection" in tb_str
+                )
+
+                if is_connect_timeout:
+                    timeout_type = "connect"
+                    timeout_value = self.connection_timeout
+                # Socket read operation = sock_read timeout
+                elif "sock_read" in tb_str or ("read" in tb_str.lower() and "socket" in tb_str.lower()):
+                    timeout_type = "sock_read"
+                    timeout_value = self.sock_read_timeout
+                # Check exception cause (for CancelledError with "deadline exceeded")
+                elif error.__cause__:
+                    cause_str = "".join(
+                        traceback.format_exception(
+                            type(error.__cause__), error.__cause__, error.__cause__.__traceback__
+                        )
+                    )
+                    if (
+                        "_resolve_host" in cause_str
+                        or "_create_connection" in cause_str
+                        or "_create_direct_connection" in cause_str
+                    ):
+                        timeout_type = "connect"
+                        timeout_value = self.connection_timeout
+                        is_connect_timeout = True
+                    elif "sock_read" in cause_str:
+                        timeout_type = "sock_read"
+                        timeout_value = self.sock_read_timeout
+
+                # Retry connect timeouts (DNS/connection issues) - these are often transient
+                if is_connect_timeout and attempt < self.retry_count - 1:
+                    # Add jitter to reduce retry stampedes for DNS issues
+                    wait_seconds = (2**attempt) + random.uniform(0, 1)
+                    self.logger.warning(
+                        f"DNS/CONNECTION TIMEOUT: GraphQL connection timeout "
+                        f"(attempt {attempt + 1}/{self.retry_count}): "
+                        f"{timeout_type} timeout after {timeout_value}s. "
+                        f"Retrying in {wait_seconds:.1f}s...",
+                    )
+                    # Force close the client to clear any stale connections
+                    if self._client:
+                        try:
+                            await self._client.close_async()
+                        except Exception:
+                            self.logger.debug("Ignoring error during client close after connection timeout")
+                        self._client = None
+                        self._session = None
+                        self._transport = None
+                    await asyncio.sleep(wait_seconds)
+                    continue
+
+                # Non-retryable timeout or final attempt failed
                 self.logger.exception(
-                    f"TIMEOUT: GraphQL query timeout (total={self.timeout}s, "
-                    f"connect={self.connection_timeout}s, sock_read={self.sock_read_timeout}s)",
+                    f"TIMEOUT: GraphQL query {timeout_type} timeout after {timeout_value}s "
+                    f"(total={self.timeout}s, connect={self.connection_timeout}s, sock_read={self.sock_read_timeout}s)",
                 )
                 # Force close the client to stop any pending connections
                 if self._client:
@@ -364,7 +429,11 @@ class GraphQLClient:
                         self.logger.exception(
                             "Error during timeout cleanup",
                         )
-                raise GraphQLError(f"GraphQL query timeout after {self.timeout}s") from error
+                raise GraphQLError(
+                    f"GraphQL query {timeout_type} timeout after {timeout_value}s "
+                    f"(configured: total={self.timeout}s, "
+                    f"connect={self.connection_timeout}s, sock_read={self.sock_read_timeout}s)"
+                ) from error
 
             except asyncio.CancelledError:
                 # Propagate cancellations without wrapping them

@@ -50,7 +50,14 @@ class UnifiedGitHubAPI:
         >>> await api.close()
     """
 
-    def __init__(self, token: str, logger: logging.Logger, config: Config, batch_concurrency_limit: int = 10) -> None:
+    def __init__(
+        self,
+        token: str,
+        logger: logging.Logger,
+        config: Config,
+        batch_concurrency_limit: int = 10,
+        graphql_timeout: int = 90,
+    ) -> None:
         """
         Initialize unified API client.
 
@@ -64,6 +71,7 @@ class UnifiedGitHubAPI:
         self.logger = logger
         self.config = config
         self.batch_concurrency_limit = batch_concurrency_limit
+        self.graphql_timeout = graphql_timeout
 
         # GraphQL client (async)
         self.graphql_client: GraphQLClient | None = None
@@ -86,7 +94,10 @@ class UnifiedGitHubAPI:
 
             # Initialize GraphQL client with batch concurrency limiting
             self.graphql_client = GraphQLClient(
-                token=self.token, logger=self.logger, batch_concurrency_limit=self.batch_concurrency_limit
+                token=self.token,
+                logger=self.logger,
+                batch_concurrency_limit=self.batch_concurrency_limit,
+                timeout=self.graphql_timeout,
             )
 
             # Initialize REST client (PyGithub)
