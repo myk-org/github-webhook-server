@@ -621,42 +621,28 @@ class UnifiedGitHubAPI:
         self,
         owner: str,
         repo: str,
-        pull_request: PullRequestWrapper | int,
-        pr_number: int | None = None,
+        pull_request: PullRequestWrapper,
     ) -> CommitWrapper:
         """Get last commit from pull request.
 
         Uses: GraphQL
         Reason: Efficient single query for commit data
 
-        Supports two calling patterns:
-        1. get_last_commit(owner, repo, pull_request, pr_number) - full signature
-        2. get_last_commit(owner, repo, pr_number) - test compatibility signature
 
         Raises:
             ValueError: If no commits found in PR
             GraphQLError: If GraphQL query fails
         """
-        # Handle both calling patterns
-        if isinstance(pull_request, int):
-            # Pattern 2: get_last_commit(owner, repo, pr_number)
-            actual_pr_number = pull_request
-            actual_pull_request = None
-        else:
-            # Pattern 1: get_last_commit(owner, repo, pull_request, pr_number)
-            actual_pull_request = pull_request
-            actual_pr_number = pr_number if pr_number is not None else pull_request.number
 
-        if actual_pull_request is not None and actual_pull_request.get_commits():
-            commits = actual_pull_request.get_commits()
-            if commits:
-                return commits[-1]
+        commits = pull_request.get_commits()
+        if commits:
+            return commits[-1]
 
-        pr_data = await self.get_pull_request_data(owner, repo, actual_pr_number, include_commits=True)
+        pr_data = await self.get_pull_request_data(owner, repo, pull_request.number, include_commits=True)
 
         commits_nodes = pr_data.get("commits", {}).get("nodes", [])
         if not commits_nodes:
-            raise ValueError(f"No commits found in PR {actual_pr_number}")  # noqa: TRY003
+            raise ValueError(f"No commits found in PR {pull_request.number}")
 
         last_commit_data = commits_nodes[-1].get("commit", {})
         webhook_commit = self._convert_graphql_commit_to_webhook(last_commit_data)

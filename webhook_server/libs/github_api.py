@@ -199,13 +199,15 @@ class GithubWebhook:
                 f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
                 f"Fetched pull request data via API (event: {self.github_event})",
             )
-            self.last_commit = await self.unified_api.get_last_commit(owner, repo, pull_request, pull_request.number)
+            self.last_commit = await self.unified_api.get_last_commit(owner=owner, repo=repo, pull_request=pull_request)
 
         # Fetch comprehensive repository data once per webhook (static data)
         # This eliminates N+1 query pattern - reduces 10+ API calls to 1 GraphQL query
         # If fetch fails, exception propagates and webhook processing aborts (fail-fast)
         try:
-            self.repository_data: dict[str, Any] = await self.unified_api.get_comprehensive_repository_data(owner, repo)
+            self.repository_data: dict[str, Any] = await self.unified_api.get_comprehensive_repository_data(
+                owner=owner, name=repo
+            )
             self.logger.info(
                 f"{self.log_prefix} Fetched repository data: "
                 f"{len(self.repository_data['collaborators']['edges'])} collaborators, "

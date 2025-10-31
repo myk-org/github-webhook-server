@@ -302,6 +302,9 @@ class PullRequestWrapper:
         Note: This matches PyGithub's lazy-loading pattern.
         """
         commits_data = self.webhook_data.get("commits", [])
+        if not isinstance(commits_data, list):
+            return []
+
         return [CommitWrapper(commit) for commit in commits_data]
 
     @property
