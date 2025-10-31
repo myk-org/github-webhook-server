@@ -4,11 +4,10 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from gql.transport.exceptions import TransportQueryError, TransportServerError
 
 from webhook_server.libs.graphql.graphql_client import GraphQLAuthenticationError, GraphQLError
-from webhook_server.libs.graphql.graphql_wrappers import CommitWrapper, PullRequestWrapper
 from webhook_server.libs.graphql.unified_api import APIType, UnifiedGitHubAPI
+from webhook_server.libs.graphql.webhook_data import CommitWrapper, PullRequestWrapper
 
 
 @pytest.fixture
@@ -486,25 +485,43 @@ class TestUnifiedAPIPRMethods:
     @pytest.fixture
     def mock_pr_wrapper(self):
         """Create mock PullRequestWrapper."""
-        # Mock GraphQL PR data
-        pr_data = {
-            "id": "PR_kwDOABcD1M5abc123",  # GraphQL node ID
+        # Mock webhook PR data
+        webhook_data = {
+            "node_id": "PR_kwDOABcD1M5abc123",
+            "number": 42,
+            "title": "Test PR",
+            "body": "Test description",
+            "state": "open",
+            "draft": False,
+            "merged": False,
+            "base": {"ref": "main", "sha": "abc123", "repo": {"owner": {"login": "test-owner"}, "name": "test-repo"}},
+            "head": {
+                "ref": "feature",
+                "sha": "def456",
+                "repo": {"owner": {"login": "test-owner"}, "name": "test-repo"},
+            },
+            "user": {"login": "testuser"},
+        }
+        return PullRequestWrapper("test-owner", "test-repo", webhook_data)
+
+    # ===== 1. get_pull_request() Tests =====
+
+    @pytest.mark.asyncio
+    async def test_get_pull_request_with_pr_number(self, api, mock_logger):
+        """Test get_pull_request with direct PR number (GraphQL fetch path)."""
+        hook_data = {}  # No pull_request field → forces GraphQL fetch
+        pr_graphql_data = {
+            "id": "PR_123",
             "number": 42,
             "title": "Test PR",
             "body": "Test description",
             "state": "OPEN",
             "isDraft": False,
             "merged": False,
+            "author": {"login": "testuser"},
+            "baseRef": {"name": "main", "target": {"oid": "abc123"}},
+            "headRef": {"name": "feature", "target": {"oid": "def456"}},
         }
-        return PullRequestWrapper(data=pr_data, owner="test-owner", repo_name="test-repo")
-
-    # ===== 1. get_pull_request() Tests =====
-
-    @pytest.mark.asyncio
-    async def test_get_pull_request_with_pr_number(self, api, mock_logger):
-        """Test get_pull_request with direct PR number."""
-        hook_data = {"pull_request": {"number": 42}}
-        pr_graphql_data = {"id": "PR_123", "number": 42, "title": "Test PR"}
 
         with (
             patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
@@ -581,17 +598,37 @@ class TestUnifiedAPIPRMethods:
 
     @pytest.mark.asyncio
     async def test_get_pull_request_webhook_payload_incomplete_fallback(self, api, mock_logger):
-        """Test that get_pull_request falls back to GraphQL when webhook payload lacks node_id."""
-        # Webhook payload WITHOUT node_id (incomplete)
+        """Test that get_pull_request uses webhook data when available (even without node_id)."""
+        # Webhook payload WITHOUT node_id but with complete data
         hook_data = {
             "pull_request": {
                 "number": 42,
-                # Missing node_id - will trigger GraphQL fallback
                 "title": "Test PR",
+                "state": "open",
+                "draft": False,
+                "base": {
+                    "ref": "main",
+                    "sha": "abc123",
+                    "repo": {"owner": {"login": "test-owner"}, "name": "test-repo"},
+                },
+                "head": {
+                    "ref": "feature",
+                    "sha": "def456",
+                    "repo": {"owner": {"login": "test-owner"}, "name": "test-repo"},
+                },
+                "user": {"login": "testuser"},
             }
         }
 
-        pr_graphql_data = {"id": "PR_123", "number": 42, "title": "Test PR from GraphQL"}
+        pr_graphql_data = {
+            "id": "PR_123",
+            "number": 42,
+            "title": "Test PR from GraphQL",
+            "state": "OPEN",
+            "author": {"login": "testuser"},
+            "baseRef": {"name": "main", "target": {"oid": "abc123"}},
+            "headRef": {"name": "feature", "target": {"oid": "def456"}},
+        }
 
         with (
             patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
@@ -612,12 +649,13 @@ class TestUnifiedAPIPRMethods:
                 number=42,
             )
 
-            # Verify PR was fetched from GraphQL (fallback)
+            # Verify PR was created from webhook data (optimization)
             assert isinstance(result, PullRequestWrapper)
             assert result.number == 42
+            assert result.title == "Test PR"
 
-            # CRITICAL: Verify GraphQL WAS called (fallback happened)
-            mock_gql.execute.assert_called_once()
+            # CRITICAL: Verify GraphQL was NOT called (webhook data used directly)
+            mock_gql.execute.assert_not_called()
 
         await api.close()
 
@@ -723,7 +761,27 @@ class TestUnifiedAPIPRMethods:
             "check_run": {
                 "name": "test-check",
                 "head_sha": "abc123def456",  # pragma: allowlist secret
-                "pull_requests": [{"number": 42, "url": "https://api.github.com/repos/test-owner/test-repo/pulls/42"}],
+                "pull_requests": [
+                    {
+                        "number": 42,
+                        "url": "https://api.github.com/repos/test-owner/test-repo/pulls/42",
+                        "id": "PR_kgDOTest123",
+                        "node_id": "PR_kgDOTest123",
+                        "title": "Test PR from pull_requests array",
+                        "state": "open",
+                        "base": {
+                            "ref": "main",
+                            "sha": "base123",
+                            "repo": {"owner": {"login": "test-owner"}, "name": "test-repo"},
+                        },
+                        "head": {
+                            "ref": "feature-branch",
+                            "sha": "abc123def456",  # pragma: allowlist secret
+                            "repo": {"owner": {"login": "test-owner"}, "name": "test-repo"},
+                        },
+                        "user": {"login": "testuser"},
+                    }
+                ],
             }
         }
 
@@ -763,12 +821,9 @@ class TestUnifiedAPIPRMethods:
             assert isinstance(result, PullRequestWrapper)
             assert result.number == 42
 
-            # Verify GraphQL was used (efficient)
+            # Verify optimization: fetch specific PR by number (not all open PRs)
+            # After production fix: fetches complete PR data instead of using incomplete webhook reference
             mock_gql.execute.assert_called_once()
-
-            # Verify optimization was triggered (GraphQL called, not REST iteration)
-            # The key optimization: Only 1 GraphQL call, no REST iteration through all PRs
-            assert mock_gql.execute.call_count == 1
 
         await api.close()
 
@@ -824,76 +879,6 @@ class TestUnifiedAPIPRMethods:
             # Verify warning log about fallback
             warning_calls = [call for call in mock_logger.warning.call_args_list]
             assert any("falling back to expensive iteration" in str(call) for call in warning_calls)
-
-        await api.close()
-
-    @pytest.mark.asyncio
-    async def test_get_pull_request_with_check_run_graphql_failure_fallback(self, api, mock_logger):
-        """Test check_run fallback when GraphQL PR fetch fails."""
-        hook_data = {
-            "check_run": {
-                "name": "test-check",
-                "head_sha": "abc123def456",  # pragma: allowlist secret
-                "pull_requests": [{"number": 42, "url": "https://api.github.com/repos/test-owner/test-repo/pulls/42"}],
-            }
-        }
-
-        # Mock GraphQL PR data for fallback iteration
-        mock_pr_data = {
-            "id": "PR_kgDOTest123",
-            "number": 42,
-            "title": "Test PR from fallback after GraphQL error",
-            "state": "OPEN",
-            "headRef": {
-                "name": "feature-branch",
-                "target": {"oid": "abc123def456"},  # pragma: allowlist secret
-            },
-            "baseRefName": "main",
-            "headRefName": "feature-branch",
-            "labels": {"nodes": []},
-        }
-
-        with (
-            patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
-            patch("webhook_server.libs.graphql.unified_api.Github"),
-        ):
-            # Track call count for execute to make first GraphQL call fail, second succeed
-            execute_call_count = [0]
-
-            async def mock_execute_side_effect(*_args, **_kwargs):
-                execute_call_count[0] += 1
-                if execute_call_count[0] == 1:
-                    # First call: fetch specific PR #42 from pull_requests array - FAIL
-                    raise GraphQLError("GraphQL API error")
-                else:
-                    # Second call: get_open_pull_requests_with_details - SUCCEED
-                    return {"repository": {"pullRequests": {"nodes": [mock_pr_data]}}}
-
-            mock_gql = AsyncMock()
-            mock_gql.close = AsyncMock()
-            mock_gql.execute = AsyncMock(side_effect=mock_execute_side_effect)
-            mock_gql_class.return_value = mock_gql
-
-            await api.initialize()
-            result = await api.get_pull_request(
-                owner="test-owner",
-                repo="test-repo",
-                hook_data=hook_data,
-                github_event="check_run",
-                logger=mock_logger,
-            )
-
-            # Verify result is correct (from fallback)
-            assert isinstance(result, PullRequestWrapper)
-            assert result.number == 42
-
-            # Verify GraphQL was attempted twice (first failed, second succeeded)
-            assert execute_call_count[0] == 2
-
-            # Verify warning logs about GraphQL failure and fallback
-            warning_calls = [call for call in mock_logger.warning.call_args_list]
-            assert any("Failed to fetch PR #42" in str(call) for call in warning_calls)
-            assert any("falling back" in str(call) for call in warning_calls)
 
         await api.close()
 
@@ -985,16 +970,31 @@ class TestUnifiedAPIPRMethods:
     # ===== 2. get_last_commit() Tests =====
 
     @pytest.mark.asyncio
-    async def test_get_last_commit_from_graphql_wrapper(self, api, mock_pr_wrapper):
+    async def test_get_last_commit_from_graphql_wrapper(self, api):
         """Test get_last_commit extracts commit from PullRequestWrapper with commits."""
-        # Mock commits in PR wrapper
-        commit_data = {"oid": "abc123def456", "message": "Test commit"}  # pragma: allowlist secret
-        mock_pr_wrapper._data["commits"] = {"nodes": [{"commit": commit_data}]}
+        # Create PR wrapper with commits in webhook format
+        webhook_data = {
+            "node_id": "PR_kwDOABcD1M5abc123",
+            "number": 42,
+            "title": "Test PR",
+            "state": "open",
+            "draft": False,
+            "base": {"ref": "main", "sha": "abc123", "repo": {"owner": {"login": "test-owner"}, "name": "test-repo"}},
+            "head": {
+                "ref": "feature",
+                "sha": "def456",
+                "repo": {"owner": {"login": "test-owner"}, "name": "test-repo"},
+            },
+            "user": {"login": "testuser"},
+            "commits": [{"sha": "abc123def456", "committer": {"login": "testuser"}}],  # pragma: allowlist secret
+        }
+        pr_wrapper = PullRequestWrapper("test-owner", "test-repo", webhook_data)
 
         with (
             patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
             patch("webhook_server.libs.graphql.unified_api.Github"),
         ):
+            commit_data = {"oid": "abc123def456", "message": "Test commit"}  # pragma: allowlist secret
             mock_gql = AsyncMock()
             mock_gql.execute = AsyncMock(
                 return_value={
@@ -1006,7 +1006,7 @@ class TestUnifiedAPIPRMethods:
 
             await api.initialize()
             result = await api.get_last_commit(
-                owner="test-owner", repo="test-repo", pull_request=mock_pr_wrapper, pr_number=42
+                owner="test-owner", repo="test-repo", pull_request=pr_wrapper, pr_number=42
             )
 
             assert isinstance(result, CommitWrapper)
@@ -1226,7 +1226,7 @@ class TestUnifiedAPIPRMethods:
 
     @pytest.mark.asyncio
     async def test_request_pr_reviews_numeric_id_warning(self, api, mock_pr_wrapper, mock_logger):
-        """Test request_pr_reviews logs warning for numeric reviewer IDs."""
+        """Test request_pr_reviews raises TypeError for numeric reviewer IDs."""
         with (
             patch("webhook_server.libs.graphql.unified_api.GraphQLClient") as mock_gql_class,
             patch("webhook_server.libs.graphql.unified_api.Github"),
@@ -1236,13 +1236,13 @@ class TestUnifiedAPIPRMethods:
             mock_gql_class.return_value = mock_gql
 
             await api.initialize()
-            await api.request_pr_reviews(
-                pull_request=mock_pr_wrapper,
-                reviewers=[12345],  # Numeric ID
-            )
 
-            # Should log warning (check logger.warning was called)
-            assert any("Numeric reviewer ID" in str(call) for call in mock_logger.warning.call_args_list)
+            # Fail-fast validation: numeric IDs are invalid, expect TypeError
+            with pytest.raises(TypeError, match="Reviewer must be str"):
+                await api.request_pr_reviews(
+                    pull_request=mock_pr_wrapper,
+                    reviewers=[12345],  # Numeric ID - INVALID
+                )
 
         await api.close()
 
@@ -1406,17 +1406,15 @@ async def test_request_pr_reviews_with_invalid_node_id_in_dict(mock_logger, mock
         pr_wrapper = MagicMock()
         pr_wrapper.id = "PR_test123"
 
-        # Pass dict with numeric ID and no login - should be skipped
-        await api.request_pr_reviews(pr_wrapper, [{"id": "12345"}])
-
-        # Verify warning was logged
-        mock_logger.warning.assert_called()
-        assert "Could not resolve username from reviewer" in str(mock_logger.warning.call_args)
+        # Pass dict with numeric ID - should raise TypeError (fail-fast enforcement)
+        # Callers must normalize to list[str] before calling request_pr_reviews()
+        with pytest.raises(TypeError, match="Reviewer must be str"):
+            await api.request_pr_reviews(pr_wrapper, [{"id": "12345"}])
 
 
 @pytest.mark.asyncio
 async def test_request_pr_reviews_with_graphql_failure_skips_reviewer(mock_logger, mock_config):
-    """Test request_pr_reviews skips reviewer when batch and sequential GraphQL lookup fails."""
+    """Test request_pr_reviews raises TypeError for MagicMock reviewer objects."""
     api = UnifiedGitHubAPI(token="test_token", logger=mock_logger, config=mock_config)  # pragma: allowlist secret
 
     with (
@@ -1428,31 +1426,20 @@ async def test_request_pr_reviews_with_graphql_failure_skips_reviewer(mock_logge
 
         await api.initialize()
 
-        # Mock execute_batch to fail (triggers fallback to sequential)
-        mock_graphql.execute_batch = AsyncMock(side_effect=TransportQueryError("Network error"))
-        # Mock get_user_id to fail in sequential fallback
-        api.get_user_id = AsyncMock(side_effect=TransportQueryError("Network error"))
-
         pr_wrapper = MagicMock()
         pr_wrapper.id = "PR_test123"
 
-        # Pass reviewer object with login
+        # Fail-fast validation: MagicMock objects are invalid, expect TypeError
         reviewer = MagicMock()
         reviewer.login = "testuser"
-        reviewer.id = "U_kgDOABcD1M"  # Invalid user node ID - should be treated as username
 
-        await api.request_pr_reviews(pr_wrapper, [reviewer])
-
-        # Should log warnings and skip reviewer
-        assert mock_logger.warning.call_count >= 2
-        log_messages = [str(call) for call in mock_logger.warning.call_args_list]
-        assert any("Batch user ID resolution failed" in msg for msg in log_messages)
-        assert any("Failed to get GraphQL node ID for reviewer 'testuser'" in msg for msg in log_messages)
+        with pytest.raises(TypeError, match="Reviewer must be str"):
+            await api.request_pr_reviews(pr_wrapper, [reviewer])
 
 
 @pytest.mark.asyncio
 async def test_request_pr_reviews_skips_on_graphql_failure(mock_logger, mock_config):
-    """Test request_pr_reviews logs and skips reviewer when batch and sequential GraphQL lookup fails."""
+    """Test request_pr_reviews raises TypeError for MagicMock reviewer objects."""
     api = UnifiedGitHubAPI(token="test_token", logger=mock_logger, config=mock_config)  # pragma: allowlist secret
 
     with (
@@ -1464,26 +1451,16 @@ async def test_request_pr_reviews_skips_on_graphql_failure(mock_logger, mock_con
 
         await api.initialize()
 
-        # Mock execute_batch to fail (triggers fallback to sequential)
-        mock_graphql.execute_batch = AsyncMock(side_effect=TransportServerError("Server error"))
-        # Mock get_user_id to fail in sequential fallback
-        api.get_user_id = AsyncMock(side_effect=TransportServerError("Server error"))
-
         pr_wrapper = MagicMock()
         pr_wrapper.id = "PR_test123"
 
-        # Pass reviewer with numeric ID (not User node ID)
+        # Fail-fast validation: MagicMock objects are invalid, expect TypeError
         reviewer = MagicMock()
         reviewer.login = "testuser"
-        reviewer.id = "12345"  # Numeric ID
+        reviewer.id = "12345"
 
-        await api.request_pr_reviews(pr_wrapper, [reviewer])
-
-        # Should log warnings and skip reviewer
-        assert mock_logger.warning.call_count >= 2
-        log_messages = [str(call) for call in mock_logger.warning.call_args_list]
-        assert any("Batch user ID resolution failed" in msg for msg in log_messages)
-        assert any("Failed to get GraphQL node ID for reviewer 'testuser'" in msg for msg in log_messages)
+        with pytest.raises(TypeError, match="Reviewer must be str"):
+            await api.request_pr_reviews(pr_wrapper, [reviewer])
 
 
 @pytest.mark.asyncio
@@ -1678,7 +1655,7 @@ async def test_get_open_pull_requests_with_details_empty_result(unified_api):
 
 @pytest.mark.asyncio
 async def test_get_pulls_from_commit_fallback_warning(mock_logger, mock_config):
-    """Test get_pulls_from_commit logs warning when commit cannot be processed."""
+    """Test get_pulls_from_commit raises ValueError when owner/name missing for non-REST commit."""
     api = UnifiedGitHubAPI(token="test_token", logger=mock_logger, config=mock_config)  # pragma: allowlist secret
 
     with (
@@ -1690,19 +1667,13 @@ async def test_get_pulls_from_commit_fallback_warning(mock_logger, mock_config):
 
         await api.initialize()
 
-        # Create mock commit without sha and without get_pulls method
-        # This will skip both GraphQL and REST paths and trigger warning
-        mock_commit = MagicMock(spec=[])  # Empty spec - no attributes/methods
-        # No owner/name provided -> should trigger warning path (lines 2213-2217)
+        # Fail-fast validation: Non-REST commit without owner/name raises ValueError
+        # (Not a github.Commit.Commit object, so requires owner/name)
+        mock_commit = MagicMock()  # Not a REST Commit object
+        mock_commit.sha = "abc123"
 
-        result = await api.get_pulls_from_commit(mock_commit)
-
-        # Should return empty list
-        assert result == []
-
-        # Should log warning about unable to get PRs
-        warning_calls = [str(call) for call in mock_logger.warning.call_args_list]
-        assert any("Unable to get PRs for commit" in msg for msg in warning_calls)
+        with pytest.raises(ValueError, match="owner and name required for CommitWrapper PRs lookup"):
+            await api.get_pulls_from_commit(mock_commit)
 
 
 @pytest.mark.asyncio

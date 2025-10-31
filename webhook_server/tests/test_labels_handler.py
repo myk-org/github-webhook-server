@@ -1142,6 +1142,25 @@ class TestLabelsHandler:
                     labels_handler.unified_api.get_pull_request_data = AsyncMock(
                         return_value={"number": 123, "labels": {"nodes": []}}
                     )
+                    # Mock _convert_graphql_to_webhook as a regular Mock (not async) since it's a static method
+                    labels_handler.unified_api._convert_graphql_to_webhook = Mock(
+                        return_value={
+                            "node_id": "PR_kgDOTestId",
+                            "number": 123,
+                            "labels": [],
+                            "user": {"login": "test-user"},
+                            "base": {
+                                "ref": "main",
+                                "sha": "abc",
+                                "repo": {"owner": {"login": "test-owner"}, "name": "test-repo"},
+                            },
+                            "head": {
+                                "ref": "feature",
+                                "sha": "def",
+                                "repo": {"owner": {"login": "test-owner"}, "name": "test-repo"},
+                            },
+                        }
+                    )
 
                     result = await labels_handler.wait_for_label(
                         pull_request=mock_pull_request, label="test-label", exists=True

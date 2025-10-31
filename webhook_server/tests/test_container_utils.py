@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+from webhook_server.libs.graphql.webhook_data import PullRequestWrapper
 from webhook_server.utils.container_utils import get_container_repository_and_tag
 
 

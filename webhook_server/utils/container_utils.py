@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from webhook_server.utils.constants import OTHER_MAIN_BRANCH
 
 if TYPE_CHECKING:
-    from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+    from webhook_server.libs.graphql.webhook_data import PullRequestWrapper
 
 
 def get_container_repository_and_tag(

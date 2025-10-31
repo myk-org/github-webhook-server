@@ -8,7 +8,7 @@ import pytest
 import yaml
 from starlette.datastructures import Headers
 
-from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+from webhook_server.libs.graphql.webhook_data import PullRequestWrapper
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.libs.log_parser import LogEntry
 
@@ -101,33 +101,31 @@ class Label:
 
 @pytest.fixture(scope="function")
 def pull_request():
-    """Return PullRequestWrapper for GraphQL migration.
+    """Return PullRequestWrapper with webhook format data.
 
-    Uses GraphQL schema field names (e.g., 'isDraft' not 'draft')
-    to ensure test data mirrors actual GitHub GraphQL API responses.
+    Uses webhook field names (e.g., 'draft' not 'isDraft')
+    to ensure test data mirrors actual GitHub webhook payloads.
     """
 
-    pr_data = {
-        "id": "PR_kgDOTestId",
+    webhook_data = {
+        "node_id": "PR_kgDOTestId",
         "number": 123,
         "title": "Test PR",
         "body": "Test body",
-        "state": "OPEN",
+        "state": "open",
         "merged": False,
-        "mergeable": "MERGEABLE",
-        "isDraft": False,  # GraphQL schema field name
+        "mergeable": True,
+        "draft": False,
         "additions": 100,
         "deletions": 50,
-        "baseRef": {"name": "main", "target": {"oid": "abc123"}},
-        "headRef": {"name": "feature", "target": {"oid": "def456"}},
-        "author": {"login": "testuser"},
-        "createdAt": "2025-01-01T00:00:00Z",
-        "updatedAt": "2025-01-01T01:00:00Z",
-        "permalink": "https://github.com/test/repo/pull/123",
-        "commits": {"nodes": []},
-        "labels": {"nodes": []},
+        "base": {"ref": "main", "sha": "abc123", "repo": {"owner": {"login": "test-owner"}, "name": "test-repo"}},
+        "head": {"ref": "feature", "sha": "def456", "repo": {"owner": {"login": "test-owner"}, "name": "test-repo"}},
+        "user": {"login": "testuser"},
+        "html_url": "https://github.com/test-owner/test-repo/pull/123",
+        "commits": [],
+        "labels": [],
     }
-    return PullRequestWrapper(pr_data)
+    return PullRequestWrapper("test-owner", "test-repo", webhook_data)
 
 
 def create_mock_pull_request(pr_id: str = "PR_kgDOTestId", pr_number: int = 123):

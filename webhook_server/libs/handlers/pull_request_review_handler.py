@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+from webhook_server.libs.graphql.webhook_data import PullRequestWrapper
 from webhook_server.libs.handlers.labels_handler import LabelsHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.utils.constants import ADD_STR, APPROVE_STR
@@ -22,12 +22,6 @@ class PullRequestReviewHandler:
 
     async def process_pull_request_review_webhook_data(self, pull_request: PullRequestWrapper) -> None:
         if self.hook_data["action"] == "submitted":
-            """
-            Available actions:
-                commented
-                approved
-                changes_requested
-            """
             reviewed_user = self.hook_data["review"]["user"]["login"]
             review_state = self.hook_data["review"]["state"]
             self.github_webhook.logger.debug(

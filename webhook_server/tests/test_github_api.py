@@ -37,10 +37,12 @@ class TestGithubWebhook:
             "repository": {"name": "test-repo", "full_name": "my-org/test-repo"},
             "pull_request": {
                 "number": 123,
+                "node_id": "PR_test123",
                 "title": "Test PR",
                 "user": {"login": "testuser"},
-                "base": {"ref": "main"},
-                "head": {"sha": "abc123"},
+                "base": {"ref": "main", "sha": "base123"},  # Added sha for RefWrapper
+                "head": {"sha": "abc123", "user": {"login": "testuser"}},
+                "draft": False,
             },
         }
 

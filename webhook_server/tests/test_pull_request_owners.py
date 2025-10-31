@@ -74,6 +74,8 @@ def changed_files(request, owners_file_handler):
 
 @pytest.fixture(scope="function")
 def all_repository_approvers_and_reviewers(owners_file_handler):
+    # Mark as initialized so that properties can be accessed
+    owners_file_handler.initialized = True
     owners_file_handler.all_repository_approvers_and_reviewers = {
         ".": {"approvers": ["root_approver1", "root_approver2"], "reviewers": ["root_reviewer1", "root_reviewer2"]},
         "folder1": {

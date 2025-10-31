@@ -13,7 +13,7 @@ from github.GithubException import GithubException
 from github.Repository import Repository
 
 from webhook_server.libs.graphql.graphql_client import GraphQLError
-from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+from webhook_server.libs.graphql.webhook_data import PullRequestWrapper
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.utils.constants import (
@@ -25,7 +25,6 @@ from webhook_server.utils.constants import (
     PYTHON_MODULE_INSTALL_STR,
     TOX_STR,
 )
-from webhook_server.utils.container_utils import get_container_repository_and_tag
 from webhook_server.utils.helpers import format_task_fields, run_command
 from webhook_server.utils.notification_utils import send_slack_message
 
@@ -133,7 +132,6 @@ class RunnerHandler:
                     result = (rc, out, err)
                     success = False
 
-            # Checkout to requested branch/tag
             if checkout and success:
                 rc, out, err = await run_command(
                     command=f"{git_cmd} checkout {checkout}",
@@ -154,7 +152,6 @@ class RunnerHandler:
                         result = (rc, out, err)
                         success = False
 
-            # Checkout the branch if pull request is merged or for release
             else:
                 if success:
                     if is_merged and pull_request:
@@ -177,7 +174,6 @@ class RunnerHandler:
                             result = (rc, out, err)
                             success = False
 
-                    # Checkout the pull request
                     elif not is_merged and not tag_name:
                         try:
                             if pull_request:
@@ -203,7 +199,6 @@ class RunnerHandler:
                                         result = (rc, out, err)
                                         success = False
                         except Exception:
-                            # Log errors in git operations for debugging visibility
                             pr_number = pull_request.number if pull_request else "unknown"
                             self.logger.exception(f"{self.log_prefix} Failed to checkout pull request {pr_number}")
 
@@ -299,16 +294,13 @@ class RunnerHandler:
             self.logger.error(f"{self.log_prefix} Failed to login to container registry {registry}")
             return
 
-        # Push without credentials in command (already authenticated)
         push_cmd = f"podman push {container_repository_and_tag}"
-        # Redact all container-related secrets (token, username, password)
         push_secrets = [
             self.github_webhook.token,
             self.github_webhook.container_repository_username,
             self.github_webhook.container_repository_password,
         ]
         push_rc, push_out, push_err = await self.run_podman_command(command=push_cmd, redact_secrets=push_secrets)
-        # Log push command output for debugging
         if push_out:
             self.logger.debug(f"{self.log_prefix} Podman push stdout: {push_out}")
         if push_err:
@@ -520,22 +512,11 @@ class RunnerHandler:
             )
             await self.check_run_handler.set_container_build_in_progress()
 
-        # Check if github_webhook has a container_repository_and_tag method (for test compatibility)
-        # Otherwise use the get_container_repository_and_tag function
-        if hasattr(self.github_webhook, "container_repository_and_tag") and callable(
-            self.github_webhook.container_repository_and_tag
-        ):
-            _container_repository_and_tag = self.github_webhook.container_repository_and_tag()
-        else:
-            _container_repository_and_tag = get_container_repository_and_tag(
-                container_repository=self.github_webhook.container_repository,
-                container_tag=self.github_webhook.container_tag,
-                pull_request=pull_request,
-                is_merged=is_merged,
-                tag=tag,
-                logger=self.logger,
-                log_prefix=self.log_prefix,
-            )
+        _container_repository_and_tag = self.github_webhook.container_repository_and_tag(
+            is_merged=is_merged,
+            tag=tag,
+            pull_request=pull_request,
+        )
         no_cache: str = " --no-cache" if is_merged else ""
         build_cmd: str = (
             f'--network=host {no_cache} -f "{clone_repo_dir}/{self.github_webhook.dockerfile}" "{clone_repo_dir}"'
@@ -740,7 +721,6 @@ class RunnerHandler:
                 f"Cherry-pick failed: target branch does not exist",
             )
             self.logger.error(err_msg)
-            # Get PR node ID for GraphQL comment
             pr_id = await self._get_pr_node_id(pull_request)
             await self.github_webhook.unified_api.add_comment(pr_id, err_msg)
 
@@ -772,7 +752,6 @@ class RunnerHandler:
                         f"{self.log_prefix} Failed to get last commit OID via GraphQL/REST: {fallback_ex}"
                     )
 
-                # If still no commit hash after fallback, fail cherry-pick
                 if not commit_hash:
                     err_msg = "cherry-pick failed: pull request has not been merged yet (merge_commit_sha is None)"
                     self.logger.step(  # type: ignore[attr-defined]
@@ -780,7 +759,6 @@ class RunnerHandler:
                         f"Cherry-pick failed: PR not merged",
                     )
                     self.logger.error(f"{self.log_prefix} {err_msg}")
-                    # Get PR node ID for GraphQL comment
                     pr_id = await self._get_pr_node_id(pull_request)
                     await self.github_webhook.unified_api.add_comment(pr_id, err_msg)
                     return
@@ -844,7 +822,6 @@ class RunnerHandler:
                         await self.check_run_handler.set_cherry_pick_failure(output=output)
                         self.logger.error(f"{self.log_prefix} Cherry pick failed: {out} --- {err}")
                         local_branch_name = f"{pull_request.head.ref}-{target_branch}"
-                        # Get PR node ID for GraphQL comment
                         pr_id = await self._get_pr_node_id(pull_request)
                         await self.github_webhook.unified_api.add_comment(
                             pr_id,
@@ -869,7 +846,6 @@ class RunnerHandler:
                 f"Cherry-pick completed successfully",
             )
             await self.check_run_handler.set_cherry_pick_success(output=output)
-            # Get PR node ID for GraphQL comment
             pr_id = await self._get_pr_node_id(pull_request)
             await self.github_webhook.unified_api.add_comment(
                 pr_id, f"Cherry-picked PR {pull_request.title} into {target_branch}"

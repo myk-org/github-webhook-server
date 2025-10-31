@@ -1,11 +1,11 @@
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, PropertyMock, patch
 
 import pytest
 from github import GithubException
 from github.PullRequest import PullRequest
 
 from webhook_server.libs.graphql.graphql_client import GraphQLError
-from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+from webhook_server.libs.graphql.webhook_data import PullRequestWrapper
 from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
 from webhook_server.utils.constants import (
     APPROVED_BY_LABEL_PREFIX,
@@ -408,23 +408,29 @@ class TestPullRequestHandler:
         requires special handling that complicates the test.
         """
         # Create PullRequestWrapper objects with all data (labels, merge state)
-        pr_data_1 = {
-            "id": "PR_1",
+        webhook_data_1 = {
+            "node_id": "PR_1",
             "number": 1,
             "title": "Test PR 1",
-            "mergeStateStatus": "CLEAN",
-            "labels": {"nodes": []},
+            "mergeable_state": "clean",
+            "labels": [],
+            "base": {"ref": "main", "sha": "abc123", "repo": {"owner": {"login": "owner"}, "name": "repo"}},
+            "head": {"ref": "feature", "sha": "def456", "repo": {"owner": {"login": "owner"}, "name": "repo"}},
+            "user": {"login": "testuser"},
         }
-        pr_data_2 = {
-            "id": "PR_2",
+        webhook_data_2 = {
+            "node_id": "PR_2",
             "number": 2,
             "title": "Test PR 2",
-            "mergeStateStatus": "BEHIND",
-            "labels": {"nodes": []},
+            "mergeable_state": "behind",
+            "labels": [],
+            "base": {"ref": "main", "sha": "abc123", "repo": {"owner": {"login": "owner"}, "name": "repo"}},
+            "head": {"ref": "feature", "sha": "def456", "repo": {"owner": {"login": "owner"}, "name": "repo"}},
+            "user": {"login": "testuser"},
         }
 
-        mock_pr1 = PullRequestWrapper(pr_data_1, "owner", "repo")
-        mock_pr2 = PullRequestWrapper(pr_data_2, "owner", "repo")
+        mock_pr1 = PullRequestWrapper("owner", "repo", webhook_data_1)
+        mock_pr2 = PullRequestWrapper("owner", "repo", webhook_data_2)
 
         # Mock the new batched API method
         with patch.object(
@@ -533,7 +539,7 @@ class TestPullRequestHandler:
             ) as mock_enable,
         ):
             mock_pull_request.base.ref = "main"
-            mock_pull_request.raw_data = {}
+            mock_pull_request.webhook_data = {}
             await pull_request_handler.set_pull_request_automerge(pull_request=mock_pull_request)
             # Verify unified_api.enable_pr_automerge was called with correct arguments
             mock_enable.assert_called_once()
@@ -917,31 +923,36 @@ class TestPullRequestHandler:
 
     @pytest.mark.asyncio
     async def test_handler_with_pull_request_wrapper(self) -> None:
-        """Test handler works with PullRequestWrapper (GraphQL) not just PullRequest (REST)."""
+        """Test handler works with PullRequestWrapper (webhook format) not just PullRequest (REST)."""
 
-        # Create realistic GraphQL PR data (using GraphQL field names)
-        pr_data = {
+        # Create realistic webhook PR data
+        webhook_data = {
+            "node_id": "PR_kwDOABcD456",
             "number": 456,
             "title": "feat: Add GraphQL wrapper support",
             "body": "This PR adds GraphQL wrapper integration",
-            "permalink": "https://github.com/test/repo/pull/456",  # GraphQL uses "permalink" not "url"
-            "state": "OPEN",
-            "isDraft": False,
-            "mergeable": "MERGEABLE",
-            "baseRefName": "main",
-            "headRefName": "feature/graphql",
-            "author": {"login": "graphql-user"},
-            "labels": {"nodes": []},
+            "html_url": "https://github.com/test-org/test-repo/pull/456",
+            "state": "open",
+            "draft": False,
+            "mergeable": True,
+            "base": {"ref": "main", "sha": "abc123", "repo": {"owner": {"login": "test-org"}, "name": "test-repo"}},
+            "head": {
+                "ref": "feature/graphql",
+                "sha": "def456",
+                "repo": {"owner": {"login": "test-org"}, "name": "test-repo"},
+            },
+            "user": {"login": "graphql-user"},
+            "labels": [],
         }
 
-        # Create PullRequestWrapper instead of mock PullRequest
-        wrapper_pr = PullRequestWrapper(pr_data, owner="test-org", repo_name="test-repo")
+        # Create PullRequestWrapper with webhook data
+        wrapper_pr = PullRequestWrapper("test-org", "test-repo", webhook_data)
 
-        # Verify wrapper has expected properties (PyGithub-compatible)
+        # Verify wrapper has expected properties
         assert wrapper_pr.number == 456
         assert wrapper_pr.title == "feat: Add GraphQL wrapper support"
         assert wrapper_pr.body == "This PR adds GraphQL wrapper integration"
-        assert wrapper_pr.html_url == "https://github.com/test/repo/pull/456"
+        assert wrapper_pr.html_url == "https://github.com/test-org/test-repo/pull/456"
         assert wrapper_pr.state == "open"  # Wrapper converts "OPEN" to lowercase "open" for PyGithub compatibility
         assert wrapper_pr.draft is False
         assert wrapper_pr.mergeable is True  # Wrapper converts "MERGEABLE" to True
@@ -1081,13 +1092,12 @@ class TestCreateIssueForNewPullRequest:
         # Mock no existing issues
         mock_webhook.unified_api.get_issues = AsyncMock(return_value=[])
         mock_webhook.unified_api.get_repository = AsyncMock(return_value={"id": "R_kgDOABcD1M"})
-        mock_webhook.unified_api.get_user_id = AsyncMock(return_value="U_kgDOABcD1M")
         mock_webhook.unified_api.create_issue = AsyncMock()
 
         mock_pr_wrapper.number = 42
         mock_pr_wrapper.title = "Test PR Title"
         mock_pr_wrapper.user.login = "contributor"
-        mock_pr_wrapper.user.node_id = ""  # Empty node_id, so get_user_id will be called
+        mock_pr_wrapper.user.node_id = "U_kgDOABcD1M"  # Valid GraphQL node ID (required)
         mock_pr_wrapper.html_url = "https://github.com/owner/repo/pull/42"
 
         await handler.create_issue_for_new_pull_request(mock_pr_wrapper)
@@ -1101,7 +1111,8 @@ class TestCreateIssueForNewPullRequest:
 
     @pytest.mark.asyncio
     async def test_create_issue_bot_user(self, mock_webhook: Mock, mock_pr_wrapper: Mock) -> None:
-        """Test issue creation handles bot users gracefully."""
+        """Test issue creation handles bot users gracefully when node_id access fails."""
+
         mock_webhook.create_issue_for_new_pr = True
         mock_webhook.parent_committer = "renovate[bot]"
         mock_webhook.auto_verified_and_merged_users = []
@@ -1114,19 +1125,18 @@ class TestCreateIssueForNewPullRequest:
         # Mock no existing issues
         mock_webhook.unified_api.get_issues = AsyncMock(return_value=[])
         mock_webhook.unified_api.get_repository = AsyncMock(return_value={"id": "R_kgDOABcD1M"})
-        # Bot user lookup fails
-        mock_webhook.unified_api.get_user_id = AsyncMock(side_effect=GraphQLError("Not a user"))
         mock_webhook.unified_api.create_issue = AsyncMock()
 
         mock_pr_wrapper.number = 42
         mock_pr_wrapper.title = "Test PR Title"
         mock_pr_wrapper.user.login = "renovate[bot]"
-        mock_pr_wrapper.user.node_id = ""  # Empty node_id, so get_user_id will be called (and fail)
+        # Simulate bot user where accessing node_id raises an exception (edge case)
+        type(mock_pr_wrapper.user).node_id = PropertyMock(side_effect=GraphQLError("Not a user"))
         mock_pr_wrapper.html_url = "https://github.com/owner/repo/pull/42"
 
         await handler.create_issue_for_new_pull_request(mock_pr_wrapper)
 
-        # Verify issue was created without assignee
+        # Verify issue was created without assignee (bot exception handled)
         mock_webhook.unified_api.create_issue.assert_called_once()
         call_args = mock_webhook.unified_api.create_issue.call_args
         assert call_args.kwargs["assignee_ids"] == []

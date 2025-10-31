@@ -9,14 +9,12 @@ from typing import Any
 import requests
 from github.Commit import Commit
 from github.Repository import Repository
-
-# GraphQL wrappers provide PyGithub-compatible interface
 from starlette.datastructures import Headers
 
 from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import RepositoryNotFoundInConfigError
-from webhook_server.libs.graphql.graphql_wrappers import CommitWrapper, PullRequestWrapper
 from webhook_server.libs.graphql.unified_api import UnifiedGitHubAPI
+from webhook_server.libs.graphql.webhook_data import CommitWrapper, PullRequestWrapper
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.libs.handlers.issue_comment_handler import IssueCommentHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
@@ -31,6 +29,7 @@ from webhook_server.utils.constants import (
     PYTHON_MODULE_INSTALL_STR,
     TOX_STR,
 )
+from webhook_server.utils.container_utils import get_container_repository_and_tag
 from webhook_server.utils.github_repository_settings import (
     get_repository_github_app_api,
 )
@@ -74,7 +73,6 @@ class GithubWebhook:
 
         if github_api and self.token:
             self.repository = get_github_repo_api(github_app_api=github_api, repository=self.repository_full_name)
-            # Initialize UnifiedGitHubAPI for GraphQL operations
             self.unified_api: UnifiedGitHubAPI = UnifiedGitHubAPI(
                 token=self.token, logger=self.logger, config=self.config
             )
@@ -114,7 +112,6 @@ class GithubWebhook:
         # Format: /tmp/tmp{random}/github-webhook-{repo_name}
         # This prevents predictable paths and ensures isolation between concurrent webhook handlers
         self.clone_repo_dir: str = tempfile.mkdtemp(prefix=f"github-webhook-{self.repository_name}-")
-        # Populate auto-verified and auto-merged users from API users
         self.add_api_users_to_auto_verified_and_merged_users()
 
         self.current_pull_request_supported_retest = self._current_pull_request_supported_retest
@@ -159,38 +156,27 @@ class GithubWebhook:
         # Optimization: For pull_request events, construct PullRequestWrapper directly from webhook data
         # This eliminates redundant API calls since webhook already contains complete PR data
         pull_request: PullRequestWrapper | None
-        if self.github_event == "pull_request" and "pull_request" in self.hook_data:
+        if self.github_event == "pull_request":
             self.logger.step(  # type: ignore[attr-defined]
                 f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
                 f"Initializing pull request from webhook payload",
             )
-            pr_data = self.hook_data["pull_request"]
-
-            # Construct PullRequestWrapper directly from webhook payload
-            # CRITICAL: Webhook payload contains REST numeric 'id' but GraphQL mutations need 'node_id'
-            # Transform the payload to use node_id as id for GraphQL compatibility
-            graphql_pr_data = pr_data.copy()
-            if "node_id" in pr_data:
-                graphql_pr_data["id"] = pr_data["node_id"]  # Override numeric id with GraphQL node_id
+            pull_request_webhook_data = self.hook_data["pull_request"]
 
             pull_request = PullRequestWrapper(
-                data=graphql_pr_data,  # GraphQL-compatible data with node_id as id
                 owner=owner,
                 repo_name=repo,
-                webhook_data=pr_data,  # Preserve original webhook data for user.login and other fields
+                webhook_data=pull_request_webhook_data,
             )
 
-            # Extract last commit from webhook data (eliminates second API call)
-            head_sha = pr_data["head"]["sha"]
-            # GitHub webhook provides commit data in head object
-            # CommitWrapper expects committer.user structure, so wrap the user data properly
-            head_user = pr_data["head"].get("user", {})
+            head_data = pull_request_webhook_data["head"]
+            head_sha = head_data["sha"]
+            head_user = head_data.get("user", {})
+
             self.last_commit = CommitWrapper({
-                "oid": head_sha,
-                # Webhook doesn't provide full commit metadata, but we have enough for most operations
-                # If more commit details are needed, they can be fetched later lazily
-                "committer": {"user": head_user} if head_user else {},
-                "author": {"user": head_user} if head_user else {},
+                "sha": head_sha,
+                "committer": head_user,
+                "author": head_user,
             })
 
             self.logger.debug(
@@ -438,6 +424,33 @@ class GithubWebhook:
         # (schema says array, but legacy configs may have strings)
         return args.split()
 
+    def container_repository_and_tag(
+        self,
+        is_merged: bool = False,
+        tag: str = "",
+        pull_request: PullRequestWrapper | None = None,
+    ) -> str | None:
+        """
+        Get container repository and tag for build.
+
+        Args:
+            is_merged: Whether PR is merged
+            tag: Optional explicit tag override
+            pull_request: Pull request object (needed if tag not provided)
+
+        Returns:
+            Full container repository:tag string, or None if tag cannot be determined
+        """
+        return get_container_repository_and_tag(
+            container_repository=self.container_repository,
+            container_tag=self.container_tag,
+            is_merged=is_merged,
+            tag=tag,
+            pull_request=pull_request,
+            logger=self.logger,
+            log_prefix=self.log_prefix,
+        )
+
     def prepare_log_prefix(self, pull_request: PullRequestWrapper | None = None) -> str:
         return prepare_log_prefix(
             event_type=self.github_event,
@@ -498,7 +511,6 @@ class GithubWebhook:
         self.minimum_lgtm: int = self.config.get_value(
             value="minimum-lgtm", return_on_none=0, extra_dict=repository_config
         )
-        # Load global create_issue_for_new_pr setting as fallback
         global_create_issue_for_new_pr: bool = self.config.get_value(
             value="create-issue-for-new-pr", return_on_none=True
         )

@@ -41,7 +41,7 @@ class Config:
             raise
         except yaml.YAMLError:
             self.logger.exception(f"Config file has invalid YAML syntax: {self.config_path}")
-            raise  # Don't continue with invalid config
+            raise
         except PermissionError:
             self.logger.exception(f"Permission denied reading config file: {self.config_path}")
             raise
@@ -71,7 +71,7 @@ class Config:
 
             except yaml.YAMLError:
                 self.logger.exception(f"Repository {repository_full_name} config has invalid YAML syntax")
-                raise  # Don't continue with invalid config
+                raise
 
             except Exception:
                 self.logger.exception(f"Repository {repository_full_name} config file not found or error")
@@ -91,13 +91,11 @@ class Config:
             2. Repository level global config file (config.yaml)
             3. Root level global config file (config.yaml)
         """
-        # Try extra_dict first
         if extra_dict:
             result = self._get_nested_value(value, extra_dict)
             if result is not None:
                 return result
 
-        # Try repository_data and root_data
         for scope in (self.repository_data, self.root_data):
             result = self._get_nested_value(value, scope)
             if result is not None:
@@ -116,7 +114,6 @@ class Config:
         Returns:
             Value if found, None otherwise
         """
-        # Split by dots for nested access
         keys = key.split(".")
         current = data
 

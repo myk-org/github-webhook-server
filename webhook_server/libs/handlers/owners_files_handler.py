@@ -11,7 +11,7 @@ from github.Repository import Repository
 from gql.transport.exceptions import TransportError, TransportQueryError, TransportServerError
 
 from webhook_server.libs.graphql.graphql_client import GraphQLError
-from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+from webhook_server.libs.graphql.webhook_data import PullRequestWrapper
 from webhook_server.utils.constants import COMMAND_ADD_ALLOWED_USER_STR, ROOT_APPROVERS_KEY
 from webhook_server.utils.helpers import format_task_fields
 
@@ -36,6 +36,7 @@ class OwnersFileHandler:
         self.unified_api = self.github_webhook.unified_api
         self.config = self.github_webhook.config
         self.max_owners_files = self.config.get_value("max-owners-files", return_on_none=1000)
+        self.initialized = False
 
     def _get_owner_and_repo(self) -> tuple[str, str]:
         """Extract owner and repository name from full repository name.
@@ -65,12 +66,7 @@ class OwnersFileHandler:
 
         # Use pre-fetched repository data from webhook processing (no API calls)
         # Convert raw GraphQL dict data to objects with .login and .permissions attributes
-        # Fallback to fetching if repository_data is not available (edge case)
-        if not hasattr(self.github_webhook, "repository_data") or not self.github_webhook.repository_data:
-            owner, repo_name = self._get_owner_and_repo()
-            self.github_webhook.repository_data = await self.unified_api.get_comprehensive_repository_data(
-                owner, repo_name
-            )
+        # Architecture GUARANTEES repository_data exists - it's set before handlers run
 
         collaborators_data = self.github_webhook.repository_data["collaborators"]["edges"]
         self._repository_collaborators = [
@@ -94,6 +90,7 @@ class OwnersFileHandler:
             *self.all_pull_request_reviewers,
         }
 
+        self.initialized = True
         return self
 
     def _ensure_initialized(self) -> None:
@@ -102,7 +99,7 @@ class OwnersFileHandler:
         Raises:
             OwnersFileNotInitializedError: If initialize() has not been called yet.
         """
-        if not hasattr(self, "changed_files"):
+        if not self.initialized:
             raise OwnersFileNotInitializedError("initialize() must be called first")
 
     @property
@@ -146,7 +143,6 @@ class OwnersFileHandler:
         return _allowed_users
 
     async def list_changed_files(self, pull_request: PullRequestWrapper) -> list[str]:
-        # Use unified_api for get_files
         owner, repo_name = self._get_owner_and_repo()
         files = await self.unified_api.get_pull_request_files(owner, repo_name, pull_request.number)
         changed_files = [_file.filename for _file in files]
@@ -228,7 +224,6 @@ class OwnersFileHandler:
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         for result in results:
-            # Skip exceptions from failed OWNERS file fetches
             if isinstance(result, Exception):
                 exc_info = (type(result), result, result.__traceback__)
                 self.logger.error(f"{self.log_prefix} Failed to fetch OWNERS file", exc_info=exc_info)
@@ -251,8 +246,8 @@ class OwnersFileHandler:
         return _owners
 
     async def get_all_repository_approvers(self) -> list[str]:
-        self._ensure_initialized()
-
+        # NOTE: No _ensure_initialized() check here - this method is called DURING initialize()
+        # to populate self.all_repository_approvers (line 62 in initialize())
         _approvers = [
             approver
             for value in self.all_repository_approvers_and_reviewers.values()
@@ -270,8 +265,8 @@ class OwnersFileHandler:
         Returns:
             List of reviewer usernames
         """
-        self._ensure_initialized()
-
+        # NOTE: No _ensure_initialized() check here - this method is called DURING initialize()
+        # to populate self.all_repository_reviewers (line 63 in initialize())
         _reviewers = [
             reviewer
             for value in self.all_repository_approvers_and_reviewers.values()
@@ -321,8 +316,8 @@ class OwnersFileHandler:
         return _reviewers
 
     async def owners_data_for_changed_files(self) -> dict[str, dict[str, Any]]:
-        self._ensure_initialized()
-
+        # NOTE: No _ensure_initialized() check here - this method is called DURING initialize()
+        # via get_all_pull_request_approvers() and get_all_pull_request_reviewers() (lines 64-65)
         data: dict[str, dict[str, Any]] = {}
 
         changed_folders = {Path(cf).parent for cf in self.changed_files}
@@ -401,7 +396,6 @@ class OwnersFileHandler:
             )
             return
 
-        # Filter out PR author from reviewers list
         reviewers_to_request = [r for r in _to_add if r != pull_request.user.login]
 
         if not reviewers_to_request:
@@ -476,7 +470,6 @@ Maintainers:
         self.logger.debug(f"Valid users to run commands: {valid_users}")
 
         if reviewed_user not in valid_users:
-            # Use unified_api for get_issue_comments
             owner, repo_name = self._get_owner_and_repo()
             comments = await self.unified_api.get_issue_comments(owner, repo_name, pull_request.number)
             for comment in [_comment for _comment in comments if _comment.user.login in allowed_user_to_approve]:

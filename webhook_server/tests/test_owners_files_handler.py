@@ -164,6 +164,7 @@ class TestOwnersFileHandler:
     async def test_ensure_initialized_initialized(self, owners_file_handler: OwnersFileHandler) -> None:
         """Test _ensure_initialized doesn't raise error when initialized."""
         owners_file_handler.changed_files = ["file1.py"]
+        owners_file_handler.initialized = True  # Mark as initialized
         owners_file_handler._ensure_initialized()  # Should not raise
 
     @pytest.mark.asyncio
@@ -427,6 +428,7 @@ class TestOwnersFileHandler:
             "folder1": {"approvers": ["user4"], "reviewers": ["user5"]},
             "folder2": {"reviewers": ["user6"]},  # No approvers
         }
+        owners_file_handler.initialized = True  # Mark as initialized
 
         result = await owners_file_handler.get_all_repository_approvers()
 
@@ -441,6 +443,7 @@ class TestOwnersFileHandler:
             "folder1": {"approvers": ["user4"], "reviewers": ["user5"]},
             "folder2": {"approvers": ["user6"]},  # No reviewers
         }
+        owners_file_handler.initialized = True  # Mark as initialized
 
         result = await owners_file_handler.get_all_repository_reviewers()
 
@@ -498,6 +501,7 @@ class TestOwnersFileHandler:
             },
         }
 
+        owners_file_handler.initialized = True  # Mark as initialized
         result = await owners_file_handler.owners_data_for_changed_files()
 
         expected = {
@@ -527,6 +531,7 @@ class TestOwnersFileHandler:
                 "reviewers": ["folder5_reviewer1"],
             },
         }
+        owners_file_handler.initialized = True  # Mark as initialized
 
         result = await owners_file_handler.owners_data_for_changed_files()
 
@@ -566,6 +571,7 @@ class TestOwnersFileHandler:
                 "reviewers": ["folder_with_root_reviewer1"],
             },
         }
+        owners_file_handler.initialized = True  # Mark as initialized
 
         result = await owners_file_handler.owners_data_for_changed_files()
 
@@ -593,6 +599,7 @@ class TestOwnersFileHandler:
     async def test_assign_reviewers(self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock) -> None:
         owners_file_handler.changed_files = ["file1.py"]
         owners_file_handler.all_pull_request_reviewers = ["reviewer1", "reviewer2", "test-user"]
+        owners_file_handler.initialized = True  # Mark as initialized
         mock_pull_request.user.login = "test-user"
 
         with patch.object(
@@ -615,6 +622,7 @@ class TestOwnersFileHandler:
         """Test assign_reviewers when GitHub API raises an exception."""
         owners_file_handler.changed_files = ["file1.py"]
         owners_file_handler.all_pull_request_reviewers = ["reviewer1"]
+        owners_file_handler.initialized = True  # Mark as initialized
         mock_pull_request.user.login = "test-user"
         # Setup mock as REST PullRequest (use base.repo path)
         mock_pull_request.base.repo.owner.login = "test-owner"
@@ -655,6 +663,7 @@ class TestOwnersFileHandler:
         with patch.object(owners_file_handler, "get_all_repository_maintainers", new=AsyncMock(return_value=[])):
             # This test path uses unified_api.get_issue_comments, not PR.get_issue_comments
             # since the user is already valid, so we don't need this patch
+            owners_file_handler.initialized = True  # Mark as initialized
             result = await owners_file_handler.is_user_valid_to_run_commands(mock_pull_request, "user1")
             assert result is True
 
@@ -681,6 +690,7 @@ class TestOwnersFileHandler:
             owners_file_handler.repository.full_name = "test/repo"
             owners_file_handler.github_webhook.unified_api.get_issue_comments = AsyncMock(return_value=[mock_comment])
 
+            owners_file_handler.initialized = True  # Mark as initialized
             result = await owners_file_handler.is_user_valid_to_run_commands(mock_pull_request, "invalid_user")
 
             assert result is True
@@ -712,6 +722,7 @@ class TestOwnersFileHandler:
             with patch.object(
                 owners_file_handler.github_webhook.unified_api, "add_pr_comment", new_callable=AsyncMock
             ) as mock_add_comment:
+                owners_file_handler.initialized = True  # Mark as initialized
                 result = await owners_file_handler.is_user_valid_to_run_commands(mock_pull_request, "invalid_user")
 
                 assert result is False
@@ -739,6 +750,7 @@ class TestOwnersFileHandler:
             "contributor2",
         }
 
+        owners_file_handler.initialized = True  # Mark as initialized
         result = owners_file_handler.valid_users_to_run_commands
 
         expected = {
@@ -763,6 +775,7 @@ class TestOwnersFileHandler:
         owners_file_handler.changed_files = ["file1.py"]
         owners_file_handler._repository_contributors = [mock_contributor1, mock_contributor2]
 
+        owners_file_handler.initialized = True  # Mark as initialized
         result = await owners_file_handler.get_all_repository_contributors()
         assert result == ["contributor1", "contributor2"]
 
@@ -776,6 +789,7 @@ class TestOwnersFileHandler:
         owners_file_handler.changed_files = ["file1.py"]
         owners_file_handler._repository_collaborators = [mock_collaborator1, mock_collaborator2]
 
+        owners_file_handler.initialized = True  # Mark as initialized
         result = await owners_file_handler.get_all_repository_collaborators()
         assert result == ["collaborator1", "collaborator2"]
 
@@ -790,6 +804,7 @@ class TestOwnersFileHandler:
         owners_file_handler.changed_files = ["file1.py"]
         owners_file_handler._repository_collaborators = [mock_admin, mock_maintainer, mock_regular]
 
+        owners_file_handler.initialized = True  # Mark as initialized
         result = await owners_file_handler.get_all_repository_maintainers()
         assert result == ["admin_user", "maintainer_user"]
 
@@ -801,6 +816,7 @@ class TestOwnersFileHandler:
             ".": {"approvers": ["approver1"], "reviewers": ["reviewer1", "reviewer2"]}
         }
 
+        owners_file_handler.initialized = True  # Mark as initialized
         result = owners_file_handler.root_reviewers
 
         assert result == ["reviewer1", "reviewer2"]
@@ -813,6 +829,7 @@ class TestOwnersFileHandler:
             ".": {"approvers": ["approver1", "approver2"], "reviewers": ["reviewer1"]}
         }
 
+        owners_file_handler.initialized = True  # Mark as initialized
         result = owners_file_handler.root_approvers
 
         assert result == ["approver1", "approver2"]
@@ -825,6 +842,7 @@ class TestOwnersFileHandler:
             ".": {"approvers": ["approver1"]}  # No reviewers
         }
 
+        owners_file_handler.initialized = True  # Mark as initialized
         result = owners_file_handler.root_reviewers
 
         assert result == []
@@ -837,6 +855,7 @@ class TestOwnersFileHandler:
             ".": {"reviewers": ["reviewer1"]}  # No approvers
         }
 
+        owners_file_handler.initialized = True  # Mark as initialized
         result = owners_file_handler.root_approvers
 
         assert result == []

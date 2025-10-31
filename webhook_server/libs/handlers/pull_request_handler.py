@@ -12,7 +12,7 @@ from webhook_server.libs.graphql.graphql_client import (
     GraphQLError,
     GraphQLRateLimitError,
 )
-from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+from webhook_server.libs.graphql.webhook_data import PullRequestWrapper
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.libs.handlers.labels_handler import LabelsHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
@@ -107,7 +107,6 @@ class PullRequestHandler:
         )
 
     async def process_pull_request_webhook_data(self, pull_request: PullRequestWrapper) -> None:
-        # Initialize OwnersFileHandler with current pull request before any processing
         await self.owners_file_handler.initialize(pull_request)
 
         hook_action: str = self.hook_data["action"]
@@ -276,7 +275,6 @@ class PullRequestHandler:
         self.logger.info(f"{self.log_prefix} Prepare welcome comment")
         supported_user_labels_str: str = "".join([f" * {label}\n" for label in USER_LABELS_DICT.keys()])
 
-        # Check if current user is auto-verified
         is_auto_verified = self.github_webhook.parent_committer in self.github_webhook.auto_verified_and_merged_users
         auto_verified_note = ""
         if is_auto_verified:
@@ -447,7 +445,6 @@ For more information, please refer to the project documentation or contact the m
         Error handling ensures failures don't crash the background task.
         """
         try:
-            # Get configurable delay (default: 30 seconds)
             delay = self.github_webhook.config.get_value("post-merge-relabel-delay", return_on_none=30)
             self.logger.info(f"{self.log_prefix} Scheduled background relabeling of open PRs in {delay} seconds")
             await asyncio.sleep(delay)
@@ -531,7 +528,6 @@ For more information, please refer to the project documentation or contact the m
                         ],
                     )
                     if rc:
-                        # Use GraphQL add_comment mutation
                         await self.github_webhook.unified_api.add_comment(
                             pull_request.id,
                             f"Successfully removed PR tag: {repository_full_tag}.",
@@ -549,7 +545,6 @@ For more information, please refer to the project documentation or contact the m
                 await self.runner_handler.run_podman_command(command="regctl registry logout")
 
         else:
-            # Use GraphQL add_comment mutation
             await self.github_webhook.unified_api.add_comment(
                 pull_request.id,
                 f"Failed to delete tag: {repository_full_tag}. Please delete it manually.",
@@ -707,11 +702,8 @@ For more information, please refer to the project documentation or contact the m
         # Try to get assignee ID, but handle bots/apps gracefully
         # Bots (like renovate, dependabot) can't be assigned as they're not users
         try:
-            # Use node_id from webhook if available (avoids GraphQL query for bots)
-            if hasattr(pull_request.user, "node_id") and pull_request.user.node_id:
-                assignee_id = pull_request.user.node_id
-            else:
-                assignee_id = await self.github_webhook.unified_api.get_user_id(pull_request.user.login)
+            # Use node_id from webhook - ALWAYS present in webhook/GraphQL data
+            assignee_id = pull_request.user.node_id
             assignee_ids = [assignee_id]
         except (GraphQLError, UnknownObjectException):
             # Author is likely a bot/app (e.g., renovate, dependabot)
@@ -760,7 +752,7 @@ For more information, please refer to the project documentation or contact the m
 
         if auto_merge:
             try:
-                if not pull_request.raw_data.get("auto_merge"):
+                if not pull_request.webhook_data.get("auto_merge"):
                     self.logger.info(
                         f"{self.log_prefix} will be merged automatically. "
                         f"owner: {self.github_webhook.parent_committer} is part of auto merge enabled rules"
@@ -903,8 +895,8 @@ For more information, please refer to the project documentation or contact the m
 
         # Check if author is a bot before attempting assignment
         # GitHub doesn't allow bots to be assigned to PRs
-        # Check for user.type attribute (available in both GraphQL __typename and REST type)
-        if hasattr(pull_request.user, "type") and pull_request.user.type == "Bot":
+        # user.type is ALWAYS present (available in both GraphQL __typename and webhook type)
+        if pull_request.user.type == "Bot":
             self.logger.info(
                 f"{self.log_prefix} PR author '{author_login}' is a bot (type={pull_request.user.type}), "
                 "skipping assignee assignment. Will use first approver instead."
@@ -972,7 +964,6 @@ For more information, please refer to the project documentation or contact the m
             self.logger.info(f"{self.log_prefix} Check if {CAN_BE_MERGED_STR}.")
             await self.check_run_handler.set_merge_check_in_progress()
             owner, repo_name = self._owner_and_repo
-            # Defensive null-check: ensure last_commit exists before accessing
             if self.github_webhook.last_commit:
                 last_commit_check_runs = await self.github_webhook.unified_api.get_commit_check_runs(
                     self.github_webhook.last_commit, owner, repo_name
@@ -1106,8 +1097,6 @@ For more information, please refer to the project documentation or contact the m
 
                 for required_pr_approver in required_pr_approvers:
                     if required_pr_approver in approved_by:
-                        # Once we found approver in approved_by list, we remove all approvers from
-                        # missing_approvers list for this owners file
                         for _approver in required_pr_approvers:
                             if _approver in missing_approvers:
                                 missing_approvers.remove(_approver)

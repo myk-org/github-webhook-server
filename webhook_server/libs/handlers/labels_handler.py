@@ -7,7 +7,7 @@ from github.Repository import Repository
 from timeout_sampler import TimeoutWatch
 
 from webhook_server.libs.graphql.graphql_client import GraphQLError
-from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+from webhook_server.libs.graphql.webhook_data import PullRequestWrapper
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.utils.constants import (
     ADD_STR,
@@ -129,7 +129,6 @@ class LabelsHandler:
             pr_id = pull_request.id
             label_id = await self.unified_api.get_label_id(owner, repo_name, label)
 
-            # If label doesn't exist, create it first
             if not label_id:
                 try:
                     color = STATIC_LABELS_DICT[label]
@@ -180,14 +179,11 @@ class LabelsHandler:
         _with_color_msg = f"repository label {label} with color {color}"
 
         try:
-            # Try to get label via GraphQL
             label_id = await self.unified_api.get_label_id(owner, repo_name, label)
             if label_id:
-                # Label exists, update color
                 await self.unified_api.update_label(label_id, color)
                 self.logger.debug(f"{self.log_prefix} Edit {_with_color_msg}")
             else:
-                # Label doesn't exist, create it
                 # Optimization: Use webhook data instead of API call
                 await self.unified_api.create_label(self.github_webhook.repository_id, label, color)
                 self.logger.debug(f"{self.log_prefix} Add {_with_color_msg}")
@@ -237,8 +233,8 @@ class LabelsHandler:
 
         # Create TimeoutWatch once outside the loop to track total elapsed time
         watch = TimeoutWatch(timeout=30)
-        backoff_seconds = 0.5  # Start with 500ms
-        max_backoff = 5  # Cap at 5 seconds
+        backoff_seconds = 0.5
+        max_backoff = 5
 
         while watch.remaining_time() > 0:
             # First check current labels (might already be updated from mutation response)
@@ -252,7 +248,8 @@ class LabelsHandler:
                 refreshed_pr_data = await self.unified_api.get_pull_request_data(
                     owner, repo_name, pull_request.number, include_labels=True
                 )
-                refreshed_pr = PullRequestWrapper(refreshed_pr_data, owner, repo_name)
+                webhook_format = self.unified_api._convert_graphql_to_webhook(refreshed_pr_data, owner, repo_name)
+                refreshed_pr = PullRequestWrapper(owner, repo_name, webhook_format)
                 res = await self.label_exists_in_pull_request(pull_request=refreshed_pr, label=label)
                 if res == exists:
                     return True
@@ -362,10 +359,8 @@ class LabelsHandler:
         size = additions + deletions
         self.logger.debug(f"{self.log_prefix} PR size is {size} (additions: {additions}, deletions: {deletions})")
 
-        # Get custom or default thresholds
         thresholds = self._get_custom_pr_size_thresholds()
 
-        # Find the appropriate size category
         for threshold, label_name, _ in thresholds:
             if size < threshold:
                 return f"{SIZE_LABEL_PREFIX}{label_name}"

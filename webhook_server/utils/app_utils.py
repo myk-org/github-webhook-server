@@ -23,7 +23,7 @@ async def get_github_allowlist(http_client: httpx.AsyncClient) -> list[str]:
     """Fetch and cache GitHub IP allowlist asynchronously."""
     try:
         response = await http_client.get(GITHUB_META_URL)
-        response.raise_for_status()  # Check for HTTP errors
+        response.raise_for_status()
         data = response.json()
         return data.get("hooks", [])
 

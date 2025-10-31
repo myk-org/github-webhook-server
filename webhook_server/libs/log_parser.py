@@ -285,7 +285,6 @@ class LogParser:
             return
 
         with open(file_path, encoding="utf-8") as f:
-            # Move to end of file
             f.seek(0, 2)
 
             while True:
@@ -375,7 +374,6 @@ class LogFilter:
         """
         filtered = entries[:]
 
-        # Apply filters
         if hook_id is not None:
             filtered = [e for e in filtered if e.hook_id == hook_id]
 
@@ -404,7 +402,6 @@ class LogFilter:
             search_lower = search_text.lower()
             filtered = [e for e in filtered if search_lower in e.message.lower()]
 
-        # Apply pagination
         if offset is not None:
             filtered = filtered[offset:]
 

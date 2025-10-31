@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from github.GithubException import GithubException
 from github.Repository import Repository
 
-from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+from webhook_server.libs.graphql.webhook_data import PullRequestWrapper
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.libs.handlers.labels_handler import LabelsHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
@@ -69,7 +69,6 @@ class IssueCommentHandler:
             Tuple of (owner, repo_name)
         """
         full_name = self.repository.full_name
-        # Handle string split
         if isinstance(full_name, str) and "/" in full_name:
             owner, repo_name = full_name.split("/", 1)
             return owner, repo_name
@@ -286,7 +285,8 @@ class IssueCommentHandler:
             await self.github_webhook.unified_api.create_reaction(_comment, reaction)
         except GithubException as ex:
             # Handle deleted or inaccessible comments (404 or "not found" message)
-            if (hasattr(ex, "status") and ex.status == 404) or "not found" in str(ex).lower():
+            # GithubException ALWAYS has status attribute
+            if ex.status == 404 or "not found" in str(ex).lower():
                 self.logger.info(
                     f"{self.log_prefix} Comment {issue_comment_id} not found "
                     f"(deleted or inaccessible), skipping reaction"

@@ -119,7 +119,7 @@ class GraphQLClient:
         self._client: Client | None = None
         self._session: Any = None  # Store connected session explicitly (not internal detail)
         self._transport: AIOHTTPTransport | None = None
-        self._client_lock = asyncio.Lock()  # Protect against concurrent client recreation
+        self._client_lock = asyncio.Lock()
         # Semaphore for batch concurrency limiting (None means unlimited)
         self._batch_semaphore: asyncio.Semaphore | None = (
             asyncio.Semaphore(self.batch_concurrency_limit) if self.batch_concurrency_limit > 0 else None
@@ -137,12 +137,9 @@ class GraphQLClient:
     async def _ensure_client(self) -> None:
         """Ensure the GraphQL client is initialized and connected. Reuses existing client for connection pooling."""
         async with self._client_lock:
-            # Only create and connect client once for connection pooling
             if self._client is not None:
                 return
 
-            # Create persistent transport with connection pooling via TCPConnector
-            # Configure keepalive and connection limits for optimal performance
             connector = aiohttp.TCPConnector(
                 limit=100,  # Max total connections
                 limit_per_host=10,  # Max connections per host
@@ -167,11 +164,11 @@ class GraphQLClient:
                     "Accept": "application/vnd.github.v4+json",
                     "User-Agent": "github-webhook-server/graphql-client",
                 },
-                ssl=True,  # Enable SSL certificate verification
+                ssl=True,
                 client_session_args={
                     "connector": connector,
                     "connector_owner": True,  # Session owns connector to ensure proper cleanup
-                    "timeout": timeout_config,  # Pass ClientTimeout via client_session_args
+                    "timeout": timeout_config,
                 },
             )
 
@@ -180,7 +177,6 @@ class GraphQLClient:
                 fetch_schema_from_transport=False,  # Don't fetch schema on every request
             )
 
-            # Connect the client session once for persistent connection pooling
             # Store session reference explicitly (avoid accessing internal .session attribute)
             self._session = await self._client.connect_async()
 
@@ -194,7 +190,7 @@ class GraphQLClient:
             except Exception as ex:
                 self.logger.debug(f"Ignoring error during client close: {ex}")
             self._client = None
-            self._session = None  # Clear session reference
+            self._session = None
             self._transport = None
             self.logger.debug("GraphQL client closed")
 
@@ -232,7 +228,6 @@ class GraphQLClient:
                     f"connect={self.connection_timeout}s, sock_read={self.sock_read_timeout}s)"
                 )
 
-                # Use stored session reference (avoid accessing internal .session attribute)
                 # The session was connected in _ensure_client and stays connected for connection pooling
                 result = await self._session.execute(query, variable_values=variables)
 
@@ -240,22 +235,18 @@ class GraphQLClient:
                 return dict(result) if result else {}
 
             except TransportQueryError as error:
-                # Handle GraphQL-specific errors
                 error_msg = error.errors[0] if error.errors else str(error)
 
-                # Check for authentication errors
                 if "401" in str(error_msg) or "Unauthorized" in str(error_msg) or "Bad credentials" in str(error_msg):
                     self.logger.exception(
                         f"AUTH FAILED: GraphQL authentication failed: {error_msg}",
                     )
                     raise GraphQLAuthenticationError(f"Authentication failed: {error_msg}") from error
 
-                # Check for rate limit errors - wait until rate limit resets
                 error_str = str(error_msg)
                 if "rate limit" in error_str.lower() or "RATE_LIMITED" in error_str:
                     # Use GraphQL rateLimit query instead of REST /rate_limit for consistency
                     try:
-                        # Use QueryBuilder.get_rate_limit() for consistency
                         # Execute directly with session to bypass retry logic and avoid infinite loop
                         if self._session:
                             rate_limit_query = gql(QueryBuilder.get_rate_limit())
@@ -272,13 +263,12 @@ class GraphQLClient:
                                     f"{datetime.fromtimestamp(reset_timestamp, tz=UTC)}",
                                 )
                                 await asyncio.sleep(wait_seconds)
-                                continue  # Retry after waiting
+                                continue
                     except Exception:
                         self.logger.exception(
                             "Failed to get rate limit info",
                         )
 
-                    # If we can't get rate limit info, fail
                     self.logger.exception(
                         f"RATE LIMIT: GraphQL rate limit exceeded: {error_msg}",
                     )
@@ -297,7 +287,6 @@ class GraphQLClient:
                         f"GraphQL query error (NOT_FOUND - will be retried by caller): {error_msg}",
                     )
                 else:
-                    # For other query errors, log exception with traceback
                     self.logger.exception(
                         f"GraphQL query error: {error_msg}",
                     )
@@ -315,9 +304,8 @@ class GraphQLClient:
                         f"Retrying in {wait_seconds:.1f}s...",
                     )
                     await asyncio.sleep(wait_seconds)
-                    continue  # Retry with exponential backoff
+                    continue
                 else:
-                    # Final attempt failed
                     self.logger.exception(
                         f"SERVER ERROR: GraphQL server error after {self.retry_count} attempts: {error_msg}",
                     )
@@ -339,10 +327,10 @@ class GraphQLClient:
                         except Exception:
                             self.logger.debug("Ignoring error during client close after connection failure")
                     self._client = None
-                    self._session = None  # Clear session reference
+                    self._session = None
                     self._transport = None
-                    await asyncio.sleep(1)  # Brief wait before retry
-                    continue  # Retry with fresh client
+                    await asyncio.sleep(1)
+                    continue
                 else:
                     # Final attempt failed — close client before raising
                     if self._client:
@@ -350,7 +338,6 @@ class GraphQLClient:
                             await self._client.close_async()
                         except Exception:
                             self.logger.debug("Ignoring error during client close after final connection failure")
-                    # Clear cached handles to avoid reusing half-closed client
                     self._client = None
                     self._session = None
                     self._transport = None
@@ -371,7 +358,7 @@ class GraphQLClient:
                     try:
                         await self._client.close_async()
                         self._client = None
-                        self._session = None  # Clear session reference
+                        self._session = None
                         self._transport = None
                     except Exception:
                         self.logger.exception(

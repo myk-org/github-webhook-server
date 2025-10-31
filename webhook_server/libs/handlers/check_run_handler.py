@@ -5,7 +5,7 @@ from github.GithubException import GithubException
 from github.Repository import Repository
 
 from webhook_server.libs.graphql.graphql_client import GraphQLError
-from webhook_server.libs.graphql.graphql_wrappers import PullRequestWrapper
+from webhook_server.libs.graphql.webhook_data import PullRequestWrapper
 from webhook_server.libs.handlers.labels_handler import LabelsHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.utils.constants import (
@@ -53,7 +53,6 @@ class CheckRunHandler:
             Tuple of (owner, repo_name)
         """
         full_name = self.repository.full_name
-        # Handle string split
         if isinstance(full_name, str) and "/" in full_name:
             owner, repo_name = full_name.split("/", 1)
             return owner, repo_name
@@ -279,7 +278,6 @@ class CheckRunHandler:
 
         msg: str = f"{self.log_prefix} check run {check_run} status: {status or conclusion}"
 
-        # Log workflow steps for check run status changes
         if status == QUEUED_STR:
             self.logger.step(  # type: ignore[attr-defined]
                 f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'processing')} "
@@ -422,7 +420,6 @@ class CheckRunHandler:
         # Cache key based on PR base ref (branch name)
         cache_key = pull_request.base.ref
 
-        # Return cached result if available
         if cache_key in self._required_checks_cache:
             self.logger.debug(f"{self.log_prefix} Using cached required status checks for branch {cache_key}")
             return self._required_checks_cache[cache_key]
@@ -448,7 +445,6 @@ class CheckRunHandler:
         _all_required_status_checks = branch_required_status_checks + all_required_status_checks
         self.logger.debug(f"{self.log_prefix} All required status checks: {_all_required_status_checks}")
 
-        # Cache the result
         self._required_checks_cache[cache_key] = _all_required_status_checks
 
         return _all_required_status_checks

@@ -373,7 +373,6 @@ async def _get_log_entries_core(
     offset: int = 0,
 ) -> dict[str, Any]:
     """Core logic for retrieving historical log entries with filtering and pagination."""
-    # Parse datetime strings using helper function
     start_datetime = parse_datetime_string(start_time, "start_time")
     end_datetime = parse_datetime_string(end_time, "end_time")
 
@@ -528,7 +527,6 @@ async def _export_logs_core(
     limit: int = 10000,
 ) -> StreamingResponse:
     """Core logic for exporting filtered logs as file."""
-    # Parse datetime strings using helper function
     start_datetime = parse_datetime_string(start_time, "start_time")
     end_datetime = parse_datetime_string(end_time, "end_time")
 

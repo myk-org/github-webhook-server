@@ -270,7 +270,6 @@ class QueryBuilder:
             if invalid_states:
                 raise ValueError(f"Invalid PR states: {invalid_states}. Valid states are: {valid_states}")
 
-        # Build query with optional states parameter
         if normalized_states:
             query = f"""
                 query(
@@ -454,7 +453,6 @@ class QueryBuilder:
         Returns:
             Tuple of (GraphQL query string, variables dict)
         """
-        # Build query with optional states parameter
         if states:
             query = """
                 query(
@@ -782,19 +780,3 @@ class MutationBuilder:
             "mergeMethod": merge_method,
         }
         return mutation, variables
-
-
-# Pagination Pattern Documentation:
-# For async pagination with GraphQL, use this pattern:
-#
-# async def get_all_pull_requests(client, owner, name):
-#     results = []
-#     cursor = None
-#     while True:
-#         query, variables = QueryBuilder.get_pull_requests(owner, name, after=cursor, first=100)
-#         data = await client.execute(query, variables)
-#         results.extend(data['repository']['pullRequests']['nodes'])
-#         if not data['repository']['pullRequests']['pageInfo']['hasNextPage']:
-#             break
-#         cursor = data['repository']['pullRequests']['pageInfo']['endCursor']
-#     return results

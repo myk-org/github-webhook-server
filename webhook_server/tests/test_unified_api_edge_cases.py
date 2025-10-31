@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from github.Commit import Commit
 
 from webhook_server.libs.graphql.graphql_client import GraphQLError
 from webhook_server.libs.graphql.unified_api import UnifiedGitHubAPI
@@ -987,7 +988,7 @@ async def test_get_git_tree(initialized_api, mock_graphql_client):
 @pytest.mark.asyncio
 async def test_get_commit_check_runs_with_rest_commit(initialized_api):
     """Test get_commit_check_runs with REST commit object."""
-    mock_commit = MagicMock()
+    mock_commit = MagicMock(spec=Commit)
     mock_check_runs = [MagicMock(), MagicMock()]
     mock_commit.get_check_runs.return_value = iter(mock_check_runs)
 
@@ -1036,17 +1037,17 @@ async def test_get_commit_check_runs_with_commit_wrapper(initialized_api, mock_r
 
 @pytest.mark.asyncio
 async def test_get_commit_check_runs_fallback(initialized_api):
-    """Test get_commit_check_runs fallback for unsupported commit."""
+    """Test get_commit_check_runs raises ValueError for unsupported commit without sha."""
 
-    # Create minimal object without get_check_runs or sha attributes
+    # Create minimal object without get_check_runs or sha attributes (fail-fast behavior)
     class MockCommitFallback:
         pass
 
     mock_commit = MockCommitFallback()
 
-    result = await initialized_api.get_commit_check_runs(mock_commit)
-
-    assert result == []
+    # Should raise ValueError when commit is not a Commit instance and has no sha attribute
+    with pytest.raises(ValueError, match="owner and name required"):
+        await initialized_api.get_commit_check_runs(mock_commit)
 
 
 @pytest.mark.asyncio

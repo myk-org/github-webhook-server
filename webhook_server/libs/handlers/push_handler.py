@@ -107,7 +107,6 @@ Publish to PYPI failed: `{_error}`
                 _error = f"No .tar.gz file found in {_dist_dir}"
                 return await _issue_on_error(_error=_error)
 
-            # Extract just the filename from the full path
             tar_gz_file = matches[0].name
 
             # Securely handle PyPI token - use pypirc file instead of CLI args

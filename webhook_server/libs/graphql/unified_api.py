@@ -31,7 +31,7 @@ from webhook_server.libs.graphql.graphql_client import (
     GraphQLError,
     GraphQLRateLimitError,
 )
-from webhook_server.libs.graphql.graphql_wrappers import CommitWrapper, PullRequestWrapper
+from webhook_server.libs.graphql.webhook_data import CommitWrapper, PullRequestWrapper
 from webhook_server.utils.helpers import extract_key_from_dict
 
 
@@ -132,9 +132,8 @@ class UnifiedGitHubAPI:
             await self.graphql_client.close()
 
         if self.rest_client:
-            # Guard against older PyGithub versions that may not have close()
-            if hasattr(self.rest_client, "close"):
-                self.rest_client.close()
+            # PyGithub >=2.4.0 has close() method
+            self.rest_client.close()
 
         self._initialized = False
         self.logger.info("Unified GitHub API closed")
@@ -155,6 +154,49 @@ class UnifiedGitHubAPI:
         """
         if not self.graphql_client or not self._initialized:
             await self.initialize()
+
+    @staticmethod
+    def _convert_graphql_to_webhook(graphql_data: dict[str, Any], owner: str, repo: str) -> dict[str, Any]:
+        """Convert GraphQL PR format to webhook format."""
+        base_repo = {"owner": {"login": owner}, "name": repo}
+        result = {
+            "node_id": graphql_data.get("id", ""),
+            "number": graphql_data.get("number", 0),
+            "title": graphql_data.get("title", ""),
+            "body": graphql_data.get("body"),
+            "state": graphql_data.get("state", "OPEN").lower(),
+            "draft": graphql_data.get("isDraft", False),
+            "merged": graphql_data.get("merged", False),
+            "html_url": graphql_data.get("permalink", ""),
+            "user": graphql_data.get("author", {}),
+        }
+        if graphql_data.get("baseRef"):
+            result["base"] = {
+                "ref": graphql_data["baseRef"]["name"],
+                "sha": graphql_data["baseRef"]["target"]["oid"],
+                "repo": base_repo,
+            }
+        if graphql_data.get("headRef"):
+            result["head"] = {
+                "ref": graphql_data["headRef"]["name"],
+                "sha": graphql_data["headRef"]["target"]["oid"],
+                "repo": base_repo,
+            }
+        if graphql_data.get("labels", {}).get("nodes"):
+            result["labels"] = graphql_data["labels"]["nodes"]
+        if graphql_data.get("mergeStateStatus"):
+            result["mergeable_state"] = graphql_data["mergeStateStatus"].lower()
+        return result
+
+    @staticmethod
+    def _convert_graphql_commit_to_webhook(graphql_commit: dict[str, Any]) -> dict[str, Any]:
+        """Convert GraphQL commit format to webhook format."""
+        result = {"sha": graphql_commit.get("oid", "")}
+        if graphql_commit.get("committer", {}).get("user"):
+            result["committer"] = graphql_commit["committer"]["user"]
+        if graphql_commit.get("author", {}).get("user"):
+            result["author"] = graphql_commit["author"]["user"]
+        return result
 
     # ===== Batch Operations =====
 
@@ -288,7 +330,6 @@ class UnifiedGitHubAPI:
         if not self.graphql_client:
             await self.initialize()
 
-        # Read configurable query limits from config
         config = self.config
 
         query_limits = {
@@ -298,7 +339,6 @@ class UnifiedGitHubAPI:
             "pull_requests": config.get_value("graphql.query-limits.pull-requests", return_on_none=100),
         }
 
-        # Build comprehensive GraphQL query with configurable limits
         query = f"""
             query($owner: String!, $name: String!) {{
                 repository(owner: $owner, name: $name) {{
@@ -415,7 +455,6 @@ class UnifiedGitHubAPI:
         if not self.graphql_client:
             await self.initialize()
 
-        # Get configurable limits from config
         commits_limit = self._get_query_limit("commits")
         labels_limit = self._get_query_limit("labels")
         reviews_limit = self._get_query_limit("reviews")
@@ -467,8 +506,6 @@ class UnifiedGitHubAPI:
         """
         log_prefix = f"[{github_event}][{x_github_delivery}]"
 
-        # Skip PR lookup for issue-only events (comments on issues, not PRs)
-        # For issue_comment events on PRs, GitHub includes issue.pull_request field
         if "issue" in hook_data and not hook_data["issue"].get("pull_request"):
             logger.debug(
                 f"{log_prefix} Event is for an issue (#{hook_data['issue'].get('number')}), "
@@ -487,23 +524,20 @@ class UnifiedGitHubAPI:
             if pr_refs:
                 # GitHub webhook includes pull_requests array with associated PRs
                 # Use first PR (check_run is typically associated with one PR)
-                pr_number = pr_refs[0].get("number")
+                pr_ref = pr_refs[0]
+                pr_number = pr_ref.get("number")
                 if pr_number:
                     logger.debug(
-                        f"{log_prefix} Using pull_requests array from check_run webhook "
-                        f"(PR #{pr_number} for check run {check_run.get('name')})"
+                        f"{log_prefix} Found PR #{pr_number} in check_run pull_requests array, "
+                        f"fetching complete PR data (check run: {check_run.get('name')})"
                     )
-                    # Fetch PR data via GraphQL for consistency
-                    try:
-                        pr_data = await self.get_pull_request_data(
-                            owner, repo, pr_number, include_commits=True, include_labels=True
-                        )
-                        return PullRequestWrapper(pr_data, owner, repo)
-                    except (GraphQLError, GithubException) as ex:
-                        logger.warning(
-                            f"{log_prefix} Failed to fetch PR #{pr_number} from pull_requests array: {ex}, "
-                            "falling back to head_sha iteration"
-                        )
+                    # Fetch complete PR data by number (check_run webhook's pull_requests array is incomplete)
+                    # pr_ref only contains: {id, number, url, head, base} - missing user, title, body, state, labels
+                    pr_data = await self.get_pull_request_data(owner, repo, pr_number)
+                    webhook_format = self._convert_graphql_to_webhook(pr_data, owner, repo)
+                    return PullRequestWrapper(owner, repo, webhook_format)
+                # If pr_ref exists but doesn't have number, log warning and fall through
+                logger.warning(f"{log_prefix} check_run pull_requests array entry missing 'number' field: {pr_ref}")
 
             # Fallback: If no PR refs in webhook or GraphQL failed, use head_sha iteration
             # This should be rare - indicates webhook payload missing pull_requests or API error
@@ -522,14 +556,12 @@ class UnifiedGitHubAPI:
                         # Already a PullRequestWrapper from GraphQL
                         return _pull_request
 
-        # Try to get PR number from various sources (for non-check_run events)
         pr_number = number
         if not pr_number:
             for _number in extract_key_from_dict(key="number", _dict=hook_data):
                 pr_number = _number
                 break
 
-        # If we have a PR number, use GraphQL
         if pr_number:
             # OPTIMIZATION: Reuse webhook payload if it contains complete PR data
             # GitHub's pull_request webhook events include the full PR object with node_id,
@@ -546,31 +578,25 @@ class UnifiedGitHubAPI:
                 # but PullRequestWrapper can handle both via webhook_data parameter
                 if has_node_id and has_number:
                     logger.debug(f"{log_prefix} Using webhook payload for PR #{pr_number} (skipping GraphQL fetch)")
-                    # Construct minimal GraphQL-compatible data structure from webhook
-                    # The webhook_data parameter will provide the actual data
-                    minimal_pr_data = {
-                        "id": webhook_pr["node_id"],  # GraphQL node ID from webhook
-                        "number": webhook_pr["number"],
-                        "title": webhook_pr.get("title", ""),
-                        "body": webhook_pr.get("body"),
-                        "state": webhook_pr.get("state", "open").upper(),
-                        "isDraft": webhook_pr.get("draft", False),
-                        "merged": webhook_pr.get("merged", False),
-                        "mergeable": webhook_pr.get("mergeable_state", "UNKNOWN").upper(),
-                    }
-                    # Pass both minimal GraphQL structure and full webhook payload
-                    # webhook_data takes priority for user.login and other fields
-                    return PullRequestWrapper(minimal_pr_data, owner, repo, webhook_data=webhook_pr)
+                    # Use webhook payload directly - it has all required fields
+                    # webhook_pr contains: {node_id, number, title, body, state, draft, merged, base, head, user, ...}
+                    return PullRequestWrapper(owner, repo, webhook_pr)
 
             # Fallback: Fetch PR with commits and labels via GraphQL if webhook payload incomplete
-            pr_data = await self.get_pull_request_data(
-                owner, repo, pr_number, include_commits=True, include_labels=True
-            )
-            # Pass webhook payload to PullRequestWrapper for accurate user.login (includes [bot] suffix)
-            # This fixes auto-verification for bot accounts like pre-commit-ci[bot]
-            return PullRequestWrapper(pr_data, owner, repo, webhook_data=hook_data.get("pull_request"))
+            # Use webhook payload if available (contains accurate user.login with [bot] suffix)
+            webhook_pr_data = hook_data.get("pull_request")
+            if webhook_pr_data:
+                # Webhook payload available - use it directly for accurate user information
+                return PullRequestWrapper(owner, repo, webhook_pr_data)
 
-        # For commit-based lookups, use GraphQL associatedPullRequests
+            # No webhook payload - need to fetch PR data
+            # For events without pull_request in payload, fetch minimal data
+            pr_data = await self.get_pull_request_data(
+                owner, repo, pr_number, include_commits=False, include_labels=False
+            )
+            webhook_format = self._convert_graphql_to_webhook(pr_data, owner, repo)
+            return PullRequestWrapper(owner, repo, webhook_format)
+
         commit: dict[str, Any] = hook_data.get("commit", {})
         if commit:
             commit_sha = commit.get("sha")
@@ -581,10 +607,9 @@ class UnifiedGitHubAPI:
                 # Get PRs associated with this commit SHA via GraphQL
                 _pulls = await self.get_pulls_from_commit_sha(owner, repo, commit_sha)
                 if _pulls:
-                    # _pulls is now a list of GraphQL PR dicts from associatedPullRequests
-                    # Wrap first PR in PullRequestWrapper (GraphQL dict format)
                     pr_data = _pulls[0]
-                    return PullRequestWrapper(pr_data, owner, repo)
+                    webhook_format = self._convert_graphql_to_webhook(pr_data, owner, repo)
+                    return PullRequestWrapper(owner, repo, webhook_format)
                 logger.warning(f"{log_prefix} No PRs found for commit {commit_sha}")
             except (GraphQLError, GithubException, IndexError, ValueError) as ex:
                 logger.warning(f"{log_prefix} Failed to get PR from commit {commit_sha}: {ex}")
@@ -622,23 +647,20 @@ class UnifiedGitHubAPI:
             actual_pull_request = pull_request
             actual_pr_number = pr_number if pr_number is not None else pull_request.number
 
-        # Check if we have commits already loaded in wrapper (optimization)
         if actual_pull_request is not None and actual_pull_request.get_commits():
             commits = actual_pull_request.get_commits()
             if commits:
                 return commits[-1]
 
-        # Fetch PR with commits via GraphQL
         pr_data = await self.get_pull_request_data(owner, repo, actual_pr_number, include_commits=True)
 
-        # Extract commits from GraphQL response
         commits_nodes = pr_data.get("commits", {}).get("nodes", [])
         if not commits_nodes:
             raise ValueError(f"No commits found in PR {actual_pr_number}")  # noqa: TRY003
 
-        # Return last commit (wrapped)
         last_commit_data = commits_nodes[-1].get("commit", {})
-        return CommitWrapper(last_commit_data)
+        webhook_commit = self._convert_graphql_commit_to_webhook(last_commit_data)
+        return CommitWrapper(webhook_commit)
 
     async def add_pr_comment(
         self,
@@ -657,7 +679,6 @@ class UnifiedGitHubAPI:
 
     async def update_pr_title(self, pull_request: PullRequestWrapper, title: str) -> None:
         """Update PR title via unified_api."""
-        # Use GraphQL mutation
         pr_id = pull_request.id
         await self.update_pull_request(pr_id, title=title)
 
@@ -669,7 +690,6 @@ class UnifiedGitHubAPI:
             merge_method: Merge method (SQUASH, MERGE, REBASE)
         """
         try:
-            # Use GraphQL mutation
             pr_id = pull_request.id
             await self.enable_pull_request_automerge(pr_id, merge_method)
             self.logger.info(f"Enabled automerge via GraphQL for PR #{pull_request.number}")
@@ -698,11 +718,6 @@ class UnifiedGitHubAPI:
         Returns:
             True if the string matches GraphQL node ID patterns, False otherwise
         """
-        # Common GraphQL node ID patterns:
-        # - New format: U_, PR_, R_, I_, etc. followed by base64-like characters
-        # - Legacy format: MDQ6, MDExOl, MDE, etc. (base64 encoded)
-        # - Typical length: > 10 characters
-        # - Contains alphanumeric + underscore
         if len(value) < 10:
             return False
 
@@ -755,11 +770,9 @@ class UnifiedGitHubAPI:
         Returns:
             True if the string matches User node ID patterns, False otherwise
         """
-        # Minimum length check (User IDs are typically longer than 10 chars)
         if len(value) < 10:
             return False
 
-        # Check for known User node ID prefixes (case-sensitive)
         if value.startswith("U_") or value.startswith("MDQ6"):
             # Additional safety: verify base64-like character set
             # User IDs contain alphanumeric + underscore + optional padding
@@ -796,44 +809,19 @@ class UnifiedGitHubAPI:
         usernames_to_resolve = []
 
         for reviewer in reviewers:
-            # Skip numeric IDs (not supported in pure GraphQL mode)
-            if isinstance(reviewer, int):
-                self.logger.warning(
-                    f"Numeric reviewer ID {reviewer} not supported - provide username or GraphQL node ID instead"
+            if not isinstance(reviewer, str):
+                raise TypeError(
+                    f"Reviewer must be str (username or node ID), got {type(reviewer).__name__}. "
+                    f"Normalize to list[str] before calling request_pr_reviews()"
                 )
+
+            if self._is_user_node_id(reviewer):
+                reviewer_ids.append(reviewer)
                 continue
 
-            # Extract username from various formats
-            username = None
-            if isinstance(reviewer, str):
-                # Check if already a GraphQL node ID
-                if self._is_user_node_id(reviewer):
-                    reviewer_ids.append(reviewer)
-                    continue
-                username = reviewer
-            elif hasattr(reviewer, "login"):
-                username = reviewer.login
-            elif hasattr(reviewer, "user") and hasattr(reviewer.user, "login"):
-                username = reviewer.user.login
-            elif isinstance(reviewer, dict):
-                username = reviewer.get("login") or (reviewer.get("user") or {}).get("login")
-                # Check if dict has valid GraphQL node ID
-                if not username and reviewer.get("id"):
-                    extracted_id = str(reviewer["id"])
-                    if self._is_user_node_id(extracted_id):
-                        reviewer_ids.append(extracted_id)
-                        continue
+            usernames_to_resolve.append(reviewer)
 
-            if not username:
-                self.logger.warning(f"Could not resolve username from reviewer: {reviewer}")
-                continue
-
-            # Collect usernames for batched resolution
-            usernames_to_resolve.append(username)
-
-        # Batch resolve all usernames to node IDs in parallel
         if usernames_to_resolve:
-            # Build queries for usernames (not already node IDs)
             queries: list[tuple[str, dict[str, Any] | None]] = [
                 (
                     """
@@ -849,10 +837,8 @@ class UnifiedGitHubAPI:
             ]
 
             try:
-                # Execute batch - all queries in parallel
                 results = await self.execute_batch(queries)
 
-                # Map results back to reviewer IDs
                 for username, result in zip(usernames_to_resolve, results, strict=True):
                     if result and result.get("user"):
                         reviewer_ids.append(result["user"]["id"])
@@ -874,7 +860,6 @@ class UnifiedGitHubAPI:
                         self.logger.warning(f"Failed to get GraphQL node ID for reviewer '{username}': {ex}")
                         continue
 
-        # Deduplicate and request reviews
         if reviewer_ids:
             unique_reviewer_ids = list(dict.fromkeys(reviewer_ids))
             await self.request_reviews(pr_id, unique_reviewer_ids, pull_request=pull_request)
@@ -1056,7 +1041,6 @@ class UnifiedGitHubAPI:
         if not self.graphql_client:
             await self.initialize()
 
-        # Get configurable limit from config
         labels_limit = self._get_query_limit("labels")
 
         mutation, variables = MutationBuilder.add_labels(labelable_id, label_ids, labels_limit=labels_limit)
@@ -1090,7 +1074,6 @@ class UnifiedGitHubAPI:
         if not self.graphql_client:
             await self.initialize()
 
-        # Get configurable limit from config
         labels_limit = self._get_query_limit("labels")
 
         mutation, variables = MutationBuilder.remove_labels(labelable_id, label_ids, labels_limit=labels_limit)
@@ -1100,7 +1083,6 @@ class UnifiedGitHubAPI:
             return result
         except GraphQLError as ex:
             error_str = str(ex).lower()
-            # Check if error is due to stale node ID
             if ("not_found" in error_str or "could not resolve to a node" in error_str) and all([
                 owner,
                 repo,
@@ -1110,13 +1092,11 @@ class UnifiedGitHubAPI:
                     f"NOT_FOUND error for labelable_id {labelable_id}, "
                     f"retrying with fresh PR node ID (owner={owner}, repo={repo}, number={number})"
                 )
-                # Refetch PR to get fresh node ID
                 pr_data = await self.get_pull_request_data(owner, repo, number)  # type: ignore[arg-type]
                 fresh_labelable_id = pr_data["id"]
                 self.logger.info(
                     f"Retrying remove_labels with fresh node ID: {fresh_labelable_id} (old: {labelable_id})"
                 )
-                # Retry mutation with fresh node ID (only once to avoid infinite loops)
                 mutation, variables = MutationBuilder.remove_labels(
                     fresh_labelable_id, label_ids, labels_limit=labels_limit
                 )
@@ -1208,11 +1188,9 @@ class UnifiedGitHubAPI:
             ...     label_ids=["MDU6TGFiZWw5ODc2NTQzMjE="]
             ... )
         """
-        # Get repository ID first
         repo_data = await self.get_repository(owner, name)
         repository_id = repo_data["id"]
 
-        # Create the issue with optional assignees and labels
         return await self.create_issue(repository_id, title, body, assignee_ids, label_ids)
 
     async def request_reviews(
@@ -1238,7 +1216,6 @@ class UnifiedGitHubAPI:
             await self.graphql_client.execute(mutation, variables)  # type: ignore[union-attr]
         except GraphQLError as ex:
             error_str = str(ex).lower()
-            # Check if error is due to stale node ID
             if ("not_found" in error_str or "could not resolve to a node" in error_str) and pull_request is not None:
                 owner = pull_request.baseRepository.owner.login
                 repo = pull_request.baseRepository.name
@@ -1247,11 +1224,9 @@ class UnifiedGitHubAPI:
                     f"NOT_FOUND error for pull_request_id {pull_request_id}, "
                     f"retrying with fresh PR node ID (owner={owner}, repo={repo}, number={number})"
                 )
-                # Refetch PR to get fresh node ID
                 pr_data = await self.get_pull_request_data(owner, repo, number)
                 fresh_pr_id = pr_data["id"]
                 self.logger.info(f"Retrying request_reviews with fresh node ID: {fresh_pr_id} (old: {pull_request_id})")
-                # Retry mutation with fresh node ID (only once to avoid infinite loops)
                 mutation, variables = MutationBuilder.request_reviews(fresh_pr_id, user_ids)
                 await self.graphql_client.execute(mutation, variables)  # type: ignore[union-attr]
             else:
@@ -1320,7 +1295,6 @@ class UnifiedGitHubAPI:
         Raises:
             GraphQLError: If user not found or GraphQL query fails
         """
-        # Check cache first
         if login in self._user_id_cache:
             return self._user_id_cache[login]
 
@@ -1338,7 +1312,6 @@ class UnifiedGitHubAPI:
         result = await self.graphql_client.execute(query, variables)  # type: ignore[union-attr]
         user_id = result["user"]["id"]
 
-        # Cache successful lookup
         self._user_id_cache[login] = user_id
 
         return user_id
@@ -1362,7 +1335,6 @@ class UnifiedGitHubAPI:
         Returns:
             Label node ID or None if not found
         """
-        # Check cache first
         cache_key = (owner, name, label_name)
         if cache_key in self._label_id_cache:
             return self._label_id_cache[cache_key]
@@ -1580,7 +1552,6 @@ class UnifiedGitHubAPI:
         if not self.graphql_client:
             await self.initialize()
 
-        # Get configurable limit from config
         labels_limit = self._get_query_limit("labels")
 
         query, variables = QueryBuilder.get_open_pull_requests_with_labels(
@@ -1590,7 +1561,10 @@ class UnifiedGitHubAPI:
 
         pr_nodes = result.get("repository", {}).get("pullRequests", {}).get("nodes", [])
 
-        return [PullRequestWrapper(pr_data, owner, repo) for pr_data in pr_nodes]
+        return [
+            PullRequestWrapper(owner, repo, self._convert_graphql_to_webhook(pr_data, owner, repo))
+            for pr_data in pr_nodes
+        ]
 
     async def get_issue_comments(self, owner: str, name: str, number: int) -> list[Any]:
         """
@@ -1627,11 +1601,9 @@ class UnifiedGitHubAPI:
             number: PR number
             assignees: List of user logins
         """
-        # Get PR node ID via GraphQL
         pr_data = await self.get_pull_request_data(owner, name, number)
         pr_id = pr_data["id"]
 
-        # Convert usernames to GraphQL node IDs
         assignee_ids = []
         for username in assignees:
             try:
@@ -1641,7 +1613,6 @@ class UnifiedGitHubAPI:
                 self.logger.warning(f"Failed to get user ID for assignee '{username}': {ex}")
                 continue
 
-        # Add assignees via GraphQL mutation
         if assignee_ids:
             await self.add_assignees(pr_id, assignee_ids)
 
@@ -1664,11 +1635,9 @@ class UnifiedGitHubAPI:
             This is an optimization for cases where PR node ID is already available,
             avoiding an extra GraphQL query compared to add_assignees_by_login.
         """
-        # Batch resolve all assignees to node IDs in parallel
         if not assignees:
             return
 
-        # Build queries for all assignees
         queries: list[tuple[str, dict[str, Any] | None]] = [
             (
                 """
@@ -1685,10 +1654,8 @@ class UnifiedGitHubAPI:
 
         assignee_ids = []
         try:
-            # Execute batch - all queries in parallel
             results = await self.execute_batch(queries)
 
-            # Map results back to assignee IDs
             for username, result in zip(assignees, results, strict=True):
                 if result and result.get("user"):
                     assignee_ids.append(result["user"]["id"])
@@ -1705,7 +1672,6 @@ class UnifiedGitHubAPI:
                     self.logger.warning(f"Failed to get user ID for assignee '{username}': {ex}")
                     continue
 
-        # Add assignees via GraphQL mutation
         if assignee_ids:
             await self.add_assignees(pr_id, assignee_ids)
 
@@ -1763,12 +1729,10 @@ class UnifiedGitHubAPI:
         Returns:
             List of contributor data (dicts with id, login, name, etc.)
         """
-        # Use pre-fetched data if provided (webhook context)
         if repository_data is not None:
             self.logger.debug(f"Using pre-fetched contributors for {owner}/{name}")
             return repository_data["mentionableUsers"]["nodes"]
 
-        # Fallback to individual query (standalone usage, backwards compatibility)
         if not self.graphql_client:
             await self.initialize()
 
@@ -1808,12 +1772,10 @@ class UnifiedGitHubAPI:
         Returns:
             List of collaborator data (dicts with permission, node with user info)
         """
-        # Use pre-fetched data if provided (webhook context)
         if repository_data is not None:
             self.logger.debug(f"Using pre-fetched collaborators for {owner}/{name}")
             return repository_data["collaborators"]["edges"]
 
-        # Fallback to individual query (standalone usage, backwards compatibility)
         if not self.graphql_client:
             await self.initialize()
 
@@ -1881,15 +1843,11 @@ class UnifiedGitHubAPI:
             result = await self.graphql_client.execute(query, variables)
             return result.get("repository", {}).get("ref") is not None
         except GraphQLError as ex:
-            # Only return False for NOT_FOUND errors (branch doesn't exist)
-            # Re-raise auth, rate-limit, network, and other critical errors
             error_str = str(ex).lower()
 
-            # Check for NOT_FOUND indicators in error message
             if "not found" in error_str or "could not resolve" in error_str:
                 return False
 
-            # Re-raise all other errors (auth, rate limit, network, etc.)
             raise
 
     async def get_branch_protection(self, owner: str, name: str, branch: str) -> Any:
@@ -1925,16 +1883,12 @@ class UnifiedGitHubAPI:
         Returns:
             List of issue data (dicts with id, number, title, state, etc.)
         """
-        # Default to OPEN issues if not specified (matches REST behavior)
         issue_states = states if states else ["OPEN"]
 
-        # Use pre-fetched data if provided AND requesting only OPEN issues
-        # Note: repository_data only contains OPEN issues
         if repository_data is not None and issue_states == ["OPEN"]:
             self.logger.debug(f"Using pre-fetched issues for {owner}/{name}")
             return repository_data["issues"]["nodes"]
 
-        # Fallback to individual query (standalone usage, non-OPEN states, backwards compatibility)
         if not self.graphql_client:
             await self.initialize()
 
@@ -1982,10 +1936,8 @@ class UnifiedGitHubAPI:
         if not self.graphql_client:
             await self.initialize()
 
-        # Extract node ID from issue object
-        issue_id = issue.node_id if hasattr(issue, "node_id") else issue.id
+        issue_id = issue.node_id
 
-        # Use appropriate GraphQL mutation based on state
         if state.lower() == "closed":
             mutation = """
                 mutation($issueId: ID!) {
@@ -2037,7 +1989,6 @@ class UnifiedGitHubAPI:
             GraphQL fragment string with nested tree entries
         """
         if depth >= max_depth:
-            # At max depth, just return basic entry info
             return """
             name
             type
@@ -2087,10 +2038,8 @@ class UnifiedGitHubAPI:
         result = []
 
         for entry in entries:
-            # Build full path
             full_path = f"{parent_path}/{entry['name']}" if parent_path else entry["name"]
 
-            # Add current entry with full path
             flat_entry = {
                 "path": full_path,
                 "mode": entry["mode"],
@@ -2098,13 +2047,11 @@ class UnifiedGitHubAPI:
                 "sha": entry["object"]["oid"] if entry["object"] else None,
             }
 
-            # Add size for blobs
             if entry["type"] == "BLOB" and entry["object"]:
                 flat_entry["size"] = entry["object"].get("byteSize")
 
             result.append(flat_entry)
 
-            # Recursively process subdirectories
             if entry["type"] == "TREE" and entry["object"] and "entries" in entry["object"]:
                 result.extend(self._flatten_tree_entries(entry["object"]["entries"], full_path))
 
@@ -2133,11 +2080,8 @@ class UnifiedGitHubAPI:
         if not self.graphql_client:
             await self.initialize()
 
-        # Get max depth from config (default: 9 levels to stay within GitHub's query depth limit of 25)
-        # The recursive query structure means actual depth is ~2.5x the max_depth parameter
         max_depth = self.config.get_value("graphql.tree-max-depth", return_on_none=9)
 
-        # Build recursive query with configured depth
         entries_fragment = self._build_tree_entries_fragment(0, max_depth)
 
         query = f"""
@@ -2162,14 +2106,12 @@ class UnifiedGitHubAPI:
         if not tree_data:
             raise ValueError(f"Reference '{ref}' not found in repository {owner}/{name}")  # noqa: TRY003
 
-        # Flatten nested structure to REST-compatible format with full paths
         flattened_entries = self._flatten_tree_entries(tree_data["entries"])
 
-        # Check if we hit max depth (warn if last level has Tree entries)
         trees_at_max_depth = [
             e for e in flattened_entries if e["type"] == "tree" and e["path"].count("/") >= max_depth - 1
         ]
-        if trees_at_max_depth and hasattr(self, "logger"):
+        if trees_at_max_depth:
             self.logger.warning(
                 f"Tree traversal reached max depth ({max_depth}). "
                 f"Found {len(trees_at_max_depth)} directories at depth limit. "
@@ -2199,22 +2141,15 @@ class UnifiedGitHubAPI:
             owner: Repository owner (required if commit is CommitWrapper)
             name: Repository name (required if commit is CommitWrapper)
         """
-        # Check if this is a REST commit object (has get_check_runs method)
-        if hasattr(commit, "get_check_runs") and callable(commit.get_check_runs):
+        if isinstance(commit, Commit):
             return await asyncio.to_thread(lambda: list(commit.get_check_runs()))
 
-        # CommitWrapper from GraphQL - fetch check runs via REST API
-        if hasattr(commit, "sha") and owner and name:
-            repo = await self.get_repository_for_rest_operations(owner, name)
-            rest_commit = await asyncio.to_thread(repo.get_commit, commit.sha)
-            return await asyncio.to_thread(lambda: list(rest_commit.get_check_runs()))
+        if not owner or not name:
+            raise ValueError(f"owner and name required for CommitWrapper check runs (got owner={owner}, name={name})")
 
-        # Fallback - return empty list with warning
-        self.logger.warning(
-            f"Unable to get check runs for commit (type={type(commit).__name__}, "
-            f"owner={owner}, name={name}). Returning empty list."
-        )
-        return []
+        repo = await self.get_repository_for_rest_operations(owner, name)
+        rest_commit = await asyncio.to_thread(repo.get_commit, commit.sha)
+        return await asyncio.to_thread(lambda: list(rest_commit.get_check_runs()))
 
     async def create_check_run(self, repo_by_app: Any, **kwargs: Any) -> None:
         """
@@ -2266,20 +2201,13 @@ class UnifiedGitHubAPI:
             If owner/name provided, uses GraphQL for better performance.
             Otherwise, falls back to REST API via commit.get_pulls() method.
         """
-        # If owner and name provided, use GraphQL with commit SHA
-        if owner and name and hasattr(commit, "sha"):
-            return await self.get_pulls_from_commit_sha(owner, name, commit.sha)
-
-        # Fallback to REST API for backward compatibility
-        if hasattr(commit, "get_pulls") and callable(commit.get_pulls):
+        if isinstance(commit, Commit):
             return await asyncio.to_thread(lambda: list(commit.get_pulls()))
 
-        # If we have sha but no get_pulls method, and no owner/name - cannot proceed
-        self.logger.warning(
-            f"Unable to get PRs for commit (type={type(commit).__name__}, has_sha={hasattr(commit, 'sha')}, "
-            f"owner={owner}, name={name}). Provide owner/name for GraphQL lookup or use REST commit object."
-        )
-        return []
+        if not owner or not name:
+            raise ValueError(f"owner and name required for CommitWrapper PRs lookup (got owner={owner}, name={name})")
+
+        return await self.get_pulls_from_commit_sha(owner, name, commit.sha)
 
     async def get_pulls_from_commit_sha(self, owner: str, name: str, sha: str) -> list[dict[str, Any]]:
         """
@@ -2347,7 +2275,6 @@ class UnifiedGitHubAPI:
         Returns:
             API type to use
         """
-        # Operations that MUST use REST
         rest_only = {
             "check_runs",
             "create_check_run",
@@ -2355,24 +2282,21 @@ class UnifiedGitHubAPI:
             "webhooks",
             "create_webhook",
             "repository_settings",
-            "branch_protection",  # Partial - some in GraphQL
+            "branch_protection",
         }
 
-        # Operations better in GraphQL (fewer API calls)
-        # Note: Only includes operations that have actual method implementations
         graphql_preferred = {
             "get_pull_request",
             "get_pull_requests",
             "get_commit",
-            # Note: get_commits, get_labels removed - not currently implemented as unified_api methods
             "add_comment",
             "add_labels",
             "remove_labels",
             "get_file_contents",
             "create_issue",
             "get_rate_limit",
-            "get_user_id",  # Aligned with actual method name
-            "get_issues",  # Uses GraphQL implementation
+            "get_user_id",
+            "get_issues",
         }
 
         if operation in rest_only:
