@@ -473,10 +473,10 @@ For more information, please refer to the project documentation or contact the m
 
         registry_url = registry_info[0]
         reg_login_cmd = (
-            f"regctl registry login {registry_url} "
-            f"-u {self.github_webhook.container_repository_username} "
-            f"-p {self.github_webhook.container_repository_password}"
+            f"regctl registry login {registry_url} -u {self.github_webhook.container_repository_username} --pass-stdin"
         )
+
+        login_password = f"{self.github_webhook.container_repository_password}\n"
 
         rc, out, err = await self.runner_handler.run_podman_command(
             command=reg_login_cmd,
@@ -484,6 +484,7 @@ For more information, please refer to the project documentation or contact the m
                 self.github_webhook.container_repository_username,
                 self.github_webhook.container_repository_password,
             ],
+            stdin_input=login_password,
         )
 
         if rc:

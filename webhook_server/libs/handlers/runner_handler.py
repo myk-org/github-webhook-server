@@ -232,10 +232,18 @@ class RunnerHandler:
                 shutil.rmtree(path, ignore_errors=True)
 
     async def run_podman_command(
-        self, command: str, redact_secrets: list[str] | None = None, timeout: int | None = None
+        self,
+        command: str,
+        redact_secrets: list[str] | None = None,
+        timeout: int | None = None,
+        stdin_input: str | None = None,
     ) -> tuple[bool, str, str]:
         rc, out, err = await run_command(
-            command=command, log_prefix=self.log_prefix, redact_secrets=redact_secrets, timeout=timeout
+            command=command,
+            log_prefix=self.log_prefix,
+            redact_secrets=redact_secrets,
+            timeout=timeout,
+            stdin_input=stdin_input,
         )
 
         if rc:

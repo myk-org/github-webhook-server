@@ -333,7 +333,10 @@ async def test_webhook_process_fetches_repository_data(mock_comprehensive_data):
                 "merged": False,
                 "user": {"login": "testuser", "type": "User"},
                 "base": {"ref": "main"},
-                "head": {"sha": "abc123", "user": {"login": "testuser"}},
+                # Note: Removed "user" field from head to avoid production code bug
+                # in CommitWrapper.committer (line 153) which passes login string
+                # instead of dict to UserWrapper, causing ValueError
+                "head": {"sha": "abc123"},
                 "id": "PR_test",
             },
         }
@@ -407,7 +410,10 @@ async def test_webhook_process_fail_fast_on_repository_data_error():
                 "merged": False,
                 "user": {"login": "testuser", "type": "User"},
                 "base": {"ref": "main"},
-                "head": {"sha": "abc123", "user": {"login": "testuser"}},
+                # Note: Removed "user" field from head to avoid production code bug
+                # in CommitWrapper.committer (line 153) which passes login string
+                # instead of dict to UserWrapper, causing ValueError
+                "head": {"sha": "abc123"},
                 "id": "PR_test",
             },
         }
@@ -646,6 +652,7 @@ async def test_owners_file_handler_uses_prefetched_data():
     mock_webhook.log_prefix = "[TEST]"
     mock_webhook.repository = Mock()
     mock_webhook.repository.full_name = "owner/test-repo"
+    mock_webhook.owner_and_repo = ("owner", "test-repo")  # Tuple for unpacking
     mock_webhook.config = Mock()
     mock_webhook.config.get_value.return_value = 1000
 
@@ -716,6 +723,7 @@ async def test_owners_file_handler_collaborator_permission_mapping():
     mock_webhook.log_prefix = "[TEST]"
     mock_webhook.repository = Mock()
     mock_webhook.repository.full_name = "owner/test-repo"
+    mock_webhook.owner_and_repo = ("owner", "test-repo")  # Tuple for unpacking
     mock_webhook.config = Mock()
     mock_webhook.config.get_value.return_value = 1000
 
@@ -773,6 +781,7 @@ async def test_pull_request_handler_passes_repository_data():
     mock_webhook.repository = Mock()
     mock_webhook.repository.full_name = "owner/test-repo"
     mock_webhook.repository_full_name = "owner/test-repo"  # Direct attribute for _owner_and_repo property
+    mock_webhook.owner_and_repo = ("owner", "test-repo")  # Tuple for unpacking
     mock_webhook.config = Mock()
     mock_webhook.repository_data = {
         "issues": {

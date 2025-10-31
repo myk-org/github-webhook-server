@@ -46,6 +46,7 @@ class TestPullRequestHandler:
         mock_webhook.repository = Mock()
         mock_webhook.repository.full_name = "test-owner/test-repo"
         mock_webhook.repository_full_name = "test-owner/test-repo"  # Direct attribute for _owner_and_repo property
+        mock_webhook.owner_and_repo = ("test-owner", "test-repo")  # Tuple for unpacking
         mock_webhook.issue_url_for_welcome_msg = "welcome-message-url"
         mock_webhook.parent_committer = "test-user"
         mock_webhook.auto_verified_and_merged_users = ["test-user"]
@@ -472,11 +473,11 @@ class TestPullRequestHandler:
             ),
         ):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
-            # Verify add_comment was called with success message
-            pull_request_handler.github_webhook.unified_api.add_comment.assert_called_once()
-            call_args = pull_request_handler.github_webhook.unified_api.add_comment.call_args
-            assert call_args[0][0] == "PR_kgDOTestId"  # PR node ID
-            assert "Successfully removed PR tag" in call_args[0][1]  # Comment body
+            # Verify add_pr_comment was called with success message
+            pull_request_handler.github_webhook.unified_api.add_pr_comment.assert_called_once()
+            call_args = pull_request_handler.github_webhook.unified_api.add_pr_comment.call_args
+            # Check body keyword argument
+            assert "successfully removed pr tag" in call_args[1]["body"].lower()
 
     @pytest.mark.asyncio
     async def test_close_issue_for_merged_or_closed_pr_with_issue(
@@ -993,6 +994,7 @@ class TestCreateIssueForNewPullRequest:
         # Add repository mock with proper full_name
         webhook.repository = Mock()
         webhook.repository.full_name = "owner/test-repo"
+        webhook.owner_and_repo = ("owner", "test-repo")  # Tuple for unpacking
         # Add logger and log_prefix for compatibility
         webhook.logger = Mock()
         webhook.log_prefix = "[TEST]"

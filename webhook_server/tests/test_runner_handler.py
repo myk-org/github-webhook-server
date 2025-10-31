@@ -40,6 +40,7 @@ class TestRunnerHandler:
         mock_webhook.log_prefix = "[TEST]"
         mock_webhook.repository = Mock()
         mock_webhook.repository.full_name = "test-owner/test-repo"
+        mock_webhook.owner_and_repo = ("test-owner", "test-repo")  # Tuple for unpacking
         mock_webhook.repository.clone_url = "https://github.com/test/repo.git"
         mock_webhook.repository.owner.login = "test-owner"
         mock_webhook.repository.owner.email = "test@example.com"
@@ -65,6 +66,9 @@ class TestRunnerHandler:
         mock_webhook.repository_by_github_app = Mock()
         # Add unified_api mock as AsyncMock for all async methods
         mock_webhook.unified_api = AsyncMock()
+        # Mock config
+        mock_webhook.config = Mock()
+        mock_webhook.config.get_value = Mock(return_value=1000)
         return mock_webhook
 
     @pytest.fixture
@@ -430,9 +434,8 @@ class TestRunnerHandler:
                                     "run_podman_command",
                                     new=AsyncMock(return_value=(True, "success", "")),
                                 ) as mock_run_podman:
-                                    # Mock unified_api add_comment method
-                                    # The code now uses pull_request.id directly via _get_pr_node_id()
-                                    runner_handler.github_webhook.unified_api.add_comment = AsyncMock()
+                                    # Mock unified_api add_pr_comment method
+                                    runner_handler.github_webhook.unified_api.add_pr_comment = AsyncMock()
                                     await runner_handler.run_build_container(pull_request=mock_pull_request, push=True)
                                     mock_set_progress.assert_called_once()
                                     # When push=True, set_container_build_success should NOT be called after build
@@ -440,13 +443,11 @@ class TestRunnerHandler:
                                     mock_set_success.assert_not_called()
                                     # Verify both build and push commands were executed
                                     assert mock_run_podman.call_count == 2
-                                    # Verify success comment was posted using pull_request.id directly
-                                    runner_handler.github_webhook.unified_api.add_comment.assert_called_once()
-                                    call_args = runner_handler.github_webhook.unified_api.add_comment.call_args
-                                    assert (
-                                        call_args[0][0] == mock_pull_request.id
-                                    )  # PR node ID from pull_request object
-                                    assert "New container for test/repo:latest published" in call_args[0][1]
+                                    # Verify success comment was posted
+                                    runner_handler.github_webhook.unified_api.add_pr_comment.assert_called_once()
+                                    call_args = runner_handler.github_webhook.unified_api.add_pr_comment.call_args
+                                    # Check body parameter contains success message
+                                    assert "new container" in call_args[1]["body"].lower()
 
     @pytest.mark.asyncio
     async def test_run_install_python_module_disabled(
@@ -650,17 +651,13 @@ class TestRunnerHandler:
         """Test cherry_pick when target branch doesn't exist."""
         mock_slack.return_value = True
         with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=False)):
-            with patch.object(
-                runner_handler.github_webhook.unified_api, "add_comment", new_callable=AsyncMock
-            ) as mock_comment:
-                await runner_handler.cherry_pick(mock_pull_request, "non-existent-branch")
-                # Verify add_comment was called with correct error message
-                # Code now uses pull_request.id directly via _get_pr_node_id()
-                mock_comment.assert_called_once()
-                # add_comment(pr_id, body) - body is 2nd arg (index 1)
-                call_args = mock_comment.call_args
-                assert call_args[0][0] == mock_pull_request.id  # PR node ID
-                assert "does not exist" in call_args[0][1]  # Error message
+            runner_handler.github_webhook.unified_api.add_pr_comment = AsyncMock()
+            await runner_handler.cherry_pick(mock_pull_request, "non-existent-branch")
+            # Verify add_pr_comment was called with correct error message
+            runner_handler.github_webhook.unified_api.add_pr_comment.assert_called_once()
+            call_args = runner_handler.github_webhook.unified_api.add_pr_comment.call_args
+            # Check body parameter contains error message
+            assert "does not exist" in call_args[1]["body"]
 
     @pytest.mark.asyncio
     async def test_cherry_pick_prepare_failure(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
@@ -718,14 +715,15 @@ class TestRunnerHandler:
                             runner_handler.github_webhook.unified_api.get_pull_request = AsyncMock(
                                 return_value={"id": "PR_test123"}
                             )
-                            runner_handler.github_webhook.unified_api.add_comment = AsyncMock()
+                            runner_handler.github_webhook.unified_api.add_pr_comment = AsyncMock()
                             await runner_handler.cherry_pick(mock_pull_request, "main")
                             mock_set_progress.assert_called_once()
                             mock_set_success.assert_called_once()
                             # Verify success comment was posted
-                            runner_handler.github_webhook.unified_api.add_comment.assert_called()
-                            call_args = runner_handler.github_webhook.unified_api.add_comment.call_args
-                            assert "cherry-picked pr" in call_args[0][1].lower()
+                            runner_handler.github_webhook.unified_api.add_pr_comment.assert_called()
+                            call_args = runner_handler.github_webhook.unified_api.add_pr_comment.call_args
+                            # Check if the comment body contains success message
+                            assert any("cherry" in str(arg).lower() for arg in call_args[1].values())
 
     @pytest.mark.asyncio
     async def test_prepare_cloned_repo_dir_success(
@@ -1015,7 +1013,7 @@ class TestRunnerHandler:
                                             runner_handler.github_webhook.unified_api.get_pull_request = AsyncMock(
                                                 return_value={"id": "PR_test123"}
                                             )
-                                            runner_handler.github_webhook.unified_api.add_comment = AsyncMock()
+                                            runner_handler.github_webhook.unified_api.add_pr_comment = AsyncMock()
                                             # Set set_check=False to avoid setting check status
                                             await runner_handler.run_build_container(
                                                 pull_request=mock_pull_request, push=True, set_check=False
@@ -1025,7 +1023,7 @@ class TestRunnerHandler:
                                             # Should not call set_success because set_check=False
                                             mock_set_success.assert_not_called()
                                             # Comment should be added when push fails
-                                            runner_handler.github_webhook.unified_api.add_comment.assert_called_once()
+                                            runner_handler.github_webhook.unified_api.add_pr_comment.assert_called_once()
                                         # Should be called twice: build and push
                                         assert mock_run_podman.call_count == 2, (
                                             f"Expected 2 calls, got {mock_run_podman.call_count}"
@@ -1111,7 +1109,7 @@ class TestRunnerHandler:
                                 "commits": {"nodes": [{"commit": {"oid": "fallback_commit_sha"}}]},
                             }
                         )
-                        runner_handler.github_webhook.unified_api.add_comment = AsyncMock()
+                        runner_handler.github_webhook.unified_api.add_pr_comment = AsyncMock()
                         with patch(
                             "webhook_server.libs.handlers.runner_handler.run_command",
                             new=AsyncMock(return_value=(True, "success", "")),
@@ -1142,10 +1140,10 @@ class TestRunnerHandler:
                 runner_handler.github_webhook.unified_api.get_pull_request_data = AsyncMock(
                     return_value={"id": "PR_test123", "commits": {"nodes": []}}  # No commits
                 )
-                runner_handler.github_webhook.unified_api.add_comment = AsyncMock()
+                runner_handler.github_webhook.unified_api.add_pr_comment = AsyncMock()
                 await runner_handler.cherry_pick(mock_pull_request, "main")
                 mock_set_progress.assert_called_once()
                 # Verify error comment was posted
-                runner_handler.github_webhook.unified_api.add_comment.assert_called_once()
-                call_args = runner_handler.github_webhook.unified_api.add_comment.call_args
-                assert "has not been merged yet" in call_args[0][1]
+                runner_handler.github_webhook.unified_api.add_pr_comment.assert_called_once()
+                call_args = runner_handler.github_webhook.unified_api.add_pr_comment.call_args
+                assert "has not been merged yet" in call_args[1]["body"]

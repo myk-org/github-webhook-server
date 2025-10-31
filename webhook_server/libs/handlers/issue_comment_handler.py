@@ -308,19 +308,17 @@ class IssueCommentHandler:
         _non_exits_target_branches_msg: str = ""
         self.logger.debug(f"{self.log_prefix} Processing cherry pick for branches {_target_branches}")
 
-        for _target_branch in _target_branches:
-            owner, repo_name = self.github_webhook.owner_and_repo
-            tasks = {
-                b: asyncio.create_task(self.github_webhook.unified_api.get_branch(owner, repo_name, b))
-                for b in _target_branches
-            }
-            for b, t in tasks.items():
-                branch_exists = await t
-                if branch_exists:
-                    _exits_target_branches.add(b)
-                else:
-                    _non_exits_target_branches_msg += f"Target branch `{b}` does not exist\n"
-                branch_exists = await self.github_webhook.unified_api.get_branch(owner, repo_name, _target_branch)
+        owner, repo_name = self.github_webhook.owner_and_repo
+        tasks = {
+            b: asyncio.create_task(self.github_webhook.unified_api.get_branch(owner, repo_name, b))
+            for b in _target_branches
+        }
+        for b, t in tasks.items():
+            branch_exists = await t
+            if branch_exists:
+                _exits_target_branches.add(b)
+            else:
+                _non_exits_target_branches_msg += f"Target branch `{b}` does not exist\n"
 
         self.logger.debug(
             f"{self.log_prefix} Found target branches {_exits_target_branches} and not found "

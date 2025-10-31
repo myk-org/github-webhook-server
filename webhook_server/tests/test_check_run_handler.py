@@ -33,6 +33,7 @@ class TestCheckRunHandler:
         mock_webhook.log_prefix = "[TEST]"
         mock_webhook.repository = Mock()
         mock_webhook.repository.full_name = "test-owner/test-repo"
+        mock_webhook.owner_and_repo = ("test-owner", "test-repo")  # Tuple for unpacking
         mock_webhook.repository_by_github_app = Mock()
         mock_webhook.last_commit = Mock()
         mock_webhook.last_commit.sha = "test-sha"

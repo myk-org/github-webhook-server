@@ -66,6 +66,7 @@ class TestPushHandler:
         mock_webhook.log_prefix = "[TEST]"
         mock_webhook.repository = Mock()
         mock_webhook.repository.full_name = "test-owner/test-repo"
+        mock_webhook.owner_and_repo = ("test-owner", "test-repo")  # Tuple for unpacking
         mock_webhook.pypi = {"token": "test-token"}
         mock_webhook.build_and_push_container = True
         mock_webhook.container_release = True
@@ -81,6 +82,9 @@ class TestPushHandler:
         # Mock unified_api for async operations
         mock_webhook.unified_api = Mock()
         mock_webhook.unified_api.create_issue_on_repository = AsyncMock()
+        # Mock config
+        mock_webhook.config = Mock()
+        mock_webhook.config.get_value = Mock(return_value=1000)
         return mock_webhook
 
     @pytest.fixture

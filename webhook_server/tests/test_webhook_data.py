@@ -49,10 +49,10 @@ class TestCommitWrapper:
 
     def test_commit_wrapper_with_sha(self):
         """Test CommitWrapper with webhook format."""
-        data = {"sha": "commit123", "committer": {"login": "committer1"}}
+        data = {"sha": "commit123", "author": {"login": "author1"}}
         commit = CommitWrapper(data)
         assert commit.sha == "commit123"
-        assert commit.committer.login == "committer1"
+        assert commit.committer.login == "author1"
 
     def test_commit_wrapper_fallback_to_author(self):
         """Test CommitWrapper falls back to author when no committer."""

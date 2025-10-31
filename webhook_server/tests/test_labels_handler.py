@@ -27,6 +27,7 @@ class TestLabelsHandler:
         webhook = Mock()
         webhook.repository = Mock()
         webhook.repository.full_name = "test-owner/test-repo"
+        webhook.owner_and_repo = ("test-owner", "test-repo")  # Tuple for unpacking
         webhook.log_prefix = "[TEST]"
         webhook.logger = Mock()
         webhook.unified_api = AsyncMock()  # Enable GraphQL
@@ -159,10 +160,23 @@ class TestLabelsHandler:
     @pytest.mark.asyncio
     async def test_remove_label_success(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
         """Test successful label removal."""
-        with patch.object(labels_handler, "label_exists_in_pull_request", new=AsyncMock(return_value=True)):
-            with patch.object(labels_handler, "wait_for_label", new=AsyncMock(return_value=True)):
-                labels_handler.unified_api.get_label_id.return_value = "LA_test"
-                labels_handler.unified_api.remove_labels.return_value = None
+        # Mock PR data with labels
+        mock_pr_data = {
+            "number": 123,
+            "labels": {"nodes": [{"name": "test-label", "id": "LA_test"}]},
+        }
+        mock_webhook_data = {
+            "number": 123,
+            "labels": [{"name": "test-label", "id": "LA_test"}],
+        }
+
+        with patch.object(labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock) as mock_exists:
+            mock_exists.return_value = True
+            with patch.object(labels_handler, "wait_for_label", new_callable=AsyncMock) as mock_wait:
+                mock_wait.return_value = True
+                labels_handler.unified_api.get_pull_request_data = AsyncMock(return_value=mock_pr_data)
+                labels_handler.unified_api.convert_graphql_to_webhook = Mock(return_value=mock_webhook_data)
+                labels_handler.unified_api.remove_labels = AsyncMock(return_value=None)
 
                 result = await labels_handler._remove_label(mock_pull_request, "test-label")
 
@@ -983,14 +997,29 @@ class TestLabelsHandler:
 
         mock_pull_request.get_labels = Mock(return_value=[mock_label])
 
-        labels_handler.unified_api.get_label_id = AsyncMock(return_value="LA_test")
-        labels_handler.unified_api.remove_labels = AsyncMock(
-            side_effect=GraphQLError("401 Unauthorized authentication failed")
-        )
+        # Mock PR data with labels
+        mock_pr_data = {
+            "number": 123,
+            "labels": {"nodes": [{"name": "test-label", "id": "LA_test"}]},
+        }
+        mock_webhook_data = {
+            "number": 123,
+            "labels": [{"name": "test-label", "id": "LA_test"}],
+        }
 
-        # Auth errors should raise
-        with pytest.raises(GraphQLError):
-            await labels_handler._remove_label(mock_pull_request, "test-label")
+        with patch.object(labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock) as mock_exists:
+            mock_exists.return_value = True
+            with patch.object(labels_handler, "wait_for_label", new_callable=AsyncMock) as mock_wait:
+                mock_wait.return_value = True
+                labels_handler.unified_api.get_pull_request_data = AsyncMock(return_value=mock_pr_data)
+                labels_handler.unified_api.convert_graphql_to_webhook = Mock(return_value=mock_webhook_data)
+                labels_handler.unified_api.remove_labels = AsyncMock(
+                    side_effect=GraphQLError("401 Unauthorized authentication failed")
+                )
+
+                # Auth errors should raise
+                with pytest.raises(GraphQLError):
+                    await labels_handler._remove_label(mock_pull_request, "test-label")
 
     @pytest.mark.asyncio
     async def test_remove_label_critical_error_rate_limit(
@@ -1003,12 +1032,27 @@ class TestLabelsHandler:
 
         mock_pull_request.get_labels = Mock(return_value=[mock_label])
 
-        labels_handler.unified_api.get_label_id = AsyncMock(return_value="LA_test")
-        labels_handler.unified_api.remove_labels = AsyncMock(side_effect=GraphQLError("rate limit exceeded"))
+        # Mock PR data with labels
+        mock_pr_data = {
+            "number": 123,
+            "labels": {"nodes": [{"name": "test-label", "id": "LA_test"}]},
+        }
+        mock_webhook_data = {
+            "number": 123,
+            "labels": [{"name": "test-label", "id": "LA_test"}],
+        }
 
-        # Rate limit errors should raise
-        with pytest.raises(GraphQLError):
-            await labels_handler._remove_label(mock_pull_request, "test-label")
+        with patch.object(labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock) as mock_exists:
+            mock_exists.return_value = True
+            with patch.object(labels_handler, "wait_for_label", new_callable=AsyncMock) as mock_wait:
+                mock_wait.return_value = True
+                labels_handler.unified_api.get_pull_request_data = AsyncMock(return_value=mock_pr_data)
+                labels_handler.unified_api.convert_graphql_to_webhook = Mock(return_value=mock_webhook_data)
+                labels_handler.unified_api.remove_labels = AsyncMock(side_effect=GraphQLError("rate limit exceeded"))
+
+                # Rate limit errors should raise
+                with pytest.raises(GraphQLError):
+                    await labels_handler._remove_label(mock_pull_request, "test-label")
 
     @pytest.mark.asyncio
     async def test_remove_label_transient_error(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
@@ -1036,14 +1080,27 @@ class TestLabelsHandler:
         mock_pull_request.get_labels = Mock(return_value=[mock_label])
         mock_pull_request.update_labels = Mock()
 
+        # Mock PR data with labels
+        mock_pr_data = {
+            "number": 123,
+            "labels": {"nodes": [{"name": "test-label", "id": "LA_test"}]},
+        }
+        mock_webhook_data = {
+            "number": 123,
+            "labels": [{"name": "test-label", "id": "LA_test"}],
+        }
+
         # Mock mutation response with updated labels
         mutation_response = {
             "removeLabelsFromLabelable": {"labelable": {"labels": {"nodes": [{"name": "other-label", "id": "LA_456"}]}}}
         }
 
-        with patch.object(labels_handler, "label_exists_in_pull_request", new=AsyncMock(return_value=True)):
-            with patch.object(labels_handler, "wait_for_label", new=AsyncMock(return_value=True)):
-                labels_handler.unified_api.get_label_id = AsyncMock(return_value="LA_test")
+        with patch.object(labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock) as mock_exists:
+            mock_exists.return_value = True
+            with patch.object(labels_handler, "wait_for_label", new_callable=AsyncMock) as mock_wait:
+                mock_wait.return_value = True
+                labels_handler.unified_api.get_pull_request_data = AsyncMock(return_value=mock_pr_data)
+                labels_handler.unified_api.convert_graphql_to_webhook = Mock(return_value=mock_webhook_data)
                 labels_handler.unified_api.remove_labels = AsyncMock(return_value=mutation_response)
 
                 await labels_handler._remove_label(mock_pull_request, "test-label")

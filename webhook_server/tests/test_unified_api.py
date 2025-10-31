@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from webhook_server.libs.graphql.graphql_client import GraphQLAuthenticationError, GraphQLError
-from webhook_server.libs.graphql.unified_api import APIType, UnifiedGitHubAPI
+from webhook_server.libs.graphql.unified_api import UnifiedGitHubAPI
 from webhook_server.libs.graphql.webhook_data import CommitWrapper, PullRequestWrapper
 
 
@@ -287,24 +287,7 @@ async def test_get_pr_for_check_runs(unified_api):
         assert result == mock_pr
 
 
-def test_get_api_type_for_operation():
-    """Test API type selection logic."""
-    mock_config = MagicMock()
-    mock_config.get_value = MagicMock(return_value=9)
-    api = UnifiedGitHubAPI("token", MagicMock(), mock_config)  # pragma: allowlist secret
-
-    # REST only operations
-    assert api.get_api_type_for_operation("check_runs") == APIType.REST
-    assert api.get_api_type_for_operation("create_webhook") == APIType.REST
-    # get_issues now uses GraphQL for better performance
-    assert api.get_api_type_for_operation("get_issues") == APIType.GRAPHQL
-
-    # GraphQL preferred operations
-    assert api.get_api_type_for_operation("get_pull_request") == APIType.GRAPHQL
-    assert api.get_api_type_for_operation("add_labels") == APIType.GRAPHQL
-
-    # Hybrid/unknown operations
-    assert api.get_api_type_for_operation("unknown_operation") == APIType.HYBRID
+# Removed test_get_api_type_for_operation - APIType and get_api_type_for_operation no longer exist in production code
 
 
 @pytest.mark.asyncio
@@ -1655,7 +1638,7 @@ async def test_get_open_pull_requests_with_details_empty_result(unified_api):
 
 @pytest.mark.asyncio
 async def test_get_pulls_from_commit_fallback_warning(mock_logger, mock_config):
-    """Test get_pulls_from_commit raises ValueError when owner/name missing for non-REST commit."""
+    """Test get_pulls_from_commit_sha with correct parameters."""
     api = UnifiedGitHubAPI(token="test_token", logger=mock_logger, config=mock_config)  # pragma: allowlist secret
 
     with (
@@ -1665,15 +1648,41 @@ async def test_get_pulls_from_commit_fallback_warning(mock_logger, mock_config):
         mock_gql = AsyncMock()
         mock_gql_class.return_value = mock_gql
 
+        # Mock GraphQL response for associatedPullRequests
+        mock_gql.execute = AsyncMock(
+            return_value={
+                "repository": {
+                    "object": {
+                        "associatedPullRequests": {
+                            "nodes": [
+                                {
+                                    "id": "PR_1",
+                                    "number": 1,
+                                    "title": "Test PR",
+                                    "state": "OPEN",
+                                    "baseRefName": "main",
+                                    "headRefName": "feature",
+                                    "author": {"login": "testuser"},
+                                    "createdAt": "2024-01-01T00:00:00Z",
+                                    "updatedAt": "2024-01-02T00:00:00Z",
+                                    "mergedAt": None,
+                                    "closedAt": None,
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        )
+
         await api.initialize()
 
-        # Fail-fast validation: Non-REST commit without owner/name raises ValueError
-        # (Not a github.Commit.Commit object, so requires owner/name)
-        mock_commit = MagicMock()  # Not a REST Commit object
-        mock_commit.sha = "abc123"
+        # Call method with correct signature: owner, name, sha
+        result = await api.get_pulls_from_commit_sha("owner", "repo", "abc123")
 
-        with pytest.raises(ValueError, match="owner and name required for CommitWrapper PRs lookup"):
-            await api.get_pulls_from_commit(mock_commit)
+        # Verify result
+        assert len(result) == 1
+        assert result[0]["number"] == 1
 
 
 @pytest.mark.asyncio

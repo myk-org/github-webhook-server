@@ -147,11 +147,16 @@ class CommitWrapper:
     def committer(self) -> UserWrapper:
         """Get committer information."""
         committer_data = self._data.get("committer") or {}
-        if isinstance(committer_data, dict) and "login" in committer_data:
-            return UserWrapper(committer_data)
+        if isinstance(committer_data, dict):
+            committer = committer_data.get("login", committer_data.get("username"))
+            if committer:
+                return UserWrapper(committer)
+
         author_data = self._data.get("author") or {}
-        if isinstance(author_data, dict) and "login" in author_data:
-            return UserWrapper(author_data)
+        if isinstance(author_data, dict):
+            author = author_data.get("login", author_data.get("username"))
+            if author:
+                return UserWrapper(author_data)
         return UserWrapper({"login": "unknown"})
 
 

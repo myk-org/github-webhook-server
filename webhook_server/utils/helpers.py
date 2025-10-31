@@ -131,20 +131,6 @@ def format_task_fields(task_id: str | None = None, task_type: str | None = None,
     return " ".join(parts)
 
 
-def extract_key_from_dict(key: Any, _dict: dict[Any, Any]) -> Any:
-    if isinstance(_dict, dict):
-        for _key, _val in _dict.items():
-            if _key == key:
-                yield _val
-            if isinstance(_val, dict):
-                for result in extract_key_from_dict(key, _val):
-                    yield result
-            elif isinstance(_val, list):
-                for _item in _val:
-                    for result in extract_key_from_dict(key, _item):
-                        yield result
-
-
 def get_github_repo_api(github_app_api: github.Github, repository: int | str) -> Repository:
     logger = get_logger_with_params()
     logger.debug(f"Get GitHub API for repository {repository}")

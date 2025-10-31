@@ -18,6 +18,7 @@ class TestOwnersFileHandler:
         mock_webhook.log_prefix = "[TEST]"
         mock_webhook.repository = Mock()
         mock_webhook.repository.full_name = "test-owner/test-repo"
+        mock_webhook.owner_and_repo = ("test-owner", "test-repo")  # Tuple for unpacking
         mock_webhook.add_pr_comment = AsyncMock()
         mock_webhook.request_pr_reviews = AsyncMock()
         # unified_api needs to be a Mock with async methods, not an AsyncMock itself
@@ -184,7 +185,7 @@ class TestOwnersFileHandler:
         assert result == ["file1.py", "file2.py"]
         # Validate that the correct arguments were passed
         owners_file_handler.github_webhook.unified_api.get_pull_request_files.assert_called_once_with(
-            "test", "repo", 123
+            "test-owner", "test-repo", 123
         )
 
     def test_validate_owners_content_valid(self, owners_file_handler: OwnersFileHandler) -> None:

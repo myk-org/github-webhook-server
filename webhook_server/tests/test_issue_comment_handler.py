@@ -42,6 +42,7 @@ class TestIssueCommentHandler:
         mock_webhook.log_prefix = "[TEST]"
         mock_webhook.repository = Mock()
         mock_webhook.repository.full_name = "test-owner/test-repo"
+        mock_webhook.owner_and_repo = ("test-owner", "test-repo")  # Tuple for unpacking
         mock_webhook.repository.clone_url = "https://github.com/test-owner/test-repo.git"
         mock_webhook.issue_url_for_welcome_msg = "welcome-message-url"
         mock_webhook.build_and_push_container = True
@@ -423,12 +424,12 @@ class TestIssueCommentHandler:
             )
             mock_reaction.assert_awaited_once()
 
-            # Verify unauthorized user comment was posted via unified_api
-            mock_add_comment = issue_comment_handler.github_webhook.unified_api.create_issue_comment
+            # Verify unauthorized user comment was posted via unified_api using add_pr_comment
+            mock_add_comment = issue_comment_handler.github_webhook.unified_api.add_pr_comment
             mock_add_comment.assert_awaited_once()
             call_args = mock_add_comment.call_args
-            # Arguments are: owner, repo, number, body
-            comment_body = call_args[0][3]  # Fourth argument is the comment body
+            # Check body keyword argument
+            comment_body = call_args[1]["body"]
             assert "unauthorized-user" in comment_body
             assert "approver" in comment_body
             assert "hold" in comment_body

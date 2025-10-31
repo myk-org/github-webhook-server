@@ -662,11 +662,18 @@ async def test_add_assignees_by_login(initialized_api, mock_graphql_client):
 async def test_get_issue_comment(initialized_api, mock_rest_client):
     """Test get_issue_comment."""
     mock_repo = MagicMock()
-    mock_pr = MagicMock()
+    mock_issue = MagicMock()
     mock_comment = MagicMock()
-    mock_pr.get_issue_comment.return_value = mock_comment
+    mock_issue.get_comment.return_value = mock_comment
 
-    mock_to_thread = create_mock_to_thread_simple(mock_rest_client, mock_repo, mock_pr)
+    async def mock_to_thread(_func, *_args):
+        if _func == mock_rest_client.get_repo:
+            return mock_repo
+        elif _func == mock_repo.get_issue:
+            return mock_issue
+        elif _func == mock_issue.get_comment:
+            return mock_comment
+        return None
 
     with patch("asyncio.to_thread", side_effect=mock_to_thread):
         result = await initialized_api.get_issue_comment("owner", "repo", 1, 123)
@@ -1121,7 +1128,7 @@ async def test_get_pr_with_commits(initialized_api, mock_graphql_client):
 
 @pytest.mark.asyncio
 async def test_get_pulls_from_commit(initialized_api, mock_graphql_client):
-    """Test get_pulls_from_commit with GraphQL."""
+    """Test get_pulls_from_commit_sha with GraphQL."""
     # Create mock commit with sha attribute
     mock_commit = MagicMock()
     mock_commit.sha = "abc123"
@@ -1164,7 +1171,7 @@ async def test_get_pulls_from_commit(initialized_api, mock_graphql_client):
         }
     }
 
-    result = await initialized_api.get_pulls_from_commit(mock_commit, "owner", "repo")
+    result = await initialized_api.get_pulls_from_commit_sha("owner", "repo", mock_commit.sha)
 
     assert len(result) == 2
     assert result[0]["number"] == 1

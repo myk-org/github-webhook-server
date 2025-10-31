@@ -14,7 +14,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from enum import Enum
 from typing import Any
 
 from github import Auth, Github, GithubException
@@ -32,15 +31,6 @@ from webhook_server.libs.graphql.graphql_client import (
     GraphQLRateLimitError,
 )
 from webhook_server.libs.graphql.webhook_data import CommitWrapper, PullRequestWrapper
-from webhook_server.utils.helpers import extract_key_from_dict
-
-
-class APIType(Enum):
-    """API type for operations."""
-
-    GRAPHQL = "graphql"
-    REST = "rest"
-    HYBRID = "hybrid"  # Uses both
 
 
 class UnifiedGitHubAPI:
@@ -557,10 +547,9 @@ class UnifiedGitHubAPI:
                         return _pull_request
 
         pr_number = number
+
         if not pr_number:
-            for _number in extract_key_from_dict(key="number", _dict=hook_data):
-                pr_number = _number
-                break
+            pr_number = hook_data.get("pull_request", {}).get("number")
 
         if pr_number:
             # OPTIMIZATION: Reuse webhook payload if it contains complete PR data
@@ -1668,8 +1657,8 @@ class UnifiedGitHubAPI:
               Monitor for: issueComment(id: COMMENT_NODE_ID) { ... } or similar query.
         """
         repo = await self.get_repository_for_rest_operations(owner, name)
-        pr = await asyncio.to_thread(repo.get_pull, number)
-        return await asyncio.to_thread(pr.get_issue_comment, comment_id)
+        issue = await asyncio.to_thread(repo.get_issue, number)
+        return await asyncio.to_thread(issue.get_comment, comment_id)
 
     async def create_reaction(self, comment: Any, reaction: str) -> None:
         """
@@ -2151,35 +2140,6 @@ class UnifiedGitHubAPI:
         pr = await asyncio.to_thread(repo.get_pull, number)
         await asyncio.to_thread(pr.merge, merge_method=merge_method)
 
-    async def get_pulls_from_commit(
-        self, commit: Any, owner: str | None = None, name: str | None = None
-    ) -> list[dict[str, Any]]:
-        """
-        Get pull requests associated with a commit.
-
-        Uses: GraphQL (preferred) with REST fallback
-        Reason: GraphQL migration - fetches associated PRs via associatedPullRequests query
-
-        Args:
-            commit: REST Commit object or CommitWrapper (or any object with sha attribute)
-            owner: Repository owner (required for GraphQL, optional for REST commit objects)
-            name: Repository name (required for GraphQL, optional for REST commit objects)
-
-        Returns:
-            List of pull request data (dicts with PR information)
-
-        Note:
-            If owner/name provided, uses GraphQL for better performance.
-            Otherwise, falls back to REST API via commit.get_pulls() method.
-        """
-        if isinstance(commit, Commit):
-            return await asyncio.to_thread(lambda: list(commit.get_pulls()))
-
-        if not owner or not name:
-            raise ValueError(f"owner and name required for CommitWrapper PRs lookup (got owner={owner}, name={name})")
-
-        return await self.get_pulls_from_commit_sha(owner, name, commit.sha)
-
     async def get_pulls_from_commit_sha(self, owner: str, name: str, sha: str) -> list[dict[str, Any]]:
         """
         Get pull requests associated with a commit SHA.
@@ -2235,46 +2195,3 @@ class UnifiedGitHubAPI:
         return commit_data["associatedPullRequests"]["nodes"]
 
     # ===== Helper Methods =====
-
-    def get_api_type_for_operation(self, operation: str) -> APIType:
-        """
-        Determine which API to use for an operation.
-
-        Args:
-            operation: Operation name
-
-        Returns:
-            API type to use
-        """
-        rest_only = {
-            "check_runs",
-            "create_check_run",
-            "update_check_run",
-            "webhooks",
-            "create_webhook",
-            "repository_settings",
-            "branch_protection",
-        }
-
-        graphql_preferred = {
-            "get_pull_request",
-            "get_pull_requests",
-            "get_commit",
-            "add_comment",
-            "add_labels",
-            "remove_labels",
-            "get_file_contents",
-            "create_issue",
-            "get_rate_limit",
-            "get_user_id",
-            "get_issues",
-        }
-
-        if operation in rest_only:
-            return APIType.REST
-        if operation in graphql_preferred:
-            return APIType.GRAPHQL
-        return APIType.HYBRID
-
-
-# API Selection Documentation

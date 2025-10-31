@@ -35,9 +35,16 @@ class OwnersFileHandler:
         self.repository: Repository = self.github_webhook.repository
         self.unified_api = self.github_webhook.unified_api
         self.config = self.github_webhook.config
-        max_owners_files_configured = self.config.get_value("max-owners-files", return_on_none=1000)
+
         # Hard ceiling for safety to avoid excessive traversal
+        max_owners_files_configured = self.config.get_value("max-owners-files", return_on_none=1000)
         self.max_owners_files = min(int(max_owners_files_configured), 1000)
+        if max_owners_files_configured != self.max_owners_files:
+            self.logger.warning(
+                f"{self.log_prefix} max-owners-files clamped to {self.max_owners_files}."
+                f"Requested: {max_owners_files_configured}"
+            )
+
         self.initialized = False
         self.exists_owners_data_for_changed_files: dict[str, dict[str, Any]] = {}
 

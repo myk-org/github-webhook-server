@@ -84,22 +84,3 @@ class REACTIONS:
     hooray: str = "hooray"
     rocket: str = "rocket"
     eyes: str = "eyes"
-
-
-class ERROR_IDS:
-    """Error IDs for Sentry tracking and monitoring."""
-
-    # GraphQL Client Errors
-    GRAPHQL_AUTH_FAILED: str = "GRAPHQL_AUTH_001"
-    GRAPHQL_RATE_LIMIT: str = "GRAPHQL_RATE_002"
-    GRAPHQL_RATE_LIMIT_INFO_FAILED: str = "GRAPHQL_RATE_003"
-    GRAPHQL_QUERY_ERROR: str = "GRAPHQL_QUERY_004"
-    GRAPHQL_CONNECTION_CLOSED: str = "GRAPHQL_CONN_005"
-    GRAPHQL_SERVER_ERROR: str = "GRAPHQL_SERVER_006"
-    GRAPHQL_TIMEOUT: str = "GRAPHQL_TIMEOUT_007"
-    GRAPHQL_TIMEOUT_CLEANUP_FAILED: str = "GRAPHQL_TIMEOUT_008"
-    GRAPHQL_FATAL_ERROR: str = "GRAPHQL_FATAL_009"
-
-    # GraphQL Unified API Errors
-    GRAPHQL_ADD_COMMENT_FAILED: str = "GRAPHQL_API_010"
-    GRAPHQL_COMMENT_EXTRACT_FAILED: str = "GRAPHQL_API_011"
