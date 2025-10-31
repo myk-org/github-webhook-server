@@ -66,7 +66,7 @@ class LabelsHandler:
                 )
                 webhook_format = self.unified_api.convert_graphql_to_webhook(pull_request_data, owner, repo)
                 updated_pull_request = PullRequestWrapper(owner, repo, webhook_format)
-                label_id = [_label.node_id for _label in updated_pull_request.get_labels() if label == _label.name][0]
+                label_id = [_label.id for _label in updated_pull_request.get_labels() if label == _label.name][0]
                 # Remove labels and use mutation response to update wrapper
                 # Pass owner/repo/number for automatic retry on stale PR node ID
                 result = await self.unified_api.remove_labels(
