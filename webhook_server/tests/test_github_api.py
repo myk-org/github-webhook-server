@@ -951,3 +951,140 @@ class TestGithubWebhook:
         # Verify handlers were called (processing continued normally)
         mock_owners_instance.initialize.assert_called_once()
         mock_pr_handler_instance.process_pull_request_webhook_data.assert_called_once()
+
+    def test_github_webhook_repository_id_property(self, webhook_headers: Headers) -> None:
+        """Test repository_id property returns node_id from webhook payload."""
+        payload = {
+            "repository": {"name": "test-repo", "full_name": "my-org/test-repo", "node_id": "R_test123"},
+            "pull_request": {"number": 123},
+        }
+
+        with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+            mock_api = Mock()
+            mock_token = TEST_GITHUB_TOKEN
+            mock_get_api.return_value = (mock_api, mock_token, "testuser")
+
+            with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo:
+                mock_repo = Mock()
+                mock_get_repo.return_value = mock_repo
+
+                with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
+                    mock_app_api = Mock()
+                    mock_get_app_api.return_value = mock_app_api
+
+                    with patch("webhook_server.libs.github_api.UnifiedGitHubAPI"):
+                        with patch("webhook_server.libs.github_api.get_apis_and_tokes_from_config") as mock_get_apis:
+                            mock_get_apis.return_value = []
+                            webhook = GithubWebhook(hook_data=payload, headers=webhook_headers, logger=Mock())
+                            assert webhook.repository_id == "R_test123"
+
+    def test_github_webhook_repository_numeric_id_property(self, webhook_headers: Headers) -> None:
+        """Test repository_numeric_id property returns id from webhook payload."""
+        payload = {
+            "repository": {"name": "test-repo", "full_name": "my-org/test-repo", "id": 12345},
+            "pull_request": {"number": 123},
+        }
+
+        with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+            mock_api = Mock()
+            mock_token = TEST_GITHUB_TOKEN
+            mock_get_api.return_value = (mock_api, mock_token, "testuser")
+
+            with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo:
+                mock_repo = Mock()
+                mock_get_repo.return_value = mock_repo
+
+                with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
+                    mock_app_api = Mock()
+                    mock_get_app_api.return_value = mock_app_api
+
+                    with patch("webhook_server.libs.github_api.UnifiedGitHubAPI"):
+                        with patch("webhook_server.libs.github_api.get_apis_and_tokes_from_config") as mock_get_apis:
+                            mock_get_apis.return_value = []
+                            webhook = GithubWebhook(hook_data=payload, headers=webhook_headers, logger=Mock())
+                            assert webhook.repository_numeric_id == 12345
+
+    def test_normalize_container_args_none(self, webhook_headers: Headers) -> None:
+        """Test _normalize_container_args with None."""
+        payload = {
+            "repository": {"name": "test-repo", "full_name": "my-org/test-repo"},
+            "pull_request": {"number": 123},
+        }
+
+        with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+            mock_api = Mock()
+            mock_token = TEST_GITHUB_TOKEN
+            mock_get_api.return_value = (mock_api, mock_token, "testuser")
+
+            with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo:
+                mock_repo = Mock()
+                mock_get_repo.return_value = mock_repo
+
+                with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
+                    mock_app_api = Mock()
+                    mock_get_app_api.return_value = mock_app_api
+
+                    with patch("webhook_server.libs.github_api.UnifiedGitHubAPI"):
+                        with patch("webhook_server.libs.github_api.get_apis_and_tokes_from_config") as mock_get_apis:
+                            mock_get_apis.return_value = []
+                            webhook = GithubWebhook(hook_data=payload, headers=webhook_headers, logger=Mock())
+                            result = webhook._normalize_container_args(None)
+                            assert result == []
+
+    def test_normalize_container_args_dict(self, webhook_headers: Headers) -> None:
+        """Test _normalize_container_args with dict."""
+        payload = {
+            "repository": {"name": "test-repo", "full_name": "my-org/test-repo"},
+            "pull_request": {"number": 123},
+        }
+
+        with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+            mock_api = Mock()
+            mock_token = TEST_GITHUB_TOKEN
+            mock_get_api.return_value = (mock_api, mock_token, "testuser")
+
+            with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo:
+                mock_repo = Mock()
+                mock_get_repo.return_value = mock_repo
+
+                with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
+                    mock_app_api = Mock()
+                    mock_get_app_api.return_value = mock_app_api
+
+                    with patch("webhook_server.libs.github_api.UnifiedGitHubAPI"):
+                        with patch("webhook_server.libs.github_api.get_apis_and_tokes_from_config") as mock_get_apis:
+                            mock_get_apis.return_value = []
+                            webhook = GithubWebhook(hook_data=payload, headers=webhook_headers, logger=Mock())
+                            result = webhook._normalize_container_args({"key1": "value1", "key2": "value2"})
+                            assert result == ["key1=value1", "key2=value2"]
+
+    def test_container_repository_and_tag(self, webhook_headers: Headers) -> None:
+        """Test container_repository_and_tag method."""
+        payload = {
+            "repository": {"name": "test-repo", "full_name": "my-org/test-repo"},
+            "pull_request": {"number": 123},
+        }
+
+        with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+            mock_api = Mock()
+            mock_token = TEST_GITHUB_TOKEN
+            mock_get_api.return_value = (mock_api, mock_token, "testuser")
+
+            with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo:
+                mock_repo = Mock()
+                mock_get_repo.return_value = mock_repo
+
+                with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
+                    mock_app_api = Mock()
+                    mock_get_app_api.return_value = mock_app_api
+
+                    with patch("webhook_server.libs.github_api.UnifiedGitHubAPI"):
+                        with patch("webhook_server.libs.github_api.get_apis_and_tokes_from_config") as mock_get_apis:
+                            mock_get_apis.return_value = []
+                            with patch(
+                                "webhook_server.libs.github_api.get_container_repository_and_tag"
+                            ) as mock_get_container:
+                                mock_get_container.return_value = "registry/repo:tag"
+                                webhook = GithubWebhook(hook_data=payload, headers=webhook_headers, logger=Mock())
+                                result = webhook.container_repository_and_tag()
+                                assert result == "registry/repo:tag"

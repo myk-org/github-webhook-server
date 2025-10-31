@@ -492,7 +492,7 @@ class TestUnifiedAPIPRMethods:
     @pytest.mark.asyncio
     async def test_get_pull_request_with_pr_number(self, api, mock_logger):
         """Test get_pull_request with direct PR number (GraphQL fetch path)."""
-        hook_data = {}  # No pull_request field → forces GraphQL fetch
+        hook_data = {}  # No pull_request field ? forces GraphQL fetch
         pr_graphql_data = {
             "id": "PR_123",
             "number": 42,
@@ -581,8 +581,8 @@ class TestUnifiedAPIPRMethods:
 
     @pytest.mark.asyncio
     async def test_get_pull_request_webhook_payload_incomplete_fallback(self, api, mock_logger):
-        """Test that get_pull_request uses webhook data when available (even without node_id)."""
-        # Webhook payload WITHOUT node_id but with complete data
+        """Test that get_pull_request falls back to GraphQL when webhook payload lacks node_id."""
+        # Webhook payload WITHOUT node_id - should fall back to GraphQL
         hook_data = {
             "pull_request": {
                 "number": 42,
@@ -632,13 +632,13 @@ class TestUnifiedAPIPRMethods:
                 number=42,
             )
 
-            # Verify PR was created from webhook data (optimization)
+            # Verify PR was created from GraphQL (fallback when webhook lacks node_id)
             assert isinstance(result, PullRequestWrapper)
             assert result.number == 42
-            assert result.title == "Test PR"
+            assert result.title == "Test PR from GraphQL"
 
-            # CRITICAL: Verify GraphQL was NOT called (webhook data used directly)
-            mock_gql.execute.assert_not_called()
+            # CRITICAL: Verify GraphQL WAS called (fallback when webhook missing node_id)
+            mock_gql.execute.assert_called_once()
 
         await api.close()
 
@@ -988,9 +988,7 @@ class TestUnifiedAPIPRMethods:
             mock_gql_class.return_value = mock_gql
 
             await api.initialize()
-            result = await api.get_last_commit(
-                owner="test-owner", repo="test-repo", pull_request=pr_wrapper, pr_number=42
-            )
+            result = await api.get_last_commit(owner="test-owner", repo="test-repo", pull_request=pr_wrapper)
 
             assert isinstance(result, CommitWrapper)
             assert result.sha == "abc123def456"  # pragma: allowlist secret
@@ -1011,9 +1009,7 @@ class TestUnifiedAPIPRMethods:
 
             # Should raise GraphQL error (no REST fallback)
             with pytest.raises(GraphQLError, match="GraphQL failed"):
-                await api.get_last_commit(
-                    owner="test-owner", repo="test-repo", pull_request=mock_pr_wrapper, pr_number=42
-                )
+                await api.get_last_commit(owner="test-owner", repo="test-repo", pull_request=mock_pr_wrapper)
 
         await api.close()
 
@@ -1492,12 +1488,26 @@ async def test_get_last_commit_no_commits_error(mock_logger, mock_config):
 
         await api.initialize()
 
+        # Create a PullRequestWrapper with no commits
+        webhook_data = {
+            "node_id": "PR_kwDOABcD1M5abc123",
+            "number": 123,
+            "title": "Test PR",
+            "state": "open",
+            "draft": False,
+            "base": {"ref": "main", "sha": "abc123", "repo": {"owner": {"login": "owner"}, "name": "repo"}},
+            "head": {"ref": "feature", "sha": "def456", "repo": {"owner": {"login": "owner"}, "name": "repo"}},
+            "user": {"login": "testuser"},
+            "commits": [],  # No commits
+        }
+        pr_wrapper = PullRequestWrapper("owner", "repo", webhook_data)
+
         # Mock get_pull_request_data to return empty commits
         api.get_pull_request_data = AsyncMock(return_value={"commits": {"nodes": []}})
 
         # Should raise ValueError
         with pytest.raises(ValueError, match="No commits found"):
-            await api.get_last_commit("owner", "repo", 123)
+            await api.get_last_commit("owner", "repo", pr_wrapper)
 
 
 @pytest.mark.asyncio

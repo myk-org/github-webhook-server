@@ -516,8 +516,10 @@ async def test_graphql_client_timeout_error_logging_includes_all_timeouts(mock_l
         with pytest.raises(GraphQLError) as exc_info:
             await client.execute("query { test }")
 
-        # Verify timeout error message
-        assert "timeout after 90s" in str(exc_info.value)
+        # Verify timeout error message (new format includes timeout type and all configured values)
+        error_msg = str(exc_info.value)
+        assert "timeout after 90s" in error_msg or "total timeout after 90s" in error_msg
+        assert "configured: total=90s" in error_msg
 
         # Verify exception logging includes all timeout values
         exception_calls = [str(call) for call in mock_logger.exception.call_args_list]

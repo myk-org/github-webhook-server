@@ -582,13 +582,6 @@ class UnifiedGitHubAPI:
                     # webhook_pr contains: {node_id, number, title, body, state, draft, merged, base, head, user, ...}
                     return PullRequestWrapper(owner=owner, repo_name=repo, webhook_data=webhook_pr)
 
-            # Fallback: Fetch PR with commits and labels via GraphQL if webhook payload incomplete
-            # Use webhook payload if available (contains accurate user.login with [bot] suffix)
-            webhook_pr_data = hook_data.get("pull_request")
-            if webhook_pr_data:
-                # Webhook payload available - use it directly for accurate user information
-                return PullRequestWrapper(owner=owner, repo_name=repo, webhook_data=webhook_pr_data)
-
             # No webhook payload - need to fetch PR data
             # For events without pull_request in payload, fetch minimal data
             pr_data = await self.get_pull_request_data(

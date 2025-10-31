@@ -365,7 +365,10 @@ async def test_webhook_process_fetches_repository_data(mock_comprehensive_data):
             await webhook.process()
 
             # Verify get_comprehensive_repository_data was called
-            webhook.unified_api.get_comprehensive_repository_data.assert_called_once_with("owner", "test-repo")
+            # Method accepts owner and name as keyword args
+            webhook.unified_api.get_comprehensive_repository_data.assert_called_once_with(
+                owner="owner", name="test-repo"
+            )
 
             # Verify repository_data was stored
             assert webhook.repository_data == mock_comprehensive_data
@@ -709,7 +712,7 @@ async def test_owners_file_handler_uses_prefetched_data():
         # Verify SimpleNamespace conversion happened
         assert len(handler._repository_collaborators) == 2
         assert handler._repository_collaborators[0].login == "admin1"
-        assert handler._repository_collaborators[0].permissions.admin is True  # ADMIN → admin=True
+        assert handler._repository_collaborators[0].permissions.admin is True  # ADMIN ? admin=True
 
         assert len(handler._repository_contributors) == 2
         assert handler._repository_contributors[0].login == "contrib1"
@@ -717,7 +720,7 @@ async def test_owners_file_handler_uses_prefetched_data():
 
 @pytest.mark.asyncio
 async def test_owners_file_handler_collaborator_permission_mapping():
-    """Test collaborators permission mapping (ADMIN → admin=True)."""
+    """Test collaborators permission mapping (ADMIN ? admin=True)."""
     mock_webhook = Mock()
     mock_webhook.logger = Mock()
     mock_webhook.log_prefix = "[TEST]"

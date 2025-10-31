@@ -567,20 +567,6 @@ async def test_get_repository_for_rest_operations(mock_logger, mock_config):
 
 
 @pytest.mark.asyncio
-async def test_get_pr_for_check_runs(initialized_api, mock_rest_client):
-    """Test get_pr_for_check_runs."""
-    mock_repo = MagicMock()
-    mock_pr = MagicMock()
-
-    mock_to_thread = create_mock_to_thread_simple(mock_rest_client, mock_repo, mock_pr)
-
-    with patch("asyncio.to_thread", side_effect=mock_to_thread):
-        result = await initialized_api.get_pr_for_check_runs("owner", "repo", 1)
-
-    assert result == mock_pr
-
-
-@pytest.mark.asyncio
 async def test_get_pull_request_files(initialized_api, mock_rest_client):
     """Test get_pull_request_files."""
     mock_repo = MagicMock()

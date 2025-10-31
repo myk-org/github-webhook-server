@@ -9,10 +9,11 @@ from unittest.mock import patch as patcher
 
 import httpx
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from webhook_server import app as app_module
-from webhook_server.app import FASTAPI_APP
+from webhook_server.app import FASTAPI_APP, LOG_SERVER_ENABLED, require_log_server_enabled
 from webhook_server.libs.exceptions import RepositoryNotFoundInConfigError
 from webhook_server.utils.app_utils import (
     gate_by_allowlist_ips,
@@ -759,3 +760,66 @@ class TestWebhookApp:
             assert "exists but is not a directory" in error_msg
             assert "css/ and js/ subdirectories" in error_msg
             mock_client.aclose.assert_called_once()
+
+    def test_require_log_server_enabled_raises_when_disabled(self) -> None:
+        """Test require_log_server_enabled raises HTTPException when log server is disabled."""
+        # Save original value
+        original_value = LOG_SERVER_ENABLED
+
+        # Temporarily set to False
+        app_module.LOG_SERVER_ENABLED = False
+
+        try:
+            with pytest.raises(HTTPException) as exc_info:
+                require_log_server_enabled()
+            assert exc_info.value.status_code == 404
+            assert "Log server is disabled" in str(exc_info.value.detail)
+        finally:
+            # Restore original value
+            app_module.LOG_SERVER_ENABLED = original_value
+
+    @patch("webhook_server.app.get_github_allowlist")
+    @patch("webhook_server.app.get_cloudflare_allowlist")
+    @patch("webhook_server.app.Config")
+    async def test_lifespan_cloudflare_fails_github_disabled_raises(
+        self, mock_config: Mock, mock_cf_allowlist: Mock, mock_gh_allowlist: Mock
+    ) -> None:
+        """Test lifespan raises when Cloudflare fails and GitHub verification is disabled."""
+        mock_config_instance = Mock()
+        mock_config_instance.root_data = {
+            "verify-github-ips": False,
+            "verify-cloudflare-ips": True,
+            "disable-ssl-warnings": False,
+        }
+        mock_config.return_value = mock_config_instance
+        mock_cf_allowlist.side_effect = Exception("Cloudflare API error")
+        mock_gh_allowlist.return_value = []
+
+        mock_client = AsyncMock()
+        with patch.object(app_module, "_lifespan_http_client", mock_client):
+            with pytest.raises(Exception, match="Cloudflare API error"):  # noqa: B017
+                async with app_module.lifespan(FASTAPI_APP):
+                    pass
+
+    @patch("webhook_server.app.get_github_allowlist")
+    @patch("webhook_server.app.get_cloudflare_allowlist")
+    @patch("webhook_server.app.Config")
+    async def test_lifespan_github_fails_cloudflare_disabled_raises(
+        self, mock_config: Mock, mock_cf_allowlist: Mock, mock_gh_allowlist: Mock
+    ) -> None:
+        """Test lifespan raises when GitHub fails and Cloudflare verification is disabled."""
+        mock_config_instance = Mock()
+        mock_config_instance.root_data = {
+            "verify-github-ips": True,
+            "verify-cloudflare-ips": False,
+            "disable-ssl-warnings": False,
+        }
+        mock_config.return_value = mock_config_instance
+        mock_gh_allowlist.side_effect = Exception("GitHub API error")
+        mock_cf_allowlist.return_value = []
+
+        mock_client = AsyncMock()
+        with patch.object(app_module, "_lifespan_http_client", mock_client):
+            with pytest.raises(Exception, match="GitHub API error"):  # noqa: B017
+                async with app_module.lifespan(FASTAPI_APP):
+                    pass

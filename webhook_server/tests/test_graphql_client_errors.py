@@ -402,7 +402,8 @@ async def test_timeout_error_cleanup(graphql_client):
     graphql_client._ensure_client = AsyncMock()
 
     # Should raise GraphQLError wrapping TimeoutError
-    with pytest.raises(GraphQLError, match="GraphQL query timeout"):
+    # New format: "GraphQL query {timeout_type} timeout after {timeout_value}s"
+    with pytest.raises(GraphQLError, match="GraphQL query.*timeout"):
         await graphql_client.execute("query { viewer { login } }")
 
     # Verify cleanup happened

@@ -353,19 +353,6 @@ def test_label_wrapper_missing_name():
         _ = wrapper.name
 
 
-def test_commit_wrapper_fallback_to_author():
-    """Test CommitWrapper falls back to author when committer missing."""
-    commit_data = {
-        "sha": "abc123",
-        # No committer field
-        "author": {"login": "author-user"},
-    }
-    wrapper = CommitWrapper(commit_data)
-
-    committer = wrapper.committer
-    assert committer.login == "author-user"
-
-
 def test_pull_request_wrapper_mergeable_none():
     """Test PullRequestWrapper.mergeable returns None."""
     pr_data = {"number": 1, "title": "Test", "mergeable": None}

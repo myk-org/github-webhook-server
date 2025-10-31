@@ -122,13 +122,11 @@ class TestLogParsingEdgeCases:
         # Test that the parser can handle the file efficiently
         # (This validates the large file handling logic without requiring massive data)
 
-        # Memory should be manageable (skip if psutil not available)
+        # Memory should be manageable (only check if psutil available)
         if PSUTIL_AVAILABLE:
             process = psutil.Process(os.getpid())
             memory_mb = process.memory_info().rss / 1024 / 1024
             assert memory_mb < 512  # Should not exceed 512MB memory usage for test environments
-        else:
-            pytest.skip("psutil not available for memory monitoring")
 
     def test_malformed_log_entries_handling(self):
         """Test handling of various malformed log entries."""
