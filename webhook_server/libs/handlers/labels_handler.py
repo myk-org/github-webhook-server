@@ -226,7 +226,6 @@ class LabelsHandler:
         await self.wait_for_label(pull_request=pull_request, label=label, exists=True)
 
     async def wait_for_label(self, pull_request: PullRequestWrapper, label: str, exists: bool) -> bool:
-        __import__("ipdb").set_trace()
         self.logger.debug(f"{self.log_prefix} waiting for label {label} to {'exist' if exists else 'not exist'}")
 
         # Create TimeoutWatch once outside the loop to track total elapsed time
