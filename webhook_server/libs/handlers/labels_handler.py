@@ -55,40 +55,41 @@ class LabelsHandler:
         )
         self.logger.debug(f"{self.log_prefix} Removing label {label}")
         try:
-            if await self.label_exists_in_pull_request(pull_request=pull_request, label=label):
-                self.logger.info(f"{self.log_prefix} Removing label {label}")
-                owner, repo = self.github_webhook.owner_and_repo
+            self.logger.info(f"{self.log_prefix} Removing label {label}")
+            owner, repo = self.github_webhook.owner_and_repo
 
-                pr_id = pull_request.id
-                owner, repo_name = self.github_webhook.owner_and_repo
-                pull_request_data = await self.unified_api.get_pull_request_data(
-                    owner=owner, name=repo, number=pull_request.number, include_labels=True
-                )
-                webhook_format = self.unified_api.convert_graphql_to_webhook(pull_request_data, owner, repo)
-                updated_pull_request = PullRequestWrapper(owner=owner, repo_name=repo, webhook_data=webhook_format)
-                label_id = next(
-                    (_label.id for _label in updated_pull_request.get_labels() if label == _label.name), None
-                )
-                if not label_id:
-                    self.logger.debug(f"{self.log_prefix} Label {label} not found in PR labels, skipping removal")
-                    return False
-                # Remove labels and use mutation response to update wrapper
-                # Pass owner/repo/number for automatic retry on stale PR node ID
-                result = await self.unified_api.remove_labels(
-                    pr_id, [label_id], owner=owner, repo=repo_name, number=pull_request.number
-                )
+            pr_id = pull_request.id
+            owner, repo_name = self.github_webhook.owner_and_repo
+            pull_request_data = await self.unified_api.get_pull_request_data(
+                owner=owner, name=repo, number=pull_request.number, include_labels=True
+            )
+            webhook_format = self.unified_api.convert_graphql_to_webhook(pull_request_data, owner, repo)
+            updated_pull_request = PullRequestWrapper(owner=owner, repo_name=repo, webhook_data=webhook_format)
+            label_id = next((_label.id for _label in updated_pull_request.get_labels() if label == _label.name), None)
+            if not label_id:
+                self.logger.debug(f"{self.log_prefix} Label {label} not found and cannot be removed")
                 self.logger.step(  # type: ignore[attr-defined]
                     f"{self.log_prefix} {format_task_fields('labels', 'pr_management', 'completed')} "
-                    f"Label '{label}' removed successfully"
+                    f"Label removal skipped - label '{label}' not found"
                 )
+                return False
+            # Remove labels and use mutation response to update wrapper
+            # Pass owner/repo/number for automatic retry on stale PR node ID
+            result = await self.unified_api.remove_labels(
+                pr_id, [label_id], owner=owner, repo=repo_name, number=pull_request.number
+            )
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('labels', 'pr_management', 'completed')} "
+                f"Label '{label}' removed successfully"
+            )
 
-                # Extract updated labels from mutation response (avoids refetch)
-                if result and "removeLabelsFromLabelable" in result:
-                    updated_labels = result["removeLabelsFromLabelable"]["labelable"]["labels"]["nodes"]
-                    pull_request.update_labels(updated_labels)
-                    self.logger.debug(f"{self.log_prefix} Updated labels in-place from mutation response")
+            # Extract updated labels from mutation response (avoids refetch)
+            if result and "removeLabelsFromLabelable" in result:
+                updated_labels = result["removeLabelsFromLabelable"]["labelable"]["labels"]["nodes"]
+                pull_request.update_labels(updated_labels)
+                self.logger.debug(f"{self.log_prefix} Updated labels in-place from mutation response")
 
-                return await self.wait_for_label(pull_request=pull_request, label=label, exists=False)
+            return await self.wait_for_label(pull_request=pull_request, label=label, exists=False)
         except GraphQLError as ex:
             # Check if error is critical (auth/permission/rate-limit)
             error_str = str(ex).lower()
@@ -103,13 +104,6 @@ class LabelsHandler:
             # Handle non-GraphQL errors with full traceback
             self.logger.exception(f"{self.log_prefix} Unexpected error removing {label} label")
             return False
-
-        self.logger.debug(f"{self.log_prefix} Label {label} not found and cannot be removed")
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('labels', 'pr_management', 'completed')} "
-            f"Label removal skipped - label '{label}' not found"
-        )
-        return False
 
     async def _add_label(self, pull_request: PullRequestWrapper, label: str) -> None:
         label = label.strip()

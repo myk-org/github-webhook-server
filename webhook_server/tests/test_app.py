@@ -433,9 +433,9 @@ class TestWebhookApp:
         """Test GitHub allowlist fetching with unexpected error."""
 
         async_client = AsyncMock()
-        async_client.get.side_effect = Exception("Unexpected error")
+        async_client.get.side_effect = AssertionError("Unexpected error")
 
-        with pytest.raises(Exception):  # noqa: B017
+        with pytest.raises(AssertionError):
             await get_github_allowlist(async_client)
 
     async def test_get_cloudflare_allowlist_request_error(self) -> None:
@@ -452,9 +452,9 @@ class TestWebhookApp:
         """Test Cloudflare allowlist fetching with unexpected error."""
 
         async_client = AsyncMock()
-        async_client.get.side_effect = Exception("Unexpected error")
+        async_client.get.side_effect = AssertionError("Unexpected error")
 
-        with pytest.raises(Exception):  # noqa: B017
+        with pytest.raises(AssertionError):
             await get_cloudflare_allowlist(async_client)
 
     @patch("httpx.AsyncClient.get")
@@ -797,7 +797,7 @@ class TestWebhookApp:
 
         mock_client = AsyncMock()
         with patch.object(app_module, "_lifespan_http_client", mock_client):
-            with pytest.raises(Exception, match="Cloudflare API error"):  # noqa: B017
+            with pytest.raises(Exception, match="Cloudflare API error"):
                 async with app_module.lifespan(FASTAPI_APP):
                     pass
 
@@ -820,6 +820,6 @@ class TestWebhookApp:
 
         mock_client = AsyncMock()
         with patch.object(app_module, "_lifespan_http_client", mock_client):
-            with pytest.raises(Exception, match="GitHub API error"):  # noqa: B017
+            with pytest.raises(Exception, match="GitHub API error"):
                 async with app_module.lifespan(FASTAPI_APP):
                     pass

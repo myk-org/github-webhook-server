@@ -210,6 +210,9 @@ class GithubWebhook:
                 self.x_github_delivery,
             )
             if not pull_request:
+                self.logger.debug(
+                    f"{self.log_prefix} No pull request found for event {self.github_event}",
+                )
                 return None
 
             self.logger.step(  # type: ignore[attr-defined]

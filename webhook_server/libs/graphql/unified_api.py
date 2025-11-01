@@ -117,7 +117,7 @@ class UnifiedGitHubAPI:
             default: Default limit if not configured (default: 100)
 
         Returns:
-            Configured limit (1-100)
+            Configured limit (as provided by config)
 
         Example:
             >>> api._get_query_limit("labels")
@@ -507,13 +507,6 @@ class UnifiedGitHubAPI:
         """
         log_prefix = f"[{github_event}][{x_github_delivery}]"
 
-        if "issue" in hook_data and not hook_data["issue"].get("pull_request"):
-            logger.debug(
-                f"{log_prefix} Event is for an issue (#{hook_data['issue'].get('number')}), "
-                "not a pull request. Skipping PR lookup."
-            )
-            return None
-
         # CRITICAL OPTIMIZATION: Handle check_run events FIRST before generic PR lookup
         # This prevents extract_key_from_dict from finding PR numbers in pull_requests array
         if github_event == "check_run":
@@ -562,7 +555,12 @@ class UnifiedGitHubAPI:
         if not pr_number:
             pr_number = hook_data.get("pull_request", {}).get("number")
 
+        if not pr_number:
+            if hook_data.get("issue", {}).get("pull_request"):
+                pr_number = hook_data.get("issue", {}).get("number")
+
         if pr_number:
+            self.logger.debug(f"{log_prefix} Found pull request number {pr_number}")
             # OPTIMIZATION: Reuse webhook payload if it contains complete PR data
             # GitHub's pull_request webhook events include the full PR object with node_id,
             # which can save 1 API call per webhook when the payload is complete.
@@ -1629,7 +1627,7 @@ class UnifiedGitHubAPI:
 
     async def get_issue_comment(self, owner: str, name: str, number: int, comment_id: int) -> Any:
         """
-        Get a specific issue/PR comment.
+        Get a specific PR or issue comment.
 
         Uses: REST
         Reason: Individual comment queries not yet efficient in GraphQL v4
@@ -1644,7 +1642,7 @@ class UnifiedGitHubAPI:
             Comment object from PyGithub
 
         Note:
-            Currently fetches comment via PR endpoint (works for both PR comments and issue comments
+            Currently fetches comment via issue endpoint (works for both PR comments and issue comments
             on PRs). For pure issue comments (non-PR), this method works as PyGithub's get_pull()
             returns an Issue object when the number refers to an issue.
 
