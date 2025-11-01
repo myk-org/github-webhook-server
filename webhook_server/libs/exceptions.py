@@ -1,12 +1,10 @@
 class RepositoryNotFoundInConfigError(Exception):
+    """Raised when a repository is not found in the configuration file."""
+
     pass
 
 
-class ProcessGithubWebhookError(Exception):
-    def __init__(self, err: dict[str, str]):
-        self.err = err
-        super().__init__(str(err))
-
-
 class NoApiTokenError(Exception):
+    """Raised when no API token is available for GitHub API operations."""
+
     pass

@@ -2,6 +2,7 @@
 
 import asyncio
 import datetime
+import gc
 import json
 import os
 import random
@@ -194,17 +195,22 @@ class TestMemoryUsageProfiler:
 
     def test_memory_efficiency_large_dataset(self):
         """Test memory efficiency with large datasets."""
-        if not PSUTIL_AVAILABLE:
-            pytest.skip("psutil not available for memory monitoring")
-
-        process = psutil.Process(os.getpid())
-        initial_memory = process.memory_info().rss / 1024 / 1024  # MB
+        if PSUTIL_AVAILABLE:
+            process = psutil.Process(os.getpid())
+            initial_memory = process.memory_info().rss / 1024 / 1024  # MB
+        else:
+            process = None
+            initial_memory = None
 
         # Generate large dataset
         parser = LogParser()
-        content = ""
+        lines = []
         for i in range(10000):
-            content += f"2025-07-31T10:{i // 600:02d}:{i % 60:02d}.000000 GithubWebhook INFO test-repo [push][hook-{i}][user]: Message {i}\n"
+            lines.append(
+                f"2025-07-31T10:{i // 600:02d}:{i % 60:02d}.000000 GithubWebhook INFO "
+                f"test-repo [push][hook-{i}][user]: Message {i}"
+            )
+        content = "\n".join(lines)
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
             f.write(content)
@@ -212,28 +218,27 @@ class TestMemoryUsageProfiler:
 
             entries = parser.parse_log_file(Path(f.name))
 
-            # Check memory usage after parsing
-            peak_memory = process.memory_info().rss / 1024 / 1024  # MB
-            memory_increase = peak_memory - initial_memory
-
-            # Memory efficiency assertions
+            # Memory efficiency assertions (only if psutil available)
             assert len(entries) == 10000
-            assert memory_increase < 100  # Should not use more than 100MB for 10k entries
 
-            # Memory per entry should be reasonable
-            memory_per_entry = memory_increase / len(entries) * 1024  # KB per entry
-            assert memory_per_entry < 10  # Less than 10KB per entry
+            if process is not None:
+                # Check memory usage after parsing
+                peak_memory = process.memory_info().rss / 1024 / 1024  # MB
+                memory_increase = peak_memory - initial_memory
+                assert memory_increase < 100  # Should not use more than 100MB for 10k entries
+
+                # Memory per entry should be reasonable
+                memory_per_entry = memory_increase / len(entries) * 1024  # KB per entry
+                assert memory_per_entry < 10  # Less than 10KB per entry
 
     def test_memory_cleanup_after_processing(self):
         """Test that memory is properly cleaned up after processing."""
-        if not PSUTIL_AVAILABLE:
-            pytest.skip("psutil not available for memory monitoring")
-
-        import gc
-        import os
-
-        process = psutil.Process(os.getpid())
-        initial_memory = process.memory_info().rss / 1024 / 1024  # MB
+        if PSUTIL_AVAILABLE:
+            process = psutil.Process(os.getpid())
+            initial_memory = process.memory_info().rss / 1024 / 1024  # MB
+        else:
+            process = None
+            initial_memory = None
 
         # Process large dataset and then clean up
         parser = LogParser()
@@ -247,12 +252,13 @@ class TestMemoryUsageProfiler:
             del entries  # Explicit cleanup
             gc.collect()  # Force garbage collection
 
-            # Check memory after cleanup
-            final_memory = process.memory_info().rss / 1024 / 1024  # MB
-            memory_leak = final_memory - initial_memory
+            # Check memory after cleanup (only if psutil available)
+            if process is not None:
+                final_memory = process.memory_info().rss / 1024 / 1024  # MB
+                memory_leak = final_memory - initial_memory
 
-            # Should not have significant memory leaks
-            assert memory_leak < 20  # Less than 20MB increase after cleanup
+                # Should not have significant memory leaks
+                assert memory_leak < 20  # Less than 20MB increase after cleanup
 
     def _generate_large_log_content(self, num_entries: int) -> str:
         """Helper to generate large log content."""
@@ -273,7 +279,7 @@ class TestConcurrencyPerformance:
         """Test performance of concurrent parsing operations."""
         # Create multiple log files
         files = []
-        for i in range(5):
+        for _ in range(5):
             content = self._generate_test_content(2000)
             with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
                 f.write(content)
@@ -448,13 +454,13 @@ class TestRealtimeStreamingPerformance:
             # Wait for monitoring to complete
             try:
                 await asyncio.wait_for(monitor_task, timeout=2.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 monitor_task.cancel()
 
             # Analyze latency
             if len(entries_received) >= 3:
                 latencies = []
-                for i, (receive_time, entry) in enumerate(entries_received):
+                for i, (receive_time, _entry) in enumerate(entries_received):
                     if i < len(write_times):
                         latency = receive_time - write_times[i]
                         latencies.append(latency)

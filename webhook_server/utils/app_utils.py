@@ -23,7 +23,7 @@ async def get_github_allowlist(http_client: httpx.AsyncClient) -> list[str]:
     """Fetch and cache GitHub IP allowlist asynchronously."""
     try:
         response = await http_client.get(GITHUB_META_URL)
-        response.raise_for_status()  # Check for HTTP errors
+        response.raise_for_status()
         data = response.json()
         return data.get("hooks", [])
 
@@ -81,8 +81,8 @@ async def gate_by_allowlist_ips(request: Request, allowed_ips: tuple[ipaddress._
 
         try:
             src_ip = ipaddress.ip_address(request.client.host)
-        except ValueError:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Could not parse client IP address")
+        except ValueError as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Could not parse client IP address") from e
 
         for valid_ip_range in allowed_ips:
             if src_ip in valid_ip_range:
@@ -116,4 +116,4 @@ def parse_datetime_string(datetime_str: str | None, field_name: str) -> datetime
         raise HTTPException(
             status_code=400,
             detail=f"Invalid {field_name} format: {datetime_str}. Expected ISO 8601 format. Error: {str(e)}",
-        )
+        ) from e

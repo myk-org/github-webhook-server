@@ -10,10 +10,13 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastapi import HTTPException
+from fastapi.responses import HTMLResponse
 from fastapi.testclient import TestClient
 from fastapi.websockets import WebSocketDisconnect
 
+from webhook_server.app import FASTAPI_APP
 from webhook_server.libs.log_parser import LogEntry
+from webhook_server.web.log_viewer import LogViewerController
 
 
 class TestLogViewerController:
@@ -27,7 +30,6 @@ class TestLogViewerController:
     @pytest.fixture
     def controller(self, mock_logger):
         """Create a LogViewerController instance for testing."""
-        from webhook_server.web.log_viewer import LogViewerController
 
         with patch("webhook_server.web.log_viewer.Config") as mock_config:
             mock_config_instance = Mock()
@@ -340,6 +342,10 @@ class TestLogViewerController:
             mock_path_instance.exists.return_value = True
             mock_log_file = Mock()
             mock_log_file.name = "test.log"
+            # Mock file stat for sorting by modification time
+            mock_stat = Mock()
+            mock_stat.st_mtime = 1234567890
+            mock_log_file.stat.return_value = mock_stat
             mock_path_instance.glob.return_value = [mock_log_file]
             mock_path.return_value = mock_path_instance
 
@@ -434,6 +440,104 @@ class TestLogViewerController:
         assert result["steps"] == []
         assert result["start_time"] is None
 
+    def test_build_workflow_timeline_with_task_fields(self, controller):
+        """Test workflow timeline includes task correlation fields."""
+        workflow_steps = [
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 0, 0),
+                level="STEP",
+                logger_name="main",
+                message="Starting check_tox task",
+                hook_id="hook1",
+                task_id="check_tox",
+                task_type="ci_check",
+                task_status=None,
+            ),
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 0, 5),
+                level="STEP",
+                logger_name="main",
+                message="Completed check_tox task",
+                hook_id="hook1",
+                task_id="check_tox",
+                task_type="ci_check",
+                task_status="completed",
+            ),
+        ]
+        result = controller._build_workflow_timeline(workflow_steps, "hook1")
+
+        # Verify overall structure
+        assert result["hook_id"] == "hook1"
+        assert result["step_count"] == 2
+        assert len(result["steps"]) == 2
+
+        # Verify first step includes task fields
+        first_step = result["steps"][0]
+        assert first_step["task_id"] == "check_tox"
+        assert first_step["task_type"] == "ci_check"
+        assert first_step["task_status"] is None
+        assert first_step["message"] == "Starting check_tox task"
+
+        # Verify second step includes updated task status
+        second_step = result["steps"][1]
+        assert second_step["task_id"] == "check_tox"
+        assert second_step["task_type"] == "ci_check"
+        assert second_step["task_status"] == "completed"
+        assert second_step["message"] == "Completed check_tox task"
+
+    def test_entry_matches_filters_event_type_mismatch(self, controller):
+        """Test _entry_matches_filters with non-matching event_type."""
+        entry = LogEntry(
+            timestamp=datetime.datetime.now(),
+            level="INFO",
+            logger_name="test",
+            message="Test message",
+            event_type="pull_request",
+        )
+
+        result = controller._entry_matches_filters(entry=entry, event_type="push")
+        assert result is False
+
+    def test_entry_matches_filters_github_user_mismatch(self, controller):
+        """Test _entry_matches_filters with non-matching github_user."""
+        entry = LogEntry(
+            timestamp=datetime.datetime.now(),
+            level="INFO",
+            logger_name="test",
+            message="Test message",
+            github_user="testuser",
+        )
+
+        result = controller._entry_matches_filters(entry=entry, github_user="otheruser")
+        assert result is False
+
+    def test_entry_matches_filters_level_mismatch(self, controller):
+        """Test _entry_matches_filters with non-matching level."""
+        entry = LogEntry(timestamp=datetime.datetime.now(), level="INFO", logger_name="test", message="Test message")
+
+        result = controller._entry_matches_filters(entry=entry, level="ERROR")
+        assert result is False
+
+    def test_entry_matches_filters_start_time(self, controller):
+        """Test _entry_matches_filters with start_time filter."""
+        entry_time = datetime.datetime(2024, 1, 1, 12, 0, 0)
+        entry = LogEntry(timestamp=entry_time, level="INFO", logger_name="test", message="Test message")
+
+        # Entry before start_time should be filtered out
+        start_time = datetime.datetime(2024, 1, 1, 13, 0, 0)
+        result = controller._entry_matches_filters(entry=entry, start_time=start_time)
+        assert result is False
+
+    def test_entry_matches_filters_end_time(self, controller):
+        """Test _entry_matches_filters with end_time filter."""
+        entry_time = datetime.datetime(2024, 1, 1, 14, 0, 0)
+        entry = LogEntry(timestamp=entry_time, level="INFO", logger_name="test", message="Test message")
+
+        # Entry after end_time should be filtered out
+        end_time = datetime.datetime(2024, 1, 1, 13, 0, 0)
+        result = controller._entry_matches_filters(entry=entry, end_time=end_time)
+        assert result is False
+
 
 class TestLogAPI:
     """Test cases for log viewer API endpoints."""
@@ -491,7 +595,6 @@ class TestLogAPI:
         with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
             mock_instance = Mock()
             mock_controller.return_value = mock_instance
-            from fastapi.responses import HTMLResponse
 
             mock_instance.get_log_page.return_value = HTMLResponse(content="<html><body>Log Viewer</body></html>")
             mock_instance.shutdown = AsyncMock()  # Add async shutdown method
@@ -510,8 +613,6 @@ class TestLogAPI:
                     ) as mock_cloudflare:
                         mock_github.return_value = []
                         mock_cloudflare.return_value = []
-
-                        from webhook_server.app import FASTAPI_APP
 
                         with TestClient(FASTAPI_APP) as client:
                             response = client.get("/logs")
@@ -835,9 +936,6 @@ class TestLogWebSocket:
     @pytest.mark.asyncio
     async def test_websocket_handle_real_implementation(self):
         """Test actual WebSocket handler implementation."""
-        from unittest.mock import Mock
-
-        from webhook_server.web.log_viewer import LogViewerController
 
         mock_logger = Mock()
         controller = LogViewerController(logger=mock_logger)
@@ -860,7 +958,6 @@ class TestLogWebSocket:
     @pytest.mark.asyncio
     async def test_websocket_handle_with_log_monitoring(self):
         """Test WebSocket handler with log monitoring."""
-        from webhook_server.web.log_viewer import LogViewerController
 
         mock_logger = Mock()
         controller = LogViewerController(logger=mock_logger)
@@ -897,7 +994,6 @@ class TestLogWebSocket:
     @pytest.mark.asyncio
     async def test_shutdown_websocket_cleanup(self):
         """Test shutdown method properly closes all WebSocket connections."""
-        from webhook_server.web.log_viewer import LogViewerController
 
         mock_logger = Mock()
         controller = LogViewerController(logger=mock_logger)
@@ -932,7 +1028,6 @@ class TestLogWebSocket:
     @pytest.mark.asyncio
     async def test_shutdown_websocket_close_error_handling(self):
         """Test shutdown method handles WebSocket close errors gracefully."""
-        from webhook_server.web.log_viewer import LogViewerController
 
         mock_logger = Mock()
         controller = LogViewerController(logger=mock_logger)
@@ -970,7 +1065,6 @@ class TestLogWebSocket:
     @pytest.mark.asyncio
     async def test_shutdown_empty_connections(self):
         """Test shutdown method works correctly with no active connections."""
-        from webhook_server.web.log_viewer import LogViewerController
 
         mock_logger = Mock()
         controller = LogViewerController(logger=mock_logger)
@@ -1117,7 +1211,6 @@ class TestWorkflowStepsAPI:
     def test_get_workflow_steps_success(self) -> None:
         """Test successful workflow steps retrieval."""
         # Import modules and patch before creating test client
-        from unittest.mock import AsyncMock, Mock
 
         # Mock workflow steps data
         mock_workflow_data = {
@@ -1160,10 +1253,6 @@ class TestWorkflowStepsAPI:
             with patch("webhook_server.app.get_log_viewer_controller", return_value=mock_instance):
                 # Also patch the singleton variable itself
                 with patch("webhook_server.app._log_viewer_controller_singleton", mock_instance):
-                    from fastapi.testclient import TestClient
-
-                    from webhook_server.app import FASTAPI_APP
-
                     client = TestClient(FASTAPI_APP)
 
                     # Make the request
@@ -1184,7 +1273,6 @@ class TestWorkflowStepsAPI:
     def test_get_workflow_steps_no_steps_found(self) -> None:
         """Test workflow steps when no steps are found."""
         # Import modules and patch before creating test client
-        from unittest.mock import AsyncMock, Mock
 
         # Mock empty workflow data
         mock_workflow_data = {
@@ -1208,10 +1296,6 @@ class TestWorkflowStepsAPI:
             with patch("webhook_server.app.get_log_viewer_controller", return_value=mock_instance):
                 # Also patch the singleton variable itself
                 with patch("webhook_server.app._log_viewer_controller_singleton", mock_instance):
-                    from fastapi.testclient import TestClient
-
-                    from webhook_server.app import FASTAPI_APP
-
                     client = TestClient(FASTAPI_APP)
 
                     # Make the request

@@ -37,6 +37,7 @@ COMMAND_ASSIGN_REVIEWER_STR: str = "assign-reviewer"
 COMMAND_ADD_ALLOWED_USER_STR: str = "add-allowed-user"
 COMMAND_AUTOMERGE_STR: str = "automerge"
 AUTOMERGE_LABEL_STR: str = "automerge"
+ROOT_APPROVERS_KEY: str = "root-approvers"
 
 # Gitlab colors require a '#' prefix; e.g: #
 USER_LABELS_DICT: dict[str, str] = {

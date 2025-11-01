@@ -74,6 +74,106 @@ properties:
     type: boolean
     description: Create a tracking issue for new pull requests (global default)
     default: true
+  max-owners-files:
+    type: integer
+    description: Maximum number of OWNERS files to process in a repository (default is 1000)
+    default: 1000
+    minimum: 1
+  batch-concurrency-limit:
+    type: integer
+    description: >
+      Maximum number of concurrent GraphQL batch operations (default is 10 to protect rate/connection limits, 0 for unlimited).
+      Works together with 'graphql.query-limits': batch-concurrency-limit controls HOW MANY batch operations run in parallel,
+      while query-limits controls HOW MUCH data each individual query fetches. For performance tuning, consider both settings -
+      high concurrency with large query limits may exceed rate limits, while low values may slow processing. Recommended: Keep
+      defaults unless you encounter rate limit errors (decrease) or slow webhook processing (increase).
+    default: 10
+    minimum: 0
+  post-merge-relabel-delay:
+    type: integer
+    description: Delay in seconds before relabeling open PRs after a PR is merged (default is 30 seconds to allow GitHub to update merge states)
+    default: 30
+    minimum: 0
+
+  graphql:
+    type: object
+    properties:
+      query-limits:
+        type: object
+        description: "GraphQL query pagination limits (first: N). Maximum: 100 (GitHub API limit)"
+        properties:
+          collaborators:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 100
+            description: "Max collaborators to fetch per query"
+          contributors:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 100
+            description: "Max contributors (mentionableUsers) to fetch"
+          issues:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 100
+            description: "Max open issues to fetch"
+          pull-requests:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 100
+            description: "Max open pull requests to fetch"
+          labels:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 100
+            description: "Max labels to fetch per PR/issue"
+          reviews:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 100
+            description: "Max reviews to fetch per PR"
+          commits:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 100
+            description: "Max commits to fetch per PR"
+          comments:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 100
+            description: "Max comments to fetch per PR"
+          assignees:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 100
+            description: "Max assignees to fetch per PR"
+          files:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 100
+            description: "Max changed files to fetch per PR"
+          associated-pull-requests:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 100
+            description: "Max associated PRs to fetch per commit"
+      tree-max-depth:
+        type: integer
+        default: 9
+        minimum: 1
+        maximum: 9
+        description: "Max directory depth for recursive tree traversal (default: 9, max safe value for GitHub's 25 depth limit)"
 
   pr-size-thresholds:
     type: object
@@ -260,6 +360,105 @@ properties:
           type: boolean
           description: Create a tracking issue for new pull requests
           default: true
+        max-owners-files:
+          type: integer
+          description: Maximum number of OWNERS files to process in this repository (default is 1000)
+          default: 1000
+          minimum: 1
+        batch-concurrency-limit:
+          type: integer
+          description: >
+            Maximum number of concurrent GraphQL batch operations for this repository (default is 10, 0 for unlimited).
+            Works together with 'graphql.query-limits': batch-concurrency-limit controls HOW MANY batch operations run in parallel,
+            while query-limits controls HOW MUCH data each individual query fetches. For performance tuning, consider both settings -
+            high concurrency with large query limits may exceed rate limits, while low values may slow processing. Recommended: Keep
+            defaults unless you encounter rate limit errors (decrease) or slow webhook processing (increase).
+          default: 10
+          minimum: 0
+        post-merge-relabel-delay:
+          type: integer
+          description: Delay in seconds before relabeling open PRs after a PR is merged (overrides global value for this repository)
+          default: 30
+          minimum: 0
+        graphql:
+          type: object
+          properties:
+            query-limits:
+              type: object
+              description: "GraphQL query pagination limits (first: N). Maximum: 100 (GitHub API limit)"
+              properties:
+                collaborators:
+                  type: integer
+                  default: 100
+                  minimum: 1
+                  maximum: 100
+                  description: "Max collaborators to fetch per query"
+                contributors:
+                  type: integer
+                  default: 100
+                  minimum: 1
+                  maximum: 100
+                  description: "Max contributors (mentionableUsers) to fetch"
+                issues:
+                  type: integer
+                  default: 100
+                  minimum: 1
+                  maximum: 100
+                  description: "Max open issues to fetch"
+                pull-requests:
+                  type: integer
+                  default: 100
+                  minimum: 1
+                  maximum: 100
+                  description: "Max open pull requests to fetch"
+                labels:
+                  type: integer
+                  default: 100
+                  minimum: 1
+                  maximum: 100
+                  description: "Max labels to fetch per PR/issue"
+                reviews:
+                  type: integer
+                  default: 100
+                  minimum: 1
+                  maximum: 100
+                  description: "Max reviews to fetch per PR"
+                commits:
+                  type: integer
+                  default: 100
+                  minimum: 1
+                  maximum: 100
+                  description: "Max commits to fetch per PR"
+                comments:
+                  type: integer
+                  default: 100
+                  minimum: 1
+                  maximum: 100
+                  description: "Max comments to fetch per PR"
+                assignees:
+                  type: integer
+                  default: 100
+                  minimum: 1
+                  maximum: 100
+                  description: "Max assignees to fetch per PR"
+                files:
+                  type: integer
+                  default: 100
+                  minimum: 1
+                  maximum: 100
+                  description: "Max changed files to fetch per PR"
+                associated-pull-requests:
+                  type: integer
+                  default: 100
+                  minimum: 1
+                  maximum: 100
+                  description: "Max associated PRs to fetch per commit"
+            tree-max-depth:
+              type: integer
+              default: 9
+              minimum: 1
+              maximum: 9
+              description: "Max directory depth for recursive tree traversal (repository-specific override, max safe value: 9)"
         pr-size-thresholds:
           type: object
           description: Custom PR size thresholds with label names and colors (repository-specific override)

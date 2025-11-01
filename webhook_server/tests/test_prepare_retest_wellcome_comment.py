@@ -1,6 +1,6 @@
 import pytest
 
-from webhook_server.libs.pull_request_handler import PullRequestHandler
+from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
 
 
 class TestPrepareRetestWellcomeMsg:
@@ -22,7 +22,10 @@ class TestPrepareRetestWellcomeMsg:
                 False,
                 False,
                 False,
-                " * `/retest build-container` - Rebuild and test container image\n * `/retest all` - Run all available tests\n",
+                (
+                    " * `/retest build-container` - Rebuild and test container image\n"
+                    " * `/retest all` - Run all available tests\n"
+                ),
             ),
             (
                 False,
@@ -30,7 +33,10 @@ class TestPrepareRetestWellcomeMsg:
                 True,
                 False,
                 False,
-                " * `/retest python-module-install` - Test Python package installation\n * `/retest all` - Run all available tests\n",
+                (
+                    " * `/retest python-module-install` - Test Python package installation\n"
+                    " * `/retest all` - Run all available tests\n"
+                ),
             ),
             (
                 False,
@@ -38,7 +44,10 @@ class TestPrepareRetestWellcomeMsg:
                 False,
                 True,
                 False,
-                " * `/retest pre-commit` - Run pre-commit hooks and checks\n * `/retest all` - Run all available tests\n",
+                (
+                    " * `/retest pre-commit` - Run pre-commit hooks and checks\n"
+                    " * `/retest all` - Run all available tests\n"
+                ),
             ),
             (
                 True,
@@ -46,7 +55,14 @@ class TestPrepareRetestWellcomeMsg:
                 True,
                 True,
                 True,
-                " * `/retest tox` - Run Python test suite with tox\n * `/retest build-container` - Rebuild and test container image\n * `/retest python-module-install` - Test Python package installation\n * `/retest pre-commit` - Run pre-commit hooks and checks\n * `/retest conventional-title` - Validate commit message format\n * `/retest all` - Run all available tests\n",
+                (
+                    " * `/retest tox` - Run Python test suite with tox\n"
+                    " * `/retest build-container` - Rebuild and test container image\n"
+                    " * `/retest python-module-install` - Test Python package installation\n"
+                    " * `/retest pre-commit` - Run pre-commit hooks and checks\n"
+                    " * `/retest conventional-title` - Validate commit message format\n"
+                    " * `/retest all` - Run all available tests\n"
+                ),
             ),
             (
                 False,
@@ -54,7 +70,10 @@ class TestPrepareRetestWellcomeMsg:
                 False,
                 False,
                 True,
-                " * `/retest conventional-title` - Validate commit message format\n * `/retest all` - Run all available tests\n",
+                (
+                    " * `/retest conventional-title` - Validate commit message format\n"
+                    " * `/retest all` - Run all available tests\n"
+                ),
             ),
         ],
     )
