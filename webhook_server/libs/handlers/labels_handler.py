@@ -226,8 +226,18 @@ class LabelsHandler:
         await self.wait_for_label(pull_request=pull_request, label=label, exists=True)
 
     async def wait_for_label(self, pull_request: PullRequestWrapper, label: str, exists: bool) -> bool:
+        async def _get_refreshed_pr(_pull_request: PullRequestWrapper) -> PullRequestWrapper:
+            _owner, _repo_name = self.github_webhook.owner_and_repo
+            _refreshed_pr_data = await self.unified_api.get_pull_request_data(
+                _owner, _repo_name, _pull_request.number, include_labels=True
+            )
+            _webhook_format = self.unified_api.convert_graphql_to_webhook(
+                graphql_data=_refreshed_pr_data, owner=_owner, repo=_repo_name
+            )
+            _refreshed_pr = PullRequestWrapper(owner=_owner, repo_name=_repo_name, webhook_data=_webhook_format)
+            return _refreshed_pr
+
         self.logger.debug(f"{self.log_prefix} waiting for label {label} to {'exist' if exists else 'not exist'}")
-        owner, repo_name = self.github_webhook.owner_and_repo
 
         # Create TimeoutWatch once outside the loop to track total elapsed time
         watch = TimeoutWatch(timeout=30)
@@ -242,12 +252,7 @@ class LabelsHandler:
 
             # Only refetch if label not found and we have time remaining
             if watch.remaining_time() > 0:
-                # Re-fetch labels to check for eventual consistency
-                refreshed_pr_data = await self.unified_api.get_pull_request_data(
-                    owner, repo_name, pull_request.number, include_labels=True
-                )
-                webhook_format = self.unified_api.convert_graphql_to_webhook(refreshed_pr_data, owner, repo_name)
-                refreshed_pr = PullRequestWrapper(owner=owner, repo_name=repo_name, webhook_data=webhook_format)
+                refreshed_pr = await _get_refreshed_pr(_pull_request=pull_request)
                 res = await self.label_exists_in_pull_request(pull_request=refreshed_pr, label=label)
                 if res == exists:
                     return True
