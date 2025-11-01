@@ -1230,27 +1230,21 @@ class TestLabelsHandler:
             sleep_times.append(duration)
 
         with patch("webhook_server.libs.handlers.labels_handler.TimeoutWatch") as mock_timeout_watch:
-            # Each iteration of the loop calls remaining_time() 3 times:
-            # 1. while condition check (line 243)
-            # 2. if check before refetch (line 250)
-            # 3. sleep_time calculation (line 261)
+            # Each iteration of the loop calls remaining_time() 2 times:
+            # 1. while condition check (line 238)
+            # 2. sleep_time calculation (line 253)
             # Need enough values for multiple iterations before timeout (returns 0)
             mock_timeout_watch.return_value.remaining_time.side_effect = [
                 30,
-                30,
-                30,  # Iteration 1: while, if, sleep
+                30,  # Iteration 1: while, sleep
                 29,
-                29,
-                29,  # Iteration 2: while, if, sleep
+                29,  # Iteration 2: while, sleep
                 27,
-                27,
-                27,  # Iteration 3: while, if, sleep
+                27,  # Iteration 3: while, sleep
                 23,
-                23,
-                23,  # Iteration 4: while, if, sleep
+                23,  # Iteration 4: while, sleep
                 15,
-                15,
-                15,  # Iteration 5: while, if, sleep
+                15,  # Iteration 5: while, sleep
                 0,  # Final while check - exits loop
             ]
 
