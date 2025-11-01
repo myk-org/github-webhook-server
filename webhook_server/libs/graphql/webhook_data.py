@@ -130,7 +130,12 @@ class LabelWrapper:
 
 
 class CommitWrapper:
-    """Wrapper for GitHub commit data from webhook payloads."""
+    """
+    Wrapper for GitHub commit data from webhook payloads or GraphQL responses.
+
+    Provides a consistent interface for accessing commit information
+    (SHA, author, committer) across different data sources.
+    """
 
     def __init__(self, data: dict[str, Any]):
         if not data:

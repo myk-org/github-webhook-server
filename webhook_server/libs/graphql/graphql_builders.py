@@ -526,7 +526,12 @@ class QueryBuilder:
 
 
 class MutationBuilder:
-    """Builder for GraphQL mutations."""
+    """
+    Builder for GraphQL mutations.
+
+    Provides static methods to build GraphQL mutation strings for GitHub API v4.
+    All mutations return mutation strings and variables dictionaries.
+    """
 
     @staticmethod
     def add_comment(subject_id: str, body: str) -> tuple[str, dict[str, Any]]:

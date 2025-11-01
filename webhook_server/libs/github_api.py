@@ -119,6 +119,23 @@ class GithubWebhook:
         )
 
     async def process(self) -> Any:
+        """
+        Process incoming GitHub webhook event.
+
+        Routes webhook events to appropriate handlers based on event type:
+        - ping: Returns pong response
+        - push: Processes via PushHandler
+        - pull_request: Processes via PullRequestHandler
+        - issue_comment: Processes via IssueCommentHandler
+        - pull_request_review: Processes via PullRequestReviewHandler
+        - check_run: Processes via CheckRunHandler
+
+        Returns:
+            Response dict for ping events, None for other events
+
+        Raises:
+            Exception: If repository data fetch fails (fail-fast pattern)
+        """
         event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
         self.logger.step(  # type: ignore[attr-defined]
             f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'started')} "
@@ -373,6 +390,12 @@ class GithubWebhook:
                     self.logger.debug(f"Failed to clean up temp directory {self.clone_repo_dir}: {ex}")
 
     def add_api_users_to_auto_verified_and_merged_users(self) -> None:
+        """
+        Add API users to auto-verified and merged users list.
+
+        Iterates through configured GitHub API tokens and adds the associated
+        users to the auto-verified list. Skips tokens with invalid rate limits (60).
+        """
         apis_and_tokens = get_apis_and_tokes_from_config(config=self.config)
         for _api, _ in apis_and_tokens:
             if _api.rate_limiting[-1] == 60:
@@ -463,6 +486,18 @@ class GithubWebhook:
         )
 
     def prepare_log_prefix(self, pull_request: PullRequestWrapper | None = None) -> str:
+        """
+        Prepare log prefix string for structured logging.
+
+        Creates a formatted log prefix containing event type, delivery ID,
+        repository name, API user, and optional PR number.
+
+        Args:
+            pull_request: Optional PR object to include PR number in prefix
+
+        Returns:
+            Formatted log prefix string
+        """
         return prepare_log_prefix(
             event_type=self.github_event,
             delivery_id=self.x_github_delivery,

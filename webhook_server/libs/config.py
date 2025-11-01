@@ -54,6 +54,22 @@ class Config:
         return self.root_data["repositories"].get(self.repository, {})
 
     def repository_local_data(self, github_api: github.Github, repository_full_name: str) -> dict[str, Any]:
+        """
+        Get repository-specific configuration from .github-webhook-server.yaml file.
+
+        Reads configuration from the repository's .github-webhook-server.yaml file,
+        which takes precedence over global config.yaml settings.
+
+        Args:
+            github_api: PyGithub API instance for repository access
+            repository_full_name: Full repository name (owner/repo-name)
+
+        Returns:
+            Dictionary containing repository configuration, or empty dict if file not found
+
+        Raises:
+            yaml.YAMLError: If repository config file has invalid YAML syntax
+        """
         if self.repository and repository_full_name:
             try:
                 # Directly use github_api.get_repo instead of importing get_github_repo_api

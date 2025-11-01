@@ -1632,9 +1632,7 @@ class UnifiedGitHubAPI:
         Get a specific issue/PR comment.
 
         Uses: REST
-        Scope: Currently fetches comment via PR endpoint (works for both PR comments and issue comments
-               on PRs). For pure issue comments (non-PR), this method works as PyGithub's get_pull()
-               returns an Issue object when the number refers to an issue.
+        Reason: Individual comment queries not yet efficient in GraphQL v4
 
         Args:
             owner: Repository owner
@@ -1645,8 +1643,12 @@ class UnifiedGitHubAPI:
         Returns:
             Comment object from PyGithub
 
-        TODO: Migrate to GraphQL when available - Individual comment queries not yet efficient in GraphQL v4.
-              Monitor for: issueComment(id: COMMENT_NODE_ID) { ... } or similar query.
+        Note:
+            Currently fetches comment via PR endpoint (works for both PR comments and issue comments
+            on PRs). For pure issue comments (non-PR), this method works as PyGithub's get_pull()
+            returns an Issue object when the number refers to an issue.
+
+        TODO: Migrate to GraphQL when available - Monitor for: issueComment(id: COMMENT_NODE_ID) { ... }
         """
         repo = await self.get_repository_for_rest_operations(owner, name)
         issue = await asyncio.to_thread(repo.get_issue, number)
