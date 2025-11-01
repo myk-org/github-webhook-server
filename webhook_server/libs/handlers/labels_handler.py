@@ -226,17 +226,7 @@ class LabelsHandler:
         await self.wait_for_label(pull_request=pull_request, label=label, exists=True)
 
     async def wait_for_label(self, pull_request: PullRequestWrapper, label: str, exists: bool) -> bool:
-        async def _get_refreshed_pr(_pull_request: PullRequestWrapper) -> PullRequestWrapper:
-            _owner, _repo_name = self.github_webhook.owner_and_repo
-            _refreshed_pr_data = await self.unified_api.get_pull_request_data(
-                _owner, _repo_name, _pull_request.number, include_labels=True
-            )
-            _webhook_format = self.unified_api.convert_graphql_to_webhook(
-                graphql_data=_refreshed_pr_data, owner=_owner, repo=_repo_name
-            )
-            _refreshed_pr = PullRequestWrapper(owner=_owner, repo_name=_repo_name, webhook_data=_webhook_format)
-            return _refreshed_pr
-
+        __import__("ipdb").set_trace()
         self.logger.debug(f"{self.log_prefix} waiting for label {label} to {'exist' if exists else 'not exist'}")
 
         # Create TimeoutWatch once outside the loop to track total elapsed time
@@ -244,26 +234,28 @@ class LabelsHandler:
         backoff_seconds = 0.5
         max_backoff = 5
 
+        owner, repo_name = self.github_webhook.owner_and_repo
+
         while watch.remaining_time() > 0:
-            # First check current labels (might already be updated from mutation response)
-            res = await self.label_exists_in_pull_request(pull_request=pull_request, label=label)
+            refreshed_pr_data = await self.unified_api.get_pull_request_data(
+                owner=owner, name=repo_name, number=pull_request.number, include_labels=True
+            )
+            webhook_format = self.unified_api.convert_graphql_to_webhook(
+                graphql_data=refreshed_pr_data, owner=owner, repo=repo_name
+            )
+            updated_pull_request = PullRequestWrapper(owner=owner, repo_name=repo_name, webhook_data=webhook_format)
+            res = await self.label_exists_in_pull_request(pull_request=updated_pull_request, label=label)
+
             if res == exists:
+                self.logger.debug(f"{self.log_prefix} Label {label} {'not found' if exists else 'found'}")
                 return True
 
-            # Only refetch if label not found and we have time remaining
-            if watch.remaining_time() > 0:
-                refreshed_pr = await _get_refreshed_pr(_pull_request=pull_request)
-                res = await self.label_exists_in_pull_request(pull_request=refreshed_pr, label=label)
-                if res == exists:
-                    return True
+            # Exponential backoff with cap
+            sleep_time = min(backoff_seconds, max_backoff, watch.remaining_time())
+            if sleep_time > 0:
+                await asyncio.sleep(sleep_time)
+                backoff_seconds = min(backoff_seconds * 2, max_backoff)
 
-                # Exponential backoff with cap
-                sleep_time = min(backoff_seconds, max_backoff, watch.remaining_time())
-                if sleep_time > 0:
-                    await asyncio.sleep(sleep_time)
-                    backoff_seconds = min(backoff_seconds * 2, max_backoff)
-
-        self.logger.debug(f"{self.log_prefix} Label {label} {'not found' if exists else 'found'}")
         return False
 
     def _get_label_color(self, label: str) -> str:
