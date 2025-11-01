@@ -1,5 +1,6 @@
 """Tests for webhook_server.libs.handlers.push_handler module."""
 
+import json
 import os
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -165,74 +166,83 @@ class TestPushHandler:
     @pytest.mark.asyncio
     async def test_upload_to_pypi_success(self, push_handler: PushHandler) -> None:
         """Test successful upload to pypi."""
-        with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-            with pypi_upload_mocks() as mocks:
-                # Mock successful clone
-                mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+        with patch("requests.post") as mock_post:
+            # Mock successful Slack webhook response
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.text = "ok"
+            mock_post.return_value = mock_response
 
-                # Mock successful build (no find command anymore)
-                mocks["run_command"].side_effect = [
-                    (True, "", ""),  # uv build
-                    (True, "", ""),  # twine check
-                    (True, "", ""),  # twine upload
-                ]
+            with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
+                with pypi_upload_mocks() as mocks:
+                    # Mock successful clone
+                    mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
-                # Mock Path.glob() to return tar.gz file
-                mock_tarball = Mock()
-                mock_tarball.name = "package-1.0.0.tar.gz"
-                mocks["path"].return_value.glob.return_value = [mock_tarball]
+                    # Mock successful build (no find command anymore)
+                    mocks["run_command"].side_effect = [
+                        (True, "", ""),  # uv build
+                        (True, "", ""),  # twine check
+                        (True, "", ""),  # twine upload
+                    ]
 
-                await push_handler.upload_to_pypi(tag_name="v1.0.0")
+                    # Mock Path.glob() to return tar.gz file
+                    mock_tarball = Mock()
+                    mock_tarball.name = "package-1.0.0.tar.gz"
+                    mocks["path"].return_value.glob.return_value = [mock_tarball]
 
-                # Verify clone was called
-                mock_prepare.assert_called_once()
+                    await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
-                # Verify build command was called (3 times now: build, check, upload)
-                assert mocks["run_command"].call_count == 3
+                    # Verify clone was called
+                    mock_prepare.assert_called_once()
 
-                # Verify twine check command (doesn't use --config-file, just checks the tarball)
-                twine_check_call = mocks["run_command"].call_args_list[1]
-                assert "twine check" in twine_check_call.kwargs["command"]
-                assert "package-1.0.0.tar.gz" in twine_check_call.kwargs["command"]
-                # Verify token redaction is enabled for twine check
-                assert "redact_secrets" in twine_check_call.kwargs
-                assert "test-token" in twine_check_call.kwargs["redact_secrets"]
+                    # Verify build command was called (3 times now: build, check, upload)
+                    assert mocks["run_command"].call_count == 3
 
-                # Verify twine upload command uses --config-file and redacts token
-                twine_upload_call = mocks["run_command"].call_args_list[2]
-                assert "twine upload" in twine_upload_call.kwargs["command"]
-                assert "--config-file" in twine_upload_call.kwargs["command"]
-                assert ".pypirc" in twine_upload_call.kwargs["command"]
-                # Verify token redaction is enabled
-                assert "redact_secrets" in twine_upload_call.kwargs
-                assert "test-token" in twine_upload_call.kwargs["redact_secrets"]
+                    # Verify twine check command (doesn't use --config-file, just checks the tarball)
+                    twine_check_call = mocks["run_command"].call_args_list[1]
+                    assert "twine check" in twine_check_call.kwargs["command"]
+                    assert "package-1.0.0.tar.gz" in twine_check_call.kwargs["command"]
+                    # Verify token redaction is enabled for twine check
+                    assert "redact_secrets" in twine_check_call.kwargs
+                    assert "test-token" in twine_check_call.kwargs["redact_secrets"]
 
-                # Verify .pypirc content was written correctly
-                mocks["mock_file"].write.assert_called_once()
-                pypirc_content = mocks["mock_file"].write.call_args[0][0]
-                assert "[pypi]" in pypirc_content
-                assert "username = __token__" in pypirc_content
-                assert "password = test-token" in pypirc_content
+                    # Verify twine upload command uses --config-file and redacts token
+                    twine_upload_call = mocks["run_command"].call_args_list[2]
+                    assert "twine upload" in twine_upload_call.kwargs["command"]
+                    assert "--config-file" in twine_upload_call.kwargs["command"]
+                    assert ".pypirc" in twine_upload_call.kwargs["command"]
+                    # Verify token redaction is enabled
+                    assert "redact_secrets" in twine_upload_call.kwargs
+                    assert "test-token" in twine_upload_call.kwargs["redact_secrets"]
 
-                # Verify os.open was called with atomic creation flags and secure permissions
-                expected_flags = os.O_CREAT | os.O_WRONLY | os.O_EXCL
-                if hasattr(os, "O_NOFOLLOW"):
-                    expected_flags |= os.O_NOFOLLOW
-                # Get the actual path used from mock_os_open call
-                actual_pypirc_path = mocks["os_open"].call_args[0][0]
-                assert actual_pypirc_path.endswith("test-repo-test-uuid/.pypirc")
-                assert mocks["os_open"].call_args[0][1] == expected_flags
-                assert mocks["os_open"].call_args[0][2] == 0o600
+                    # Verify .pypirc content was written correctly
+                    mocks["mock_file"].write.assert_called_once()
+                    pypirc_content = mocks["mock_file"].write.call_args[0][0]
+                    assert "[pypi]" in pypirc_content
+                    assert "username = __token__" in pypirc_content
+                    assert "password = test-token" in pypirc_content
 
-                # Verify os.fdopen was called with the file descriptor
-                mocks["fdopen"].assert_called_once_with(3, "w", encoding="utf-8")
+                    # Verify os.open was called with atomic creation flags and secure permissions
+                    expected_flags = os.O_CREAT | os.O_WRONLY | os.O_EXCL
+                    if hasattr(os, "O_NOFOLLOW"):
+                        expected_flags |= os.O_NOFOLLOW
+                    # Get the actual path used from mock_os_open call
+                    actual_pypirc_path = mocks["os_open"].call_args[0][0]
+                    assert actual_pypirc_path.endswith("test-repo-test-uuid/.pypirc")
+                    assert mocks["os_open"].call_args[0][1] == expected_flags
+                    assert mocks["os_open"].call_args[0][2] == 0o600
 
-                # Verify .pypirc was cleaned up after successful upload
-                assert mocks["remove"].call_args[0][0].endswith("test-repo-test-uuid/.pypirc")
+                    # Verify os.fdopen was called with the file descriptor
+                    mocks["fdopen"].assert_called_once_with(3, "w", encoding="utf-8")
 
-                # Verify slack message was sent via asyncio.to_thread
-                # This is now done through asyncio.to_thread(send_slack_message, ...)
-                # We can verify by checking run_command was successful and slack_webhook_url is set
+                    # Verify .pypirc was cleaned up after successful upload
+                    assert mocks["remove"].call_args[0][0].endswith("test-repo-test-uuid/.pypirc")
+
+                # Verify slack message was sent
+                mock_post.assert_called_once()
+                call_args = mock_post.call_args
+                assert call_args[0][0] == "https://hooks.slack.com/test"
+                assert call_args[1]["headers"]["Content-Type"] == "application/json"
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_clone_failure(self, push_handler: PushHandler) -> None:
@@ -296,43 +306,53 @@ class TestPushHandler:
         This test verifies that when multiple artifacts exist, the implementation correctly
         selects the first one (sorted) for upload.
         """
-        with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-            with pypi_upload_mocks() as mocks:
-                # Mock successful clone
-                mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+        with patch("webhook_server.utils.notification_utils.requests.post") as mock_post:
+            # Mock successful Slack webhook response
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.text = "ok"
+            mock_post.return_value = mock_response
 
-                # Mock successful build, twine check, and upload
-                mocks["run_command"].side_effect = [
-                    (True, "", ""),  # uv build
-                    (True, "", ""),  # twine check
-                    (True, "", ""),  # twine upload
-                ]
+            with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
+                with pypi_upload_mocks() as mocks:
+                    # Mock successful clone
+                    mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
-                # Mock Path.glob() to return multiple tar.gz files (sorted)
-                # Need to use MagicMock to support comparison for sorted()
+                    # Mock successful build, twine check, and upload
+                    mocks["run_command"].side_effect = [
+                        (True, "", ""),  # uv build
+                        (True, "", ""),  # twine check
+                        (True, "", ""),  # twine upload
+                    ]
 
-                mock_tarball1 = MagicMock()
-                mock_tarball1.name = "aaa-package-1.0.0.tar.gz"
-                mock_tarball1.__lt__ = lambda self, other: self.name < other.name
-                mock_tarball2 = MagicMock()
-                mock_tarball2.name = "zzz-package-1.0.0.tar.gz"
-                mock_tarball2.__lt__ = lambda self, other: self.name < other.name
-                # Return in specific order to verify sorting behavior
-                mocks["path"].return_value.glob.return_value = [mock_tarball2, mock_tarball1]
+                    # Mock Path.glob() to return multiple tar.gz files (sorted)
+                    # Need to use MagicMock to support comparison for sorted()
 
-                await push_handler.upload_to_pypi(tag_name="v1.0.0")
+                    mock_tarball1 = MagicMock()
+                    mock_tarball1.name = "aaa-package-1.0.0.tar.gz"
+                    mock_tarball1.__lt__ = lambda self, other: self.name < other.name
+                    mock_tarball2 = MagicMock()
+                    mock_tarball2.name = "zzz-package-1.0.0.tar.gz"
+                    mock_tarball2.__lt__ = lambda self, other: self.name < other.name
+                    # Return in specific order to verify sorting behavior
+                    mocks["path"].return_value.glob.return_value = [mock_tarball2, mock_tarball1]
 
-                # Verify twine check was called with first artifact (alphabetically sorted)
-                twine_check_call = mocks["run_command"].call_args_list[1][1]
-                assert "aaa-package-1.0.0.tar.gz" in twine_check_call["command"]
+                    await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
-                # Verify twine upload was called with first artifact
-                twine_upload_call = mocks["run_command"].call_args_list[2][1]
-                assert "aaa-package-1.0.0.tar.gz" in twine_upload_call["command"]
+                    # Verify twine check was called with first artifact (alphabetically sorted)
+                    twine_check_call = mocks["run_command"].call_args_list[1][1]
+                    assert "aaa-package-1.0.0.tar.gz" in twine_check_call["command"]
 
-                # Verify .pypirc cleanup
-                mocks["remove"].assert_called_once()
-                assert mocks["remove"].call_args[0][0].endswith(".pypirc")
+                    # Verify twine upload was called with first artifact
+                    twine_upload_call = mocks["run_command"].call_args_list[2][1]
+                    assert "aaa-package-1.0.0.tar.gz" in twine_upload_call["command"]
+
+                    # Verify .pypirc cleanup
+                    mocks["remove"].assert_called_once()
+                    assert mocks["remove"].call_args[0][0].endswith(".pypirc")
+
+                # Verify slack message was sent
+                mock_post.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_twine_check_failure(self, push_handler: PushHandler) -> None:
@@ -425,76 +445,96 @@ class TestPushHandler:
     @pytest.mark.asyncio
     async def test_upload_to_pypi_commands_execution_order(self, push_handler: PushHandler) -> None:
         """Test that commands are executed in the correct order."""
-        with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-            with pypi_upload_mocks() as mocks:
-                # Mock successful clone
-                mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+        with patch("webhook_server.utils.notification_utils.requests.post") as mock_post:
+            # Mock successful Slack webhook response
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.text = "ok"
+            mock_post.return_value = mock_response
 
-                # Mock successful all commands (no find command anymore)
-                mocks["run_command"].side_effect = [
-                    (True, "", ""),  # uv build
-                    (True, "", ""),  # twine check
-                    (True, "", ""),  # twine upload
-                ]
+            with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
+                with pypi_upload_mocks() as mocks:
+                    # Mock successful clone
+                    mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
-                # Mock Path.glob() to return tar.gz file
-                mock_tarball = Mock()
-                mock_tarball.name = "package-1.0.0.tar.gz"
-                mocks["path"].return_value.glob.return_value = [mock_tarball]
+                    # Mock successful all commands (no find command anymore)
+                    mocks["run_command"].side_effect = [
+                        (True, "", ""),  # uv build
+                        (True, "", ""),  # twine check
+                        (True, "", ""),  # twine upload
+                    ]
 
-                await push_handler.upload_to_pypi(tag_name="v1.0.0")
+                    # Mock Path.glob() to return tar.gz file
+                    mock_tarball = Mock()
+                    mock_tarball.name = "package-1.0.0.tar.gz"
+                    mocks["path"].return_value.glob.return_value = [mock_tarball]
 
-                # Verify commands were called in correct order
-                calls = mocks["run_command"].call_args_list
-                # Each call is call(command=..., log_prefix=...)
-                # The command string is in the 'command' kwarg
-                assert len(calls) == 3
-                assert "uv" in calls[0].kwargs["command"]
-                assert "build" in calls[0].kwargs["command"]
+                    await push_handler.upload_to_pypi(tag_name="v1.0.0")
 
-                # Verify twine check (doesn't use --config-file)
-                assert "twine check" in calls[1].kwargs["command"]
-                assert "package-1.0.0.tar.gz" in calls[1].kwargs["command"]
-                # Verify token redaction is enabled for twine check
-                assert "redact_secrets" in calls[1].kwargs
-                assert "test-token" in calls[1].kwargs["redact_secrets"]
+                    # Verify commands were called in correct order
+                    calls = mocks["run_command"].call_args_list
+                    # Each call is call(command=..., log_prefix=...)
+                    # The command string is in the 'command' kwarg
+                    assert len(calls) == 3
+                    assert "uv" in calls[0].kwargs["command"]
+                    assert "build" in calls[0].kwargs["command"]
 
-                # Verify twine upload has --config-file and token redaction
-                assert "twine upload" in calls[2].kwargs["command"]
-                assert "--config-file" in calls[2].kwargs["command"]
-                assert ".pypirc" in calls[2].kwargs["command"]
-                assert "package-1.0.0.tar.gz" in calls[2].kwargs["command"]
-                # Verify token redaction is enabled for upload
-                assert "redact_secrets" in calls[2].kwargs
-                assert "test-token" in calls[2].kwargs["redact_secrets"]
+                    # Verify twine check (doesn't use --config-file)
+                    assert "twine check" in calls[1].kwargs["command"]
+                    assert "package-1.0.0.tar.gz" in calls[1].kwargs["command"]
+                    # Verify token redaction is enabled for twine check
+                    assert "redact_secrets" in calls[1].kwargs
+                    assert "test-token" in calls[1].kwargs["redact_secrets"]
+
+                    # Verify twine upload has --config-file and token redaction
+                    assert "twine upload" in calls[2].kwargs["command"]
+                    assert "--config-file" in calls[2].kwargs["command"]
+                    assert ".pypirc" in calls[2].kwargs["command"]
+                    assert "package-1.0.0.tar.gz" in calls[2].kwargs["command"]
+                    # Verify token redaction is enabled for upload
+                    assert "redact_secrets" in calls[2].kwargs
+                    assert "test-token" in calls[2].kwargs["redact_secrets"]
+
+                # Verify slack message was sent
+                mock_post.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_unique_clone_directory(self, push_handler: PushHandler) -> None:
         """Test that each upload uses a unique clone directory."""
-        with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-            with pypi_upload_mocks() as mocks:
-                # Mock successful clone
-                mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+        with patch("requests.post") as mock_post:
+            # Mock successful Slack webhook response
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.text = "ok"
+            mock_post.return_value = mock_response
 
-                # Mock successful build (no find command anymore)
-                mocks["run_command"].side_effect = [
-                    (True, "", ""),  # uv build
-                    (True, "", ""),  # twine check
-                    (True, "", ""),  # twine upload
-                ]
+            with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
+                with pypi_upload_mocks() as mocks:
+                    # Mock successful clone
+                    mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
-                # Mock Path.glob() to return tar.gz file
-                mock_tarball = Mock()
-                mock_tarball.name = "package-1.0.0.tar.gz"
-                mocks["path"].return_value.glob.return_value = [mock_tarball]
+                    # Mock successful build (no find command anymore)
+                    mocks["run_command"].side_effect = [
+                        (True, "", ""),  # uv build
+                        (True, "", ""),  # twine check
+                        (True, "", ""),  # twine upload
+                    ]
 
-                await push_handler.upload_to_pypi(tag_name="v1.0.0")
+                    # Mock Path.glob() to return tar.gz file
+                    mock_tarball = Mock()
+                    mock_tarball.name = "package-1.0.0.tar.gz"
+                    mocks["path"].return_value.glob.return_value = [mock_tarball]
 
-                # Verify clone directory includes UUID
-                mock_prepare.assert_called_once()
-                call_args = mock_prepare.call_args
-                assert "test-uuid" in call_args[1]["clone_repo_dir"]
-                assert call_args[1]["clone_repo_dir"].endswith("test-repo-test-uuid")
+                    await push_handler.upload_to_pypi(tag_name="v1.0.0")
+
+                    # Verify clone directory includes UUID
+                    mock_prepare.assert_called_once()
+                    call_args = mock_prepare.call_args
+                    assert "test-uuid" in call_args[1]["clone_repo_dir"]
+                    assert call_args[1]["clone_repo_dir"].endswith("test-repo-test-uuid")
+
+                # Verify slack message was sent
+                mock_post.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_issue_creation_format(self, push_handler: PushHandler) -> None:
@@ -516,28 +556,42 @@ class TestPushHandler:
     @pytest.mark.asyncio
     async def test_upload_to_pypi_slack_message_format(self, push_handler: PushHandler) -> None:
         """Test that slack messages are sent with proper format."""
-        with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-            with pypi_upload_mocks() as mocks:
-                # Mock successful clone
-                mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+        with patch("webhook_server.utils.notification_utils.requests.post") as mock_post:
+            # Mock successful Slack webhook response
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.text = "ok"
+            mock_post.return_value = mock_response
 
-                # Mock successful build
-                mocks["run_command"].side_effect = [
-                    (True, "", ""),  # uv build
-                    (True, "", ""),  # twine check
-                    (True, "", ""),  # twine upload
-                ]
+            with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
+                with pypi_upload_mocks() as mocks:
+                    # Mock successful clone
+                    mock_prepare.return_value.__aenter__.return_value = (True, "", "")
 
-                # Mock Path.glob() to return tar.gz file
-                mock_tarball = Mock()
-                mock_tarball.name = "package-1.0.0.tar.gz"
-                mocks["path"].return_value.glob.return_value = [mock_tarball]
+                    # Mock successful build
+                    mocks["run_command"].side_effect = [
+                        (True, "", ""),  # uv build
+                        (True, "", ""),  # twine check
+                        (True, "", ""),  # twine upload
+                    ]
 
-                await push_handler.upload_to_pypi(tag_name="v1.0.0")
+                    # Mock Path.glob() to return tar.gz file
+                    mock_tarball = Mock()
+                    mock_tarball.name = "package-1.0.0.tar.gz"
+                    mocks["path"].return_value.glob.return_value = [mock_tarball]
 
-            # Verify slack message was sent (verified indirectly through successful execution)
-            # Slack is now called via asyncio.to_thread(send_slack_message, ...)
-            # If webhook succeeds and slack_webhook_url is set, message is sent
+                    await push_handler.upload_to_pypi(tag_name="v1.0.0")
+
+                # Verify slack message was sent with correct format
+                mock_post.assert_called_once()
+                call_args = mock_post.call_args
+                assert call_args[0][0] == "https://hooks.slack.com/test"
+                assert call_args[1]["headers"]["Content-Type"] == "application/json"
+
+                # Verify message content contains repository name and tag
+                slack_data = json.loads(call_args[1]["data"])
+                assert "test-repo" in slack_data["text"]
+                assert "v1.0.0" in slack_data["text"]
 
     @pytest.mark.asyncio
     async def test_upload_to_pypi_missing_token(self, push_handler: PushHandler) -> None:

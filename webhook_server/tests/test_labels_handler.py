@@ -192,9 +192,20 @@ class TestLabelsHandler:
         self, labels_handler: LabelsHandler, mock_pull_request: Mock
     ) -> None:
         """Test label removal with exception handling."""
+        mock_pr_data = {
+            "number": 123,
+            "labels": {"nodes": [{"name": "test-label", "id": "LA_test"}]},
+        }
+        mock_webhook_data = {
+            "number": 123,
+            "labels": [{"name": "test-label", "id": "LA_test"}],
+        }
+
         with patch.object(labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock, return_value=True):
             labels_handler.unified_api.get_label_id.return_value = "LA_test"
-            labels_handler.unified_api.remove_labels.side_effect = Exception("Test error")
+            labels_handler.unified_api.get_pull_request_data = AsyncMock(return_value=mock_pr_data)
+            labels_handler.unified_api.convert_graphql_to_webhook = Mock(return_value=mock_webhook_data)
+            labels_handler.unified_api.remove_labels = AsyncMock(side_effect=Exception("Test error"))
 
             result = await labels_handler._remove_label(mock_pull_request, "test-label")
             assert result is False
@@ -204,15 +215,32 @@ class TestLabelsHandler:
         self, labels_handler: LabelsHandler, mock_pull_request: Mock
     ) -> None:
         """Test _remove_label with exception during wait operation."""
+        mock_pr_data = {
+            "number": 123,
+            "labels": {"nodes": [{"name": "test-label", "id": "LA_test"}]},
+        }
+        mock_webhook_data = {
+            "number": 123,
+            "labels": [{"name": "test-label", "id": "LA_test"}],
+        }
+
         with patch("webhook_server.libs.handlers.labels_handler.TimeoutWatch") as mock_timeout:
             mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
             with patch("asyncio.sleep", new_callable=AsyncMock):
                 with patch.object(
                     labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock, side_effect=[True, False]
                 ):
+
+                    async def wait_for_label_side_effect(*args, **kwargs):
+                        raise Exception("Wait failed")
+
                     with patch.object(
-                        labels_handler, "wait_for_label", new_callable=AsyncMock, side_effect=Exception("Wait failed")
+                        labels_handler, "wait_for_label", new_callable=AsyncMock, side_effect=wait_for_label_side_effect
                     ):
+                        labels_handler.unified_api.get_pull_request_data = AsyncMock(return_value=mock_pr_data)
+                        labels_handler.unified_api.convert_graphql_to_webhook = Mock(return_value=mock_webhook_data)
+                        labels_handler.unified_api.remove_labels = AsyncMock(return_value=None)
+
                         result = await labels_handler._remove_label(mock_pull_request, "test-label")
                         assert result is False
 
@@ -221,15 +249,32 @@ class TestLabelsHandler:
         self, labels_handler: LabelsHandler, mock_pull_request: Mock
     ) -> None:
         """Test _remove_label with exception during wait_for_label."""
+        mock_pr_data = {
+            "number": 123,
+            "labels": {"nodes": [{"name": "test-label", "id": "LA_test"}]},
+        }
+        mock_webhook_data = {
+            "number": 123,
+            "labels": [{"name": "test-label", "id": "LA_test"}],
+        }
+
         with patch("webhook_server.libs.handlers.labels_handler.TimeoutWatch") as mock_timeout:
             mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
             with patch("asyncio.sleep", new_callable=AsyncMock):
                 with patch.object(
                     labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock, side_effect=[True, False]
                 ):
+
+                    async def wait_for_label_side_effect(*args, **kwargs):
+                        raise Exception("Wait failed")
+
                     with patch.object(
-                        labels_handler, "wait_for_label", new_callable=AsyncMock, side_effect=Exception("Wait failed")
+                        labels_handler, "wait_for_label", new_callable=AsyncMock, side_effect=wait_for_label_side_effect
                     ):
+                        labels_handler.unified_api.get_pull_request_data = AsyncMock(return_value=mock_pr_data)
+                        labels_handler.unified_api.convert_graphql_to_webhook = Mock(return_value=mock_webhook_data)
+                        labels_handler.unified_api.remove_labels = AsyncMock(return_value=None)
+
                         result = await labels_handler._remove_label(mock_pull_request, "test-label")
                         assert result is False
 
@@ -515,8 +560,12 @@ class TestLabelsHandler:
     ) -> None:
         """Test manage_reviewed_by_label with commented state."""
         with patch.object(labels_handler, "_add_label", new_callable=AsyncMock) as mock_add:
-            await labels_handler.manage_reviewed_by_label(mock_pull_request, "commented", ADD_STR, "reviewer1")
-            mock_add.assert_called_once()
+            with patch.object(
+                labels_handler, "_remove_label", new_callable=AsyncMock, return_value=True
+            ) as mock_remove:
+                await labels_handler.manage_reviewed_by_label(mock_pull_request, "commented", ADD_STR, "reviewer1")
+                mock_add.assert_called_once()
+                mock_remove.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_manage_reviewed_by_label_unsupported_state(
@@ -749,10 +798,14 @@ class TestLabelsHandler:
     ) -> None:
         """Test manage_reviewed_by_label for commented with add action."""
         with patch.object(labels_handler, "_add_label", new_callable=AsyncMock) as mock_add:
-            await labels_handler.manage_reviewed_by_label(
-                pull_request=mock_pull_request, review_state="commented", action=ADD_STR, reviewed_user="test-user"
-            )
-            mock_add.assert_called_once()
+            with patch.object(
+                labels_handler, "_remove_label", new_callable=AsyncMock, return_value=True
+            ) as mock_remove:
+                await labels_handler.manage_reviewed_by_label(
+                    pull_request=mock_pull_request, review_state="commented", action=ADD_STR, reviewed_user="test-user"
+                )
+                mock_add.assert_called_once()
+                mock_remove.assert_called_once()
 
     def test_wip_or_hold_labels_exists_both(self, labels_handler: LabelsHandler) -> None:
         """Test wip_or_hold_labels_exists with both WIP and HOLD labels."""
@@ -1063,7 +1116,18 @@ class TestLabelsHandler:
 
         mock_pull_request.get_labels = Mock(return_value=[mock_label])
 
+        mock_pr_data = {
+            "number": 123,
+            "labels": {"nodes": [{"name": "test-label", "id": "LA_test"}]},
+        }
+        mock_webhook_data = {
+            "number": 123,
+            "labels": [{"name": "test-label", "id": "LA_test"}],
+        }
+
         labels_handler.unified_api.get_label_id = AsyncMock(return_value="LA_test")
+        labels_handler.unified_api.get_pull_request_data = AsyncMock(return_value=mock_pr_data)
+        labels_handler.unified_api.convert_graphql_to_webhook = Mock(return_value=mock_webhook_data)
         labels_handler.unified_api.remove_labels = AsyncMock(side_effect=GraphQLError("Network timeout occurred"))
 
         # Transient errors should not raise

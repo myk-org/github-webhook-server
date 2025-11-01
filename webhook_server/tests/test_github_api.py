@@ -283,13 +283,14 @@ class TestGithubWebhook:
         mock_api.get_user.return_value = mock_user
 
         mock_api_rate_limit.return_value = (mock_api, "TOKEN", "USER")
-        mock_repo_api.return_value = Mock()
+        mock_repo = Mock()
+        mock_repo.full_name = "my-org/test-repo"
+        mock_repo_api.return_value = mock_repo
         mock_get_apis.return_value = []  # Return empty list to skip the problematic property code
         mock_repo_local_data.return_value = {}
         mock_process_pr.return_value = None
 
         webhook = GithubWebhook(hook_data=pull_request_payload, headers=webhook_headers, logger=Mock())
-        webhook.repository.full_name = "my-org/test-repo"
         webhook.unified_api = AsyncMock()
         webhook.unified_api.get_pull_request_files = AsyncMock(return_value=[Mock(filename="test.py")])
         # Return dict format for GraphQL compatibility
@@ -394,14 +395,15 @@ class TestGithubWebhook:
         mock_api.get_user.return_value = mock_user
 
         mock_api_rate_limit.return_value = (mock_api, "TOKEN", "USER")
-        mock_repo_api.return_value = Mock()
+        mock_repo = Mock()
+        mock_repo.full_name = "my-org/test-repo"
+        mock_repo_api.return_value = mock_repo
         mock_get_apis.return_value = []  # Return empty list to skip the problematic property code
         mock_repo_local_data.return_value = {}
         mock_process_comment.return_value = None
 
         headers = Headers({"X-GitHub-Event": "issue_comment"})
         webhook = GithubWebhook(hook_data=issue_comment_payload, headers=headers, logger=Mock())
-        webhook.repository.full_name = "my-org/test-repo"
         webhook.unified_api = AsyncMock()
         webhook.unified_api.get_pull_request_files = AsyncMock(return_value=[Mock(filename="test.py")])
         # Return dict format for GraphQL compatibility
