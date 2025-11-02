@@ -705,7 +705,30 @@ class TestPullRequestHandler:
         """Test checking if can be merged when already merged."""
         # Patch merged as a property that returns True
         mock_pull_request.merged = True
-        with patch.object(pull_request_handler, "_check_if_pr_approved") as mock_check_approved:
+        mock_pr_data = {"number": mock_pull_request.number, "merged": True, "state": "MERGED"}
+        mock_webhook_data = {"number": mock_pull_request.number, "merged": True, "state": "merged"}
+        # Create a mock for the updated_pull_request that will be created
+        mock_updated_pull_request = Mock(spec=PullRequestWrapper)
+        mock_updated_pull_request.number = mock_pull_request.number
+        mock_updated_pull_request.merged = True  # Already merged, so function should return early
+
+        with (
+            patch.object(
+                pull_request_handler.github_webhook.unified_api,
+                "get_pull_request_data",
+                new=AsyncMock(return_value=mock_pr_data),
+            ),
+            patch.object(
+                pull_request_handler.github_webhook.unified_api,
+                "convert_graphql_to_webhook",
+                new=Mock(return_value=mock_webhook_data),
+            ),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.PullRequestWrapper",
+                return_value=mock_updated_pull_request,
+            ),
+            patch.object(pull_request_handler, "_check_if_pr_approved") as mock_check_approved,
+        ):
             await pull_request_handler.check_if_can_be_merged(pull_request=mock_pull_request)
             mock_check_approved.assert_not_called()
 
@@ -717,19 +740,81 @@ class TestPullRequestHandler:
         # Patch merged as a property that returns False
         mock_pull_request.merged = False
         mock_pull_request.get_labels = Mock(return_value=[])
+        mock_pr_data = {"number": mock_pull_request.number, "merged": False, "state": "OPEN"}
+        mock_webhook_data = {"number": mock_pull_request.number, "merged": False, "state": "open"}
+        # Create a mock for the updated_pull_request that will be created
+        mock_updated_pull_request = Mock(spec=PullRequestWrapper)
+        mock_updated_pull_request.number = mock_pull_request.number
+        mock_updated_pull_request.merged = False
+        mock_updated_pull_request.mergeable = True
 
-        with patch.object(pull_request_handler, "_check_if_pr_approved", new=AsyncMock(return_value="not_approved")):
-            with patch.object(pull_request_handler.labels_handler, "_remove_label") as mock_remove_label:
-                await pull_request_handler.check_if_can_be_merged(pull_request=mock_pull_request)
-                mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=CAN_BE_MERGED_STR)
+        with (
+            patch.object(
+                pull_request_handler.github_webhook.unified_api,
+                "get_pull_request_data",
+                new=AsyncMock(return_value=mock_pr_data),
+            ),
+            patch.object(
+                pull_request_handler.github_webhook.unified_api,
+                "convert_graphql_to_webhook",
+                new=Mock(return_value=mock_webhook_data),
+            ),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.PullRequestWrapper",
+                return_value=mock_updated_pull_request,
+            ),
+            patch.object(pull_request_handler.check_run_handler, "set_merge_check_in_progress", new=AsyncMock()),
+            patch.object(
+                pull_request_handler.labels_handler, "pull_request_labels_names", new=AsyncMock(return_value=[])
+            ),
+            patch.object(pull_request_handler, "_check_if_pr_approved", new=AsyncMock(return_value="not_approved")),
+            patch.object(
+                pull_request_handler.check_run_handler,
+                "required_check_in_progress",
+                new=AsyncMock(return_value=("", [])),
+            ),
+            patch.object(
+                pull_request_handler.check_run_handler,
+                "required_check_failed_or_no_status",
+                new=AsyncMock(return_value=""),
+            ),
+            patch.object(pull_request_handler.labels_handler, "wip_or_hold_labels_exists", return_value=""),
+            patch.object(pull_request_handler.labels_handler, "_remove_label") as mock_remove_label,
+        ):
+            # Set last_commit to None to cover the warning path (line 967)
+            pull_request_handler.github_webhook.last_commit = None
+            await pull_request_handler.check_if_can_be_merged(pull_request=mock_pull_request)
+            mock_remove_label.assert_called_once_with(pull_request=mock_updated_pull_request, label=CAN_BE_MERGED_STR)
 
     @pytest.mark.asyncio
     async def test_check_if_can_be_merged_approved(
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         mock_pull_request.merged = False
+        mock_pr_data = {"number": mock_pull_request.number, "merged": False, "state": "OPEN"}
+        mock_webhook_data = {"number": mock_pull_request.number, "merged": False, "state": "open"}
+        # Create a mock for the updated_pull_request that will be created
+        mock_updated_pull_request = Mock(spec=PullRequestWrapper)
+        mock_updated_pull_request.number = mock_pull_request.number
+        mock_updated_pull_request.merged = False
+        mock_updated_pull_request.mergeable = True
+
         with (
             patch.object(mock_pull_request, "mergeable", True),
+            patch.object(
+                pull_request_handler.github_webhook.unified_api,
+                "get_pull_request_data",
+                new=AsyncMock(return_value=mock_pr_data),
+            ),
+            patch.object(
+                pull_request_handler.github_webhook.unified_api,
+                "convert_graphql_to_webhook",
+                new=Mock(return_value=mock_webhook_data),
+            ),
+            patch(
+                "webhook_server.libs.handlers.pull_request_handler.PullRequestWrapper",
+                return_value=mock_updated_pull_request,
+            ),
             patch.object(pull_request_handler, "_check_if_pr_approved", new=AsyncMock(return_value="")),
             patch.object(pull_request_handler, "_check_labels_for_can_be_merged", return_value=""),
             patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()) as mock_add_label,
@@ -757,9 +842,14 @@ class TestPullRequestHandler:
             patch.object(
                 pull_request_handler.github_webhook, "last_commit", Mock(get_check_runs=Mock(return_value=[]))
             ),
+            patch.object(
+                pull_request_handler.github_webhook.unified_api,
+                "get_commit_check_runs",
+                new=AsyncMock(return_value=[]),
+            ),
         ):
             await pull_request_handler.check_if_can_be_merged(pull_request=mock_pull_request)
-            mock_add_label.assert_awaited_once_with(pull_request=mock_pull_request, label=CAN_BE_MERGED_STR)
+            mock_add_label.assert_awaited_once_with(pull_request=mock_updated_pull_request, label=CAN_BE_MERGED_STR)
 
     @pytest.mark.asyncio
     async def test_check_if_pr_approved_no_labels(self, pull_request_handler: PullRequestHandler) -> None:
