@@ -1781,3 +1781,49 @@ async def test_get_user_id_graphql_error(mock_logger, mock_config):
         # Should raise GraphQL error
         with pytest.raises(GraphQLError, match="User not found"):
             await api.get_user_id("nonexistent_user")
+
+
+def test_convert_graphql_to_webhook_mergeable_conversion():
+    """Test convert_graphql_to_webhook properly converts mergeable enum to boolean."""
+    # Test MERGEABLE -> True
+    graphql_data_mergeable = {
+        "id": "PR_kwDO123",
+        "number": 1,
+        "title": "Test PR",
+        "mergeable": "MERGEABLE",
+        "state": "OPEN",
+    }
+    result = UnifiedGitHubAPI.convert_graphql_to_webhook(graphql_data_mergeable, "owner", "repo")
+    assert result["mergeable"] is True
+
+    # Test CONFLICTING -> False
+    graphql_data_conflicting = {
+        "id": "PR_kwDO123",
+        "number": 1,
+        "title": "Test PR",
+        "mergeable": "CONFLICTING",
+        "state": "OPEN",
+    }
+    result = UnifiedGitHubAPI.convert_graphql_to_webhook(graphql_data_conflicting, "owner", "repo")
+    assert result["mergeable"] is False
+
+    # Test UNKNOWN -> None
+    graphql_data_unknown = {
+        "id": "PR_kwDO123",
+        "number": 1,
+        "title": "Test PR",
+        "mergeable": "UNKNOWN",
+        "state": "OPEN",
+    }
+    result = UnifiedGitHubAPI.convert_graphql_to_webhook(graphql_data_unknown, "owner", "repo")
+    assert result["mergeable"] is None
+
+    # Test missing mergeable field -> not in result
+    graphql_data_no_mergeable = {
+        "id": "PR_kwDO123",
+        "number": 1,
+        "title": "Test PR",
+        "state": "OPEN",
+    }
+    result = UnifiedGitHubAPI.convert_graphql_to_webhook(graphql_data_no_mergeable, "owner", "repo")
+    assert "mergeable" not in result

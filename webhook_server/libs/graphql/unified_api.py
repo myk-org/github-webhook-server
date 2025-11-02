@@ -187,6 +187,19 @@ class UnifiedGitHubAPI:
             result["labels"] = graphql_data["labels"]["nodes"]
         if graphql_data.get("mergeStateStatus"):
             result["mergeable_state"] = graphql_data["mergeStateStatus"].lower()
+        # Convert GraphQL mergeable enum to webhook boolean format
+        # MERGEABLE -> True, CONFLICTING -> False, UNKNOWN -> None
+        if "mergeable" in graphql_data:
+            mergeable_value = graphql_data["mergeable"]
+            if mergeable_value == "MERGEABLE":
+                result["mergeable"] = True
+            elif mergeable_value == "CONFLICTING":
+                result["mergeable"] = False
+            elif mergeable_value == "UNKNOWN":
+                result["mergeable"] = None
+            else:
+                # Handle unexpected values - default to None (unknown)
+                result["mergeable"] = None
         return result
 
     @staticmethod

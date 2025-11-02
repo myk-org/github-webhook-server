@@ -971,7 +971,9 @@ For more information, please refer to the project documentation or contact the m
 
             is_pr_mergable = updated_pull_request.mergeable
             self.logger.debug(f"{self.log_prefix} PR mergeable is {is_pr_mergable}")
-            if not is_pr_mergable:
+            # Only treat False (conflicting) as failure, not None (unknown)
+            # None means GitHub hasn\'t computed mergeability yet, which is a valid state
+            if is_pr_mergable is False:
                 failure_output += f"PR is not mergeable: {is_pr_mergable}\n"
 
             (
