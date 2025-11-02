@@ -934,7 +934,17 @@ For more information, please refer to the project documentation or contact the m
             f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'started')} "
             f"Starting merge eligibility check",
         )
-        if self.skip_if_pull_request_already_merged(pull_request=pull_request):
+        owner, repo_name = self.github_webhook.owner_and_repo
+        updated_pull_request_data = await self.github_webhook.unified_api.get_pull_request_data(
+            owner=owner, name=repo_name, number=pull_request.number, include_commits=True, include_labels=True
+        )
+        updated_pull_request_webhook_data = self.github_webhook.unified_api.convert_graphql_to_webhook(
+            graphql_data=updated_pull_request_data, owner=owner, repo=repo_name
+        )
+        updated_pull_request = PullRequestWrapper(
+            owner=owner, repo_name=repo_name, webhook_data=updated_pull_request_webhook_data
+        )
+        if self.skip_if_pull_request_already_merged(pull_request=updated_pull_request):
             self.logger.debug(f"{self.log_prefix} Pull request already merged")
             return
 
@@ -956,10 +966,10 @@ For more information, please refer to the project documentation or contact the m
             else:
                 self.logger.warning(f"{self.log_prefix} last_commit is None, using empty check runs list")
                 last_commit_check_runs = []
-            _labels = await self.labels_handler.pull_request_labels_names(pull_request=pull_request)
+            _labels = await self.labels_handler.pull_request_labels_names(pull_request=updated_pull_request)
             self.logger.debug(f"{self.log_prefix} check if can be merged. PR labels are: {_labels}")
 
-            is_pr_mergable = pull_request.mergeable
+            is_pr_mergable = updated_pull_request.mergeable
             self.logger.debug(f"{self.log_prefix} PR mergeable is {is_pr_mergable}")
             if not is_pr_mergable:
                 failure_output += f"PR is not mergeable: {is_pr_mergable}\n"
@@ -968,7 +978,7 @@ For more information, please refer to the project documentation or contact the m
                 required_check_in_progress_failure_output,
                 check_runs_in_progress,
             ) = await self.check_run_handler.required_check_in_progress(
-                pull_request=pull_request, last_commit_check_runs=last_commit_check_runs
+                pull_request=updated_pull_request, last_commit_check_runs=last_commit_check_runs
             )
             if required_check_in_progress_failure_output:
                 failure_output += required_check_in_progress_failure_output
@@ -980,7 +990,7 @@ For more information, please refer to the project documentation or contact the m
             self.logger.debug(f"{self.log_prefix} wip_or_hold_labels_exists: {failure_output}")
 
             required_check_failed_failure_output = await self.check_run_handler.required_check_failed_or_no_status(
-                pull_request=pull_request,
+                pull_request=updated_pull_request,
                 last_commit_check_runs=last_commit_check_runs,
                 check_runs_in_progress=check_runs_in_progress,
             )
@@ -999,7 +1009,7 @@ For more information, please refer to the project documentation or contact the m
             self.logger.debug(f"{self.log_prefix} _check_if_pr_approved: {failure_output}")
 
             if not failure_output:
-                await self.labels_handler._add_label(pull_request=pull_request, label=CAN_BE_MERGED_STR)
+                await self.labels_handler._add_label(pull_request=updated_pull_request, label=CAN_BE_MERGED_STR)
                 await self.check_run_handler.set_merge_check_success()
 
                 self.logger.step(  # type: ignore[attr-defined]
@@ -1011,7 +1021,7 @@ For more information, please refer to the project documentation or contact the m
 
             self.logger.debug(f"{self.log_prefix} cannot be merged: {failure_output}")
             output["text"] = failure_output
-            await self.labels_handler._remove_label(pull_request=pull_request, label=CAN_BE_MERGED_STR)
+            await self.labels_handler._remove_label(pull_request=updated_pull_request, label=CAN_BE_MERGED_STR)
             await self.check_run_handler.set_merge_check_failure(output=output)
 
             self.logger.step(  # type: ignore[attr-defined]
@@ -1023,7 +1033,7 @@ For more information, please refer to the project documentation or contact the m
             self.logger.exception(f"{self.log_prefix} Failed to check if can be merged, set check run to {FAILURE_STR}")
             _err = "Failed to check if can be merged, check logs"
             output["text"] = _err
-            await self.labels_handler._remove_label(pull_request=pull_request, label=CAN_BE_MERGED_STR)
+            await self.labels_handler._remove_label(pull_request=updated_pull_request, label=CAN_BE_MERGED_STR)
             await self.check_run_handler.set_merge_check_failure(output=output)
 
             self.logger.step(  # type: ignore[attr-defined]

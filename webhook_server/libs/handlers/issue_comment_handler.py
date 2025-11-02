@@ -283,7 +283,9 @@ class IssueCommentHandler:
         reviewer = reviewer.strip("@")
         self.logger.info(f"{self.log_prefix} Adding reviewer {reviewer} by user comment")
         owner, repo_name = self.github_webhook.owner_and_repo
-        repo_contributors = await self.github_webhook.unified_api.get_contributors(owner, repo_name)
+        repo_contributors = await self.github_webhook.unified_api.get_contributors(
+            owner=owner, name=repo_name, repository_data=self.github_webhook.repository_data
+        )
         self.logger.debug(f"Repo contributors are: {repo_contributors}")
 
         for contributor in repo_contributors:

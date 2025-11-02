@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import re
 import traceback
 from datetime import UTC, datetime
 from typing import Any
@@ -295,8 +296,65 @@ class GraphQLClient:
                 raise GraphQLError(f"GraphQL query failed: {error_msg}") from error
 
             except TransportServerError as error:
-                # Handle server errors (5xx) with exponential backoff
+                # Handle server errors (5xx) and client errors like 403 with exponential backoff
                 error_msg = str(error)
+                # Try to get status code from error attribute or parse from error message
+                status_code = getattr(error, "status", None) or getattr(error, "status_code", None)
+                if status_code is None:
+                    # Parse status code from error message (format: "403, message='Forbidden', url='...'")
+                    match = re.search(r"(\d{3}),", error_msg)
+                    if match:
+                        status_code = int(match.group(1))
+
+                # Special handling for 403 Forbidden - might be rate limit or permission issue
+                if status_code == 403:
+                    # Check if this is actually a rate limit issue (GitHub sometimes returns 403 for rate limits)
+                    try:
+                        if self._session:
+                            rate_limit_query = gql(QueryBuilder.get_rate_limit())
+                            rate_result = await self._session.execute(rate_limit_query)
+                            remaining = rate_result["rateLimit"]["remaining"]
+                            reset_at = rate_result["rateLimit"]["resetAt"]
+
+                            # If rate limit is exhausted, treat as rate limit error
+                            if remaining == 0:
+                                reset_timestamp = datetime.fromisoformat(reset_at.replace("Z", "+00:00")).timestamp()
+                                current_time = datetime.now(UTC).timestamp()
+                                wait_seconds = int(reset_timestamp - current_time) + 5  # Add 5s buffer
+
+                                if wait_seconds > 0:
+                                    self.logger.warning(
+                                        f"RATE LIMIT (403): GraphQL rate limit exhausted (403 Forbidden). "
+                                        f"Waiting {wait_seconds}s until reset at "
+                                        f"{datetime.fromtimestamp(reset_timestamp, tz=UTC)}",
+                                    )
+                                    await asyncio.sleep(wait_seconds)
+                                    continue
+                    except Exception:
+                        # If rate limit check fails, continue with normal retry logic
+                        self.logger.debug("Failed to check rate limit for 403 error, treating as transient")
+
+                    # 403 might be transient (GitHub API issues) - retry with backoff
+                    if attempt < self.retry_count - 1:
+                        wait_seconds = (2**attempt) + random.uniform(0, 1)
+                        self.logger.warning(
+                            f"FORBIDDEN (403): GraphQL request forbidden "
+                            f"(attempt {attempt + 1}/{self.retry_count}): {error_msg}. "
+                            f"This might be a transient GitHub API issue. "
+                            f"Retrying in {wait_seconds:.1f}s...",
+                        )
+                        await asyncio.sleep(wait_seconds)
+                        continue
+                    else:
+                        self.logger.exception(
+                            f"FORBIDDEN (403): GraphQL request forbidden after "
+                            f"{self.retry_count} attempts: {error_msg}. "
+                            f"This might indicate a token permission issue or "
+                            f"persistent GitHub API problem.",
+                        )
+                        raise GraphQLError(f"GraphQL request forbidden (403): {error_msg}") from error
+
+                # Handle other server errors (5xx) with exponential backoff
                 if attempt < self.retry_count - 1:
                     # Add jitter to reduce retry stampedes under 5xx bursts
                     wait_seconds = (2**attempt) + random.uniform(0, 1)

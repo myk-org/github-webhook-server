@@ -432,3 +432,164 @@ async def test_cancelled_error_propagation(graphql_client):
         await graphql_client.execute("query { viewer { login } }")
 
     # Verify debug log was called (can check logger mock if needed)
+
+
+@pytest.mark.asyncio
+async def test_403_forbidden_with_rate_limit_check(graphql_client, monkeypatch):
+    """Test 403 Forbidden error with rate limit check."""
+    call_count = {"main_query_count": 0, "rate_limit_query_count": 0}
+
+    def execute_side_effect(query, *_args, **_kwargs):
+        query_source = query.loc.source.body if hasattr(query, "loc") and hasattr(query.loc, "source") else str(query)
+        if "rateLimit" in query_source and "resetAt" in query_source:
+            call_count["rate_limit_query_count"] += 1
+            # Return rate limit showing remaining=0 (exhausted)
+            reset_time = datetime(2024, 1, 1, 12, 1, 0, tzinfo=UTC)
+            return {"rateLimit": {"remaining": 0, "resetAt": reset_time.isoformat()}}
+
+        call_count["main_query_count"] += 1
+        if call_count["main_query_count"] == 1:
+            # First attempt fails with 403
+            error = TransportServerError("403, message='Forbidden', url='https://api.github.com/graphql'")
+            error.status = 403  # Set status attribute for test
+            raise error
+        # Second attempt succeeds
+        return {"viewer": {"login": "test-user"}}
+
+    mock_session = AsyncMock()
+    mock_session.execute = AsyncMock(side_effect=execute_side_effect)
+
+    mock_client = AsyncMock()
+    mock_client.connect_async = AsyncMock()
+    mock_client.close_async = AsyncMock()
+    mock_client.session = mock_session
+
+    graphql_client._client = mock_client
+    graphql_client._session = mock_session
+    graphql_client._ensure_client = AsyncMock()
+
+    # Freeze time
+    fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
+    reset_datetime = datetime(2024, 1, 1, 12, 1, 0, tzinfo=UTC)
+
+    class MockDatetime:
+        @staticmethod
+        def now(tz=None):  # noqa: ARG004
+            return fixed_time
+
+        @staticmethod
+        def fromtimestamp(timestamp, tz=None):  # noqa: ARG004
+            return reset_datetime
+
+        @staticmethod
+        def fromisoformat(date_string):  # noqa: ARG004
+            return reset_datetime
+
+    monkeypatch.setattr("webhook_server.libs.graphql.graphql_client.datetime", MockDatetime)
+
+    mock_sleep = AsyncMock()
+    monkeypatch.setattr("asyncio.sleep", mock_sleep)
+
+    # Execute query - should check rate limit, wait, then succeed
+    result = await graphql_client.execute("query { viewer { login } }")
+
+    # Verify rate limit was checked and main query retried
+    assert call_count["rate_limit_query_count"] == 1
+    assert call_count["main_query_count"] == 2
+    assert result == {"viewer": {"login": "test-user"}}
+
+    # Verify sleep was called for rate limit wait (65s: 60s until reset + 5s buffer)
+    assert mock_sleep.call_count == 1
+    assert mock_sleep.call_args[0][0] == 65
+
+
+@pytest.mark.asyncio
+async def test_403_forbidden_transient_retry(graphql_client, monkeypatch):
+    """Test 403 Forbidden error treated as transient and retried."""
+    call_count = {"count": 0}
+
+    def execute_side_effect(query, *_args, **_kwargs):
+        query_source = query.loc.source.body if hasattr(query, "loc") and hasattr(query.loc, "source") else str(query)
+        if "rateLimit" in query_source and "resetAt" in query_source:
+            # Rate limit query succeeds but shows remaining > 0 (not rate limited)
+            reset_time = datetime(2024, 1, 1, 12, 1, 0, tzinfo=UTC)
+            return {"rateLimit": {"remaining": 100, "resetAt": reset_time.isoformat()}}
+
+        call_count["count"] += 1
+        if call_count["count"] == 1:
+            # First attempt fails with 403
+            error = TransportServerError("403, message='Forbidden', url='https://api.github.com/graphql'")
+            error.status = 403
+            raise error
+        # Second attempt succeeds
+        return {"viewer": {"login": "test-user"}}
+
+    mock_session = AsyncMock()
+    mock_session.execute = AsyncMock(side_effect=execute_side_effect)
+
+    mock_client = AsyncMock()
+    mock_client.connect_async = AsyncMock()
+    mock_client.close_async = AsyncMock()
+    mock_client.session = mock_session
+
+    graphql_client._client = mock_client
+    graphql_client._session = mock_session
+    graphql_client._ensure_client = AsyncMock()
+
+    mock_sleep = AsyncMock()
+    monkeypatch.setattr("asyncio.sleep", mock_sleep)
+
+    # Execute query - should retry with backoff and succeed
+    result = await graphql_client.execute("query { viewer { login } }")
+
+    # Verify retry happened
+    assert call_count["count"] == 2
+    assert result == {"viewer": {"login": "test-user"}}
+
+    # Verify exponential backoff was used (one sleep between attempts)
+    assert mock_sleep.call_count == 1
+    # Should be exponential backoff: 2^0 + jitter = 1s-2s range
+    assert 1.0 <= mock_sleep.call_args[0][0] <= 2.0
+
+
+@pytest.mark.asyncio
+async def test_403_forbidden_exhausts_retries(graphql_client, monkeypatch):
+    """Test 403 Forbidden error that exhausts all retry attempts."""
+    call_count = {"count": 0}
+
+    def execute_side_effect(query, *_args, **_kwargs):
+        query_source = query.loc.source.body if hasattr(query, "loc") and hasattr(query.loc, "source") else str(query)
+        if "rateLimit" in query_source and "resetAt" in query_source:
+            # Rate limit query succeeds but shows remaining > 0
+            reset_time = datetime(2024, 1, 1, 12, 1, 0, tzinfo=UTC)
+            return {"rateLimit": {"remaining": 100, "resetAt": reset_time.isoformat()}}
+
+        call_count["count"] += 1
+        # Always fail with 403
+        error = TransportServerError("403, message='Forbidden', url='https://api.github.com/graphql'")
+        error.status = 403
+        raise error
+
+    mock_session = AsyncMock()
+    mock_session.execute = AsyncMock(side_effect=execute_side_effect)
+
+    mock_client = AsyncMock()
+    mock_client.connect_async = AsyncMock()
+    mock_client.close_async = AsyncMock()
+    mock_client.session = mock_session
+
+    graphql_client._client = mock_client
+    graphql_client._session = mock_session
+    graphql_client._ensure_client = AsyncMock()
+
+    mock_sleep = AsyncMock()
+    monkeypatch.setattr("asyncio.sleep", mock_sleep)
+
+    # Should exhaust retries and raise GraphQLError
+    with pytest.raises(GraphQLError, match="GraphQL request forbidden \\(403\\)"):
+        await graphql_client.execute("query { viewer { login } }")
+
+    # Verify retries happened (default retry_count=3 means 3 attempts)
+    assert call_count["count"] == 3
+    # Verify exponential backoff was used (2 sleeps between 3 attempts)
+    assert mock_sleep.call_count == 2
