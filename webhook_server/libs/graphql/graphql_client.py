@@ -306,15 +306,17 @@ class GraphQLClient:
                     if match:
                         status_code = int(match.group(1))
 
-                # Special handling for 403 Forbidden - might be rate limit or permission issue
+                # Special handling for 403 Forbidden - might be rate limit or transient GitHub API issue
                 if status_code == 403:
                     # Check if this is actually a rate limit issue (GitHub sometimes returns 403 for rate limits)
+                    graphql_rate_limit_info = None
                     try:
                         if self._session:
                             rate_limit_query = gql(QueryBuilder.get_rate_limit())
                             rate_result = await self._session.execute(rate_limit_query)
                             remaining = rate_result["rateLimit"]["remaining"]
                             reset_at = rate_result["rateLimit"]["resetAt"]
+                            graphql_rate_limit_info = f"GraphQL rate limit: {remaining} remaining, resets at {reset_at}"
 
                             # If rate limit is exhausted, treat as rate limit error
                             if remaining == 0:
@@ -330,29 +332,41 @@ class GraphQLClient:
                                     )
                                     await asyncio.sleep(wait_seconds)
                                     continue
-                    except Exception:
-                        # If rate limit check fails, continue with normal retry logic
-                        self.logger.debug("Failed to check rate limit for 403 error, treating as transient")
+                    except Exception as rate_limit_error:
+                        # Rate limit check failed - could be transient GitHub API issue
+                        # Don't assume it's a permission issue if rate limit check also fails with 403
+                        # This can happen during GitHub API outages or transient issues
+                        if attempt == 0:
+                            # Only log on first attempt to avoid spam
+                            self.logger.debug(
+                                f"Rate limit check failed for 403 error (attempt {attempt + 1}): {rate_limit_error}. "
+                                "Treating original 403 as potentially transient."
+                            )
 
-                    # 403 might be transient (GitHub API issues) - retry with backoff
+                    # 403 might be transient (GitHub API issues) - retry with exponential backoff
+                    rate_limit_context = f" ({graphql_rate_limit_info})" if graphql_rate_limit_info else ""
                     if attempt < self.retry_count - 1:
                         wait_seconds = (2**attempt) + random.uniform(0, 1)
                         self.logger.warning(
                             f"FORBIDDEN (403): GraphQL request forbidden "
-                            f"(attempt {attempt + 1}/{self.retry_count}): {error_msg}. "
-                            f"This might be a transient GitHub API issue. "
-                            f"Retrying in {wait_seconds:.1f}s...",
+                            f"(attempt {attempt + 1}/{self.retry_count}): {error_msg}{rate_limit_context}. "
+                            f"This might be a transient GitHub API issue. Retrying in {wait_seconds:.1f}s...",
                         )
                         await asyncio.sleep(wait_seconds)
                         continue
                     else:
+                        # After all retries failed, log error but don't assume it's permissions
+                        # (token might be valid, could be persistent GitHub API issue)
                         self.logger.exception(
                             f"FORBIDDEN (403): GraphQL request forbidden after "
-                            f"{self.retry_count} attempts: {error_msg}. "
-                            f"This might indicate a token permission issue or "
-                            f"persistent GitHub API problem.",
+                            f"{self.retry_count} attempts: {error_msg}{rate_limit_context}. "
+                            f"This might indicate a transient GitHub API problem or token permission issue.",
                         )
-                        raise GraphQLError(f"GraphQL request forbidden (403): {error_msg}") from error
+                        raise GraphQLError(
+                            f"GraphQL request forbidden (403) after {self.retry_count} attempts: "
+                            f"{error_msg}{rate_limit_context}. "
+                            f"This might indicate a transient GitHub API problem or token permission issue."
+                        ) from error
 
                 # Handle other server errors (5xx) with exponential backoff
                 if attempt < self.retry_count - 1:

@@ -695,14 +695,30 @@ class TestUnifiedAPIPRMethods:
 
     @pytest.mark.asyncio
     async def test_get_pull_request_with_check_run(self, api, mock_logger):
-        """Test get_pull_request with check_run event fallback to GraphQL iteration."""
+        """Test get_pull_request with check_run event fallback to GraphQL associatedPullRequests."""
         hook_data = {"check_run": {"name": "test-check", "head_sha": "abc123def456"}}  # pragma: allowlist secret
 
-        # Mock GraphQL PR data
-        mock_pr_data = {
+        # Mock GraphQL data for associatedPullRequests query
+        mock_associated_pr_data = {
             "id": "PR_kgDOTest123",
             "number": 42,
             "title": "Test PR from check run",
+            "state": "OPEN",
+            "baseRefName": "main",
+            "headRefName": "feature-branch",
+            "author": {"login": "test-user"},
+            "createdAt": "2024-01-01T00:00:00Z",
+            "updatedAt": "2024-01-01T00:00:00Z",
+            "mergedAt": None,
+            "closedAt": None,
+        }
+
+        # Mock GraphQL PR data for full PR fetch
+        mock_full_pr_data = {
+            "id": "PR_kgDOTest123",
+            "number": 42,
+            "title": "Test PR from check run",
+            "body": "Test body",
             "state": "OPEN",
             "headRef": {
                 "name": "feature-branch",
@@ -711,6 +727,18 @@ class TestUnifiedAPIPRMethods:
             "baseRefName": "main",
             "headRefName": "feature-branch",
             "labels": {"nodes": []},
+            "isDraft": False,
+            "mergeable": "MERGEABLE",
+            "mergeStateStatus": "CLEAN",
+            "author": {"login": "test-user", "__typename": "User"},
+            "createdAt": "2024-01-01T00:00:00Z",
+            "updatedAt": "2024-01-01T00:00:00Z",
+            "mergedAt": None,
+            "closedAt": None,
+            "merged": False,
+            "additions": 10,
+            "deletions": 5,
+            "permalink": "https://github.com/test-owner/test-repo/pull/42",
         }
 
         with (
@@ -719,8 +747,22 @@ class TestUnifiedAPIPRMethods:
         ):
             mock_gql = AsyncMock()
             mock_gql.close = AsyncMock()
-            # Mock get_open_pull_requests_with_details GraphQL query
-            mock_gql.execute = AsyncMock(return_value={"repository": {"pullRequests": {"nodes": [mock_pr_data]}}})
+            # Mock get_pulls_from_commit_sha query (first call)
+            # Then mock get_pull_request_data query (second call)
+            mock_gql.execute = AsyncMock(
+                side_effect=[
+                    {
+                        "repository": {
+                            "object": {
+                                "associatedPullRequests": {
+                                    "nodes": [mock_associated_pr_data],
+                                }
+                            }
+                        }
+                    },
+                    {"repository": {"pullRequest": mock_full_pr_data}},
+                ]
+            )
             mock_gql_class.return_value = mock_gql
 
             await api.initialize()
@@ -812,7 +854,7 @@ class TestUnifiedAPIPRMethods:
 
     @pytest.mark.asyncio
     async def test_get_pull_request_with_check_run_empty_pull_requests_array(self, api, mock_logger):
-        """Test check_run fallback when pull_requests array is empty."""
+        """Test check_run fallback when pull_requests array is empty - uses GraphQL associatedPullRequests."""
         hook_data = {
             "check_run": {
                 "name": "test-check",
@@ -821,11 +863,27 @@ class TestUnifiedAPIPRMethods:
             }
         }
 
-        # Mock GraphQL PR data for fallback iteration
-        mock_pr_data = {
+        # Mock GraphQL data for associatedPullRequests query
+        mock_associated_pr_data = {
             "id": "PR_kgDOTest123",
             "number": 42,
-            "title": "Test PR from fallback",
+            "title": "Test PR from associatedPullRequests",
+            "state": "OPEN",
+            "baseRefName": "main",
+            "headRefName": "feature-branch",
+            "author": {"login": "test-user"},
+            "createdAt": "2024-01-01T00:00:00Z",
+            "updatedAt": "2024-01-01T00:00:00Z",
+            "mergedAt": None,
+            "closedAt": None,
+        }
+
+        # Mock GraphQL PR data for full PR fetch
+        mock_full_pr_data = {
+            "id": "PR_kgDOTest123",
+            "number": 42,
+            "title": "Test PR from associatedPullRequests",
+            "body": "Test body",
             "state": "OPEN",
             "headRef": {
                 "name": "feature-branch",
@@ -834,6 +892,18 @@ class TestUnifiedAPIPRMethods:
             "baseRefName": "main",
             "headRefName": "feature-branch",
             "labels": {"nodes": []},
+            "isDraft": False,
+            "mergeable": "MERGEABLE",
+            "mergeStateStatus": "CLEAN",
+            "author": {"login": "test-user", "__typename": "User"},
+            "createdAt": "2024-01-01T00:00:00Z",
+            "updatedAt": "2024-01-01T00:00:00Z",
+            "mergedAt": None,
+            "closedAt": None,
+            "merged": False,
+            "additions": 10,
+            "deletions": 5,
+            "permalink": "https://github.com/test-owner/test-repo/pull/42",
         }
 
         with (
@@ -842,8 +912,22 @@ class TestUnifiedAPIPRMethods:
         ):
             mock_gql = AsyncMock()
             mock_gql.close = AsyncMock()
-            # Mock get_open_pull_requests_with_details GraphQL query
-            mock_gql.execute = AsyncMock(return_value={"repository": {"pullRequests": {"nodes": [mock_pr_data]}}})
+            # Mock get_commit_associated_pull_requests query (first call)
+            # Then mock get_pull_request_data query (second call)
+            mock_gql.execute = AsyncMock(
+                side_effect=[
+                    {
+                        "repository": {
+                            "object": {
+                                "associatedPullRequests": {
+                                    "nodes": [mock_associated_pr_data],
+                                }
+                            }
+                        }
+                    },
+                    {"repository": {"pullRequest": mock_full_pr_data}},
+                ]
+            )
             mock_gql_class.return_value = mock_gql
 
             await api.initialize()
@@ -859,9 +943,14 @@ class TestUnifiedAPIPRMethods:
             assert isinstance(result, PullRequestWrapper)
             assert result.number == 42
 
-            # Verify warning log about fallback
-            warning_calls = [call for call in mock_logger.warning.call_args_list]
-            assert any("falling back to expensive iteration" in str(call) for call in warning_calls)
+            # Verify debug log about finding PR by commit SHA (not warning about expensive iteration)
+            debug_calls = [str(call) for call in mock_logger.debug.call_args_list]
+            assert any("finding PR by commit SHA" in call for call in debug_calls)
+            assert any("Found open PR #42" in call for call in debug_calls)
+
+            # Verify no warning about expensive iteration
+            warning_calls = [str(call) for call in mock_logger.warning.call_args_list]
+            assert not any("falling back to expensive iteration" in call for call in warning_calls)
 
         await api.close()
 

@@ -882,6 +882,25 @@ async def test_edit_issue_reopen(initialized_api, mock_graphql_client):
 
 
 @pytest.mark.asyncio
+async def test_edit_issue_with_dict(initialized_api, mock_graphql_client):
+    """Test edit_issue handles dict format (from GraphQL get_issues)."""
+    # Dict format from GraphQL get_issues() response
+    issue_dict = {"id": "I_kgDOABcD1M", "number": 42, "title": "Test Issue", "state": "OPEN"}
+
+    # Mock GraphQL closeIssue mutation response
+    mock_graphql_client.execute.return_value = {"closeIssue": {"issue": {"id": "I_kgDOABcD1M", "state": "CLOSED"}}}
+
+    await initialized_api.edit_issue(issue_dict, "closed")
+
+    # Verify GraphQL mutation was called with correct issue ID
+    mock_graphql_client.execute.assert_called_once()
+    call_args = mock_graphql_client.execute.call_args
+    variables = call_args[0][1]
+
+    assert variables["issueId"] == "I_kgDOABcD1M"
+
+
+@pytest.mark.asyncio
 async def test_get_contents(initialized_api, mock_rest_client):
     """Test get_contents."""
     mock_repo = MagicMock()

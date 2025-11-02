@@ -546,22 +546,35 @@ class UnifiedGitHubAPI:
                 # If pr_ref exists but doesn't have number, log warning and fall through
                 logger.warning(f"{log_prefix} check_run pull_requests array entry missing 'number' field: {pr_ref}")
 
-            # Fallback: If no PR refs in webhook or GraphQL failed, use head_sha iteration
-            # This should be rare - indicates webhook payload missing pull_requests or API error
+            # Fallback: If no PR refs in webhook, find PR by commit SHA using GraphQL
+            # This is much more efficient than iterating all open PRs
             head_sha = check_run.get("head_sha")
             if head_sha:
-                logger.warning(
-                    f"{log_prefix} check_run webhook missing pull_requests array or PR fetch failed, "
-                    "falling back to expensive iteration through all open PRs"
+                logger.debug(
+                    f"{log_prefix} check_run webhook missing pull_requests array, "
+                    f"finding PR by commit SHA {head_sha[:7]} using GraphQL"
                 )
-                for _pull_request in await self.get_open_pull_requests_with_details(owner, repo):
-                    if _pull_request.head.sha == head_sha:
+                # Get PRs associated with this commit (much faster than iterating all open PRs)
+                associated_prs = await self.get_pulls_from_commit_sha(owner, repo, head_sha)
+
+                # Filter for open PRs (state: OPEN) and get the first one
+                for pr_data in associated_prs:
+                    if pr_data.get("state") == "OPEN":
+                        pr_number = pr_data["number"]
                         logger.debug(
-                            f"{log_prefix} Found pull request {_pull_request.title} [{_pull_request.number}] "
-                            f"for check run {check_run.get('name')} via fallback iteration"
+                            f"{log_prefix} Found open PR #{pr_number} associated with commit {head_sha[:7]}, "
+                            f"fetching complete PR data (check run: {check_run.get('name')})"
                         )
-                        # Already a PullRequestWrapper from GraphQL
-                        return _pull_request
+                        # Fetch complete PR data (associated PRs query has limited fields)
+                        pr_data_full = await self.get_pull_request_data(owner, repo, pr_number)
+                        webhook_format = self.convert_graphql_to_webhook(pr_data_full, owner, repo)
+                        return PullRequestWrapper(owner=owner, repo_name=repo, webhook_data=webhook_format)
+
+                # No open PRs found
+                logger.debug(
+                    f"{log_prefix} No open PRs found for commit {head_sha[:7]}, "
+                    f"check run {check_run.get('name')} may be for a closed/merged PR"
+                )
 
         pr_number = number
 
@@ -1895,13 +1908,17 @@ class UnifiedGitHubAPI:
         Reason: Migrated from REST - closeIssue/reopenIssue mutations available
 
         Args:
-            issue: Issue object (REST or has node_id attribute)
+            issue: Issue object (REST with node_id attribute) or dict (GraphQL with id key)
             state: "closed" or "open"
         """
         if not self.graphql_client:
             await self.initialize()
 
-        issue_id = issue.node_id
+        # Handle both dict (GraphQL) and object (REST) formats
+        if isinstance(issue, dict):
+            issue_id = issue["id"]
+        else:
+            issue_id = issue.node_id
 
         if state.lower() == "closed":
             mutation = """
