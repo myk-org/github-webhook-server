@@ -1421,6 +1421,85 @@ mask-sensitive-data: false # Only for debugging - NOT recommended in production
 
 **⚠️ Warning**: Disabling sensitive data masking will expose tokens, passwords, and API keys in logs. Use only in development environments.
 
+### Debug GraphQL Queries
+
+The webhook server includes debug logging for all GraphQL queries executed against the GitHub API. When debug logging is enabled, you can see the exact queries and variables being sent, making it easy to reproduce issues using the debugger script.
+
+#### Using the GraphQL Debugger Script
+
+A debugger script is provided to test GraphQL queries independently:
+
+```bash
+# Token can be provided as argument or via $GITHUB_TOKEN environment variable
+
+# Interactive mode - Start a REPL for running queries (token from env)
+export GITHUB_TOKEN=ghp_xxxxxxxxxxxxx
+uv run scripts/debugger.py
+
+# Interactive mode - Token as argument
+uv run scripts/debugger.py ghp_xxxxxxxxxxxxx
+
+# Single query mode - Execute one query and exit (token from env)
+uv run scripts/debugger.py --query 'query { viewer { login } }'
+
+# With variables
+uv run scripts/debugger.py \
+  --query 'query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { name } }' \
+  --variables '{"owner": "myk-org", "name": "github-webhook-server"}'
+
+# Verbose logging
+uv run scripts/debugger.py --verbose
+```
+
+#### Finding Queries in Logs
+
+When `log-level: DEBUG` is enabled, all GraphQL queries are logged with their variables:
+
+```
+DEBUG GraphQL Query:
+query($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) {
+    name
+    description
+  }
+}
+DEBUG GraphQL Variables:
+{
+  "owner": "myk-org",
+  "name": "github-webhook-server"
+}
+```
+
+#### Reproducing Issues
+
+1. **Enable debug logging** in your configuration:
+   ```yaml
+   log-level: DEBUG
+   ```
+
+2. **Trigger the webhook** that causes the issue
+
+3. **Find the query** in the logs (look for `GraphQL Query:`)
+
+4. **Copy the query and variables** from the logs
+
+5. **Test with the debugger script** (token from `$GITHUB_TOKEN` or as argument):
+   ```bash
+   uv run scripts/debugger.py \
+     --query '<query from logs>' \
+     --variables '<variables from logs>'
+   ```
+
+6. **Debug independently** - The script uses the same GraphQL client as the webhook server, so you can test queries in isolation without triggering webhook processing.
+
+#### Features
+
+- **Exact Query Logging**: Full query strings are logged before execution
+- **Variable Logging**: Variables are logged as formatted JSON
+- **Error Context**: Failed queries include the query and variables in error logs
+- **Debugger Script**: Standalone script for testing queries independently
+- **Automatic Whitespace Handling**: Variables are automatically stripped of whitespace to prevent common errors
+
 ### Log Analysis
 
 Key log patterns to monitor:

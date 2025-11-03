@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import random
 import re
@@ -18,7 +19,7 @@ from gql.transport.exceptions import (
     TransportQueryError,
     TransportServerError,
 )
-from graphql import DocumentNode
+from graphql import DocumentNode, print_ast
 
 from webhook_server.libs.graphql.graphql_builders import QueryBuilder
 
@@ -216,8 +217,14 @@ class GraphQLClient:
             GraphQLRateLimitError: If rate limit is exceeded
             GraphQLError: For other GraphQL errors
         """
+        # Store original query string for logging
+        query_str: str
         if isinstance(query, str):
+            query_str = query
             query = gql(query)
+        else:
+            # Convert DocumentNode back to string for logging
+            query_str = print_ast(query)
 
         result = None
         for attempt in range(self.retry_count):
@@ -225,10 +232,15 @@ class GraphQLClient:
                 # Ensure client is available for this attempt (may need recreation after error)
                 await self._ensure_client()
 
+                # Log query and variables in debugger-friendly format
                 self.logger.debug(
                     f"Executing GraphQL query (total={self.timeout}s, "
                     f"connect={self.connection_timeout}s, sock_read={self.sock_read_timeout}s)"
                 )
+                self.logger.debug(f"GraphQL Query:\n{query_str}")
+                if variables:
+                    variables_json = json.dumps(variables, indent=2)
+                    self.logger.debug(f"GraphQL Variables:\n{variables_json}")
 
                 # The session was connected in _ensure_client and stays connected for connection pooling
                 result = await self._session.execute(query, variable_values=variables)
@@ -238,6 +250,12 @@ class GraphQLClient:
 
             except TransportQueryError as error:
                 error_msg = error.errors[0] if error.errors else str(error)
+
+                # Log the failed query for debugging
+                self.logger.debug(f"GraphQL query failed - Query:\n{query_str}")
+                if variables:
+                    variables_json = json.dumps(variables, indent=2)
+                    self.logger.debug(f"GraphQL query failed - Variables:\n{variables_json}")
 
                 if "401" in str(error_msg) or "Unauthorized" in str(error_msg) or "Bad credentials" in str(error_msg):
                     self.logger.exception(
