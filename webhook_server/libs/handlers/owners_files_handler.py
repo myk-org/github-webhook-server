@@ -36,15 +36,6 @@ class OwnersFileHandler:
         self.unified_api = self.github_webhook.unified_api
         self.config = self.github_webhook.config
 
-        # Hard ceiling for safety to avoid excessive traversal
-        max_owners_files_configured = self.config.get_value("max-owners-files", return_on_none=1000)
-        self.max_owners_files = min(int(max_owners_files_configured), 1000)
-        if max_owners_files_configured != self.max_owners_files:
-            self.logger.warning(
-                f"{self.log_prefix} max-owners-files clamped to {self.max_owners_files}."
-                f"Requested: {max_owners_files_configured}"
-            )
-
         self.initialized = False
         self.exists_owners_data_for_changed_files: dict[str, dict[str, Any]] = {}
 
@@ -195,25 +186,23 @@ class OwnersFileHandler:
         _owners: dict[str, dict[str, Any]] = {}
         tasks: list[Coroutine[Any, Any, Any]] = []
 
-        owners_count = 0
-
         self.logger.debug(f"{self.log_prefix} Get git tree")
         owner, repo_name = self.github_webhook.owner_and_repo
         tree = await self.unified_api.get_git_tree(owner, repo_name, pull_request.base.ref)
 
+        owners_files_paths: list[str] = []
         for element in tree["tree"]:
             if element["type"] == "blob" and element["path"].endswith("OWNERS"):
-                owners_count += 1
-                if owners_count > self.max_owners_files:
-                    self.logger.error(
-                        f"{self.log_prefix} Too many OWNERS files (>{self.max_owners_files}), "
-                        "stopping processing to avoid performance issues"
-                    )
-                    break
-
                 content_path = element["path"]
+                owners_files_paths.append(content_path)
                 self.logger.debug(f"{self.log_prefix} Found OWNERS file: {content_path}")
                 tasks.append(self._get_file_content(content_path, pull_request))
+
+        # Log all owners files with full paths that will be processed
+        if owners_files_paths:
+            self.logger.debug(
+                f"{self.log_prefix} Processing {len(owners_files_paths)} OWNERS files: {', '.join(owners_files_paths)}"
+            )
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 

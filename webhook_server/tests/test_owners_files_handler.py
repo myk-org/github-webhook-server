@@ -323,48 +323,6 @@ class TestOwnersFileHandler:
         assert result["src/backend/handlers"]["approvers"] == ["handler1"]
 
     @pytest.mark.asyncio
-    async def test_get_all_repository_approvers_and_reviewers_too_many_files(
-        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
-    ) -> None:
-        mock_tree = {"tree": [{"type": "blob", "path": f"file{i}/OWNERS"} for i in range(1001)]}
-        owners_file_handler.repository.full_name = "test/repo"
-        owners_file_handler.github_webhook.unified_api.get_git_tree = AsyncMock(return_value=mock_tree)
-        owners_file_handler.github_webhook.unified_api.get_file_contents = AsyncMock(
-            return_value=yaml.dump({"approvers": [], "reviewers": []})
-        )
-        owners_file_handler.logger.error = Mock()
-        result = await owners_file_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
-        assert len(result) == 1000
-        owners_file_handler.logger.error.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_get_all_repository_approvers_and_reviewers_custom_max_limit(
-        self, mock_github_webhook: Mock, mock_pull_request: Mock
-    ) -> None:
-        """Test that custom max-owners-files config is respected."""
-        # Set custom limit to 5
-        mock_github_webhook.config.get_value = Mock(return_value=5)
-        custom_handler = OwnersFileHandler(mock_github_webhook)
-
-        mock_tree = {"tree": [{"type": "blob", "path": f"file{i}/OWNERS"} for i in range(10)]}
-        custom_handler.repository.full_name = "test/repo"
-        custom_handler.github_webhook.unified_api.get_git_tree = AsyncMock(return_value=mock_tree)
-        custom_handler.github_webhook.unified_api.get_file_contents = AsyncMock(
-            return_value=yaml.dump({"approvers": [], "reviewers": []})
-        )
-        custom_handler.logger.error = Mock()
-
-        result = await custom_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
-
-        # Should only process 5 files because custom limit is 5
-        assert len(result) == 5
-        custom_handler.logger.error.assert_called_once()
-        # Access the logged message directly instead of str(call_args)
-        error_call = custom_handler.logger.error.call_args
-        logged_message = error_call[0][0] if error_call[0] else ""
-        assert ">5" in logged_message
-
-    @pytest.mark.asyncio
     async def test_get_all_repository_approvers_and_reviewers_invalid_yaml(
         self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
     ) -> None:

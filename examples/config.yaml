@@ -31,8 +31,6 @@ auto-verify-cherry-picked-prs: true  # Default: true - automatically verify cher
 
 create-issue-for-new-pr: true  # Global default: create tracking issues for new PRs
 
-max-owners-files: 1000  # Maximum number of OWNERS files to process in a repository (default: 1000)
-
 # GraphQL Query Optimization (optional)
 # Customize pagination limits for repository data fetching
 # Defaults to 100 for all if not specified
