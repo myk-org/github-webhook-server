@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import hmac
 import ipaddress
@@ -61,15 +62,18 @@ class TestWebhookApp:
 
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.app.GithubWebhook")
-    def test_process_webhook_success(
+    @pytest.mark.asyncio
+    async def test_process_webhook_success(
         self, mock_github_webhook: Mock, client: TestClient, valid_webhook_payload: dict[str, Any], webhook_secret: str
     ) -> None:
         """Test successful webhook processing."""
         payload_json = json.dumps(valid_webhook_payload)
         signature = self.create_github_signature(payload_json, webhook_secret)
 
-        # Mock the GithubWebhook class
+        # Mock the GithubWebhook class with async process method
         mock_webhook_instance = Mock()
+        mock_process = AsyncMock()
+        mock_webhook_instance.process = mock_process
         mock_github_webhook.return_value = mock_webhook_instance
 
         headers = {
@@ -87,6 +91,11 @@ class TestWebhookApp:
         assert data["message"] == "Webhook queued for processing"
         assert data["delivery_id"] == "test-delivery-123"
         assert data["event_type"] == "pull_request"
+
+        # Wait a bit for background task to complete (to cover success log line)
+        await asyncio.sleep(0.1)
+        # Verify process was called (indirectly verifies background task ran)
+        assert mock_github_webhook.called
 
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     def test_process_webhook_invalid_json(self, client: TestClient, webhook_secret: str) -> None:
@@ -124,6 +133,62 @@ class TestWebhookApp:
 
         assert response.status_code == 400
         assert "Missing repository in payload" in response.json()["detail"]
+
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
+    def test_process_webhook_missing_repository_name(self, client: TestClient, webhook_secret: str) -> None:
+        """Test webhook processing with missing repository.name."""
+        payload = {"repository": {"full_name": "my-org/test-repo"}, "action": "opened"}
+        payload_json = json.dumps(payload)
+        signature = self.create_github_signature(payload_json, webhook_secret)
+
+        headers = {
+            "X-GitHub-Event": "pull_request",
+            "X-GitHub-Delivery": "test-delivery-123",
+            "x-hub-signature-256": signature,
+            "Content-Type": "application/json",
+        }
+
+        response = client.post("/webhook_server", content=payload_json, headers=headers)
+
+        assert response.status_code == 400
+        assert "Missing repository.name in payload" in response.json()["detail"]
+
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
+    def test_process_webhook_missing_repository_full_name(self, client: TestClient, webhook_secret: str) -> None:
+        """Test webhook processing with missing repository.full_name."""
+        payload = {"repository": {"name": "test-repo"}, "action": "opened"}
+        payload_json = json.dumps(payload)
+        signature = self.create_github_signature(payload_json, webhook_secret)
+
+        headers = {
+            "X-GitHub-Event": "pull_request",
+            "X-GitHub-Delivery": "test-delivery-123",
+            "x-hub-signature-256": signature,
+            "Content-Type": "application/json",
+        }
+
+        response = client.post("/webhook_server", content=payload_json, headers=headers)
+
+        assert response.status_code == 400
+        assert "Missing repository.full_name in payload" in response.json()["detail"]
+
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
+    def test_process_webhook_missing_x_github_event(self, client: TestClient, webhook_secret: str) -> None:
+        """Test webhook processing with missing X-GitHub-Event header."""
+        payload = {"repository": {"name": "test-repo", "full_name": "my-org/test-repo"}, "action": "opened"}
+        payload_json = json.dumps(payload)
+        signature = self.create_github_signature(payload_json, webhook_secret)
+
+        headers = {
+            "X-GitHub-Delivery": "test-delivery-123",
+            "x-hub-signature-256": signature,
+            "Content-Type": "application/json",
+        }
+
+        response = client.post("/webhook_server", content=payload_json, headers=headers)
+
+        assert response.status_code == 400
+        assert "Missing X-GitHub-Event header" in response.json()["detail"]
 
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.app.GithubWebhook")
