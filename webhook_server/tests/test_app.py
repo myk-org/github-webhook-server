@@ -123,7 +123,7 @@ class TestWebhookApp:
         response = client.post("/webhook_server", content=payload_json, headers=headers)
 
         assert response.status_code == 400
-        assert "Invalid payload structure" in response.json()["detail"]
+        assert "Missing repository in payload" in response.json()["detail"]
 
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.app.GithubWebhook")
