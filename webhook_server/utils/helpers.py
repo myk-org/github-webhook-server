@@ -391,7 +391,6 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
     api: github.Github | None = None
     token: str | None = None
     _api_user: str = ""
-    rate_limit: RateLimitOverview | None = None
 
     remaining = 0
 
@@ -403,6 +402,7 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
     logger.debug(msg)
 
     apis_and_tokens = get_apis_and_tokes_from_config(config=config)
+    logger.debug(f"Checking {len(apis_and_tokens)} API(s) for highest rate limit")
 
     for _api, _token in apis_and_tokens:
         if _api.rate_limiting[-1] == 60:
@@ -417,13 +417,12 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
             continue
 
         _rate_limit = _api.get_rate_limit()
+        log_rate_limit(rate_limit=_rate_limit, api_user=_api_user)
 
         if _rate_limit.rate.remaining > remaining:
             remaining = _rate_limit.rate.remaining
-            api, token, _api_user, rate_limit = _api, _token, _api_user, _rate_limit
-
-    if rate_limit:
-        log_rate_limit(rate_limit=rate_limit, api_user=_api_user)
+            api, token, _api_user = _api, _token, _api_user
+            logger.debug(f"API user {_api_user} has higher rate limit ({remaining}), updating selection")
 
     if not _api_user or not api or not token:
         raise NoApiTokenError("Failed to get API with highest rate limit")

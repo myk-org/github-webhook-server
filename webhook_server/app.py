@@ -1,6 +1,6 @@
+import asyncio
 import ipaddress
 import json
-import logging
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -10,7 +10,6 @@ import httpx
 import requests
 import urllib3
 from fastapi import (
-    BackgroundTasks,
     Depends,
     FastAPI,
     HTTPException,
@@ -19,7 +18,7 @@ from fastapi import (
     WebSocket,
     status,
 )
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 # Import for MCP integration
@@ -182,25 +181,25 @@ def healthcheck() -> dict[str, Any]:
     dependencies=[Depends(gate_by_allowlist_ips_dependency)],
     tags=["mcp_exclude"],
 )
-async def process_webhook(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
+async def process_webhook(request: Request) -> JSONResponse:
     """Process GitHub webhooks with immediate 200 OK response and background processing.
 
     **Critical Design Pattern:**
-    This endpoint returns 200 OK immediately after queuing the webhook for background
-    processing. This design prevents GitHub webhook timeouts (10 second limit) while
-    allowing long-running operations (API calls, builds, notifications) to complete
-    asynchronously.
+    This endpoint returns 200 OK immediately after validating that we have enough
+    data to process the webhook. This design prevents GitHub webhook timeouts (10
+    second limit) while allowing long-running operations to complete asynchronously.
 
-    **Processing Flow:**
-    1. Validate request (signature, JSON payload, repository info) - SYNCHRONOUS
-    2. Queue webhook for background processing - SYNCHRONOUS
-    3. Return 200 OK to GitHub - SYNCHRONOUS (endpoint completes here)
-    4. Process webhook (initialize GithubWebhook, call handlers) - BACKGROUND TASK
+    **Synchronous Validation (must pass to return 200):**
+    1. Read request body
+    2. Verify signature (if webhook-secret configured)
+    3. Parse JSON payload
+    4. Validate required fields: repository.name, repository.full_name, X-GitHub-Event
 
-    **Error Handling Strategy:**
-    - Errors in steps 1-3 (validation, queueing) → HTTP error responses (400, 500)
-    - Errors in step 4 (background processing) → Logged only, no HTTP response impact
-    - This ensures GitHub never sees timeouts or unexpected errors from processing
+    **Background Processing (errors logged only):**
+    - Config loading, repository validation, API initialization
+    - All GraphQL queries and API calls
+    - All handler processing
+    - All errors (GraphQL scope errors, missing repos, etc.) are caught and logged
 
     **Why Background Processing:**
     - GitHub webhook timeout: 10 seconds
@@ -209,44 +208,46 @@ async def process_webhook(request: Request, background_tasks: BackgroundTasks) -
     - With background processing: Instant 200 OK, reliable webhook delivery
 
     **Implications:**
+    - HTTP 200 OK means webhook payload was valid and queued for processing
     - HTTP 200 OK does NOT mean webhook was processed successfully
-    - HTTP 200 OK only means webhook was queued for processing
     - Check logs with delivery_id to verify actual processing results
-    - Errors during GithubWebhook initialization happen in background, not here
 
     Args:
         request: FastAPI Request object containing webhook payload and headers
-        background_tasks: FastAPI BackgroundTasks for async processing
 
     Returns:
-        dict: Status response with delivery_id and event_type for tracking
+        JSONResponse: 200 OK response with delivery_id and event_type for tracking
 
     Raises:
-        HTTPException 400: Invalid request body, JSON, or payload structure
+        HTTPException 400: Missing required fields (X-GitHub-Event, repository.name,
+            repository.full_name) or invalid JSON payload
         HTTPException 401: Signature verification failed (if webhook-secret configured)
-        HTTPException 500: Configuration errors or unexpected validation failures
+        HTTPException 500: Configuration errors during signature verification setup
 
     Note:
-        Exceptions from background processing (RepositoryNotFoundInConfigError,
-        connection errors, etc.) are logged but do NOT raise HTTPException since
-        they occur after the 200 OK response has been sent to GitHub.
+        All processing errors (GraphQL errors, missing repos, API failures, etc.)
+        happen in background and are logged only. They do NOT affect the HTTP response.
     """
-    # Extract headers early for logging
+    # Extract headers for validation and logging
     delivery_id = request.headers.get("X-GitHub-Delivery", "unknown-delivery")
-    event_type = request.headers.get("X-GitHub-Event", "unknown-event")
-
-    # Use standardized log prefix format (will get repository info after parsing payload)
-    log_context = prepare_log_prefix(event_type, delivery_id)
+    event_type = request.headers.get("X-GitHub-Event")
+    log_context = prepare_log_prefix(event_type or "unknown-event", delivery_id)
 
     LOGGER.info(f"{log_context} Processing webhook")
 
+    # Validate X-GitHub-Event header (required by GithubWebhook.__init__)
+    if not event_type:
+        LOGGER.error(f"{log_context} Missing X-GitHub-Event header")
+        raise HTTPException(status_code=400, detail="Missing X-GitHub-Event header")
+
+    # Read request body
     try:
         payload_body = await request.body()
     except Exception as e:
         LOGGER.error(f"{log_context} Failed to read request body: {e}")
         raise HTTPException(status_code=400, detail="Failed to read request body") from e
 
-    # Load config and verify signature
+    # Verify signature if configured
     try:
         config = Config(logger=LOGGER)
         root_config = config.root_data
@@ -265,22 +266,26 @@ async def process_webhook(request: Request, background_tasks: BackgroundTasks) -
     # Parse JSON payload
     try:
         hook_data: dict[Any, Any] = json.loads(payload_body)
-        if "repository" not in hook_data or "name" not in hook_data["repository"]:
-            raise ValueError("Missing repository information in payload")
     except json.JSONDecodeError:
         LOGGER.exception(f"{log_context} Invalid JSON payload")
         raise HTTPException(status_code=400, detail="Invalid JSON payload") from None
-    except ValueError:
-        LOGGER.exception(f"{log_context} Invalid payload structure")
-        raise HTTPException(status_code=400, detail="Invalid payload structure") from None
 
-    # Create repository-specific logger
-    repository_name = hook_data["repository"]["name"]
-    logger = get_logger_with_params(repository_name=repository_name)
-    logger.info(f"{log_context} Processing webhook for repository: {repository_name}")
+    # Validate required fields for GithubWebhook.__init__()
+    if "repository" not in hook_data:
+        LOGGER.error(f"{log_context} Missing repository in payload")
+        raise HTTPException(status_code=400, detail="Missing repository in payload")
+    if "name" not in hook_data["repository"]:
+        LOGGER.error(f"{log_context} Missing repository.name in payload")
+        raise HTTPException(status_code=400, detail="Missing repository.name in payload")
+    if "full_name" not in hook_data["repository"]:
+        LOGGER.error(f"{log_context} Missing repository.full_name in payload")
+        raise HTTPException(status_code=400, detail="Missing repository.full_name in payload")
+
+    # Return 200 immediately - all validation passed, we can process this webhook
+    LOGGER.info(f"{log_context} Webhook validation passed, queuing for background processing")
 
     async def process_with_error_handling(
-        _hook_data: dict[Any, Any], _headers: Headers, _logger: logging.Logger
+        _hook_data: dict[Any, Any], _headers: Headers, _delivery_id: str, _event_type: str
     ) -> None:
         """Process webhook in background with granular error handling.
 
@@ -291,39 +296,51 @@ async def process_webhook(request: Request, background_tasks: BackgroundTasks) -
         Args:
             _hook_data: Webhook payload data dictionary
             _headers: Starlette Headers object from the incoming request
-            _logger: Logger instance for recording processing events
-
-        Note:
-            All exceptions are caught and logged but never propagated, since this
-            runs asynchronously after the HTTP response is sent.
+            _delivery_id: GitHub delivery ID for logging
+            _event_type: GitHub event type for logging
         """
+        # Create repository-specific logger in background
+        repository_name = _hook_data.get("repository", {}).get("name", "unknown")
+        _logger = get_logger_with_params(repository_name=repository_name)
+        _log_context = prepare_log_prefix(_event_type, _delivery_id)
+        _logger.info(f"{_log_context} Processing webhook for repository: {repository_name}")
+
         try:
             # Initialize GithubWebhook inside background task to avoid blocking webhook response
             _api: GithubWebhook = GithubWebhook(hook_data=_hook_data, headers=_headers, logger=_logger)
             await _api.process()
-            _logger.success(f"{log_context} Webhook processing completed successfully")  # type: ignore
+            _logger.success(f"{_log_context} Webhook processing completed successfully")  # type: ignore
         except RepositoryNotFoundInConfigError:
             # Repository-specific error - not exceptional, log as error not exception
-            _logger.error(f"{log_context} Repository not found in configuration")
+            _logger.error(f"{_log_context} Repository not found in configuration")
         except (httpx.ConnectError, httpx.RequestError, requests.exceptions.ConnectionError):
             # Network/connection errors - can be transient
-            _logger.exception(f"{log_context} API connection error - check network connectivity")
+            _logger.exception(f"{_log_context} API connection error - check network connectivity")
         except Exception:
-            # Catch-all for unexpected errors
-            _logger.exception(f"{log_context} Unexpected error in background webhook processing")
+            # Catch-all for unexpected errors (including GraphQL errors)
+            _logger.exception(f"{_log_context} Unexpected error in background webhook processing")
 
-    # Queue background task with raw data instead of initialized GithubWebhook
-    background_tasks.add_task(
-        process_with_error_handling, _hook_data=hook_data, _headers=request.headers, _logger=logger
+    # Start background task immediately using asyncio.create_task
+    # This ensures the HTTP response is sent immediately without waiting
+    asyncio.create_task(
+        process_with_error_handling(
+            _hook_data=hook_data,
+            _headers=request.headers,
+            _delivery_id=delivery_id,
+            _event_type=event_type,
+        )
     )
 
-    LOGGER.info(f"{log_context} Webhook queued for background processing")
-    return {
-        "status": status.HTTP_200_OK,
-        "message": "Webhook queued for processing",
-        "delivery_id": delivery_id,
-        "event_type": event_type,
-    }
+    # Return 200 immediately with JSONResponse for fastest serialization
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "status": status.HTTP_200_OK,
+            "message": "Webhook queued for processing",
+            "delivery_id": delivery_id,
+            "event_type": event_type,
+        },
+    )
 
 
 # Module-level singleton instance
