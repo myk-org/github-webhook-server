@@ -276,12 +276,12 @@ class PullRequestHandler:
         return f"""
 {self.github_webhook.issue_url_for_welcome_msg}
 
-## Welcome! 🎉
+## Welcome! ??
 
 This pull request will be automatically processed with the following features:
 {auto_verified_note}
 
-### 🔄 Automatic Actions
+### ?? Automatic Actions
 * **Reviewer Assignment**: Reviewers are automatically assigned based on the OWNERS file in the repository root
 * **Size Labeling**: PR size labels (XS, S, M, L, XL, XXL) are automatically applied based on changes
 {issue_creation_note}* **Pre-commit Checks**: [pre-commit](https://pre-commit.ci/) runs automatically if \
@@ -289,7 +289,7 @@ This pull request will be automatically processed with the following features:
 * **Branch Labeling**: Branch-specific labels are applied to track the target branch
 * **Auto-verification**: Auto-verified users have their PRs automatically marked as verified
 
-### 📋 Available Commands
+### ?? Available Commands
 
 #### PR Status Management
 * `/wip` - Mark PR as work in progress (adds WIP: prefix to title)
@@ -322,7 +322,7 @@ This pull request will be automatically processed with the following features:
 * `/<label-name>` - Add a label to the PR
 * `/<label-name> cancel` - Remove a label from the PR
 
-### ✅ Merge Requirements
+### ? Merge Requirements
 
 This PR will be automatically approved when the following conditions are met:
 
@@ -332,7 +332,7 @@ This PR will be automatically approved when the following conditions are met:
 4. **No Blockers**: No WIP, hold, or conflict labels
 5. **Verified**: PR must be marked as verified (if verification is enabled)
 
-### 📊 Review Process
+### ?? Review Process
 
 <details>
 <summary><strong>Approvers and Reviewers</strong></summary>
@@ -346,7 +346,7 @@ This PR will be automatically approved when the following conditions are met:
 {supported_user_labels_str}
 </details>
 
-### 💡 Tips
+### ?? Tips
 
 * **WIP Status**: Use `/wip` when your PR is not ready for review
 * **Verification**: The verified label is automatically removed on each new commit
@@ -432,7 +432,7 @@ For more information, please refer to the project documentation or contact the m
             owner, repo_name = self.github_webhook.owner_and_repo
             # NEW: Single batched GraphQL query gets all open PRs with labels and merge state
             # Replaces: get_open_pull_requests() + get_pull_request_data() for each PR
-            # Savings: If N PRs exist, saves N API calls (N+1 → 1)
+            # Savings: If N PRs exist, saves N API calls (N+1 ? 1)
             open_prs = await self.github_webhook.unified_api.get_open_pull_requests_with_details(owner, repo_name)
             for pull_request in open_prs:
                 self.logger.info(f"{self.log_prefix} check label pull request after merge")
@@ -463,7 +463,7 @@ For more information, please refer to the project documentation or contact the m
         pr_tag = repository_full_tag.split(":")[-1]
         registry_info = self.github_webhook.container_repository.split("/")
         # If the repository reference does not contain an explicit registry host we
-        # cannot (and should not) try to log in – just skip the deletion logic.
+        # cannot (and should not) try to log in ? just skip the deletion logic.
         if len(registry_info) < 3:
             self.logger.debug(
                 f"{self.log_prefix} No registry host found in "
@@ -698,12 +698,26 @@ For more information, please refer to the project documentation or contact the m
                 f"{self.log_prefix} PR author '{pull_request.user.login}' is a bot/app,creating issue without assignee."
             )
 
-        await self.github_webhook.unified_api.create_issue(
-            repository_id=repository_id,
-            title=issue_title,
-            body=self._generate_issue_body(pull_request=pull_request),
-            assignee_ids=assignee_ids,
-        )
+        try:
+            await self.github_webhook.unified_api.create_issue(
+                repository_id=repository_id,
+                title=issue_title,
+                body=self._generate_issue_body(pull_request=pull_request),
+                assignee_ids=assignee_ids,
+            )
+        except GraphQLError as ex:
+            if assignee_ids and "not assignable" in str(ex).lower():
+                self.logger.info(
+                    f"{self.log_prefix} Assignee '{pull_request.user.login}' is not assignable; "
+                    "creating issue without assignees."
+                )
+                await self.github_webhook.unified_api.create_issue(
+                    repository_id=repository_id,
+                    title=issue_title,
+                    body=self._generate_issue_body(pull_request=pull_request),
+                )
+            else:
+                raise
 
         self.logger.step(  # type: ignore[attr-defined]
             f"{self.log_prefix} {format_task_fields('pr_handler', 'issue_management', 'completed')} "

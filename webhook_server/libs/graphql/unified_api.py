@@ -159,7 +159,22 @@ class UnifiedGitHubAPI:
     @staticmethod
     def convert_graphql_to_webhook(graphql_data: dict[str, Any], owner: str, repo: str) -> dict[str, Any]:
         """Convert GraphQL PR format to webhook format."""
-        base_repo = {"owner": {"login": owner}, "name": repo}
+        # Build base repository info from GraphQL data or fallback to parameters
+        base_repo_node = graphql_data.get("baseRepository") or {}
+        base_repo = {
+            "owner": {"login": base_repo_node.get("owner", {}).get("login", owner)},
+            "name": base_repo_node.get("name", repo),
+        }
+        # Build head repository info from GraphQL data or fallback to base repo
+        head_repo_node = graphql_data.get("headRepository")
+        if head_repo_node:
+            head_repo = {
+                "owner": {"login": head_repo_node.get("owner", {}).get("login", base_repo["owner"]["login"])},
+                "name": head_repo_node.get("name", base_repo["name"]),
+            }
+        else:
+            # Fall back to base repo when headRepository is absent
+            head_repo = base_repo
         result = {
             "node_id": graphql_data.get("id", ""),
             "number": graphql_data.get("number", 0),
@@ -181,7 +196,7 @@ class UnifiedGitHubAPI:
             result["head"] = {
                 "ref": graphql_data["headRef"]["name"],
                 "sha": graphql_data["headRef"]["target"]["oid"],
-                "repo": base_repo,
+                "repo": head_repo,
             }
         if graphql_data.get("labels", {}).get("nodes"):
             result["labels"] = graphql_data["labels"]["nodes"]
@@ -1561,8 +1576,8 @@ class UnifiedGitHubAPI:
             List of comment objects
         """
         repo = await self.get_repository_for_rest_operations(owner, name)
-        pr = await asyncio.to_thread(repo.get_pull, number)
-        return await asyncio.to_thread(lambda: list(pr.get_issue_comments()))
+        issue = await asyncio.to_thread(repo.get_issue, number)
+        return await asyncio.to_thread(lambda: list(issue.get_comments()))
 
     async def add_assignees_by_login(self, owner: str, name: str, number: int, assignees: list[str]) -> None:
         """

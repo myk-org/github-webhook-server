@@ -33,11 +33,23 @@ fragment PullRequestFields on PullRequest {
             oid
         }
     }
+    baseRepository {
+        owner {
+            login
+        }
+        name
+    }
     headRef {
         name
         target {
             oid
         }
+    }
+    headRepository {
+        owner {
+            login
+        }
+        name
     }
     mergeCommit {
         oid

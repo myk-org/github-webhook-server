@@ -318,9 +318,9 @@ async def process_webhook(request: Request) -> JSONResponse:
         except (httpx.ConnectError, httpx.RequestError, requests.exceptions.ConnectionError):
             # Network/connection errors - can be transient
             _logger.exception(f"{_log_context} API connection error - check network connectivity")
-        except Exception as ex:
+        except Exception:
             # Catch-all for unexpected errors (including GraphQL errors)
-            _logger.exception(f"{_log_context} Unexpected error in background webhook processing. {ex}")
+            _logger.exception(f"{_log_context} Unexpected error in background webhook processing")
 
     # Start background task immediately using asyncio.create_task
     # This ensures the HTTP response is sent immediately without waiting

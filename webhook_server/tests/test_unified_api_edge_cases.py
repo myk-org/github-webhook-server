@@ -605,17 +605,17 @@ async def test_add_comment_graphql(initialized_api, mock_graphql_client):
 async def test_get_issue_comments(initialized_api, mock_rest_client):
     """Test get_issue_comments."""
     mock_repo = MagicMock()
-    mock_pr = MagicMock()
+    mock_issue = MagicMock()
     mock_comments = [MagicMock(), MagicMock()]
-    mock_pr.get_issue_comments.return_value = mock_comments
+    mock_issue.get_comments.return_value = mock_comments
 
     async def mock_to_thread(_func, *_args):
         if _func == mock_rest_client.get_repo:
             return mock_repo
-        elif _func == mock_repo.get_pull:
-            return mock_pr
+        elif _func == mock_repo.get_issue:
+            return mock_issue
         elif callable(_func):
-            # Handle lambda functions like: lambda: pr.get_issue_comments()
+            # Handle lambda functions like: lambda: issue.get_comments()
             return _func()
         return None
 
