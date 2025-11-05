@@ -48,6 +48,7 @@ ALLOWED_IPS: tuple[ipaddress._BaseNetwork, ...] = ()
 LOGGER = get_logger_with_params()
 
 _lifespan_http_client: httpx.AsyncClient | None = None
+_background_tasks: set[asyncio.Task] = set()
 
 
 # Helper function to wrap the imported gate_by_allowlist_ips with ALLOWED_IPS
@@ -159,6 +160,20 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         if _lifespan_http_client:
             await _lifespan_http_client.aclose()
             LOGGER.debug("HTTP client closed")
+
+        # Optionally wait for pending background tasks for graceful shutdown
+        global _background_tasks
+        if _background_tasks:
+            LOGGER.info(f"Waiting for {len(_background_tasks)} pending background task(s) to complete...")
+            # Wait up to 30 seconds for tasks to complete
+            done, pending = await asyncio.wait(_background_tasks, timeout=30.0, return_when=asyncio.ALL_COMPLETED)
+            if pending:
+                LOGGER.warning(f"{len(pending)} background task(s) did not complete within timeout, cancelling...")
+                for task in pending:
+                    task.cancel()
+                # Wait briefly for cancellations to propagate
+                await asyncio.wait(pending, timeout=5.0)
+            LOGGER.debug(f"Background tasks cleanup complete: {len(done)} completed, {len(pending)} cancelled")
 
         LOGGER.info("Application shutdown complete.")
 
@@ -324,7 +339,8 @@ async def process_webhook(request: Request) -> JSONResponse:
 
     # Start background task immediately using asyncio.create_task
     # This ensures the HTTP response is sent immediately without waiting
-    asyncio.create_task(
+    # Store task reference for observability and graceful shutdown
+    task = asyncio.create_task(
         process_with_error_handling(
             _hook_data=hook_data,
             _headers=request.headers,
@@ -332,6 +348,8 @@ async def process_webhook(request: Request) -> JSONResponse:
             _event_type=event_type,
         )
     )
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
     # Return 200 immediately with JSONResponse for fastest serialization
     return JSONResponse(
