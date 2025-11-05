@@ -302,8 +302,10 @@ async def process_webhook(request: Request) -> JSONResponse:
         # Create repository-specific logger in background
         repository_name = _hook_data.get("repository", {}).get("name", "unknown")
         _logger = get_logger_with_params(repository_name=repository_name)
-        _log_context = prepare_log_prefix(_event_type, _delivery_id)
-        _logger.info(f"{_log_context} Processing webhook for repository: {repository_name}")
+        _log_context = prepare_log_prefix(
+            event_type=_event_type, delivery_id=_delivery_id, repository_name=repository_name
+        )
+        _logger.info(f"{_log_context} Processing webhook")
 
         try:
             # Initialize GithubWebhook inside background task to avoid blocking webhook response
