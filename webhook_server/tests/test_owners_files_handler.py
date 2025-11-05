@@ -593,10 +593,15 @@ class TestOwnersFileHandler:
             new_callable=AsyncMock,
             side_effect=GithubException(404, "Not found"),
         ):
-            await owners_file_handler.assign_reviewers(mock_pull_request)
             # Verify add_pr_comment was called for the error
-            # Method doesn't fail but posts error comment via unified_api
             mock_add_comment = owners_file_handler.github_webhook.unified_api.add_pr_comment
+            mock_add_comment.return_value = None  # Mock successful comment post
+
+            # Exception should be re-raised after posting error comment
+            with pytest.raises(GithubException):
+                await owners_file_handler.assign_reviewers(mock_pull_request)
+
+            # Verify error comment was attempted
             assert mock_add_comment.call_count == 1
             # Check the error message was included - call_args is (args, kwargs)
             call_args = mock_add_comment.call_args

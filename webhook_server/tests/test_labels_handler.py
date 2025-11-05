@@ -332,8 +332,14 @@ class TestLabelsHandler:
         self, labels_handler: LabelsHandler, mock_pull_request: Mock
     ) -> None:
         """Test wait_for_label with exception during label check."""
-        with patch("webhook_server.libs.handlers.labels_handler.TimeoutWatch") as mock_timeout:
-            mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
+        # Use Mock (not AsyncMock) for TimeoutWatch since it's not async
+        mock_watch_instance = Mock()
+        mock_watch_instance.remaining_time.side_effect = [10, 10, 0]
+        with patch(
+            "webhook_server.libs.handlers.labels_handler.TimeoutWatch",
+            new_callable=Mock,
+            return_value=mock_watch_instance,
+        ):
             with patch("asyncio.sleep", new_callable=AsyncMock):
                 with patch.object(
                     labels_handler,
@@ -388,7 +394,7 @@ class TestLabelsHandler:
 
         with (
             patch.object(labels_handler, "_remove_label", new_callable=AsyncMock) as mock_remove,
-            patch.object(labels_handler, "wait_for_label", new_callable=AsyncMock, return_value=True),
+            patch.object(labels_handler, "wait_for_label", new=AsyncMock(return_value=True)),
         ):
             await labels_handler.label_by_user_comment(
                 pull_request=pull_request, user_requested_label=label_name, remove=True, reviewed_user=user

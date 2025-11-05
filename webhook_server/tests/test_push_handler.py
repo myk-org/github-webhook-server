@@ -676,3 +676,47 @@ class TestPushHandler:
                 push_handler.github_webhook.unified_api.create_issue_on_repository.assert_called_once()
                 call_args = push_handler.github_webhook.unified_api.create_issue_on_repository.call_args
                 assert "Failed to create .pypirc file" in call_args[1]["title"]
+
+    @pytest.mark.asyncio
+    async def test_upload_to_pypi_pypirc_removal_oserror(self, push_handler: PushHandler) -> None:
+        """Test upload to pypi when OSError occurs during .pypirc removal in finally block."""
+        with patch.object(push_handler.runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
+            with pypi_upload_mocks() as mocks:
+                # Mock successful clone
+                mock_prepare.return_value.__aenter__.return_value = (True, "", "")
+
+                # Mock successful build and upload commands
+                mocks["run_command"].side_effect = [
+                    (True, "", ""),  # uv build
+                    (True, "", ""),  # twine check
+                    (True, "", ""),  # twine upload
+                ]
+
+                # Mock Path.glob() to return tar.gz file
+                mock_tarball = Mock()
+                mock_tarball.name = "package-1.0.0.tar.gz"
+                mocks["path"].return_value.glob.return_value = [mock_tarball]
+
+                # Mock successful .pypirc creation
+                mocks["os_open"].return_value = 3
+
+                # Simulate OSError when removing .pypirc (in finally block)
+                mocks["remove"].side_effect = OSError("Permission denied")
+
+                # Upload should succeed despite removal failure
+                result = await push_handler.upload_to_pypi(tag_name="v1.0.0")
+
+                # Verify upload succeeded
+                assert result is None  # Successful upload returns None
+
+                # Verify .pypirc removal was attempted
+                assert mocks["remove"].called
+
+                # Verify warning was logged (via logger.warning call)
+                # The warning is logged but doesn't prevent successful upload
+                warning_calls = [
+                    call
+                    for call in push_handler.logger.warning.call_args_list
+                    if "Failed to remove .pypirc" in str(call)
+                ]
+                assert len(warning_calls) > 0, "Warning about .pypirc removal failure should be logged"

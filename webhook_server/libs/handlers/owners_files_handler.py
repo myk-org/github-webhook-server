@@ -429,6 +429,8 @@ class OwnersFileHandler:
                 TransportServerError,
             ):
                 self.logger.debug(f"{self.log_prefix} Failed to post error comment about reviewer assignment failure")
+            # Re-raise original exception so callers know assignment failed
+            raise
 
         self.logger.step(  # type: ignore[attr-defined]
             f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'completed')} "
