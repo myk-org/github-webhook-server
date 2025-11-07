@@ -323,7 +323,7 @@ class LogViewerController:
                 end_time,
                 search,
             ])
-            max_entries_to_process = min(limit + 20000, 50000) if has_filters else limit + 1000
+            max_entries_to_process = min(limit + 20000, 100000) if has_filters else limit + 1000
 
             for entry in self._stream_log_entries(max_files=25, max_entries=max_entries_to_process):
                 if not self._entry_matches_filters(
@@ -636,8 +636,8 @@ class LogViewerController:
                 file_entries: list[LogEntry] = []
 
                 # Parse file in one go (files are typically reasonable size individually)
-                with open(log_file, "r", encoding="utf-8") as f:
-                    for line_num, line in enumerate(f, 1):
+                with open(log_file, encoding="utf-8") as f:
+                    for _, line in enumerate(f, 1):
                         if total_yielded >= max_entries:
                             break
 

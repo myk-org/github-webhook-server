@@ -1,28 +1,29 @@
+import asyncio
 import ipaddress
 import json
-import logging
 import os
-import sys
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator
+from typing import Any
 
 import httpx
 import requests
 import urllib3
 from fastapi import (
-    BackgroundTasks,
     Depends,
     FastAPI,
     HTTPException,
+    Query,
     Request,
     WebSocket,
     status,
 )
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 # Import for MCP integration
 from fastapi_mcp import FastApiMCP
+from starlette.datastructures import Headers
 
 from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import RepositoryNotFoundInConfigError
@@ -40,12 +41,14 @@ from webhook_server.web.log_viewer import LogViewerController
 
 # Constants
 APP_URL_ROOT_PATH: str = "/webhook_server"
+LOG_SERVER_ENABLED: bool = os.environ.get("ENABLE_LOG_SERVER") == "true"
 
 # Global variables
 ALLOWED_IPS: tuple[ipaddress._BaseNetwork, ...] = ()
 LOGGER = get_logger_with_params()
 
 _lifespan_http_client: httpx.AsyncClient | None = None
+_background_tasks: set[asyncio.Task] = set()
 
 
 # Helper function to wrap the imported gate_by_allowlist_ips with ALLOWED_IPS
@@ -54,8 +57,17 @@ async def gate_by_allowlist_ips_dependency(request: Request) -> None:
     await gate_by_allowlist_ips(request, ALLOWED_IPS)
 
 
+def require_log_server_enabled() -> None:
+    """Dependency to ensure log server is enabled before accessing log viewer APIs."""
+    if not LOG_SERVER_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Log server is disabled. Set ENABLE_LOG_SERVER=true to enable.",
+        )
+
+
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     global _lifespan_http_client
     _lifespan_http_client = httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS)
 
@@ -124,7 +136,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             ALLOWED_IPS = tuple(networks)
             LOGGER.info(f"IP allowlist initialized successfully with {len(ALLOWED_IPS)} networks.")
         elif verify_github_ips or verify_cloudflare_ips:
-            LOGGER.warning("IP verification enabled but no valid IPs loaded - webhook will accept from any IP")
+            # Fail-close: If IP verification is enabled but no networks loaded, reject all requests
+            LOGGER.error("IP verification enabled but no valid IPs loaded - failing closed for security")
+            raise RuntimeError(
+                "IP verification enabled but no allowlist loaded. "
+                "Cannot start server in insecure state. "
+                "Check network connectivity to GitHub/Cloudflare API endpoints."
+            )
 
         yield
 
@@ -142,6 +160,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         if _lifespan_http_client:
             await _lifespan_http_client.aclose()
             LOGGER.debug("HTTP client closed")
+
+        # Optionally wait for pending background tasks for graceful shutdown
+        global _background_tasks
+        if _background_tasks:
+            LOGGER.info(f"Waiting for {len(_background_tasks)} pending background task(s) to complete...")
+            # Wait up to 30 seconds for tasks to complete
+            done, pending = await asyncio.wait(_background_tasks, timeout=30.0, return_when=asyncio.ALL_COMPLETED)
+            if pending:
+                LOGGER.warning(f"{len(pending)} background task(s) did not complete within timeout, cancelling...")
+                for task in pending:
+                    task.cancel()
+                # Wait briefly for cancellations to propagate
+                await asyncio.wait(pending, timeout=5.0)
+            LOGGER.debug(f"Background tasks cleanup complete: {len(done)} completed, {len(pending)} cancelled")
 
         LOGGER.info("Application shutdown complete.")
 
@@ -164,23 +196,73 @@ def healthcheck() -> dict[str, Any]:
     dependencies=[Depends(gate_by_allowlist_ips_dependency)],
     tags=["mcp_exclude"],
 )
-async def process_webhook(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
-    # Extract headers early for logging
-    delivery_id = request.headers.get("X-GitHub-Delivery", "unknown-delivery")
-    event_type = request.headers.get("X-GitHub-Event", "unknown-event")
+async def process_webhook(request: Request) -> JSONResponse:
+    """Process GitHub webhooks with immediate 200 OK response and background processing.
 
-    # Use standardized log prefix format (will get repository info after parsing payload)
-    log_context = prepare_log_prefix(event_type, delivery_id)
+    **Critical Design Pattern:**
+    This endpoint returns 200 OK immediately after validating that we have enough
+    data to process the webhook. This design prevents GitHub webhook timeouts (10
+    second limit) while allowing long-running operations to complete asynchronously.
+
+    **Synchronous Validation (must pass to return 200):**
+    1. Read request body
+    2. Verify signature (if webhook-secret configured)
+    3. Parse JSON payload
+    4. Validate required fields: repository.name, repository.full_name, X-GitHub-Event
+
+    **Background Processing (errors logged only):**
+    - Config loading, repository validation, API initialization
+    - All API calls
+    - All handler processing
+    - All errors (missing repos, API failures, etc.) are caught and logged
+
+    **Why Background Processing:**
+    - GitHub webhook timeout: 10 seconds
+    - Typical processing time: 5-30 seconds (API calls, builds, notifications)
+    - Without background processing: Frequent timeouts, webhook retries, duplicates
+    - With background processing: Instant 200 OK, reliable webhook delivery
+
+    **Implications:**
+    - HTTP 200 OK means webhook payload was valid and queued for processing
+    - HTTP 200 OK does NOT mean webhook was processed successfully
+    - Check logs with delivery_id to verify actual processing results
+
+    Args:
+        request: FastAPI Request object containing webhook payload and headers
+
+    Returns:
+        JSONResponse: 200 OK response with delivery_id and event_type for tracking
+
+    Raises:
+        HTTPException 400: Missing required fields (X-GitHub-Event, repository.name,
+            repository.full_name) or invalid JSON payload
+        HTTPException 401: Signature verification failed (if webhook-secret configured)
+        HTTPException 500: Configuration errors during signature verification setup
+
+    Note:
+        All processing errors (missing repos, API failures, etc.)
+        happen in background and are logged only. They do NOT affect the HTTP response.
+    """
+    # Extract headers for validation and logging
+    delivery_id = request.headers.get("X-GitHub-Delivery", "unknown-delivery")
+    event_type = request.headers.get("X-GitHub-Event")
+    log_context = prepare_log_prefix(event_type or "unknown-event", delivery_id)
 
     LOGGER.info(f"{log_context} Processing webhook")
 
+    # Validate X-GitHub-Event header (required by GithubWebhook.__init__)
+    if not event_type:
+        LOGGER.error(f"{log_context} Missing X-GitHub-Event header")
+        raise HTTPException(status_code=400, detail="Missing X-GitHub-Event header")
+
+    # Read request body
     try:
         payload_body = await request.body()
     except Exception as e:
         LOGGER.error(f"{log_context} Failed to read request body: {e}")
-        raise HTTPException(status_code=400, detail="Failed to read request body")
+        raise HTTPException(status_code=400, detail="Failed to read request body") from e
 
-    # Load config and verify signature
+    # Verify signature if configured
     try:
         config = Config(logger=LOGGER)
         root_config = config.root_data
@@ -194,62 +276,91 @@ async def process_webhook(request: Request, background_tasks: BackgroundTasks) -
         raise
     except Exception as e:
         LOGGER.error(f"{log_context} Configuration error: {e}")
-        raise HTTPException(status_code=500, detail="Configuration error")
+        raise HTTPException(status_code=500, detail="Configuration error") from e
 
     # Parse JSON payload
     try:
         hook_data: dict[Any, Any] = json.loads(payload_body)
-        if "repository" not in hook_data or "name" not in hook_data["repository"]:
-            raise ValueError("Missing repository information in payload")
-    except json.JSONDecodeError as e:
-        LOGGER.error(f"{log_context} Invalid JSON payload: {e}")
-        raise HTTPException(status_code=400, detail="Invalid JSON payload")
-    except ValueError as e:
-        LOGGER.error(f"{log_context} Invalid payload structure: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+    except json.JSONDecodeError:
+        LOGGER.exception(f"{log_context} Invalid JSON payload")
+        raise HTTPException(status_code=400, detail="Invalid JSON payload") from None
 
-    # Create repository-specific logger
-    repository_name = hook_data["repository"]["name"]
-    logger = get_logger_with_params(repository_name=repository_name)
-    logger.info(f"{log_context} Processing webhook for repository: {repository_name}")
+    # Validate required fields for GithubWebhook.__init__()
+    if "repository" not in hook_data:
+        LOGGER.error(f"{log_context} Missing repository in payload")
+        raise HTTPException(status_code=400, detail="Missing repository in payload")
+    if "name" not in hook_data["repository"]:
+        LOGGER.error(f"{log_context} Missing repository.name in payload")
+        raise HTTPException(status_code=400, detail="Missing repository.name in payload")
+    if "full_name" not in hook_data["repository"]:
+        LOGGER.error(f"{log_context} Missing repository.full_name in payload")
+        raise HTTPException(status_code=400, detail="Missing repository.full_name in payload")
 
-    async def process_with_error_handling(_api: GithubWebhook, _logger: logging.Logger) -> None:
+    # Return 200 immediately - all validation passed, we can process this webhook
+    LOGGER.info(f"{log_context} Webhook validation passed, queuing for background processing")
+
+    async def process_with_error_handling(
+        _hook_data: dict[Any, Any], _headers: Headers, _delivery_id: str, _event_type: str
+    ) -> None:
+        """Process webhook in background with granular error handling.
+
+        This function runs in a background task after the webhook endpoint has already
+        returned 200 OK to GitHub. Exceptions here do NOT affect the HTTP response,
+        preventing webhook timeouts while still logging all errors for debugging.
+
+        Args:
+            _hook_data: Webhook payload data dictionary
+            _headers: Starlette Headers object from the incoming request
+            _delivery_id: GitHub delivery ID for logging
+            _event_type: GitHub event type for logging
+        """
+        # Create repository-specific logger in background
+        repository_name = _hook_data.get("repository", {}).get("name", "unknown")
+        _logger = get_logger_with_params(repository_name=repository_name)
+        _log_context = prepare_log_prefix(
+            event_type=_event_type, delivery_id=_delivery_id, repository_name=repository_name
+        )
+        _logger.info(f"{_log_context} Processing webhook")
+
         try:
+            # Initialize GithubWebhook inside background task to avoid blocking webhook response
+            _api: GithubWebhook = GithubWebhook(hook_data=_hook_data, headers=_headers, logger=_logger)
             await _api.process()
-            _logger.success(f"{log_context} Webhook processing completed successfully")  # type: ignore
-        except Exception as e:
-            _logger.exception(f"{log_context} Error in background task: {e}")
+            _logger.success(f"{_log_context} Webhook processing completed successfully")  # type: ignore
+        except RepositoryNotFoundInConfigError:
+            # Repository-specific error - not exceptional, log as error not exception
+            _logger.error(f"{_log_context} Repository not found in configuration")
+        except (httpx.ConnectError, httpx.RequestError, requests.exceptions.ConnectionError):
+            # Network/connection errors - can be transient
+            _logger.exception(f"{_log_context} API connection error - check network connectivity")
+        except Exception:
+            # Catch-all for unexpected errors
+            _logger.exception(f"{_log_context} Unexpected error in background webhook processing")
 
-    try:
-        api: GithubWebhook = GithubWebhook(hook_data=hook_data, headers=request.headers, logger=logger)
-        background_tasks.add_task(process_with_error_handling, _api=api, _logger=logger)
+    # Start background task immediately using asyncio.create_task
+    # This ensures the HTTP response is sent immediately without waiting
+    # Store task reference for observability and graceful shutdown
+    task = asyncio.create_task(
+        process_with_error_handling(
+            _hook_data=hook_data,
+            _headers=request.headers,
+            _delivery_id=delivery_id,
+            _event_type=event_type,
+        )
+    )
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
-        LOGGER.info(f"{log_context} Webhook queued for background processing")
-        return {
+    # Return 200 immediately with JSONResponse for fastest serialization
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
             "status": status.HTTP_200_OK,
             "message": "Webhook queued for processing",
             "delivery_id": delivery_id,
             "event_type": event_type,
-        }
-
-    except RepositoryNotFoundInConfigError as e:
-        logger.error(f"{log_context} Repository not found: {e}")
-        raise HTTPException(status_code=404, detail=str(e))
-
-    except ConnectionError as e:
-        logger.error(f"{log_context} API connection error: {e}")
-        raise HTTPException(status_code=503, detail=f"API Connection Error: {e}")
-
-    except HTTPException:
-        raise
-
-    except Exception as e:
-        logger.exception(f"{log_context} Unexpected error during processing: {e}")
-        exc_type, _, exc_tb = sys.exc_info()
-        line_no = exc_tb.tb_lineno if exc_tb else "unknown"
-        file_name = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1] if exc_tb else "unknown"
-        error_details = f"Error type: {exc_type.__name__ if exc_type else ''}, File: {file_name}, Line: {line_no}"
-        raise HTTPException(status_code=500, detail=f"Internal Server Error: {error_details}")
+        },
+    )
 
 
 # Module-level singleton instance
@@ -318,7 +429,11 @@ async def _get_log_entries_core(
     )
 
 
-@FASTAPI_APP.get("/logs/api/entries", operation_id="get_log_entries")
+@FASTAPI_APP.get(
+    "/logs/api/entries",
+    operation_id="get_log_entries",
+    dependencies=[Depends(require_log_server_enabled)],
+)
 async def get_log_entries(
     hook_id: str | None = None,
     pr_number: int | None = None,
@@ -329,8 +444,8 @@ async def get_log_entries(
     start_time: str | None = None,
     end_time: str | None = None,
     search: str | None = None,
-    limit: int = 100,
-    offset: int = 0,
+    limit: int = Query(default=100, ge=1, le=10000, description="Maximum entries to return (1-10000)"),
+    offset: int = Query(default=0, ge=0, description="Number of entries to skip for pagination"),
     controller: LogViewerController = controller_dependency,
 ) -> dict[str, Any]:
     """Retrieve and filter webhook processing logs with advanced pagination and search capabilities.
@@ -469,9 +584,17 @@ async def _export_logs_core(
     )
 
 
-@FASTAPI_APP.get("/logs/api/export", operation_id="export_logs")
+@FASTAPI_APP.get(
+    "/logs/api/export",
+    operation_id="export_logs",
+    dependencies=[Depends(require_log_server_enabled)],
+)
 async def export_logs(
-    format_type: str,
+    format_type: str = Query(
+        default="json",
+        pattern="^json$",
+        description="Export format (currently only 'json' supported)",
+    ),
     hook_id: str | None = None,
     pr_number: int | None = None,
     repository: str | None = None,
@@ -481,7 +604,7 @@ async def export_logs(
     start_time: str | None = None,
     end_time: str | None = None,
     search: str | None = None,
-    limit: int = 10000,
+    limit: int = Query(default=10000, ge=1, le=100000, description="Maximum entries to export (1-100000)"),
     controller: LogViewerController = controller_dependency,
 ) -> StreamingResponse:
     """Export filtered webhook logs to downloadable files for offline analysis and reporting.
@@ -615,7 +738,11 @@ async def _get_pr_flow_data_core(
     return controller.get_pr_flow_data(hook_id)
 
 
-@FASTAPI_APP.get("/logs/api/pr-flow/{hook_id}", operation_id="get_pr_flow_data")
+@FASTAPI_APP.get(
+    "/logs/api/pr-flow/{hook_id}",
+    operation_id="get_pr_flow_data",
+    dependencies=[Depends(require_log_server_enabled)],
+)
 async def get_pr_flow_data(hook_id: str, controller: LogViewerController = controller_dependency) -> dict[str, Any]:
     """Get PR workflow visualization data for process analysis and debugging.
 
@@ -656,7 +783,11 @@ async def _get_workflow_steps_core(
     return controller.get_workflow_steps(hook_id)
 
 
-@FASTAPI_APP.get("/logs/api/workflow-steps/{hook_id}", operation_id="get_workflow_steps")
+@FASTAPI_APP.get(
+    "/logs/api/workflow-steps/{hook_id}",
+    operation_id="get_workflow_steps",
+    dependencies=[Depends(require_log_server_enabled)],
+)
 async def get_workflow_steps(hook_id: str, controller: LogViewerController = controller_dependency) -> dict[str, Any]:
     """Retrieve detailed timeline and execution data for individual workflow steps within a webhook processing flow.
 
@@ -901,6 +1032,11 @@ async def websocket_log_stream(
     level: str | None = None,
 ) -> None:
     """Handle WebSocket connection for real-time log streaming."""
+    # Check if log server is enabled (manual check since WebSocket doesn't support dependencies same way)
+    if not LOG_SERVER_ENABLED:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Log server is disabled")
+        return
+
     controller = get_log_viewer_controller()
     await controller.handle_websocket(
         websocket=websocket,

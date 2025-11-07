@@ -10,6 +10,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from webhook_server import app as app_module
 from webhook_server.app import FASTAPI_APP
 from webhook_server.libs.exceptions import RepositoryNotFoundInConfigError
 from webhook_server.utils.app_utils import (
@@ -120,14 +121,19 @@ class TestWebhookApp:
         response = client.post("/webhook_server", content=payload_json, headers=headers)
 
         assert response.status_code == 400
-        assert "Missing repository information" in response.json()["detail"]
+        assert "Missing repository in payload" in response.json()["detail"]
 
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.app.GithubWebhook")
     def test_process_webhook_repository_not_found(
         self, mock_github_webhook: Mock, client: TestClient, valid_webhook_payload: dict[str, Any], webhook_secret: str
     ) -> None:
-        """Test webhook processing when repository is not found in config."""
+        """Test webhook processing when repository is not found in config.
+
+        Note: RepositoryNotFoundInConfigError is now handled in background task,
+        so the HTTP response is 200 OK. The error is logged but doesn't affect
+        the webhook response to prevent GitHub webhook timeouts.
+        """
         # Mock GithubWebhook to raise RepositoryNotFoundError
         mock_github_webhook.side_effect = RepositoryNotFoundInConfigError("Repository not found in configuration")
 
@@ -143,8 +149,9 @@ class TestWebhookApp:
 
         response = client.post("/webhook_server", content=payload_json, headers=headers)
 
-        assert response.status_code == 404
-        assert "Repository not found in configuration" in response.json()["detail"]
+        # Returns 200 OK immediately - error is handled in background
+        assert response.status_code == 200
+        assert response.json()["message"] == "Webhook queued for processing"
 
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     def test_process_webhook_signature_verification_failure(
@@ -171,7 +178,12 @@ class TestWebhookApp:
     def test_process_webhook_connection_error(
         self, mock_github_webhook: Mock, client: TestClient, valid_webhook_payload: dict[str, Any], webhook_secret: str
     ) -> None:
-        """Test webhook processing when connection error occurs."""
+        """Test webhook processing when connection error occurs.
+
+        Note: Connection errors are now handled in background task,
+        so the HTTP response is 200 OK. The error is logged but doesn't affect
+        the webhook response to prevent GitHub webhook timeouts.
+        """
         mock_github_webhook.side_effect = ConnectionError("API connection failed")
 
         payload_json = json.dumps(valid_webhook_payload)
@@ -186,15 +198,21 @@ class TestWebhookApp:
 
         response = client.post("/webhook_server", content=payload_json, headers=headers)
 
-        assert response.status_code == 503
-        assert "API Connection Error" in response.json()["detail"]
+        # Returns 200 OK immediately - error is handled in background
+        assert response.status_code == 200
+        assert response.json()["message"] == "Webhook queued for processing"
 
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.app.GithubWebhook")
     def test_process_webhook_unexpected_error(
         self, mock_github_webhook: Mock, client: TestClient, valid_webhook_payload: dict[str, Any], webhook_secret: str
     ) -> None:
-        """Test webhook processing when unexpected error occurs."""
+        """Test webhook processing when unexpected error occurs.
+
+        Note: Unexpected errors are now handled in background task,
+        so the HTTP response is 200 OK. The error is logged but doesn't affect
+        the webhook response to prevent GitHub webhook timeouts.
+        """
         mock_github_webhook.side_effect = Exception("Unexpected error")
 
         payload_json = json.dumps(valid_webhook_payload)
@@ -209,8 +227,9 @@ class TestWebhookApp:
 
         response = client.post("/webhook_server", content=payload_json, headers=headers)
 
-        assert response.status_code == 500
-        assert "Internal Server Error" in response.json()["detail"]
+        # Returns 200 OK immediately - error is handled in background
+        assert response.status_code == 200
+        assert response.json()["message"] == "Webhook queued for processing"
 
     @patch("webhook_server.app.get_github_allowlist")
     @patch("webhook_server.app.get_cloudflare_allowlist")
@@ -236,8 +255,6 @@ class TestWebhookApp:
         mock_response.json.return_value = {"hooks": ["192.30.252.0/22", "185.199.108.0/22"]}
         mock_response.raise_for_status.return_value = None
         # Use AsyncMock for the client
-        from unittest.mock import AsyncMock
-
         async_client = AsyncMock()
         async_client.get.return_value = mock_response
 
@@ -248,8 +265,6 @@ class TestWebhookApp:
     @patch("httpx.AsyncClient.get")
     async def test_get_github_allowlist_error(self, mock_get: Mock) -> None:
         """Test GitHub allowlist fetching with error."""
-        from unittest.mock import AsyncMock
-
         async_client = AsyncMock()
         async_client.get.side_effect = httpx.RequestError("Network error")
 
@@ -264,8 +279,6 @@ class TestWebhookApp:
             "result": {"ipv4_cidrs": ["103.21.244.0/22"], "ipv6_cidrs": ["2400:cb00::/32"]}
         }
         mock_response.raise_for_status.return_value = None
-        from unittest.mock import AsyncMock
-
         async_client = AsyncMock()
         async_client.get.return_value = mock_response
 
@@ -384,18 +397,14 @@ class TestWebhookApp:
     @patch("httpx.AsyncClient.get")
     async def test_get_github_allowlist_unexpected_error(self, mock_get: Mock) -> None:
         """Test GitHub allowlist fetching with unexpected error."""
-        from unittest.mock import AsyncMock
-
         async_client = AsyncMock()
         async_client.get.side_effect = Exception("Unexpected error")
 
-        with pytest.raises(Exception):
+        with pytest.raises(Exception, match="Unexpected error"):
             await get_github_allowlist(async_client)
 
     async def test_get_cloudflare_allowlist_request_error(self) -> None:
         """Test Cloudflare allowlist fetching with request error."""
-        from unittest.mock import AsyncMock
-
         async_client = AsyncMock()
         async_client.get.side_effect = httpx.RequestError("Network error")
 
@@ -405,21 +414,15 @@ class TestWebhookApp:
     @patch("httpx.AsyncClient.get")
     async def test_get_cloudflare_allowlist_unexpected_error(self, mock_get: Mock) -> None:
         """Test Cloudflare allowlist fetching with unexpected error."""
-        from unittest.mock import AsyncMock
-
         async_client = AsyncMock()
         async_client.get.side_effect = Exception("Unexpected error")
 
-        with pytest.raises(Exception):
+        with pytest.raises(Exception, match="Unexpected error"):
             await get_cloudflare_allowlist(async_client)
 
     @patch("httpx.AsyncClient.get")
     async def test_get_cloudflare_allowlist_http_error(self, mock_get: Mock) -> None:
         """Test Cloudflare allowlist fetching with HTTP error."""
-        from unittest.mock import AsyncMock
-
-        import httpx
-
         async_client = AsyncMock()
         mock_response = Mock()
         req = httpx.Request("GET", "https://api.cloudflare.com/client/v4/ips")
@@ -434,10 +437,6 @@ class TestWebhookApp:
     @patch("httpx.AsyncClient.get")
     async def test_get_github_allowlist_http_error(self, mock_get: Mock) -> None:
         """Test GitHub allowlist fetching with HTTP error."""
-        from unittest.mock import AsyncMock
-
-        import httpx
-
         async_client = AsyncMock()
         mock_response = Mock()
         req = httpx.Request("GET", "https://api.github.com/meta")
@@ -457,10 +456,6 @@ class TestWebhookApp:
         self, mock_urllib3: Mock, mock_config: Mock, mock_cf_allowlist: Mock, mock_gh_allowlist: Mock
     ) -> None:
         """Test successful lifespan function execution."""
-        from unittest.mock import AsyncMock
-        from unittest.mock import patch as patcher
-
-        from webhook_server import app as app_module
 
         # Mock config
         mock_config_instance = Mock()
@@ -475,7 +470,7 @@ class TestWebhookApp:
         mock_cf_allowlist.return_value = ["103.21.244.0/22"]
         # Mock HTTP client
         mock_client = AsyncMock()
-        with patcher("httpx.AsyncClient", return_value=mock_client):
+        with patch("httpx.AsyncClient", return_value=mock_client):
             async with app_module.lifespan(FASTAPI_APP):
                 pass
             mock_client.aclose.assert_called_once()
@@ -488,7 +483,6 @@ class TestWebhookApp:
         self, mock_urllib3: Mock, mock_config: Mock, mock_cf_allowlist: Mock, mock_gh_allowlist: Mock
     ) -> None:
         """Test lifespan function with SSL warnings disabled."""
-        from webhook_server import app as app_module
 
         # Mock config with SSL warnings disabled
         mock_config_instance = Mock()
@@ -515,8 +509,12 @@ class TestWebhookApp:
     async def test_lifespan_with_invalid_cidr(
         self, mock_config: Mock, mock_cf_allowlist: Mock, mock_gh_allowlist: Mock
     ) -> None:
-        """Test lifespan function with invalid CIDR addresses."""
-        from webhook_server import app as app_module
+        """Test lifespan function with invalid CIDR addresses.
+
+        Note: Invalid CIDR addresses are filtered out, so if IP verification
+        is enabled but no valid networks are loaded, the server will fail-close
+        with RuntimeError for security.
+        """
 
         # Mock config
         mock_config_instance = Mock()
@@ -527,7 +525,7 @@ class TestWebhookApp:
         }
         mock_config.return_value = mock_config_instance
 
-        # Mock allowlist responses with invalid CIDR
+        # Mock allowlist responses with invalid CIDR (will be filtered out)
         mock_gh_allowlist.return_value = ["invalid-cidr"]
         mock_cf_allowlist.return_value = ["also-invalid"]
 
@@ -535,10 +533,10 @@ class TestWebhookApp:
         mock_client = AsyncMock()
 
         with patch.object(app_module, "_lifespan_http_client", mock_client):
-            async with app_module.lifespan(FASTAPI_APP):
-                pass
-
-            # Should handle invalid CIDR gracefully
+            # Should raise RuntimeError because IP verification is enabled but no valid networks loaded
+            with pytest.raises(RuntimeError, match="IP verification enabled but no allowlist loaded"):
+                async with app_module.lifespan(FASTAPI_APP):
+                    pass
 
     @patch("webhook_server.app.get_github_allowlist")
     @patch("webhook_server.app.get_cloudflare_allowlist")
@@ -546,8 +544,12 @@ class TestWebhookApp:
     async def test_lifespan_with_allowlist_errors(
         self, mock_config: Mock, mock_cf_allowlist: Mock, mock_gh_allowlist: Mock
     ) -> None:
-        """Test lifespan function when allowlist fetching fails."""
-        from webhook_server import app as app_module
+        """Test lifespan function when allowlist fetching fails.
+
+        Note: If IP verification is enabled but allowlist fetching fails,
+        the server will fail-close with RuntimeError for security (fail-close
+        behavior prevents insecure state).
+        """
 
         # Mock config
         mock_config_instance = Mock()
@@ -563,15 +565,13 @@ class TestWebhookApp:
         # Mock HTTP client
         mock_client = AsyncMock()
         with patch.object(app_module, "_lifespan_http_client", mock_client):
-            # Should not raise, just log warnings
-            async with app_module.lifespan(FASTAPI_APP):
-                pass
-            # Should handle both allowlist failures gracefully
-            # (You could add log assertion here if desired)
+            # Should raise RuntimeError because IP verification is enabled but no networks loaded
+            with pytest.raises(RuntimeError, match="IP verification enabled but no allowlist loaded"):
+                async with app_module.lifespan(FASTAPI_APP):
+                    pass
 
     def test_static_files_path_construction(self) -> None:
         """Test that the static files path is constructed correctly."""
-        from webhook_server import app as app_module
 
         # The static_files_path should point to webhook_server/web/static
         expected_suffix = os.path.join("webhook_server", "web", "static")
@@ -593,7 +593,6 @@ class TestWebhookApp:
     @patch("webhook_server.app.os.path.isdir")
     def test_static_files_validation_logic(self, mock_isdir: Mock, mock_exists: Mock) -> None:
         """Test static files validation logic without lifespan."""
-        from webhook_server import app as app_module
 
         # Test case 1: Directory exists and is valid
         mock_exists.return_value = True
