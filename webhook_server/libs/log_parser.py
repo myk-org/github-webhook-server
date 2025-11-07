@@ -3,9 +3,10 @@
 import asyncio
 import datetime
 import re
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, AsyncGenerator
+from typing import Any
 
 from simple_logger.logger import get_logger
 
@@ -23,6 +24,9 @@ class LogEntry:
     repository: str | None = None
     pr_number: int | None = None
     github_user: str | None = None
+    task_id: str | None = None
+    task_type: str | None = None
+    task_status: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert LogEntry to dictionary for JSON serialization."""
@@ -36,6 +40,9 @@ class LogEntry:
             "repository": self.repository,
             "pr_number": self.pr_number,
             "github_user": self.github_user,
+            "task_id": self.task_id,
+            "task_type": self.task_type,
+            "task_status": self.task_status,
         }
 
 
@@ -57,30 +64,46 @@ class LogParser:
     #   With PR: "{colored_repo} [{event}][{delivery_id}][{user}][PR {number}]: {message}"
     #   Without PR: "{colored_repo} [{event}][{delivery_id}][{user}]: {message}"
     # Full log format: "timestamp logger level colored_repo [event][delivery_id][user][PR number]: message"
-    # Example: "2025-07-31T10:30:00.123000 GithubWebhook INFO repo-name [pull_request][abc123][user][PR 123]: Processing webhook"
+    # Example: "2025-07-31T10:30:00.123000 GithubWebhook INFO repo-name
+    #           [pull_request][abc123][user][PR 123]: Processing webhook"
+    # Supports:
+    #   - Optional fractional seconds
+    #   - Optional timezone (Z or ±HH:MM format, e.g., +00:00, -05:00)
+    #   - Flexible whitespace between fields
+    #   - Logger names with dots/hyphens
     LOG_PATTERN = re.compile(
-        r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+) (\w+) (?:\x1b\[[\d;]*m)?(\w+)(?:\x1b\[[\d;]*m)? (.+)$"
+        r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?)\s+"
+        r"([\w.-]+)\s+(?:\x1b\[[\d;]*m)?([\w.-]+)(?:\x1b\[[\d;]*m)?\s+(.+)$"
     )
 
     # Pattern to extract GitHub context from prepare_log_prefix format
     # Matches: colored_repo [event][delivery_id][user][PR number]: message
     GITHUB_CONTEXT_PATTERN = re.compile(
-        r"(?:\x1b\[[0-9;]*m)?([^\x1b\[\s]+)(?:\x1b\[[0-9;]*m)? \[([^\]]+)\]\[([^\]]+)\]\[([^\]]+)\](?:\[PR (\d+)\])?: (.+)"
+        r"(?:\x1b\[[0-9;]*m)?([^\x1b\[\s]+)(?:\x1b\[[0-9;]*m)? "
+        r"\[([^\]]+)\]\[([^\]]+)\]\[([^\]]+)\](?:\[PR (\d+)\])?: (.+)"
     )
 
     ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
 
+    # Precompiled patterns for task field extraction (performance optimization)
+    TASK_ID_PATTERN = re.compile(r"\[task_id=([^\]]+)\]")
+    TASK_TYPE_PATTERN = re.compile(r"\[task_type=([^\]]+)\]")
+    TASK_STATUS_PATTERN = re.compile(r"\[task_status=([^\]]+)\]")
+
     def is_workflow_step(self, entry: LogEntry) -> bool:
         """
-        Check if a log entry is a workflow step (logger.step call).
+        Check if a log entry is a workflow milestone step.
+
+        Only entries with task_id AND task_status are considered workflow milestones.
+        This filters out internal/initialization steps and only shows meaningful business events.
 
         Args:
             entry: LogEntry to check
 
         Returns:
-            True if this is a workflow step entry
+            True if this is a workflow milestone entry (has task_id and task_status)
         """
-        return entry.level.upper() == "STEP"
+        return bool(entry.task_id and entry.task_status)
 
     def extract_workflow_steps(self, entries: list[LogEntry], hook_id: str) -> list[LogEntry]:
         """
@@ -116,24 +139,32 @@ class LogParser:
         timestamp_str, logger_name, level, message = match.groups()
 
         # Parse ISO timestamp format: "2025-07-31T10:30:00.123000"
+        # Handle 'Z' timezone suffix which fromisoformat doesn't accept
         try:
-            timestamp = datetime.datetime.fromisoformat(timestamp_str)
+            normalized_timestamp = timestamp_str.replace("Z", "+00:00")
+            timestamp = datetime.datetime.fromisoformat(normalized_timestamp)
         except ValueError:
             return None
 
         # Extract GitHub webhook context from prepare_log_prefix format
         repository, event_type, hook_id, github_user, pr_number, cleaned_message = self._extract_github_context(message)
 
+        # Extract task correlation fields from message and strip them from the message
+        task_id, task_type, task_status, final_message = self._extract_task_fields(cleaned_message)
+
         return LogEntry(
             timestamp=timestamp,
             level=level,
             logger_name=logger_name,
-            message=cleaned_message,
+            message=final_message,
             hook_id=hook_id,
             event_type=event_type,
             repository=repository,
             pr_number=pr_number,
             github_user=github_user,
+            task_id=task_id,
+            task_type=task_type,
+            task_status=task_status,
         )
 
     def _extract_github_context(
@@ -169,6 +200,43 @@ class LogParser:
         # No GitHub context found, return original message cleaned of ANSI codes
         cleaned_message = self.ANSI_ESCAPE_PATTERN.sub("", message)
         return None, None, None, None, None, cleaned_message
+
+    def _extract_task_fields(self, message: str) -> tuple[str | None, str | None, str | None, str]:
+        """Extract task correlation fields from log message.
+
+        Extracts task_id, task_type, and task_status from patterns like:
+        [task_id=check_tox] [task_type=ci_check] [task_status=started]
+
+        The task tokens are removed from the returned message to avoid duplication
+        and improve free-text search, as these values are stored in dedicated fields.
+
+        Args:
+            message: Log message to extract from
+
+        Returns:
+            Tuple of (task_id, task_type, task_status, cleaned_message)
+        """
+        task_id = None
+        task_type = None
+        task_status = None
+        cleaned_message = message
+
+        # Extract task_id using precompiled pattern
+        if task_id_match := self.TASK_ID_PATTERN.search(cleaned_message):
+            task_id = task_id_match.group(1)
+            cleaned_message = self.TASK_ID_PATTERN.sub("", cleaned_message, count=1).strip()
+
+        # Extract task_type using precompiled pattern
+        if task_type_match := self.TASK_TYPE_PATTERN.search(cleaned_message):
+            task_type = task_type_match.group(1)
+            cleaned_message = self.TASK_TYPE_PATTERN.sub("", cleaned_message, count=1).strip()
+
+        # Extract task_status using precompiled pattern
+        if task_status_match := self.TASK_STATUS_PATTERN.search(cleaned_message):
+            task_status = task_status_match.group(1)
+            cleaned_message = self.TASK_STATUS_PATTERN.sub("", cleaned_message, count=1).strip()
+
+        return task_id, task_type, task_status, cleaned_message
 
     def parse_log_file(self, file_path: Path) -> list[LogEntry]:
         """
@@ -216,7 +284,7 @@ class LogParser:
         if not file_path.exists():
             return
 
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             # Move to end of file
             f.seek(0, 2)
 
