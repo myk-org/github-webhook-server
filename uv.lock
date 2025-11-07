@@ -555,6 +555,8 @@ dev = [
 ]
 tests = [
     { name = "psutil" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-xdist" },
 ]
 
 [package.metadata]
@@ -596,7 +598,11 @@ dev = [
     { name = "types-pyyaml", specifier = ">=6.0.12.20250516" },
     { name = "types-requests", specifier = ">=2.32.4.20250611" },
 ]
-tests = [{ name = "psutil", specifier = ">=7.0.0" }]
+tests = [
+    { name = "psutil", specifier = ">=7.0.0" },
+    { name = "pytest-asyncio", specifier = ">=0.26.0" },
+    { name = "pytest-xdist", specifier = ">=3.7.0" },
+]
 
 [[package]]
 name = "h11"
