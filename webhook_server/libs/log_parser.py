@@ -86,9 +86,10 @@ class LogParser:
     ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
 
     # Precompiled patterns for task field extraction (performance optimization)
-    TASK_ID_PATTERN = re.compile(r"\[task_id=([^\]]+)\]")
-    TASK_TYPE_PATTERN = re.compile(r"\[task_type=([^\]]+)\]")
-    TASK_STATUS_PATTERN = re.compile(r"\[task_status=([^\]]+)\]")
+    # Handle escaped brackets: (?:\\.|[^\]])+ matches escaped chars or non-] chars
+    TASK_ID_PATTERN = re.compile(r"\[task_id=((?:\\.|[^\]])+)\]")
+    TASK_TYPE_PATTERN = re.compile(r"\[task_type=((?:\\.|[^\]])+)\]")
+    TASK_STATUS_PATTERN = re.compile(r"\[task_status=((?:\\.|[^\]])+)\]")
 
     def is_workflow_step(self, entry: LogEntry) -> bool:
         """
@@ -223,20 +224,25 @@ class LogParser:
 
         # Extract task_id using precompiled pattern
         if task_id_match := self.TASK_ID_PATTERN.search(cleaned_message):
-            task_id = task_id_match.group(1)
+            task_id = self._unescape_task_value(task_id_match.group(1))
             cleaned_message = self.TASK_ID_PATTERN.sub("", cleaned_message, count=1).strip()
 
         # Extract task_type using precompiled pattern
         if task_type_match := self.TASK_TYPE_PATTERN.search(cleaned_message):
-            task_type = task_type_match.group(1)
+            task_type = self._unescape_task_value(task_type_match.group(1))
             cleaned_message = self.TASK_TYPE_PATTERN.sub("", cleaned_message, count=1).strip()
 
         # Extract task_status using precompiled pattern
         if task_status_match := self.TASK_STATUS_PATTERN.search(cleaned_message):
-            task_status = task_status_match.group(1)
+            task_status = self._unescape_task_value(task_status_match.group(1))
             cleaned_message = self.TASK_STATUS_PATTERN.sub("", cleaned_message, count=1).strip()
 
         return task_id, task_type, task_status, cleaned_message
+
+    @staticmethod
+    def _unescape_task_value(value: str) -> str:
+        """Unescape brackets in task field values."""
+        return value.replace("\\]", "]").replace("\\[", "[")
 
     def parse_log_file(self, file_path: Path) -> list[LogEntry]:
         """
@@ -253,8 +259,8 @@ class LogParser:
         failed_lines = 0
 
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                for line_num, line in enumerate(f, 1):
+            with open(file_path, encoding="utf-8") as f:
+                for _line_num, line in enumerate(f, 1):
                     total_lines += 1
                     entry = self.parse_log_entry(line)
                     if entry:
@@ -301,7 +307,7 @@ class LogParser:
                     # Not following, exit when no more data
                     break
 
-    async def monitor_log_directory(self, log_dir: Path, pattern: str = "*.log") -> AsyncGenerator[LogEntry, None]:
+    async def monitor_log_directory(self, log_dir: Path, _pattern: str = "*.log") -> AsyncGenerator[LogEntry, None]:
         """
         Monitor a directory for log files and yield new entries from all files.
 

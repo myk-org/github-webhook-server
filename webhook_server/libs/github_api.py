@@ -107,7 +107,8 @@ class GithubWebhook:
             return
 
         self.clone_repo_dir: str = os.path.join("/tmp", f"{self.repository.name}")
-        self.add_api_users_to_auto_verified_and_merged_users
+        # Initialize auto-verified users from API users
+        _ = self.add_api_users_to_auto_verified_and_merged_users
 
         self.current_pull_request_supported_retest = self._current_pull_request_supported_retest
         self.issue_url_for_welcome_msg: str = (
@@ -146,7 +147,20 @@ class GithubWebhook:
             )
             return None
 
-        if pull_request := await self.get_pull_request():
+        pull_request = await self.get_pull_request()
+        if pull_request:
+            # Log how we got the pull request (for workflow tracking)
+            if self.github_event == "pull_request":
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
+                    f"Initializing pull request from webhook payload",
+                )
+            else:
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
+                    f"Fetched pull request data via API (event: {self.github_event})",
+                )
+
             self.log_prefix = self.prepare_log_prefix(pull_request=pull_request)
             self.logger.step(  # type: ignore[attr-defined]
                 f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
@@ -251,16 +265,18 @@ class GithubWebhook:
                 ).process_pull_request_check_run_webhook_data(pull_request=pull_request):
                     if self.hook_data["check_run"]["name"] != CAN_BE_MERGED_STR:
                         self.logger.step(  # type: ignore[attr-defined]
-                            f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
+                            f"{self.log_prefix} "
+                            f"{format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
                             f"Checking if pull request can be merged after check run",
                         )
                         await PullRequestHandler(
                             github_webhook=self, owners_file_handler=owners_file_handler
                         ).check_if_can_be_merged(pull_request=pull_request)
-                        self.logger.success(  # type: ignore[attr-defined]
-                            f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
-                            f"Webhook processing completed successfully: check run",
-                        )
+                    self.logger.success(  # type: ignore[attr-defined]
+                        f"{self.log_prefix} "
+                        f"{format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
+                        f"Webhook processing completed successfully: check run",
+                    )
                 return None
 
     @property
@@ -360,7 +376,9 @@ class GithubWebhook:
             for _pull_request in await asyncio.to_thread(self.repository.get_pulls, state="open"):
                 if _pull_request.head.sha == self.hook_data["check_run"]["head_sha"]:
                     self.logger.debug(
-                        f"{self.log_prefix} Found pull request {_pull_request.title} [{_pull_request.number}] for check run {self.hook_data['check_run']['name']}"
+                        f"{self.log_prefix} Found pull request {_pull_request.title} "
+                        f"[{_pull_request.number}] for check run "
+                        f"{self.hook_data['check_run']['name']}"
                     )
                     return _pull_request
 

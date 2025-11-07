@@ -2,6 +2,7 @@
 
 import asyncio
 import datetime
+import gc
 import json
 import os
 import random
@@ -204,7 +205,10 @@ class TestMemoryUsageProfiler:
         parser = LogParser()
         content = ""
         for i in range(10000):
-            content += f"2025-07-31T10:{i // 600:02d}:{i % 60:02d}.000000 GithubWebhook INFO test-repo [push][hook-{i}][user]: Message {i}\n"
+            content += (
+                f"2025-07-31T10:{i // 600:02d}:{i % 60:02d}.000000 GithubWebhook INFO "
+                f"test-repo [push][hook-{i}][user]: Message {i}\n"
+            )
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
             f.write(content)
@@ -228,9 +232,6 @@ class TestMemoryUsageProfiler:
         """Test that memory is properly cleaned up after processing."""
         if not PSUTIL_AVAILABLE:
             pytest.skip("psutil not available for memory monitoring")
-
-        import gc
-        import os
 
         process = psutil.Process(os.getpid())
         initial_memory = process.memory_info().rss / 1024 / 1024  # MB
@@ -273,7 +274,7 @@ class TestConcurrencyPerformance:
         """Test performance of concurrent parsing operations."""
         # Create multiple log files
         files = []
-        for i in range(5):
+        for _i in range(5):
             content = self._generate_test_content(2000)
             with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
                 f.write(content)
@@ -448,13 +449,13 @@ class TestRealtimeStreamingPerformance:
             # Wait for monitoring to complete
             try:
                 await asyncio.wait_for(monitor_task, timeout=2.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 monitor_task.cancel()
 
             # Analyze latency
             if len(entries_received) >= 3:
                 latencies = []
-                for i, (receive_time, entry) in enumerate(entries_received):
+                for i, (receive_time, _entry) in enumerate(entries_received):
                     if i < len(write_times):
                         latency = receive_time - write_times[i]
                         latencies.append(latency)

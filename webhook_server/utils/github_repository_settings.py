@@ -1,9 +1,10 @@
 import contextlib
 import copy
 import os
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from copy import deepcopy
-from typing import Any, Callable
+from typing import Any
 
 import github
 from github import Auth, Github, GithubIntegration
@@ -70,7 +71,8 @@ def set_branch_protection(
     api_user: str,
 ) -> bool:
     LOGGER.info(
-        f"[API user {api_user}] - Set branch {branch} setting for {repository.name}. enabled checks: {required_status_checks}"
+        f"[API user {api_user}] - Set branch {branch} setting for {repository.name}. "
+        f"enabled checks: {required_status_checks}"
     )
     branch.edit_protection(
         strict=strict,
@@ -255,7 +257,7 @@ def set_repository(
                 LOGGER.warning,
             )
 
-        futures: list["Future"] = []
+        futures: list[Future] = []
 
         with ThreadPoolExecutor() as executor:
             for branch_name, status_checks in protected_branches.items():
@@ -318,7 +320,7 @@ def set_all_in_progress_check_runs_to_queued(repo_config: Config, apis_dict: dic
         BUILD_CONTAINER_STR,
         PRE_COMMIT_STR,
     )
-    futures: list["Future"] = []
+    futures: list[Future] = []
 
     with ThreadPoolExecutor() as executor:
         for repo, data in repo_config.root_data["repositories"].items():
@@ -351,7 +353,8 @@ def set_repository_check_runs_to_queued(
         for check_run in last_commit.get_check_runs():
             if check_run.name in check_runs and check_run.status == IN_PROGRESS_STR:
                 LOGGER.warning(
-                    f"[API user {api_user}] - {repository}: [PR:{pull_request.number}] {check_run.name} status is {IN_PROGRESS_STR}, "
+                    f"[API user {api_user}] - {repository}: [PR:{pull_request.number}] "
+                    f"{check_run.name} status is {IN_PROGRESS_STR}, "
                     f"Setting check run {check_run.name} to {QUEUED_STR}"
                 )
                 _api.create_check_run(name=check_run.name, head_sha=last_commit.sha, status=QUEUED_STR)

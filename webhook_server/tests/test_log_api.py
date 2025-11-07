@@ -10,10 +10,13 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastapi import HTTPException
+from fastapi.responses import HTMLResponse
 from fastapi.testclient import TestClient
 from fastapi.websockets import WebSocketDisconnect
 
+from webhook_server.app import FASTAPI_APP
 from webhook_server.libs.log_parser import LogEntry
+from webhook_server.web.log_viewer import LogViewerController
 
 
 class TestLogViewerController:
@@ -27,7 +30,6 @@ class TestLogViewerController:
     @pytest.fixture
     def controller(self, mock_logger):
         """Create a LogViewerController instance for testing."""
-        from webhook_server.web.log_viewer import LogViewerController
 
         with patch("webhook_server.web.log_viewer.Config") as mock_config:
             mock_config_instance = Mock()
@@ -491,7 +493,6 @@ class TestLogAPI:
         with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
             mock_instance = Mock()
             mock_controller.return_value = mock_instance
-            from fastapi.responses import HTMLResponse
 
             mock_instance.get_log_page.return_value = HTMLResponse(content="<html><body>Log Viewer</body></html>")
             mock_instance.shutdown = AsyncMock()  # Add async shutdown method
@@ -510,8 +511,6 @@ class TestLogAPI:
                     ) as mock_cloudflare:
                         mock_github.return_value = []
                         mock_cloudflare.return_value = []
-
-                        from webhook_server.app import FASTAPI_APP
 
                         with TestClient(FASTAPI_APP) as client:
                             response = client.get("/logs")
@@ -835,9 +834,6 @@ class TestLogWebSocket:
     @pytest.mark.asyncio
     async def test_websocket_handle_real_implementation(self):
         """Test actual WebSocket handler implementation."""
-        from unittest.mock import Mock
-
-        from webhook_server.web.log_viewer import LogViewerController
 
         mock_logger = Mock()
         controller = LogViewerController(logger=mock_logger)
@@ -860,7 +856,6 @@ class TestLogWebSocket:
     @pytest.mark.asyncio
     async def test_websocket_handle_with_log_monitoring(self):
         """Test WebSocket handler with log monitoring."""
-        from webhook_server.web.log_viewer import LogViewerController
 
         mock_logger = Mock()
         controller = LogViewerController(logger=mock_logger)
@@ -897,7 +892,6 @@ class TestLogWebSocket:
     @pytest.mark.asyncio
     async def test_shutdown_websocket_cleanup(self):
         """Test shutdown method properly closes all WebSocket connections."""
-        from webhook_server.web.log_viewer import LogViewerController
 
         mock_logger = Mock()
         controller = LogViewerController(logger=mock_logger)
@@ -932,7 +926,6 @@ class TestLogWebSocket:
     @pytest.mark.asyncio
     async def test_shutdown_websocket_close_error_handling(self):
         """Test shutdown method handles WebSocket close errors gracefully."""
-        from webhook_server.web.log_viewer import LogViewerController
 
         mock_logger = Mock()
         controller = LogViewerController(logger=mock_logger)
@@ -970,7 +963,6 @@ class TestLogWebSocket:
     @pytest.mark.asyncio
     async def test_shutdown_empty_connections(self):
         """Test shutdown method works correctly with no active connections."""
-        from webhook_server.web.log_viewer import LogViewerController
 
         mock_logger = Mock()
         controller = LogViewerController(logger=mock_logger)
@@ -1117,7 +1109,6 @@ class TestWorkflowStepsAPI:
     def test_get_workflow_steps_success(self) -> None:
         """Test successful workflow steps retrieval."""
         # Import modules and patch before creating test client
-        from unittest.mock import AsyncMock, Mock
 
         # Mock workflow steps data
         mock_workflow_data = {
@@ -1160,10 +1151,6 @@ class TestWorkflowStepsAPI:
             with patch("webhook_server.app.get_log_viewer_controller", return_value=mock_instance):
                 # Also patch the singleton variable itself
                 with patch("webhook_server.app._log_viewer_controller_singleton", mock_instance):
-                    from fastapi.testclient import TestClient
-
-                    from webhook_server.app import FASTAPI_APP
-
                     client = TestClient(FASTAPI_APP)
 
                     # Make the request
@@ -1184,7 +1171,6 @@ class TestWorkflowStepsAPI:
     def test_get_workflow_steps_no_steps_found(self) -> None:
         """Test workflow steps when no steps are found."""
         # Import modules and patch before creating test client
-        from unittest.mock import AsyncMock, Mock
 
         # Mock empty workflow data
         mock_workflow_data = {
@@ -1208,10 +1194,6 @@ class TestWorkflowStepsAPI:
             with patch("webhook_server.app.get_log_viewer_controller", return_value=mock_instance):
                 # Also patch the singleton variable itself
                 with patch("webhook_server.app._log_viewer_controller_singleton", mock_instance):
-                    from fastapi.testclient import TestClient
-
-                    from webhook_server.app import FASTAPI_APP
-
                     client = TestClient(FASTAPI_APP)
 
                     # Make the request

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any, Coroutine
+from collections.abc import Coroutine
+from typing import TYPE_CHECKING, Any
 
 from github.PullRequest import PullRequest
 from github.Repository import Repository
@@ -34,13 +35,14 @@ from webhook_server.utils.constants import (
     VERIFIED_LABEL_STR,
     WIP_STR,
 )
+from webhook_server.utils.helpers import format_task_fields
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
 
 
 class PullRequestHandler:
-    def __init__(self, github_webhook: "GithubWebhook", owners_file_handler: OwnersFileHandler):
+    def __init__(self, github_webhook: GithubWebhook, owners_file_handler: OwnersFileHandler):
         self.github_webhook = github_webhook
         self.owners_file_handler = owners_file_handler
 
@@ -60,7 +62,10 @@ class PullRequestHandler:
 
     async def process_pull_request_webhook_data(self, pull_request: PullRequest) -> None:
         hook_action: str = self.hook_data["action"]
-        self.logger.step(f"{self.log_prefix} Starting pull request processing: action={hook_action}")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'started')} "
+            f"Starting pull request processing: action={hook_action}",
+        )
         self.logger.info(f"{self.log_prefix} hook_action is: {hook_action}")
         self.logger.debug(f"{self.log_prefix} pull_request: {pull_request.title} ({pull_request.number})")
 
@@ -73,7 +78,10 @@ class PullRequestHandler:
                 await self.runner_handler.run_conventional_title_check(pull_request=pull_request)
 
         if hook_action in ("opened", "reopened", "ready_for_review"):
-            self.logger.step(f"{self.log_prefix} Processing PR {hook_action} event: initializing new pull request")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} "
+                f"Processing PR {hook_action} event: initializing new pull request",
+            )
             tasks: list[Coroutine[Any, Any, Any]] = []
 
             if hook_action in ("opened", "ready_for_review"):
@@ -93,7 +101,10 @@ class PullRequestHandler:
             await self.set_pull_request_automerge(pull_request=pull_request)
 
         if hook_action == "synchronize":
-            self.logger.step(f"{self.log_prefix} Processing PR synchronize event: handling new commits")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} "
+                f"Processing PR synchronize event: handling new commits",
+            )
             sync_tasks: list[Coroutine[Any, Any, Any]] = []
 
             sync_tasks.append(self.process_opened_or_synchronize_pull_request(pull_request=pull_request))
@@ -106,11 +117,17 @@ class PullRequestHandler:
                     self.logger.error(f"{self.log_prefix} Async task failed: {result}")
 
         if hook_action == "closed":
-            self.logger.step(f"{self.log_prefix} Processing PR closed event: cleaning up resources")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} "
+                f"Processing PR closed event: cleaning up resources",
+            )
             await self.close_issue_for_merged_or_closed_pr(pull_request=pull_request, hook_action=hook_action)
             await self.delete_remote_tag_for_merged_or_closed_pr(pull_request=pull_request)
             if is_merged := pull_request_data.get("merged", False):
-                self.logger.step(f"{self.log_prefix} PR was merged: processing post-merge tasks")  # type: ignore
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} "
+                    f"PR was merged: processing post-merge tasks",
+                )
                 self.logger.info(f"{self.log_prefix} PR is merged")
 
                 for _label in pull_request.labels:
@@ -136,7 +153,10 @@ class PullRequestHandler:
             labeled = self.hook_data["label"]["name"]
             labeled_lower = labeled.lower()
 
-            self.logger.step(f"{self.log_prefix} Processing label {hook_action} event: {labeled}")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} "
+                f"Processing label {hook_action} event: {labeled}",
+            )
 
             if labeled_lower == CAN_BE_MERGED_STR:
                 return
@@ -200,13 +220,17 @@ class PullRequestHandler:
         if is_auto_verified:
             auto_verified_note = """
 
-> **Note**: You are an auto-verified user. Your PRs will be automatically verified and may be auto-merged when all requirements are met.
+> **Note**: You are an auto-verified user. Your PRs will be automatically verified "
+            "and may be auto-merged when all requirements are met.
 """
 
         # Check if issue creation is enabled
         issue_creation_note = ""
         if self.github_webhook.create_issue_for_new_pr:
-            issue_creation_note = "* **Issue Creation**: A tracking issue is created for this PR and will be closed when the PR is merged or closed\n"
+            issue_creation_note = (
+                "* **Issue Creation**: A tracking issue is created for this PR "
+                "and will be closed when the PR is merged or closed\n"
+            )
         else:
             issue_creation_note = "* **Issue Creation**: Disabled for this repository\n"
 
@@ -218,9 +242,13 @@ class PullRequestHandler:
 This pull request will be automatically processed with the following features:{auto_verified_note}
 
 ### 🔄 Automatic Actions
-* **Reviewer Assignment**: Reviewers are automatically assigned based on the OWNERS file in the repository root
-* **Size Labeling**: PR size labels (XS, S, M, L, XL, XXL) are automatically applied based on changes
-{issue_creation_note}* **Pre-commit Checks**: [pre-commit](https://pre-commit.ci/) runs automatically if `.pre-commit-config.yaml` exists
+* **Reviewer Assignment**: Reviewers are automatically assigned based on the "
+            "OWNERS file in the repository root\n"
+            "* **Size Labeling**: PR size labels (XS, S, M, L, XL, XXL) are "
+            "automatically applied based on changes\n"
+            f"{issue_creation_note}"
+            "* **Pre-commit Checks**: [pre-commit](https://pre-commit.ci/) runs "
+            "automatically if `.pre-commit-config.yaml` exists\n"
 * **Branch Labeling**: Branch-specific labels are applied to track the target branch
 * **Auto-verification**: Auto-verified users have their PRs automatically marked as verified
 
@@ -397,7 +425,8 @@ For more information, please refer to the project documentation or contact the m
                         )
                 else:
                     self.logger.warning(
-                        f"{self.log_prefix} {pr_tag} tag not found in registry {self.github_webhook.container_repository}. "
+                        f"{self.log_prefix} {pr_tag} tag not found in registry "
+                        f"{self.github_webhook.container_repository}. "
                         f"OUT:{out}. ERR:{err}"
                     )
             finally:
@@ -423,10 +452,16 @@ For more information, please refer to the project documentation or contact the m
                 break
 
     async def process_opened_or_synchronize_pull_request(self, pull_request: PullRequest) -> None:
-        self.logger.step(f"{self.log_prefix} Starting PR processing workflow")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'started')} "
+            f"Starting PR processing workflow",
+        )
 
         # Stage 1: Initial setup and check queue tasks
-        self.logger.step(f"{self.log_prefix} Stage: Initial setup and check queuing")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} "
+            f"Stage: Initial setup and check queuing",
+        )
         setup_tasks: list[Coroutine[Any, Any, Any]] = []
 
         setup_tasks.append(self.owners_file_handler.assign_reviewers(pull_request=pull_request))
@@ -449,17 +484,24 @@ For more information, please refer to the project documentation or contact the m
         if self.github_webhook.conventional_title:
             setup_tasks.append(self.check_run_handler.set_conventional_title_queued())
 
-        self.logger.step(f"{self.log_prefix} Executing setup tasks")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} Executing setup tasks"
+        )
         setup_results = await asyncio.gather(*setup_tasks, return_exceptions=True)
 
         for result in setup_results:
             if isinstance(result, Exception):
                 self.logger.error(f"{self.log_prefix} Setup task failed: {result}")
 
-        self.logger.step(f"{self.log_prefix} Setup tasks completed")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'completed')} Setup tasks completed"
+        )
 
         # Stage 2: CI/CD execution tasks
-        self.logger.step(f"{self.log_prefix} Stage: CI/CD execution")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} "
+            f"Stage: CI/CD execution",
+        )
         ci_tasks: list[Coroutine[Any, Any, Any]] = []
 
         ci_tasks.append(self.runner_handler.run_tox(pull_request=pull_request))
@@ -470,14 +512,20 @@ For more information, please refer to the project documentation or contact the m
         if self.github_webhook.conventional_title:
             ci_tasks.append(self.runner_handler.run_conventional_title_check(pull_request=pull_request))
 
-        self.logger.step(f"{self.log_prefix} Executing CI/CD tasks")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} "
+            f"Executing CI/CD tasks",
+        )
         ci_results = await asyncio.gather(*ci_tasks, return_exceptions=True)
 
         for result in ci_results:
             if isinstance(result, Exception):
                 self.logger.error(f"{self.log_prefix} CI/CD task failed: {result}")
 
-        self.logger.step(f"{self.log_prefix} PR processing workflow completed")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'completed')} "
+            f"PR processing workflow completed",
+        )
 
     async def create_issue_for_new_pull_request(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.create_issue_for_new_pr:
@@ -524,7 +572,8 @@ For more information, please refer to the project documentation or contact the m
             try:
                 if not pull_request.raw_data.get("auto_merge"):
                     self.logger.info(
-                        f"{self.log_prefix} will be merged automatically. owner: {self.github_webhook.parent_committer} "
+                        f"{self.log_prefix} will be merged automatically. "
+                        f"owner: {self.github_webhook.parent_committer} "
                         f"is part of auto merge enabled rules"
                     )
 
@@ -593,8 +642,9 @@ For more information, please refer to the project documentation or contact the m
 
         if self.github_webhook.parent_committer in self.github_webhook.auto_verified_and_merged_users:
             self.logger.info(
-                f"{self.log_prefix} Committer {self.github_webhook.parent_committer} is part of {self.github_webhook.auto_verified_and_merged_users}"
-                ", Setting verified label"
+                f"{self.log_prefix} Committer {self.github_webhook.parent_committer} "
+                f"is part of {self.github_webhook.auto_verified_and_merged_users}, "
+                f"Setting verified label"
             )
             await self.labels_handler._add_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
             await self.check_run_handler.set_verify_check_success()
@@ -627,7 +677,11 @@ For more information, please refer to the project documentation or contact the m
             PR status is not 'dirty'.
             PR has no changed requests from approvers.
         """
-        self.logger.step(f"{self.log_prefix} Starting merge eligibility check")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} "
+            f"{format_task_fields('pr_handler', 'pr_management', 'started')} "
+            f"Starting merge eligibility check"
+        )
         if self.skip_if_pull_request_already_merged(pull_request=pull_request):
             self.logger.debug(f"{self.log_prefix} Pull request already merged")
             return
@@ -758,7 +812,8 @@ For more information, please refer to the project documentation or contact the m
 
                 for required_pr_approver in required_pr_approvers:
                     if required_pr_approver in approved_by:
-                        # Once we found approver in approved_by list, we remove all approvers from missing_approvers list for this owners file
+                        # Once we found approver in approved_by list, we remove all approvers "
+                        # from missing_approvers list for this owners file
                         for _approver in required_pr_approvers:
                             if _approver in missing_approvers:
                                 missing_approvers.remove(_approver)
@@ -774,12 +829,16 @@ For more information, please refer to the project documentation or contact the m
         if lgtm_count < self.github_webhook.minimum_lgtm:
             if lgtm_count == len(all_reviewers_without_pr_owner):
                 self.logger.debug(
-                    f"{self.log_prefix} minimum_lgtm is {self.github_webhook.minimum_lgtm}, but number of reviewers is {len(all_reviewers_without_pr_owner)}. PR approved."
+                    f"{self.log_prefix} minimum_lgtm is {self.github_webhook.minimum_lgtm}, "
+                    f"but number of reviewers is {len(all_reviewers_without_pr_owner)}. "
+                    f"PR approved."
                 )
             else:
+                reviewers_str = ", ".join(all_reviewers_without_pr_owner)
                 error += (
                     "Missing lgtm from reviewers. "
-                    f"Minimum {self.github_webhook.minimum_lgtm} required, ({lgtm_count} given). Reviewers: {', '.join(all_reviewers_without_pr_owner)}.\n"
+                    f"Minimum {self.github_webhook.minimum_lgtm} required, "
+                    f"({lgtm_count} given). Reviewers: {reviewers_str}.\n"
                 )
 
         return error

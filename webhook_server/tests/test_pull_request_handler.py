@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 from github.PullRequest import PullRequest
 
 from webhook_server.libs.pull_request_handler import PullRequestHandler
@@ -8,6 +9,7 @@ from webhook_server.utils.constants import (
     CAN_BE_MERGED_STR,
     CHANGED_REQUESTED_BY_LABEL_PREFIX,
     CHERRY_PICK_LABEL_PREFIX,
+    CHERRY_PICKED_LABEL_PREFIX,
     COMMENTED_BY_LABEL_PREFIX,
     HAS_CONFLICTS_LABEL_STR,
     LGTM_BY_LABEL_PREFIX,
@@ -507,7 +509,6 @@ class TestPullRequestHandler:
         self, pull_request_handler: PullRequestHandler
     ) -> None:
         """Test cherry-picked PR with auto-verify enabled (default behavior)."""
-        from webhook_server.utils.constants import CHERRY_PICKED_LABEL_PREFIX
 
         mock_pull_request = Mock(spec=PullRequest)
         mock_label = Mock()
@@ -529,7 +530,6 @@ class TestPullRequestHandler:
         self, pull_request_handler: PullRequestHandler
     ) -> None:
         """Test cherry-picked PR with auto-verify disabled."""
-        from webhook_server.utils.constants import CHERRY_PICKED_LABEL_PREFIX
 
         mock_pull_request = Mock(spec=PullRequest)
         mock_label = Mock()

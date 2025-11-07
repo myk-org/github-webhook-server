@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 import yaml
+from github.GithubException import GithubException
 
 from webhook_server.libs.owners_files_handler import OwnersFileHandler
 from webhook_server.tests.conftest import ContentFile
@@ -417,8 +418,6 @@ class TestOwnersFileHandler:
         owners_file_handler.changed_files = ["file1.py"]
         owners_file_handler.all_pull_request_reviewers = ["reviewer1"]
         mock_pull_request.user.login = "test-user"
-
-        from github.GithubException import GithubException
 
         with patch.object(mock_pull_request, "create_review_request", side_effect=GithubException(404, "Not found")):
             with patch.object(mock_pull_request, "create_issue_comment") as mock_comment:

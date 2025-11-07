@@ -10,17 +10,22 @@ def json_line(line: str) -> dict:
     Format str line to str that can be parsed with json.
 
     In case line is not formatted for json for example:
-    '{"title": "Revert "feat: Use git cliff to generate the change log. (#2322)" (#2324)", "commit": "137331fd", "author": "Meni Yakove", "date": "2025-02-16"}'
-    title have `"` inside the external `"` `"Revert "feat: Use git cliff to generate the change log. (#2322)" (#2324)"`
+    '{"title": "Revert "feat: Use git cliff to generate the change log. (#2322)" '
+    '(#2324)", "commit": "137331fd", "author": "Meni Yakove", "date": "2025-02-16"}'
+    title have `"` inside the external `"` `"Revert "feat: Use git cliff to '
+    'generate the change log. (#2322)" (#2324)"`
     """
     try:
         return json.loads(line)
     except json.JSONDecodeError:
         # split line like by `,`
-        # '{"title": "Revert "feat: Use git cliff to generate the change log. (#2322)" (#2324)", "commit": "137331fd", "author": "Meni Yakove", "date": "2025-02-16"}'
+        # '{"title": "Revert "feat: Use git cliff to generate the change log. '
+        # '(#2322)" (#2324)", "commit": "137331fd", "author": "Meni Yakove", '
+        # '"date": "2025-02-16"}'
         line_split = line.split(",")
 
-        # Pop and save `title key` and `title body` from '{"title": "Revert "feat: Use git cliff to generate the change log. (#2322)" (#2324)"'
+        # Pop and save `title key` and `title body` from '{"title": "Revert '
+        # '"feat: Use git cliff to generate the change log. (#2322)" (#2324)"'
         title_key, title_body = line_split.pop(0).split(":", 1)
 
         if title_body.count('"') > 2:

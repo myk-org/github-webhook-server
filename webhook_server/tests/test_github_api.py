@@ -5,6 +5,7 @@ from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from github.GithubException import GithubException
 from simple_logger.logger import get_logger
 from starlette.datastructures import Headers
 
@@ -645,7 +646,7 @@ class TestGithubWebhook:
         mock_api.get_user.return_value = mock_user
         mock_get_apis.return_value = [(mock_api, "token")]
         gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
-        gh.add_api_users_to_auto_verified_and_merged_users
+        _ = gh.add_api_users_to_auto_verified_and_merged_users
         assert "test-user" in gh.auto_verified_and_merged_users
 
     @patch("webhook_server.libs.github_api.get_apis_and_tokes_from_config")
@@ -797,7 +798,6 @@ class TestGithubWebhook:
         self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
     ) -> None:
         """Test getting pull request with GithubException."""
-        from github import GithubException
 
         with patch("webhook_server.libs.github_api.Config") as mock_config:
             mock_config.return_value.repository = True

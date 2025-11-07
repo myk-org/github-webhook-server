@@ -1,6 +1,7 @@
 import asyncio
+from collections.abc import Coroutine
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Coroutine
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from asyncstdlib import functools
@@ -12,6 +13,7 @@ from github.PullRequest import PullRequest
 from github.Repository import Repository
 
 from webhook_server.utils.constants import COMMAND_ADD_ALLOWED_USER_STR
+from webhook_server.utils.helpers import format_task_fields
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
@@ -241,16 +243,25 @@ class OwnersFileHandler:
     async def assign_reviewers(self, pull_request: PullRequest) -> None:
         self._ensure_initialized()
 
-        self.logger.step(f"{self.log_prefix} Starting reviewer assignment based on OWNERS files")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'started')} "
+            f"Starting reviewer assignment based on OWNERS files",
+        )
         self.logger.info(f"{self.log_prefix} Assign reviewers")
 
         _to_add: list[str] = list(set(self.all_pull_request_reviewers))
         self.logger.debug(f"{self.log_prefix} Reviewers to add: {', '.join(_to_add)}")
 
         if _to_add:
-            self.logger.step(f"{self.log_prefix} Assigning {len(_to_add)} reviewers to PR")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'processing')} "
+                f"Assigning {len(_to_add)} reviewers to PR",
+            )
         else:
-            self.logger.step(f"{self.log_prefix} No reviewers to assign")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'processing')} "
+                f"No reviewers to assign",
+            )
             return
 
         for reviewer in _to_add:
@@ -258,16 +269,25 @@ class OwnersFileHandler:
                 self.logger.debug(f"{self.log_prefix} Adding reviewer {reviewer}")
                 try:
                     await asyncio.to_thread(pull_request.create_review_request, [reviewer])
-                    self.logger.step(f"{self.log_prefix} Successfully assigned reviewer {reviewer}")  # type: ignore
+                    self.logger.step(  # type: ignore[attr-defined]
+                        f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'processing')} "
+                        f"Successfully assigned reviewer {reviewer}",
+                    )
 
                 except GithubException as ex:
-                    self.logger.step(f"{self.log_prefix} Failed to assign reviewer {reviewer}")  # type: ignore
+                    self.logger.step(  # type: ignore[attr-defined]
+                        f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'processing')} "
+                        f"Failed to assign reviewer {reviewer}",
+                    )
                     self.logger.debug(f"{self.log_prefix} Failed to add reviewer {reviewer}. {ex}")
                     await asyncio.to_thread(
                         pull_request.create_issue_comment, f"{reviewer} can not be added as reviewer. {ex}"
                     )
 
-        self.logger.step(f"{self.log_prefix} Reviewer assignment completed")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'completed')} "
+            f"Reviewer assignment completed",
+        )
 
     async def is_user_valid_to_run_commands(self, pull_request: PullRequest, reviewed_user: str) -> bool:
         self._ensure_initialized()

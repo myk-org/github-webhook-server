@@ -1,7 +1,8 @@
 """Tests for webhook_server.libs.pull_request_review_handler module."""
 
-import pytest
 from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 from github.PullRequest import PullRequest
 
 from webhook_server.libs.pull_request_review_handler import PullRequestReviewHandler

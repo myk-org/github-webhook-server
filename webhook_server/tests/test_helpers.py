@@ -1,18 +1,22 @@
+import datetime
 import logging
 import os
 import sys
 from unittest.mock import Mock, patch
+
 import pytest
 
+from webhook_server.libs.config import Config
+from webhook_server.libs.exceptions import NoApiTokenError
 from webhook_server.utils.helpers import (
     extract_key_from_dict,
-    get_logger_with_params,
     get_api_with_highest_rate_limit,
     get_apis_and_tokes_from_config,
-    get_github_repo_api,
-    run_command,
-    log_rate_limit,
     get_future_results,
+    get_github_repo_api,
+    get_logger_with_params,
+    log_rate_limit,
+    run_command,
 )
 
 
@@ -77,7 +81,6 @@ class TestHelpers:
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     def test_get_apis_and_tokes_from_config(self) -> None:
         """Test getting APIs and tokens from configuration."""
-        from webhook_server.libs.config import Config
 
         config = Config(repository="test-repo")
         apis_and_tokens = get_apis_and_tokes_from_config(config=config)
@@ -95,7 +98,6 @@ class TestHelpers:
     @patch("webhook_server.utils.helpers.log_rate_limit")
     def test_get_api_with_highest_rate_limit(self, mock_log_rate_limit: Mock, mock_get_apis: Mock) -> None:
         """Test getting API with highest rate limit."""
-        from webhook_server.libs.config import Config
 
         # Mock APIs with different rate limits
         mock_api1 = Mock()
@@ -130,8 +132,6 @@ class TestHelpers:
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     def test_get_api_with_highest_rate_limit_no_apis(self, mock_get_apis: Mock) -> None:
         """Test getting API when no APIs available."""
-        from webhook_server.libs.config import Config
-        from webhook_server.libs.exceptions import NoApiTokenError
 
         mock_get_apis.return_value = []
 
@@ -191,7 +191,6 @@ class TestHelpers:
         self, mock_log_rate_limit: Mock, mock_get_apis: Mock
     ) -> None:
         """Test getting API with invalid tokens (rate limit 60)."""
-        from webhook_server.libs.config import Config
 
         # Mock API with invalid token (rate limit 60)
         mock_api1 = Mock()
@@ -332,13 +331,12 @@ class TestHelpers:
 
     def test_log_rate_limit_all_branches(self):
         """Test log_rate_limit for all color/warning branches."""
-        import datetime
 
         # Patch logger to capture logs
         with patch("webhook_server.utils.helpers.get_logger_with_params") as mock_get_logger:
             mock_logger = Mock()
             mock_get_logger.return_value = mock_logger
-            now = datetime.datetime.now(datetime.timezone.utc)
+            now = datetime.datetime.now(datetime.UTC)
             # RED branch (below_minimum)
             rate_core = Mock()
             rate_core.remaining = 600

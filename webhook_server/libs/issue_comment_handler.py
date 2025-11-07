@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import asyncio
 from asyncio import Task
-from typing import TYPE_CHECKING, Any, Callable, Coroutine, Union
+from collections.abc import Callable, Coroutine
+from typing import TYPE_CHECKING, Any
 
 from github.PullRequest import PullRequest
 from github.Repository import Repository
@@ -33,13 +34,14 @@ from webhook_server.utils.constants import (
     VERIFIED_LABEL_STR,
     WIP_STR,
 )
+from webhook_server.utils.helpers import format_task_fields
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
 
 
 class IssueCommentHandler:
-    def __init__(self, github_webhook: "GithubWebhook", owners_file_handler: OwnersFileHandler):
+    def __init__(self, github_webhook: GithubWebhook, owners_file_handler: OwnersFileHandler):
         self.github_webhook = github_webhook
         self.owners_file_handler = owners_file_handler
 
@@ -60,14 +62,23 @@ class IssueCommentHandler:
 
     async def process_comment_webhook_data(self, pull_request: PullRequest) -> None:
         comment_action = self.hook_data["action"]
-        self.logger.step(f"{self.log_prefix} Starting issue comment processing: action={comment_action}")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('issue_comment', 'pr_management', 'started')} "
+            f"Starting issue comment processing: action={comment_action}",
+        )
 
         if comment_action in ("edited", "deleted"):
-            self.logger.step(f"{self.log_prefix} Skipping comment processing: action is {comment_action}")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('issue_comment', 'pr_management', 'processing')} "
+                f"Skipping comment processing: action is {comment_action}",
+            )
             self.logger.debug(f"{self.log_prefix} Not processing comment. action is {comment_action}")
             return
 
-        self.logger.step(f"{self.log_prefix} Processing issue comment for issue {self.hook_data['issue']['number']}")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('issue_comment', 'pr_management', 'processing')} "
+            f"Processing issue comment for issue {self.hook_data['issue']['number']}",
+        )
         self.logger.info(f"{self.log_prefix} Processing issue {self.hook_data['issue']['number']}")
 
         body: str = self.hook_data["comment"]["body"]
@@ -79,11 +90,18 @@ class IssueCommentHandler:
         _user_commands: list[str] = [_cmd.strip("/") for _cmd in body.strip().splitlines() if _cmd.startswith("/")]
 
         if _user_commands:
-            self.logger.step(f"{self.log_prefix} Found {len(_user_commands)} user commands: {_user_commands}")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('issue_comment', 'pr_management', 'processing')} "
+                f"Found {len(_user_commands)} user commands: {_user_commands}",
+            )
 
         user_login: str = self.hook_data["sender"]["login"]
         for user_command in _user_commands:
-            self.logger.step(f"{self.log_prefix} Executing user command: /{user_command} by {user_login}")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} "
+                f"{format_task_fields('issue_comment', 'pr_management', 'processing')} "
+                f"Executing user command: /{user_command} by {user_login}",
+            )
             await self.user_commands(
                 pull_request=pull_request,
                 command=user_command,
@@ -266,7 +284,8 @@ class IssueCommentHandler:
             except Exception:
                 _non_exits_target_branches_msg += f"Target branch `{_target_branch}` does not exist\n"
         self.logger.debug(
-            f"{self.log_prefix} Found target branches {_exits_target_branches} and not found {_non_exits_target_branches_msg}"
+            f"{self.log_prefix} Found target branches {_exits_target_branches} "
+            f"and not found {_non_exits_target_branches_msg}"
         )
 
         if _non_exits_target_branches_msg:
@@ -351,7 +370,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             await asyncio.to_thread(pull_request.create_issue_comment, msg)
 
         if _supported_retests:
-            tasks: list[Union[Coroutine[Any, Any, Any], Task[Any]]] = []
+            tasks: list[Coroutine[Any, Any, Any] | Task[Any]] = []
             for _test in _supported_retests:
                 self.logger.debug(f"{self.log_prefix} running retest {_test}")
                 task = asyncio.create_task(_retests_to_func_map[_test](pull_request=pull_request))

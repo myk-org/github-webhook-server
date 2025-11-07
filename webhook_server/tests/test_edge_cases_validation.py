@@ -1,15 +1,18 @@
 """Edge case validation tests for webhook server log functionality."""
 
 import asyncio
+import concurrent.futures
 import datetime
 import os
 import tempfile
+import time
+from collections.abc import Generator
 from pathlib import Path
-from typing import Generator
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastapi import HTTPException
+from fastapi.websockets import WebSocketDisconnect
 from simple_logger.logger import get_logger
 
 try:
@@ -143,7 +146,11 @@ class TestLogParsingEdgeCases:
         {"json": "object", "instead": "of log line"}
         2025-07-31T10:00:01.000000 GithubWebhook DEBUG Another valid entry
         Line with unicode characters: 🚀 💻 ✅
-        Very long line that exceeds normal expectations and might cause buffer overflow issues in poorly implemented parsers with limited memory allocation strategies and insufficient bounds checking mechanisms that could potentially lead to security vulnerabilities or performance degradation
+        Very long line that exceeds normal expectations and might cause "
+            "buffer overflow issues in poorly implemented parsers with "
+            "limited memory allocation strategies and insufficient bounds "
+            "checking mechanisms that could potentially lead to security "
+            "vulnerabilities or performance degradation
         2025-07-31T10:00:02.000000 GithubWebhook ERROR Final valid entry
         """
 
@@ -171,8 +178,6 @@ class TestLogParsingEdgeCases:
         # Simulate concurrent access
         def parse_file():
             return parser.parse_log_file(log_path)
-
-        import concurrent.futures
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             futures = [executor.submit(parse_file) for _ in range(10)]
@@ -240,7 +245,7 @@ class TestLogParsingEdgeCases:
                         asyncio.gather(monitor_task, rotation_task, return_exceptions=True),
                         timeout=1.0,  # Reduced from 5.0 to 1.0 second
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     monitor_task.cancel()
                     rotation_task.cancel()
 
@@ -249,8 +254,9 @@ class TestLogParsingEdgeCases:
             # Should handle rotation gracefully and capture at least some entries
             # The monitor should capture at least the "Before rotation" entry since it's added after monitoring starts
             # During rotation, some entries might be missed, but the monitor should capture at least 1 entry
+            entry_messages = [e.message for e in monitored_entries]
             assert len(monitored_entries) >= 1, (
-                f"Expected at least 1 monitored entry, got {len(monitored_entries)}. Entries: {[e.message for e in monitored_entries]}"
+                f"Expected at least 1 monitored entry, got {len(monitored_entries)}. Entries: {entry_messages}"
             )
 
             # Verify that captured entries are valid LogEntry objects with expected content
@@ -261,13 +267,22 @@ class TestLogParsingEdgeCases:
 
     def test_unicode_and_special_characters(self):
         """Test handling of unicode and special characters in log entries."""
-        unicode_content = """2025-07-31T10:00:00.000000 GithubWebhook INFO test-repo [push][hook-1][user]: Message with unicode: 🚀 ✅ 💻
-2025-07-31T10:00:01.000000 GithubWebhook INFO test-repo [push][hook-2][user]: ASCII and émojis: café naïve résumé
-2025-07-31T10:00:02.000000 GithubWebhook INFO test-repo [push][hook-3][user]: Chinese characters: 你好世界
-2025-07-31T10:00:03.000000 GithubWebhook INFO test-repo [push][hook-4][user]: Arabic: مرحبا بالعالم
-2025-07-31T10:00:04.000000 GithubWebhook INFO test-repo [push][hook-5][user]: Special chars: @#$%^&*(){}[]|\\:";'<>?,./
-2025-07-31T10:00:05.000000 GithubWebhook INFO test-repo [push][hook-6][user]: Newlines and tabs: Message\\nwith\\ttabs
-2025-07-31T10:00:06.000000 GithubWebhook INFO test-repo [push][hook-7][user]: Quote handling: 'single' "double" `backtick`"""
+        unicode_content = (
+            "2025-07-31T10:00:00.000000 GithubWebhook INFO test-repo "
+            "[push][hook-1][user]: Message with unicode: 🚀 ✅ 💻\n"
+            "2025-07-31T10:00:01.000000 GithubWebhook INFO test-repo "
+            "[push][hook-2][user]: ASCII and émojis: café naïve résumé\n"
+            "2025-07-31T10:00:02.000000 GithubWebhook INFO test-repo "
+            "[push][hook-3][user]: Chinese characters: 你好世界\n"
+            "2025-07-31T10:00:03.000000 GithubWebhook INFO test-repo "
+            "[push][hook-4][user]: Arabic: مرحبا بالعالم\n"
+            "2025-07-31T10:00:04.000000 GithubWebhook INFO test-repo "
+            "[push][hook-5][user]: Special chars: @#$%^&*(){}[]|\\:\";'<>?,./\n"
+            "2025-07-31T10:00:05.000000 GithubWebhook INFO test-repo "
+            "[push][hook-6][user]: Newlines and tabs: Message\\nwith\\ttabs\n"
+            "2025-07-31T10:00:06.000000 GithubWebhook INFO test-repo "
+            "[push][hook-7][user]: Quote handling: 'single' \"double\" `backtick`"
+        )
 
         entries = parse_log_content_helper(unicode_content, encoding="utf-8")
 
@@ -295,7 +310,7 @@ class TestLogParsingEdgeCases:
             "   \n  \t  \n  ",  # Mixed whitespace
         ]
 
-        for i, content in enumerate(test_cases):
+        for _i, content in enumerate(test_cases):
             entries = parse_log_content_helper(content)
 
             # Should handle gracefully without errors
@@ -307,9 +322,14 @@ class TestLogParsingEdgeCases:
         # Generate very long message
         long_message = "Very long message: " + "A" * 100000  # 100KB message
 
-        long_line_content = f"""2025-07-31T10:00:00.000000 GithubWebhook INFO test-repo [push][hook-1][user]: Normal message
-2025-07-31T10:00:01.000000 GithubWebhook INFO test-repo [push][hook-2][user]: {long_message}
-2025-07-31T10:00:02.000000 GithubWebhook INFO test-repo [push][hook-3][user]: Another normal message"""
+        long_line_content = (
+            f"2025-07-31T10:00:00.000000 GithubWebhook INFO test-repo "
+            f"[push][hook-1][user]: Normal message\n"
+            f"2025-07-31T10:00:01.000000 GithubWebhook INFO test-repo "
+            f"[push][hook-2][user]: {long_message}\n"
+            f"2025-07-31T10:00:02.000000 GithubWebhook INFO test-repo "
+            f"[push][hook-3][user]: Another normal message"
+        )
 
         entries = parse_log_content_helper(long_line_content)
 
@@ -462,8 +482,6 @@ class TestFilteringEdgeCases:
         entries = self.create_complex_test_dataset()
         log_filter = LogFilter()
 
-        import time
-
         # Test search in very long content
         start_time = time.perf_counter()
         long_string_filtered = log_filter.filter_entries(entries, search_text="X" * 100)
@@ -548,9 +566,7 @@ class TestWebSocketEdgeCases:
 
         # Mock multiple WebSocket connections
         mock_websockets = []
-        for i in range(100):  # Simulate many connections
-            from unittest.mock import AsyncMock
-
+        for _i in range(100):  # Simulate many connections
             mock_ws = AsyncMock()
             mock_ws.accept = AsyncMock()
             mock_ws.send_json = AsyncMock()
@@ -602,15 +618,11 @@ class TestWebSocketEdgeCases:
     @pytest.mark.asyncio
     async def test_websocket_with_rapid_disconnections(self):
         """Test WebSocket handling with rapid connect/disconnect cycles."""
-        from fastapi.websockets import WebSocketDisconnect
-
         mock_logger = Mock()
         controller = LogViewerController(logger=mock_logger)
 
         # Test rapid disconnection scenarios
-        for i in range(10):
-            from unittest.mock import AsyncMock
-
+        for _i in range(10):
             mock_ws = AsyncMock()
             mock_ws.accept = AsyncMock()
 
@@ -645,8 +657,6 @@ class TestWebSocketEdgeCases:
                 hook_id="test",
             ),
         ]
-
-        from unittest.mock import AsyncMock
 
         mock_ws = AsyncMock()
         mock_ws.accept = AsyncMock()
@@ -851,7 +861,7 @@ class TestConcurrentUserScenarios:
 
         # Simulate multiple users with different controllers
         users = []
-        for i in range(5):
+        for _i in range(5):
             controller = LogViewerController(logger=mock_logger)
             users.append(controller)
 
@@ -871,7 +881,7 @@ class TestConcurrentUserScenarios:
 
         # Execute concurrent requests
         tasks = []
-        for controller, filters in zip(users, user_filters):
+        for controller, filters in zip(users, user_filters, strict=True):
             task = asyncio.create_task(asyncio.to_thread(user_request, controller, filters))
             tasks.append(task)
 
@@ -897,9 +907,7 @@ class TestConcurrentUserScenarios:
 
         # Mock WebSocket connections for each user
         mock_websockets = []
-        for i in range(3):
-            from unittest.mock import AsyncMock
-
+        for _i in range(3):
             mock_ws = AsyncMock()
             mock_ws.accept = AsyncMock()
             mock_ws.send_json = AsyncMock()
@@ -926,7 +934,7 @@ class TestConcurrentUserScenarios:
 
         # Start WebSocket connections for all users
         tasks = []
-        for i, (controller, ws) in enumerate(zip(controllers, mock_websockets)):
+        for i, (controller, ws) in enumerate(zip(controllers, mock_websockets, strict=True)):
             with patch.object(controller.log_parser, "monitor_log_directory", return_value=mock_monitor(i)):
                 task = asyncio.create_task(controller.handle_websocket(ws))
                 tasks.append(task)

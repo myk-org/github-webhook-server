@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -390,8 +391,6 @@ class TestLabelsHandler:
             patch.object(labels_handler, "_remove_label") as mock_remove,
             patch.object(labels_handler, "wait_for_label", return_value=True),
         ):
-            import asyncio
-
             # Run concurrent operations
             await asyncio.gather(
                 labels_handler._add_label(pull_request=pull_request, label="bug"),

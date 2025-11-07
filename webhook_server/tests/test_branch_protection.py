@@ -2,6 +2,7 @@ import os
 from typing import Any
 
 import pytest
+
 from webhook_server.libs.config import Config
 from webhook_server.utils.github_repository_settings import (
     DEFAULT_BRANCH_PROTECTION,

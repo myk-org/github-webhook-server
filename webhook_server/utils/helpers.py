@@ -277,7 +277,7 @@ def log_rate_limit(rate_limit: RateLimitOverview, api_user: str) -> None:
     logger = get_logger_with_params()
 
     rate_limit_str: str
-    time_for_limit_reset: int = (rate_limit.rate.reset - datetime.datetime.now(tz=datetime.timezone.utc)).seconds
+    time_for_limit_reset: int = (rate_limit.rate.reset - datetime.datetime.now(tz=datetime.UTC)).seconds
     below_minimum: bool = rate_limit.rate.remaining < 700
 
     if below_minimum:
@@ -292,14 +292,14 @@ def log_rate_limit(rate_limit: RateLimitOverview, api_user: str) -> None:
     msg = (
         f"{Fore.CYAN}[{api_user}] API rate limit:{Fore.RESET} Current {rate_limit_str} of {rate_limit.rate.limit}. "
         f"Reset in {rate_limit.rate.reset} [{datetime.timedelta(seconds=time_for_limit_reset)}] "
-        f"(UTC time is {datetime.datetime.now(tz=datetime.timezone.utc)})"
+        f"(UTC time is {datetime.datetime.now(tz=datetime.UTC)})"
     )
     logger.debug(msg)
     if below_minimum:
         logger.warning(msg)
 
 
-def get_future_results(futures: list["Future"]) -> None:
+def get_future_results(futures: list[Future]) -> None:
     """
     result must return tuple[bool, str, Callable] when the Callable is Logger function (LOGGER.info, LOGGER.error, etc)
     """

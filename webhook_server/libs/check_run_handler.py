@@ -22,6 +22,7 @@ from webhook_server.utils.constants import (
     TOX_STR,
     VERIFIED_LABEL_STR,
 )
+from webhook_server.utils.helpers import format_task_fields
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
@@ -46,18 +47,23 @@ class CheckRunHandler:
         _check_run: dict[str, Any] = self.hook_data["check_run"]
         check_run_name: str = _check_run["name"]
 
-        self.logger.step(f"{self.log_prefix} Processing check run: {check_run_name}")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'processing')} "
+            f"Processing check run: {check_run_name}",
+        )
 
         if self.hook_data.get("action", "") != "completed":
             self.logger.debug(
-                f"{self.log_prefix} check run {check_run_name} action is {self.hook_data.get('action', 'N/A')} and not completed, skipping"
+                f"{self.log_prefix} check run {check_run_name} action is "
+                f"{self.hook_data.get('action', 'N/A')} and not completed, skipping"
             )
             return False
 
         check_run_status: str = _check_run["status"]
         check_run_conclusion: str = _check_run["conclusion"]
         self.logger.debug(
-            f"{self.log_prefix} processing check_run - Name: {check_run_name} Status: {check_run_status} Conclusion: {check_run_conclusion}"
+            f"{self.log_prefix} processing check_run - Name: {check_run_name} "
+            f"Status: {check_run_status} Conclusion: {check_run_conclusion}"
         )
 
         if check_run_name == CAN_BE_MERGED_STR:
@@ -66,9 +72,15 @@ class CheckRunHandler:
                     label=AUTOMERGE_LABEL_STR, pull_request=pull_request
                 ):
                     try:
-                        self.logger.step(f"{self.log_prefix} Executing auto-merge for PR #{pull_request.number}")  # type: ignore
+                        self.logger.step(  # type: ignore[attr-defined]
+                            f"{self.log_prefix} {format_task_fields('check_run', 'automerge', 'processing')} "
+                            f"Executing auto-merge for PR #{pull_request.number}",
+                        )
                         await asyncio.to_thread(pull_request.merge, merge_method="SQUASH")
-                        self.logger.step(f"{self.log_prefix} Auto-merge completed successfully")  # type: ignore
+                        self.logger.step(  # type: ignore[attr-defined]
+                            f"{self.log_prefix} {format_task_fields('check_run', 'automerge', 'completed')} "
+                            f"Auto-merge completed successfully",
+                        )
                         self.logger.info(
                             f"{self.log_prefix} Successfully auto-merged pull request #{pull_request.number}"
                         )
@@ -219,13 +231,25 @@ class CheckRunHandler:
 
         # Log workflow steps for check run status changes
         if status == QUEUED_STR:
-            self.logger.step(f"{self.log_prefix} Setting {check_run} check to queued")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'processing')} "
+                f"Setting {check_run} check to queued",
+            )
         elif status == IN_PROGRESS_STR:
-            self.logger.step(f"{self.log_prefix} Setting {check_run} check to in-progress")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'processing')} "
+                f"Setting {check_run} check to in-progress",
+            )
         elif conclusion == SUCCESS_STR:
-            self.logger.step(f"{self.log_prefix} Setting {check_run} check to success")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'completed')} "
+                f"Setting {check_run} check to success",
+            )
         elif conclusion == FAILURE_STR:
-            self.logger.step(f"{self.log_prefix} Setting {check_run} check to failure")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'processing')} "
+                f"Setting {check_run} check to failure",
+            )
 
         try:
             self.logger.debug(f"{self.log_prefix} Set check run status with {kwargs}")

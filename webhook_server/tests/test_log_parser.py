@@ -3,7 +3,9 @@
 import asyncio
 import contextlib
 import datetime
+import logging
 import tempfile
+import unittest.mock
 from pathlib import Path
 
 import pytest
@@ -72,7 +74,9 @@ class TestLogParser:
         """Test parsing production log entry with ANSI color codes from prepare_log_prefix format."""
         log_line = (
             "2025-07-21T06:05:48.278206 GithubWebhook \x1b[32mINFO\x1b[0m "
-            "\x1b[38;5;160mgithub-webhook-server\x1b[0m [check_run][9948e8d0-65df-11f0-9e82-d8c2969b6368][myakove-bot]: Processing webhook\x1b[0m"
+            "\x1b[38;5;160mgithub-webhook-server\x1b[0m "
+            "[check_run][9948e8d0-65df-11f0-9e82-d8c2969b6368][myakove-bot]: "
+            "Processing webhook\x1b[0m"
         )
 
         parser = LogParser()
@@ -93,7 +97,9 @@ class TestLogParser:
         """Test parsing production DEBUG log entry with ANSI color codes from prepare_log_prefix format."""
         log_line = (
             "2025-07-21T06:05:48.290851 GithubWebhook \x1b[36mDEBUG\x1b[0m "
-            "\x1b[38;5;160mgithub-webhook-server\x1b[0m [check_run][9948e8d0-65df-11f0-9e82-d8c2969b6368][myakove-bot]: Signature verification successful\x1b[0m"
+            "\x1b[38;5;160mgithub-webhook-server\x1b[0m "
+            "[check_run][9948e8d0-65df-11f0-9e82-d8c2969b6368][myakove-bot]: "
+            "Signature verification successful\x1b[0m"
         )
 
         parser = LogParser()
@@ -150,12 +156,19 @@ class TestLogParser:
 
     def test_parse_log_file(self) -> None:
         """Test parsing multiple log entries from a file."""
-        log_content = """2025-07-31T10:00:00.000000 GithubWebhook INFO test-repo [push][delivery1][user1]: Start processing
-2025-07-31T10:00:01.000000 GithubWebhook DEBUG test-repo [push][delivery1][user1]: Validating signature
-2025-07-31T10:00:02.000000 GithubWebhook INFO test-repo [push][delivery1][user1]: Processing complete
-2025-07-31T10:01:00.000000 GithubWebhook INFO test-repo [pull_request][delivery2][user2][PR 456]: Processing webhook
-Invalid log line
-2025-07-31T10:01:05.000000 GithubWebhook ERROR test-repo [pull_request][delivery2][user2][PR 456]: Processing failed"""
+        log_content = (
+            "2025-07-31T10:00:00.000000 GithubWebhook INFO test-repo "
+            "[push][delivery1][user1]: Start processing\n"
+            "2025-07-31T10:00:01.000000 GithubWebhook DEBUG test-repo "
+            "[push][delivery1][user1]: Validating signature\n"
+            "2025-07-31T10:00:02.000000 GithubWebhook INFO test-repo "
+            "[push][delivery1][user1]: Processing complete\n"
+            "2025-07-31T10:01:00.000000 GithubWebhook INFO test-repo "
+            "[pull_request][delivery2][user2][PR 456]: Processing webhook\n"
+            "Invalid log line\n"
+            "2025-07-31T10:01:05.000000 GithubWebhook ERROR test-repo "
+            "[pull_request][delivery2][user2][PR 456]: Processing failed"
+        )
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
             f.write(log_content)
@@ -176,8 +189,6 @@ Invalid log line
 
     def test_parse_log_file_error_logging(self, caplog) -> None:
         """Test that OSError and UnicodeDecodeError are properly logged."""
-        import logging
-        import unittest.mock
 
         # Set log level to capture ERROR messages
         caplog.set_level(logging.ERROR)
@@ -245,7 +256,7 @@ Invalid log line
             # Wait for the tail to collect entries with timeout
             try:
                 await asyncio.wait_for(tail_task, timeout=2.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # Cancel the task and wait for it to complete
                 tail_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):

@@ -1207,26 +1207,25 @@ function showPrModalError(errorMessage) {
 }
 
 function groupStepsByTaskId(steps) {
-  // Show all steps by default - don't filter aggressively
-  // Only filter out truly redundant internal steps
-  const filteredSteps = steps.filter((step) => {
-    // Filter out only very specific internal messages that add no value
-    const message = step.message ? step.message.toLowerCase() : "";
-
-    // Keep all steps except these specific redundant ones
-    const redundantPatterns = [
-      "signature verification successful",
-      "processing webhook for repository:",
-    ];
-
-    return !redundantPatterns.some((pattern) => message.includes(pattern));
-  });
+  const redundantPatterns = [
+    "signature verification successful",
+    "processing webhook for repository:",
+  ];
 
   const groups = [];
   const ungrouped = [];
   const taskMap = new Map();
 
-  filteredSteps.forEach((step, index) => {
+  const filteredSteps = steps
+    .map((step, originalIndex) => ({ step, originalIndex }))
+    .filter(({ step }) => {
+      const message = step.message ? step.message.toLowerCase() : "";
+      return !redundantPatterns.some((pattern) => message.includes(pattern));
+    });
+
+  filteredSteps.forEach(({ step, originalIndex }) => {
+    const stepWithIndex = { ...step, original_index: originalIndex };
+
     if (step.task_id) {
       if (!taskMap.has(step.task_id)) {
         taskMap.set(step.task_id, {
@@ -1235,16 +1234,16 @@ function groupStepsByTaskId(steps) {
           steps: [],
           start_time: step.timestamp,
           end_time: step.timestamp,
-          start_index: index,
+          start_index: originalIndex,
         });
       }
       const group = taskMap.get(step.task_id);
-      group.steps.push({ ...step, original_index: index });
+      group.steps.push(stepWithIndex);
       if (new Date(step.timestamp) > new Date(group.end_time)) {
         group.end_time = step.timestamp;
       }
     } else {
-      ungrouped.push({ ...step, original_index: index });
+      ungrouped.push(stepWithIndex);
     }
   });
 

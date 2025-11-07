@@ -1,7 +1,8 @@
 import os
+import shutil
 import tempfile
-from unittest.mock import Mock, patch
 from typing import Any
+from unittest.mock import Mock, patch
 
 import pytest
 import yaml
@@ -75,8 +76,6 @@ class TestConfig:
             assert config.data_dir == custom_dir
             assert config.config_path == os.path.join(custom_dir, "config.yaml")
         finally:
-            import shutil
-
             shutil.rmtree(custom_dir)
 
     def test_exists_file_not_found(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -88,8 +87,6 @@ class TestConfig:
             with pytest.raises(FileNotFoundError, match="Config file .* not found"):
                 Config()
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir)
 
     def test_repositories_exists_missing_repositories(

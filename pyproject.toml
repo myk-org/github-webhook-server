@@ -14,6 +14,12 @@ line-length = 120
 fix = true
 output-format = "grouped"
 
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "PLC0415", "ARG"]
+
+[tool.ruff.lint.per-file-ignores]
+"webhook_server/tests/*" = ["ARG"]
+
 [tool.ruff.format]
 exclude = [".git", ".venv", ".mypy_cache", ".tox", "__pycache__"]
 
@@ -37,7 +43,7 @@ packages = ["webhook_server"]
 name = "github-webhook-server"
 version = "3.0.7"
 requires-python = ">=3.12"
-description = "A webhook server to manage Github reposotories and pull requests."
+description = "A webhook server to manage Github repositories and pull requests."
 readme = "README.md"
 license = "Apache-2.0"
 classifiers = [
@@ -99,8 +105,4 @@ dev = [
   "types-pyyaml>=6.0.12.20250516",
   "types-requests>=2.32.4.20250611",
 ]
-tests = [
-    "psutil>=7.0.0",
-    "pytest-asyncio>=0.26.0",
-    "pytest-xdist>=3.7.0",
-]
+tests = ["psutil>=7.0.0", "pytest-asyncio>=0.26.0", "pytest-xdist>=3.7.0"]
