@@ -4,7 +4,7 @@ module.exports = [
     files: ["webhook_server/web/static/**/*.js"],
     languageOptions: {
       ecmaVersion: 2022,
-      sourceType: "module",
+      sourceType: "script",
       globals: {
         // Browser environment globals
         window: "readonly",

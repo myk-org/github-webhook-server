@@ -11,10 +11,10 @@ from webhook_server.libs.exceptions import (
 def test_repository_not_found_error():
     """Test RepositoryNotFoundInConfigError can be raised."""
     with pytest.raises(RepositoryNotFoundInConfigError):
-        raise RepositoryNotFoundInConfigError("test-repo not found")
+        raise RepositoryNotFoundInConfigError()
 
 
 def test_no_api_token_error():
     """Test NoApiTokenError can be raised."""
     with pytest.raises(NoApiTokenError):
-        raise NoApiTokenError("No API token provided")
+        raise NoApiTokenError()

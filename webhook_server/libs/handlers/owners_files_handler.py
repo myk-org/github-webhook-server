@@ -12,7 +12,7 @@ from github.PaginatedList import PaginatedList
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
-from webhook_server.utils.constants import COMMAND_ADD_ALLOWED_USER_STR
+from webhook_server.utils.constants import COMMAND_ADD_ALLOWED_USER_STR, ROOT_APPROVERS_KEY
 from webhook_server.utils.helpers import format_task_fields
 
 if TYPE_CHECKING:
@@ -221,7 +221,7 @@ class OwnersFileHandler:
                         f"{self.log_prefix} Matched changed folder: {changed_folder} with owners dir: {_owners_dir}"
                     )
                     if require_root_approvers is None:
-                        require_root_approvers = owners_data.get("root-approvers", True)
+                        require_root_approvers = owners_data.get(ROOT_APPROVERS_KEY, True)
 
         if require_root_approvers or require_root_approvers is None:
             self.logger.debug(f"{self.log_prefix} require root_approvers")
@@ -284,7 +284,7 @@ class OwnersFileHandler:
 
                 except GithubException as ex:
                     self.logger.step(  # type: ignore[attr-defined]
-                        f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'processing')} "
+                        f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'failed')} "
                         f"Failed to assign reviewer {reviewer}",
                     )
                     self.logger.debug(f"{self.log_prefix} Failed to add reviewer {reviewer}. {ex}")

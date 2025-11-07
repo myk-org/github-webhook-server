@@ -688,8 +688,8 @@ class TestRunnerHandler:
                                     with patch.object(
                                         runner_handler.github_webhook, "slack_webhook_url", "http://slack"
                                     ):
-                                        with patch.object(
-                                            runner_handler.github_webhook, "send_slack_message"
+                                        with patch(
+                                            "webhook_server.libs.handlers.runner_handler.send_slack_message"
                                         ) as mock_slack:
                                             with patch("asyncio.to_thread") as mock_to_thread:
                                                 # Set set_check=False to avoid early return after build success

@@ -701,7 +701,7 @@ class TestWorkflowSteps:
         parser = LogParser()
         message = "Token spend: 35 API calls (initial: 2831, final: 2796, remaining: 2796)"
 
-        result = parser._extract_token_spend(message)
+        result = parser.extract_token_spend(message)
 
         assert result == 35
 
@@ -710,7 +710,7 @@ class TestWorkflowSteps:
         parser = LogParser()
         message = "token *****  23 API calls (initial: 2103, final: 2080, remaining: 2080)"
 
-        result = parser._extract_token_spend(message)
+        result = parser.extract_token_spend(message)
 
         assert result == 23
 
@@ -719,7 +719,7 @@ class TestWorkflowSteps:
         parser = LogParser()
         message = "token *****: 50 API calls (initial: 2269, final: 2219, remaining: 2219)"
 
-        result = parser._extract_token_spend(message)
+        result = parser.extract_token_spend(message)
 
         assert result == 50
 
@@ -728,7 +728,7 @@ class TestWorkflowSteps:
         parser = LogParser()
         message = "Some other log message without token spend"
 
-        result = parser._extract_token_spend(message)
+        result = parser.extract_token_spend(message)
 
         assert result is None
 
@@ -739,7 +739,7 @@ class TestWorkflowSteps:
         # We'll use a pattern that matches but group(1) would cause ValueError if not int
         message = "Token spend: abc API calls"
 
-        result = parser._extract_token_spend(message)
+        result = parser.extract_token_spend(message)
 
         # The regex won't match "abc" as a number, so it should return None
         assert result is None

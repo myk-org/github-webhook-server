@@ -756,31 +756,31 @@ class TestLabelsHandler:
             )
             mock_add.assert_called_once()
 
-    def test_wip_or_hold_lables_exists_both(self, labels_handler: LabelsHandler) -> None:
-        """Test wip_or_hold_lables_exists with both WIP and HOLD labels."""
+    def test_wip_or_hold_labels_exists_both(self, labels_handler: LabelsHandler) -> None:
+        """Test wip_or_hold_labels_exists with both WIP and HOLD labels."""
         labels = [WIP_STR, HOLD_LABEL_STR, "other-label"]
-        result = labels_handler.wip_or_hold_lables_exists(labels)
+        result = labels_handler.wip_or_hold_labels_exists(labels)
         assert "Hold label exists." in result
         assert "WIP label exists." in result
 
-    def test_wip_or_hold_lables_exists_hold_only(self, labels_handler: LabelsHandler) -> None:
-        """Test wip_or_hold_lables_exists with only HOLD label."""
+    def test_wip_or_hold_labels_exists_hold_only(self, labels_handler: LabelsHandler) -> None:
+        """Test wip_or_hold_labels_exists with only HOLD label."""
         labels = [HOLD_LABEL_STR, "other-label"]
-        result = labels_handler.wip_or_hold_lables_exists(labels)
+        result = labels_handler.wip_or_hold_labels_exists(labels)
         assert "Hold label exists." in result
         assert "WIP label exists." not in result
 
-    def test_wip_or_hold_lables_exists_wip_only(self, labels_handler: LabelsHandler) -> None:
-        """Test wip_or_hold_lables_exists with only WIP label."""
+    def test_wip_or_hold_labels_exists_wip_only(self, labels_handler: LabelsHandler) -> None:
+        """Test wip_or_hold_labels_exists with only WIP label."""
         labels = [WIP_STR, "other-label"]
-        result = labels_handler.wip_or_hold_lables_exists(labels)
+        result = labels_handler.wip_or_hold_labels_exists(labels)
         assert "WIP label exists." in result
         assert "Hold label exists." not in result
 
-    def test_wip_or_hold_lables_exists_neither(self, labels_handler: LabelsHandler) -> None:
-        """Test wip_or_hold_lables_exists with neither WIP nor HOLD labels."""
+    def test_wip_or_hold_labels_exists_neither(self, labels_handler: LabelsHandler) -> None:
+        """Test wip_or_hold_labels_exists with neither WIP nor HOLD labels."""
         labels = ["other-label1", "other-label2"]
-        result = labels_handler.wip_or_hold_lables_exists(labels)
+        result = labels_handler.wip_or_hold_labels_exists(labels)
         assert result == ""
 
     def test_get_custom_pr_size_thresholds_config_available(self, mock_github_webhook: Mock) -> None:

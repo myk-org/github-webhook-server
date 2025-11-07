@@ -23,6 +23,7 @@ from webhook_server.utils.constants import (
     TOX_STR,
 )
 from webhook_server.utils.helpers import format_task_fields, run_command
+from webhook_server.utils.notification_utils import send_slack_message
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
@@ -227,6 +228,10 @@ class RunnerHandler:
                 "text": None,
             }
             if not _res[0]:
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} "
+                    f"Repository preparation failed for tox",
+                )
                 self.logger.error(f"{self.log_prefix} Repository preparation failed for tox")
                 output["text"] = self.check_run_handler.get_check_run_text(out=_res[1], err=_res[2])
                 return await self.check_run_handler.set_run_tox_check_failure(output=output)
@@ -246,7 +251,7 @@ class RunnerHandler:
                 return await self.check_run_handler.set_run_tox_check_success(output=output)
             else:
                 self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Tox tests failed"
+                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} Tox tests failed"
                 )
                 return await self.check_run_handler.set_run_tox_check_failure(output=output)
 
@@ -283,6 +288,10 @@ class RunnerHandler:
                 "text": None,
             }
             if not _res[0]:
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} "
+                    f"Repository preparation failed for pre-commit",
+                )
                 self.logger.error(f"{self.log_prefix} Repository preparation failed for pre-commit")
                 output["text"] = self.check_run_handler.get_check_run_text(out=_res[1], err=_res[2])
                 return await self.check_run_handler.set_run_pre_commit_check_failure(output=output)
@@ -384,6 +393,10 @@ class RunnerHandler:
                 "text": None,
             }
             if not _res[0]:
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} "
+                    f"Repository preparation failed for container build",
+                )
                 output["text"] = self.check_run_handler.get_check_run_text(out=_res[1], err=_res[2])
                 if pull_request and set_check:
                     return await self.check_run_handler.set_container_build_failure(output=output)
@@ -438,13 +451,19 @@ class RunnerHandler:
 {self.github_webhook.repository_full_name} {push_msg}.
 ```
 """
-                        self.github_webhook.send_slack_message(
-                            message=message, webhook_url=self.github_webhook.slack_webhook_url
+                        send_slack_message(
+                            message=message,
+                            webhook_url=self.github_webhook.slack_webhook_url,
+                            logger=self.logger,
+                            log_prefix=self.log_prefix,
                         )
 
                     self.logger.info(f"{self.log_prefix} Done push {_container_repository_and_tag}")
                 else:
                     err_msg: str = f"Failed to build and push {_container_repository_and_tag}"
+                    self.logger.step(  # type: ignore[attr-defined]
+                        f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} Container push failed",
+                    )
                     if pull_request:
                         await asyncio.to_thread(pull_request.create_issue_comment, err_msg)
 
@@ -454,8 +473,11 @@ class RunnerHandler:
 {self.github_webhook.repository_full_name} {err_msg}.
 ```
                         """
-                        self.github_webhook.send_slack_message(
-                            message=message, webhook_url=self.github_webhook.slack_webhook_url
+                        send_slack_message(
+                            message=message,
+                            webhook_url=self.github_webhook.slack_webhook_url,
+                            logger=self.logger,
+                            log_prefix=self.log_prefix,
                         )
 
     async def run_install_python_module(self, pull_request: PullRequest) -> None:
@@ -492,6 +514,10 @@ class RunnerHandler:
                 "text": None,
             }
             if not _res[0]:
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} "
+                    f"Repository preparation failed for Python module installation",
+                )
                 output["text"] = self.check_run_handler.get_check_run_text(out=_res[1], err=_res[2])
                 return await self.check_run_handler.set_python_module_install_failure(output=output)
 
@@ -623,6 +649,10 @@ class RunnerHandler:
                     "text": None,
                 }
                 if not _res[0]:
+                    self.logger.step(  # type: ignore[attr-defined]
+                        f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} "
+                        f"Repository preparation failed for cherry-pick",
+                    )
                     output["text"] = self.check_run_handler.get_check_run_text(out=_res[1], err=_res[2])
                     await self.check_run_handler.set_cherry_pick_failure(output=output)
 

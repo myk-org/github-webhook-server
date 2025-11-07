@@ -384,7 +384,7 @@ class LabelsHandler:
                 f"{self.log_prefix} PR {pull_request.number} got unsupported review state: {review_state}"
             )
 
-    def wip_or_hold_lables_exists(self, labels: list[str]) -> str:
+    def wip_or_hold_labels_exists(self, labels: list[str]) -> str:
         failure_output = ""
 
         if HOLD_LABEL_STR in labels:

@@ -484,6 +484,7 @@ For more information, please refer to the project documentation or contact the m
 
         # Extract organization and package name from container repository
         # Format: ghcr.io/org/package-name -> org, package-name
+        # Format: ghcr.io/org/services/api-server -> org, services/api-server
         registry_info = self.github_webhook.container_repository.split("/")
         if len(registry_info) < 3:
             # Log failure - task_status reflects the result of our action
@@ -497,7 +498,8 @@ For more information, please refer to the project documentation or contact the m
             return
 
         org_name = registry_info[1]
-        package_name = registry_info[2]
+        # Join all segments after the owner to support nested paths
+        package_name = "/".join(registry_info[2:])
 
         try:
             # Use PyGithub's requester to get package versions
@@ -926,10 +928,10 @@ For more information, please refer to the project documentation or contact the m
                 failure_output += required_check_in_progress_failure_output
             self.logger.debug(f"{self.log_prefix} required_check_in_progress_failure_output: {failure_output}")
 
-            labels_failure_output = self.labels_handler.wip_or_hold_lables_exists(labels=_labels)
+            labels_failure_output = self.labels_handler.wip_or_hold_labels_exists(labels=_labels)
             if labels_failure_output:
                 failure_output += labels_failure_output
-            self.logger.debug(f"{self.log_prefix} wip_or_hold_lables_exists: {failure_output}")
+            self.logger.debug(f"{self.log_prefix} wip_or_hold_labels_exists: {failure_output}")
 
             required_check_failed_failure_output = await self.check_run_handler.required_check_failed_or_no_status(
                 pull_request=pull_request,
@@ -953,16 +955,27 @@ For more information, please refer to the project documentation or contact the m
             if not failure_output:
                 await self.labels_handler._add_label(pull_request=pull_request, label=CAN_BE_MERGED_STR)
                 await self.check_run_handler.set_merge_check_success()
-
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'completed')} "
+                    f"Merge eligibility check completed successfully",
+                )
                 self.logger.info(f"{self.log_prefix} Pull request can be merged")
                 return
 
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'failed')} "
+                f"Merge eligibility check failed",
+            )
             self.logger.debug(f"{self.log_prefix} cannot be merged: {failure_output}")
             output["text"] = failure_output
             await self.labels_handler._remove_label(pull_request=pull_request, label=CAN_BE_MERGED_STR)
             await self.check_run_handler.set_merge_check_failure(output=output)
 
         except Exception as ex:
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'failed')} "
+                f"Merge eligibility check failed with exception",
+            )
             self.logger.error(
                 f"{self.log_prefix} Failed to check if can be merged, set check run to {FAILURE_STR} {ex}"
             )

@@ -160,7 +160,7 @@ class LogParser:
         task_id, task_type, task_status, final_message = self._extract_task_fields(cleaned_message)
 
         # Extract token spend from message
-        token_spend = self._extract_token_spend(final_message)
+        token_spend = self.extract_token_spend(final_message)
 
         return LogEntry(
             timestamp=timestamp,
@@ -254,7 +254,7 @@ class LogParser:
         """Unescape brackets in task field values."""
         return value.replace("\\]", "]").replace("\\[", "[")
 
-    def _extract_token_spend(self, message: str) -> int | None:
+    def extract_token_spend(self, message: str) -> int | None:
         """Extract token spend from log message.
 
         Parses messages like:

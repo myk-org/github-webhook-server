@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 import logging
 import os
 import shutil
@@ -130,13 +129,13 @@ class GithubWebhook:
             "Report bugs in [Issues](https://github.com/myakove/github-webhook-server/issues)"
         )
 
-    def _log_token_spend(self) -> None:
+    async def _log_token_spend(self) -> None:
         """Log token spend (API rate limit consumption) for this webhook."""
         if not self.github_api or self.initial_rate_limit_remaining is None:
             return
 
         try:
-            final_rate_limit = self.github_api.get_rate_limit()
+            final_rate_limit = await asyncio.to_thread(self.github_api.get_rate_limit)
             final_remaining = final_rate_limit.rate.remaining
 
             # Calculate token spend (handle case where rate limit reset between checks)
@@ -190,7 +189,7 @@ class GithubWebhook:
                 f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
                 f"Webhook processing completed successfully: push event",
             )
-            self._log_token_spend()
+            asyncio.create_task(self._log_token_spend())
             return None
 
         pull_request = await self.get_pull_request()
@@ -220,7 +219,7 @@ class GithubWebhook:
                     f"Pull request is draft, skipping processing",
                 )
                 self.logger.debug(f"{self.log_prefix} Pull request is draft, doing nothing")
-                self._log_token_spend()
+                asyncio.create_task(self._log_token_spend())
                 return None
 
             self.logger.step(  # type: ignore[attr-defined]
@@ -250,7 +249,7 @@ class GithubWebhook:
                     f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
                     f"Webhook processing completed successfully: issue comment",
                 )
-                self._log_token_spend()
+                asyncio.create_task(self._log_token_spend())
                 return None
 
             elif self.github_event == "pull_request":
@@ -272,7 +271,7 @@ class GithubWebhook:
                     f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
                     f"Webhook processing completed successfully: pull request",
                 )
-                self._log_token_spend()
+                asyncio.create_task(self._log_token_spend())
                 return None
 
             elif self.github_event == "pull_request_review":
@@ -327,7 +326,7 @@ class GithubWebhook:
                     f"{format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
                     f"Webhook processing completed successfully: check run",
                 )
-                self._log_token_spend()
+                asyncio.create_task(self._log_token_spend())
                 return None
 
     def add_api_users_to_auto_verified_and_merged_users(self) -> None:
@@ -474,19 +473,6 @@ class GithubWebhook:
 
         self.logger.error(f"{self.log_prefix} container tag not found")
         return None
-
-    def send_slack_message(self, message: str, webhook_url: str) -> None:
-        slack_data: dict[str, str] = {"text": message}
-        self.logger.info(f"{self.log_prefix} Sending message to slack: {message}")
-        response: requests.Response = requests.post(
-            webhook_url,
-            data=json.dumps(slack_data),
-            headers={"Content-Type": "application/json"},
-        )
-        if response.status_code != 200:
-            raise ValueError(
-                f"Request to slack returned an error {response.status_code} with the following message: {response.text}"
-            )
 
     @property
     def _current_pull_request_supported_retest(self) -> list[str]:

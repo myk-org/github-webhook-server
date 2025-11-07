@@ -614,7 +614,7 @@ class TestPullRequestHandler:
                 "required_check_failed_or_no_status",
                 new=AsyncMock(return_value=""),
             ),
-            patch.object(pull_request_handler.labels_handler, "wip_or_hold_lables_exists", return_value=""),
+            patch.object(pull_request_handler.labels_handler, "wip_or_hold_labels_exists", return_value=""),
             patch.object(
                 pull_request_handler.labels_handler, "pull_request_labels_names", new=AsyncMock(return_value=[])
             ),

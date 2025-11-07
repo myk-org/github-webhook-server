@@ -77,16 +77,13 @@ class LogViewerController:
             HTML response with log viewer interface
 
         Raises:
-            HTTPException: 404 if template not found, 500 for other errors
+            HTTPException: 500 for other errors
         """
         try:
             html_content = self._get_log_viewer_html()
             return HTMLResponse(content=html_content)
-        except FileNotFoundError as e:
-            self.logger.error("Log viewer HTML template not found")
-            raise HTTPException(status_code=404, detail="Log viewer template not found") from e
         except Exception as e:
-            self.logger.error(f"Error serving log viewer page: {e}")
+            self.logger.exception("Error serving log viewer page")
             raise HTTPException(status_code=500, detail="Internal server error") from e
 
     def get_log_entries(
@@ -215,10 +212,10 @@ class LogViewerController:
             self.logger.warning(f"Invalid parameters for log entries request: {e}")
             raise HTTPException(status_code=400, detail=str(e)) from e
         except (OSError, PermissionError) as e:
-            self.logger.error(f"File access error loading log entries: {e}")
+            self.logger.exception("File access error loading log entries")
             raise HTTPException(status_code=500, detail="Error accessing log files") from e
         except Exception as e:
-            self.logger.error(f"Unexpected error getting log entries: {e}")
+            self.logger.exception("Unexpected error getting log entries")
             raise HTTPException(status_code=500, detail="Internal server error") from e
 
     def _entry_matches_filters(
@@ -489,6 +486,37 @@ class LogViewerController:
             self.logger.error(f"Error getting PR flow data: {e}")
             raise HTTPException(status_code=500, detail="Internal server error") from e
 
+    def _build_log_prefix_from_context(
+        self,
+        repository: str | None,
+        event_type: str | None,
+        hook_id: str | None,
+        github_user: str | None,
+        pr_number: int | None,
+    ) -> str:
+        """Build log prefix from context variables for structured logging.
+
+        Args:
+            repository: Repository name
+            event_type: Event type (e.g., 'pull_request', 'check_run')
+            hook_id: Hook ID
+            github_user: GitHub user
+            pr_number: PR number
+
+        Returns:
+            Formatted log prefix string
+        """
+        log_prefix_parts = []
+        if repository:
+            log_prefix_parts.append(repository)
+        if event_type and hook_id:
+            log_prefix_parts.append(f"[{event_type}][{hook_id}]")
+        if github_user:
+            log_prefix_parts.append(f"[{github_user}]")
+        if pr_number:
+            log_prefix_parts.append(f"[PR {pr_number}]")
+        return " ".join(log_prefix_parts) + ": " if log_prefix_parts else ""
+
     def get_workflow_steps(self, hook_id: str) -> dict[str, Any]:
         """Get workflow step timeline data for a specific hook ID.
 
@@ -527,11 +555,24 @@ class LogViewerController:
             token_spend = None
             entries_with_token_spend = [e for e in filtered_entries if e.token_spend is not None]
 
+            # Extract context from first entry for structured logging (all entries have same hook_id)
+            # filtered_entries is guaranteed to be non-empty at this point
+            context_entry = filtered_entries[0]
+            repository = context_entry.repository
+            event_type = context_entry.event_type
+            github_user = context_entry.github_user
+            pr_number = context_entry.pr_number
+
             if entries_with_token_spend:
                 # Take the most recent token spend entry (should be only one per webhook, but take latest to be safe)
                 token_spend = entries_with_token_spend[-1].token_spend
+                # Format log message using prepare_log_prefix format so it's parseable and clickable
+                log_prefix = self._build_log_prefix_from_context(
+                    repository, event_type, hook_id, github_user, pr_number
+                )
                 self.logger.info(
-                    f"Found token spend {token_spend} for hook {hook_id} from {len(entries_with_token_spend)} entries"
+                    f"{log_prefix}Found token spend {token_spend} for hook {hook_id} "
+                    f"from {len(entries_with_token_spend)} entries"
                 )
             else:
                 # Check if any entries contain "token" or "API calls" in message (for debugging)
@@ -539,17 +580,27 @@ class LogViewerController:
                     e for e in filtered_entries if "token" in e.message.lower() or "API calls" in e.message
                 ]
                 if entries_with_token_keywords:
+                    # Format log message using prepare_log_prefix format
+                    log_prefix = self._build_log_prefix_from_context(
+                        repository, event_type, hook_id, github_user, pr_number
+                    )
                     self.logger.warning(
-                        f"Found {len(entries_with_token_keywords)} entries with token keywords for hook {hook_id}, "
-                        f"but token_spend is None. Sample: {entries_with_token_keywords[0].message[:150]}"
+                        f"{log_prefix}Found {len(entries_with_token_keywords)} entries with token keywords "
+                        f"for hook {hook_id}, but token_spend is None. "
+                        f"Sample: {entries_with_token_keywords[0].message[:150]}"
                     )
                     # Try to extract token spend directly from the message as fallback
                     for entry in reversed(entries_with_token_keywords):
-                        extracted = self.log_parser._extract_token_spend(entry.message)
+                        extracted = self.log_parser.extract_token_spend(entry.message)
                         if extracted is not None:
                             token_spend = extracted
+                            # Format log message using prepare_log_prefix format
+                            log_prefix = self._build_log_prefix_from_context(
+                                repository, event_type, hook_id, github_user, pr_number
+                            )
                             self.logger.info(
-                                f"Extracted token spend {token_spend} directly from message for hook {hook_id}"
+                                f"{log_prefix}Extracted token spend {token_spend} directly from message "
+                                f"for hook {hook_id}"
                             )
                             break
 
@@ -732,10 +783,10 @@ class LogViewerController:
             with open(template_path, encoding="utf-8") as f:
                 return f.read()
         except FileNotFoundError:
-            self.logger.error(f"Log viewer template not found at {template_path}")
+            self.logger.exception(f"Log viewer template not found at {template_path}")
             return self._get_fallback_html()
-        except OSError as e:
-            self.logger.error(f"Failed to read log viewer template: {e}")
+        except OSError:
+            self.logger.exception("Failed to read log viewer template")
             return self._get_fallback_html()
 
     def _get_fallback_html(self) -> str:

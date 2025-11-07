@@ -7,6 +7,7 @@ from github.Repository import Repository
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.libs.handlers.runner_handler import RunnerHandler
 from webhook_server.utils.helpers import format_task_fields, run_command
+from webhook_server.utils.notification_utils import send_slack_message
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
@@ -43,7 +44,14 @@ class PushHandler:
                     f"Starting PyPI upload for tag: {tag_name}",
                 )
                 self.logger.info(f"{self.log_prefix} Processing upload to pypi for tag: {tag_name}")
-                await self.upload_to_pypi(tag_name=tag_name)
+                try:
+                    await self.upload_to_pypi(tag_name=tag_name)
+                except Exception as ex:
+                    self.logger.step(  # type: ignore[attr-defined]
+                        f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'failed')} "
+                        f"PyPI upload failed with exception",
+                    )
+                    self.logger.exception(f"{self.log_prefix} PyPI upload failed: {ex}")
 
             if self.github_webhook.build_and_push_container and self.github_webhook.container_release:
                 self.logger.step(  # type: ignore[attr-defined]
@@ -51,7 +59,15 @@ class PushHandler:
                     f"Starting container build and push for tag: {tag_name}",
                 )
                 self.logger.info(f"{self.log_prefix} Processing build and push container for tag: {tag_name}")
-                await self.runner_handler.run_build_container(push=True, set_check=False, tag=tag_name)
+                try:
+                    await self.runner_handler.run_build_container(push=True, set_check=False, tag=tag_name)
+                    # Note: run_build_container logs completion/failure internally
+                except Exception as ex:
+                    self.logger.step(  # type: ignore[attr-defined]
+                        f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'failed')} "
+                        f"Container build and push failed with exception",
+                    )
+                    self.logger.exception(f"{self.log_prefix} Container build and push failed: {ex}")
         else:
             self.logger.step(  # type: ignore[attr-defined]
                 f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'processing')} "
@@ -81,6 +97,10 @@ Publish to PYPI failed: `{_error}`
             checkout=tag_name, clone_repo_dir=clone_repo_dir
         ) as _res:
             if not _res[0]:
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'failed')} "
+                    f"PyPI upload failed: repository preparation failed",
+                )
                 _error = self.check_run_handler.get_check_run_text(out=_res[1], err=_res[2])
                 return _issue_on_error(_error=_error)
 
@@ -88,11 +108,19 @@ Publish to PYPI failed: `{_error}`
                 command=f"uv {uv_cmd_dir} build --sdist --out-dir {_dist_dir}", log_prefix=self.log_prefix
             )
             if not rc:
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'failed')} "
+                    f"PyPI upload failed: build command failed",
+                )
                 _error = self.check_run_handler.get_check_run_text(out=out, err=err)
                 return _issue_on_error(_error=_error)
 
             rc, tar_gz_file, err = await run_command(command=f"ls {_dist_dir}", log_prefix=self.log_prefix)
             if not rc:
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'failed')} "
+                    f"PyPI upload failed: listing dist directory failed",
+                )
                 _error = self.check_run_handler.get_check_run_text(out=tar_gz_file, err=err)
                 return _issue_on_error(_error=_error)
 
@@ -109,6 +137,10 @@ Publish to PYPI failed: `{_error}`
             for cmd in commands:
                 rc, out, err = await run_command(command=cmd, log_prefix=self.log_prefix)
                 if not rc:
+                    self.logger.step(  # type: ignore[attr-defined]
+                        f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'failed')} "
+                        f"PyPI upload failed: command execution failed",
+                    )
                     _error = self.check_run_handler.get_check_run_text(out=out, err=err)
                     return _issue_on_error(_error=_error)
 
@@ -123,6 +155,9 @@ Publish to PYPI failed: `{_error}`
 {self.github_webhook.repository_name} Version {tag_name} published to PYPI.
 ```
 """
-                self.github_webhook.send_slack_message(
-                    message=message, webhook_url=self.github_webhook.slack_webhook_url
+                send_slack_message(
+                    message=message,
+                    webhook_url=self.github_webhook.slack_webhook_url,
+                    logger=self.logger,
+                    log_prefix=self.log_prefix,
                 )

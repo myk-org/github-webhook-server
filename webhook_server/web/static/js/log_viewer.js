@@ -511,7 +511,8 @@ function exportLogs(format) {
   filters.append("format", format);
 
   const url = `/logs/api/export?${filters.toString()}`;
-  window.open(url, "_blank");
+  const w = window.open(url, "_blank");
+  if (w) w.opener = null;
 }
 
 function applyFilters() {
@@ -735,7 +736,7 @@ function showFlowModal(hookId) {
   showFlowModalLoading();
 
   // Fetch workflow steps data
-  fetch(`/logs/api/workflow-steps/${hookId}`, {
+  fetch(`/logs/api/workflow-steps/${encodeURIComponent(hookId)}`, {
     signal: currentFlowController.signal,
   })
     .then((response) => {
@@ -770,6 +771,14 @@ function closeFlowModal() {
   const modal = document.getElementById("flowModal");
   if (modal) {
     modal.style.display = "none";
+  }
+  if (currentFlowController) {
+    currentFlowController.abort();
+    currentFlowController = null;
+  }
+  if (currentStepLogsController) {
+    currentStepLogsController.abort();
+    currentStepLogsController = null;
   }
   currentFlowData = null;
 
@@ -1616,7 +1625,9 @@ async function showStepLogsInModal(step, logsContainer) {
     // Render log entries
     data.entries.forEach((entry) => {
       const logEntry = document.createElement("div");
-      logEntry.className = `log-entry ${entry.level}`;
+      const allowed = ["DEBUG", "INFO", "WARNING", "ERROR", "STEP", "SUCCESS"];
+      const safeLevel = allowed.includes(entry.level) ? entry.level : "INFO";
+      logEntry.className = `log-entry ${safeLevel}`;
 
       const timestamp = document.createElement("span");
       timestamp.className = "timestamp";

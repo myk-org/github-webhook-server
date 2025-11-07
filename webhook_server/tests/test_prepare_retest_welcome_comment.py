@@ -3,7 +3,7 @@ import pytest
 from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
 
 
-class TestPrepareRetestWellcomeMsg:
+class TestPrepareRetestWelcomeMsg:
     @pytest.mark.parametrize(
         "tox, build_and_push_container, pypi, pre_commit, conventional_title, expected",
         [
@@ -73,7 +73,7 @@ class TestPrepareRetestWellcomeMsg:
             ),
         ],
     )
-    def test_prepare_retest_wellcome_comment(
+    def test_prepare_retest_welcome_comment(
         self,
         process_github_webhook,
         owners_file_handler,
