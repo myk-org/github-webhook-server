@@ -9,11 +9,12 @@ ENV PATH="$PATH:$BIN_DIR"
 ENV DATA_DIR="$HOME_DIR/data"
 ENV APP_DIR="$HOME_DIR/github-webhook-server"
 
+RUN systemd-machine-id-setup
+
 RUN dnf -y install dnf-plugins-core \
   && dnf -y update \
   && dnf -y install \
   git \
-  hub \
   unzip \
   gcc \
   python3-devel \
@@ -62,7 +63,12 @@ RUN set -x \
   && chmod +x $BIN_DIR/rosa \
   && rm -rf $BIN_DIR/rosa-linux.tar.gz \
   && curl -L https://github.com/regclient/regclient/releases/latest/download/regctl-linux-amd64 >$BIN_DIR/regctl \
-  && chmod +x $BIN_DIR/regctl
+  && chmod +x $BIN_DIR/regctl \
+  && curl -L https://github.com/mislav/hub/releases/download/v2.14.2/hub-linux-amd64-2.14.2.tgz --output ${BIN_DIR}/hub-linux-amd64.tgz \
+  && tar xvf ${BIN_DIR}/hub-linux-amd64.tgz \
+  && mv hub-linux-amd64-2.14.2/bin/hub ${BIN_DIR}/hub \
+  && chmod +x ${BIN_DIR}/hub \
+  && rm -rf ${BIN_DIR}/hub-linux-amd64-2.14.2*
 
 WORKDIR $APP_DIR
 
