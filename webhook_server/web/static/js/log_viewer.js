@@ -1207,7 +1207,7 @@ function showPrModalError(errorMessage) {
   }
 }
 
-function groupStepsByTaskId(steps) {
+function groupStepsByTaskId(steps, flowCompletedSuccessfully = false) {
   const redundantPatterns = [
     "signature verification successful",
     "processing webhook for repository:",
@@ -1254,13 +1254,25 @@ function groupStepsByTaskId(steps) {
     const endMs = new Date(group.end_time).getTime();
     group.duration_ms = endMs - startMs;
 
-    // Determine group status based on step levels
-    if (group.steps.some((s) => s.level === "ERROR")) {
+    // Determine group status based on step levels and task_status field
+    // Priority: task_status field > level field > default based on flow completion
+    const hasErrorLevel = group.steps.some((s) => s.level === "ERROR");
+    const hasSuccessLevel = group.steps.some((s) => s.level === "SUCCESS");
+
+    // Check task_status field from log entries (more reliable than message text)
+    const finalTaskStatus = group.steps[group.steps.length - 1]?.task_status;
+
+    if (hasErrorLevel || finalTaskStatus === "failed") {
       group.status = "error";
-    } else if (group.steps.some((s) => s.level === "SUCCESS")) {
+    } else if (hasSuccessLevel || finalTaskStatus === "completed") {
       group.status = "success";
-    } else {
+    } else if (finalTaskStatus === "in_progress" || finalTaskStatus === "processing") {
+      // task_status="processing" means the task is still running
+      // Only show as in-progress if flow hasn't completed (still running)
       group.status = "in_progress";
+    } else {
+      // Default: if flow completed successfully overall, mark as success
+      group.status = flowCompletedSuccessfully ? "success" : "in_progress";
     }
 
     groups.push(group);
@@ -1317,6 +1329,15 @@ function renderFlowModal(data) {
     createSummaryItem("Total Steps", data.step_count.toString()),
   );
   grid.appendChild(createSummaryItem("Duration", duration));
+  // Token spend is only available for webhooks processed after token tracking was added
+  if (data.token_spend !== undefined && data.token_spend !== null) {
+    grid.appendChild(
+      createSummaryItem("Token Spend", `${data.token_spend} API calls`),
+    );
+  } else {
+    // Show "N/A" for older webhooks that don't have token spend data
+    grid.appendChild(createSummaryItem("Token Spend", "N/A (webhook processed before token tracking)"));
+  }
 
   if (data.steps[0] && data.steps[0].repository) {
     grid.appendChild(createSummaryItem("Repository", data.steps[0].repository));
@@ -1342,8 +1363,12 @@ function renderFlowModal(data) {
     return;
   }
 
+  // Check if flow completed successfully (no errors)
+  const hasErrors = data.steps.some((step) => step.level === "ERROR");
+  const flowCompletedSuccessfully = !hasErrors;
+
   // Group steps by task_id
-  const { groups, ungrouped } = groupStepsByTaskId(data.steps);
+  const { groups, ungrouped } = groupStepsByTaskId(data.steps, flowCompletedSuccessfully);
 
   // Render grouped steps
   groups.forEach((group) => {
@@ -1355,8 +1380,7 @@ function renderFlowModal(data) {
     renderSingleStep(step, vizElement);
   });
 
-  // Add final status
-  const hasErrors = data.steps.some((step) => step.level === "ERROR");
+  // Add final status (hasErrors already declared above)
   const finalStatus = document.createElement("div");
   finalStatus.className = hasErrors ? "flow-error" : "flow-success";
 

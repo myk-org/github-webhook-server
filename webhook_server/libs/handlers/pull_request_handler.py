@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Coroutine
 from typing import TYPE_CHECKING, Any
 
+from github import GithubException
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
@@ -76,6 +77,12 @@ class PullRequestHandler:
             if self.github_webhook.conventional_title and self.hook_data["changes"].get("title"):
                 self.logger.info(f"{self.log_prefix} PR title changed, running conventional title check")
                 await self.runner_handler.run_conventional_title_check(pull_request=pull_request)
+            # Log completion - task_status reflects the result of our action
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'completed')} "
+                f"Starting pull request processing: action={hook_action} (completed)",
+            )
+            return
 
         if hook_action in ("opened", "reopened", "ready_for_review"):
             self.logger.step(  # type: ignore[attr-defined]
@@ -115,6 +122,12 @@ class PullRequestHandler:
             for result in results:
                 if isinstance(result, Exception):
                     self.logger.error(f"{self.log_prefix} Async task failed: {result}")
+            # Log completion - task_status reflects the result of our action
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'completed')} "
+                f"Starting pull request processing: action={hook_action} (completed)",
+            )
+            return
 
         if hook_action == "closed":
             self.logger.step(  # type: ignore[attr-defined]
@@ -145,6 +158,12 @@ class PullRequestHandler:
                 )
 
                 await self.label_all_opened_pull_requests_merge_state_after_merged()
+            # Log completion - task_status reflects the result of our action
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'completed')} "
+                f"Starting pull request processing: action={hook_action} (completed)",
+            )
+            return
 
         if hook_action in ("labeled", "unlabeled"):
             _check_for_merge: bool = False
@@ -159,6 +178,11 @@ class PullRequestHandler:
             )
 
             if labeled_lower == CAN_BE_MERGED_STR:
+                # Log completion - task_status reflects the result of our action (skipping is acceptable)
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'completed')} "
+                    f"Starting pull request processing: action={hook_action} (skipped - can-be-merged label)",
+                )
                 return
 
             self.logger.info(f"{self.log_prefix} PR {pull_request.number} {hook_action} with {labeled}")
@@ -198,6 +222,18 @@ class PullRequestHandler:
 
             if _check_for_merge:
                 await self.check_if_can_be_merged(pull_request=pull_request)
+            # Log completion - task_status reflects the result of our action
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'completed')} "
+                f"Starting pull request processing: action={hook_action} (completed)",
+            )
+            return
+
+        # Log completion for any unhandled actions - task_status reflects the result of our action
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'completed')} "
+            f"Starting pull request processing: action={hook_action} (no action handler - completed)",
+        )
 
     async def set_wip_label_based_on_title(self, pull_request: PullRequest) -> None:
         if pull_request.title.lower().startswith(f"{WIP_STR}:"):
@@ -377,13 +413,27 @@ For more information, please refer to the project documentation or contact the m
             await self.label_pull_request_by_merge_state(pull_request=pull_request)
 
     async def delete_remote_tag_for_merged_or_closed_pr(self, pull_request: PullRequest) -> None:
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'processing')} "
+            f"Deleting remote tag for PR #{pull_request.number}",
+        )
         self.logger.debug(f"{self.log_prefix} Checking if need to delete remote tag for {pull_request.number}")
         if not self.github_webhook.build_and_push_container:
             self.logger.info(f"{self.log_prefix} repository do not have container configured")
+            # Log completion - task_status reflects the result of our action (skipping is acceptable)
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'completed')} "
+                f"Deleting remote tag for PR #{pull_request.number} (skipped - container not configured)",
+            )
             return
 
         repository_full_tag = self.github_webhook.container_repository_and_tag(pull_request=pull_request)
         if not repository_full_tag:
+            # Log completion - task_status reflects the result of our action (no tag to delete)
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'completed')} "
+                f"Deleting remote tag for PR #{pull_request.number} (no tag configured)",
+            )
             return
 
         pr_tag = repository_full_tag.split(":")[-1]
@@ -395,9 +445,148 @@ For more information, please refer to the project documentation or contact the m
                 f"{self.log_prefix} No registry host found in "
                 f"{self.github_webhook.container_repository}; skipping tag deletion"
             )
+            # Log completion - task_status reflects the result of our action (skipping is acceptable)
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'completed')} "
+                f"Deleting remote tag for PR #{pull_request.number} (skipped - no registry host)",
+            )
             return
 
         registry_url = registry_info[0]
+
+        # Check if this is GitHub Container Registry (GHCR)
+        if registry_url == "ghcr.io":
+            # Use GitHub Packages API for GHCR
+            await self._delete_ghcr_tag_via_github_api(
+                pull_request=pull_request, repository_full_tag=repository_full_tag, pr_tag=pr_tag
+            )
+        else:
+            # Use regctl for other registries (Quay, Docker Hub, etc.)
+            await self._delete_registry_tag_via_regctl(
+                pull_request=pull_request,
+                repository_full_tag=repository_full_tag,
+                pr_tag=pr_tag,
+                registry_url=registry_url,
+            )
+
+    async def _delete_ghcr_tag_via_github_api(
+        self, pull_request: PullRequest, repository_full_tag: str, pr_tag: str
+    ) -> None:
+        """Delete GHCR tag using GitHub Packages REST API."""
+        if not self.github_webhook.github_api or not self.github_webhook.token:
+            # Log failure - task_status reflects the result of our action
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'failed')} "
+                f"Failed to delete tag: {repository_full_tag} (GitHub API not available)",
+            )
+            self.logger.error(f"{self.log_prefix} GitHub API or token not available for tag deletion")
+            return
+
+        # Extract organization and package name from container repository
+        # Format: ghcr.io/org/package-name -> org, package-name
+        registry_info = self.github_webhook.container_repository.split("/")
+        if len(registry_info) < 3:
+            # Log failure - task_status reflects the result of our action
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'failed')} "
+                f"Failed to delete tag: {repository_full_tag} (invalid repository format)",
+            )
+            self.logger.error(
+                f"{self.log_prefix} Invalid container repository format: {self.github_webhook.container_repository}"
+            )
+            return
+
+        org_name = registry_info[1]
+        package_name = registry_info[2]
+
+        try:
+            # Use PyGithub's requester to get package versions
+            # GET /orgs/{org}/packages/{package_type}/{package_name}/versions
+            url = f"/orgs/{org_name}/packages/container/{package_name}/versions"
+
+            # Get package versions
+            try:
+                _, versions = await asyncio.to_thread(
+                    self.github_webhook.github_api.requester.requestJsonAndCheck, "GET", url
+                )
+            except GithubException as ex:
+                if ex.status == 404:
+                    # Log completion - task_status reflects the result of our action (package not found is acceptable)
+                    self.logger.step(  # type: ignore[attr-defined]
+                        f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'completed')} "
+                        f"Deleting remote tag for PR #{pull_request.number} (package not found)",
+                    )
+                    self.logger.warning(
+                        f"{self.log_prefix} Package {package_name} not found in organization {org_name}"
+                    )
+                    return
+                raise
+
+            # Find version with matching tag
+            version_to_delete_id: int | None = None
+            for version in versions:
+                # Check metadata.tags for the tag we're looking for
+                metadata = version.get("metadata", {})
+                container_metadata = metadata.get("container", {})
+                version_tags = container_metadata.get("tags", [])
+                if pr_tag in version_tags:
+                    version_to_delete_id = version["id"]
+                    break
+
+            if not version_to_delete_id:
+                # Log completion - task_status reflects the result of our action (tag not found is acceptable)
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'completed')} "
+                    f"Deleting remote tag for PR #{pull_request.number} (tag not found in package)",
+                )
+                self.logger.warning(f"{self.log_prefix} Tag {pr_tag} not found in package {package_name} versions")
+                return
+
+            # Delete the package version
+            # DELETE /orgs/{org}/packages/{package_type}/{package_name}/versions/{package_version_id}
+            delete_url = f"/orgs/{org_name}/packages/container/{package_name}/versions/{version_to_delete_id}"
+            try:
+                await asyncio.to_thread(
+                    self.github_webhook.github_api.requester.requestJsonAndCheck, "DELETE", delete_url
+                )
+            except GithubException as ex:
+                if ex.status == 404:
+                    # Version already deleted or doesn't exist - treat as success
+                    self.logger.warning(
+                        f"{self.log_prefix} Package version {version_to_delete_id} not found "
+                        "(may have been already deleted)"
+                    )
+                else:
+                    raise
+
+            await asyncio.to_thread(
+                pull_request.create_issue_comment, f"Successfully removed PR tag: {repository_full_tag}."
+            )
+            # Log completion - task_status reflects the result of our action
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'completed')} "
+                f"Deleted remote tag: {repository_full_tag}",
+            )
+
+        except GithubException:
+            # Log failure - task_status reflects the result of our action
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'failed')} "
+                f"Failed to delete tag: {repository_full_tag}",
+            )
+            self.logger.exception(f"{self.log_prefix} Failed to delete GHCR tag: {repository_full_tag}")
+        except Exception:
+            # Log failure - task_status reflects the result of our action
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'failed')} "
+                f"Failed to delete tag: {repository_full_tag}",
+            )
+            self.logger.exception(f"{self.log_prefix} Failed to delete GHCR tag: {repository_full_tag}")
+
+    async def _delete_registry_tag_via_regctl(
+        self, pull_request: PullRequest, repository_full_tag: str, pr_tag: str, registry_url: str
+    ) -> None:
+        """Delete registry tag using regctl (for non-GHCR registries like Quay, Docker Hub)."""
         reg_login_cmd = (
             f"regctl registry login {registry_url} "
             f"-u {self.github_webhook.container_repository_username} "
@@ -414,16 +603,32 @@ For more information, please refer to the project documentation or contact the m
                 if rc and out:
                     tag_del_cmd = f"regctl tag delete {repository_full_tag}"
 
-                    rc, _, _ = await self.runner_handler.run_podman_command(command=tag_del_cmd)
+                    rc, del_out, del_err = await self.runner_handler.run_podman_command(command=tag_del_cmd)
                     if rc:
                         await asyncio.to_thread(
                             pull_request.create_issue_comment, f"Successfully removed PR tag: {repository_full_tag}."
                         )
+                        # Log completion - task_status reflects the result of our action
+                        self.logger.step(  # type: ignore[attr-defined]
+                            f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'completed')} "
+                            f"Deleted remote tag: {repository_full_tag}",
+                        )
                     else:
+                        # Log failure - task_status reflects the result of our action
+                        self.logger.step(  # type: ignore[attr-defined]
+                            f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'failed')} "
+                            f"Failed to delete tag: {repository_full_tag}",
+                        )
                         self.logger.error(
-                            f"{self.log_prefix} Failed to delete tag: {repository_full_tag}. OUT:{out}. ERR:{err}"
+                            f"{self.log_prefix} Failed to delete tag: {repository_full_tag}. "
+                            f"OUT:{del_out}. ERR:{del_err}"
                         )
                 else:
+                    # Log completion - task_status reflects the result of our action (tag not found is acceptable)
+                    self.logger.step(  # type: ignore[attr-defined]
+                        f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'completed')} "
+                        f"Deleting remote tag for PR #{pull_request.number} (tag not found in registry)",
+                    )
                     self.logger.warning(
                         f"{self.log_prefix} {pr_tag} tag not found in registry "
                         f"{self.github_webhook.container_repository}. "
@@ -433,6 +638,11 @@ For more information, please refer to the project documentation or contact the m
                 await self.runner_handler.run_podman_command(command="regctl registry logout")
 
         else:
+            # Log failure - task_status reflects the result of our action
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'failed')} "
+                f"Failed to delete tag: {repository_full_tag} (registry login failed)",
+            )
             await asyncio.to_thread(
                 pull_request.create_issue_comment,
                 f"Failed to delete tag: {repository_full_tag}. Please delete it manually.",

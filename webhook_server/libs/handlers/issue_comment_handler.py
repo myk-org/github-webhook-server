@@ -73,6 +73,11 @@ class IssueCommentHandler:
                 f"Skipping comment processing: action is {comment_action}",
             )
             self.logger.debug(f"{self.log_prefix} Not processing comment. action is {comment_action}")
+            # Log completion - task_status reflects the result of our action (skipping is acceptable)
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('issue_comment', 'pr_management', 'completed')} "
+                f"Skipping comment processing: action is {comment_action} (completed)",
+            )
             return
 
         self.logger.step(  # type: ignore[attr-defined]
@@ -85,6 +90,11 @@ class IssueCommentHandler:
 
         if self.github_webhook.issue_url_for_welcome_msg in body:
             self.logger.debug(f"{self.log_prefix} Welcome message found in issue {pull_request.title}. Not processing")
+            # Log completion - task_status reflects the result of our action (skipping welcome message is acceptable)
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('issue_comment', 'pr_management', 'completed')} "
+                f"Processing issue comment for issue {self.hook_data['issue']['number']} (welcome message - skipped)",
+            )
             return
 
         _user_commands: list[str] = [_cmd.strip("/") for _cmd in body.strip().splitlines() if _cmd.startswith("/")]
@@ -107,6 +117,26 @@ class IssueCommentHandler:
                 command=user_command,
                 reviewed_user=user_login,
                 issue_comment_id=self.hook_data["comment"]["id"],
+            )
+            # Log completion for each command - task_status reflects the result of our action
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('issue_comment', 'pr_management', 'completed')} "
+                f"Executed user command: /{user_command} by {user_login}",
+            )
+
+        # Log completion for main processing - task_status reflects the result of our action
+        if not _user_commands:
+            # No commands found, log completion
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('issue_comment', 'pr_management', 'completed')} "
+                f"Processing issue comment for issue {self.hook_data['issue']['number']} (no commands found)",
+            )
+        else:
+            # Commands were processed, log completion
+            issue_num = self.hook_data["issue"]["number"]
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('issue_comment', 'pr_management', 'completed')} "
+                f"Processing issue comment for issue {issue_num} (processed {len(_user_commands)} commands)",
             )
 
     async def user_commands(

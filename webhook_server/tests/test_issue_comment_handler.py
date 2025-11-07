@@ -60,6 +60,8 @@ class TestIssueCommentHandler:
         with patch.object(issue_comment_handler, "user_commands") as mock_user_commands:
             await issue_comment_handler.process_comment_webhook_data(Mock())
             mock_user_commands.assert_not_called()
+            # Verify completion log was called (skipping is acceptable)
+            assert issue_comment_handler.logger.step.called  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio
     async def test_process_comment_webhook_data_deleted_action(
@@ -71,6 +73,8 @@ class TestIssueCommentHandler:
         with patch.object(issue_comment_handler, "user_commands") as mock_user_commands:
             await issue_comment_handler.process_comment_webhook_data(Mock())
             mock_user_commands.assert_not_called()
+            # Verify completion log was called (skipping is acceptable)
+            assert issue_comment_handler.logger.step.called  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio
     async def test_process_comment_webhook_data_welcome_message(
@@ -82,6 +86,8 @@ class TestIssueCommentHandler:
         with patch.object(issue_comment_handler, "user_commands") as mock_user_commands:
             await issue_comment_handler.process_comment_webhook_data(Mock())
             mock_user_commands.assert_not_called()
+            # Verify completion log was called (skipping welcome message is acceptable)
+            assert issue_comment_handler.logger.step.called  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio
     async def test_process_comment_webhook_data_normal_comment(
@@ -93,6 +99,19 @@ class TestIssueCommentHandler:
         with patch.object(issue_comment_handler, "user_commands") as mock_user_commands:
             await issue_comment_handler.process_comment_webhook_data(Mock())
             mock_user_commands.assert_called_once()
+            # Verify completion log was called
+            assert issue_comment_handler.logger.step.called  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_process_comment_webhook_data_no_commands(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test processing comment webhook data with no commands."""
+        issue_comment_handler.hook_data["comment"]["body"] = "Just a regular comment"
+
+        with patch.object(issue_comment_handler, "user_commands") as mock_user_commands:
+            await issue_comment_handler.process_comment_webhook_data(Mock())
+            mock_user_commands.assert_not_called()
+            # Verify completion log was called (no commands found)
+            assert issue_comment_handler.logger.step.called  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio
     async def test_process_comment_webhook_data_multiple_commands(

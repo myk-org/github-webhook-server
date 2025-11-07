@@ -57,6 +57,11 @@ class CheckRunHandler:
                 f"{self.log_prefix} check run {check_run_name} action is "
                 f"{self.hook_data.get('action', 'N/A')} and not completed, skipping"
             )
+            # Log completion - task_status reflects the result of our action (skipping is acceptable)
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'completed')} "
+                f"Processing check run: {check_run_name} (action not completed - skipped)",
+            )
             return False
 
         check_run_status: str = _check_run["status"]
@@ -84,18 +89,43 @@ class CheckRunHandler:
                         self.logger.info(
                             f"{self.log_prefix} Successfully auto-merged pull request #{pull_request.number}"
                         )
+                        # Log completion for main check_run processing
+                        self.logger.step(  # type: ignore[attr-defined]
+                            f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'completed')} "
+                            f"Processing check run: {check_run_name} (auto-merged)",
+                        )
                         return False
                     except Exception as ex:
                         self.logger.error(
                             f"{self.log_prefix} Failed to auto-merge pull request #{pull_request.number}: {ex}"
                         )
+                        # Log failure for automerge
+                        self.logger.step(  # type: ignore[attr-defined]
+                            f"{self.log_prefix} {format_task_fields('check_run', 'automerge', 'failed')} "
+                            f"Failed to auto-merge PR #{pull_request.number}: {ex}",
+                        )
                         # Continue processing to allow manual intervention
+                        # Log completion for main check_run processing (continuing after failed automerge)
+                        self.logger.step(  # type: ignore[attr-defined]
+                            f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'completed')} "
+                            f"Processing check run: {check_run_name} (auto-merge failed, continuing)",
+                        )
                         return True
 
             else:
                 self.logger.debug(f"{self.log_prefix} check run is {CAN_BE_MERGED_STR}, skipping")
+                # Log completion - task_status reflects the result of our action
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'completed')} "
+                    f"Processing check run: {check_run_name} (skipped - conditions not met)",
+                )
                 return False
 
+        # Log completion - task_status reflects the result of our action
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'completed')} "
+            f"Processing check run: {check_run_name} (completed)",
+        )
         return True
 
     async def set_verify_check_queued(self) -> None:
@@ -230,14 +260,15 @@ class CheckRunHandler:
         msg: str = f"{self.log_prefix} check run {check_run} status: {status or conclusion}"
 
         # Log workflow steps for check run status changes
+        # task_status reflects the result of our action, not what we're setting the check to
         if status == QUEUED_STR:
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'processing')} "
+                f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'completed')} "
                 f"Setting {check_run} check to queued",
             )
         elif status == IN_PROGRESS_STR:
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'processing')} "
+                f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'completed')} "
                 f"Setting {check_run} check to in-progress",
             )
         elif conclusion == SUCCESS_STR:

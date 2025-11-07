@@ -132,6 +132,39 @@ class TestLabelsHandler:
                 with patch.object(labels_handler, "label_exists_in_pull_request", side_effect=[False, True]):
                     await labels_handler._add_label(mock_pull_request, "test-label")
                     mock_pull_request.add_to_labels.assert_called_once_with("test-label")
+                    # Verify completion log was called
+                    assert labels_handler.logger.step.called  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_add_label_too_long(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
+        """Test _add_label when label is too long (> 49 chars)."""
+        long_label = "a" * 50  # 50 characters
+        await labels_handler._add_label(mock_pull_request, long_label)
+        # Verify label was not added
+        mock_pull_request.add_to_labels.assert_not_called()
+        # Verify completion log was called (label too long is acceptable)
+        assert labels_handler.logger.step.called  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_add_label_already_exists(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
+        """Test _add_label when label already exists."""
+        with patch.object(labels_handler, "label_exists_in_pull_request", return_value=True):
+            await labels_handler._add_label(mock_pull_request, "existing-label")
+            # Verify label was not added (already exists)
+            mock_pull_request.add_to_labels.assert_not_called()
+            # Verify completion log was called (label already exists is acceptable)
+            assert labels_handler.logger.step.called  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_add_label_static_label(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
+        """Test _add_label with static label."""
+        static_label = list(STATIC_LABELS_DICT.keys())[0]
+        with patch.object(labels_handler, "label_exists_in_pull_request", return_value=False):
+            await labels_handler._add_label(mock_pull_request, static_label)
+            # Verify label was added
+            mock_pull_request.add_to_labels.assert_called_once_with(static_label)
+            # Verify completion log was called
+            assert labels_handler.logger.step.called  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio
     async def test_add_label_exception_handling(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
@@ -197,6 +230,32 @@ class TestLabelsHandler:
                     with patch.object(labels_handler, "wait_for_label", side_effect=Exception("Wait failed")):
                         result = await labels_handler._remove_label(mock_pull_request, "test-label")
                         assert result is False
+
+    @pytest.mark.asyncio
+    async def test_remove_label_not_exists(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
+        """Test _remove_label when label doesn't exist (acceptable outcome)."""
+        with patch.object(labels_handler, "label_exists_in_pull_request", return_value=False):
+            result = await labels_handler._remove_label(mock_pull_request, "non-existent-label")
+            assert result is False
+            # Verify that remove_from_labels was not called (we don't check first to save API calls)
+            mock_pull_request.remove_from_labels.assert_not_called()
+            # Verify completion log was called (label doesn't exist is acceptable)
+            assert labels_handler.logger.step.called  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_remove_label_wait_timeout(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
+        """Test _remove_label when removal succeeds but wait_for_label times out."""
+        with patch("timeout_sampler.TimeoutWatch") as mock_timeout:
+            mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                with patch.object(labels_handler, "label_exists_in_pull_request", side_effect=[True, True]):
+                    # wait_for_label returns False (timeout)
+                    with patch.object(labels_handler, "wait_for_label", return_value=False):
+                        result = await labels_handler._remove_label(mock_pull_request, "test-label")
+                        assert result is False
+                        mock_pull_request.remove_from_labels.assert_called_once_with("test-label")
+                        # Verify failure log was called (timeout waiting for removal)
+                        assert labels_handler.logger.step.called  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio
     async def test_add_label_dynamic_label_wait_exception(

@@ -409,6 +409,20 @@ class TestOwnersFileHandler:
             expected_calls = [call(["reviewer1"]), call(["reviewer2"])]
             actual_calls = mock_create_request.call_args_list
             assert sorted(actual_calls, key=str) == sorted(expected_calls, key=str)
+            # Verify completion log was called
+            assert owners_file_handler.logger.step.called  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_assign_reviewers_no_reviewers(
+        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test assigning reviewers when no reviewers to assign."""
+        owners_file_handler.changed_files = ["file1.py"]
+        owners_file_handler.all_pull_request_reviewers = []
+
+        await owners_file_handler.assign_reviewers(mock_pull_request)
+        # Verify completion log was called (no reviewers to assign is acceptable)
+        assert owners_file_handler.logger.step.called  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio
     async def test_assign_reviewers_github_exception(

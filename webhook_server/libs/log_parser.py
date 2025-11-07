@@ -27,6 +27,7 @@ class LogEntry:
     task_id: str | None = None
     task_type: str | None = None
     task_status: str | None = None
+    token_spend: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert LogEntry to dictionary for JSON serialization."""
@@ -43,6 +44,7 @@ class LogEntry:
             "task_id": self.task_id,
             "task_type": self.task_type,
             "task_status": self.task_status,
+            "token_spend": self.token_spend,
         }
 
 
@@ -90,6 +92,10 @@ class LogParser:
     TASK_ID_PATTERN = re.compile(r"\[task_id=((?:\\.|[^\]])+)\]")
     TASK_TYPE_PATTERN = re.compile(r"\[task_type=((?:\\.|[^\]])+)\]")
     TASK_STATUS_PATTERN = re.compile(r"\[task_status=((?:\\.|[^\]])+)\]")
+    # Pattern for token spend: handles both original and masked formats
+    # Original: "Token spend: 35 API calls"
+    # Masked: "token ***** 35 API calls" (when "token" is redacted by secret masking)
+    TOKEN_SPEND_PATTERN = re.compile(r"(?:Token spend|token\s+\*+)\s*:?\s*(\d+)\s+API calls")
 
     def is_workflow_step(self, entry: LogEntry) -> bool:
         """
@@ -153,6 +159,9 @@ class LogParser:
         # Extract task correlation fields from message and strip them from the message
         task_id, task_type, task_status, final_message = self._extract_task_fields(cleaned_message)
 
+        # Extract token spend from message
+        token_spend = self._extract_token_spend(final_message)
+
         return LogEntry(
             timestamp=timestamp,
             level=level,
@@ -166,6 +175,7 @@ class LogParser:
             task_id=task_id,
             task_type=task_type,
             task_status=task_status,
+            token_spend=token_spend,
         )
 
     def _extract_github_context(
@@ -243,6 +253,27 @@ class LogParser:
     def _unescape_task_value(value: str) -> str:
         """Unescape brackets in task field values."""
         return value.replace("\\]", "]").replace("\\[", "[")
+
+    def _extract_token_spend(self, message: str) -> int | None:
+        """Extract token spend from log message.
+
+        Parses messages like:
+        - "Token spend: 35 API calls (initial: 2831, final: 2796, remaining: 2796)"
+        - "token ***** 35 API calls (initial: 2831, final: 2796, remaining: 2796)" (when masked)
+
+        Args:
+            message: Log message to extract from
+
+        Returns:
+            Token spend as integer, or None if not found
+        """
+        match = self.TOKEN_SPEND_PATTERN.search(message)
+        if match:
+            try:
+                return int(match.group(1))
+            except ValueError:
+                return None
+        return None
 
     def parse_log_file(self, file_path: Path) -> list[LogEntry]:
         """

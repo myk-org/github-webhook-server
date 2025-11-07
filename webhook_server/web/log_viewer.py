@@ -506,7 +506,9 @@ class LogViewerController:
             filtered_entries: list[LogEntry] = []
 
             # Stream entries and filter by hook ID
-            for entry in self._stream_log_entries(max_files=15, max_entries=10000):
+            # Increase max_files and max_entries to ensure we capture token spend logs
+            # Token spend is logged at the end of webhook processing, so we need to read enough entries
+            for entry in self._stream_log_entries(max_files=25, max_entries=50000):
                 if not self._entry_matches_filters(entry, hook_id=hook_id):
                     continue
                 filtered_entries.append(entry)
@@ -520,8 +522,41 @@ class LogViewerController:
             if not workflow_steps:
                 raise ValueError(f"No workflow steps found for hook ID: {hook_id}")
 
+            # Extract token spend from all entries (not just workflow steps)
+            # Search in reverse order (newest first) since token spend is logged at the end
+            token_spend = None
+            entries_with_token_spend = [e for e in filtered_entries if e.token_spend is not None]
+
+            if entries_with_token_spend:
+                # Take the most recent token spend entry (should be only one per webhook, but take latest to be safe)
+                token_spend = entries_with_token_spend[-1].token_spend
+                self.logger.info(
+                    f"Found token spend {token_spend} for hook {hook_id} from {len(entries_with_token_spend)} entries"
+                )
+            else:
+                # Check if any entries contain "token" or "API calls" in message (for debugging)
+                entries_with_token_keywords = [
+                    e for e in filtered_entries if "token" in e.message.lower() or "API calls" in e.message
+                ]
+                if entries_with_token_keywords:
+                    self.logger.warning(
+                        f"Found {len(entries_with_token_keywords)} entries with token keywords for hook {hook_id}, "
+                        f"but token_spend is None. Sample: {entries_with_token_keywords[0].message[:150]}"
+                    )
+                    # Try to extract token spend directly from the message as fallback
+                    for entry in reversed(entries_with_token_keywords):
+                        extracted = self.log_parser._extract_token_spend(entry.message)
+                        if extracted is not None:
+                            token_spend = extracted
+                            self.logger.info(
+                                f"Extracted token spend {token_spend} directly from message for hook {hook_id}"
+                            )
+                            break
+
             # Build timeline data
             timeline_data = self._build_workflow_timeline(workflow_steps, hook_id)
+            if token_spend is not None:
+                timeline_data["token_spend"] = token_spend
             return timeline_data
 
         except ValueError as e:

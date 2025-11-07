@@ -534,6 +534,7 @@ class TestLogEntry:
             "task_id": None,
             "task_type": None,
             "task_status": None,
+            "token_spend": None,
         }
 
         assert result == expected
@@ -694,3 +695,66 @@ class TestWorkflowSteps:
         workflow_steps = parser.extract_workflow_steps([], "hook-123")
 
         assert len(workflow_steps) == 0
+
+    def test_extract_token_spend_original_format(self) -> None:
+        """Test extracting token spend from original log format."""
+        parser = LogParser()
+        message = "Token spend: 35 API calls (initial: 2831, final: 2796, remaining: 2796)"
+
+        result = parser._extract_token_spend(message)
+
+        assert result == 35
+
+    def test_extract_token_spend_masked_format(self) -> None:
+        """Test extracting token spend from masked log format (when 'token' is redacted)."""
+        parser = LogParser()
+        message = "token *****  23 API calls (initial: 2103, final: 2080, remaining: 2080)"
+
+        result = parser._extract_token_spend(message)
+
+        assert result == 23
+
+    def test_extract_token_spend_masked_format_with_colon(self) -> None:
+        """Test extracting token spend from masked format with colon."""
+        parser = LogParser()
+        message = "token *****: 50 API calls (initial: 2269, final: 2219, remaining: 2219)"
+
+        result = parser._extract_token_spend(message)
+
+        assert result == 50
+
+    def test_extract_token_spend_not_found(self) -> None:
+        """Test extracting token spend when pattern is not found."""
+        parser = LogParser()
+        message = "Some other log message without token spend"
+
+        result = parser._extract_token_spend(message)
+
+        assert result is None
+
+    def test_extract_token_spend_invalid_number(self) -> None:
+        """Test extracting token spend with invalid number format."""
+        parser = LogParser()
+        # This shouldn't happen in practice, but test the ValueError handling
+        # We'll use a pattern that matches but group(1) would cause ValueError if not int
+        message = "Token spend: abc API calls"
+
+        result = parser._extract_token_spend(message)
+
+        # The regex won't match "abc" as a number, so it should return None
+        assert result is None
+
+    def test_parse_log_entry_with_token_spend(self) -> None:
+        """Test parsing log entry that contains token spend information."""
+        parser = LogParser()
+        log_line = (
+            "2025-11-07T14:43:56.299809 GithubWebhook INFO "
+            "github-webhook-server [issue_comment][6143a030-bbd7-11f0-95bd-b07354b8711c][myakove-bot][PR 890]: "
+            "token *****  23 API calls (initial: 2103, final: 2080, remaining: 2080)"
+        )
+
+        entry = parser.parse_log_entry(log_line)
+
+        assert entry is not None
+        assert entry.token_spend == 23
+        assert entry.hook_id == "6143a030-bbd7-11f0-95bd-b07354b8711c"

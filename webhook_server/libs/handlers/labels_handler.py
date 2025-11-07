@@ -56,12 +56,35 @@ class LabelsHandler:
             if await self.label_exists_in_pull_request(pull_request=pull_request, label=label):
                 self.logger.info(f"{self.log_prefix} Removing label {label}")
                 await asyncio.to_thread(pull_request.remove_from_labels, label)
-                return await self.wait_for_label(pull_request=pull_request, label=label, exists=False)
+                success = await self.wait_for_label(pull_request=pull_request, label=label, exists=False)
+                # Log completion - task_status reflects the result of our action
+                if success:
+                    self.logger.step(  # type: ignore[attr-defined]
+                        f"{self.log_prefix} {format_task_fields('labels', 'pr_management', 'completed')} "
+                        f"Removed label '{label}' from PR",
+                    )
+                else:
+                    self.logger.step(  # type: ignore[attr-defined]
+                        f"{self.log_prefix} {format_task_fields('labels', 'pr_management', 'failed')} "
+                        f"Failed to remove label '{label}' from PR (timeout waiting for removal)",
+                    )
+                return success
         except Exception as exp:
             self.logger.debug(f"{self.log_prefix} Failed to remove {label} label. Exception: {exp}")
+            # Log failure - task_status reflects the result of our action
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('labels', 'pr_management', 'failed')} "
+                f"Failed to remove label '{label}' from PR (exception: {exp})",
+            )
             return False
 
+        # Label doesn't exist - this is an acceptable outcome (we don't check first to save API calls)
+        # Log completion - task_status reflects the result of our action (attempting to remove completed successfully)
         self.logger.debug(f"{self.log_prefix} Label {label} not found and cannot be removed")
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('labels', 'pr_management', 'completed')} "
+            f"Removing label '{label}' from PR (label does not exist - acceptable)",
+        )
         return False
 
     async def _add_label(self, pull_request: PullRequest, label: str) -> None:
@@ -73,15 +96,30 @@ class LabelsHandler:
         self.logger.debug(f"{self.log_prefix} Adding label {label}")
         if len(label) > 49:
             self.logger.debug(f"{label} is too long, not adding.")
+            # Log completion - task_status reflects the result of our action
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('labels', 'pr_management', 'completed')} "
+                f"Adding label '{label}' to PR (label too long - skipped)",
+            )
             return
 
         if await self.label_exists_in_pull_request(pull_request=pull_request, label=label):
             self.logger.debug(f"{self.log_prefix} Label {label} already assign")
+            # Log completion - task_status reflects the result of our action (label already exists is acceptable)
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('labels', 'pr_management', 'completed')} "
+                f"Adding label '{label}' to PR (label already exists - acceptable)",
+            )
             return
 
         if label in STATIC_LABELS_DICT:
             self.logger.info(f"{self.log_prefix} Adding pull request label {label}")
             await asyncio.to_thread(pull_request.add_to_labels, label)
+            # Log completion - task_status reflects the result of our action
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('labels', 'pr_management', 'completed')} "
+                f"Added label '{label}' to PR",
+            )
             return
 
         color = self._get_label_color(label)
@@ -99,6 +137,11 @@ class LabelsHandler:
         self.logger.info(f"{self.log_prefix} Adding pull request label {label}")
         await asyncio.to_thread(pull_request.add_to_labels, label)
         await self.wait_for_label(pull_request=pull_request, label=label, exists=True)
+        # Log completion - task_status reflects the result of our action
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('labels', 'pr_management', 'completed')} "
+            f"Added label '{label}' to PR",
+        )
 
     async def wait_for_label(self, pull_request: PullRequest, label: str, exists: bool) -> bool:
         self.logger.debug(f"{self.log_prefix} waiting for label {label} to {'exists' if exists else 'not exists'}")

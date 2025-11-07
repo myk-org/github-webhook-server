@@ -262,8 +262,15 @@ class OwnersFileHandler:
                 f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'processing')} "
                 f"No reviewers to assign",
             )
+            # Log completion - task_status reflects the result of our action (no reviewers to assign is acceptable)
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'completed')} "
+                f"No reviewers to assign (completed)",
+            )
             return
 
+        assigned_count = 0
+        failed_count = 0
         for reviewer in _to_add:
             if reviewer != pull_request.user.login:
                 self.logger.debug(f"{self.log_prefix} Adding reviewer {reviewer}")
@@ -273,6 +280,7 @@ class OwnersFileHandler:
                         f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'processing')} "
                         f"Successfully assigned reviewer {reviewer}",
                     )
+                    assigned_count += 1
 
                 except GithubException as ex:
                     self.logger.step(  # type: ignore[attr-defined]
@@ -283,11 +291,19 @@ class OwnersFileHandler:
                     await asyncio.to_thread(
                         pull_request.create_issue_comment, f"{reviewer} can not be added as reviewer. {ex}"
                     )
+                    failed_count += 1
 
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'completed')} "
-            f"Reviewer assignment completed",
-        )
+        # Log completion - task_status reflects the result of our action
+        if failed_count > 0:
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'completed')} "
+                f"Assigned {assigned_count} reviewers to PR ({failed_count} failed)",
+            )
+        else:
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'completed')} "
+                f"Assigned {assigned_count} reviewers to PR",
+            )
 
     async def is_user_valid_to_run_commands(self, pull_request: PullRequest, reviewed_user: str) -> bool:
         self._ensure_initialized()

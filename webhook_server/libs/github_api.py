@@ -9,6 +9,7 @@ import shutil
 import tempfile
 from typing import Any
 
+import github
 import requests
 from github import GithubException
 from github.Commit import Commit
@@ -63,6 +64,8 @@ class GithubWebhook:
         self.token: str
         self.api_user: str
         self.current_pull_request_supported_retest: list[str] = []
+        self.github_api: github.Github | None = None
+        self.initial_rate_limit_remaining: int | None = None
 
         if not self.config.repository_data:
             raise RepositoryNotFoundInConfigError(f"Repository {self.repository_name} not found in config file")
@@ -74,6 +77,14 @@ class GithubWebhook:
         )
 
         if github_api and self.token:
+            self.github_api = github_api
+            # Track initial rate limit for token spend calculation
+            # Note: log_prefix not set yet, so we can't use it in error messages here
+            try:
+                initial_rate_limit = github_api.get_rate_limit()
+                self.initial_rate_limit_remaining = initial_rate_limit.rate.remaining
+            except Exception as ex:
+                self.logger.debug(f"Failed to get initial rate limit: {ex}")
             self.repository = get_github_repo_api(github_app_api=github_api, repository=self.repository_full_name)
             # Once we have a repository, we can get the config from .github-webhook-server.yaml
             local_repository_config = self.config.repository_local_data(
@@ -119,6 +130,36 @@ class GithubWebhook:
             "Report bugs in [Issues](https://github.com/myakove/github-webhook-server/issues)"
         )
 
+    def _log_token_spend(self) -> None:
+        """Log token spend (API rate limit consumption) for this webhook."""
+        if not self.github_api or self.initial_rate_limit_remaining is None:
+            return
+
+        try:
+            final_rate_limit = self.github_api.get_rate_limit()
+            final_remaining = final_rate_limit.rate.remaining
+
+            # Calculate token spend (handle case where rate limit reset between checks)
+            # If final > initial, rate limit reset occurred, so we can't calculate accurately
+            if final_remaining > self.initial_rate_limit_remaining:
+                # Rate limit reset happened - log as 0 since we can't determine actual spend
+                token_spend = 0
+                self.logger.info(
+                    f"{self.log_prefix} Token spend: {token_spend} API calls "
+                    f"(rate limit reset occurred - initial: {self.initial_rate_limit_remaining}, "
+                    f"final: {final_remaining})"
+                )
+            else:
+                token_spend = self.initial_rate_limit_remaining - final_remaining
+                # Log token spend with structured format for parsing
+                self.logger.info(
+                    f"{self.log_prefix} Token spend: {token_spend} API calls "
+                    f"(initial: {self.initial_rate_limit_remaining}, "
+                    f"final: {final_remaining}, remaining: {final_remaining})"
+                )
+        except Exception as ex:
+            self.logger.debug(f"{self.log_prefix} Failed to log token spend: {ex}")
+
     async def process(self) -> Any:
         event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
         self.logger.step(  # type: ignore[attr-defined]
@@ -149,6 +190,7 @@ class GithubWebhook:
                 f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
                 f"Webhook processing completed successfully: push event",
             )
+            self._log_token_spend()
             return None
 
         pull_request = await self.get_pull_request()
@@ -178,6 +220,7 @@ class GithubWebhook:
                     f"Pull request is draft, skipping processing",
                 )
                 self.logger.debug(f"{self.log_prefix} Pull request is draft, doing nothing")
+                self._log_token_spend()
                 return None
 
             self.logger.step(  # type: ignore[attr-defined]
@@ -207,6 +250,7 @@ class GithubWebhook:
                     f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
                     f"Webhook processing completed successfully: issue comment",
                 )
+                self._log_token_spend()
                 return None
 
             elif self.github_event == "pull_request":
@@ -228,6 +272,7 @@ class GithubWebhook:
                     f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
                     f"Webhook processing completed successfully: pull request",
                 )
+                self._log_token_spend()
                 return None
 
             elif self.github_event == "pull_request_review":
@@ -276,11 +321,13 @@ class GithubWebhook:
                         await PullRequestHandler(
                             github_webhook=self, owners_file_handler=owners_file_handler
                         ).check_if_can_be_merged(pull_request=pull_request)
-                    self.logger.success(  # type: ignore[attr-defined]
-                        f"{self.log_prefix} "
-                        f"{format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
-                        f"Webhook processing completed successfully: check run",
-                    )
+                # Always log completion - task_status reflects the result of our action
+                self.logger.success(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} "
+                    f"{format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
+                    f"Webhook processing completed successfully: check run",
+                )
+                self._log_token_spend()
                 return None
 
     def add_api_users_to_auto_verified_and_merged_users(self) -> None:
