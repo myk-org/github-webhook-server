@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING, Any
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
-from webhook_server.libs.check_run_handler import CheckRunHandler
-from webhook_server.libs.labels_handler import LabelsHandler
-from webhook_server.libs.owners_files_handler import OwnersFileHandler
-from webhook_server.libs.runner_handler import RunnerHandler
+from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
+from webhook_server.libs.handlers.labels_handler import LabelsHandler
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.handlers.runner_handler import RunnerHandler
 from webhook_server.utils.constants import (
     APPROVED_BY_LABEL_PREFIX,
     AUTOMERGE_LABEL_STR,
@@ -218,11 +218,11 @@ class PullRequestHandler:
         is_auto_verified = self.github_webhook.parent_committer in self.github_webhook.auto_verified_and_merged_users
         auto_verified_note = ""
         if is_auto_verified:
-            auto_verified_note = """
-
-> **Note**: You are an auto-verified user. Your PRs will be automatically verified "
-            "and may be auto-merged when all requirements are met.
-"""
+            auto_verified_note = (
+                "\n"
+                "> **Note**: You are an auto-verified user. Your PRs will be automatically verified "
+                "and may be auto-merged when all requirements are met.\n"
+            )
 
         # Check if issue creation is enabled
         issue_creation_note = ""

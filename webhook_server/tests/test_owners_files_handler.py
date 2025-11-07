@@ -4,7 +4,7 @@ import pytest
 import yaml
 from github.GithubException import GithubException
 
-from webhook_server.libs.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.tests.conftest import ContentFile
 
 

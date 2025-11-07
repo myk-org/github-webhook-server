@@ -2,7 +2,7 @@ import logging
 
 import pytest
 
-from webhook_server.libs.issue_comment_handler import IssueCommentHandler
+from webhook_server.libs.handlers.issue_comment_handler import IssueCommentHandler
 
 
 class User:

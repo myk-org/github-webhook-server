@@ -4,8 +4,8 @@ from uuid import uuid4
 
 from github.Repository import Repository
 
-from webhook_server.libs.check_run_handler import CheckRunHandler
-from webhook_server.libs.runner_handler import RunnerHandler
+from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
+from webhook_server.libs.handlers.runner_handler import RunnerHandler
 from webhook_server.utils.helpers import format_task_fields, run_command
 
 if TYPE_CHECKING:

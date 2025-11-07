@@ -57,6 +57,11 @@ GitHub Events → Webhook Server → Repository Management
     └─────────────────────────────────────┘
 ```
 
+**Key Architecture Components:**
+
+- **Performance Optimized**: Repository data fetched efficiently to minimize API calls
+- **Type-Safe**: Full mypy strict mode coverage ensuring code reliability
+
 ## Features
 
 ### 🔧 Repository Management

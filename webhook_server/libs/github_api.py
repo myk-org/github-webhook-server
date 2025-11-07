@@ -5,6 +5,8 @@ import contextlib
 import json
 import logging
 import os
+import shutil
+import tempfile
 from typing import Any
 
 import requests
@@ -14,14 +16,14 @@ from github.PullRequest import PullRequest
 from github.Repository import Repository
 from starlette.datastructures import Headers
 
-from webhook_server.libs.check_run_handler import CheckRunHandler
 from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import RepositoryNotFoundInConfigError
-from webhook_server.libs.issue_comment_handler import IssueCommentHandler
-from webhook_server.libs.owners_files_handler import OwnersFileHandler
-from webhook_server.libs.pull_request_handler import PullRequestHandler
-from webhook_server.libs.pull_request_review_handler import PullRequestReviewHandler
-from webhook_server.libs.push_handler import PushHandler
+from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
+from webhook_server.libs.handlers.issue_comment_handler import IssueCommentHandler
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
+from webhook_server.libs.handlers.pull_request_review_handler import PullRequestReviewHandler
+from webhook_server.libs.handlers.push_handler import PushHandler
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
@@ -35,7 +37,6 @@ from webhook_server.utils.github_repository_settings import (
     get_repository_github_app_api,
 )
 from webhook_server.utils.helpers import (
-    extract_key_from_dict,
     format_task_fields,
     get_api_with_highest_rate_limit,
     get_apis_and_tokes_from_config,
@@ -106,9 +107,12 @@ class GithubWebhook:
             self.logger.error(f"{self.log_prefix} Failed to get repository.")
             return
 
-        self.clone_repo_dir: str = os.path.join("/tmp", f"{self.repository.name}")
+        # Create unique temp directory to avoid collisions and security issues
+        # Format: /tmp/tmp{random}/github-webhook-{repo_name}
+        # This prevents predictable paths and ensures isolation between concurrent webhook handlers
+        self.clone_repo_dir: str = tempfile.mkdtemp(prefix=f"github-webhook-{self.repository_name}-")
         # Initialize auto-verified users from API users
-        _ = self.add_api_users_to_auto_verified_and_merged_users
+        self.add_api_users_to_auto_verified_and_merged_users()
 
         self.current_pull_request_supported_retest = self._current_pull_request_supported_retest
         self.issue_url_for_welcome_msg: str = (
@@ -279,7 +283,6 @@ class GithubWebhook:
                     )
                 return None
 
-    @property
     def add_api_users_to_auto_verified_and_merged_users(self) -> None:
         apis_and_tokens = get_apis_and_tokes_from_config(config=self.config)
         for _api, _ in apis_and_tokens:
@@ -359,11 +362,15 @@ class GithubWebhook:
         if number:
             return await asyncio.to_thread(self.repository.get_pull, number)
 
-        for _number in extract_key_from_dict(key="number", _dict=self.hook_data):
-            try:
-                return await asyncio.to_thread(self.repository.get_pull, _number)
-            except GithubException:
-                continue
+        # Try to get PR number from hook_data
+        pr_data = self.hook_data.get("pull_request") or self.hook_data.get("issue", {})
+        if pr_data and isinstance(pr_data, dict):
+            pr_number = pr_data.get("number")
+            if pr_number:
+                try:
+                    return await asyncio.to_thread(self.repository.get_pull, pr_number)
+                except GithubException:
+                    pass
 
         commit: dict[str, Any] = self.hook_data.get("commit", {})
         if commit:
@@ -453,3 +460,19 @@ class GithubWebhook:
         if self.conventional_title:
             current_pull_request_supported_retest.append(CONVENTIONAL_TITLE_STR)
         return current_pull_request_supported_retest
+
+    def __del__(self) -> None:
+        """Cleanup temporary clone directory on object destruction.
+
+        This ensures the base temp directory created by tempfile.mkdtemp() is removed
+        when the webhook handler is destroyed, preventing temp directory leaks.
+        The subdirectories (created with -uuid4() suffix) are cleaned up by
+        _prepare_cloned_repo_dir context manager in handlers.
+        """
+        if hasattr(self, "clone_repo_dir") and os.path.exists(self.clone_repo_dir):
+            try:
+                shutil.rmtree(self.clone_repo_dir, ignore_errors=True)
+                if hasattr(self, "logger"):
+                    self.logger.debug(f"Cleaned up temp directory: {self.clone_repo_dir}")
+            except Exception:
+                pass  # Ignore errors during cleanup

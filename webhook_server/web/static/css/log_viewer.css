@@ -456,6 +456,21 @@ body {
 .btn:hover {
   background-color: var(--button-hover);
 }
+.btn-secondary {
+  padding: 8px 16px;
+  background-color: transparent;
+  color: var(--button-bg);
+  border: 1px solid var(--button-bg);
+  border-radius: 4px;
+  cursor: pointer;
+  transition:
+    background-color 0.3s ease,
+    color 0.3s ease;
+}
+.btn-secondary:hover {
+  background-color: var(--button-bg);
+  color: white;
+}
 .status {
   padding: 10px;
   margin-bottom: 20px;

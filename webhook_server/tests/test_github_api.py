@@ -204,13 +204,10 @@ class TestGithubWebhook:
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
-    @patch("webhook_server.libs.pull_request_handler.PullRequestHandler.process_pull_request_webhook_data")
+    @patch("webhook_server.libs.handlers.pull_request_handler.PullRequestHandler.process_pull_request_webhook_data")
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.libs.config.Config.repository_local_data")
-    @patch(
-        "webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users",
-        new_callable=lambda: property(lambda self: None),
-    )
+    @patch("webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users")
     async def test_process_pull_request_event(
         self,
         mock_auto_verified_prop: Mock,
@@ -271,13 +268,10 @@ class TestGithubWebhook:
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
-    @patch("webhook_server.libs.push_handler.PushHandler.process_push_webhook_data")
+    @patch("webhook_server.libs.handlers.push_handler.PushHandler.process_push_webhook_data")
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.libs.config.Config.repository_local_data")
-    @patch(
-        "webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users",
-        new_callable=lambda: property(lambda self: None),
-    )
+    @patch("webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users")
     async def test_process_push_event(
         self,
         mock_auto_verified_prop: Mock,
@@ -311,13 +305,10 @@ class TestGithubWebhook:
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
-    @patch("webhook_server.libs.issue_comment_handler.IssueCommentHandler.process_comment_webhook_data")
+    @patch("webhook_server.libs.handlers.issue_comment_handler.IssueCommentHandler.process_comment_webhook_data")
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.libs.config.Config.repository_local_data")
-    @patch(
-        "webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users",
-        new_callable=lambda: property(lambda self: None),
-    )
+    @patch("webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users")
     async def test_process_issue_comment_event(
         self,
         mock_auto_verified_prop: Mock,
@@ -380,10 +371,7 @@ class TestGithubWebhook:
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.libs.config.Config.repository_local_data")
-    @patch(
-        "webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users",
-        new_callable=lambda: property(lambda self: None),
-    )
+    @patch("webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users")
     async def test_process_unsupported_event(
         self,
         mock_auto_verified_prop: Mock,

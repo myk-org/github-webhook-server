@@ -5,7 +5,7 @@ import pytest
 from github.GithubException import UnknownObjectException
 from github.PullRequest import PullRequest
 
-from webhook_server.libs.labels_handler import LabelsHandler
+from webhook_server.libs.handlers.labels_handler import LabelsHandler
 from webhook_server.utils.constants import (
     ADD_STR,
     APPROVE_STR,

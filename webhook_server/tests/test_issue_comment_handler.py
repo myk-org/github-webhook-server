@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from webhook_server.libs.issue_comment_handler import IssueCommentHandler
+from webhook_server.libs.handlers.issue_comment_handler import IssueCommentHandler
 from webhook_server.utils.constants import (
     BUILD_AND_PUSH_CONTAINER_STR,
     COMMAND_ASSIGN_REVIEWER_STR,
@@ -403,7 +403,7 @@ class TestIssueCommentHandler:
         """Test user commands with custom label command."""
         mock_pull_request = Mock()
         # Patch USER_LABELS_DICT to include 'bug'
-        with patch("webhook_server.libs.issue_comment_handler.USER_LABELS_DICT", {"bug": "Bug label"}):
+        with patch("webhook_server.libs.handlers.issue_comment_handler.USER_LABELS_DICT", {"bug": "Bug label"}):
             with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
                 with patch.object(
                     issue_comment_handler.labels_handler, "label_by_user_comment", new_callable=AsyncMock

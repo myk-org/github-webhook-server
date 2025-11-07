@@ -377,6 +377,7 @@ async function loadEntriesDirectly(entries) {
   logEntries = entries;
   // Apply memory bounding after direct assignment
   applyMemoryBounding();
+  clearFilterCache(); // Clear cache when loading new entries to prevent stale results
   hideLoadingSkeleton();
   renderLogEntriesDirectly(logEntries);
   console.log(

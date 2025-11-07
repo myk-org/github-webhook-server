@@ -1,6 +1,6 @@
 import pytest
 
-from webhook_server.libs.labels_handler import LabelsHandler
+from webhook_server.libs.handlers.labels_handler import LabelsHandler
 from webhook_server.tests.conftest import PullRequest
 from webhook_server.utils.constants import SIZE_LABEL_PREFIX
 

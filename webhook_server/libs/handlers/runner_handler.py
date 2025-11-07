@@ -11,8 +11,8 @@ from github.Branch import Branch
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
-from webhook_server.libs.check_run_handler import CheckRunHandler
-from webhook_server.libs.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CHERRY_PICKED_LABEL_PREFIX,
@@ -303,9 +303,7 @@ class RunnerHandler:
                 return await self.check_run_handler.set_run_pre_commit_check_success(output=output)
             else:
                 self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} "
-                    f"{format_task_fields('runner', 'ci_check', 'processing')} "
-                    f"Pre-commit checks failed"
+                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} Pre-commit checks failed"
                 )
                 return await self.check_run_handler.set_run_pre_commit_check_failure(output=output)
 
@@ -407,7 +405,7 @@ class RunnerHandler:
                     return await self.check_run_handler.set_container_build_success(output=output)
             else:
                 self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Container build failed"
+                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} Container build failed"
                 )
                 self.logger.error(f"{self.log_prefix} Failed to build {_container_repository_and_tag}")
                 if pull_request and set_check:
@@ -517,7 +515,7 @@ class RunnerHandler:
 
             self.logger.step(  # type: ignore[attr-defined]
                 f"{self.log_prefix} "
-                f"{format_task_fields('runner', 'ci_check', 'processing')} "
+                f"{format_task_fields('runner', 'ci_check', 'failed')} "
                 f"Python module installation failed"
             )
             return await self.check_run_handler.set_python_module_install_failure(output=output)
@@ -557,7 +555,7 @@ class RunnerHandler:
         else:
             self.logger.step(  # type: ignore[attr-defined]
                 f"{self.log_prefix} "
-                f"{format_task_fields('runner', 'ci_check', 'processing')} "
+                f"{format_task_fields('runner', 'ci_check', 'failed')} "
                 f"Conventional title check failed"
             )
             output["summary"] = "Failed"
@@ -581,7 +579,7 @@ class RunnerHandler:
             err_msg = f"cherry-pick failed: {target_branch} does not exists"
             self.logger.step(  # type: ignore[attr-defined]
                 f"{self.log_prefix} "
-                f"{format_task_fields('runner', 'ci_check', 'processing')} "
+                f"{format_task_fields('runner', 'ci_check', 'failed')} "
                 f"Cherry-pick failed: target branch does not exist"
             )
             self.logger.error(err_msg)
@@ -638,7 +636,7 @@ class RunnerHandler:
                     if not rc:
                         self.logger.step(  # type: ignore[attr-defined]
                             f"{self.log_prefix} "
-                            f"{format_task_fields('runner', 'ci_check', 'processing')} "
+                            f"{format_task_fields('runner', 'ci_check', 'failed')} "
                             f"Cherry-pick command failed"
                         )
                         output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)

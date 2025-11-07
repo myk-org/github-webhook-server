@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from github.PullRequest import PullRequest
 
-from webhook_server.libs.pull_request_handler import PullRequestHandler
+from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
 from webhook_server.utils.constants import (
     APPROVED_BY_LABEL_PREFIX,
     CAN_BE_MERGED_STR,

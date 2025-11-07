@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING, Any
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
-from webhook_server.libs.check_run_handler import CheckRunHandler
-from webhook_server.libs.labels_handler import LabelsHandler
-from webhook_server.libs.owners_files_handler import OwnersFileHandler
-from webhook_server.libs.pull_request_handler import PullRequestHandler
-from webhook_server.libs.runner_handler import RunnerHandler
+from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
+from webhook_server.libs.handlers.labels_handler import LabelsHandler
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
+from webhook_server.libs.handlers.runner_handler import RunnerHandler
 from webhook_server.utils.constants import (
     AUTOMERGE_LABEL_STR,
     BUILD_AND_PUSH_CONTAINER_STR,

@@ -2,7 +2,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from webhook_server.libs.check_run_handler import CheckRunHandler
+from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,

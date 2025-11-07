@@ -7,7 +7,7 @@ from github.PullRequest import PullRequest
 from github.Repository import Repository
 from timeout_sampler import TimeoutWatch
 
-from webhook_server.libs.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.utils.constants import (
     ADD_STR,
     APPROVE_STR,

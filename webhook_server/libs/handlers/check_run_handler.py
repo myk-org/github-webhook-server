@@ -5,8 +5,8 @@ from github.CheckRun import CheckRun
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
-from webhook_server.libs.labels_handler import LabelsHandler
-from webhook_server.libs.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.handlers.labels_handler import LabelsHandler
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.utils.constants import (
     AUTOMERGE_LABEL_STR,
     BUILD_CONTAINER_STR,
@@ -22,7 +22,7 @@ from webhook_server.utils.constants import (
     TOX_STR,
     VERIFIED_LABEL_STR,
 )
-from webhook_server.utils.helpers import format_task_fields
+from webhook_server.utils.helpers import format_task_fields, strip_ansi_codes
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
@@ -247,7 +247,7 @@ class CheckRunHandler:
             )
         elif conclusion == FAILURE_STR:
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'processing')} "
+                f"{self.log_prefix} {format_task_fields('check_run', 'ci_check', 'failed')} "
                 f"Setting {check_run} check to failure",
             )
 
@@ -264,12 +264,16 @@ class CheckRunHandler:
             await asyncio.to_thread(self.github_webhook.repository_by_github_app.create_check_run, **kwargs)
 
     def get_check_run_text(self, err: str, out: str) -> str:
-        total_len: int = len(err) + len(out)
+        # Strip ANSI escape codes from output to prevent scrambled characters in GitHub UI
+        err_clean = strip_ansi_codes(err)
+        out_clean = strip_ansi_codes(out)
+
+        total_len: int = len(err_clean) + len(out_clean)
 
         if total_len > 65534:  # GitHub limit is 65535 characters
-            _output = f"```\n{err}\n\n{out}\n```"[:65534]
+            _output = f"```\n{err_clean}\n\n{out_clean}\n```"[:65534]
         else:
-            _output = f"```\n{err}\n\n{out}\n```"
+            _output = f"```\n{err_clean}\n\n{out_clean}\n```"
 
         _hased_str = "*****"
 

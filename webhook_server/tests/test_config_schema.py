@@ -398,8 +398,8 @@ class TestConfigSchema:
         try:
             monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
 
-            # Malformed YAML should result in empty config and fail repositories validation
-            with pytest.raises(ValueError, match="does not have `repositories`"):
+            # Malformed YAML should raise yaml.YAMLError during parsing
+            with pytest.raises(yaml.YAMLError):
                 Config()
         finally:
             shutil.rmtree(temp_dir)

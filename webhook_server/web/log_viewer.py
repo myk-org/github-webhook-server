@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+from collections import deque
 from collections.abc import Generator, Iterator
 from pathlib import Path
 from typing import Any
@@ -584,7 +585,7 @@ class LogViewerController:
         }
 
     def _stream_log_entries(
-        self, max_files: int = 10, chunk_size: int = 1000, max_entries: int = 50000
+        self, max_files: int = 10, _chunk_size: int = 1000, max_entries: int = 50000
     ) -> Iterator[LogEntry]:
         """Stream log entries from configured log files in chunks to reduce memory usage.
 
@@ -593,7 +594,7 @@ class LogViewerController:
 
         Args:
             max_files: Maximum number of log files to process (newest first)
-            chunk_size: Number of entries to yield per chunk from each file
+            _chunk_size: Number of entries to yield per chunk from each file (unused, reserved for future)
             max_entries: Maximum total entries to yield (safety limit)
 
         Yields:
@@ -633,37 +634,23 @@ class LogViewerController:
                 break
 
             try:
-                file_entries: list[LogEntry] = []
+                remaining_capacity = max_entries - total_yielded
+                if remaining_capacity <= 0:
+                    break
 
-                # Parse file in one go (files are typically reasonable size individually)
+                buffer: deque[LogEntry] = deque(maxlen=remaining_capacity)
+
                 with open(log_file, encoding="utf-8") as f:
-                    for _, line in enumerate(f, 1):
-                        if total_yielded >= max_entries:
-                            break
-
+                    for line in f:
                         entry = self.log_parser.parse_log_entry(line)
                         if entry:
-                            file_entries.append(entry)
+                            buffer.append(entry)
 
-                        # Process in chunks to avoid memory buildup for large files
-                        if len(file_entries) >= chunk_size:
-                            # Sort chunk by timestamp (newest first) and yield
-                            file_entries.sort(key=lambda x: x.timestamp, reverse=True)
-                            for entry in file_entries:
-                                yield entry
-                                total_yielded += 1
-                                if total_yielded >= max_entries:
-                                    break
-                            file_entries.clear()  # Free memory
-
-                # Yield remaining entries from this file
-                if file_entries and total_yielded < max_entries:
-                    file_entries.sort(key=lambda x: x.timestamp, reverse=True)
-                    for entry in file_entries:
-                        if total_yielded >= max_entries:
-                            break
-                        yield entry
-                        total_yielded += 1
+                for entry in reversed(buffer):
+                    if total_yielded >= max_entries:
+                        break
+                    yield entry
+                    total_yielded += 1
 
                 self.logger.debug(f"Streamed entries from {log_file.name}, total so far: {total_yielded}")
 
