@@ -37,8 +37,8 @@ class TestPushHandler:
     @pytest.mark.asyncio
     async def test_process_push_webhook_data_with_tag_and_pypi(self, push_handler: PushHandler) -> None:
         """Test processing push webhook data with tag and pypi enabled."""
-        with patch.object(push_handler, "upload_to_pypi") as mock_upload:
-            with patch.object(push_handler.runner_handler, "run_build_container") as mock_build:
+        with patch.object(push_handler, "upload_to_pypi", new_callable=AsyncMock) as mock_upload:
+            with patch.object(push_handler.runner_handler, "run_build_container", new_callable=AsyncMock) as mock_build:
                 await push_handler.process_push_webhook_data()
 
                 mock_upload.assert_called_once_with(tag_name="v1.0.0")
@@ -73,8 +73,8 @@ class TestPushHandler:
         """Test processing push webhook data with tag but no container release."""
         push_handler.github_webhook.container_release = False
 
-        with patch.object(push_handler, "upload_to_pypi") as mock_upload:
-            with patch.object(push_handler.runner_handler, "run_build_container") as mock_build:
+        with patch.object(push_handler, "upload_to_pypi", new_callable=AsyncMock) as mock_upload:
+            with patch.object(push_handler.runner_handler, "run_build_container", new_callable=AsyncMock) as mock_build:
                 await push_handler.process_push_webhook_data()
 
                 mock_upload.assert_called_once_with(tag_name="v1.0.0")
@@ -85,8 +85,8 @@ class TestPushHandler:
         """Test processing push webhook data without tag."""
         push_handler.hook_data["ref"] = "refs/heads/main"
 
-        with patch.object(push_handler, "upload_to_pypi") as mock_upload:
-            with patch.object(push_handler.runner_handler, "run_build_container") as mock_build:
+        with patch.object(push_handler, "upload_to_pypi", new_callable=AsyncMock) as mock_upload:
+            with patch.object(push_handler.runner_handler, "run_build_container", new_callable=AsyncMock) as mock_build:
                 await push_handler.process_push_webhook_data()
 
                 mock_upload.assert_not_called()

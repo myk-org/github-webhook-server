@@ -1377,11 +1377,30 @@ function renderFlowModal(data) {
   const hasErrors = data.steps.some((step) => step.level === "ERROR");
   const flowCompletedSuccessfully = !hasErrors;
 
-  // Group steps by task_id and get sorted entries (groups and steps interleaved)
-  const sortedEntries = groupStepsByTaskId(data.steps, flowCompletedSuccessfully);
+  // Group steps by task_id and get groups and ungrouped steps
+  const { groups, ungrouped } = groupStepsByTaskId(data.steps, flowCompletedSuccessfully);
+
+  // Merge groups and ungrouped steps into a single array with original_index
+  const combinedEntries = [
+    // Map groups to entries with type "group" and original_index from start_index
+    ...groups.map((group) => ({
+      type: "group",
+      data: group,
+      original_index: group.start_index,
+    })),
+    // Map ungrouped steps to entries with type "step" and original_index
+    ...ungrouped.map((step) => ({
+      type: "step",
+      data: step,
+      original_index: step.original_index,
+    })),
+  ];
+
+  // Sort combined entries by original_index to preserve chronological order
+  combinedEntries.sort((a, b) => a.original_index - b.original_index);
 
   // Render entries in chronological order
-  sortedEntries.forEach((entry) => {
+  combinedEntries.forEach((entry) => {
     if (entry.type === "group") {
       renderTaskGroup(entry.data, vizElement);
     } else {

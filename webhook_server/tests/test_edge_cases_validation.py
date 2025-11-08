@@ -714,35 +714,32 @@ class TestAPIEndpointEdgeCases:
         mock_logger = Mock()
         controller = LogViewerController(logger=mock_logger)
 
-        # Mock _stream_log_entries to return empty iterator to avoid reading from disk
-        # This makes the test fast and focused on parameter validation
         with patch.object(controller, "_stream_log_entries", return_value=iter([])):
             with patch.object(controller, "_estimate_total_log_count", return_value=0):
-                # Test malformed parameters
-                malformed_params = [
-                    {"limit": "not_a_number"},
-                    {"offset": -1},
-                    {"pr_number": "not_a_number"},
-                    {"start_time": "invalid_date"},
-                    {"end_time": "invalid_date"},
-                    {"hook_id": None},  # None value
-                    {"repository": ""},  # Empty string
+                # Test truly malformed parameters that should raise exceptions
+                invalid_params = [
+                    {"limit": 0},  # Below minimum
+                    {"limit": 10001},  # Above maximum
+                    {"offset": -1},  # Negative offset
                 ]
 
-                for params in malformed_params:
-                    try:
-                        # This would normally be called through FastAPI with parameter validation
-                        # Here we test the controller's parameter handling
-                        if "limit" in params and not isinstance(params["limit"], int):
-                            with pytest.raises((ValueError, TypeError, HTTPException)):
-                                controller.get_log_entries(**params)
-                        else:
-                            # For other malformed params, should handle gracefully
-                            result = controller.get_log_entries(**params)
-                            assert isinstance(result, dict)
-                    except Exception as e:
-                        # Some malformed parameters should raise exceptions
-                        assert isinstance(e, (ValueError, TypeError, HTTPException))
+                for params in invalid_params:
+                    with pytest.raises((ValueError, HTTPException)):
+                        controller.get_log_entries(**params)
+
+                # Test valid edge cases that should succeed
+                valid_edge_cases = [
+                    {"hook_id": None},  # None means no filtering
+                    {"repository": ""},  # Empty string means no filtering
+                    {"limit": 1},  # Minimum valid
+                    {"limit": 10000},  # Maximum valid
+                    {"offset": 0},  # Minimum valid
+                ]
+
+                for params in valid_edge_cases:
+                    result = controller.get_log_entries(**params)
+                    assert isinstance(result, dict)
+                    assert "entries" in result
 
     def test_api_with_extremely_large_responses(self):
         """Test API behavior with extremely large response datasets."""
