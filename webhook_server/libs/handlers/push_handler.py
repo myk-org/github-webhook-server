@@ -77,9 +77,14 @@ class PushHandler:
 
     async def upload_to_pypi(self, tag_name: str) -> None:
         async def _issue_on_error(_error: str) -> None:
+            # Sanitize title: replace newlines, remove backticks, strip whitespace, truncate
+            sanitized_title = _error.replace("\n", " ").replace("`", "").replace("\r", "").strip()
+            # Truncate to safe length (GitHub issue title limit is ~256 chars, use 250 for safety)
+            if len(sanitized_title) > 250:
+                sanitized_title = sanitized_title[:247] + "..."
             await asyncio.to_thread(
                 self.repository.create_issue,
-                title=_error,
+                title=sanitized_title,
                 body=f"""
 Publish to PYPI failed: `{_error}`
 """,

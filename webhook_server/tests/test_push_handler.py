@@ -354,8 +354,10 @@ class TestPushHandler:
                 mock_create_issue.assert_called_once()
                 call_args = mock_create_issue.call_args
 
-                # The title should be the full formatted error text from get_check_run_text
-                expected_title = "```\nError details\n\nClone failed\n```"
+                # The title should be sanitized (newlines replaced, backticks removed)
+                # Original: "```\nError details\n\nClone failed\n```"
+                # Sanitized: "Error details  Clone failed"
+                expected_title = "Error details  Clone failed"
                 assert call_args[1]["title"] == expected_title
 
     @pytest.mark.asyncio

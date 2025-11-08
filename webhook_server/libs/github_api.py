@@ -318,9 +318,10 @@ class GithubWebhook:
                     f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
                     f"Processing check run with CheckRunHandler",
                 )
-                if await CheckRunHandler(
+                handled = await CheckRunHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
-                ).process_pull_request_check_run_webhook_data(pull_request=pull_request):
+                ).process_pull_request_check_run_webhook_data(pull_request=pull_request)
+                if handled:
                     if self.hook_data["check_run"]["name"] != CAN_BE_MERGED_STR:
                         self.logger.step(  # type: ignore[attr-defined]
                             f"{self.log_prefix} "
@@ -330,12 +331,12 @@ class GithubWebhook:
                         await PullRequestHandler(
                             github_webhook=self, owners_file_handler=owners_file_handler
                         ).check_if_can_be_merged(pull_request=pull_request)
-                # Always log completion - task_status reflects the result of our action
-                self.logger.success(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} "
-                    f"{format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
-                    f"Webhook processing completed successfully: check run",
-                )
+                    # Log completion only when check run was actually processed
+                    self.logger.success(  # type: ignore[attr-defined]
+                        f"{self.log_prefix} "
+                        f"{format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
+                        f"Webhook processing completed successfully: check run",
+                    )
                 task = asyncio.create_task(self._log_token_spend())
                 self._bg_tasks.add(task)
                 task.add_done_callback(self._bg_tasks.discard)

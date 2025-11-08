@@ -1346,7 +1346,7 @@ function renderFlowModal(data) {
     );
   } else {
     // Show "N/A" for older webhooks that don't have token spend data
-    grid.appendChild(createSummaryItem("Token Spend", "N/A (webhook processed before token tracking)"));
+    grid.appendChild(createSummaryItem("Token Spend", "N/A (older webhook)"));
   }
 
   if (data.steps[0] && data.steps[0].repository) {
