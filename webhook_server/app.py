@@ -15,6 +15,7 @@ from fastapi import (
     HTTPException,
     Query,
     Request,
+    Response,
     WebSocket,
     status,
 )
@@ -23,6 +24,8 @@ from fastapi.staticfiles import StaticFiles
 
 # Import for MCP integration
 from fastapi_mcp import FastApiMCP
+from fastapi_mcp.transport.http import FastApiHttpSessionManager
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from starlette.datastructures import Headers
 
 from webhook_server.libs.config import Config
@@ -1050,7 +1053,43 @@ async def websocket_log_stream(
 
 
 # Create MCP instance with the main app
+# NOTE: No authentication configured - MCP server runs without auth
 mcp = FastApiMCP(FASTAPI_APP, exclude_tags=["mcp_exclude"])
-mcp.mount_http()
 
-LOGGER.info("MCP integration initialized successfully")
+# Create stateless HTTP transport to avoid session management issues
+# Override with stateless session manager
+http_transport = FastApiHttpSessionManager(
+    mcp_server=mcp.server,
+    event_store=None,  # No event store needed for stateless mode
+    json_response=True,
+)
+# Manually patch to use stateless mode
+http_transport._session_manager = None  # Force recreation with stateless=True
+
+
+# Register the HTTP endpoint manually
+@FASTAPI_APP.api_route("/mcp", methods=["GET", "POST", "DELETE"], include_in_schema=False, operation_id="mcp_http")
+async def handle_mcp_streamable_http(request: Request) -> Response:
+    # Ensure session manager is created with stateless=True
+    if http_transport._session_manager is None:
+        http_transport._session_manager = StreamableHTTPSessionManager(
+            app=mcp.server,
+            event_store=http_transport.event_store,
+            json_response=True,
+            stateless=True,  # Enable stateless mode - no session management required
+        )
+        # Start the session manager
+
+        async def run_manager() -> None:
+            async with http_transport._session_manager.run():
+                await asyncio.Event().wait()
+
+        http_transport._manager_task = asyncio.create_task(run_manager())
+        http_transport._manager_started = True
+        await asyncio.sleep(0.1)  # Give it time to initialize
+
+    return await http_transport.handle_fastapi_request(request)
+
+
+LOGGER.info("MCP integration initialized successfully (no authentication configured)")
+LOGGER.debug("MCP HTTP endpoint mounted at: /mcp")
