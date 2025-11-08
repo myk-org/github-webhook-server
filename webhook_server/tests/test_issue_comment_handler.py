@@ -173,7 +173,9 @@ class TestIssueCommentHandler:
         mock_pull_request = Mock()
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler, "_add_reviewer_by_user_comment") as mock_add_reviewer:
+            with patch.object(
+                issue_comment_handler, "_add_reviewer_by_user_comment", new_callable=AsyncMock
+            ) as mock_add_reviewer:
                 await issue_comment_handler.user_commands(
                     pull_request=mock_pull_request,
                     command=f"{COMMAND_ASSIGN_REVIEWER_STR} reviewer1",
@@ -223,7 +225,9 @@ class TestIssueCommentHandler:
         mock_pull_request = Mock()
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler, "process_cherry_pick_command") as mock_cherry_pick:
+            with patch.object(
+                issue_comment_handler, "process_cherry_pick_command", new_callable=AsyncMock
+            ) as mock_cherry_pick:
                 await issue_comment_handler.user_commands(
                     pull_request=mock_pull_request,
                     command=f"{COMMAND_CHERRY_PICK_STR} branch1 branch2",
@@ -259,7 +263,9 @@ class TestIssueCommentHandler:
         mock_pull_request = Mock()
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler.runner_handler, "run_build_container") as mock_build:
+            with patch.object(
+                issue_comment_handler.runner_handler, "run_build_container", new_callable=AsyncMock
+            ) as mock_build:
                 await issue_comment_handler.user_commands(
                     pull_request=mock_pull_request,
                     command=f"{BUILD_AND_PUSH_CONTAINER_STR} args",
@@ -299,7 +305,9 @@ class TestIssueCommentHandler:
         mock_pull_request.title = "Test PR"
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler.labels_handler, "_add_label") as mock_add_label:
+            with patch.object(
+                issue_comment_handler.labels_handler, "_add_label", new_callable=AsyncMock
+            ) as mock_add_label:
                 with patch.object(mock_pull_request, "edit") as mock_edit:
                     await issue_comment_handler.user_commands(
                         pull_request=mock_pull_request, command=WIP_STR, reviewed_user="test-user", issue_comment_id=123
@@ -315,7 +323,9 @@ class TestIssueCommentHandler:
         mock_pull_request.title = "WIP: Test PR"
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler.labels_handler, "_remove_label") as mock_remove_label:
+            with patch.object(
+                issue_comment_handler.labels_handler, "_remove_label", new_callable=AsyncMock
+            ) as mock_remove_label:
                 with patch.object(mock_pull_request, "edit") as mock_edit:
                     await issue_comment_handler.user_commands(
                         pull_request=mock_pull_request,
@@ -351,8 +361,12 @@ class TestIssueCommentHandler:
         mock_pull_request = Mock()
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler.labels_handler, "_add_label") as mock_add_label:
-                with patch.object(issue_comment_handler.pull_request_handler, "check_if_can_be_merged") as mock_check:
+            with patch.object(
+                issue_comment_handler.labels_handler, "_add_label", new_callable=AsyncMock
+            ) as mock_add_label:
+                with patch.object(
+                    issue_comment_handler.pull_request_handler, "check_if_can_be_merged", new_callable=AsyncMock
+                ) as mock_check:
                     await issue_comment_handler.user_commands(
                         pull_request=mock_pull_request,
                         command=HOLD_LABEL_STR,
@@ -369,8 +383,12 @@ class TestIssueCommentHandler:
         mock_pull_request = Mock()
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler.labels_handler, "_remove_label") as mock_remove_label:
-                with patch.object(issue_comment_handler.pull_request_handler, "check_if_can_be_merged") as mock_check:
+            with patch.object(
+                issue_comment_handler.labels_handler, "_remove_label", new_callable=AsyncMock
+            ) as mock_remove_label:
+                with patch.object(
+                    issue_comment_handler.pull_request_handler, "check_if_can_be_merged", new_callable=AsyncMock
+                ) as mock_check:
                     await issue_comment_handler.user_commands(
                         pull_request=mock_pull_request,
                         command=f"{HOLD_LABEL_STR} cancel",
@@ -405,7 +423,9 @@ class TestIssueCommentHandler:
         mock_pull_request = Mock()
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler.labels_handler, "_remove_label") as mock_remove_label:
+            with patch.object(
+                issue_comment_handler.labels_handler, "_remove_label", new_callable=AsyncMock
+            ) as mock_remove_label:
                 with patch.object(issue_comment_handler.check_run_handler, "set_verify_check_queued") as mock_queued:
                     await issue_comment_handler.user_commands(
                         pull_request=mock_pull_request,
@@ -560,7 +580,7 @@ class TestIssueCommentHandler:
         """Test processing retest command with 'all' only."""
         mock_pull_request = Mock()
 
-        with patch.object(issue_comment_handler.runner_handler, "run_tox") as mock_run_tox:
+        with patch.object(issue_comment_handler.runner_handler, "run_tox", new_callable=AsyncMock) as mock_run_tox:
             await issue_comment_handler.process_retest_command(
                 pull_request=mock_pull_request, command_args="all", reviewed_user="test-user"
             )
@@ -571,7 +591,7 @@ class TestIssueCommentHandler:
         """Test processing retest command with specific tests."""
         mock_pull_request = Mock()
 
-        with patch.object(issue_comment_handler.runner_handler, "run_tox") as mock_run_tox:
+        with patch.object(issue_comment_handler.runner_handler, "run_tox", new_callable=AsyncMock) as mock_run_tox:
             with patch.object(mock_pull_request, "create_issue_comment") as mock_comment:
                 await issue_comment_handler.process_retest_command(
                     pull_request=mock_pull_request, command_args="tox unsupported-test", reviewed_user="test-user"
@@ -615,7 +635,9 @@ class TestIssueCommentHandler:
         """Test processing retest command with async task exception."""
         mock_pull_request = Mock()
 
-        with patch.object(issue_comment_handler.runner_handler, "run_tox", side_effect=Exception("Test error")):
+        with patch.object(
+            issue_comment_handler.runner_handler, "run_tox", new_callable=AsyncMock, side_effect=Exception("Test error")
+        ):
             with patch.object(issue_comment_handler.logger, "error") as mock_error:
                 await issue_comment_handler.process_retest_command(
                     pull_request=mock_pull_request, command_args="tox", reviewed_user="test-user"

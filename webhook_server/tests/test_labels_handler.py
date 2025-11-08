@@ -160,7 +160,7 @@ class TestLabelsHandler:
     @pytest.mark.asyncio
     async def test_add_label_static_label(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
         """Test _add_label with static label."""
-        static_label = list(STATIC_LABELS_DICT.keys())[0]
+        static_label = next(iter(STATIC_LABELS_DICT.keys()))
         with patch.object(labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock, return_value=False):
             await labels_handler._add_label(mock_pull_request, static_label)
             # Verify label was added
@@ -191,7 +191,9 @@ class TestLabelsHandler:
         with patch("timeout_sampler.TimeoutWatch") as mock_timeout:
             mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
             with patch("asyncio.sleep", new_callable=AsyncMock):
-                with patch.object(labels_handler, "label_exists_in_pull_request", side_effect=[True, False]):
+                with patch.object(
+                    labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock, side_effect=[True, False]
+                ):
                     result = await labels_handler._remove_label(mock_pull_request, "test-label")
                     assert result is True
                     mock_pull_request.remove_from_labels.assert_called_once_with("test-label")
@@ -219,8 +221,12 @@ class TestLabelsHandler:
         with patch("timeout_sampler.TimeoutWatch") as mock_timeout:
             mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
             with patch("asyncio.sleep", new_callable=AsyncMock):
-                with patch.object(labels_handler, "label_exists_in_pull_request", side_effect=[True, False]):
-                    with patch.object(labels_handler, "wait_for_label", side_effect=Exception("Wait failed")):
+                with patch.object(
+                    labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock, side_effect=[True, False]
+                ):
+                    with patch.object(
+                        labels_handler, "wait_for_label", new_callable=AsyncMock, side_effect=Exception("Wait failed")
+                    ):
                         result = await labels_handler._remove_label(mock_pull_request, "test-label")
                         assert result is False
 
@@ -232,8 +238,12 @@ class TestLabelsHandler:
         with patch("timeout_sampler.TimeoutWatch") as mock_timeout:
             mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
             with patch("asyncio.sleep", new_callable=AsyncMock):
-                with patch.object(labels_handler, "label_exists_in_pull_request", side_effect=[True, False]):
-                    with patch.object(labels_handler, "wait_for_label", side_effect=Exception("Wait failed")):
+                with patch.object(
+                    labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock, side_effect=[True, False]
+                ):
+                    with patch.object(
+                        labels_handler, "wait_for_label", new_callable=AsyncMock, side_effect=Exception("Wait failed")
+                    ):
                         result = await labels_handler._remove_label(mock_pull_request, "test-label")
                         assert result is False
 
@@ -314,7 +324,9 @@ class TestLabelsHandler:
         with patch("timeout_sampler.TimeoutWatch") as mock_timeout:
             mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
             with patch("asyncio.sleep", new_callable=AsyncMock):
-                with patch.object(labels_handler, "label_exists_in_pull_request", side_effect=[True]):
+                with patch.object(
+                    labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock, side_effect=[True]
+                ):
                     result = await labels_handler.wait_for_label(mock_pull_request, "test-label", exists=True)
                     assert result is True
 
@@ -464,9 +476,9 @@ class TestLabelsHandler:
 
         # Simulate concurrent add and remove operations
         with (
-            patch.object(labels_handler, "_add_label") as mock_add,
-            patch.object(labels_handler, "_remove_label") as mock_remove,
-            patch.object(labels_handler, "wait_for_label", return_value=True),
+            patch.object(labels_handler, "_add_label", new_callable=AsyncMock) as mock_add,
+            patch.object(labels_handler, "_remove_label", new_callable=AsyncMock) as mock_remove,
+            patch.object(labels_handler, "wait_for_label", new_callable=AsyncMock, return_value=True),
         ):
             # Run concurrent operations
             await asyncio.gather(
@@ -485,7 +497,7 @@ class TestLabelsHandler:
         self, labels_handler: LabelsHandler, mock_pull_request: Mock
     ) -> None:
         """Test _add_label with dynamic label where edit raises exception and label is created."""
-        with patch.object(labels_handler, "label_exists_in_pull_request", return_value=False):
+        with patch.object(labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock, return_value=False):
             with patch.object(mock_pull_request, "get_labels", return_value=[]):
                 with patch("asyncio.to_thread") as mock_to_thread:
                     # get_label raises UnknownObjectException, create_label raises Exception
@@ -555,14 +567,14 @@ class TestLabelsHandler:
         self, labels_handler: LabelsHandler, mock_pull_request: Mock
     ) -> None:
         """Test manage_reviewed_by_label with unsupported review state."""
-        with patch.object(labels_handler, "_add_label") as mock_add:
+        with patch.object(labels_handler, "_add_label", new_callable=AsyncMock) as mock_add:
             await labels_handler.manage_reviewed_by_label(mock_pull_request, "unsupported", ADD_STR, "reviewer1")
             mock_add.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_label_by_user_comment_remove(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
         """Test label_by_user_comment with remove=True for regular label."""
-        with patch.object(labels_handler, "_remove_label") as mock_remove:
+        with patch.object(labels_handler, "_remove_label", new_callable=AsyncMock) as mock_remove:
             await labels_handler.label_by_user_comment(mock_pull_request, "bug", True, "user1")
             mock_remove.assert_called_once_with(pull_request=mock_pull_request, label="bug")
 
@@ -594,8 +606,10 @@ class TestLabelsHandler:
         mock_pull_request.deletions = 5
         existing_size_label = f"{SIZE_LABEL_PREFIX}L"
         with patch.object(labels_handler, "pull_request_labels_names", return_value=[existing_size_label]):
-            with patch.object(labels_handler, "_remove_label", side_effect=Exception("Remove failed")):
-                with patch.object(labels_handler, "_add_label"):
+            with patch.object(
+                labels_handler, "_remove_label", new_callable=AsyncMock, side_effect=Exception("Remove failed")
+            ):
+                with patch.object(labels_handler, "_add_label", new_callable=AsyncMock):
                     with pytest.raises(Exception, match="Remove failed"):
                         await labels_handler.add_size_label(mock_pull_request)
 
@@ -604,7 +618,7 @@ class TestLabelsHandler:
         self, labels_handler: LabelsHandler, mock_pull_request: Mock
     ) -> None:
         """Test label_by_user_comment for LGTM removal."""
-        with patch.object(labels_handler, "manage_reviewed_by_label") as mock_manage:
+        with patch.object(labels_handler, "manage_reviewed_by_label", new_callable=AsyncMock) as mock_manage:
             await labels_handler.label_by_user_comment(
                 pull_request=mock_pull_request, user_requested_label=LGTM_STR, remove=True, reviewed_user="test-user"
             )
@@ -649,7 +663,7 @@ class TestLabelsHandler:
         self, labels_handler: LabelsHandler, mock_pull_request: Mock
     ) -> None:
         """Test label_by_user_comment for other label addition."""
-        with patch.object(labels_handler, "_add_label") as mock_add:
+        with patch.object(labels_handler, "_add_label", new_callable=AsyncMock) as mock_add:
             await labels_handler.label_by_user_comment(
                 pull_request=mock_pull_request,
                 user_requested_label="other-label",
@@ -663,7 +677,7 @@ class TestLabelsHandler:
         self, labels_handler: LabelsHandler, mock_pull_request: Mock
     ) -> None:
         """Test label_by_user_comment for other label removal."""
-        with patch.object(labels_handler, "_remove_label") as mock_remove:
+        with patch.object(labels_handler, "_remove_label", new_callable=AsyncMock) as mock_remove:
             await labels_handler.label_by_user_comment(
                 pull_request=mock_pull_request,
                 user_requested_label="other-label",
@@ -699,8 +713,8 @@ class TestLabelsHandler:
         # Ensure the owners_file_handler has the expected attributes
         with patch.object(labels_handler.owners_file_handler, "all_pull_request_approvers", ["approver1", "approver2"]):
             with patch.object(labels_handler.owners_file_handler, "root_approvers", ["root-approver"]):
-                with patch.object(labels_handler, "_add_label") as mock_add:
-                    with patch.object(labels_handler, "_remove_label") as mock_remove:
+                with patch.object(labels_handler, "_add_label", new_callable=AsyncMock) as mock_add:
+                    with patch.object(labels_handler, "_remove_label", new_callable=AsyncMock) as mock_remove:
                         await labels_handler.manage_reviewed_by_label(
                             pull_request=mock_pull_request,
                             review_state=APPROVE_STR,
@@ -721,7 +735,7 @@ class TestLabelsHandler:
             "pull_request": {"user": {"login": "test-user"}},
         }
 
-        with patch.object(labels_handler, "_add_label") as mock_add:
+        with patch.object(labels_handler, "_add_label", new_callable=AsyncMock) as mock_add:
             await labels_handler.manage_reviewed_by_label(
                 pull_request=mock_pull_request,
                 review_state=LGTM_STR,

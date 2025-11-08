@@ -174,8 +174,12 @@ class TestRunnerHandler:
         with patch.object(
             runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
         ):
-            with patch.object(runner_handler.check_run_handler, "set_run_tox_check_in_progress") as mock_set_progress:
-                with patch.object(runner_handler.check_run_handler, "set_run_tox_check_success") as mock_set_success:
+            with patch.object(
+                runner_handler.check_run_handler, "set_run_tox_check_in_progress", new_callable=AsyncMock
+            ) as mock_set_progress:
+                with patch.object(
+                    runner_handler.check_run_handler, "set_run_tox_check_success", new_callable=AsyncMock
+                ) as mock_set_success:
                     with patch.object(runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
                         mock_prepare.return_value = AsyncMock()
                         mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(True, "", ""))

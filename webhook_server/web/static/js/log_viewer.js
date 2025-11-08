@@ -1377,17 +1377,16 @@ function renderFlowModal(data) {
   const hasErrors = data.steps.some((step) => step.level === "ERROR");
   const flowCompletedSuccessfully = !hasErrors;
 
-  // Group steps by task_id
-  const { groups, ungrouped } = groupStepsByTaskId(data.steps, flowCompletedSuccessfully);
+  // Group steps by task_id and get sorted entries (groups and steps interleaved)
+  const sortedEntries = groupStepsByTaskId(data.steps, flowCompletedSuccessfully);
 
-  // Render grouped steps
-  groups.forEach((group) => {
-    renderTaskGroup(group, vizElement);
-  });
-
-  // Render ungrouped steps
-  ungrouped.forEach((step) => {
-    renderSingleStep(step, vizElement);
+  // Render entries in chronological order
+  sortedEntries.forEach((entry) => {
+    if (entry.type === "group") {
+      renderTaskGroup(entry.data, vizElement);
+    } else {
+      renderSingleStep(entry.data, vizElement);
+    }
   });
 
   // Add final status (hasErrors already declared above)

@@ -205,8 +205,12 @@ class TestPullRequestHandler:
 
         with patch.object(pull_request_handler, "close_issue_for_merged_or_closed_pr") as mock_close_issue:
             with patch.object(pull_request_handler, "delete_remote_tag_for_merged_or_closed_pr") as mock_delete_tag:
-                with patch.object(pull_request_handler.runner_handler, "cherry_pick") as mock_cherry_pick:
-                    with patch.object(pull_request_handler.runner_handler, "run_build_container") as mock_build:
+                with patch.object(
+                    pull_request_handler.runner_handler, "cherry_pick", new_callable=AsyncMock
+                ) as mock_cherry_pick:
+                    with patch.object(
+                        pull_request_handler.runner_handler, "run_build_container", new_callable=AsyncMock
+                    ) as mock_build:
                         with patch.object(
                             pull_request_handler, "label_all_opened_pull_requests_merge_state_after_merged"
                         ) as mock_label_all:
@@ -290,7 +294,9 @@ class TestPullRequestHandler:
         """Test removing WIP label when title doesn't contain WIP."""
         mock_pull_request.title = "Test PR"
 
-        with patch.object(pull_request_handler.labels_handler, "_remove_label") as mock_remove_label:
+        with patch.object(
+            pull_request_handler.labels_handler, "_remove_label", new_callable=AsyncMock
+        ) as mock_remove_label:
             await pull_request_handler.set_wip_label_based_on_title(pull_request=mock_pull_request)
             mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=WIP_STR)
 
@@ -477,7 +483,7 @@ class TestPullRequestHandler:
         mock_pull_request.mergeable = False
         mock_pull_request.mergeable_state = "dirty"
 
-        with patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label:
+        with patch.object(pull_request_handler.labels_handler, "_add_label", new_callable=AsyncMock) as mock_add_label:
             await pull_request_handler.label_pull_request_by_merge_state(pull_request=mock_pull_request)
             mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=HAS_CONFLICTS_LABEL_STR)
 
@@ -486,7 +492,7 @@ class TestPullRequestHandler:
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         """Test processing verified for update or new pull request for auto-verified user."""
-        with patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label:
+        with patch.object(pull_request_handler.labels_handler, "_add_label", new_callable=AsyncMock) as mock_add_label:
             with patch.object(pull_request_handler.check_run_handler, "set_verify_check_success") as mock_success:
                 await pull_request_handler._process_verified_for_update_or_new_pull_request(
                     pull_request=mock_pull_request
@@ -501,7 +507,7 @@ class TestPullRequestHandler:
         """Test processing verified for update or new pull request for non-auto-verified user."""
         pull_request_handler.github_webhook.parent_committer = "other-user"
 
-        with patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label:
+        with patch.object(pull_request_handler.labels_handler, "_add_label", new_callable=AsyncMock) as mock_add_label:
             with patch.object(pull_request_handler.check_run_handler, "set_verify_check_success") as mock_success:
                 await pull_request_handler._process_verified_for_update_or_new_pull_request(
                     pull_request=mock_pull_request
@@ -583,7 +589,9 @@ class TestPullRequestHandler:
             mock_pull_request.labels = []
 
             with patch.object(pull_request_handler, "_check_if_pr_approved", return_value="not_approved"):
-                with patch.object(pull_request_handler.labels_handler, "_remove_label") as mock_remove_label:
+                with patch.object(
+                    pull_request_handler.labels_handler, "_remove_label", new_callable=AsyncMock
+                ) as mock_remove_label:
                     await pull_request_handler.check_if_can_be_merged(pull_request=mock_pull_request)
                     mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=CAN_BE_MERGED_STR)
 

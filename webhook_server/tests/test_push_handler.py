@@ -49,8 +49,8 @@ class TestPushHandler:
         """Test processing push webhook data with tag but no pypi."""
         push_handler.github_webhook.pypi = {}  # Empty dict instead of None
 
-        with patch.object(push_handler, "upload_to_pypi") as mock_upload:
-            with patch.object(push_handler.runner_handler, "run_build_container") as mock_build:
+        with patch.object(push_handler, "upload_to_pypi", new_callable=AsyncMock) as mock_upload:
+            with patch.object(push_handler.runner_handler, "run_build_container", new_callable=AsyncMock) as mock_build:
                 await push_handler.process_push_webhook_data()
 
                 mock_upload.assert_not_called()
@@ -61,8 +61,8 @@ class TestPushHandler:
         """Test processing push webhook data with tag but no container build."""
         push_handler.github_webhook.build_and_push_container = False
 
-        with patch.object(push_handler, "upload_to_pypi") as mock_upload:
-            with patch.object(push_handler.runner_handler, "run_build_container") as mock_build:
+        with patch.object(push_handler, "upload_to_pypi", new_callable=AsyncMock) as mock_upload:
+            with patch.object(push_handler.runner_handler, "run_build_container", new_callable=AsyncMock) as mock_build:
                 await push_handler.process_push_webhook_data()
 
                 mock_upload.assert_called_once_with(tag_name="v1.0.0")
@@ -97,8 +97,8 @@ class TestPushHandler:
         """Test processing push webhook data with tag containing slash."""
         push_handler.hook_data["ref"] = "refs/tags/release/v1.0.0"
 
-        with patch.object(push_handler, "upload_to_pypi") as mock_upload:
-            with patch.object(push_handler.runner_handler, "run_build_container") as mock_build:
+        with patch.object(push_handler, "upload_to_pypi", new_callable=AsyncMock) as mock_upload:
+            with patch.object(push_handler.runner_handler, "run_build_container", new_callable=AsyncMock) as mock_build:
                 await push_handler.process_push_webhook_data()
 
                 mock_upload.assert_called_once_with(tag_name="release/v1.0.0")
