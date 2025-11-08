@@ -1373,9 +1373,15 @@ function renderFlowModal(data) {
     return;
   }
 
-  // Check if flow completed successfully (no errors)
-  const hasErrors = data.steps.some((step) => step.level === "ERROR");
-  const flowCompletedSuccessfully = !hasErrors;
+  // Check if flow completed successfully (no errors or failed tasks)
+  const hasFailedTasks = data.steps.some(
+    (step) => step.level === "ERROR" || step.task_status === "failed",
+  );
+  const hasActiveTasks = data.steps.some(
+    (step) =>
+      step.task_status === "processing" || step.task_status === "in_progress",
+  );
+  const flowCompletedSuccessfully = !hasFailedTasks && !hasActiveTasks;
 
   // Group steps by task_id and get groups and ungrouped steps
   const { groups, ungrouped } = groupStepsByTaskId(data.steps, flowCompletedSuccessfully);
@@ -1408,17 +1414,23 @@ function renderFlowModal(data) {
     }
   });
 
-  // Add final status (hasErrors already declared above)
+  // Add final status (hasFailedTasks and hasActiveTasks already declared above)
   const finalStatus = document.createElement("div");
-  finalStatus.className = hasErrors ? "flow-error" : "flow-success";
+  finalStatus.className = hasFailedTasks
+    ? "flow-error"
+    : hasActiveTasks
+      ? "flow-in-progress"
+      : "flow-success";
 
   const statusTitle = document.createElement("h3");
-  statusTitle.textContent = hasErrors
+  statusTitle.textContent = hasFailedTasks
     ? "⚠️ Flow Completed with Errors"
-    : "✓ Flow Completed Successfully";
+    : hasActiveTasks
+      ? "◷ Flow Still Running"
+      : "✓ Flow Completed Successfully";
   finalStatus.appendChild(statusTitle);
 
-  if (hasErrors) {
+  if (hasFailedTasks) {
     const errorMsg = document.createElement("div");
     errorMsg.className = "flow-error-message";
     errorMsg.textContent =

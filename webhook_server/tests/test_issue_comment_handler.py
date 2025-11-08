@@ -219,7 +219,9 @@ class TestIssueCommentHandler:
         mock_pull_request = Mock()
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler.pull_request_handler, "check_if_can_be_merged") as mock_check:
+            with patch.object(
+                issue_comment_handler.pull_request_handler, "check_if_can_be_merged", new_callable=AsyncMock
+            ) as mock_check:
                 await issue_comment_handler.user_commands(
                     pull_request=mock_pull_request,
                     command=COMMAND_CHECK_CAN_MERGE_STR,
@@ -415,8 +417,12 @@ class TestIssueCommentHandler:
         mock_pull_request = Mock()
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler.labels_handler, "_add_label") as mock_add_label:
-                with patch.object(issue_comment_handler.check_run_handler, "set_verify_check_success") as mock_success:
+            with patch.object(
+                issue_comment_handler.labels_handler, "_add_label", new_callable=AsyncMock
+            ) as mock_add_label:
+                with patch.object(
+                    issue_comment_handler.check_run_handler, "set_verify_check_success", new_callable=AsyncMock
+                ) as mock_success:
                     await issue_comment_handler.user_commands(
                         pull_request=mock_pull_request,
                         command=VERIFIED_LABEL_STR,
@@ -436,7 +442,9 @@ class TestIssueCommentHandler:
             with patch.object(
                 issue_comment_handler.labels_handler, "_remove_label", new_callable=AsyncMock
             ) as mock_remove_label:
-                with patch.object(issue_comment_handler.check_run_handler, "set_verify_check_queued") as mock_queued:
+                with patch.object(
+                    issue_comment_handler.check_run_handler, "set_verify_check_queued", new_callable=AsyncMock
+                ) as mock_queued:
                     await issue_comment_handler.user_commands(
                         pull_request=mock_pull_request,
                         command=f"{VERIFIED_LABEL_STR} cancel",
@@ -523,7 +531,9 @@ class TestIssueCommentHandler:
         with patch.object(mock_pull_request, "is_merged", new=Mock(return_value=False)):
             with patch.object(issue_comment_handler.repository, "get_branch") as mock_get_branch:
                 with patch.object(mock_pull_request, "create_issue_comment") as mock_comment:
-                    with patch.object(issue_comment_handler.labels_handler, "_add_label") as mock_add_label:
+                    with patch.object(
+                        issue_comment_handler.labels_handler, "_add_label", new_callable=AsyncMock
+                    ) as mock_add_label:
                         await issue_comment_handler.process_cherry_pick_command(
                             pull_request=mock_pull_request, command_args="branch1 branch2", reviewed_user="test-user"
                         )
@@ -553,7 +563,9 @@ class TestIssueCommentHandler:
         # Patch is_merged as a method
         with patch.object(mock_pull_request, "is_merged", new=Mock(return_value=True)):
             with patch.object(issue_comment_handler.repository, "get_branch"):
-                with patch.object(issue_comment_handler.runner_handler, "cherry_pick") as mock_cherry_pick:
+                with patch.object(
+                    issue_comment_handler.runner_handler, "cherry_pick", new_callable=AsyncMock
+                ) as mock_cherry_pick:
                     await issue_comment_handler.process_cherry_pick_command(
                         pull_request=mock_pull_request, command_args="branch1", reviewed_user="test-user"
                     )
