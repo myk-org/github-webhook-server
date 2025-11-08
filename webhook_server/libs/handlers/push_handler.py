@@ -1,3 +1,4 @@
+import asyncio
 import re
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -29,7 +30,7 @@ class PushHandler:
             f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'started')} "
             f"Starting push webhook processing",  # pragma: allowlist secret
         )
-        tag = re.search(r"refs/tags/?(.*)", self.hook_data["ref"])
+        tag = re.search(r"^refs/tags/(.+)$", self.hook_data["ref"])
         if tag:
             tag_name = tag.group(1)
             self.logger.step(  # type: ignore[attr-defined]
@@ -46,12 +47,12 @@ class PushHandler:
                 self.logger.info(f"{self.log_prefix} Processing upload to pypi for tag: {tag_name}")
                 try:
                     await self.upload_to_pypi(tag_name=tag_name)
-                except Exception as ex:
+                except Exception:
                     self.logger.step(  # type: ignore[attr-defined]
                         f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'failed')} "
                         f"PyPI upload failed with exception",
                     )
-                    self.logger.exception(f"{self.log_prefix} PyPI upload failed: {ex}")
+                    self.logger.exception(f"{self.log_prefix} PyPI upload failed")
 
             if self.github_webhook.build_and_push_container and self.github_webhook.container_release:
                 self.logger.step(  # type: ignore[attr-defined]
@@ -75,8 +76,9 @@ class PushHandler:
             )
 
     async def upload_to_pypi(self, tag_name: str) -> None:
-        def _issue_on_error(_error: str) -> None:
-            self.repository.create_issue(
+        async def _issue_on_error(_error: str) -> None:
+            await asyncio.to_thread(
+                self.repository.create_issue,
                 title=_error,
                 body=f"""
 Publish to PYPI failed: `{_error}`
@@ -102,7 +104,8 @@ Publish to PYPI failed: `{_error}`
                     f"PyPI upload failed: repository preparation failed",
                 )
                 _error = self.check_run_handler.get_check_run_text(out=_res[1], err=_res[2])
-                return _issue_on_error(_error=_error)
+                await _issue_on_error(_error=_error)
+                return
 
             rc, out, err = await run_command(
                 command=f"uv {uv_cmd_dir} build --sdist --out-dir {_dist_dir}", log_prefix=self.log_prefix
@@ -113,7 +116,8 @@ Publish to PYPI failed: `{_error}`
                     f"PyPI upload failed: build command failed",
                 )
                 _error = self.check_run_handler.get_check_run_text(out=out, err=err)
-                return _issue_on_error(_error=_error)
+                await _issue_on_error(_error=_error)
+                return
 
             rc, tar_gz_file, err = await run_command(command=f"ls {_dist_dir}", log_prefix=self.log_prefix)
             if not rc:
@@ -122,27 +126,29 @@ Publish to PYPI failed: `{_error}`
                     f"PyPI upload failed: listing dist directory failed",
                 )
                 _error = self.check_run_handler.get_check_run_text(out=tar_gz_file, err=err)
-                return _issue_on_error(_error=_error)
+                await _issue_on_error(_error=_error)
+                return
 
             tar_gz_file = tar_gz_file.strip()
 
+            pypi_token = self.github_webhook.pypi["token"]
             commands: list[str] = [
                 f"uvx {uv_cmd_dir} twine check {_dist_dir}/{tar_gz_file}",
                 f"uvx {uv_cmd_dir} twine upload --username __token__ "
-                f"--password {self.github_webhook.pypi['token']} "
+                f"--password {pypi_token} "
                 f"{_dist_dir}/{tar_gz_file} --skip-existing",
             ]
-            self.logger.debug(f"Commands to run: {commands}")
 
             for cmd in commands:
-                rc, out, err = await run_command(command=cmd, log_prefix=self.log_prefix)
+                rc, out, err = await run_command(command=cmd, log_prefix=self.log_prefix, redact_secrets=[pypi_token])
                 if not rc:
                     self.logger.step(  # type: ignore[attr-defined]
                         f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'failed')} "
                         f"PyPI upload failed: command execution failed",
                     )
                     _error = self.check_run_handler.get_check_run_text(out=out, err=err)
-                    return _issue_on_error(_error=_error)
+                    await _issue_on_error(_error=_error)
+                    return
 
             self.logger.step(  # type: ignore[attr-defined]
                 f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'completed')} "

@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import shlex
 import shutil
 import tempfile
 from typing import Any
@@ -52,6 +53,7 @@ class GithubWebhook:
         self.hook_data = hook_data
         self.repository_name: str = hook_data["repository"]["name"]
         self.repository_full_name: str = hook_data["repository"]["full_name"]
+        self._bg_tasks: set[asyncio.Task] = set()
         self.parent_committer: str = ""
         self.x_github_delivery: str = headers.get("X-GitHub-Delivery", "")
         self.github_event: str = headers["X-GitHub-Event"]
@@ -189,7 +191,9 @@ class GithubWebhook:
                 f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
                 f"Webhook processing completed successfully: push event",
             )
-            asyncio.create_task(self._log_token_spend())
+            task = asyncio.create_task(self._log_token_spend())
+            self._bg_tasks.add(task)
+            task.add_done_callback(self._bg_tasks.discard)
             return None
 
         pull_request = await self.get_pull_request()
@@ -219,7 +223,9 @@ class GithubWebhook:
                     f"Pull request is draft, skipping processing",
                 )
                 self.logger.debug(f"{self.log_prefix} Pull request is draft, doing nothing")
-                asyncio.create_task(self._log_token_spend())
+                task = asyncio.create_task(self._log_token_spend())
+                self._bg_tasks.add(task)
+                task.add_done_callback(self._bg_tasks.discard)
                 return None
 
             self.logger.step(  # type: ignore[attr-defined]
@@ -249,7 +255,9 @@ class GithubWebhook:
                     f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
                     f"Webhook processing completed successfully: issue comment",
                 )
-                asyncio.create_task(self._log_token_spend())
+                task = asyncio.create_task(self._log_token_spend())
+                self._bg_tasks.add(task)
+                task.add_done_callback(self._bg_tasks.discard)
                 return None
 
             elif self.github_event == "pull_request":
@@ -271,7 +279,9 @@ class GithubWebhook:
                     f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
                     f"Webhook processing completed successfully: pull request",
                 )
-                asyncio.create_task(self._log_token_spend())
+                task = asyncio.create_task(self._log_token_spend())
+                self._bg_tasks.add(task)
+                task.add_done_callback(self._bg_tasks.discard)
                 return None
 
             elif self.github_event == "pull_request_review":
@@ -326,7 +336,9 @@ class GithubWebhook:
                     f"{format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
                     f"Webhook processing completed successfully: check run",
                 )
-                asyncio.create_task(self._log_token_spend())
+                task = asyncio.create_task(self._log_token_spend())
+                self._bg_tasks.add(task)
+                task.add_done_callback(self._bg_tasks.discard)
                 return None
 
     def add_api_users_to_auto_verified_and_merged_users(self) -> None:
@@ -371,8 +383,19 @@ class GithubWebhook:
             self.container_repository: str = self.build_and_push_container["repository"]
             self.dockerfile: str = self.build_and_push_container.get("dockerfile", "Dockerfile")
             self.container_tag: str = self.build_and_push_container.get("tag", "latest")
-            self.container_build_args: str = self.build_and_push_container.get("build-args", "")
-            self.container_command_args: str = self.build_and_push_container.get("args", "")
+            _build_args = self.build_and_push_container.get("build-args", [])
+            _cmd_args = self.build_and_push_container.get("args", [])
+            # Normalize to lists
+            if isinstance(_build_args, str):
+                _build_args = [a for a in shlex.split(_build_args) if a]
+            elif not isinstance(_build_args, list):
+                _build_args = []
+            if isinstance(_cmd_args, str):
+                _cmd_args = [a for a in shlex.split(_cmd_args) if a]
+            elif not isinstance(_cmd_args, list):
+                _cmd_args = []
+            self.container_build_args: list[str] = [str(a) for a in _build_args]
+            self.container_command_args: list[str] = [str(a) for a in _cmd_args]
             self.container_release: bool = self.build_and_push_container.get("release", False)
 
         self.pre_commit: bool = self.config.get_value(

@@ -84,7 +84,8 @@ function disconnectWebSocket() {
 
 // Helper function to apply memory bounding to logEntries array
 function applyMemoryBounding() {
-  const maxEntries = parseInt(document.getElementById("limitFilter").value);
+  const parsed = parseInt(document.getElementById("limitFilter").value);
+  const maxEntries = Number.isFinite(parsed) ? parsed : 1000;
   if (logEntries.length > maxEntries) {
     // Remove oldest entries to keep array size bounded
     logEntries = logEntries.slice(0, maxEntries);

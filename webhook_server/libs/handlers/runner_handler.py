@@ -22,7 +22,7 @@ from webhook_server.utils.constants import (
     PYTHON_MODULE_INSTALL_STR,
     TOX_STR,
 )
-from webhook_server.utils.helpers import format_task_fields, run_command
+from webhook_server.utils.helpers import _redact_secrets, format_task_fields, run_command
 from webhook_server.utils.notification_utils import send_slack_message
 
 if TYPE_CHECKING:
@@ -58,13 +58,12 @@ class RunnerHandler:
 
         try:
             # Clone the repository
+            github_token = self.github_webhook.token
+            clone_url_with_token = self.repository.clone_url.replace("https://", f"https://{github_token}@")
             rc, out, err = await run_command(
-                command=(
-                    f"git clone "
-                    f"{self.repository.clone_url.replace('https://', f'https://{self.github_webhook.token}@')} "
-                    f"{clone_repo_dir}"
-                ),
+                command=(f"git clone {clone_url_with_token} {clone_repo_dir}"),
                 log_prefix=self.log_prefix,
+                redact_secrets=[github_token],
             )
             if not rc:
                 result = (rc, out, err)
@@ -164,7 +163,7 @@ class RunnerHandler:
         finally:
             yield result
             self.logger.debug(f"{self.log_prefix} Deleting {clone_repo_dir}")
-            shutil.rmtree(clone_repo_dir)
+            shutil.rmtree(clone_repo_dir, ignore_errors=True)
 
     def is_podman_bug(self, err: str) -> bool:
         _err = "Error: current system boot ID differs from cached boot ID; an unhandled reboot has occurred"
@@ -175,15 +174,15 @@ class RunnerHandler:
         shutil.rmtree("/tmp/storage-run-1000/containers", ignore_errors=True)
         shutil.rmtree("/tmp/storage-run-1000/libpod/tmp", ignore_errors=True)
 
-    async def run_podman_command(self, command: str) -> tuple[bool, str, str]:
-        rc, out, err = await run_command(command=command, log_prefix=self.log_prefix)
+    async def run_podman_command(self, command: str, redact_secrets: list[str] | None = None) -> tuple[bool, str, str]:
+        rc, out, err = await run_command(command=command, log_prefix=self.log_prefix, redact_secrets=redact_secrets)
 
         if rc:
             return rc, out, err
 
         if self.is_podman_bug(err=err):
             self.fix_podman_bug()
-            return await run_command(command=command, log_prefix=self.log_prefix)
+            return await run_command(command=command, log_prefix=self.log_prefix, redact_secrets=redact_secrets)
 
         return rc, out, err
 
@@ -435,7 +434,13 @@ class RunnerHandler:
                     f"{self.github_webhook.container_repository_password} "
                     f"{_container_repository_and_tag}"
                 )
-                push_rc, _, _ = await self.run_podman_command(command=cmd)
+                push_rc, _, _ = await self.run_podman_command(
+                    command=cmd,
+                    redact_secrets=[
+                        self.github_webhook.container_repository_username,
+                        self.github_webhook.container_repository_password,
+                    ],
+                )
                 if push_rc:
                     self.logger.step(  # type: ignore[attr-defined]
                         f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'completed')} "
@@ -623,10 +628,8 @@ class RunnerHandler:
             pull_request_url = pull_request.html_url
             clone_repo_dir = f"{self.github_webhook.clone_repo_dir}-{uuid4()}"
             git_cmd = f"git --work-tree={clone_repo_dir} --git-dir={clone_repo_dir}/.git"
-            hub_cmd = (
-                f"GITHUB_TOKEN={self.github_webhook.token} hub "
-                f"--work-tree={clone_repo_dir} --git-dir={clone_repo_dir}/.git"
-            )
+            github_token = self.github_webhook.token
+            hub_cmd = f"GITHUB_TOKEN={github_token} hub --work-tree={clone_repo_dir} --git-dir={clone_repo_dir}/.git"
             commands: list[str] = [
                 f"{git_cmd} checkout {target_branch}",
                 f"{git_cmd} pull origin {target_branch}",
@@ -639,7 +642,6 @@ class RunnerHandler:
                 f"{commit_msg_striped}' -m 'cherry-pick {pull_request_url} "
                 f"into {target_branch}' -m 'requested-by {requested_by}'\"",
             ]
-            self.logger.debug(f"{self.log_prefix} Cherry pick commands to run: {commands}")
 
             rc, out, err = None, "", ""
             async with self._prepare_cloned_repo_dir(pull_request=pull_request, clone_repo_dir=clone_repo_dir) as _res:
@@ -662,7 +664,9 @@ class RunnerHandler:
                     f"Executing cherry-pick commands"
                 )
                 for cmd in commands:
-                    rc, out, err = await run_command(command=cmd, log_prefix=self.log_prefix)
+                    rc, out, err = await run_command(
+                        command=cmd, log_prefix=self.log_prefix, redact_secrets=[github_token]
+                    )
                     if not rc:
                         self.logger.step(  # type: ignore[attr-defined]
                             f"{self.log_prefix} "
@@ -671,7 +675,9 @@ class RunnerHandler:
                         )
                         output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
                         await self.check_run_handler.set_cherry_pick_failure(output=output)
-                        self.logger.error(f"{self.log_prefix} Cherry pick failed: {out} --- {err}")
+                        redacted_out = _redact_secrets(out, [github_token])
+                        redacted_err = _redact_secrets(err, [github_token])
+                        self.logger.error(f"{self.log_prefix} Cherry pick failed: {redacted_out} --- {redacted_err}")
                         local_branch_name = f"{pull_request.head.ref}-{target_branch}"
                         await asyncio.to_thread(
                             pull_request.create_issue_comment,

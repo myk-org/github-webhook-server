@@ -296,7 +296,7 @@ class OwnersFileHandler:
         # Log completion - task_status reflects the result of our action
         if failed_count > 0:
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'completed')} "
+                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'failed')} "
                 f"Assigned {assigned_count} reviewers to PR ({failed_count} failed)",
             )
         else:
