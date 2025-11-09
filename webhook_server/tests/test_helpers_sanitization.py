@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
+import pytest
+
 from webhook_server.utils.helpers import (
     _redact_secrets,
     _sanitize_log_value,
     _truncate_output,
     format_task_fields,
+    run_command,
     strip_ansi_codes,
 )
 
@@ -235,6 +240,40 @@ class TestRedactSecrets:
         result2 = _redact_secrets(text, ["", "  "])
         assert result2 == text  # No non-empty secrets, so no redaction
 
+    def test_redact_with_mask_sensitive_false(self) -> None:
+        """Test that when mask_sensitive=False, secrets are NOT redacted."""
+        text = "Token: secret123 Password: abc456"
+        secrets = ["secret123", "abc456"]
+        result = _redact_secrets(text, secrets, mask_sensitive=False)
+        # Secrets should still be present
+        assert "secret123" in result
+        assert "abc456" in result
+        # No redaction marker should be present
+        assert "***REDACTED***" not in result
+        # Result should be unchanged
+        assert result == text
+
+    def test_redact_with_mask_sensitive_true(self) -> None:
+        """Test that when mask_sensitive=True, secrets ARE redacted (explicit parameter)."""
+        text = "Token: secret123"
+        secrets = ["secret123"]
+        result = _redact_secrets(text, secrets, mask_sensitive=True)
+        # Secret should be redacted
+        assert "secret123" not in result
+        # Redaction marker should be present
+        assert "***REDACTED***" in result
+
+    def test_redact_mask_sensitive_default(self) -> None:
+        """Test that default behavior is to mask (backward compatibility)."""
+        text = "Token: secret123"
+        secrets = ["secret123"]
+        # Call without mask_sensitive parameter - should default to True
+        result = _redact_secrets(text, secrets)
+        # Secret should be redacted by default
+        assert "secret123" not in result
+        # Redaction marker should be present
+        assert "***REDACTED***" in result
+
 
 class TestTruncateOutput:
     """Test the _truncate_output function."""
@@ -322,3 +361,76 @@ class TestStripAnsiCodes:
         text = "Text with [brackets] and (parentheses)"
         result = strip_ansi_codes(text)
         assert result == text  # Should remain unchanged
+
+
+class TestRunCommandMaskSensitive:
+    """Test the run_command function with mask_sensitive parameter."""
+
+    @pytest.mark.asyncio
+    async def test_run_command_mask_sensitive_false(self) -> None:
+        """Test that run_command respects mask_sensitive=False.
+
+        When mask_sensitive=False, secrets should NOT be redacted in logs.
+        The function should log the unredacted command and output.
+        """
+        # Mock the logger to capture log messages
+        with patch("webhook_server.utils.helpers.get_logger_with_params") as mock_get_logger:
+            mock_logger = MagicMock()
+            mock_get_logger.return_value = mock_logger
+
+            # Run command with a secret and mask_sensitive=False
+            success, stdout, stderr = await run_command(
+                command="echo 'token: ghp_test123'",
+                log_prefix="test",
+                redact_secrets=["ghp_test123"],
+                mask_sensitive=False,
+            )
+
+            # Verify command succeeded
+            assert success is True
+
+            # Verify the token appears in stdout (unredacted return value)
+            assert "ghp_test123" in stdout
+
+            # Verify logger.debug was called with unredacted command
+            debug_calls = [call for call in mock_logger.debug.call_args_list]
+            assert any("ghp_test123" in str(call) for call in debug_calls), (
+                "Token should appear in debug logs when mask_sensitive=False"
+            )
+
+    @pytest.mark.asyncio
+    async def test_run_command_mask_sensitive_true(self) -> None:
+        """Test that run_command respects mask_sensitive=True.
+
+        When mask_sensitive=True, secrets should be redacted in logs.
+        However, the returned stdout/stderr should remain unredacted.
+        """
+        # Mock the logger to capture log messages
+        with patch("webhook_server.utils.helpers.get_logger_with_params") as mock_get_logger:
+            mock_logger = MagicMock()
+            mock_get_logger.return_value = mock_logger
+
+            # Run command with a secret and mask_sensitive=True
+            success, stdout, stderr = await run_command(
+                command="echo 'token: ghp_test456'",
+                log_prefix="test",
+                redact_secrets=["ghp_test456"],
+                mask_sensitive=True,
+            )
+
+            # Verify command succeeded
+            assert success is True
+
+            # Verify the token appears in stdout (unredacted return value)
+            # Per function design: "stdout and stderr are UNREDACTED strings"
+            assert "ghp_test456" in stdout
+
+            # Verify logger.debug was called with REDACTED command
+            debug_calls = [call for call in mock_logger.debug.call_args_list]
+            assert any("***REDACTED***" in str(call) for call in debug_calls), (
+                "Redaction marker should appear in debug logs when mask_sensitive=True"
+            )
+            # Ensure the secret does NOT appear in logs
+            assert not any("ghp_test456" in str(call) for call in debug_calls), (
+                "Token should NOT appear in debug logs when mask_sensitive=True"
+            )

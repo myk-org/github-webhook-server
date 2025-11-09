@@ -42,6 +42,11 @@ class RunnerHandler:
             github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
         )
 
+    @property
+    def mask_sensitive(self) -> bool:
+        """Get mask_sensitive configuration value."""
+        return self.github_webhook.config.get_value("mask-sensitive-data", return_on_none=True)
+
     @contextlib.asynccontextmanager
     async def _prepare_cloned_repo_dir(
         self,
@@ -64,6 +69,7 @@ class RunnerHandler:
                 command=(f"git clone {clone_url_with_token} {clone_repo_dir}"),
                 log_prefix=self.log_prefix,
                 redact_secrets=[github_token],
+                mask_sensitive=self.mask_sensitive,
             )
             if not rc:
                 result = (rc, out, err)
@@ -71,7 +77,9 @@ class RunnerHandler:
 
             if success:
                 rc, out, err = await run_command(
-                    command=f"{git_cmd} config user.name '{self.repository.owner.login}'", log_prefix=self.log_prefix
+                    command=f"{git_cmd} config user.name '{self.repository.owner.login}'",
+                    log_prefix=self.log_prefix,
+                    mask_sensitive=self.mask_sensitive,
                 )
                 if not rc:
                     result = (rc, out, err)
@@ -79,7 +87,9 @@ class RunnerHandler:
 
             if success:
                 rc, out, err = await run_command(
-                    f"{git_cmd} config user.email '{self.repository.owner.email}'", log_prefix=self.log_prefix
+                    command=f"{git_cmd} config user.email '{self.repository.owner.email}'",
+                    log_prefix=self.log_prefix,
+                    mask_sensitive=self.mask_sensitive,
                 )
                 if not rc:
                     result = (rc, out, err)
@@ -91,28 +101,38 @@ class RunnerHandler:
                         f"{git_cmd} config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
                     ),
                     log_prefix=self.log_prefix,
+                    mask_sensitive=self.mask_sensitive,
                 )
                 if not rc:
                     result = (rc, out, err)
                     success = False
 
             if success:
-                rc, out, err = await run_command(command=f"{git_cmd} remote update", log_prefix=self.log_prefix)
+                rc, out, err = await run_command(
+                    command=f"{git_cmd} remote update",
+                    log_prefix=self.log_prefix,
+                    mask_sensitive=self.mask_sensitive,
+                )
                 if not rc:
                     result = (rc, out, err)
                     success = False
 
             # Checkout to requested branch/tag
             if checkout and success:
-                rc, out, err = await run_command(f"{git_cmd} checkout {checkout}", log_prefix=self.log_prefix)
+                rc, out, err = await run_command(
+                    command=f"{git_cmd} checkout {checkout}",
+                    log_prefix=self.log_prefix,
+                    mask_sensitive=self.mask_sensitive,
+                )
                 if not rc:
                     result = (rc, out, err)
                     success = False
 
                 if success and pull_request:
                     rc, out, err = await run_command(
-                        f"{git_cmd} merge origin/{pull_request.base.ref} -m 'Merge {pull_request.base.ref}'",
+                        command=f"{git_cmd} merge origin/{pull_request.base.ref} -m 'Merge {pull_request.base.ref}'",
                         log_prefix=self.log_prefix,
+                        mask_sensitive=self.mask_sensitive,
                     )
                     if not rc:
                         result = (rc, out, err)
@@ -125,6 +145,7 @@ class RunnerHandler:
                         rc, out, err = await run_command(
                             command=f"{git_cmd} checkout {pull_request.base.ref}",
                             log_prefix=self.log_prefix,
+                            mask_sensitive=self.mask_sensitive,
                         )
                         if not rc:
                             result = (rc, out, err)
@@ -132,7 +153,9 @@ class RunnerHandler:
 
                     elif tag_name:
                         rc, out, err = await run_command(
-                            command=f"{git_cmd} checkout {tag_name}", log_prefix=self.log_prefix
+                            command=f"{git_cmd} checkout {tag_name}",
+                            log_prefix=self.log_prefix,
+                            mask_sensitive=self.mask_sensitive,
                         )
                         if not rc:
                             result = (rc, out, err)
@@ -144,6 +167,7 @@ class RunnerHandler:
                             rc, out, err = await run_command(
                                 command=f"{git_cmd} checkout origin/pr/{_pull_request.number}",
                                 log_prefix=self.log_prefix,
+                                mask_sensitive=self.mask_sensitive,
                             )
                             if not rc:
                                 result = (rc, out, err)
@@ -151,11 +175,12 @@ class RunnerHandler:
 
                             if pull_request and success:
                                 rc, out, err = await run_command(
-                                    (
+                                    command=(
                                         f"{git_cmd} merge origin/{pull_request.base.ref} "
                                         f"-m 'Merge {pull_request.base.ref}'"
                                     ),
                                     log_prefix=self.log_prefix,
+                                    mask_sensitive=self.mask_sensitive,
                                 )
                                 if not rc:
                                     result = (rc, out, err)
@@ -174,15 +199,24 @@ class RunnerHandler:
         shutil.rmtree("/tmp/storage-run-1000/containers", ignore_errors=True)
         shutil.rmtree("/tmp/storage-run-1000/libpod/tmp", ignore_errors=True)
 
-    async def run_podman_command(self, command: str, redact_secrets: list[str] | None = None) -> tuple[bool, str, str]:
-        rc, out, err = await run_command(command=command, log_prefix=self.log_prefix, redact_secrets=redact_secrets)
+    async def run_podman_command(
+        self, command: str, redact_secrets: list[str] | None = None, mask_sensitive: bool = True
+    ) -> tuple[bool, str, str]:
+        rc, out, err = await run_command(
+            command=command, log_prefix=self.log_prefix, redact_secrets=redact_secrets, mask_sensitive=mask_sensitive
+        )
 
         if rc:
             return rc, out, err
 
         if self.is_podman_bug(err=err):
             self.fix_podman_bug()
-            return await run_command(command=command, log_prefix=self.log_prefix, redact_secrets=redact_secrets)
+            return await run_command(
+                command=command,
+                log_prefix=self.log_prefix,
+                redact_secrets=redact_secrets,
+                mask_sensitive=mask_sensitive,
+            )
 
         return rc, out, err
 
@@ -238,7 +272,9 @@ class RunnerHandler:
             self.logger.step(  # type: ignore[attr-defined]
                 f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Executing tox command"
             )
-            rc, out, err = await run_command(command=cmd, log_prefix=self.log_prefix)
+            rc, out, err = await run_command(
+                command=cmd, log_prefix=self.log_prefix, mask_sensitive=self.mask_sensitive
+            )
 
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
 
@@ -299,7 +335,9 @@ class RunnerHandler:
                 f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
                 f"Executing pre-commit command",
             )
-            rc, out, err = await run_command(command=cmd, log_prefix=self.log_prefix)
+            rc, out, err = await run_command(
+                command=cmd, log_prefix=self.log_prefix, mask_sensitive=self.mask_sensitive
+            )
 
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
 
@@ -404,7 +442,9 @@ class RunnerHandler:
                 f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
                 f"Executing container build command",
             )
-            build_rc, build_out, build_err = await self.run_podman_command(command=podman_build_cmd)
+            build_rc, build_out, build_err = await self.run_podman_command(
+                command=podman_build_cmd, mask_sensitive=self.mask_sensitive
+            )
             output["text"] = self.check_run_handler.get_check_run_text(err=build_err, out=build_out)
 
             if build_rc:
@@ -440,6 +480,7 @@ class RunnerHandler:
                         self.github_webhook.container_repository_username,
                         self.github_webhook.container_repository_password,
                     ],
+                    mask_sensitive=self.mask_sensitive,
                 )
                 if push_rc:
                     self.logger.step(  # type: ignore[attr-defined]
@@ -533,6 +574,7 @@ class RunnerHandler:
             rc, out, err = await run_command(
                 command=f"uvx pip wheel --no-cache-dir -w {clone_repo_dir}/dist {clone_repo_dir}",
                 log_prefix=self.log_prefix,
+                mask_sensitive=self.mask_sensitive,
             )
 
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
@@ -665,7 +707,10 @@ class RunnerHandler:
                 )
                 for cmd in commands:
                     rc, out, err = await run_command(
-                        command=cmd, log_prefix=self.log_prefix, redact_secrets=[github_token]
+                        command=cmd,
+                        log_prefix=self.log_prefix,
+                        redact_secrets=[github_token],
+                        mask_sensitive=self.mask_sensitive,
                     )
                     if not rc:
                         self.logger.step(  # type: ignore[attr-defined]
@@ -675,8 +720,8 @@ class RunnerHandler:
                         )
                         output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
                         await self.check_run_handler.set_cherry_pick_failure(output=output)
-                        redacted_out = _redact_secrets(out, [github_token])
-                        redacted_err = _redact_secrets(err, [github_token])
+                        redacted_out = _redact_secrets(out, [github_token], mask_sensitive=self.mask_sensitive)
+                        redacted_err = _redact_secrets(err, [github_token], mask_sensitive=self.mask_sensitive)
                         self.logger.error(f"{self.log_prefix} Cherry pick failed: {redacted_out} --- {redacted_err}")
                         local_branch_name = f"{pull_request.head.ref}-{target_branch}"
                         await asyncio.to_thread(

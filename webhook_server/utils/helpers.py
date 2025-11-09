@@ -137,7 +137,9 @@ def format_task_fields(task_id: str | None = None, task_type: str | None = None,
 _REDACT_REGEX_CACHE: dict[tuple[tuple[str, ...], bool], re.Pattern[str]] = {}
 
 
-def _redact_secrets(text: str, secrets: list[str] | None, case_insensitive: bool = False) -> str:
+def _redact_secrets(
+    text: str, secrets: list[str] | None, case_insensitive: bool = False, mask_sensitive: bool = True
+) -> str:
     """
     Redact sensitive strings from text for logging using compiled regex for performance.
 
@@ -149,9 +151,10 @@ def _redact_secrets(text: str, secrets: list[str] | None, case_insensitive: bool
         text: The text to redact secrets from
         secrets: List of sensitive strings to redact (empty strings are filtered out)
         case_insensitive: Enable case-insensitive matching (default: False for security)
+        mask_sensitive: Whether to mask sensitive data (default: True). If False, returns text unchanged.
 
     Returns:
-        Text with secrets replaced by ***REDACTED***
+        Text with secrets replaced by ***REDACTED*** (if mask_sensitive=True), otherwise unchanged text
 
     Performance:
         - O(n) where n = len(text) instead of O(s*n) where s = len(secrets)
@@ -163,6 +166,10 @@ def _redact_secrets(text: str, secrets: list[str] | None, case_insensitive: bool
         - Default case-sensitive matching prevents accidental false positives
         - Enable case_insensitive only when secrets may vary in case (e.g., base64 tokens)
     """
+    # Early return if masking is disabled
+    if not mask_sensitive:
+        return text
+
     if not secrets:
         return text
 
@@ -263,6 +270,7 @@ async def run_command(
     redact_secrets: list[str] | None = None,
     stdin_input: str | bytes | None = None,
     timeout: int | None = None,
+    mask_sensitive: bool = True,
     **kwargs: Any,
 ) -> tuple[bool, str, str]:
     """
@@ -275,6 +283,7 @@ async def run_command(
         redact_secrets (list[str], optional): List of sensitive strings to redact from logs only
         stdin_input (str | bytes | None, optional): Input to pass to command via stdin (for passwords, etc.)
         timeout (int | None, optional): Timeout in seconds for command execution. None means no timeout.
+        mask_sensitive (bool, default True): Whether to mask sensitive data in logs. If False, logs unredacted output.
 
     Returns:
         tuple[bool, str, str]: (success, stdout, stderr) where stdout and stderr are UNREDACTED strings.
@@ -298,7 +307,7 @@ async def run_command(
         kwargs.setdefault("stdin", subprocess.PIPE)
 
     # Redact sensitive data from command for logging
-    logged_command = _redact_secrets(command, redact_secrets)
+    logged_command = _redact_secrets(command, redact_secrets, mask_sensitive=mask_sensitive)
 
     try:
         logger.debug(f"{log_prefix} Running '{logged_command}' command")
@@ -334,8 +343,8 @@ async def run_command(
 
         # Redact secrets ONLY for logging, keep original for return value
         # Callers may need to parse unredacted output
-        out_redacted = _redact_secrets(out_decoded, redact_secrets)
-        err_redacted = _redact_secrets(err_decoded, redact_secrets)
+        out_redacted = _redact_secrets(out_decoded, redact_secrets, mask_sensitive=mask_sensitive)
+        err_redacted = _redact_secrets(err_decoded, redact_secrets, mask_sensitive=mask_sensitive)
 
         # Truncate output for error messages to prevent log explosion (logging only)
         truncated_out = _truncate_output(out_redacted)
