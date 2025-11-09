@@ -9,6 +9,7 @@ from github.ContentFile import ContentFile
 from github.GithubException import GithubException
 from github.NamedUser import NamedUser
 from github.PaginatedList import PaginatedList
+from github.Permissions import Permissions
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
@@ -355,17 +356,25 @@ Maintainers:
 
     async def get_all_repository_contributors(self) -> list[str]:
         contributors = await self.repository_contributors
-        return [val.login for val in contributors]
+        return await asyncio.to_thread(lambda: [val.login for val in contributors])
 
     async def get_all_repository_collaborators(self) -> list[str]:
         collaborators = await self.repository_collaborators
-        return [val.login for val in collaborators]
+        return await asyncio.to_thread(lambda: [val.login for val in collaborators])
 
     async def get_all_repository_maintainers(self) -> list[str]:
         maintainers: list[str] = []
 
-        for user in await self.repository_collaborators:
-            permissions = user.permissions
+        # Fix #1: Convert PaginatedList to list in thread pool to avoid blocking during iteration
+        collaborators = await self.repository_collaborators
+        collaborators_list = await asyncio.to_thread(lambda: list(collaborators))
+
+        for user in collaborators_list:
+            # Fix #2: Wrap permissions access in thread pool (property makes blocking API call)
+            def get_user_permissions(u: NamedUser = user) -> Permissions:
+                return u.permissions
+
+            permissions = await asyncio.to_thread(get_user_permissions)
             self.logger.debug(f"User {user.login} permissions: {permissions}")
 
             if permissions.admin or permissions.maintain:

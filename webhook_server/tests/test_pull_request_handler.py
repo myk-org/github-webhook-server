@@ -750,22 +750,24 @@ class TestPullRequestHandler:
             result = pull_request_handler._check_labels_for_can_be_merged(labels=["other-label"])
             assert result == ""  # Empty string means no errors
 
-    def test_skip_if_pull_request_already_merged_merged(
+    @pytest.mark.asyncio
+    async def test_skip_if_pull_request_already_merged_merged(
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         """Test skipping if pull request is already merged."""
         # Patch is_merged as a method that returns True
         with patch.object(mock_pull_request, "is_merged", new=Mock(return_value=True)):
-            result = pull_request_handler.skip_if_pull_request_already_merged(pull_request=mock_pull_request)
+            result = await pull_request_handler.skip_if_pull_request_already_merged(pull_request=mock_pull_request)
             assert result is True
 
-    def test_skip_if_pull_request_already_merged_not_merged(
+    @pytest.mark.asyncio
+    async def test_skip_if_pull_request_already_merged_not_merged(
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
         """Test skipping if pull request is not merged."""
         # Patch is_merged as a method that returns False
         with patch.object(mock_pull_request, "is_merged", new=Mock(return_value=False)):
-            result = pull_request_handler.skip_if_pull_request_already_merged(pull_request=mock_pull_request)
+            result = await pull_request_handler.skip_if_pull_request_already_merged(pull_request=mock_pull_request)
             assert result is False
 
     @pytest.mark.asyncio

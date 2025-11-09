@@ -143,7 +143,8 @@ class PullRequestHandler:
                 )
                 self.logger.info(f"{self.log_prefix} PR is merged")
 
-                for _label in pull_request.labels:
+                labels = await asyncio.to_thread(lambda: list(pull_request.labels))
+                for _label in labels:
                     _label_name = _label.name
                     if _label_name.startswith(CHERRY_PICK_LABEL_PREFIX):
                         await self.runner_handler.cherry_pick(
@@ -186,7 +187,8 @@ class PullRequestHandler:
                 return
 
             self.logger.info(f"{self.log_prefix} PR {pull_request.number} {hook_action} with {labeled}")
-            self.logger.debug(f"PR labels are {pull_request.labels}")
+            labels = await asyncio.to_thread(lambda: list(pull_request.labels))
+            self.logger.debug(f"PR labels are {labels}")
 
             _split_label = labeled.split(LABELS_SEPARATOR, 1)
 
@@ -408,7 +410,8 @@ For more information, please refer to the project documentation or contact the m
         self.logger.info(f"{self.log_prefix} Sleep for {time_sleep} seconds before getting all opened PRs")
         await asyncio.sleep(time_sleep)
 
-        for pull_request in self.repository.get_pulls(state="open"):
+        pulls = await asyncio.to_thread(lambda: list(self.repository.get_pulls(state="open")))
+        for pull_request in pulls:
             self.logger.info(f"{self.log_prefix} check label pull request after merge")
             await self.label_pull_request_by_merge_state(pull_request=pull_request)
 
@@ -798,7 +801,8 @@ For more information, please refer to the project documentation or contact the m
 
     async def remove_labels_when_pull_request_sync(self, pull_request: PullRequest) -> None:
         tasks: list[Coroutine[Any, Any, Any]] = []
-        for _label in pull_request.labels:
+        labels = await asyncio.to_thread(lambda: list(pull_request.labels))
+        for _label in labels:
             _label_name = _label.name
             if (
                 _label_name.startswith(APPROVED_BY_LABEL_PREFIX)
@@ -820,7 +824,7 @@ For more information, please refer to the project documentation or contact the m
                 self.logger.error(f"{self.log_prefix} Async task failed: {result}")
 
     async def label_pull_request_by_merge_state(self, pull_request: PullRequest) -> None:
-        merge_state = pull_request.mergeable_state
+        merge_state = await asyncio.to_thread(lambda: pull_request.mergeable_state)
         self.logger.debug(f"{self.log_prefix} Mergeable state is {merge_state}")
         if merge_state == "unknown":
             return
@@ -869,13 +873,13 @@ For more information, please refer to the project documentation or contact the m
     async def add_pull_request_owner_as_assingee(self, pull_request: PullRequest) -> None:
         try:
             self.logger.info(f"{self.log_prefix} Adding PR owner as assignee")
-            pull_request.add_to_assignees(pull_request.user.login)
+            await asyncio.to_thread(pull_request.add_to_assignees, pull_request.user.login)
         except Exception as exp:
             self.logger.debug(f"{self.log_prefix} Exception while adding PR owner as assignee: {exp}")
 
             if self.owners_file_handler.root_approvers:
                 self.logger.debug(f"{self.log_prefix} Falling back to first approver as assignee")
-                pull_request.add_to_assignees(self.owners_file_handler.root_approvers[0])
+                await asyncio.to_thread(pull_request.add_to_assignees, self.owners_file_handler.root_approvers[0])
 
     async def check_if_can_be_merged(self, pull_request: PullRequest) -> None:
         """
@@ -894,7 +898,7 @@ For more information, please refer to the project documentation or contact the m
             f"{format_task_fields('pr_handler', 'pr_management', 'started')} "
             f"Starting merge eligibility check"
         )
-        if self.skip_if_pull_request_already_merged(pull_request=pull_request):
+        if await self.skip_if_pull_request_already_merged(pull_request=pull_request):
             self.logger.debug(f"{self.log_prefix} Pull request already merged")
             return
 
@@ -913,7 +917,7 @@ For more information, please refer to the project documentation or contact the m
             _labels = await self.labels_handler.pull_request_labels_names(pull_request=pull_request)
             self.logger.debug(f"{self.log_prefix} check if can be merged. PR labels are: {_labels}")
 
-            is_pr_mergable = pull_request.mergeable
+            is_pr_mergable = await asyncio.to_thread(lambda: pull_request.mergeable)
             self.logger.debug(f"{self.log_prefix} PR mergeable is {is_pr_mergable}")
             if not is_pr_mergable:
                 failure_output += f"PR is not mergeable: {is_pr_mergable}\n"
@@ -1088,8 +1092,8 @@ For more information, please refer to the project documentation or contact the m
 
         return failure_output
 
-    def skip_if_pull_request_already_merged(self, pull_request: PullRequest) -> bool:
-        if pull_request and pull_request.is_merged():
+    async def skip_if_pull_request_already_merged(self, pull_request: PullRequest) -> bool:
+        if pull_request and await asyncio.to_thread(pull_request.is_merged):
             self.logger.info(f"{self.log_prefix}: PR is merged, not processing")
             return True
 

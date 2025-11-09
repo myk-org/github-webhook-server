@@ -217,7 +217,7 @@ class GithubWebhook:
             )
             self.logger.debug(f"{self.log_prefix} {event_log}")
 
-            if pull_request.draft:
+            if await asyncio.to_thread(lambda: pull_request.draft):
                 self.logger.step(  # type: ignore[attr-defined]
                     f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
                     f"Pull request is draft, skipping processing",
