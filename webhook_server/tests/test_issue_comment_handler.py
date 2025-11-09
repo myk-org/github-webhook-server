@@ -1,3 +1,5 @@
+import asyncio
+import time
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -133,6 +135,93 @@ class TestIssueCommentHandler:
         with patch.object(issue_comment_handler, "user_commands") as mock_user_commands:
             await issue_comment_handler.process_comment_webhook_data(Mock())
             assert mock_user_commands.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_process_comment_webhook_data_parallel_execution(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Test that multiple commands execute in parallel, not sequentially.
+
+        This test verifies:
+        1. Multiple commands start concurrently (not one-after-another)
+        2. Parallel execution is significantly faster than sequential
+        3. Exception in one command doesn't block others
+        4. All commands complete even if one fails
+        """
+        issue_comment_handler.hook_data["comment"]["body"] = "/verified\n/approved\n/hold"
+
+        # Track execution order and timing
+        execution_events: list[tuple[str, str, float]] = []  # (command, event, timestamp)
+
+        async def mock_command(pull_request, command, reviewed_user, issue_comment_id):
+            """Mock command that simulates real work and tracks execution."""
+            start_time = time.time()
+            execution_events.append((command, "start", start_time))
+
+            # Simulate work (50ms per command)
+            await asyncio.sleep(0.05)
+
+            # Simulate exception for second command to test exception handling
+            if command == "approved":
+                execution_events.append((command, "error", time.time()))
+                raise ValueError(f"Simulated error in {command}")
+
+            execution_events.append((command, "end", time.time()))
+
+        with patch.object(issue_comment_handler, "user_commands", side_effect=mock_command):
+            # Execute commands
+            start = time.time()
+            await issue_comment_handler.process_comment_webhook_data(Mock())
+            total_duration = time.time() - start
+
+            # VERIFICATION 1: All three commands should have started
+            start_events = [e for e in execution_events if e[1] == "start"]
+            assert len(start_events) == 3, f"Expected 3 commands to start, got {len(start_events)}"
+
+            # VERIFICATION 2: Commands started concurrently (within 10ms of each other)
+            # In sequential execution, commands would start 50ms apart
+            # In parallel execution, all start nearly simultaneously
+            first_start = start_events[0][2]
+            last_start = start_events[-1][2]
+            start_time_spread = last_start - first_start
+
+            # All commands should start within 10ms (parallel)
+            # vs 100ms+ for sequential execution (50ms * 2 delays)
+            assert start_time_spread < 0.015, f"Commands did not start concurrently (spread: {start_time_spread:.3f}s)"
+
+            # VERIFICATION 3: Total execution time indicates parallel execution
+            # Sequential: 3 commands * 50ms = 150ms minimum
+            # Parallel: max(50ms) = 50ms (plus overhead)
+            # Allow 100ms for parallel (generous overhead buffer)
+            assert total_duration < 0.1, f"Execution took {total_duration:.3f}s, expected < 0.1s (parallel execution)"
+
+            # Sequential would take at least 150ms
+            assert total_duration < 0.12, f"Commands appear to run sequentially ({total_duration:.3f}s >= 0.12s)"
+
+            # VERIFICATION 4: Exception in one command didn't stop others
+            # verified and hold should complete successfully
+            successful_completions = [e for e in execution_events if e[1] == "end"]
+            assert len(successful_completions) == 2, (
+                f"Expected 2 successful completions (verified, hold), got {len(successful_completions)}"
+            )
+
+            # VERIFICATION 5: Error was recorded for failed command
+            error_events = [e for e in execution_events if e[1] == "error"]
+            assert len(error_events) == 1, f"Expected 1 error event (approved), got {len(error_events)}"
+            assert error_events[0][0] == "approved", "Error should be for 'approved' command"
+
+            # VERIFICATION 6: Commands completed in overlapping time windows
+            # This proves they ran concurrently, not sequentially
+            verified_start = next(e[2] for e in execution_events if e[0] == "verified" and e[1] == "start")
+            hold_end = next(e[2] for e in execution_events if e[0] == "hold" and e[1] == "end")
+
+            # Both commands (verified and hold) should overlap in execution
+            # If sequential: hold would start AFTER verified ends (100ms gap)
+            # If parallel: hold starts immediately, both execute simultaneously
+            execution_overlap = hold_end - verified_start
+
+            # Overlap should be ~50ms (parallel) not ~100ms (sequential)
+            assert execution_overlap < 0.08, f"Execution overlap {execution_overlap:.3f}s suggests sequential execution"
 
     @pytest.mark.asyncio
     async def test_user_commands_unsupported_command(self, issue_comment_handler: IssueCommentHandler) -> None:

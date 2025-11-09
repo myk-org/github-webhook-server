@@ -106,23 +106,39 @@ class IssueCommentHandler:
             )
 
         user_login: str = self.hook_data["sender"]["login"]
-        for user_command in _user_commands:
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} "
-                f"{format_task_fields('issue_comment', 'pr_management', 'processing')} "
-                f"Executing user command: /{user_command} by {user_login}",
-            )
-            await self.user_commands(
-                pull_request=pull_request,
-                command=user_command,
-                reviewed_user=user_login,
-                issue_comment_id=self.hook_data["comment"]["id"],
-            )
-            # Log completion for each command - task_status reflects the result of our action
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('issue_comment', 'pr_management', 'completed')} "
-                f"Executed user command: /{user_command} by {user_login}",
-            )
+
+        # Execute all commands in parallel
+        if _user_commands:
+            tasks: list[Coroutine[Any, Any, Any] | Task[Any]] = []
+            for user_command in _user_commands:
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} "
+                    f"{format_task_fields('issue_comment', 'pr_management', 'processing')} "
+                    f"Executing user command: /{user_command} by {user_login}",
+                )
+                task = asyncio.create_task(
+                    self.user_commands(
+                        pull_request=pull_request,
+                        command=user_command,
+                        reviewed_user=user_login,
+                        issue_comment_id=self.hook_data["comment"]["id"],
+                    )
+                )
+                tasks.append(task)
+
+            # Execute all commands concurrently
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Log results and handle exceptions
+            for idx, result in enumerate(results):
+                user_command = _user_commands[idx]
+                if isinstance(result, Exception):
+                    self.logger.error(f"{self.log_prefix} Command execution failed: /{user_command} - {result}")
+                else:
+                    self.logger.step(  # type: ignore[attr-defined]
+                        f"{self.log_prefix} {format_task_fields('issue_comment', 'pr_management', 'completed')} "
+                        f"Executed user command: /{user_command} by {user_login}",
+                    )
 
         # Log completion for main processing - task_status reflects the result of our action
         if not _user_commands:
@@ -242,10 +258,12 @@ class IssueCommentHandler:
             wip_for_title: str = f"{WIP_STR.upper()}:"
             if remove:
                 await self.labels_handler._remove_label(pull_request=pull_request, label=WIP_STR)
-                await asyncio.to_thread(pull_request.edit, title=pull_request.title.replace(wip_for_title, ""))
+                pr_title = await asyncio.to_thread(lambda: pull_request.title)
+                await asyncio.to_thread(pull_request.edit, title=pr_title.replace(wip_for_title, ""))
             else:
                 await self.labels_handler._add_label(pull_request=pull_request, label=WIP_STR)
-                await asyncio.to_thread(pull_request.edit, title=f"{wip_for_title} {pull_request.title}")
+                pr_title = await asyncio.to_thread(lambda: pull_request.title)
+                await asyncio.to_thread(pull_request.edit, title=f"{wip_for_title} {pr_title}")
 
         elif _command == HOLD_LABEL_STR:
             if reviewed_user not in self.owners_file_handler.all_pull_request_approvers:
