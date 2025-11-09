@@ -343,6 +343,21 @@ class GithubWebhook:
                 )
                 return None
 
+        else:
+            # Log warning when no PR found
+            self.logger.warning(
+                f"{self.log_prefix} "
+                f"{format_task_fields('webhook_processing', 'webhook_routing', 'skipped')} "
+                f"No pull request found for {self.github_event} event - skipping processing"
+            )
+            token_metrics = await self._get_token_metrics()
+            self.logger.success(  # type: ignore[attr-defined]
+                f"{self.log_prefix} "
+                f"{format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
+                f"Webhook processing completed: no PR found - {token_metrics}"
+            )
+            return None
+
     def add_api_users_to_auto_verified_and_merged_users(self) -> None:
         apis_and_tokens = get_apis_and_tokes_from_config(config=self.config)
         for _api, _ in apis_and_tokens:
@@ -431,35 +446,52 @@ class GithubWebhook:
 
     async def get_pull_request(self, number: int | None = None) -> PullRequest | None:
         if number:
+            self.logger.debug(f"{self.log_prefix} Attempting to get PR by number: {number}")
             return await asyncio.to_thread(self.repository.get_pull, number)
 
         # Try to get PR number from hook_data
+        self.logger.debug(f"{self.log_prefix} Attempting to get PR from webhook payload")
         pr_data = self.hook_data.get("pull_request") or self.hook_data.get("issue", {})
         if pr_data and isinstance(pr_data, dict):
             pr_number = pr_data.get("number")
             if pr_number:
+                self.logger.debug(f"{self.log_prefix} Found PR number in payload: {pr_number}")
                 try:
                     return await asyncio.to_thread(self.repository.get_pull, pr_number)
-                except GithubException:
-                    pass
+                except GithubException as ex:
+                    self.logger.debug(f"{self.log_prefix} Failed to get PR {pr_number} from payload: {ex}")
+            else:
+                self.logger.debug(f"{self.log_prefix} No PR number found in payload")
+        else:
+            self.logger.debug(f"{self.log_prefix} No PR data in webhook payload")
 
         commit: dict[str, Any] = self.hook_data.get("commit", {})
         if commit:
+            self.logger.debug(f"{self.log_prefix} Attempting to get PR from commit SHA: {commit.get('sha', 'unknown')}")
             commit_obj = await asyncio.to_thread(self.repository.get_commit, commit["sha"])
             with contextlib.suppress(Exception):
                 _pulls = await asyncio.to_thread(commit_obj.get_pulls)
-                return _pulls[0]
+                if _pulls:
+                    self.logger.debug(f"{self.log_prefix} Found PR from commit SHA: {_pulls[0].number}")
+                    return _pulls[0]
+            self.logger.debug(f"{self.log_prefix} No PR found for commit SHA")
+        else:
+            self.logger.debug(f"{self.log_prefix} No commit data in webhook payload")
 
         if self.github_event == "check_run":
+            head_sha = self.hook_data["check_run"]["head_sha"]
+            self.logger.debug(f"{self.log_prefix} Searching open PRs for check_run head SHA: {head_sha}")
             for _pull_request in await asyncio.to_thread(self.repository.get_pulls, state="open"):
-                if _pull_request.head.sha == self.hook_data["check_run"]["head_sha"]:
+                if _pull_request.head.sha == head_sha:
                     self.logger.debug(
                         f"{self.log_prefix} Found pull request {_pull_request.title} "
                         f"[{_pull_request.number}] for check run "
                         f"{self.hook_data['check_run']['name']}"
                     )
                     return _pull_request
+            self.logger.debug(f"{self.log_prefix} No open PR found matching check_run head SHA")
 
+        self.logger.debug(f"{self.log_prefix} All PR lookup strategies exhausted, no PR found")
         return None
 
     async def _get_last_commit(self, pull_request: PullRequest) -> Commit:
