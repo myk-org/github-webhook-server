@@ -26,16 +26,33 @@ class OwnersFileHandler:
         self.logger = self.github_webhook.logger
         self.log_prefix: str = self.github_webhook.log_prefix
         self.repository: Repository = self.github_webhook.repository
+        # Cache for owners_data_for_changed_files() to avoid duplicate computation
+        self._owners_data_cache: dict[str, dict[str, Any]] | None = None
 
     async def initialize(self, pull_request: PullRequest) -> "OwnersFileHandler":
-        self.changed_files = await self.list_changed_files(pull_request=pull_request)
-        self.all_repository_approvers_and_reviewers = await self.get_all_repository_approvers_and_reviewers(
-            pull_request=pull_request
+        """Initialize handler with PR data (optimized with parallel operations).
+
+        Phase 1: Fetch independent data in parallel (changed files + OWNERS data)
+        Phase 2: Process derived data in parallel (approvers + reviewers)
+        """
+        # Phase 1: Parallel data fetching - independent GitHub API operations
+        self.changed_files, self.all_repository_approvers_and_reviewers = await asyncio.gather(
+            self.list_changed_files(pull_request=pull_request),
+            self.get_all_repository_approvers_and_reviewers(pull_request=pull_request),
         )
-        self.all_repository_approvers = await self.get_all_repository_approvers()
-        self.all_repository_reviewers = await self.get_all_repository_reviewers()
-        self.all_pull_request_approvers = await self.get_all_pull_request_approvers()
-        self.all_pull_request_reviewers = await self.get_all_pull_request_reviewers()
+
+        # Phase 2: Parallel data processing - all depend on phase 1 but independent of each other
+        (
+            self.all_repository_approvers,
+            self.all_repository_reviewers,
+            self.all_pull_request_approvers,
+            self.all_pull_request_reviewers,
+        ) = await asyncio.gather(
+            self.get_all_repository_approvers(),
+            self.get_all_repository_reviewers(),
+            self.get_all_pull_request_approvers(),
+            self.get_all_pull_request_reviewers(),
+        )
 
         return self
 
@@ -197,7 +214,16 @@ class OwnersFileHandler:
         return _reviewers
 
     async def owners_data_for_changed_files(self) -> dict[str, dict[str, Any]]:
+        """Get OWNERS data for directories containing changed files (cached within instance).
+
+        This method is called multiple times during initialization, so results are cached
+        to avoid redundant computation of folder matching logic.
+        """
         self._ensure_initialized()
+
+        # Check cache first to avoid duplicate computation
+        if self._owners_data_cache is not None:
+            return self._owners_data_cache
 
         data: dict[str, dict[str, Any]] = {}
 
@@ -239,6 +265,9 @@ class OwnersFileHandler:
                         break
 
         self.logger.debug(f"{self.log_prefix} Final owners data for changed files: {data}")
+
+        # Cache result for subsequent calls within this instance
+        self._owners_data_cache = data
         return data
 
     async def assign_reviewers(self, pull_request: PullRequest) -> None:

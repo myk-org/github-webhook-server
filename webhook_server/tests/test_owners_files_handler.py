@@ -398,6 +398,78 @@ class TestOwnersFileHandler:
         assert result == expected
 
     @pytest.mark.asyncio
+    async def test_owners_data_for_changed_files_caching(self, owners_file_handler: OwnersFileHandler) -> None:
+        """Test that owners_data_for_changed_files caches results on subsequent calls."""
+        # Set up test data
+        owners_file_handler.changed_files = [
+            "folder1/file1.py",
+            "folder2/file2.py",
+        ]
+        owners_file_handler.all_repository_approvers_and_reviewers = {
+            ".": {"approvers": ["root_approver1"], "reviewers": ["root_reviewer1"]},
+            "folder1": {"approvers": ["folder1_approver1"], "reviewers": ["folder1_reviewer1"]},
+            "folder2": {},
+        }
+
+        # First call - computes and caches
+        result1 = await owners_file_handler.owners_data_for_changed_files()
+
+        # Verify result is correct
+        expected = {
+            "folder1": {"approvers": ["folder1_approver1"], "reviewers": ["folder1_reviewer1"]},
+            "folder2": {},
+            ".": {"approvers": ["root_approver1"], "reviewers": ["root_reviewer1"]},
+        }
+        assert result1 == expected
+
+        # Second call - should return cached result
+        result2 = await owners_file_handler.owners_data_for_changed_files()
+
+        # Verify cache returns same result
+        assert result2 == result1
+        assert result2 is result1  # Same object reference (cached)
+
+        # Verify cache attribute exists
+        assert hasattr(owners_file_handler, "_owners_data_cache")
+        assert owners_file_handler._owners_data_cache == expected
+
+    @pytest.mark.asyncio
+    async def test_owners_data_for_changed_files_cache_independence(self, mock_github_webhook: Mock) -> None:
+        """Test that different OwnersFileHandler instances have independent caches."""
+        # Create two separate instances
+        handler1 = OwnersFileHandler(mock_github_webhook)
+        handler2 = OwnersFileHandler(mock_github_webhook)
+
+        # Set up different data for each handler
+        handler1.changed_files = ["folder1/file1.py"]
+        handler1.all_repository_approvers_and_reviewers = {
+            ".": {"approvers": ["approver1"], "reviewers": ["reviewer1"]},
+            "folder1": {"approvers": ["folder1_approver"], "reviewers": ["folder1_reviewer"]},
+        }
+
+        handler2.changed_files = ["folder2/file2.py"]
+        handler2.all_repository_approvers_and_reviewers = {
+            ".": {"approvers": ["approver2"], "reviewers": ["reviewer2"]},
+            "folder2": {"approvers": ["folder2_approver"], "reviewers": ["folder2_reviewer"]},
+        }
+
+        # Get results from both handlers
+        result1 = await handler1.owners_data_for_changed_files()
+        result2 = await handler2.owners_data_for_changed_files()
+
+        # Verify they have independent results
+        assert result1 != result2
+        assert "folder1" in result1
+        assert "folder2" in result2
+        assert "folder2" not in result1
+        assert "folder1" not in result2
+
+        # Verify they have independent cache attributes
+        assert hasattr(handler1, "_owners_data_cache")
+        assert hasattr(handler2, "_owners_data_cache")
+        assert handler1._owners_data_cache is not handler2._owners_data_cache
+
+    @pytest.mark.asyncio
     async def test_assign_reviewers(self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock) -> None:
         owners_file_handler.changed_files = ["file1.py"]
         owners_file_handler.all_pull_request_reviewers = ["reviewer1", "reviewer2", "test-user"]
