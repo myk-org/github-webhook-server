@@ -337,12 +337,12 @@ class GithubWebhook:
                         await PullRequestHandler(
                             github_webhook=self, owners_file_handler=owners_file_handler
                         ).check_if_can_be_merged(pull_request=pull_request)
-                    # Log completion only when check run was actually processed
-                    self.logger.success(  # type: ignore[attr-defined]
-                        f"{self.log_prefix} "
-                        f"{format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
-                        f"Webhook processing completed successfully: check run",
-                    )
+                # Log completion regardless of whether check run was processed or skipped
+                self.logger.success(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} "
+                    f"{format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
+                    f"Webhook processing completed successfully: check run",
+                )
                 task = asyncio.create_task(self._log_token_spend())
                 self._bg_tasks.add(task)
                 task.add_done_callback(self._bg_tasks.discard)

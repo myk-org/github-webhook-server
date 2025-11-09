@@ -119,7 +119,6 @@ class OwnersFileHandler:
 
         return _path, content_path
 
-    @functools.lru_cache
     async def get_all_repository_approvers_and_reviewers(self, pull_request: PullRequest) -> dict[str, dict[str, Any]]:
         # Dictionary mapping OWNERS file paths to their approvers and reviewers
         _owners: dict[str, dict[str, Any]] = {}
