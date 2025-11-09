@@ -518,7 +518,7 @@ For more information, please refer to the project documentation or contact the m
             package_api_base: str | None = None
             versions: list[dict[str, Any]] | None = None
 
-            # GHCR packages can live under organisations *and* personal scopes – try both.
+            # GHCR packages can live under organisations *and* personal scopes - try both.
             for scope in ("orgs", "users"):
                 candidate_base = f"/{scope}/{owner_name}/packages/container/{package_name}"
                 try:
@@ -1110,7 +1110,7 @@ For more information, please refer to the project documentation or contact the m
         return failure_output
 
     async def skip_if_pull_request_already_merged(self, pull_request: PullRequest) -> bool:
-        if pull_request and await asyncio.to_thread(pull_request.is_merged):
+        if pull_request and await asyncio.to_thread(lambda: pull_request.is_merged()):
             self.logger.info(f"{self.log_prefix}: PR is merged, not processing")
             return True
 
