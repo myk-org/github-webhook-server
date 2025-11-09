@@ -880,7 +880,7 @@ For more information, please refer to the project documentation or contact the m
         try:
             self.logger.info(f"{self.log_prefix} Adding PR owner as assignee")
             await asyncio.to_thread(pull_request.add_to_assignees, pull_request.user.login)
-        except GithubException as exp:
+        except Exception as exp:
             self.logger.debug(f"{self.log_prefix} Exception while adding PR owner as assignee: {exp}")
 
             if self.owners_file_handler.root_approvers:
