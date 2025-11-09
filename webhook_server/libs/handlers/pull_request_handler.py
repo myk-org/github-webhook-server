@@ -510,33 +510,40 @@ For more information, please refer to the project documentation or contact the m
             )
             return
 
-        org_name = registry_info[1]
+        owner_name = registry_info[1]
         # Join all segments after the owner to support nested paths
         package_name = "/".join(registry_info[2:])
 
         try:
-            # Use PyGithub's requester to get package versions
-            # GET /orgs/{org}/packages/{package_type}/{package_name}/versions
-            url = f"/orgs/{org_name}/packages/container/{package_name}/versions"
+            package_api_base: str | None = None
+            versions: list[dict[str, Any]] | None = None
 
-            # Get package versions
-            try:
-                _, versions = await asyncio.to_thread(
-                    self.github_webhook.github_api.requester.requestJsonAndCheck, "GET", url
+            # GHCR packages can live under organisations *and* personal scopes – try both.
+            for scope in ("orgs", "users"):
+                candidate_base = f"/{scope}/{owner_name}/packages/container/{package_name}"
+                try:
+                    _, versions = await asyncio.to_thread(
+                        self.github_webhook.github_api.requester.requestJsonAndCheck,
+                        "GET",
+                        f"{candidate_base}/versions",
+                    )
+                    package_api_base = candidate_base
+                    break
+                except GithubException as ex:
+                    if ex.status == 404:
+                        continue
+                    raise
+
+            if not versions or not package_api_base:
+                # Log completion - task_status reflects the result of our action (package not found is acceptable)
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'completed')} "
+                    f"Deleting remote tag for PR #{pull_request.number} (package not found)",
                 )
-            except GithubException as ex:
-                if ex.status == 404:
-                    # Log completion - task_status reflects the result of our action (package not found is acceptable)
-                    self.logger.step(  # type: ignore[attr-defined]
-                        f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'completed')} "
-                        f"Deleting remote tag for PR #{pull_request.number} (package not found)",
-                    )
-                    self.logger.warning(
-                        f"{self.log_prefix} Package {package_name} not found in organization {org_name}"
-                    )
-                    return
-                raise
-
+                self.logger.warning(
+                    f"{self.log_prefix} Package {package_name} not found for owner {owner_name} on GHCR"
+                )
+                return
             # Find version with matching tag
             version_to_delete_id: int | None = None
             for version in versions:
@@ -558,8 +565,8 @@ For more information, please refer to the project documentation or contact the m
                 return
 
             # Delete the package version
-            # DELETE /orgs/{org}/packages/{package_type}/{package_name}/versions/{package_version_id}
-            delete_url = f"/orgs/{org_name}/packages/container/{package_name}/versions/{version_to_delete_id}"
+            # DELETE /{scope}/{owner}/packages/{package_type}/{package_name}/versions/{package_version_id}
+            delete_url = f"{package_api_base}/versions/{version_to_delete_id}"
             try:
                 await asyncio.to_thread(
                     self.github_webhook.github_api.requester.requestJsonAndCheck, "DELETE", delete_url

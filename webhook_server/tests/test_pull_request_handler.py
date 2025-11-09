@@ -876,6 +876,44 @@ class TestPullRequestHandler:
             assert mock_pull_request.create_issue_comment.called
 
     @pytest.mark.asyncio
+    async def test_delete_remote_tag_for_merged_or_closed_pr_ghcr_users_scope_fallback(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test deleting GHCR tag when package is found under /users/{owner} scope (not /orgs/{owner})."""
+        mock_pull_request.title = "Test PR"
+        mock_pull_request.number = 123
+        mock_requester = Mock()
+        # First call to /orgs/{owner}/packages/... returns 404 (not found)
+        # Second call to /users/{owner}/packages/... returns versions (found)
+        # Third call is the DELETE operation
+        org_404_exception = GithubException(404, {}, {})
+        mock_requester.requestJsonAndCheck = Mock(
+            side_effect=[
+                org_404_exception,  # /orgs/{owner}/packages/... returns 404
+                ({}, [{"id": 1, "metadata": {"container": {"tags": ["pr-123"]}}}]),  # /users/{owner}/packages/...
+                None,  # DELETE call returns None
+            ]
+        )
+        with (
+            patch.object(pull_request_handler.github_webhook, "build_and_push_container", True),
+            patch.object(
+                pull_request_handler.github_webhook,
+                "container_repository_and_tag",
+                return_value="ghcr.io/org/repo:pr-123",
+            ),
+            patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/org/repo"),
+            patch.object(pull_request_handler.github_webhook, "github_api", Mock(requester=mock_requester)),
+            patch.object(pull_request_handler.github_webhook, "token", "test-token"),
+            patch.object(mock_pull_request, "create_issue_comment", new=Mock()),
+        ):
+            await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
+            # Verify the deletion was successful
+            assert pull_request_handler.logger.step.called
+            assert mock_pull_request.create_issue_comment.called
+            # Verify requestJsonAndCheck was called 3 times (orgs GET, users GET, DELETE)
+            assert mock_requester.requestJsonAndCheck.call_count == 3
+
+    @pytest.mark.asyncio
     async def test_delete_remote_tag_for_merged_or_closed_pr_ghcr_package_not_found(
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
