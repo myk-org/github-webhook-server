@@ -178,6 +178,9 @@ class GithubWebhook:
                 f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
                 f"Webhook processing completed successfully: ping event",
             )
+            task = asyncio.create_task(self._log_token_spend())
+            self._bg_tasks.add(task)
+            task.add_done_callback(self._bg_tasks.discard)
             return {"status": requests.codes.ok, "message": "pong"}
 
         if self.github_event == "push":
@@ -305,6 +308,9 @@ class GithubWebhook:
                     f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
                     f"Webhook processing completed successfully: pull request review",
                 )
+                task = asyncio.create_task(self._log_token_spend())
+                self._bg_tasks.add(task)
+                task.add_done_callback(self._bg_tasks.discard)
                 return None
 
             elif self.github_event == "check_run":

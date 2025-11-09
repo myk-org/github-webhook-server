@@ -106,6 +106,12 @@ class PullRequestHandler:
 
             # Set auto merge only after all initialization of a new PR is done.
             await self.set_pull_request_automerge(pull_request=pull_request)
+            # Log completion - task_status reflects the result of our action
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'completed')} "
+                f"Starting pull request processing: action={hook_action} (completed)",
+            )
+            return
 
         if hook_action == "synchronize":
             self.logger.step(  # type: ignore[attr-defined]
