@@ -131,10 +131,14 @@ class GithubWebhook:
             "Report bugs in [Issues](https://github.com/myakove/github-webhook-server/issues)"
         )
 
-    async def _log_token_spend(self) -> None:
-        """Log token spend (API rate limit consumption) for this webhook."""
+    async def _get_token_metrics(self) -> str:
+        """Get token metrics (API rate limit consumption) for this webhook.
+
+        Returns:
+            str: Formatted token metrics string for logging, or empty string if unavailable.
+        """
         if not self.github_api or self.initial_rate_limit_remaining is None:
-            return
+            return ""
 
         try:
             final_rate_limit = await asyncio.to_thread(self.github_api.get_rate_limit)
@@ -145,21 +149,22 @@ class GithubWebhook:
             if final_remaining > self.initial_rate_limit_remaining:
                 # Rate limit reset happened - log as 0 since we can't determine actual spend
                 token_spend = 0
-                self.logger.info(
-                    f"{self.log_prefix} Token spend: {token_spend} API calls "
+                return (
+                    f"token {self.token[:8]}... {token_spend} API calls "
                     f"(rate limit reset occurred - initial: {self.initial_rate_limit_remaining}, "
                     f"final: {final_remaining})"
                 )
             else:
                 token_spend = self.initial_rate_limit_remaining - final_remaining
-                # Log token spend with structured format for parsing
-                self.logger.info(
-                    f"{self.log_prefix} Token spend: {token_spend} API calls "
+                # Return token spend with structured format for parsing
+                return (
+                    f"token {self.token[:8]}... {token_spend} API calls "
                     f"(initial: {self.initial_rate_limit_remaining}, "
                     f"final: {final_remaining}, remaining: {final_remaining})"
                 )
         except Exception as ex:
-            self.logger.debug(f"{self.log_prefix} Failed to log token spend: {ex}")
+            self.logger.debug(f"{self.log_prefix} Failed to get token metrics: {ex}")
+            return ""
 
     async def process(self) -> Any:
         event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
@@ -174,13 +179,11 @@ class GithubWebhook:
                 f"Processing ping event",
             )
             self.logger.debug(f"{self.log_prefix} {event_log}")
+            token_metrics = await self._get_token_metrics()
             self.logger.success(  # type: ignore[attr-defined]
                 f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
-                f"Webhook processing completed successfully: ping event",
+                f"Webhook processing completed successfully: ping - {token_metrics}",
             )
-            task = asyncio.create_task(self._log_token_spend())
-            self._bg_tasks.add(task)
-            task.add_done_callback(self._bg_tasks.discard)
             return {"status": requests.codes.ok, "message": "pong"}
 
         if self.github_event == "push":
@@ -190,13 +193,11 @@ class GithubWebhook:
             )
             self.logger.debug(f"{self.log_prefix} {event_log}")
             await PushHandler(github_webhook=self).process_push_webhook_data()
+            token_metrics = await self._get_token_metrics()
             self.logger.success(  # type: ignore[attr-defined]
                 f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
-                f"Webhook processing completed successfully: push event",
+                f"Webhook processing completed successfully: push - {token_metrics}",
             )
-            task = asyncio.create_task(self._log_token_spend())
-            self._bg_tasks.add(task)
-            task.add_done_callback(self._bg_tasks.discard)
             return None
 
         pull_request = await self.get_pull_request()
@@ -226,9 +227,11 @@ class GithubWebhook:
                     f"Pull request is draft, skipping processing",
                 )
                 self.logger.debug(f"{self.log_prefix} Pull request is draft, doing nothing")
-                task = asyncio.create_task(self._log_token_spend())
-                self._bg_tasks.add(task)
-                task.add_done_callback(self._bg_tasks.discard)
+                token_metrics = await self._get_token_metrics()
+                self.logger.success(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
+                    f"Webhook processing completed successfully: draft PR (skipped) - {token_metrics}",
+                )
                 return None
 
             self.logger.step(  # type: ignore[attr-defined]
@@ -254,13 +257,11 @@ class GithubWebhook:
                 await IssueCommentHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
                 ).process_comment_webhook_data(pull_request=pull_request)
+                token_metrics = await self._get_token_metrics()
                 self.logger.success(  # type: ignore[attr-defined]
                     f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
-                    f"Webhook processing completed successfully: issue comment",
+                    f"Webhook processing completed successfully: issue_comment - {token_metrics}",
                 )
-                task = asyncio.create_task(self._log_token_spend())
-                self._bg_tasks.add(task)
-                task.add_done_callback(self._bg_tasks.discard)
                 return None
 
             elif self.github_event == "pull_request":
@@ -278,13 +279,11 @@ class GithubWebhook:
                 await PullRequestHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
                 ).process_pull_request_webhook_data(pull_request=pull_request)
+                token_metrics = await self._get_token_metrics()
                 self.logger.success(  # type: ignore[attr-defined]
                     f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
-                    f"Webhook processing completed successfully: pull request",
+                    f"Webhook processing completed successfully: pull_request - {token_metrics}",
                 )
-                task = asyncio.create_task(self._log_token_spend())
-                self._bg_tasks.add(task)
-                task.add_done_callback(self._bg_tasks.discard)
                 return None
 
             elif self.github_event == "pull_request_review":
@@ -304,13 +303,11 @@ class GithubWebhook:
                 ).process_pull_request_review_webhook_data(
                     pull_request=pull_request,
                 )
+                token_metrics = await self._get_token_metrics()
                 self.logger.success(  # type: ignore[attr-defined]
                     f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
-                    f"Webhook processing completed successfully: pull request review",
+                    f"Webhook processing completed successfully: pull_request_review - {token_metrics}",
                 )
-                task = asyncio.create_task(self._log_token_spend())
-                self._bg_tasks.add(task)
-                task.add_done_callback(self._bg_tasks.discard)
                 return None
 
             elif self.github_event == "check_run":
@@ -338,14 +335,12 @@ class GithubWebhook:
                             github_webhook=self, owners_file_handler=owners_file_handler
                         ).check_if_can_be_merged(pull_request=pull_request)
                 # Log completion regardless of whether check run was processed or skipped
+                token_metrics = await self._get_token_metrics()
                 self.logger.success(  # type: ignore[attr-defined]
                     f"{self.log_prefix} "
                     f"{format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
-                    f"Webhook processing completed successfully: check run",
+                    f"Webhook processing completed successfully: check_run - {token_metrics}",
                 )
-                task = asyncio.create_task(self._log_token_spend())
-                self._bg_tasks.add(task)
-                task.add_done_callback(self._bg_tasks.discard)
                 return None
 
     def add_api_users_to_auto_verified_and_merged_users(self) -> None:

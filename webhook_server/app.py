@@ -329,7 +329,6 @@ async def process_webhook(request: Request) -> JSONResponse:
             # Initialize GithubWebhook inside background task to avoid blocking webhook response
             _api: GithubWebhook = GithubWebhook(hook_data=_hook_data, headers=_headers, logger=_logger)
             await _api.process()
-            _logger.success(f"{_log_context} Webhook processing completed successfully")  # type: ignore
         except RepositoryNotFoundInConfigError:
             # Repository-specific error - not exceptional, log as error not exception
             _logger.error(f"{_log_context} Repository not found in configuration")
