@@ -135,7 +135,7 @@ async def test_get_all_repository_approvers_and_reviewers(
 async def test_owners_data_for_changed_files(
     changed_files, process_github_webhook, owners_file_handler, all_repository_approvers_and_reviewers
 ):
-    owners_data_changed_files_result = await owners_file_handler.owners_data_for_changed_files()
+    owners_data_changed_files_result = await owners_file_handler.owners_data_for_changed_files
     owners_data_chaged_files_expected = {
         "folder5": {
             "approvers": ["folder5_approver1", "folder5_approver2"],

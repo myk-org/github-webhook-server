@@ -21,6 +21,11 @@ from webhook_server.utils.constants import (
 )
 
 
+# Helper async function for mocking async cached property
+async def _mock_owners_data_for_changed_files() -> dict:
+    return {}
+
+
 class TestPullRequestHandler:
     """Test suite for PullRequestHandler class."""
 
@@ -608,7 +613,7 @@ class TestPullRequestHandler:
             patch.object(
                 pull_request_handler.owners_file_handler,
                 "owners_data_for_changed_files",
-                new=AsyncMock(return_value={}),
+                _mock_owners_data_for_changed_files(),
             ),
             patch.object(pull_request_handler.github_webhook, "minimum_lgtm", 0),
             patch.object(pull_request_handler.check_run_handler, "set_merge_check_in_progress", new=AsyncMock()),
@@ -639,7 +644,7 @@ class TestPullRequestHandler:
             patch.object(
                 pull_request_handler.owners_file_handler,
                 "owners_data_for_changed_files",
-                new=AsyncMock(return_value={}),
+                _mock_owners_data_for_changed_files(),
             ),
             patch.object(pull_request_handler.github_webhook, "minimum_lgtm", 0),
             patch.object(pull_request_handler.owners_file_handler, "all_pull_request_approvers", []),
@@ -656,7 +661,7 @@ class TestPullRequestHandler:
             patch.object(
                 pull_request_handler.owners_file_handler,
                 "owners_data_for_changed_files",
-                new=AsyncMock(return_value={}),
+                _mock_owners_data_for_changed_files(),
             ),
             patch.object(pull_request_handler.github_webhook, "minimum_lgtm", 0),
             patch.object(pull_request_handler.owners_file_handler, "all_pull_request_approvers", []),
@@ -673,7 +678,7 @@ class TestPullRequestHandler:
             patch.object(
                 pull_request_handler.owners_file_handler,
                 "owners_data_for_changed_files",
-                new=AsyncMock(return_value={}),
+                _mock_owners_data_for_changed_files(),
             ),
             patch.object(pull_request_handler.github_webhook, "minimum_lgtm", 0),
             patch.object(pull_request_handler.owners_file_handler, "all_pull_request_approvers", []),
@@ -690,7 +695,7 @@ class TestPullRequestHandler:
             patch.object(
                 pull_request_handler.owners_file_handler,
                 "owners_data_for_changed_files",
-                new=AsyncMock(return_value={}),
+                _mock_owners_data_for_changed_files(),
             ),
             patch.object(pull_request_handler.github_webhook, "minimum_lgtm", 0),
             patch.object(pull_request_handler.owners_file_handler, "all_pull_request_approvers", []),
@@ -709,7 +714,7 @@ class TestPullRequestHandler:
             patch.object(
                 pull_request_handler.owners_file_handler,
                 "owners_data_for_changed_files",
-                new=AsyncMock(return_value={}),
+                _mock_owners_data_for_changed_files(),
             ),
             patch.object(pull_request_handler.github_webhook, "minimum_lgtm", 0),
             patch.object(pull_request_handler.owners_file_handler, "all_pull_request_approvers", []),

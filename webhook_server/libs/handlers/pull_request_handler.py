@@ -1041,7 +1041,7 @@ For more information, please refer to the project documentation or contact the m
 
         missing_approvers = list(set(self.owners_file_handler.all_pull_request_approvers.copy()))
         self.logger.debug(f"{self.log_prefix} missing_approvers: {missing_approvers}")
-        owners_data_changed_files = await self.owners_file_handler.owners_data_for_changed_files()
+        owners_data_changed_files = await self.owners_file_handler.owners_data_for_changed_files
         self.logger.debug(f"{self.log_prefix} owners_data_changed_files: {owners_data_changed_files}")
 
         # If any of root approvers is in approved_by list, the pull request is approved

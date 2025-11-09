@@ -306,32 +306,28 @@ class TestOwnersFileHandler:
     @pytest.mark.asyncio
     async def test_get_all_pull_request_approvers(self, owners_file_handler: OwnersFileHandler) -> None:
         """Test get_all_pull_request_approvers method."""
-        owners_file_handler.changed_files = ["file1.py"]
+        owners_file_handler.changed_files = ["file1.py", "folder1/file2.py"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {
+            ".": {"approvers": ["user1", "user2"], "reviewers": ["user3"]},
+            "folder1": {"approvers": ["user4"], "reviewers": ["user5"]},
+        }
 
-        with patch.object(owners_file_handler, "owners_data_for_changed_files") as mock_owners_data:
-            mock_owners_data.return_value = {
-                ".": {"approvers": ["user1", "user2"], "reviewers": ["user3"]},
-                "folder1": {"approvers": ["user4"], "reviewers": ["user5"]},
-            }
+        result = await owners_file_handler.get_all_pull_request_approvers()
 
-            result = await owners_file_handler.get_all_pull_request_approvers()
-
-            assert result == ["user1", "user2", "user4"]
+        assert result == ["user1", "user2", "user4"]
 
     @pytest.mark.asyncio
     async def test_get_all_pull_request_reviewers(self, owners_file_handler: OwnersFileHandler) -> None:
         """Test get_all_pull_request_reviewers method."""
-        owners_file_handler.changed_files = ["file1.py"]
+        owners_file_handler.changed_files = ["file1.py", "folder1/file2.py"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {
+            ".": {"approvers": ["user1"], "reviewers": ["user2", "user3"]},
+            "folder1": {"approvers": ["user4"], "reviewers": ["user5"]},
+        }
 
-        with patch.object(owners_file_handler, "owners_data_for_changed_files") as mock_owners_data:
-            mock_owners_data.return_value = {
-                ".": {"approvers": ["user1"], "reviewers": ["user2", "user3"]},
-                "folder1": {"approvers": ["user4"], "reviewers": ["user5"]},
-            }
+        result = await owners_file_handler.get_all_pull_request_reviewers()
 
-            result = await owners_file_handler.get_all_pull_request_reviewers()
-
-            assert result == ["user2", "user3", "user5"]
+        assert result == ["user2", "user3", "user5"]
 
     @pytest.mark.asyncio
     async def test_owners_data_for_changed_files(self, owners_file_handler: OwnersFileHandler) -> None:
@@ -355,7 +351,7 @@ class TestOwnersFileHandler:
             },
         }
 
-        result = await owners_file_handler.owners_data_for_changed_files()
+        result = await owners_file_handler.owners_data_for_changed_files
 
         expected = {
             "folder1": {"approvers": ["folder1_approver1"], "reviewers": ["folder1_reviewer1"]},
@@ -385,7 +381,7 @@ class TestOwnersFileHandler:
             },
         }
 
-        result = await owners_file_handler.owners_data_for_changed_files()
+        result = await owners_file_handler.owners_data_for_changed_files
 
         expected = {
             "folder5": {
@@ -399,7 +395,7 @@ class TestOwnersFileHandler:
 
     @pytest.mark.asyncio
     async def test_owners_data_for_changed_files_caching(self, owners_file_handler: OwnersFileHandler) -> None:
-        """Test that owners_data_for_changed_files caches results on subsequent calls."""
+        """Test that owners_data_for_changed_files caches results using @functools.cached_property."""
         # Set up test data
         owners_file_handler.changed_files = [
             "folder1/file1.py",
@@ -412,7 +408,7 @@ class TestOwnersFileHandler:
         }
 
         # First call - computes and caches
-        result1 = await owners_file_handler.owners_data_for_changed_files()
+        result1 = await owners_file_handler.owners_data_for_changed_files
 
         # Verify result is correct
         expected = {
@@ -422,20 +418,16 @@ class TestOwnersFileHandler:
         }
         assert result1 == expected
 
-        # Second call - should return cached result
-        result2 = await owners_file_handler.owners_data_for_changed_files()
+        # Second call - should return cached result (same object reference)
+        result2 = await owners_file_handler.owners_data_for_changed_files
 
-        # Verify cache returns same result
+        # Verify cache returns same result and same object reference
         assert result2 == result1
-        assert result2 is result1  # Same object reference (cached)
-
-        # Verify cache attribute exists
-        assert hasattr(owners_file_handler, "_owners_data_cache")
-        assert owners_file_handler._owners_data_cache == expected
+        assert result2 is result1  # Same object reference (cached by @functools.cached_property)
 
     @pytest.mark.asyncio
     async def test_owners_data_for_changed_files_cache_independence(self, mock_github_webhook: Mock) -> None:
-        """Test that different OwnersFileHandler instances have independent caches."""
+        """Test that different OwnersFileHandler instances have independent caches using @functools.cached_property."""
         # Create two separate instances
         handler1 = OwnersFileHandler(mock_github_webhook)
         handler2 = OwnersFileHandler(mock_github_webhook)
@@ -454,8 +446,8 @@ class TestOwnersFileHandler:
         }
 
         # Get results from both handlers
-        result1 = await handler1.owners_data_for_changed_files()
-        result2 = await handler2.owners_data_for_changed_files()
+        result1 = await handler1.owners_data_for_changed_files
+        result2 = await handler2.owners_data_for_changed_files
 
         # Verify they have independent results
         assert result1 != result2
@@ -464,10 +456,8 @@ class TestOwnersFileHandler:
         assert "folder2" not in result1
         assert "folder1" not in result2
 
-        # Verify they have independent cache attributes
-        assert hasattr(handler1, "_owners_data_cache")
-        assert hasattr(handler2, "_owners_data_cache")
-        assert handler1._owners_data_cache is not handler2._owners_data_cache
+        # Verify results are not the same object (independent caches)
+        assert result1 is not result2
 
     @pytest.mark.asyncio
     async def test_assign_reviewers(self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock) -> None:

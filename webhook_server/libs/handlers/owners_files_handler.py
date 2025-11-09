@@ -26,8 +26,6 @@ class OwnersFileHandler:
         self.logger = self.github_webhook.logger
         self.log_prefix: str = self.github_webhook.log_prefix
         self.repository: Repository = self.github_webhook.repository
-        # Cache for owners_data_for_changed_files() to avoid duplicate computation
-        self._owners_data_cache: dict[str, dict[str, Any]] | None = None
 
     async def initialize(self, pull_request: PullRequest) -> "OwnersFileHandler":
         """Initialize handler with PR data (optimized with parallel operations).
@@ -188,7 +186,7 @@ class OwnersFileHandler:
 
     async def get_all_pull_request_approvers(self) -> list[str]:
         _approvers: list[str] = []
-        changed_files = await self.owners_data_for_changed_files()
+        changed_files = await self.owners_data_for_changed_files
 
         for list_of_approvers in changed_files.values():
             for _approver in list_of_approvers.get("approvers", []):
@@ -201,7 +199,7 @@ class OwnersFileHandler:
 
     async def get_all_pull_request_reviewers(self) -> list[str]:
         _reviewers: list[str] = []
-        changed_files = await self.owners_data_for_changed_files()
+        changed_files = await self.owners_data_for_changed_files
 
         for list_of_reviewers in changed_files.values():
             for _reviewer in list_of_reviewers.get("reviewers", []):
@@ -212,17 +210,14 @@ class OwnersFileHandler:
         self.logger.debug(f"{self.log_prefix} Pull request reviewers are: {_reviewers}")
         return _reviewers
 
+    @functools.cached_property
     async def owners_data_for_changed_files(self) -> dict[str, dict[str, Any]]:
-        """Get OWNERS data for directories containing changed files (cached within instance).
+        """Get OWNERS data for directories containing changed files.
 
-        This method is called multiple times during initialization, so results are cached
-        to avoid redundant computation of folder matching logic.
+        Uses @functools.cached_property to cache results and avoid redundant computation
+        of folder matching logic across multiple calls during initialization.
         """
         self._ensure_initialized()
-
-        # Check cache first to avoid duplicate computation
-        if self._owners_data_cache is not None:
-            return self._owners_data_cache
 
         data: dict[str, dict[str, Any]] = {}
 
@@ -265,8 +260,6 @@ class OwnersFileHandler:
 
         self.logger.debug(f"{self.log_prefix} Final owners data for changed files: {data}")
 
-        # Cache result for subsequent calls within this instance
-        self._owners_data_cache = data
         return data
 
     async def assign_reviewers(self, pull_request: PullRequest) -> None:
