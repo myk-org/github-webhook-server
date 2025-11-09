@@ -288,7 +288,7 @@ class IssueCommentHandler:
         reviewer = reviewer.strip("@")
         self.logger.info(f"{self.log_prefix} Adding reviewer {reviewer} by user comment")
         repo_contributors = list(await asyncio.to_thread(self.repository.get_contributors))
-        self.logger.debug(f"Repo contributors are: {repo_contributors}")
+        self.logger.debug(f"{self.log_prefix} Repo contributors are: {repo_contributors}")
 
         for contributer in repo_contributors:
             if contributer.login == reviewer:
@@ -362,7 +362,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             PYTHON_MODULE_INSTALL_STR: self.runner_handler.run_install_python_module,
             CONVENTIONAL_TITLE_STR: self.runner_handler.run_conventional_title_check,
         }
-        self.logger.debug(f"Retest map is {_retests_to_func_map}")
+        self.logger.debug(f"{self.log_prefix} Retest map is {_retests_to_func_map}")
 
         if not _target_tests:
             msg = "No test defined to retest"
@@ -390,8 +390,8 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
 
                 else:
                     _not_supported_retests.append(_test)
-        self.logger.debug(f"Supported retests are {_supported_retests}")
-        self.logger.debug(f"Not supported retests are {_not_supported_retests}")
+        self.logger.debug(f"{self.log_prefix} Supported retests are {_supported_retests}")
+        self.logger.debug(f"{self.log_prefix} Not supported retests are {_not_supported_retests}")
 
         if _not_supported_retests:
             msg = f"No {' '.join(_not_supported_retests)} configured for this repository"

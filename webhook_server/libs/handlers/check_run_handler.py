@@ -361,11 +361,11 @@ class CheckRunHandler:
                 if failed_check_run not in check_runs_in_progress
             ]
             msg += f"Some check runs failed: {', '.join(exclude_in_progress)}\n"
-        self.logger.debug(f"failed_check_runs: {failed_check_runs}")
+        self.logger.debug(f"{self.log_prefix} failed_check_runs: {failed_check_runs}")
 
         if no_status_check_runs:
             msg += f"Some check runs not started: {', '.join(no_status_check_runs)}\n"
-        self.logger.debug(f"no_status_check_runs: {no_status_check_runs}")
+        self.logger.debug(f"{self.log_prefix} no_status_check_runs: {no_status_check_runs}")
 
         return msg
 
@@ -402,7 +402,7 @@ class CheckRunHandler:
         pull_request_branch = await asyncio.to_thread(self.repository.get_branch, pull_request.base.ref)
         branch_protection = await asyncio.to_thread(pull_request_branch.get_protection)
         branch_required_status_checks = branch_protection.required_status_checks.contexts
-        self.logger.debug(f"branch_required_status_checks: {branch_required_status_checks}")
+        self.logger.debug(f"{self.log_prefix} branch_required_status_checks: {branch_required_status_checks}")
         return branch_required_status_checks
 
     async def required_check_in_progress(

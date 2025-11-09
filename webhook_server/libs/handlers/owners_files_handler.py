@@ -193,7 +193,7 @@ class OwnersFileHandler:
 
         _reviewers = list(set(_reviewers))
         _reviewers.sort()
-        self.logger.debug(f"Pull request reviewers are: {_reviewers}")
+        self.logger.debug(f"{self.log_prefix} Pull request reviewers are: {_reviewers}")
         return _reviewers
 
     async def owners_data_for_changed_files(self) -> dict[str, dict[str, Any]]:
@@ -202,7 +202,7 @@ class OwnersFileHandler:
         data: dict[str, dict[str, Any]] = {}
 
         changed_folders = {Path(cf).parent for cf in self.changed_files}
-        self.logger.debug(f"Changed folders: {changed_folders}")
+        self.logger.debug(f"{self.log_prefix} Changed folders: {changed_folders}")
 
         changed_folder_match: list[Path] = []
 
@@ -234,11 +234,11 @@ class OwnersFileHandler:
                     if _folder == _changed_path or _changed_path in _folder.parents:
                         continue
                     else:
-                        self.logger.debug(f"Adding root approvers for {_folder}")
+                        self.logger.debug(f"{self.log_prefix} Adding root approvers for {_folder}")
                         data["."] = self.all_repository_approvers_and_reviewers.get(".", {})
                         break
 
-        self.logger.debug(f"Final owners data for changed files: {data}")
+        self.logger.debug(f"{self.log_prefix} Final owners data for changed files: {data}")
         return data
 
     async def assign_reviewers(self, pull_request: PullRequest) -> None:
@@ -320,7 +320,7 @@ Maintainers:
  - {"\n - ".join(allowed_user_to_approve)}
 """
         valid_users = await self.valid_users_to_run_commands
-        self.logger.debug(f"Valid users to run commands: {valid_users}")
+        self.logger.debug(f"{self.log_prefix} Valid users to run commands: {valid_users}")
 
         if reviewed_user not in valid_users:
             for comment in [
@@ -375,12 +375,12 @@ Maintainers:
                 return u.permissions
 
             permissions = await asyncio.to_thread(get_user_permissions)
-            self.logger.debug(f"User {user.login} permissions: {permissions}")
+            self.logger.debug(f"{self.log_prefix} User {user.login} permissions: {permissions}")
 
             if permissions.admin or permissions.maintain:
                 maintainers.append(user.login)
 
-        self.logger.debug(f"Maintainers: {maintainers}")
+        self.logger.debug(f"{self.log_prefix} Maintainers: {maintainers}")
         return maintainers
 
     @functools.cached_property

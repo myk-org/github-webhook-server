@@ -194,7 +194,7 @@ class PullRequestHandler:
 
             self.logger.info(f"{self.log_prefix} PR {pull_request.number} {hook_action} with {labeled}")
             labels = await asyncio.to_thread(lambda: list(pull_request.labels))
-            self.logger.debug(f"PR labels are {labels}")
+            self.logger.debug(f"{self.log_prefix} PR labels are {labels}")
 
             _split_label = labeled.split(LABELS_SEPARATOR, 1)
 
@@ -213,11 +213,15 @@ class PullRequestHandler:
                         + self.owners_file_handler.root_approvers
                     ):
                         _check_for_merge = True
-                        self.logger.debug(f"PR approved by label action, will check for merge. user: {_user}")
+                        self.logger.debug(
+                            f"{self.log_prefix} PR approved by label action, will check for merge. user: {_user}"
+                        )
 
             if self.github_webhook.verified_job and labeled_lower == VERIFIED_LABEL_STR:
                 _check_for_merge = True
-                self.logger.debug(f"PR verified label action, will check for merge. label: {labeled_lower}")
+                self.logger.debug(
+                    f"{self.log_prefix} PR verified label action, will check for merge. label: {labeled_lower}"
+                )
 
                 if action_labeled:
                     await self.check_run_handler.set_verify_check_success()
@@ -226,7 +230,7 @@ class PullRequestHandler:
 
             if labeled_lower in (WIP_STR, HOLD_LABEL_STR, AUTOMERGE_LABEL_STR):
                 _check_for_merge = True
-                self.logger.debug(f"PR has {labeled_lower} label, will check for merge.")
+                self.logger.debug(f"{self.log_prefix} PR has {labeled_lower} label, will check for merge.")
 
             if _check_for_merge:
                 await self.check_if_can_be_merged(pull_request=pull_request)
@@ -996,7 +1000,7 @@ For more information, please refer to the project documentation or contact the m
 
     async def _check_if_pr_approved(self, labels: list[str]) -> str:
         self.logger.info(f"{self.log_prefix} Check if pull request is approved by pull request labels.")
-        self.logger.debug(f"labels are {labels}")
+        self.logger.debug(f"{self.log_prefix} labels are {labels}")
 
         error: str = ""
         approved_by = []
@@ -1007,11 +1011,11 @@ For more information, please refer to the project documentation or contact the m
             + self.owners_file_handler.root_approvers.copy()
             + self.owners_file_handler.root_reviewers.copy()
         )
-        self.logger.debug(f"all_reviewers: {all_reviewers}")
+        self.logger.debug(f"{self.log_prefix} all_reviewers: {all_reviewers}")
         all_reviewers_without_pr_owner = {
             _reviewer for _reviewer in all_reviewers if _reviewer != self.github_webhook.parent_committer
         }
-        self.logger.debug(f"all_reviewers_without_pr_owner: {all_reviewers_without_pr_owner}")
+        self.logger.debug(f"{self.log_prefix} all_reviewers_without_pr_owner: {all_reviewers_without_pr_owner}")
 
         all_reviewers_without_pr_owner_and_lgtmed = all_reviewers_without_pr_owner.copy()
 
@@ -1021,17 +1025,17 @@ For more information, please refer to the project documentation or contact the m
                 if LGTM_BY_LABEL_PREFIX.lower() in _label.lower() and reviewer in all_reviewers_without_pr_owner:
                     lgtm_count += 1
                     all_reviewers_without_pr_owner_and_lgtmed.remove(reviewer)
-        self.logger.debug(f"lgtm_count: {lgtm_count}")
+        self.logger.debug(f"{self.log_prefix} lgtm_count: {lgtm_count}")
 
         for _label in labels:
             if APPROVED_BY_LABEL_PREFIX.lower() in _label.lower():
                 approved_by.append(_label.split(LABELS_SEPARATOR)[-1])
-        self.logger.debug(f"approved_by: {approved_by}")
+        self.logger.debug(f"{self.log_prefix} approved_by: {approved_by}")
 
         missing_approvers = list(set(self.owners_file_handler.all_pull_request_approvers.copy()))
-        self.logger.debug(f"missing_approvers: {missing_approvers}")
+        self.logger.debug(f"{self.log_prefix} missing_approvers: {missing_approvers}")
         owners_data_changed_files = await self.owners_file_handler.owners_data_for_changed_files()
-        self.logger.debug(f"owners_data_changed_files: {owners_data_changed_files}")
+        self.logger.debug(f"{self.log_prefix} owners_data_changed_files: {owners_data_changed_files}")
 
         # If any of root approvers is in approved_by list, the pull request is approved
         for _approver in approved_by:
@@ -1054,7 +1058,7 @@ For more information, please refer to the project documentation or contact the m
                         break
 
         missing_approvers = list(set(missing_approvers))
-        self.logger.debug(f"missing_approvers after check: {missing_approvers}")
+        self.logger.debug(f"{self.log_prefix} missing_approvers after check: {missing_approvers}")
 
         if missing_approvers:
             error += f"Missing approved from approvers: {', '.join(missing_approvers)}\n"
@@ -1085,13 +1089,13 @@ For more information, please refer to the project documentation or contact the m
                 change_request_user = _label.split(LABELS_SEPARATOR)[-1]
                 if change_request_user in self.owners_file_handler.all_pull_request_approvers:
                     failure_output += "PR has changed requests from approvers\n"
-                    self.logger.debug(f"Found changed request by {change_request_user}")
+                    self.logger.debug(f"{self.log_prefix} Found changed request by {change_request_user}")
 
         missing_required_labels = []
         for _req_label in self.github_webhook.can_be_merged_required_labels:
             if _req_label not in labels:
                 missing_required_labels.append(_req_label)
-                self.logger.debug(f"Missing required label {_req_label}")
+                self.logger.debug(f"{self.log_prefix} Missing required label {_req_label}")
 
         if missing_required_labels:
             failure_output += f"Missing required labels: {', '.join(missing_required_labels)}\n"
