@@ -95,8 +95,8 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
 
         config = Config(logger=LOGGER)
         root_config = config.root_data
-        verify_github_ips = root_config.get("verify-github-ips")
-        verify_cloudflare_ips = root_config.get("verify-cloudflare-ips")
+        verify_github_ips = root_config.get("verify-github-ips", False)
+        verify_cloudflare_ips = root_config.get("verify-cloudflare-ips", False)
         disable_ssl_warnings = root_config.get("disable-ssl-warnings", False)
 
         # Conditionally disable urllib3 warnings based on config
