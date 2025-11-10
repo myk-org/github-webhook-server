@@ -23,6 +23,7 @@ from webhook_server.utils.constants import (
     COMMAND_ASSIGN_REVIEWERS_STR,
     COMMAND_CHECK_CAN_MERGE_STR,
     COMMAND_CHERRY_PICK_STR,
+    COMMAND_REPROCESS_STR,
     COMMAND_RETEST_STR,
     CONVENTIONAL_TITLE_STR,
     HOLD_LABEL_STR,
@@ -160,6 +161,7 @@ class IssueCommentHandler:
     ) -> None:
         available_commands: list[str] = [
             COMMAND_RETEST_STR,
+            COMMAND_REPROCESS_STR,
             COMMAND_CHERRY_PICK_STR,
             COMMAND_ASSIGN_REVIEWERS_STR,
             COMMAND_CHECK_CAN_MERGE_STR,
@@ -238,6 +240,13 @@ class IssueCommentHandler:
             await self.process_retest_command(
                 pull_request=pull_request, command_args=_args, reviewed_user=reviewed_user
             )
+
+        elif _command == COMMAND_REPROCESS_STR:
+            if not await self.owners_file_handler.is_user_valid_to_run_commands(
+                pull_request=pull_request, reviewed_user=reviewed_user
+            ):
+                return
+            await self.pull_request_handler.process_command_reprocess(pull_request=pull_request)
 
         elif _command == BUILD_AND_PUSH_CONTAINER_STR:
             if self.github_webhook.build_and_push_container:

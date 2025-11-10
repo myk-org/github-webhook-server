@@ -11,6 +11,7 @@ from webhook_server.utils.constants import (
     COMMAND_ASSIGN_REVIEWERS_STR,
     COMMAND_CHECK_CAN_MERGE_STR,
     COMMAND_CHERRY_PICK_STR,
+    COMMAND_REPROCESS_STR,
     COMMAND_RETEST_STR,
     HOLD_LABEL_STR,
     REACTIONS,
@@ -758,3 +759,149 @@ class TestIssueCommentHandler:
                     pull_request=mock_pull_request, command_args="tox", reviewed_user="test-user"
                 )
                 mock_error.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_user_commands_reprocess_command_registration(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Test that reprocess command is in available_commands list."""
+        # Verify COMMAND_REPROCESS_STR is in the available_commands list
+        # by checking if the command is recognized (doesn't return early for unsupported command)
+        mock_pull_request = Mock()
+
+        with (
+            patch.object(
+                issue_comment_handler.owners_file_handler,
+                "is_user_valid_to_run_commands",
+                new=AsyncMock(return_value=True),
+            ),
+            patch.object(
+                issue_comment_handler.pull_request_handler, "process_command_reprocess", new=AsyncMock()
+            ) as mock_reprocess,
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=COMMAND_REPROCESS_STR,
+                reviewed_user="test-user",
+                issue_comment_id=123,
+            )
+            # Command should be recognized and processed
+            mock_reprocess.assert_awaited_once_with(pull_request=mock_pull_request)
+
+    @pytest.mark.asyncio
+    async def test_user_commands_reprocess_authorized_user(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test reprocess command with authorized user (in OWNERS)."""
+        mock_pull_request = Mock()
+
+        with (
+            patch.object(
+                issue_comment_handler.owners_file_handler,
+                "is_user_valid_to_run_commands",
+                new=AsyncMock(return_value=True),
+            ),
+            patch.object(
+                issue_comment_handler.pull_request_handler, "process_command_reprocess", new=AsyncMock()
+            ) as mock_reprocess,
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()) as mock_reaction,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=COMMAND_REPROCESS_STR,
+                reviewed_user="approver1",  # From fixture: all_pull_request_approvers
+                issue_comment_id=123,
+            )
+            # Verify user validation was called
+            issue_comment_handler.owners_file_handler.is_user_valid_to_run_commands.assert_awaited_once_with(
+                pull_request=mock_pull_request, reviewed_user="approver1"
+            )
+            # Verify reprocess handler was called
+            mock_reprocess.assert_awaited_once_with(pull_request=mock_pull_request)
+            # Verify reaction was added
+            mock_reaction.assert_awaited_once_with(
+                pull_request=mock_pull_request, issue_comment_id=123, reaction=REACTIONS.ok
+            )
+
+    @pytest.mark.asyncio
+    async def test_user_commands_reprocess_unauthorized_user(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test reprocess command with unauthorized user (not in OWNERS)."""
+        mock_pull_request = Mock()
+
+        with (
+            patch.object(
+                issue_comment_handler.owners_file_handler,
+                "is_user_valid_to_run_commands",
+                new=AsyncMock(return_value=False),
+            ),
+            patch.object(
+                issue_comment_handler.pull_request_handler, "process_command_reprocess", new=AsyncMock()
+            ) as mock_reprocess,
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()) as mock_reaction,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=COMMAND_REPROCESS_STR,
+                reviewed_user="unauthorized-user",
+                issue_comment_id=123,
+            )
+            # Verify user validation was called
+            issue_comment_handler.owners_file_handler.is_user_valid_to_run_commands.assert_awaited_once_with(
+                pull_request=mock_pull_request, reviewed_user="unauthorized-user"
+            )
+            # Verify reprocess handler was NOT called
+            mock_reprocess.assert_not_awaited()
+            # Reaction should still be added before permission check
+            mock_reaction.assert_awaited_once_with(
+                pull_request=mock_pull_request, issue_comment_id=123, reaction=REACTIONS.ok
+            )
+
+    @pytest.mark.asyncio
+    async def test_user_commands_reprocess_with_args(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test reprocess command with additional arguments (should ignore args)."""
+        mock_pull_request = Mock()
+
+        with (
+            patch.object(
+                issue_comment_handler.owners_file_handler,
+                "is_user_valid_to_run_commands",
+                new=AsyncMock(return_value=True),
+            ),
+            patch.object(
+                issue_comment_handler.pull_request_handler, "process_command_reprocess", new=AsyncMock()
+            ) as mock_reprocess,
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
+        ):
+            # Command with args (should be processed but args ignored)
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=f"{COMMAND_REPROCESS_STR} some-args",
+                reviewed_user="test-user",
+                issue_comment_id=123,
+            )
+            # Verify reprocess was called (args are ignored)
+            mock_reprocess.assert_awaited_once_with(pull_request=mock_pull_request)
+
+    @pytest.mark.asyncio
+    async def test_user_commands_reprocess_reaction_added(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test that reaction is added to comment for reprocess command."""
+        mock_pull_request = Mock()
+
+        with (
+            patch.object(
+                issue_comment_handler.owners_file_handler,
+                "is_user_valid_to_run_commands",
+                new=AsyncMock(return_value=True),
+            ),
+            patch.object(issue_comment_handler.pull_request_handler, "process_command_reprocess", new=AsyncMock()),
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()) as mock_reaction,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=COMMAND_REPROCESS_STR,
+                reviewed_user="test-user",
+                issue_comment_id=456,
+            )
+            # Verify reaction was added with correct comment ID and reaction type
+            mock_reaction.assert_awaited_once_with(
+                pull_request=mock_pull_request, issue_comment_id=456, reaction=REACTIONS.ok
+            )

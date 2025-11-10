@@ -1087,3 +1087,286 @@ class TestPullRequestHandler:
                 pull_request=mock_pull_request, hook_action="closed"
             )
             # Should not find any matching issues
+
+    # /reprocess command tests
+
+    @pytest.mark.asyncio
+    async def test_process_command_reprocess_merged_pr(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test /reprocess command on merged PR - should reject and skip."""
+        # Mock is_merged to return True
+        with (
+            patch.object(mock_pull_request, "is_merged", new=Mock(return_value=True)),
+            patch.object(
+                pull_request_handler, "process_new_or_reprocess_pull_request", new=AsyncMock()
+            ) as mock_process_new,
+        ):
+            await pull_request_handler.process_command_reprocess(pull_request=mock_pull_request)
+
+            # Verify is_merged was checked
+            mock_pull_request.is_merged.assert_called_once()
+
+            # Verify workflow was NOT executed
+            mock_process_new.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_process_command_reprocess_open_pr_success(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test /reprocess command on open PR - should trigger full workflow."""
+        # Mock is_merged to return False
+        with (
+            patch.object(mock_pull_request, "is_merged", new=Mock(return_value=False)),
+            patch.object(
+                pull_request_handler, "process_new_or_reprocess_pull_request", new=AsyncMock()
+            ) as mock_process_new,
+        ):
+            await pull_request_handler.process_command_reprocess(pull_request=mock_pull_request)
+
+            # Verify is_merged was checked
+            mock_pull_request.is_merged.assert_called_once()
+
+            # Verify workflow was executed
+            mock_process_new.assert_awaited_once_with(pull_request=mock_pull_request)
+
+    @pytest.mark.asyncio
+    async def test_welcome_comment_exists_true(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test _welcome_comment_exists returns True when welcome message exists."""
+        mock_comment = Mock()
+        mock_comment.body = f"Some text {pull_request_handler.github_webhook.issue_url_for_welcome_msg} more text"
+
+        with patch.object(mock_pull_request, "get_issue_comments", return_value=[mock_comment]):
+            result = await pull_request_handler._welcome_comment_exists(pull_request=mock_pull_request)
+            assert result is True
+
+    @pytest.mark.asyncio
+    async def test_welcome_comment_exists_false(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test _welcome_comment_exists returns False when no welcome message."""
+        mock_comment = Mock()
+        mock_comment.body = "Regular comment without welcome URL"
+
+        with patch.object(mock_pull_request, "get_issue_comments", return_value=[mock_comment]):
+            result = await pull_request_handler._welcome_comment_exists(pull_request=mock_pull_request)
+            assert result is False
+
+    @pytest.mark.asyncio
+    async def test_welcome_comment_exists_empty_comments(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test _welcome_comment_exists returns False when no comments."""
+        with patch.object(mock_pull_request, "get_issue_comments", return_value=[]):
+            result = await pull_request_handler._welcome_comment_exists(pull_request=mock_pull_request)
+            assert result is False
+
+    @pytest.mark.asyncio
+    async def test_tracking_issue_exists_true(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test _tracking_issue_exists returns True when tracking issue exists."""
+        mock_pull_request.number = 123
+        expected_body = pull_request_handler._generate_issue_body(pull_request=mock_pull_request)
+
+        mock_issue = Mock()
+        mock_issue.body = expected_body
+
+        with patch.object(pull_request_handler.repository, "get_issues", return_value=[mock_issue]):
+            result = await pull_request_handler._tracking_issue_exists(pull_request=mock_pull_request)
+            assert result is True
+
+    @pytest.mark.asyncio
+    async def test_tracking_issue_exists_false(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test _tracking_issue_exists returns False when no tracking issue."""
+        mock_issue = Mock()
+        mock_issue.body = "Some other issue body"
+
+        with patch.object(pull_request_handler.repository, "get_issues", return_value=[mock_issue]):
+            result = await pull_request_handler._tracking_issue_exists(pull_request=mock_pull_request)
+            assert result is False
+
+    @pytest.mark.asyncio
+    async def test_tracking_issue_exists_empty_issues(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test _tracking_issue_exists returns False when no issues."""
+        with patch.object(pull_request_handler.repository, "get_issues", return_value=[]):
+            result = await pull_request_handler._tracking_issue_exists(pull_request=mock_pull_request)
+            assert result is False
+
+    @pytest.mark.asyncio
+    async def test_process_new_or_reprocess_pull_request_full_workflow(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test process_new_or_reprocess_pull_request - full workflow without duplicates."""
+        # Mock welcome message and tracking issue don't exist
+        with (
+            patch.object(
+                pull_request_handler, "_welcome_comment_exists", new=AsyncMock(return_value=False)
+            ) as mock_welcome_check,
+            patch.object(
+                pull_request_handler, "_tracking_issue_exists", new=AsyncMock(return_value=False)
+            ) as mock_issue_check,
+            patch.object(mock_pull_request, "create_issue_comment", new=Mock()) as mock_comment,
+            patch.object(
+                pull_request_handler, "create_issue_for_new_pull_request", new=AsyncMock()
+            ) as mock_create_issue,
+            patch.object(pull_request_handler, "set_wip_label_based_on_title", new=AsyncMock()) as mock_wip,
+            patch.object(
+                pull_request_handler, "process_opened_or_synchronize_pull_request", new=AsyncMock()
+            ) as mock_process,
+            patch.object(pull_request_handler, "set_pull_request_automerge", new=AsyncMock()) as mock_automerge,
+        ):
+            await pull_request_handler.process_new_or_reprocess_pull_request(pull_request=mock_pull_request)
+
+            # Verify duplicate checks were called
+            mock_welcome_check.assert_awaited_once_with(pull_request=mock_pull_request)
+            mock_issue_check.assert_awaited_once_with(pull_request=mock_pull_request)
+
+            # Verify welcome message was created with the correct marker
+            mock_comment.assert_called_once()
+            assert pull_request_handler.github_webhook.issue_url_for_welcome_msg in mock_comment.call_args[1]["body"]
+
+            # Verify tracking issue was created
+            mock_create_issue.assert_awaited_once_with(pull_request=mock_pull_request)
+
+            # Verify other tasks were executed
+            mock_wip.assert_awaited_once_with(pull_request=mock_pull_request)
+            mock_process.assert_awaited_once_with(pull_request=mock_pull_request)
+            mock_automerge.assert_awaited_once_with(pull_request=mock_pull_request)
+
+    @pytest.mark.asyncio
+    async def test_process_new_or_reprocess_pull_request_skip_welcome_duplicate(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test process_new_or_reprocess_pull_request - skip welcome if already exists."""
+        # Mock welcome message exists, tracking issue doesn't
+        with (
+            patch.object(
+                pull_request_handler, "_welcome_comment_exists", new=AsyncMock(return_value=True)
+            ) as mock_welcome_check,
+            patch.object(pull_request_handler, "_tracking_issue_exists", new=AsyncMock(return_value=False)),
+            patch.object(mock_pull_request, "create_issue_comment", new=Mock()) as mock_comment,
+            patch.object(pull_request_handler, "create_issue_for_new_pull_request", new=AsyncMock()),
+            patch.object(pull_request_handler, "set_wip_label_based_on_title", new=AsyncMock()),
+            patch.object(pull_request_handler, "process_opened_or_synchronize_pull_request", new=AsyncMock()),
+            patch.object(pull_request_handler, "set_pull_request_automerge", new=AsyncMock()),
+        ):
+            await pull_request_handler.process_new_or_reprocess_pull_request(pull_request=mock_pull_request)
+
+            # Verify welcome check was called
+            mock_welcome_check.assert_awaited_once_with(pull_request=mock_pull_request)
+
+            # Verify welcome message was NOT created (already exists)
+            mock_comment.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_process_new_or_reprocess_pull_request_skip_issue_duplicate(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test process_new_or_reprocess_pull_request - skip tracking issue if already exists."""
+        # Mock welcome doesn't exist, tracking issue exists
+        with (
+            patch.object(pull_request_handler, "_welcome_comment_exists", new=AsyncMock(return_value=False)),
+            patch.object(
+                pull_request_handler, "_tracking_issue_exists", new=AsyncMock(return_value=True)
+            ) as mock_issue_check,
+            patch.object(mock_pull_request, "create_issue_comment", new=Mock()),
+            patch.object(
+                pull_request_handler, "create_issue_for_new_pull_request", new=AsyncMock()
+            ) as mock_create_issue,
+            patch.object(pull_request_handler, "set_wip_label_based_on_title", new=AsyncMock()),
+            patch.object(pull_request_handler, "process_opened_or_synchronize_pull_request", new=AsyncMock()),
+            patch.object(pull_request_handler, "set_pull_request_automerge", new=AsyncMock()),
+        ):
+            await pull_request_handler.process_new_or_reprocess_pull_request(pull_request=mock_pull_request)
+
+            # Verify issue check was called
+            mock_issue_check.assert_awaited_once_with(pull_request=mock_pull_request)
+
+            # Verify tracking issue was NOT created (already exists)
+            mock_create_issue.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_process_new_or_reprocess_pull_request_skip_both_duplicates(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test process_new_or_reprocess_pull_request - skip both welcome and issue if exist."""
+        # Mock both already exist
+        with (
+            patch.object(pull_request_handler, "_welcome_comment_exists", new=AsyncMock(return_value=True)),
+            patch.object(pull_request_handler, "_tracking_issue_exists", new=AsyncMock(return_value=True)),
+            patch.object(mock_pull_request, "create_issue_comment", new=Mock()) as mock_comment,
+            patch.object(
+                pull_request_handler, "create_issue_for_new_pull_request", new=AsyncMock()
+            ) as mock_create_issue,
+            patch.object(pull_request_handler, "set_wip_label_based_on_title", new=AsyncMock()) as mock_wip,
+            patch.object(
+                pull_request_handler, "process_opened_or_synchronize_pull_request", new=AsyncMock()
+            ) as mock_process,
+            patch.object(pull_request_handler, "set_pull_request_automerge", new=AsyncMock()),
+        ):
+            await pull_request_handler.process_new_or_reprocess_pull_request(pull_request=mock_pull_request)
+
+            # Verify neither welcome nor issue were created
+            mock_comment.assert_not_called()
+            mock_create_issue.assert_not_awaited()
+
+            # Verify workflow tasks still executed
+            mock_wip.assert_awaited_once()
+            mock_process.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_process_new_or_reprocess_pull_request_parallel_execution(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test process_new_or_reprocess_pull_request executes tasks in parallel."""
+        # Mock nothing exists - full workflow
+        with (
+            patch.object(pull_request_handler, "_welcome_comment_exists", new=AsyncMock(return_value=False)),
+            patch.object(pull_request_handler, "_tracking_issue_exists", new=AsyncMock(return_value=False)),
+            patch.object(mock_pull_request, "create_issue_comment", new=Mock()),
+            patch.object(pull_request_handler, "create_issue_for_new_pull_request", new=AsyncMock()),
+            patch.object(pull_request_handler, "set_wip_label_based_on_title", new=AsyncMock()),
+            patch.object(pull_request_handler, "process_opened_or_synchronize_pull_request", new=AsyncMock()),
+            patch.object(pull_request_handler, "set_pull_request_automerge", new=AsyncMock()),
+            patch("asyncio.gather", new=AsyncMock(return_value=[])) as mock_gather,
+        ):
+            await pull_request_handler.process_new_or_reprocess_pull_request(pull_request=mock_pull_request)
+
+            # Verify asyncio.gather was called (parallel execution)
+            mock_gather.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_process_new_or_reprocess_pull_request_exception_handling(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test process_new_or_reprocess_pull_request handles exceptions gracefully."""
+        # Mock one task fails
+        with (
+            patch.object(pull_request_handler, "_welcome_comment_exists", new=AsyncMock(return_value=False)),
+            patch.object(pull_request_handler, "_tracking_issue_exists", new=AsyncMock(return_value=False)),
+            patch.object(mock_pull_request, "create_issue_comment", new=Mock()),
+            patch.object(
+                pull_request_handler,
+                "create_issue_for_new_pull_request",
+                new=AsyncMock(side_effect=Exception("Test error")),
+            ),
+            patch.object(pull_request_handler, "set_wip_label_based_on_title", new=AsyncMock()),
+            patch.object(pull_request_handler, "process_opened_or_synchronize_pull_request", new=AsyncMock()),
+            patch.object(pull_request_handler, "set_pull_request_automerge", new=AsyncMock()) as mock_automerge,
+            patch.object(pull_request_handler.logger, "error") as mock_logger_error,
+        ):
+            # Should not raise exception - errors are caught and logged
+            await pull_request_handler.process_new_or_reprocess_pull_request(pull_request=mock_pull_request)
+
+            # Verify error was logged
+            mock_logger_error.assert_called()
+
+            # Verify automerge still executed (after errors)
+            mock_automerge.assert_awaited_once()
