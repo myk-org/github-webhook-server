@@ -33,8 +33,10 @@ create-issue-for-new-pr: true  # Global default: create tracking issues for new 
 
 # Global PR size label configuration (optional)
 # Define custom categories based on total lines changed (additions + deletions)
-# threshold: positive integer representing minimum lines changed for this category
+# threshold: positive integer or 'inf' for unbounded largest category
 # color: CSS3 color name (e.g., red, green, blue, lightgray, darkorange)
+# Infinity behavior: 'inf' ensures all PRs beyond largest finite threshold are captured
+#                   Always sorted last, regardless of definition order
 pr-size-thresholds:
   Tiny:
     threshold: 10      # PRs with 0-9 lines changed
@@ -47,7 +49,10 @@ pr-size-thresholds:
     color: orange
   Large:
     threshold: 300     # PRs with 150-299 lines changed
-    color: red         # PRs with 300+ lines changed get this category
+    color: red
+  Massive:
+    threshold: inf     # PRs with 300+ lines changed (unbounded largest category)
+    color: darkred     # Optional: using 'inf' ensures no PR exceeds thresholds
 
 branch-protection:
   strict: True

@@ -216,7 +216,13 @@ class LabelsHandler:
         thresholds = []
         for label_name, config in custom_config.items():
             threshold = config.get("threshold")
-            if threshold is None or not isinstance(threshold, int) or threshold <= 0:
+
+            # Convert string "inf" to float("inf") for YAML compatibility
+            if isinstance(threshold, str) and threshold.lower() == "inf":
+                threshold = float("inf")
+
+            # Accept both int and float types, validate > 0
+            if threshold is None or not isinstance(threshold, int | float) or threshold <= 0:
                 self.logger.warning(f"{self.log_prefix} Invalid threshold for '{label_name}': {threshold}")
                 continue
 
