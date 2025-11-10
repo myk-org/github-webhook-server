@@ -1119,18 +1119,23 @@ For more information, please refer to the project documentation or contact the m
 
     async def _welcome_comment_exists(self, pull_request: PullRequest) -> bool:
         """Check if welcome message already exists for this PR."""
-        comments = [
-            comment
-            for comment in await asyncio.to_thread(pull_request.get_issue_comments)
-            if self.github_webhook.issue_url_for_welcome_msg in comment.body
-        ]
-        return len(comments) > 0
+
+        def check_comments() -> bool:
+            return any(
+                self.github_webhook.issue_url_for_welcome_msg in comment.body
+                for comment in pull_request.get_issue_comments()
+            )
+
+        return await asyncio.to_thread(check_comments)
 
     async def _tracking_issue_exists(self, pull_request: PullRequest) -> bool:
         """Check if tracking issue already exists for this PR."""
         expected_body = self._generate_issue_body(pull_request=pull_request)
-        issues = [issue for issue in await asyncio.to_thread(self.repository.get_issues) if issue.body == expected_body]
-        return len(issues) > 0
+
+        def check_issues() -> bool:
+            return any(issue.body == expected_body for issue in self.repository.get_issues())
+
+        return await asyncio.to_thread(check_issues)
 
     async def process_new_or_reprocess_pull_request(self, pull_request: PullRequest) -> None:
         """Process a new or reprocessed PR - handles welcome message, tracking issue, and full workflow.
