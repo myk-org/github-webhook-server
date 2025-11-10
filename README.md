@@ -1126,18 +1126,46 @@ Users can interact with the webhook server through GitHub comments on pull reque
 
 ### Pull Request Commands
 
-| Command             | Description                   | Example             |
-| ------------------- | ----------------------------- | ------------------- |
-| `/verified`         | Mark PR as verified           | `/verified`         |
-| `/verified cancel`  | Remove verification           | `/verified cancel`  |
-| `/hold`             | Block PR merging              | `/hold`             |
-| `/hold cancel`      | Unblock PR merging            | `/hold cancel`      |
-| `/wip`              | Mark as work in progress      | `/wip`              |
-| `/wip cancel`       | Remove WIP status             | `/wip cancel`       |
-| `/lgtm`             | Approve changes               | `/lgtm`             |
-| `/approve`          | Approve PR                    | `/approve`          |
-| `/assign-reviewers` | Assign OWNERS-based reviewers | `/assign-reviewers` |
-| `/check-can-merge`  | Check merge readiness         | `/check-can-merge`  |
+| Command             | Description                                         | Example             |
+| ------------------- | --------------------------------------------------- | ------------------- |
+| `/verified`         | Mark PR as verified                                 | `/verified`         |
+| `/verified cancel`  | Remove verification                                 | `/verified cancel`  |
+| `/hold`             | Block PR merging                                    | `/hold`             |
+| `/hold cancel`      | Unblock PR merging                                  | `/hold cancel`      |
+| `/wip`              | Mark as work in progress                            | `/wip`              |
+| `/wip cancel`       | Remove WIP status                                   | `/wip cancel`       |
+| `/lgtm`             | Approve changes                                     | `/lgtm`             |
+| `/approve`          | Approve PR                                          | `/approve`          |
+| `/assign-reviewers` | Assign OWNERS-based reviewers                       | `/assign-reviewers` |
+| `/check-can-merge`  | Check merge readiness                               | `/check-can-merge`  |
+| `/reprocess`        | Trigger complete PR workflow reprocessing (OWNERS only) | `/reprocess`        |
+
+### Workflow Management
+
+#### PR Reprocessing
+
+The `/reprocess` command triggers complete PR workflow reprocessing from scratch, equivalent to reopening or synchronizing the PR.
+
+**Permissions**: Requires user to be in repository OWNERS file (same as `/retest`)
+
+**Use Cases**:
+- Webhook delivery failed or was missed
+- Processing interrupted mid-workflow
+- OWNERS file changed and reviewers need reassignment
+- Configuration changed and checks need re-evaluation
+- PR got into inconsistent state and needs full reset
+
+**Behavior**:
+- Re-runs entire PR workflow including reviewer assignment, label updates, check queuing, and CI/CD tests
+- Won't create duplicate welcome messages or tracking issues if they already exist
+- Respects current repository configuration and OWNERS file
+
+**Example**:
+
+```bash
+# Comment on the pull request
+/reprocess
+```
 
 ### Testing Commands
 

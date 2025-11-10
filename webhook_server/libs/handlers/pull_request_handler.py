@@ -309,6 +309,7 @@ This pull request will be automatically processed with the following features:{a
 * `/hold cancel` - Unblock PR merging
 * `/verified` - Mark PR as verified
 * `/verified cancel` - Remove verification status
+* `/reprocess` - Trigger complete PR workflow reprocessing (useful if webhook failed or configuration changed)
 
 #### Review & Approval
 * `/lgtm` - Approve changes (looks good to me)
@@ -1115,3 +1116,97 @@ For more information, please refer to the project documentation or contact the m
             return True
 
         return False
+
+    async def _welcome_comment_exists(self, pull_request: PullRequest) -> bool:
+        """Check if welcome message already exists for this PR."""
+        comments = [
+            comment
+            for comment in await asyncio.to_thread(pull_request.get_issue_comments)
+            if self.github_webhook.issue_url_for_welcome_msg in comment.body
+        ]
+        return len(comments) > 0
+
+    async def _tracking_issue_exists(self, pull_request: PullRequest) -> bool:
+        """Check if tracking issue already exists for this PR."""
+        expected_body = self._generate_issue_body(pull_request=pull_request)
+        issues = [issue for issue in await asyncio.to_thread(self.repository.get_issues) if issue.body == expected_body]
+        return len(issues) > 0
+
+    async def process_new_or_reprocess_pull_request(self, pull_request: PullRequest) -> None:
+        """Process a new or reprocessed PR - handles welcome message, tracking issue, and full workflow.
+
+        This method extracts the core logic from the "opened" event handler to make it reusable
+        for both new PRs and the /reprocess command. It includes duplicate prevention checks.
+        """
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('pr_initialization', 'pr_management', 'started')} "
+            f"Starting PR initialization workflow",
+        )
+
+        tasks: list[Coroutine[Any, Any, Any]] = []
+
+        # Add welcome message if it doesn't exist yet
+        if not await self._welcome_comment_exists(pull_request=pull_request):
+            self.logger.info(f"{self.log_prefix} Adding welcome message to PR")
+            welcome_msg = self._prepare_welcome_comment()
+            tasks.append(asyncio.to_thread(pull_request.create_issue_comment, body=welcome_msg))
+        else:
+            self.logger.info(f"{self.log_prefix} Welcome message already exists, skipping")
+
+        # Add tracking issue if it doesn't exist yet
+        if not await self._tracking_issue_exists(pull_request=pull_request):
+            self.logger.info(f"{self.log_prefix} Creating tracking issue for PR")
+            tasks.append(self.create_issue_for_new_pull_request(pull_request=pull_request))
+        else:
+            self.logger.info(f"{self.log_prefix} Tracking issue already exists, skipping")
+
+        # Always run these tasks
+        tasks.append(self.set_wip_label_based_on_title(pull_request=pull_request))
+        tasks.append(self.process_opened_or_synchronize_pull_request(pull_request=pull_request))
+
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('pr_initialization', 'pr_management', 'processing')} "
+            f"Executing initialization tasks",
+        )
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for result in results:
+            if isinstance(result, Exception):
+                self.logger.error(f"{self.log_prefix} Async task failed: {result}")
+
+        # Set auto merge only after all initialization is done
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('pr_initialization', 'pr_management', 'processing')} "
+            f"Setting auto-merge configuration",
+        )
+        await self.set_pull_request_automerge(pull_request=pull_request)
+
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('pr_initialization', 'pr_management', 'completed')} "
+            f"PR initialization workflow completed",
+        )
+
+    async def process_command_reprocess(self, pull_request: PullRequest) -> None:
+        """Handle /reprocess command - triggers full PR workflow from scratch."""
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('reprocess_command', 'pr_management', 'started')} "
+            f"Starting /reprocess command execution for PR #{pull_request.number}",
+        )
+
+        # Check if PR is already merged - skip if merged
+        if await asyncio.to_thread(lambda: pull_request.is_merged()):
+            self.logger.info(f"{self.log_prefix} PR is already merged, skipping reprocess")
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('reprocess_command', 'pr_management', 'completed')} "
+                f"/reprocess command completed (PR already merged - skipped)",
+            )
+            return
+
+        self.logger.info(f"{self.log_prefix} Executing full PR reprocessing workflow")
+
+        # Call the extracted reusable method
+        await self.process_new_or_reprocess_pull_request(pull_request=pull_request)
+
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('reprocess_command', 'pr_management', 'completed')} "
+            f"/reprocess command completed successfully",
+        )
