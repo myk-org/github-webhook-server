@@ -150,6 +150,9 @@ class LogParser:
         try:
             normalized_timestamp = timestamp_str.replace("Z", "+00:00")
             timestamp = datetime.datetime.fromisoformat(normalized_timestamp)
+            # Ensure timestamp is timezone-aware (assume UTC if naive)
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=datetime.UTC)
         except ValueError:
             return None
 
