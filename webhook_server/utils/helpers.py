@@ -485,9 +485,8 @@ def get_future_results(futures: list[Future]) -> None:
         try:
             # CRITICAL FIX: Calling result.result() will raise exception if one exists
             # This gives us proper exception context for logger.exception()
-            _res = result.result()
-            _log = _res[2]
-            _log(_res[1])
+            success, message, logger_func = result.result()
+            logger_func(message)
         except Exception:
             # Proper exception context - logger.exception() can capture traceback
             logger.exception(
