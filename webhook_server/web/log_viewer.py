@@ -5,8 +5,10 @@ import json
 import logging
 import os
 import re
+from collections import deque
+from collections.abc import Generator, Iterator
 from pathlib import Path
-from typing import Any, Generator, Iterator
+from typing import Any
 
 from fastapi import HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -75,17 +77,14 @@ class LogViewerController:
             HTML response with log viewer interface
 
         Raises:
-            HTTPException: 404 if template not found, 500 for other errors
+            HTTPException: 500 for other errors
         """
         try:
             html_content = self._get_log_viewer_html()
             return HTMLResponse(content=html_content)
-        except FileNotFoundError:
-            self.logger.error("Log viewer HTML template not found")
-            raise HTTPException(status_code=404, detail="Log viewer template not found")
         except Exception as e:
-            self.logger.error(f"Error serving log viewer page: {e}")
-            raise HTTPException(status_code=500, detail="Internal server error")
+            self.logger.exception("Error serving log viewer page")
+            raise HTTPException(status_code=500, detail="Internal server error") from e
 
     def get_log_entries(
         self,
@@ -211,13 +210,13 @@ class LogViewerController:
 
         except ValueError as e:
             self.logger.warning(f"Invalid parameters for log entries request: {e}")
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=400, detail=str(e)) from e
         except (OSError, PermissionError) as e:
-            self.logger.error(f"File access error loading log entries: {e}")
-            raise HTTPException(status_code=500, detail="Error accessing log files")
+            self.logger.exception("File access error loading log entries")
+            raise HTTPException(status_code=500, detail="Error accessing log files") from e
         except Exception as e:
-            self.logger.error(f"Unexpected error getting log entries: {e}")
-            raise HTTPException(status_code=500, detail="Internal server error")
+            self.logger.exception("Unexpected error getting log entries")
+            raise HTTPException(status_code=500, detail="Internal server error") from e
 
     def _entry_matches_filters(
         self,
@@ -322,7 +321,7 @@ class LogViewerController:
                 end_time,
                 search,
             ])
-            max_entries_to_process = min(limit + 20000, 50000) if has_filters else limit + 1000
+            max_entries_to_process = min(limit + 20000, 100000) if has_filters else limit + 1000
 
             for entry in self._stream_log_entries(max_files=25, max_entries=max_entries_to_process):
                 if not self._entry_matches_filters(
@@ -353,13 +352,13 @@ class LogViewerController:
         except ValueError as e:
             if "Result set too large" in str(e):
                 self.logger.warning(f"Export request too large: {e}")
-                raise HTTPException(status_code=413, detail=str(e))
+                raise HTTPException(status_code=413, detail=str(e)) from e
             else:
                 self.logger.warning(f"Invalid export parameters: {e}")
-                raise HTTPException(status_code=400, detail=str(e))
+                raise HTTPException(status_code=400, detail=str(e)) from e
         except Exception as e:
             self.logger.error(f"Error generating export: {e}")
-            raise HTTPException(status_code=500, detail="Export generation failed")
+            raise HTTPException(status_code=500, detail="Export generation failed") from e
 
     async def handle_websocket(
         self,
@@ -479,13 +478,44 @@ class LogViewerController:
         except ValueError as e:
             if "No data found" in str(e):
                 self.logger.warning(f"PR flow data not found: {e}")
-                raise HTTPException(status_code=404, detail=str(e))
+                raise HTTPException(status_code=404, detail=str(e)) from e
             else:
                 self.logger.warning(f"Invalid PR flow hook_id: {e}")
-                raise HTTPException(status_code=400, detail=str(e))
+                raise HTTPException(status_code=400, detail=str(e)) from e
         except Exception as e:
             self.logger.error(f"Error getting PR flow data: {e}")
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error") from e
+
+    def _build_log_prefix_from_context(
+        self,
+        repository: str | None,
+        event_type: str | None,
+        hook_id: str | None,
+        github_user: str | None,
+        pr_number: int | None,
+    ) -> str:
+        """Build log prefix from context variables for structured logging.
+
+        Args:
+            repository: Repository name
+            event_type: Event type (e.g., 'pull_request', 'check_run')
+            hook_id: Hook ID
+            github_user: GitHub user
+            pr_number: PR number
+
+        Returns:
+            Formatted log prefix string
+        """
+        log_prefix_parts = []
+        if repository:
+            log_prefix_parts.append(repository)
+        if event_type and hook_id:
+            log_prefix_parts.append(f"[{event_type}][{hook_id}]")
+        if github_user:
+            log_prefix_parts.append(f"[{github_user}]")
+        if pr_number:
+            log_prefix_parts.append(f"[PR {pr_number}]")
+        return " ".join(log_prefix_parts) + ": " if log_prefix_parts else ""
 
     def get_workflow_steps(self, hook_id: str) -> dict[str, Any]:
         """Get workflow step timeline data for a specific hook ID.
@@ -504,7 +534,9 @@ class LogViewerController:
             filtered_entries: list[LogEntry] = []
 
             # Stream entries and filter by hook ID
-            for entry in self._stream_log_entries(max_files=15, max_entries=10000):
+            # Increase max_files and max_entries to ensure we capture token spend logs
+            # Token spend is logged at the end of webhook processing, so we need to read enough entries
+            for entry in self._stream_log_entries(max_files=25, max_entries=50000):
                 if not self._entry_matches_filters(entry, hook_id=hook_id):
                     continue
                 filtered_entries.append(entry)
@@ -518,20 +550,76 @@ class LogViewerController:
             if not workflow_steps:
                 raise ValueError(f"No workflow steps found for hook ID: {hook_id}")
 
+            # Extract token spend from all entries (not just workflow steps)
+            # Search in reverse order (newest first) since token spend is logged at the end
+            token_spend = None
+            entries_with_token_spend = [e for e in filtered_entries if e.token_spend is not None]
+
+            # Extract context from first entry for structured logging (all entries have same hook_id)
+            # filtered_entries is guaranteed to be non-empty at this point
+            context_entry = filtered_entries[0]
+            repository = context_entry.repository
+            event_type = context_entry.event_type
+            github_user = context_entry.github_user
+            pr_number = context_entry.pr_number
+
+            if entries_with_token_spend:
+                # Take the most recent token spend entry (should be only one per webhook, but take latest to be safe)
+                token_spend = entries_with_token_spend[-1].token_spend
+                # Format log message using prepare_log_prefix format so it's parseable and clickable
+                log_prefix = self._build_log_prefix_from_context(
+                    repository, event_type, hook_id, github_user, pr_number
+                )
+                self.logger.info(
+                    f"{log_prefix}Found token spend {token_spend} for hook {hook_id} "
+                    f"from {len(entries_with_token_spend)} entries"
+                )
+            else:
+                # Check if any entries contain "token" or "API calls" in message (for debugging)
+                entries_with_token_keywords = [
+                    e for e in filtered_entries if "token" in e.message.lower() or "API calls" in e.message
+                ]
+                if entries_with_token_keywords:
+                    # Format log message using prepare_log_prefix format
+                    log_prefix = self._build_log_prefix_from_context(
+                        repository, event_type, hook_id, github_user, pr_number
+                    )
+                    self.logger.warning(
+                        f"{log_prefix}Found {len(entries_with_token_keywords)} entries with token keywords "
+                        f"for hook {hook_id}, but token_spend is None. "
+                        f"Sample: {entries_with_token_keywords[0].message[:150]}"
+                    )
+                    # Try to extract token spend directly from the message as fallback
+                    for entry in reversed(entries_with_token_keywords):
+                        extracted = self.log_parser.extract_token_spend(entry.message)
+                        if extracted is not None:
+                            token_spend = extracted
+                            # Format log message using prepare_log_prefix format
+                            log_prefix = self._build_log_prefix_from_context(
+                                repository, event_type, hook_id, github_user, pr_number
+                            )
+                            self.logger.info(
+                                f"{log_prefix}Extracted token spend {token_spend} directly from message "
+                                f"for hook {hook_id}"
+                            )
+                            break
+
             # Build timeline data
             timeline_data = self._build_workflow_timeline(workflow_steps, hook_id)
+            if token_spend is not None:
+                timeline_data["token_spend"] = token_spend
             return timeline_data
 
         except ValueError as e:
             if "No data found" in str(e) or "No workflow steps found" in str(e):
                 self.logger.warning(f"Workflow steps not found: {e}")
-                raise HTTPException(status_code=404, detail=str(e))
+                raise HTTPException(status_code=404, detail=str(e)) from e
             else:
                 self.logger.warning(f"Invalid hook ID: {e}")
-                raise HTTPException(status_code=400, detail=str(e))
+                raise HTTPException(status_code=400, detail=str(e)) from e
         except Exception as e:
             self.logger.error(f"Error getting workflow steps: {e}")
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise HTTPException(status_code=500, detail="Internal server error") from e
 
     def _build_workflow_timeline(self, workflow_steps: list[LogEntry], hook_id: str) -> dict[str, Any]:
         """Build timeline data from workflow step entries.
@@ -541,7 +629,7 @@ class LogViewerController:
             hook_id: The hook ID for this timeline
 
         Returns:
-            Dictionary with timeline data structure
+            Dictionary with timeline data structure including task correlation fields
         """
         # Sort steps by timestamp
         sorted_steps = sorted(workflow_steps, key=lambda x: x.timestamp)
@@ -564,6 +652,9 @@ class LogViewerController:
                 "repository": step.repository,
                 "event_type": step.event_type,
                 "pr_number": step.pr_number,
+                "task_id": step.task_id,
+                "task_type": step.task_type,
+                "task_status": step.task_status,
             })
 
         # Calculate total duration
@@ -580,7 +671,7 @@ class LogViewerController:
         }
 
     def _stream_log_entries(
-        self, max_files: int = 10, chunk_size: int = 1000, max_entries: int = 50000
+        self, max_files: int = 10, _chunk_size: int = 1000, max_entries: int = 50000
     ) -> Iterator[LogEntry]:
         """Stream log entries from configured log files in chunks to reduce memory usage.
 
@@ -589,7 +680,7 @@ class LogViewerController:
 
         Args:
             max_files: Maximum number of log files to process (newest first)
-            chunk_size: Number of entries to yield per chunk from each file
+            _chunk_size: Number of entries to yield per chunk from each file (unused, reserved for future)
             max_entries: Maximum total entries to yield (safety limit)
 
         Yields:
@@ -629,37 +720,23 @@ class LogViewerController:
                 break
 
             try:
-                file_entries: list[LogEntry] = []
+                remaining_capacity = max_entries - total_yielded
+                if remaining_capacity <= 0:
+                    break
 
-                # Parse file in one go (files are typically reasonable size individually)
-                with open(log_file, "r", encoding="utf-8") as f:
-                    for line_num, line in enumerate(f, 1):
-                        if total_yielded >= max_entries:
-                            break
+                buffer: deque[LogEntry] = deque(maxlen=remaining_capacity)
 
+                with open(log_file, encoding="utf-8") as f:
+                    for line in f:
                         entry = self.log_parser.parse_log_entry(line)
                         if entry:
-                            file_entries.append(entry)
+                            buffer.append(entry)
 
-                        # Process in chunks to avoid memory buildup for large files
-                        if len(file_entries) >= chunk_size:
-                            # Sort chunk by timestamp (newest first) and yield
-                            file_entries.sort(key=lambda x: x.timestamp, reverse=True)
-                            for entry in file_entries:
-                                yield entry
-                                total_yielded += 1
-                                if total_yielded >= max_entries:
-                                    break
-                            file_entries.clear()  # Free memory
-
-                # Yield remaining entries from this file
-                if file_entries and total_yielded < max_entries:
-                    file_entries.sort(key=lambda x: x.timestamp, reverse=True)
-                    for entry in file_entries:
-                        if total_yielded >= max_entries:
-                            break
-                        yield entry
-                        total_yielded += 1
+                for entry in reversed(buffer):
+                    if total_yielded >= max_entries:
+                        break
+                    yield entry
+                    total_yielded += 1
 
                 self.logger.debug(f"Streamed entries from {log_file.name}, total so far: {total_yielded}")
 
@@ -703,13 +780,13 @@ class LogViewerController:
         template_path = Path(__file__).parent / "templates" / "log_viewer.html"
 
         try:
-            with open(template_path, "r", encoding="utf-8") as f:
+            with open(template_path, encoding="utf-8") as f:
                 return f.read()
         except FileNotFoundError:
-            self.logger.error(f"Log viewer template not found at {template_path}")
+            self.logger.exception(f"Log viewer template not found at {template_path}")
             return self._get_fallback_html()
-        except IOError as e:
-            self.logger.error(f"Failed to read log viewer template: {e}")
+        except OSError:
+            self.logger.exception("Failed to read log viewer template")
             return self._get_fallback_html()
 
     def _get_fallback_html(self) -> str:

@@ -5,6 +5,7 @@ import datetime
 import json
 import os
 import random
+import re
 import shlex
 import subprocess
 from concurrent.futures import Future, as_completed
@@ -13,6 +14,7 @@ from typing import Any
 
 import github
 from colorama import Fore
+from github import GithubException
 from github.RateLimitOverview import RateLimitOverview
 from github.Repository import Repository
 from simple_logger.logger import get_logger
@@ -86,21 +88,172 @@ def get_logger_with_params(
         file_max_bytes=1024 * 1024 * 10,
         mask_sensitive=mask_sensitive,
         mask_sensitive_patterns=mask_sensitive_patterns,
+        console=True,  # Enable console output for docker logs with FORCE_COLOR support
     )
 
 
-def extract_key_from_dict(key: Any, _dict: dict[Any, Any]) -> Any:
-    if isinstance(_dict, dict):
-        for _key, _val in _dict.items():
-            if _key == key:
-                yield _val
-            if isinstance(_val, dict):
-                for result in extract_key_from_dict(key, _val):
-                    yield result
-            elif isinstance(_val, list):
-                for _item in _val:
-                    for result in extract_key_from_dict(key, _item):
-                        yield result
+def _sanitize_log_value(value: str) -> str:
+    """Sanitize value for safe inclusion in structured log messages.
+
+    Prevents log injection by removing newlines and escaping brackets.
+
+    Args:
+        value: Raw value to sanitize
+
+    Returns:
+        Sanitized value safe for log formatting
+    """
+    # Remove newlines and carriage returns to prevent log injection
+    sanitized = value.replace("\n", " ").replace("\r", " ")
+    # Escape brackets to prevent breaking structured log parsing
+    sanitized = sanitized.replace("[", "\\[").replace("]", "\\]")
+    return sanitized
+
+
+def format_task_fields(task_id: str | None = None, task_type: str | None = None, task_status: str | None = None) -> str:
+    """Format task correlation fields for log messages.
+
+    Args:
+        task_id: Task identifier (e.g., "check_tox", "webhook_processing")
+        task_type: Task type category (e.g., "ci_check", "webhook_routing")
+        task_status: Task status (e.g., "started", "completed", "failed")
+
+    Returns:
+        Formatted string with task fields in brackets, or empty string if no fields provided.
+        Example: "[task_id=check_tox] [task_type=ci_check] [task_status=started]"
+    """
+    parts = []
+    if task_id:
+        parts.append(f"[task_id={_sanitize_log_value(task_id)}]")
+    if task_type:
+        parts.append(f"[task_type={_sanitize_log_value(task_type)}]")
+    if task_status:
+        parts.append(f"[task_status={_sanitize_log_value(task_status)}]")
+    return " ".join(parts)
+
+
+# Global cache for compiled regex patterns
+# Cache key: (tuple of secrets, case_insensitive flag)
+_REDACT_REGEX_CACHE: dict[tuple[tuple[str, ...], bool], re.Pattern[str]] = {}
+
+
+def _redact_secrets(
+    text: str, secrets: list[str] | None, case_insensitive: bool = False, mask_sensitive: bool = True
+) -> str:
+    """
+    Redact sensitive strings from text for logging using compiled regex for performance.
+
+    Uses regex with escaped patterns for safer matching and better scalability.
+    For large secret lists or frequent calls, this is significantly faster than
+    multiple string.replace() operations.
+
+    Args:
+        text: The text to redact secrets from
+        secrets: List of sensitive strings to redact (empty strings are filtered out)
+        case_insensitive: Enable case-insensitive matching (default: False for security)
+        mask_sensitive: Whether to mask sensitive data (default: True). If False, returns text unchanged.
+
+    Returns:
+        Text with secrets replaced by ***REDACTED*** (if mask_sensitive=True), otherwise unchanged text
+
+    Performance:
+        - O(n) where n = len(text) instead of O(s*n) where s = len(secrets)
+        - Compiles single regex pattern from all secrets
+        - Uses re.escape() to handle special regex characters safely
+        - Caches compiled regex by (secrets, case_insensitive) to reduce CPU in hot paths
+
+    Security Note:
+        - Default case-sensitive matching prevents accidental false positives
+        - Enable case_insensitive only when secrets may vary in case (e.g., base64 tokens)
+    """
+    # Early return if masking is disabled
+    if not mask_sensitive:
+        return text
+
+    if not secrets:
+        return text
+
+    # Filter out empty secrets, deduplicate, and escape special regex characters
+    # Sort by length descending to prevent substring leaks
+    # (e.g., if "abc" and "abcdef" are both secrets, match "abcdef" first)
+    escaped_secrets = sorted(
+        {re.escape(secret) for secret in secrets if secret},
+        key=len,
+        reverse=True,
+    )
+    if not escaped_secrets:
+        return text
+
+    # Create cache key from tuple of sorted secrets and case_insensitive flag
+    cache_key = (tuple(escaped_secrets), case_insensitive)
+
+    # Check cache for existing compiled regex
+    if cache_key in _REDACT_REGEX_CACHE:
+        regex = _REDACT_REGEX_CACHE[cache_key]
+    else:
+        # Build single regex pattern with non-capturing group: (?:secret1|secret2|secret3)
+        # Non-capturing group for alternation without word boundaries
+        # (tokens can appear anywhere in strings, not just as whole words)
+        # Longer secrets first prevents partial redaction
+        pattern = f"(?:{'|'.join(escaped_secrets)})"
+
+        # Compile regex with optional case-insensitive flag
+        flags = re.IGNORECASE if case_insensitive else 0
+        regex = re.compile(pattern, flags)
+
+        # Store in cache
+        _REDACT_REGEX_CACHE[cache_key] = regex
+
+    # Replace all matches with single sub() call - much faster than loop
+    return regex.sub("***REDACTED***", text)
+
+
+def _truncate_output(text: str, max_length: int = 500) -> str:
+    """
+    Truncate output text for logging to prevent log explosion.
+
+    Args:
+        text: The text to truncate
+        max_length: Maximum length before truncation (default: 500)
+
+    Returns:
+        Truncated text with ellipsis if exceeds max_length
+    """
+    if len(text) <= max_length:
+        return text
+
+    return f"{text[:max_length]}... [truncated {len(text) - max_length} chars]"
+
+
+def strip_ansi_codes(text: str) -> str:
+    """
+    Remove ANSI escape codes from text.
+
+    ANSI escape codes are special character sequences used for terminal formatting
+    (colors, bold, underline, etc.) that appear as scrambled characters when displayed
+    in non-terminal contexts like GitHub check-run details.
+
+    Args:
+        text: Text potentially containing ANSI escape codes
+
+    Returns:
+        Clean text with all ANSI escape codes removed
+
+    Examples:
+        >>> strip_ansi_codes("\\x1b[31mRed text\\x1b[0m")
+        'Red text'
+        >>> strip_ansi_codes("\\x1b[1m\\x1b[32mBold green\\x1b[0m")
+        'Bold green'
+        >>> strip_ansi_codes("No ANSI codes here")
+        'No ANSI codes here'
+    """
+    # Comprehensive regex pattern for ANSI escape sequences:
+    # \x1B = ESC character (can also be \033)
+    # (?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]) = matches all ANSI escape sequences:
+    #   - [@-Z\\-_] = single-character sequences (ESC followed by one char)
+    #   - \[[0-?]*[ -/]*[@-~] = CSI sequences (colors, cursor movement, etc.)
+    ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+    return ansi_escape.sub("", text)
 
 
 def get_github_repo_api(github_app_api: github.Github, repository: int | str) -> Repository:
@@ -114,27 +267,50 @@ async def run_command(
     command: str,
     log_prefix: str,
     verify_stderr: bool = False,
+    redact_secrets: list[str] | None = None,
+    stdin_input: str | bytes | None = None,
+    timeout: int | None = None,
+    mask_sensitive: bool = True,
     **kwargs: Any,
-) -> tuple[bool, Any, Any]:
+) -> tuple[bool, str, str]:
     """
-    Run command locally.
+    Run command locally using create_subprocess_exec (safe from shell injection).
 
     Args:
-        command (str): Command to run
+        command (str): Command to run (will be split with shlex.split for safety)
         log_prefix (str): Prefix for log messages
         verify_stderr (bool, default False): Check command stderr
+        redact_secrets (list[str], optional): List of sensitive strings to redact from logs only
+        stdin_input (str | bytes | None, optional): Input to pass to command via stdin (for passwords, etc.)
+        timeout (int | None, optional): Timeout in seconds for command execution. None means no timeout.
+        mask_sensitive (bool, default True): Whether to mask sensitive data in logs. If False, logs unredacted output.
 
     Returns:
-        tuple: True, out if command succeeded, False, err otherwise.
+        tuple[bool, str, str]: (success, stdout, stderr) where stdout and stderr are UNREDACTED strings.
+                               Redaction is ONLY applied to log output, not return values.
+                               Callers may need to parse unredacted output for command results.
+
+    Security:
+        Uses asyncio.create_subprocess_exec (NOT shell=True) to prevent command injection.
+        stdin_input is passed via pipe, not command line arguments.
+        Secrets are redacted in logs but NOT in return values - callers must handle sensitive data.
     """
     logger = get_logger_with_params()
     out_decoded: str = ""
     err_decoded: str = ""
-    kwargs["stdout"] = subprocess.PIPE
-    kwargs["stderr"] = subprocess.PIPE
+    # Don't override caller-provided pipes - use setdefault to respect provided kwargs
+    kwargs.setdefault("stdout", subprocess.PIPE)
+    kwargs.setdefault("stderr", subprocess.PIPE)
+
+    # Set up stdin pipe if input is provided
+    if stdin_input is not None:
+        kwargs.setdefault("stdin", subprocess.PIPE)
+
+    # Redact sensitive data from command for logging
+    logged_command = _redact_secrets(command, redact_secrets, mask_sensitive=mask_sensitive)
 
     try:
-        logger.debug(f"{log_prefix} Running '{command}' command")
+        logger.debug(f"{log_prefix} Running '{logged_command}' command")
         command_list = shlex.split(command)
 
         sub_process = await asyncio.create_subprocess_exec(
@@ -142,13 +318,41 @@ async def run_command(
             **kwargs,
         )
 
-        stdout, stderr = await sub_process.communicate()
-        out_decoded = stdout.decode(errors="ignore") if isinstance(stdout, bytes) else stdout
-        err_decoded = stderr.decode(errors="ignore") if isinstance(stderr, bytes) else stderr
+        # Prepare stdin (convert str to bytes if needed)
+        stdin_bytes = None
+        if stdin_input is not None:
+            stdin_bytes = stdin_input.encode("utf-8") if isinstance(stdin_input, str) else stdin_input
+
+        # Execute with optional timeout
+        try:
+            if timeout:
+                stdout, stderr = await asyncio.wait_for(sub_process.communicate(input=stdin_bytes), timeout=timeout)
+            else:
+                stdout, stderr = await sub_process.communicate(input=stdin_bytes)
+        except TimeoutError:
+            logger.error(f"{log_prefix} Command '{logged_command}' timed out after {timeout}s")
+            try:
+                sub_process.kill()
+                await sub_process.wait()
+            except Exception:
+                pass  # Process may already be dead
+            return False, "", f"Command timed out after {timeout}s"
+        # Ensure we always have strings, never None or bytes
+        out_decoded = stdout.decode(errors="ignore") if isinstance(stdout, bytes) else (stdout or "")
+        err_decoded = stderr.decode(errors="ignore") if isinstance(stderr, bytes) else (stderr or "")
+
+        # Redact secrets ONLY for logging, keep original for return value
+        # Callers may need to parse unredacted output
+        out_redacted = _redact_secrets(out_decoded, redact_secrets, mask_sensitive=mask_sensitive)
+        err_redacted = _redact_secrets(err_decoded, redact_secrets, mask_sensitive=mask_sensitive)
+
+        # Truncate output for error messages to prevent log explosion (logging only)
+        truncated_out = _truncate_output(out_redacted)
+        truncated_err = _truncate_output(err_redacted)
 
         error_msg = (
-            f"{log_prefix} Failed to run '{command}'. "
-            f"rc: {sub_process.returncode}, out: {out_decoded}, error: {err_decoded}"
+            f"{log_prefix} Failed to run '{logged_command}'. "
+            f"rc: {sub_process.returncode}, out: {truncated_out}, error: {truncated_err}"
         )
 
         if sub_process.returncode != 0:
@@ -162,14 +366,18 @@ async def run_command(
 
         return True, out_decoded, err_decoded
 
-    except Exception as ex:
-        logger.error(f"{log_prefix} Failed to run '{command}' command: {ex}")
+    except asyncio.CancelledError:
+        logger.debug(f"{log_prefix} Command '{logged_command}' cancelled")
+        raise
+    except (OSError, subprocess.SubprocessError, ValueError):
+        logger.exception(f"{log_prefix} Failed to run '{logged_command}' command")
         return False, out_decoded, err_decoded
 
 
 def get_apis_and_tokes_from_config(config: Config) -> list[tuple[github.Github, str]]:
     apis_and_tokens: list[tuple[github.Github, str]] = []
-    tokens = config.get_value(value="github-tokens")
+    # Guard against None tokens from config - default to empty list
+    tokens = config.get_value(value="github-tokens") or []
 
     for _token in tokens:
         apis_and_tokens.append((github.Github(auth=github.Auth.Token(_token)), _token))
@@ -193,7 +401,6 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
     api: github.Github | None = None
     token: str | None = None
     _api_user: str = ""
-    rate_limit: RateLimitOverview | None = None
 
     remaining = 0
 
@@ -205,6 +412,7 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
     logger.debug(msg)
 
     apis_and_tokens = get_apis_and_tokes_from_config(config=config)
+    logger.debug(f"Checking {len(apis_and_tokens)} API(s) for highest rate limit")
 
     for _api, _token in apis_and_tokens:
         if _api.rate_limiting[-1] == 60:
@@ -213,18 +421,18 @@ def get_api_with_highest_rate_limit(config: Config, repository_name: str = "") -
 
         try:
             _api_user = _api.get_user().login
-        except Exception as ex:
+        except GithubException as ex:
+            # This catches RateLimitExceededException as it's a subclass of GithubException
             logger.warning(f"Failed to get API user for API {_api}, skipping. {ex}")
             continue
 
         _rate_limit = _api.get_rate_limit()
+        log_rate_limit(rate_limit=_rate_limit, api_user=_api_user)
 
         if _rate_limit.rate.remaining > remaining:
             remaining = _rate_limit.rate.remaining
-            api, token, _api_user, rate_limit = _api, _token, _api_user, _rate_limit
-
-    if rate_limit:
-        log_rate_limit(rate_limit=rate_limit, api_user=_api_user)
+            api, token, _api_user = _api, _token, _api_user
+            logger.debug(f"API user {_api_user} has higher rate limit ({remaining}), updating selection")
 
     if not _api_user or not api or not token:
         raise NoApiTokenError("Failed to get API with highest rate limit")
@@ -237,7 +445,8 @@ def log_rate_limit(rate_limit: RateLimitOverview, api_user: str) -> None:
     logger = get_logger_with_params()
 
     rate_limit_str: str
-    time_for_limit_reset: int = (rate_limit.rate.reset - datetime.datetime.now(tz=datetime.timezone.utc)).seconds
+    delta = rate_limit.rate.reset - datetime.datetime.now(tz=datetime.UTC)
+    time_for_limit_reset = max(int(delta.total_seconds()), 0)
     below_minimum: bool = rate_limit.rate.remaining < 700
 
     if below_minimum:
@@ -252,14 +461,14 @@ def log_rate_limit(rate_limit: RateLimitOverview, api_user: str) -> None:
     msg = (
         f"{Fore.CYAN}[{api_user}] API rate limit:{Fore.RESET} Current {rate_limit_str} of {rate_limit.rate.limit}. "
         f"Reset in {rate_limit.rate.reset} [{datetime.timedelta(seconds=time_for_limit_reset)}] "
-        f"(UTC time is {datetime.datetime.now(tz=datetime.timezone.utc)})"
+        f"(UTC time is {datetime.datetime.now(tz=datetime.UTC)})"
     )
     logger.debug(msg)
     if below_minimum:
         logger.warning(msg)
 
 
-def get_future_results(futures: list["Future"]) -> None:
+def get_future_results(futures: list[Future]) -> None:
     """
     result must return tuple[bool, str, Callable] when the Callable is Logger function (LOGGER.info, LOGGER.error, etc)
     """
@@ -357,10 +566,10 @@ def prepare_log_prefix(
     else:
         repository_color = repository_name or ""
 
-    # Build prefix components
-    components = [event_type, delivery_id]
+    # Build prefix components (sanitize to prevent log injection)
+    components = [_sanitize_log_value(event_type), _sanitize_log_value(delivery_id)]
     if api_user:
-        components.append(api_user)
+        components.append(_sanitize_log_value(api_user))
 
     prefix = f"{repository_color} [{']['.join(components)}]"
 

@@ -145,7 +145,7 @@ class TestGetRequiredStatusChecks:
         """Test getting required status checks with basic configuration."""
         mock_repo = Mock()
         # Patch get_contents to raise exception so 'pre-commit.ci - pr' is not added
-        mock_repo.get_contents.side_effect = Exception()
+        mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
         data: dict = {}
         default_status_checks: list[str] = ["basic-check"]
         exclude_status_checks: list[str] = []
@@ -231,7 +231,7 @@ class TestGetRequiredStatusChecks:
         """Test getting required status checks with exclusions."""
         mock_repo = Mock()
         # Patch get_contents to raise exception so 'pre-commit.ci - pr' is not added
-        mock_repo.get_contents.side_effect = Exception()
+        mock_repo.get_contents.side_effect = UnknownObjectException(status=404, data={}, headers={})
         data: dict = {"tox": True}
         default_status_checks: list[str] = ["tox", "verified"]
         exclude_status_checks: list[str] = ["tox"]

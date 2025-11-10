@@ -2,8 +2,9 @@ from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 import yaml
+from github.GithubException import GithubException
 
-from webhook_server.libs.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.tests.conftest import ContentFile
 
 
@@ -305,32 +306,28 @@ class TestOwnersFileHandler:
     @pytest.mark.asyncio
     async def test_get_all_pull_request_approvers(self, owners_file_handler: OwnersFileHandler) -> None:
         """Test get_all_pull_request_approvers method."""
-        owners_file_handler.changed_files = ["file1.py"]
+        owners_file_handler.changed_files = ["file1.py", "folder1/file2.py"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {
+            ".": {"approvers": ["user1", "user2"], "reviewers": ["user3"]},
+            "folder1": {"approvers": ["user4"], "reviewers": ["user5"]},
+        }
 
-        with patch.object(owners_file_handler, "owners_data_for_changed_files") as mock_owners_data:
-            mock_owners_data.return_value = {
-                ".": {"approvers": ["user1", "user2"], "reviewers": ["user3"]},
-                "folder1": {"approvers": ["user4"], "reviewers": ["user5"]},
-            }
+        result = await owners_file_handler.get_all_pull_request_approvers()
 
-            result = await owners_file_handler.get_all_pull_request_approvers()
-
-            assert result == ["user1", "user2", "user4"]
+        assert result == ["user1", "user2", "user4"]
 
     @pytest.mark.asyncio
     async def test_get_all_pull_request_reviewers(self, owners_file_handler: OwnersFileHandler) -> None:
         """Test get_all_pull_request_reviewers method."""
-        owners_file_handler.changed_files = ["file1.py"]
+        owners_file_handler.changed_files = ["file1.py", "folder1/file2.py"]
+        owners_file_handler.all_repository_approvers_and_reviewers = {
+            ".": {"approvers": ["user1"], "reviewers": ["user2", "user3"]},
+            "folder1": {"approvers": ["user4"], "reviewers": ["user5"]},
+        }
 
-        with patch.object(owners_file_handler, "owners_data_for_changed_files") as mock_owners_data:
-            mock_owners_data.return_value = {
-                ".": {"approvers": ["user1"], "reviewers": ["user2", "user3"]},
-                "folder1": {"approvers": ["user4"], "reviewers": ["user5"]},
-            }
+        result = await owners_file_handler.get_all_pull_request_reviewers()
 
-            result = await owners_file_handler.get_all_pull_request_reviewers()
-
-            assert result == ["user2", "user3", "user5"]
+        assert result == ["user2", "user3", "user5"]
 
     @pytest.mark.asyncio
     async def test_owners_data_for_changed_files(self, owners_file_handler: OwnersFileHandler) -> None:
@@ -354,7 +351,7 @@ class TestOwnersFileHandler:
             },
         }
 
-        result = await owners_file_handler.owners_data_for_changed_files()
+        result = await owners_file_handler.owners_data_for_changed_files
 
         expected = {
             "folder1": {"approvers": ["folder1_approver1"], "reviewers": ["folder1_reviewer1"]},
@@ -384,7 +381,7 @@ class TestOwnersFileHandler:
             },
         }
 
-        result = await owners_file_handler.owners_data_for_changed_files()
+        result = await owners_file_handler.owners_data_for_changed_files
 
         expected = {
             "folder5": {
@@ -395,6 +392,72 @@ class TestOwnersFileHandler:
             ".": {"approvers": ["root_approver1"], "reviewers": ["root_reviewer1"]},
         }
         assert result == expected
+
+    @pytest.mark.asyncio
+    async def test_owners_data_for_changed_files_caching(self, owners_file_handler: OwnersFileHandler) -> None:
+        """Test that owners_data_for_changed_files caches results using @functools.cached_property."""
+        # Set up test data
+        owners_file_handler.changed_files = [
+            "folder1/file1.py",
+            "folder2/file2.py",
+        ]
+        owners_file_handler.all_repository_approvers_and_reviewers = {
+            ".": {"approvers": ["root_approver1"], "reviewers": ["root_reviewer1"]},
+            "folder1": {"approvers": ["folder1_approver1"], "reviewers": ["folder1_reviewer1"]},
+            "folder2": {},
+        }
+
+        # First call - computes and caches
+        result1 = await owners_file_handler.owners_data_for_changed_files
+
+        # Verify result is correct
+        expected = {
+            "folder1": {"approvers": ["folder1_approver1"], "reviewers": ["folder1_reviewer1"]},
+            "folder2": {},
+            ".": {"approvers": ["root_approver1"], "reviewers": ["root_reviewer1"]},
+        }
+        assert result1 == expected
+
+        # Second call - should return cached result (same object reference)
+        result2 = await owners_file_handler.owners_data_for_changed_files
+
+        # Verify cache returns same result and same object reference
+        assert result2 == result1
+        assert result2 is result1  # Same object reference (cached by @functools.cached_property)
+
+    @pytest.mark.asyncio
+    async def test_owners_data_for_changed_files_cache_independence(self, mock_github_webhook: Mock) -> None:
+        """Test that different OwnersFileHandler instances have independent caches using @functools.cached_property."""
+        # Create two separate instances
+        handler1 = OwnersFileHandler(mock_github_webhook)
+        handler2 = OwnersFileHandler(mock_github_webhook)
+
+        # Set up different data for each handler
+        handler1.changed_files = ["folder1/file1.py"]
+        handler1.all_repository_approvers_and_reviewers = {
+            ".": {"approvers": ["approver1"], "reviewers": ["reviewer1"]},
+            "folder1": {"approvers": ["folder1_approver"], "reviewers": ["folder1_reviewer"]},
+        }
+
+        handler2.changed_files = ["folder2/file2.py"]
+        handler2.all_repository_approvers_and_reviewers = {
+            ".": {"approvers": ["approver2"], "reviewers": ["reviewer2"]},
+            "folder2": {"approvers": ["folder2_approver"], "reviewers": ["folder2_reviewer"]},
+        }
+
+        # Get results from both handlers
+        result1 = await handler1.owners_data_for_changed_files
+        result2 = await handler2.owners_data_for_changed_files
+
+        # Verify they have independent results
+        assert result1 != result2
+        assert "folder1" in result1
+        assert "folder2" in result2
+        assert "folder2" not in result1
+        assert "folder1" not in result2
+
+        # Verify results are not the same object (independent caches)
+        assert result1 is not result2
 
     @pytest.mark.asyncio
     async def test_assign_reviewers(self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock) -> None:
@@ -408,6 +471,20 @@ class TestOwnersFileHandler:
             expected_calls = [call(["reviewer1"]), call(["reviewer2"])]
             actual_calls = mock_create_request.call_args_list
             assert sorted(actual_calls, key=str) == sorted(expected_calls, key=str)
+            # Verify completion log was called
+            assert owners_file_handler.logger.step.called  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_assign_reviewers_no_reviewers(
+        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test assigning reviewers when no reviewers to assign."""
+        owners_file_handler.changed_files = ["file1.py"]
+        owners_file_handler.all_pull_request_reviewers = []
+
+        await owners_file_handler.assign_reviewers(mock_pull_request)
+        # Verify completion log was called (no reviewers to assign is acceptable)
+        assert owners_file_handler.logger.step.called  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio
     async def test_assign_reviewers_github_exception(
@@ -417,8 +494,6 @@ class TestOwnersFileHandler:
         owners_file_handler.changed_files = ["file1.py"]
         owners_file_handler.all_pull_request_reviewers = ["reviewer1"]
         mock_pull_request.user.login = "test-user"
-
-        from github.GithubException import GithubException
 
         with patch.object(mock_pull_request, "create_review_request", side_effect=GithubException(404, "Not found")):
             with patch.object(mock_pull_request, "create_issue_comment") as mock_comment:

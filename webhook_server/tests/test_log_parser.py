@@ -3,7 +3,9 @@
 import asyncio
 import contextlib
 import datetime
+import logging
 import tempfile
+import unittest.mock
 from pathlib import Path
 
 import pytest
@@ -25,7 +27,7 @@ class TestLogParser:
         entry = parser.parse_log_entry(log_line)
 
         assert entry is not None
-        assert entry.timestamp == datetime.datetime(2025, 7, 31, 10, 30, 0, 123000)
+        assert entry.timestamp == datetime.datetime(2025, 7, 31, 10, 30, 0, 123000, tzinfo=datetime.UTC)
         assert entry.level == "INFO"
         assert entry.logger_name == "GithubWebhook"
         assert entry.hook_id == "abc123-def456"
@@ -60,7 +62,7 @@ class TestLogParser:
         entry = parser.parse_log_entry(log_line)
 
         assert entry is not None
-        assert entry.timestamp == datetime.datetime(2025, 7, 31, 12, 45, 0, 789000)
+        assert entry.timestamp == datetime.datetime(2025, 7, 31, 12, 45, 0, 789000, tzinfo=datetime.UTC)
         assert entry.level == "WARNING"
         assert entry.logger_name == "helpers"
         assert entry.hook_id is None
@@ -72,14 +74,16 @@ class TestLogParser:
         """Test parsing production log entry with ANSI color codes from prepare_log_prefix format."""
         log_line = (
             "2025-07-21T06:05:48.278206 GithubWebhook \x1b[32mINFO\x1b[0m "
-            "\x1b[38;5;160mgithub-webhook-server\x1b[0m [check_run][9948e8d0-65df-11f0-9e82-d8c2969b6368][myakove-bot]: Processing webhook\x1b[0m"
+            "\x1b[38;5;160mgithub-webhook-server\x1b[0m "
+            "[check_run][9948e8d0-65df-11f0-9e82-d8c2969b6368][myakove-bot]: "
+            "Processing webhook\x1b[0m"
         )
 
         parser = LogParser()
         entry = parser.parse_log_entry(log_line)
 
         assert entry is not None
-        assert entry.timestamp == datetime.datetime(2025, 7, 21, 6, 5, 48, 278206)
+        assert entry.timestamp == datetime.datetime(2025, 7, 21, 6, 5, 48, 278206, tzinfo=datetime.UTC)
         assert entry.level == "INFO"
         assert entry.logger_name == "GithubWebhook"
         assert entry.hook_id == "9948e8d0-65df-11f0-9e82-d8c2969b6368"
@@ -93,14 +97,16 @@ class TestLogParser:
         """Test parsing production DEBUG log entry with ANSI color codes from prepare_log_prefix format."""
         log_line = (
             "2025-07-21T06:05:48.290851 GithubWebhook \x1b[36mDEBUG\x1b[0m "
-            "\x1b[38;5;160mgithub-webhook-server\x1b[0m [check_run][9948e8d0-65df-11f0-9e82-d8c2969b6368][myakove-bot]: Signature verification successful\x1b[0m"
+            "\x1b[38;5;160mgithub-webhook-server\x1b[0m "
+            "[check_run][9948e8d0-65df-11f0-9e82-d8c2969b6368][myakove-bot]: "
+            "Signature verification successful\x1b[0m"
         )
 
         parser = LogParser()
         entry = parser.parse_log_entry(log_line)
 
         assert entry is not None
-        assert entry.timestamp == datetime.datetime(2025, 7, 21, 6, 5, 48, 290851)
+        assert entry.timestamp == datetime.datetime(2025, 7, 21, 6, 5, 48, 290851, tzinfo=datetime.UTC)
         assert entry.level == "DEBUG"
         assert entry.logger_name == "GithubWebhook"
         assert entry.hook_id == "9948e8d0-65df-11f0-9e82-d8c2969b6368"
@@ -121,7 +127,7 @@ class TestLogParser:
         entry = parser.parse_log_entry(log_line)
 
         assert entry is not None
-        assert entry.timestamp == datetime.datetime(2025, 7, 21, 6, 5, 53, 415209)
+        assert entry.timestamp == datetime.datetime(2025, 7, 21, 6, 5, 53, 415209, tzinfo=datetime.UTC)
         assert entry.level == "DEBUG"
         assert entry.logger_name == "GithubWebhook"
         assert entry.hook_id == "96d21c70-65df-11f0-89ca-d82effeb540d"
@@ -150,12 +156,19 @@ class TestLogParser:
 
     def test_parse_log_file(self) -> None:
         """Test parsing multiple log entries from a file."""
-        log_content = """2025-07-31T10:00:00.000000 GithubWebhook INFO test-repo [push][delivery1][user1]: Start processing
-2025-07-31T10:00:01.000000 GithubWebhook DEBUG test-repo [push][delivery1][user1]: Validating signature
-2025-07-31T10:00:02.000000 GithubWebhook INFO test-repo [push][delivery1][user1]: Processing complete
-2025-07-31T10:01:00.000000 GithubWebhook INFO test-repo [pull_request][delivery2][user2][PR 456]: Processing webhook
-Invalid log line
-2025-07-31T10:01:05.000000 GithubWebhook ERROR test-repo [pull_request][delivery2][user2][PR 456]: Processing failed"""
+        log_content = (
+            "2025-07-31T10:00:00.000000 GithubWebhook INFO test-repo "
+            "[push][delivery1][user1]: Start processing\n"
+            "2025-07-31T10:00:01.000000 GithubWebhook DEBUG test-repo "
+            "[push][delivery1][user1]: Validating signature\n"
+            "2025-07-31T10:00:02.000000 GithubWebhook INFO test-repo "
+            "[push][delivery1][user1]: Processing complete\n"
+            "2025-07-31T10:01:00.000000 GithubWebhook INFO test-repo "
+            "[pull_request][delivery2][user2][PR 456]: Processing webhook\n"
+            "Invalid log line\n"
+            "2025-07-31T10:01:05.000000 GithubWebhook ERROR test-repo "
+            "[pull_request][delivery2][user2][PR 456]: Processing failed"
+        )
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".log", delete=False) as f:
             f.write(log_content)
@@ -176,8 +189,6 @@ Invalid log line
 
     def test_parse_log_file_error_logging(self, caplog) -> None:
         """Test that OSError and UnicodeDecodeError are properly logged."""
-        import logging
-        import unittest.mock
 
         # Set log level to capture ERROR messages
         caplog.set_level(logging.ERROR)
@@ -245,7 +256,7 @@ Invalid log line
             # Wait for the tail to collect entries with timeout
             try:
                 await asyncio.wait_for(tail_task, timeout=2.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # Cancel the task and wait for it to complete
                 tail_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -520,6 +531,10 @@ class TestLogEntry:
             "repository": "org/repo",
             "pr_number": None,
             "github_user": None,
+            "task_id": None,
+            "task_type": None,
+            "task_status": None,
+            "token_spend": None,
         }
 
         assert result == expected
@@ -557,25 +572,27 @@ class TestWorkflowSteps:
     """Test class for workflow step related functionality."""
 
     def test_is_workflow_step_true(self) -> None:
-        """Test is_workflow_step method with STEP level entries."""
+        """Test is_workflow_step method with entries that have task_id and task_status."""
         parser = LogParser()
 
         step_entry = LogEntry(
-            timestamp="2025-07-31T12:00:00",
-            level="STEP",
+            timestamp=datetime.datetime(2025, 7, 31, 12, 0, 0),
+            level="INFO",
             logger_name="test_logger",
             message="Starting CI/CD workflow",
             hook_id="hook-123",
+            task_id="webhook_processing",
+            task_status="started",
         )
 
         assert parser.is_workflow_step(step_entry) is True
 
     def test_is_workflow_step_false(self) -> None:
-        """Test is_workflow_step method with non-STEP level entries."""
+        """Test is_workflow_step method with entries that don't have task_id and task_status."""
         parser = LogParser()
 
         info_entry = LogEntry(
-            timestamp="2025-07-31T12:00:00",
+            timestamp=datetime.datetime(2025, 7, 31, 12, 0, 0),
             level="INFO",
             logger_name="test_logger",
             message="Regular info message",
@@ -583,7 +600,7 @@ class TestWorkflowSteps:
         )
 
         debug_entry = LogEntry(
-            timestamp="2025-07-31T12:00:00",
+            timestamp=datetime.datetime(2025, 7, 31, 12, 0, 0),
             level="DEBUG",
             logger_name="test_logger",
             message="Debug message",
@@ -594,46 +611,52 @@ class TestWorkflowSteps:
         assert parser.is_workflow_step(debug_entry) is False
 
     def test_extract_workflow_steps_with_matching_hook_id(self) -> None:
-        """Test extract_workflow_steps with entries matching hook_id."""
+        """Test extract_workflow_steps with entries matching hook_id and having task fields."""
         parser = LogParser()
         target_hook_id = "hook-123"
 
         entries = [
             LogEntry(
-                timestamp="2025-07-31T12:00:00",
-                level="STEP",
+                timestamp=datetime.datetime(2025, 7, 31, 12, 0, 0),
+                level="INFO",
                 logger_name="test_logger",
                 message="Starting workflow",
                 hook_id=target_hook_id,
+                task_id="webhook_processing",
+                task_status="started",
             ),
             LogEntry(
-                timestamp="2025-07-31T12:00:01",
+                timestamp=datetime.datetime(2025, 7, 31, 12, 0, 1),
                 level="INFO",
                 logger_name="test_logger",
                 message="Regular info message",
                 hook_id=target_hook_id,
             ),
             LogEntry(
-                timestamp="2025-07-31T12:00:02",
-                level="STEP",
+                timestamp=datetime.datetime(2025, 7, 31, 12, 0, 2),
+                level="INFO",
                 logger_name="test_logger",
                 message="Processing stage",
                 hook_id=target_hook_id,
+                task_id="webhook_processing",
+                task_status="processing",
             ),
             LogEntry(
-                timestamp="2025-07-31T12:00:03",
-                level="STEP",
+                timestamp=datetime.datetime(2025, 7, 31, 12, 0, 3),
+                level="INFO",
                 logger_name="test_logger",
                 message="Different hook workflow",
                 hook_id="hook-456",
+                task_id="webhook_processing",
+                task_status="started",
             ),
         ]
 
         workflow_steps = parser.extract_workflow_steps(entries, target_hook_id)
 
         assert len(workflow_steps) == 2
-        assert all(step.level == "STEP" for step in workflow_steps)
         assert all(step.hook_id == target_hook_id for step in workflow_steps)
+        assert all(step.task_id is not None and step.task_status is not None for step in workflow_steps)
         assert workflow_steps[0].message == "Starting workflow"
         assert workflow_steps[1].message == "Processing stage"
 
@@ -644,18 +667,20 @@ class TestWorkflowSteps:
 
         entries = [
             LogEntry(
-                timestamp="2025-07-31T12:00:00",
+                timestamp=datetime.datetime(2025, 7, 31, 12, 0, 0),
                 level="INFO",
                 logger_name="test_logger",
                 message="Regular info message",
                 hook_id=target_hook_id,
             ),
             LogEntry(
-                timestamp="2025-07-31T12:00:01",
-                level="STEP",
+                timestamp=datetime.datetime(2025, 7, 31, 12, 0, 1),
+                level="INFO",
                 logger_name="test_logger",
                 message="Different hook workflow",
                 hook_id="hook-456",
+                task_id="webhook_processing",
+                task_status="started",
             ),
         ]
 
@@ -670,3 +695,66 @@ class TestWorkflowSteps:
         workflow_steps = parser.extract_workflow_steps([], "hook-123")
 
         assert len(workflow_steps) == 0
+
+    def test_extract_token_spend_original_format(self) -> None:
+        """Test extracting token spend from original log format."""
+        parser = LogParser()
+        message = "Token spend: 35 API calls (initial: 2831, final: 2796, remaining: 2796)"
+
+        result = parser.extract_token_spend(message)
+
+        assert result == 35
+
+    def test_extract_token_spend_masked_format(self) -> None:
+        """Test extracting token spend from masked log format (when 'token' is redacted)."""
+        parser = LogParser()
+        message = "token *****  23 API calls (initial: 2103, final: 2080, remaining: 2080)"
+
+        result = parser.extract_token_spend(message)
+
+        assert result == 23
+
+    def test_extract_token_spend_masked_format_with_colon(self) -> None:
+        """Test extracting token spend from masked format with colon."""
+        parser = LogParser()
+        message = "token *****: 50 API calls (initial: 2269, final: 2219, remaining: 2219)"
+
+        result = parser.extract_token_spend(message)
+
+        assert result == 50
+
+    def test_extract_token_spend_not_found(self) -> None:
+        """Test extracting token spend when pattern is not found."""
+        parser = LogParser()
+        message = "Some other log message without token spend"
+
+        result = parser.extract_token_spend(message)
+
+        assert result is None
+
+    def test_extract_token_spend_invalid_number(self) -> None:
+        """Test extracting token spend with invalid number format."""
+        parser = LogParser()
+        # This shouldn't happen in practice, but test the ValueError handling
+        # We'll use a pattern that matches but group(1) would cause ValueError if not int
+        message = "Token spend: abc API calls"
+
+        result = parser.extract_token_spend(message)
+
+        # The regex won't match "abc" as a number, so it should return None
+        assert result is None
+
+    def test_parse_log_entry_with_token_spend(self) -> None:
+        """Test parsing log entry that contains token spend information."""
+        parser = LogParser()
+        log_line = (
+            "2025-11-07T14:43:56.299809 GithubWebhook INFO "
+            "github-webhook-server [issue_comment][6143a030-bbd7-11f0-95bd-b07354b8711c][myakove-bot][PR 890]: "
+            "token *****  23 API calls (initial: 2103, final: 2080, remaining: 2080)"
+        )
+
+        entry = parser.parse_log_entry(log_line)
+
+        assert entry is not None
+        assert entry.token_spend == 23
+        assert entry.hook_id == "6143a030-bbd7-11f0-95bd-b07354b8711c"

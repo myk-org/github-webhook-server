@@ -5,6 +5,7 @@ from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from github.GithubException import GithubException
 from simple_logger.logger import get_logger
 from starlette.datastructures import Headers
 
@@ -203,13 +204,10 @@ class TestGithubWebhook:
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
-    @patch("webhook_server.libs.pull_request_handler.PullRequestHandler.process_pull_request_webhook_data")
+    @patch("webhook_server.libs.handlers.pull_request_handler.PullRequestHandler.process_pull_request_webhook_data")
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.libs.config.Config.repository_local_data")
-    @patch(
-        "webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users",
-        new_callable=lambda: property(lambda self: None),
-    )
+    @patch("webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users")
     async def test_process_pull_request_event(
         self,
         mock_auto_verified_prop: Mock,
@@ -270,13 +268,10 @@ class TestGithubWebhook:
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
-    @patch("webhook_server.libs.push_handler.PushHandler.process_push_webhook_data")
+    @patch("webhook_server.libs.handlers.push_handler.PushHandler.process_push_webhook_data")
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.libs.config.Config.repository_local_data")
-    @patch(
-        "webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users",
-        new_callable=lambda: property(lambda self: None),
-    )
+    @patch("webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users")
     async def test_process_push_event(
         self,
         mock_auto_verified_prop: Mock,
@@ -310,13 +305,10 @@ class TestGithubWebhook:
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
-    @patch("webhook_server.libs.issue_comment_handler.IssueCommentHandler.process_comment_webhook_data")
+    @patch("webhook_server.libs.handlers.issue_comment_handler.IssueCommentHandler.process_comment_webhook_data")
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.libs.config.Config.repository_local_data")
-    @patch(
-        "webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users",
-        new_callable=lambda: property(lambda self: None),
-    )
+    @patch("webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users")
     async def test_process_issue_comment_event(
         self,
         mock_auto_verified_prop: Mock,
@@ -379,10 +371,7 @@ class TestGithubWebhook:
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.libs.config.Config.repository_local_data")
-    @patch(
-        "webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users",
-        new_callable=lambda: property(lambda self: None),
-    )
+    @patch("webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users")
     async def test_process_unsupported_event(
         self,
         mock_auto_verified_prop: Mock,
@@ -645,7 +634,7 @@ class TestGithubWebhook:
         mock_api.get_user.return_value = mock_user
         mock_get_apis.return_value = [(mock_api, "token")]
         gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
-        gh.add_api_users_to_auto_verified_and_merged_users
+        _ = gh.add_api_users_to_auto_verified_and_merged_users
         assert "test-user" in gh.auto_verified_and_merged_users
 
     @patch("webhook_server.libs.github_api.get_apis_and_tokes_from_config")
@@ -797,7 +786,6 @@ class TestGithubWebhook:
         self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
     ) -> None:
         """Test getting pull request with GithubException."""
-        from github import GithubException
 
         with patch("webhook_server.libs.github_api.Config") as mock_config:
             mock_config.return_value.repository = True
@@ -968,70 +956,6 @@ class TestGithubWebhook:
 
                             result = gh.container_repository_and_tag()
                             assert result is None
-
-    @patch("webhook_server.libs.github_api.requests.post")
-    def test_send_slack_message_success(
-        self, mock_post: Mock, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
-    ) -> None:
-        """Test sending slack message successfully."""
-        with patch("webhook_server.libs.github_api.Config") as mock_config:
-            mock_config.return_value.repository = True
-            mock_config.return_value.repository_local_data.return_value = {}
-
-            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
-
-                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
-                    mock_get_repo_api.return_value = Mock()
-
-                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
-                        mock_get_app_api.return_value = Mock()
-
-                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
-                            mock_color.return_value = "test-repo"
-
-                            mock_response = Mock()
-                            mock_response.status_code = 200
-                            mock_post.return_value = mock_response
-
-                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
-                            gh.send_slack_message("Test message", "https://hooks.slack.com/test")
-
-                            mock_post.assert_called_once()
-                            call_args = mock_post.call_args
-                            assert call_args[0][0] == "https://hooks.slack.com/test"
-                            assert "Test message" in call_args[1]["data"]
-
-    @patch("webhook_server.libs.github_api.requests.post")
-    def test_send_slack_message_failure(
-        self, mock_post: Mock, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
-    ) -> None:
-        """Test sending slack message with failure."""
-        with patch("webhook_server.libs.github_api.Config") as mock_config:
-            mock_config.return_value.repository = True
-            mock_config.return_value.repository_local_data.return_value = {}
-
-            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
-
-                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
-                    mock_get_repo_api.return_value = Mock()
-
-                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
-                        mock_get_app_api.return_value = Mock()
-
-                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
-                            mock_color.return_value = "test-repo"
-
-                            mock_response = Mock()
-                            mock_response.status_code = 400
-                            mock_response.text = "Bad Request"
-                            mock_post.return_value = mock_response
-
-                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
-
-                            with pytest.raises(ValueError, match="Request to slack returned an error 400"):
-                                gh.send_slack_message("Test message", "https://hooks.slack.com/test")
 
     def test_current_pull_request_supported_retest_property(
         self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock

@@ -46,6 +46,13 @@ if __name__ == "__main__":
     run_podman_cleanup()
 
     result = asyncio.run(repository_and_webhook_settings(webhook_secret=_webhook_secret))
+
+    # Logging Configuration:
+    # - Uvicorn uses default logging which automatically respects FORCE_COLOR environment variable
+    #   for colored terminal output (useful for Docker logs with color support)
+    # - Application logs use simple-logger with console=True for colored output in Docker logs
+    # - Both logging systems work together: uvicorn handles HTTP request logs,
+    #   while simple-logger handles application-level logs with structured formatting
     uvicorn.run(
         "webhook_server.app:FASTAPI_APP",
         host=_ip_bind,

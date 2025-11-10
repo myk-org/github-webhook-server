@@ -10,10 +10,13 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastapi import HTTPException
+from fastapi.responses import HTMLResponse
 from fastapi.testclient import TestClient
 from fastapi.websockets import WebSocketDisconnect
 
+from webhook_server.app import FASTAPI_APP
 from webhook_server.libs.log_parser import LogEntry
+from webhook_server.web.log_viewer import LogViewerController
 
 
 class TestLogViewerController:
@@ -27,7 +30,6 @@ class TestLogViewerController:
     @pytest.fixture
     def controller(self, mock_logger):
         """Create a LogViewerController instance for testing."""
-        from webhook_server.web.log_viewer import LogViewerController
 
         with patch("webhook_server.web.log_viewer.Config") as mock_config:
             mock_config_instance = Mock()
@@ -79,11 +81,12 @@ class TestLogViewerController:
             assert "Test" in response.body.decode()
 
     def test_get_log_page_file_not_found(self, controller):
-        """Test log page when template file not found."""
-        with patch.object(controller, "_get_log_viewer_html", side_effect=FileNotFoundError):
-            with pytest.raises(HTTPException) as exc:
-                controller.get_log_page()
-            assert exc.value.status_code == 404
+        """Test log page when template file not found - should return fallback HTML."""
+        # _get_log_viewer_html now returns fallback HTML instead of raising FileNotFoundError
+        with patch.object(controller, "_get_log_viewer_html", return_value="<html>fallback</html>"):
+            result = controller.get_log_page()
+            assert isinstance(result, HTMLResponse)
+            assert result.body.decode() == "<html>fallback</html>"
 
     def test_get_log_page_error(self, controller):
         """Test log page with generic error."""
@@ -283,6 +286,114 @@ class TestLogViewerController:
                 with patch.object(controller, "_build_workflow_timeline", return_value={"test": "data"}):
                     result = controller.get_workflow_steps("hook1")
                     assert result == {"test": "data"}
+
+    def test_get_workflow_steps_with_token_spend(self, controller):
+        """Test workflow steps with token spend logging."""
+        hook_id = "test-hook-123"
+        entries_with_context = [
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 0, 0),
+                level="STEP",
+                logger_name="main",
+                message="Step 1",
+                hook_id=hook_id,
+                repository="test-repo",
+                event_type="pull_request",
+                github_user="test-user",
+                pr_number=123,
+            ),
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 0, 1),
+                level="INFO",
+                logger_name="main",
+                message="token spend log",
+                hook_id=hook_id,
+                repository="test-repo",
+                event_type="pull_request",
+                github_user="test-user",
+                pr_number=123,
+                token_spend=25,
+            ),
+        ]
+        workflow_steps = [entries_with_context[0]]
+
+        with patch.object(controller, "_stream_log_entries", return_value=entries_with_context):
+            with patch.object(controller.log_parser, "extract_workflow_steps", return_value=workflow_steps):
+                with patch.object(controller, "_build_workflow_timeline", return_value={"test": "data"}):
+                    result = controller.get_workflow_steps(hook_id)
+                    assert result == {"test": "data", "token_spend": 25}
+                    # Verify logger.info was called with structured format
+                    assert controller.logger.info.called
+                    call_args = controller.logger.info.call_args[0][0]
+                    assert hook_id in call_args
+                    assert "test-repo" in call_args or "[pull_request]" in call_args
+
+    def test_get_workflow_steps_token_spend_extraction_fallback(self, controller):
+        """Test token spend extraction fallback when token_spend is None."""
+        hook_id = "test-hook-456"
+        entries_with_keywords = [
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 0, 0),
+                level="STEP",
+                logger_name="main",
+                message="Step 1",
+                hook_id=hook_id,
+                repository="test-repo",
+                event_type="check_run",
+                github_user="test-user",
+                pr_number=456,
+            ),
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 0, 1),
+                level="INFO",
+                logger_name="main",
+                message="token ***** 30 API calls (initial: 1000, final: 970, remaining: 970)",
+                hook_id=hook_id,
+                repository="test-repo",
+                event_type="check_run",
+                github_user="test-user",
+                pr_number=456,
+                token_spend=None,  # Not parsed initially
+            ),
+        ]
+        workflow_steps = [entries_with_keywords[0]]
+
+        with patch.object(controller, "_stream_log_entries", return_value=entries_with_keywords):
+            with patch.object(controller.log_parser, "extract_workflow_steps", return_value=workflow_steps):
+                with patch.object(controller.log_parser, "extract_token_spend", return_value=30):
+                    with patch.object(controller, "_build_workflow_timeline", return_value={"test": "data"}):
+                        result = controller.get_workflow_steps(hook_id)
+                        assert result == {"test": "data", "token_spend": 30}
+                        # Verify logger.warning and logger.info were called
+                        assert controller.logger.warning.called
+                        assert controller.logger.info.called
+
+    def test_get_workflow_steps_token_spend_no_context(self, controller):
+        """Test token spend logging when context is missing."""
+        hook_id = "test-hook-789"
+        entries_minimal = [
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 0, 0),
+                level="STEP",
+                logger_name="main",
+                message="Step 1",
+                hook_id=hook_id,
+                repository=None,
+                event_type=None,
+                github_user=None,
+                pr_number=None,
+                token_spend=15,
+            ),
+        ]
+        workflow_steps = [entries_minimal[0]]
+
+        with patch.object(controller, "_stream_log_entries", return_value=entries_minimal):
+            with patch.object(controller.log_parser, "extract_workflow_steps", return_value=workflow_steps):
+                with patch.object(controller, "_build_workflow_timeline", return_value={"test": "data"}):
+                    result = controller.get_workflow_steps(hook_id)
+                    assert result == {"test": "data", "token_spend": 15}
+                    # Should still log even without full context
+                    assert controller.logger.info.called
 
     def test_get_workflow_steps_not_found(self, controller):
         """Test workflow steps when not found."""
@@ -491,7 +602,6 @@ class TestLogAPI:
         with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
             mock_instance = Mock()
             mock_controller.return_value = mock_instance
-            from fastapi.responses import HTMLResponse
 
             mock_instance.get_log_page.return_value = HTMLResponse(content="<html><body>Log Viewer</body></html>")
             mock_instance.shutdown = AsyncMock()  # Add async shutdown method
@@ -510,8 +620,6 @@ class TestLogAPI:
                     ) as mock_cloudflare:
                         mock_github.return_value = []
                         mock_cloudflare.return_value = []
-
-                        from webhook_server.app import FASTAPI_APP
 
                         with TestClient(FASTAPI_APP) as client:
                             response = client.get("/logs")
@@ -835,9 +943,6 @@ class TestLogWebSocket:
     @pytest.mark.asyncio
     async def test_websocket_handle_real_implementation(self):
         """Test actual WebSocket handler implementation."""
-        from unittest.mock import Mock
-
-        from webhook_server.web.log_viewer import LogViewerController
 
         mock_logger = Mock()
         controller = LogViewerController(logger=mock_logger)
@@ -860,7 +965,6 @@ class TestLogWebSocket:
     @pytest.mark.asyncio
     async def test_websocket_handle_with_log_monitoring(self):
         """Test WebSocket handler with log monitoring."""
-        from webhook_server.web.log_viewer import LogViewerController
 
         mock_logger = Mock()
         controller = LogViewerController(logger=mock_logger)
@@ -897,7 +1001,6 @@ class TestLogWebSocket:
     @pytest.mark.asyncio
     async def test_shutdown_websocket_cleanup(self):
         """Test shutdown method properly closes all WebSocket connections."""
-        from webhook_server.web.log_viewer import LogViewerController
 
         mock_logger = Mock()
         controller = LogViewerController(logger=mock_logger)
@@ -932,7 +1035,6 @@ class TestLogWebSocket:
     @pytest.mark.asyncio
     async def test_shutdown_websocket_close_error_handling(self):
         """Test shutdown method handles WebSocket close errors gracefully."""
-        from webhook_server.web.log_viewer import LogViewerController
 
         mock_logger = Mock()
         controller = LogViewerController(logger=mock_logger)
@@ -970,7 +1072,6 @@ class TestLogWebSocket:
     @pytest.mark.asyncio
     async def test_shutdown_empty_connections(self):
         """Test shutdown method works correctly with no active connections."""
-        from webhook_server.web.log_viewer import LogViewerController
 
         mock_logger = Mock()
         controller = LogViewerController(logger=mock_logger)
@@ -1117,7 +1218,6 @@ class TestWorkflowStepsAPI:
     def test_get_workflow_steps_success(self) -> None:
         """Test successful workflow steps retrieval."""
         # Import modules and patch before creating test client
-        from unittest.mock import AsyncMock, Mock
 
         # Mock workflow steps data
         mock_workflow_data = {
@@ -1160,10 +1260,6 @@ class TestWorkflowStepsAPI:
             with patch("webhook_server.app.get_log_viewer_controller", return_value=mock_instance):
                 # Also patch the singleton variable itself
                 with patch("webhook_server.app._log_viewer_controller_singleton", mock_instance):
-                    from fastapi.testclient import TestClient
-
-                    from webhook_server.app import FASTAPI_APP
-
                     client = TestClient(FASTAPI_APP)
 
                     # Make the request
@@ -1184,7 +1280,6 @@ class TestWorkflowStepsAPI:
     def test_get_workflow_steps_no_steps_found(self) -> None:
         """Test workflow steps when no steps are found."""
         # Import modules and patch before creating test client
-        from unittest.mock import AsyncMock, Mock
 
         # Mock empty workflow data
         mock_workflow_data = {
@@ -1208,10 +1303,6 @@ class TestWorkflowStepsAPI:
             with patch("webhook_server.app.get_log_viewer_controller", return_value=mock_instance):
                 # Also patch the singleton variable itself
                 with patch("webhook_server.app._log_viewer_controller_singleton", mock_instance):
-                    from fastapi.testclient import TestClient
-
-                    from webhook_server.app import FASTAPI_APP
-
                     client = TestClient(FASTAPI_APP)
 
                     # Make the request

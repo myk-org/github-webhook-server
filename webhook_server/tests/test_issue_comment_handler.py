@@ -1,8 +1,10 @@
+import asyncio
+import time
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from webhook_server.libs.issue_comment_handler import IssueCommentHandler
+from webhook_server.libs.handlers.issue_comment_handler import IssueCommentHandler
 from webhook_server.utils.constants import (
     BUILD_AND_PUSH_CONTAINER_STR,
     COMMAND_ASSIGN_REVIEWER_STR,
@@ -60,6 +62,10 @@ class TestIssueCommentHandler:
         with patch.object(issue_comment_handler, "user_commands") as mock_user_commands:
             await issue_comment_handler.process_comment_webhook_data(Mock())
             mock_user_commands.assert_not_called()
+            # Verify completion log was emitted with task_status='completed'
+            assert any(
+                "task_status=completed" in call.args[0] for call in issue_comment_handler.logger.step.call_args_list
+            ), "Expected a completion log with task_status='completed'"
 
     @pytest.mark.asyncio
     async def test_process_comment_webhook_data_deleted_action(
@@ -71,6 +77,10 @@ class TestIssueCommentHandler:
         with patch.object(issue_comment_handler, "user_commands") as mock_user_commands:
             await issue_comment_handler.process_comment_webhook_data(Mock())
             mock_user_commands.assert_not_called()
+            # Verify completion log was emitted with task_status='completed'
+            assert any(
+                "task_status=completed" in call.args[0] for call in issue_comment_handler.logger.step.call_args_list
+            ), "Expected a completion log with task_status='completed'"
 
     @pytest.mark.asyncio
     async def test_process_comment_webhook_data_welcome_message(
@@ -82,6 +92,10 @@ class TestIssueCommentHandler:
         with patch.object(issue_comment_handler, "user_commands") as mock_user_commands:
             await issue_comment_handler.process_comment_webhook_data(Mock())
             mock_user_commands.assert_not_called()
+            # Verify completion log was emitted with task_status='completed'
+            assert any(
+                "task_status=completed" in call.args[0] for call in issue_comment_handler.logger.step.call_args_list
+            ), "Expected a completion log with task_status='completed'"
 
     @pytest.mark.asyncio
     async def test_process_comment_webhook_data_normal_comment(
@@ -93,6 +107,23 @@ class TestIssueCommentHandler:
         with patch.object(issue_comment_handler, "user_commands") as mock_user_commands:
             await issue_comment_handler.process_comment_webhook_data(Mock())
             mock_user_commands.assert_called_once()
+            # Verify completion log was emitted with task_status='completed'
+            assert any(
+                "task_status=completed" in call.args[0] for call in issue_comment_handler.logger.step.call_args_list
+            ), "Expected a completion log with task_status='completed'"
+
+    @pytest.mark.asyncio
+    async def test_process_comment_webhook_data_no_commands(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test processing comment webhook data with no commands."""
+        issue_comment_handler.hook_data["comment"]["body"] = "Just a regular comment"
+
+        with patch.object(issue_comment_handler, "user_commands") as mock_user_commands:
+            await issue_comment_handler.process_comment_webhook_data(Mock())
+            mock_user_commands.assert_not_called()
+            # Verify completion log was emitted with task_status='completed'
+            assert any(
+                "task_status=completed" in call.args[0] for call in issue_comment_handler.logger.step.call_args_list
+            ), "Expected a completion log with task_status='completed'"
 
     @pytest.mark.asyncio
     async def test_process_comment_webhook_data_multiple_commands(
@@ -104,6 +135,93 @@ class TestIssueCommentHandler:
         with patch.object(issue_comment_handler, "user_commands") as mock_user_commands:
             await issue_comment_handler.process_comment_webhook_data(Mock())
             assert mock_user_commands.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_process_comment_webhook_data_parallel_execution(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Test that multiple commands execute in parallel, not sequentially.
+
+        This test verifies:
+        1. Multiple commands start concurrently (not one-after-another)
+        2. Parallel execution is significantly faster than sequential
+        3. Exception in one command doesn't block others
+        4. All commands complete even if one fails
+        """
+        issue_comment_handler.hook_data["comment"]["body"] = "/verified\n/approved\n/hold"
+
+        # Track execution order and timing
+        execution_events: list[tuple[str, str, float]] = []  # (command, event, timestamp)
+
+        async def mock_command(pull_request, command, reviewed_user, issue_comment_id):
+            """Mock command that simulates real work and tracks execution."""
+            start_time = time.time()
+            execution_events.append((command, "start", start_time))
+
+            # Simulate work (50ms per command)
+            await asyncio.sleep(0.05)
+
+            # Simulate exception for second command to test exception handling
+            if command == "approved":
+                execution_events.append((command, "error", time.time()))
+                raise ValueError(f"Simulated error in {command}")
+
+            execution_events.append((command, "end", time.time()))
+
+        with patch.object(issue_comment_handler, "user_commands", side_effect=mock_command):
+            # Execute commands
+            start = time.time()
+            await issue_comment_handler.process_comment_webhook_data(Mock())
+            total_duration = time.time() - start
+
+            # VERIFICATION 1: All three commands should have started
+            start_events = [e for e in execution_events if e[1] == "start"]
+            assert len(start_events) == 3, f"Expected 3 commands to start, got {len(start_events)}"
+
+            # VERIFICATION 2: Commands started concurrently (within 10ms of each other)
+            # In sequential execution, commands would start 50ms apart
+            # In parallel execution, all start nearly simultaneously
+            first_start = start_events[0][2]
+            last_start = start_events[-1][2]
+            start_time_spread = last_start - first_start
+
+            # All commands should start within 10ms (parallel)
+            # vs 100ms+ for sequential execution (50ms * 2 delays)
+            assert start_time_spread < 0.015, f"Commands did not start concurrently (spread: {start_time_spread:.3f}s)"
+
+            # VERIFICATION 3: Total execution time indicates parallel execution
+            # Sequential: 3 commands * 50ms = 150ms minimum
+            # Parallel: max(50ms) = 50ms (plus overhead)
+            # Allow 100ms for parallel (generous overhead buffer)
+            assert total_duration < 0.1, f"Execution took {total_duration:.3f}s, expected < 0.1s (parallel execution)"
+
+            # Sequential would take at least 150ms
+            assert total_duration < 0.12, f"Commands appear to run sequentially ({total_duration:.3f}s >= 0.12s)"
+
+            # VERIFICATION 4: Exception in one command didn't stop others
+            # verified and hold should complete successfully
+            successful_completions = [e for e in execution_events if e[1] == "end"]
+            assert len(successful_completions) == 2, (
+                f"Expected 2 successful completions (verified, hold), got {len(successful_completions)}"
+            )
+
+            # VERIFICATION 5: Error was recorded for failed command
+            error_events = [e for e in execution_events if e[1] == "error"]
+            assert len(error_events) == 1, f"Expected 1 error event (approved), got {len(error_events)}"
+            assert error_events[0][0] == "approved", "Error should be for 'approved' command"
+
+            # VERIFICATION 6: Commands completed in overlapping time windows
+            # This proves they ran concurrently, not sequentially
+            verified_start = next(e[2] for e in execution_events if e[0] == "verified" and e[1] == "start")
+            hold_end = next(e[2] for e in execution_events if e[0] == "hold" and e[1] == "end")
+
+            # Both commands (verified and hold) should overlap in execution
+            # If sequential: hold would start AFTER verified ends (100ms gap)
+            # If parallel: hold starts immediately, both execute simultaneously
+            execution_overlap = hold_end - verified_start
+
+            # Overlap should be ~50ms (parallel) not ~100ms (sequential)
+            assert execution_overlap < 0.08, f"Execution overlap {execution_overlap:.3f}s suggests sequential execution"
 
     @pytest.mark.asyncio
     async def test_user_commands_unsupported_command(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -154,7 +272,9 @@ class TestIssueCommentHandler:
         mock_pull_request = Mock()
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler, "_add_reviewer_by_user_comment") as mock_add_reviewer:
+            with patch.object(
+                issue_comment_handler, "_add_reviewer_by_user_comment", new_callable=AsyncMock
+            ) as mock_add_reviewer:
                 await issue_comment_handler.user_commands(
                     pull_request=mock_pull_request,
                     command=f"{COMMAND_ASSIGN_REVIEWER_STR} reviewer1",
@@ -188,7 +308,9 @@ class TestIssueCommentHandler:
         mock_pull_request = Mock()
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler.pull_request_handler, "check_if_can_be_merged") as mock_check:
+            with patch.object(
+                issue_comment_handler.pull_request_handler, "check_if_can_be_merged", new_callable=AsyncMock
+            ) as mock_check:
                 await issue_comment_handler.user_commands(
                     pull_request=mock_pull_request,
                     command=COMMAND_CHECK_CAN_MERGE_STR,
@@ -204,7 +326,9 @@ class TestIssueCommentHandler:
         mock_pull_request = Mock()
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler, "process_cherry_pick_command") as mock_cherry_pick:
+            with patch.object(
+                issue_comment_handler, "process_cherry_pick_command", new_callable=AsyncMock
+            ) as mock_cherry_pick:
                 await issue_comment_handler.user_commands(
                     pull_request=mock_pull_request,
                     command=f"{COMMAND_CHERRY_PICK_STR} branch1 branch2",
@@ -240,7 +364,9 @@ class TestIssueCommentHandler:
         mock_pull_request = Mock()
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler.runner_handler, "run_build_container") as mock_build:
+            with patch.object(
+                issue_comment_handler.runner_handler, "run_build_container", new_callable=AsyncMock
+            ) as mock_build:
                 await issue_comment_handler.user_commands(
                     pull_request=mock_pull_request,
                     command=f"{BUILD_AND_PUSH_CONTAINER_STR} args",
@@ -280,7 +406,9 @@ class TestIssueCommentHandler:
         mock_pull_request.title = "Test PR"
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler.labels_handler, "_add_label") as mock_add_label:
+            with patch.object(
+                issue_comment_handler.labels_handler, "_add_label", new_callable=AsyncMock
+            ) as mock_add_label:
                 with patch.object(mock_pull_request, "edit") as mock_edit:
                     await issue_comment_handler.user_commands(
                         pull_request=mock_pull_request, command=WIP_STR, reviewed_user="test-user", issue_comment_id=123
@@ -296,7 +424,9 @@ class TestIssueCommentHandler:
         mock_pull_request.title = "WIP: Test PR"
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler.labels_handler, "_remove_label") as mock_remove_label:
+            with patch.object(
+                issue_comment_handler.labels_handler, "_remove_label", new_callable=AsyncMock
+            ) as mock_remove_label:
                 with patch.object(mock_pull_request, "edit") as mock_edit:
                     await issue_comment_handler.user_commands(
                         pull_request=mock_pull_request,
@@ -332,8 +462,12 @@ class TestIssueCommentHandler:
         mock_pull_request = Mock()
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler.labels_handler, "_add_label") as mock_add_label:
-                with patch.object(issue_comment_handler.pull_request_handler, "check_if_can_be_merged") as mock_check:
+            with patch.object(
+                issue_comment_handler.labels_handler, "_add_label", new_callable=AsyncMock
+            ) as mock_add_label:
+                with patch.object(
+                    issue_comment_handler.pull_request_handler, "check_if_can_be_merged", new_callable=AsyncMock
+                ) as mock_check:
                     await issue_comment_handler.user_commands(
                         pull_request=mock_pull_request,
                         command=HOLD_LABEL_STR,
@@ -350,8 +484,12 @@ class TestIssueCommentHandler:
         mock_pull_request = Mock()
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler.labels_handler, "_remove_label") as mock_remove_label:
-                with patch.object(issue_comment_handler.pull_request_handler, "check_if_can_be_merged") as mock_check:
+            with patch.object(
+                issue_comment_handler.labels_handler, "_remove_label", new_callable=AsyncMock
+            ) as mock_remove_label:
+                with patch.object(
+                    issue_comment_handler.pull_request_handler, "check_if_can_be_merged", new_callable=AsyncMock
+                ) as mock_check:
                     await issue_comment_handler.user_commands(
                         pull_request=mock_pull_request,
                         command=f"{HOLD_LABEL_STR} cancel",
@@ -368,8 +506,12 @@ class TestIssueCommentHandler:
         mock_pull_request = Mock()
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler.labels_handler, "_add_label") as mock_add_label:
-                with patch.object(issue_comment_handler.check_run_handler, "set_verify_check_success") as mock_success:
+            with patch.object(
+                issue_comment_handler.labels_handler, "_add_label", new_callable=AsyncMock
+            ) as mock_add_label:
+                with patch.object(
+                    issue_comment_handler.check_run_handler, "set_verify_check_success", new_callable=AsyncMock
+                ) as mock_success:
                     await issue_comment_handler.user_commands(
                         pull_request=mock_pull_request,
                         command=VERIFIED_LABEL_STR,
@@ -386,8 +528,12 @@ class TestIssueCommentHandler:
         mock_pull_request = Mock()
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
-            with patch.object(issue_comment_handler.labels_handler, "_remove_label") as mock_remove_label:
-                with patch.object(issue_comment_handler.check_run_handler, "set_verify_check_queued") as mock_queued:
+            with patch.object(
+                issue_comment_handler.labels_handler, "_remove_label", new_callable=AsyncMock
+            ) as mock_remove_label:
+                with patch.object(
+                    issue_comment_handler.check_run_handler, "set_verify_check_queued", new_callable=AsyncMock
+                ) as mock_queued:
                     await issue_comment_handler.user_commands(
                         pull_request=mock_pull_request,
                         command=f"{VERIFIED_LABEL_STR} cancel",
@@ -403,7 +549,7 @@ class TestIssueCommentHandler:
         """Test user commands with custom label command."""
         mock_pull_request = Mock()
         # Patch USER_LABELS_DICT to include 'bug'
-        with patch("webhook_server.libs.issue_comment_handler.USER_LABELS_DICT", {"bug": "Bug label"}):
+        with patch("webhook_server.libs.handlers.issue_comment_handler.USER_LABELS_DICT", {"bug": "Bug label"}):
             with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
                 with patch.object(
                     issue_comment_handler.labels_handler, "label_by_user_comment", new_callable=AsyncMock
@@ -474,7 +620,9 @@ class TestIssueCommentHandler:
         with patch.object(mock_pull_request, "is_merged", new=Mock(return_value=False)):
             with patch.object(issue_comment_handler.repository, "get_branch") as mock_get_branch:
                 with patch.object(mock_pull_request, "create_issue_comment") as mock_comment:
-                    with patch.object(issue_comment_handler.labels_handler, "_add_label") as mock_add_label:
+                    with patch.object(
+                        issue_comment_handler.labels_handler, "_add_label", new_callable=AsyncMock
+                    ) as mock_add_label:
                         await issue_comment_handler.process_cherry_pick_command(
                             pull_request=mock_pull_request, command_args="branch1 branch2", reviewed_user="test-user"
                         )
@@ -504,7 +652,9 @@ class TestIssueCommentHandler:
         # Patch is_merged as a method
         with patch.object(mock_pull_request, "is_merged", new=Mock(return_value=True)):
             with patch.object(issue_comment_handler.repository, "get_branch"):
-                with patch.object(issue_comment_handler.runner_handler, "cherry_pick") as mock_cherry_pick:
+                with patch.object(
+                    issue_comment_handler.runner_handler, "cherry_pick", new_callable=AsyncMock
+                ) as mock_cherry_pick:
                     await issue_comment_handler.process_cherry_pick_command(
                         pull_request=mock_pull_request, command_args="branch1", reviewed_user="test-user"
                     )
@@ -541,18 +691,22 @@ class TestIssueCommentHandler:
         """Test processing retest command with 'all' only."""
         mock_pull_request = Mock()
 
-        with patch.object(issue_comment_handler.runner_handler, "run_tox") as mock_run_tox:
-            await issue_comment_handler.process_retest_command(
-                pull_request=mock_pull_request, command_args="all", reviewed_user="test-user"
-            )
-            mock_run_tox.assert_called_once_with(pull_request=mock_pull_request)
+        with patch.object(issue_comment_handler.runner_handler, "run_tox", new_callable=AsyncMock) as mock_run_tox:
+            with patch.object(
+                issue_comment_handler.runner_handler, "run_pre_commit", new_callable=AsyncMock
+            ) as mock_run_pre_commit:
+                await issue_comment_handler.process_retest_command(
+                    pull_request=mock_pull_request, command_args="all", reviewed_user="test-user"
+                )
+                mock_run_tox.assert_awaited_once_with(pull_request=mock_pull_request)
+                mock_run_pre_commit.assert_awaited_once_with(pull_request=mock_pull_request)
 
     @pytest.mark.asyncio
     async def test_process_retest_command_specific_tests(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test processing retest command with specific tests."""
         mock_pull_request = Mock()
 
-        with patch.object(issue_comment_handler.runner_handler, "run_tox") as mock_run_tox:
+        with patch.object(issue_comment_handler.runner_handler, "run_tox", new_callable=AsyncMock) as mock_run_tox:
             with patch.object(mock_pull_request, "create_issue_comment") as mock_comment:
                 await issue_comment_handler.process_retest_command(
                     pull_request=mock_pull_request, command_args="tox unsupported-test", reviewed_user="test-user"
@@ -596,7 +750,9 @@ class TestIssueCommentHandler:
         """Test processing retest command with async task exception."""
         mock_pull_request = Mock()
 
-        with patch.object(issue_comment_handler.runner_handler, "run_tox", side_effect=Exception("Test error")):
+        with patch.object(
+            issue_comment_handler.runner_handler, "run_tox", new_callable=AsyncMock, side_effect=Exception("Test error")
+        ):
             with patch.object(issue_comment_handler.logger, "error") as mock_error:
                 await issue_comment_handler.process_retest_command(
                     pull_request=mock_pull_request, command_args="tox", reviewed_user="test-user"

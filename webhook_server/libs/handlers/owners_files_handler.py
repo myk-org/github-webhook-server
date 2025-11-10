@@ -1,6 +1,7 @@
 import asyncio
+from collections.abc import Coroutine
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Coroutine
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from asyncstdlib import functools
@@ -8,10 +9,12 @@ from github.ContentFile import ContentFile
 from github.GithubException import GithubException
 from github.NamedUser import NamedUser
 from github.PaginatedList import PaginatedList
+from github.Permissions import Permissions
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
-from webhook_server.utils.constants import COMMAND_ADD_ALLOWED_USER_STR
+from webhook_server.utils.constants import COMMAND_ADD_ALLOWED_USER_STR, ROOT_APPROVERS_KEY
+from webhook_server.utils.helpers import format_task_fields
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
@@ -25,14 +28,29 @@ class OwnersFileHandler:
         self.repository: Repository = self.github_webhook.repository
 
     async def initialize(self, pull_request: PullRequest) -> "OwnersFileHandler":
-        self.changed_files = await self.list_changed_files(pull_request=pull_request)
-        self.all_repository_approvers_and_reviewers = await self.get_all_repository_approvers_and_reviewers(
-            pull_request=pull_request
+        """Initialize handler with PR data (optimized with parallel operations).
+
+        Phase 1: Fetch independent data in parallel (changed files + OWNERS data)
+        Phase 2: Process derived data in parallel (approvers + reviewers)
+        """
+        # Phase 1: Parallel data fetching - independent GitHub API operations
+        self.changed_files, self.all_repository_approvers_and_reviewers = await asyncio.gather(
+            self.list_changed_files(pull_request=pull_request),
+            self.get_all_repository_approvers_and_reviewers(pull_request=pull_request),
         )
-        self.all_repository_approvers = await self.get_all_repository_approvers()
-        self.all_repository_reviewers = await self.get_all_repository_reviewers()
-        self.all_pull_request_approvers = await self.get_all_pull_request_approvers()
-        self.all_pull_request_reviewers = await self.get_all_pull_request_reviewers()
+
+        # Phase 2: Parallel data processing - all depend on phase 1 but independent of each other
+        (
+            self.all_repository_approvers,
+            self.all_repository_reviewers,
+            self.all_pull_request_approvers,
+            self.all_pull_request_reviewers,
+        ) = await asyncio.gather(
+            self.get_all_repository_approvers(),
+            self.get_all_repository_reviewers(),
+            self.get_all_pull_request_approvers(),
+            self.get_all_pull_request_reviewers(),
+        )
 
         return self
 
@@ -99,7 +117,6 @@ class OwnersFileHandler:
 
         return _path, content_path
 
-    @functools.lru_cache
     async def get_all_repository_approvers_and_reviewers(self, pull_request: PullRequest) -> dict[str, dict[str, Any]]:
         # Dictionary mapping OWNERS file paths to their approvers and reviewers
         _owners: dict[str, dict[str, Any]] = {}
@@ -169,7 +186,7 @@ class OwnersFileHandler:
 
     async def get_all_pull_request_approvers(self) -> list[str]:
         _approvers: list[str] = []
-        changed_files = await self.owners_data_for_changed_files()
+        changed_files = await self.owners_data_for_changed_files
 
         for list_of_approvers in changed_files.values():
             for _approver in list_of_approvers.get("approvers", []):
@@ -182,7 +199,7 @@ class OwnersFileHandler:
 
     async def get_all_pull_request_reviewers(self) -> list[str]:
         _reviewers: list[str] = []
-        changed_files = await self.owners_data_for_changed_files()
+        changed_files = await self.owners_data_for_changed_files
 
         for list_of_reviewers in changed_files.values():
             for _reviewer in list_of_reviewers.get("reviewers", []):
@@ -190,16 +207,22 @@ class OwnersFileHandler:
 
         _reviewers = list(set(_reviewers))
         _reviewers.sort()
-        self.logger.debug(f"Pull request reviewers are: {_reviewers}")
+        self.logger.debug(f"{self.log_prefix} Pull request reviewers are: {_reviewers}")
         return _reviewers
 
+    @functools.cached_property
     async def owners_data_for_changed_files(self) -> dict[str, dict[str, Any]]:
+        """Get OWNERS data for directories containing changed files.
+
+        Uses @functools.cached_property to cache results and avoid redundant computation
+        of folder matching logic across multiple calls during initialization.
+        """
         self._ensure_initialized()
 
         data: dict[str, dict[str, Any]] = {}
 
         changed_folders = {Path(cf).parent for cf in self.changed_files}
-        self.logger.debug(f"Changed folders: {changed_folders}")
+        self.logger.debug(f"{self.log_prefix} Changed folders: {changed_folders}")
 
         changed_folder_match: list[Path] = []
 
@@ -219,7 +242,7 @@ class OwnersFileHandler:
                         f"{self.log_prefix} Matched changed folder: {changed_folder} with owners dir: {_owners_dir}"
                     )
                     if require_root_approvers is None:
-                        require_root_approvers = owners_data.get("root-approvers", True)
+                        require_root_approvers = owners_data.get(ROOT_APPROVERS_KEY, True)
 
         if require_root_approvers or require_root_approvers is None:
             self.logger.debug(f"{self.log_prefix} require root_approvers")
@@ -231,43 +254,78 @@ class OwnersFileHandler:
                     if _folder == _changed_path or _changed_path in _folder.parents:
                         continue
                     else:
-                        self.logger.debug(f"Adding root approvers for {_folder}")
+                        self.logger.debug(f"{self.log_prefix} Adding root approvers for {_folder}")
                         data["."] = self.all_repository_approvers_and_reviewers.get(".", {})
                         break
 
-        self.logger.debug(f"Final owners data for changed files: {data}")
+        self.logger.debug(f"{self.log_prefix} Final owners data for changed files: {data}")
+
         return data
 
     async def assign_reviewers(self, pull_request: PullRequest) -> None:
         self._ensure_initialized()
 
-        self.logger.step(f"{self.log_prefix} Starting reviewer assignment based on OWNERS files")  # type: ignore
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'started')} "
+            f"Starting reviewer assignment based on OWNERS files",
+        )
         self.logger.info(f"{self.log_prefix} Assign reviewers")
 
         _to_add: list[str] = list(set(self.all_pull_request_reviewers))
         self.logger.debug(f"{self.log_prefix} Reviewers to add: {', '.join(_to_add)}")
 
         if _to_add:
-            self.logger.step(f"{self.log_prefix} Assigning {len(_to_add)} reviewers to PR")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'processing')} "
+                f"Assigning {len(_to_add)} reviewers to PR",
+            )
         else:
-            self.logger.step(f"{self.log_prefix} No reviewers to assign")  # type: ignore
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'processing')} "
+                f"No reviewers to assign",
+            )
+            # Log completion - task_status reflects the result of our action (no reviewers to assign is acceptable)
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'completed')} "
+                f"No reviewers to assign (completed)",
+            )
             return
 
+        assigned_count = 0
+        failed_count = 0
         for reviewer in _to_add:
             if reviewer != pull_request.user.login:
                 self.logger.debug(f"{self.log_prefix} Adding reviewer {reviewer}")
                 try:
                     await asyncio.to_thread(pull_request.create_review_request, [reviewer])
-                    self.logger.step(f"{self.log_prefix} Successfully assigned reviewer {reviewer}")  # type: ignore
+                    self.logger.step(  # type: ignore[attr-defined]
+                        f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'processing')} "
+                        f"Successfully assigned reviewer {reviewer}",
+                    )
+                    assigned_count += 1
 
                 except GithubException as ex:
-                    self.logger.step(f"{self.log_prefix} Failed to assign reviewer {reviewer}")  # type: ignore
+                    self.logger.step(  # type: ignore[attr-defined]
+                        f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'failed')} "
+                        f"Failed to assign reviewer {reviewer}",
+                    )
                     self.logger.debug(f"{self.log_prefix} Failed to add reviewer {reviewer}. {ex}")
                     await asyncio.to_thread(
                         pull_request.create_issue_comment, f"{reviewer} can not be added as reviewer. {ex}"
                     )
+                    failed_count += 1
 
-        self.logger.step(f"{self.log_prefix} Reviewer assignment completed")  # type: ignore
+        # Log completion - task_status reflects the result of our action
+        if failed_count > 0:
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'failed')} "
+                f"Assigned {assigned_count} reviewers to PR ({failed_count} failed)",
+            )
+        else:
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'completed')} "
+                f"Assigned {assigned_count} reviewers to PR",
+            )
 
     async def is_user_valid_to_run_commands(self, pull_request: PullRequest, reviewed_user: str) -> bool:
         self._ensure_initialized()
@@ -283,7 +341,7 @@ Maintainers:
  - {"\n - ".join(allowed_user_to_approve)}
 """
         valid_users = await self.valid_users_to_run_commands
-        self.logger.debug(f"Valid users to run commands: {valid_users}")
+        self.logger.debug(f"{self.log_prefix} Valid users to run commands: {valid_users}")
 
         if reviewed_user not in valid_users:
             for comment in [
@@ -319,23 +377,31 @@ Maintainers:
 
     async def get_all_repository_contributors(self) -> list[str]:
         contributors = await self.repository_contributors
-        return [val.login for val in contributors]
+        return await asyncio.to_thread(lambda: [val.login for val in contributors])
 
     async def get_all_repository_collaborators(self) -> list[str]:
         collaborators = await self.repository_collaborators
-        return [val.login for val in collaborators]
+        return await asyncio.to_thread(lambda: [val.login for val in collaborators])
 
     async def get_all_repository_maintainers(self) -> list[str]:
         maintainers: list[str] = []
 
-        for user in await self.repository_collaborators:
-            permissions = user.permissions
-            self.logger.debug(f"User {user.login} permissions: {permissions}")
+        # Fix #1: Convert PaginatedList to list in thread pool to avoid blocking during iteration
+        collaborators = await self.repository_collaborators
+        collaborators_list = await asyncio.to_thread(lambda: list(collaborators))
+
+        for user in collaborators_list:
+            # Fix #2: Wrap permissions access in thread pool (property makes blocking API call)
+            def get_user_permissions(u: NamedUser = user) -> Permissions:
+                return u.permissions
+
+            permissions = await asyncio.to_thread(get_user_permissions)
+            self.logger.debug(f"{self.log_prefix} User {user.login} permissions: {permissions}")
 
             if permissions.admin or permissions.maintain:
                 maintainers.append(user.login)
 
-        self.logger.debug(f"Maintainers: {maintainers}")
+        self.logger.debug(f"{self.log_prefix} Maintainers: {maintainers}")
         return maintainers
 
     @functools.cached_property

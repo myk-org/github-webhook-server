@@ -1,10 +1,14 @@
+import logging as python_logging
 import os
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 import pytest
 import yaml
 from starlette.datastructures import Headers
 
-from webhook_server.libs.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.log_parser import LogEntry
 
 os.environ["WEBHOOK_SERVER_DATA_DIR"] = "webhook_server/tests/manifests"
 os.environ["ENABLE_LOG_SERVER"] = "true"
@@ -87,9 +91,9 @@ class Repository:
             return ContentFile(folder5_owners_data)
 
 
+@dataclass
 class Label:
-    def __init__(self, name: str):
-        self.name = name
+    name: str
 
 
 class PullRequest:
@@ -123,8 +127,6 @@ def github_webhook(mocker, request):
     mocker.patch(f"{base_import_path}.GithubWebhook.add_api_users_to_auto_verified_and_merged_users", return_value=None)
 
     # Use standard Python logger for caplog compatibility
-    import logging as python_logging
-
     test_logger = python_logging.getLogger("GithubWebhook")
     test_logger.setLevel(python_logging.DEBUG)
 
@@ -154,10 +156,6 @@ def owners_file_handler(github_webhook):
 @pytest.fixture
 def sample_log_entries():
     """Pre-generated sample log entries for performance tests."""
-    from datetime import datetime, timedelta
-
-    from webhook_server.libs.log_parser import LogEntry
-
     entries = []
     base_time = datetime(2025, 7, 31, 10, 0, 0)
 
@@ -182,7 +180,6 @@ def sample_log_entries():
 @pytest.fixture(autouse=True)
 def optimize_test_environment():
     """Auto-applied fixture to optimize test environment."""
-    import logging as python_logging
 
     # Disable unnecessary logging during tests
     python_logging.getLogger("httpx").setLevel(python_logging.WARNING)

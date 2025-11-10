@@ -1,9 +1,9 @@
 import pytest
 
-from webhook_server.libs.pull_request_handler import PullRequestHandler
+from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
 
 
-class TestPrepareRetestWellcomeMsg:
+class TestPrepareRetestWelcomeMsg:
     @pytest.mark.parametrize(
         "tox, build_and_push_container, pypi, pre_commit, conventional_title, expected",
         [
@@ -22,7 +22,10 @@ class TestPrepareRetestWellcomeMsg:
                 False,
                 False,
                 False,
-                " * `/retest build-container` - Rebuild and test container image\n * `/retest all` - Run all available tests\n",
+                (
+                    " * `/retest build-container` - Rebuild and test container image\n "
+                    "* `/retest all` - Run all available tests\n"
+                ),
             ),
             (
                 False,
@@ -30,7 +33,8 @@ class TestPrepareRetestWellcomeMsg:
                 True,
                 False,
                 False,
-                " * `/retest python-module-install` - Test Python package installation\n * `/retest all` - Run all available tests\n",
+                " * `/retest python-module-install` - Test Python package installation\n "
+                "* `/retest all` - Run all available tests\n",
             ),
             (
                 False,
@@ -38,7 +42,10 @@ class TestPrepareRetestWellcomeMsg:
                 False,
                 True,
                 False,
-                " * `/retest pre-commit` - Run pre-commit hooks and checks\n * `/retest all` - Run all available tests\n",
+                (
+                    " * `/retest pre-commit` - Run pre-commit hooks and checks\n "
+                    "* `/retest all` - Run all available tests\n"
+                ),
             ),
             (
                 True,
@@ -46,7 +53,14 @@ class TestPrepareRetestWellcomeMsg:
                 True,
                 True,
                 True,
-                " * `/retest tox` - Run Python test suite with tox\n * `/retest build-container` - Rebuild and test container image\n * `/retest python-module-install` - Test Python package installation\n * `/retest pre-commit` - Run pre-commit hooks and checks\n * `/retest conventional-title` - Validate commit message format\n * `/retest all` - Run all available tests\n",
+                (
+                    " * `/retest tox` - Run Python test suite with tox\n "
+                    "* `/retest build-container` - Rebuild and test container image\n "
+                    "* `/retest python-module-install` - Test Python package installation\n "
+                    "* `/retest pre-commit` - Run pre-commit hooks and checks\n "
+                    "* `/retest conventional-title` - Validate commit message format\n "
+                    "* `/retest all` - Run all available tests\n"
+                ),
             ),
             (
                 False,
@@ -54,11 +68,12 @@ class TestPrepareRetestWellcomeMsg:
                 False,
                 False,
                 True,
-                " * `/retest conventional-title` - Validate commit message format\n * `/retest all` - Run all available tests\n",
+                " * `/retest conventional-title` - Validate commit message format\n "
+                "* `/retest all` - Run all available tests\n",
             ),
         ],
     )
-    def test_prepare_retest_wellcome_comment(
+    def test_prepare_retest_welcome_comment(
         self,
         process_github_webhook,
         owners_file_handler,

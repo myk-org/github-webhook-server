@@ -2,8 +2,8 @@ from typing import TYPE_CHECKING
 
 from github.PullRequest import PullRequest
 
-from webhook_server.libs.labels_handler import LabelsHandler
-from webhook_server.libs.owners_files_handler import OwnersFileHandler
+from webhook_server.libs.handlers.labels_handler import LabelsHandler
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.utils.constants import ADD_STR, APPROVE_STR
 
 if TYPE_CHECKING:

@@ -2,7 +2,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from webhook_server.libs.check_run_handler import CheckRunHandler
+from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
@@ -74,6 +74,8 @@ class TestCheckRunHandler:
 
         result = await check_run_handler.process_pull_request_check_run_webhook_data()
         assert result is False
+        # Verify completion log was called (skipping is acceptable)
+        assert check_run_handler.logger.step.called  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio
     async def test_process_pull_request_check_run_webhook_data_can_be_merged(
@@ -87,6 +89,23 @@ class TestCheckRunHandler:
 
         result = await check_run_handler.process_pull_request_check_run_webhook_data()
         assert result is False
+        # Verify completion log was called
+        assert check_run_handler.logger.step.called  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_process_pull_request_check_run_webhook_data_completed_normal(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """Test processing check run webhook data when action is completed (normal check run)."""
+        check_run_handler.hook_data = {
+            "action": "completed",
+            "check_run": {"name": "test-check", "status": "completed", "conclusion": "success"},
+        }
+
+        result = await check_run_handler.process_pull_request_check_run_webhook_data()
+        assert result is True
+        # Verify completion log was called
+        assert check_run_handler.logger.step.called  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio
     async def test_set_verify_check_queued(self, check_run_handler: CheckRunHandler) -> None:

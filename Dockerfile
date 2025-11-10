@@ -9,11 +9,12 @@ ENV PATH="$PATH:$BIN_DIR"
 ENV DATA_DIR="$HOME_DIR/data"
 ENV APP_DIR="$HOME_DIR/github-webhook-server"
 
+RUN systemd-machine-id-setup
+
 RUN dnf -y install dnf-plugins-core \
   && dnf -y update \
   && dnf -y install \
   git \
-  hub \
   unzip \
   gcc \
   python3-devel \
@@ -51,6 +52,7 @@ ENV UV_PYTHON=python3.13
 ENV UV_COMPILE_BYTECODE=1
 ENV UV_NO_SYNC=1
 ENV UV_CACHE_DIR=${APP_DIR}/.cache
+ENV PYTHONUNBUFFERED=1
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx ${BIN_DIR}/
 RUN uv tool install pre-commit && uv tool install poetry && uv tool install prek
@@ -62,7 +64,13 @@ RUN set -x \
   && chmod +x $BIN_DIR/rosa \
   && rm -rf $BIN_DIR/rosa-linux.tar.gz \
   && curl -L https://github.com/regclient/regclient/releases/latest/download/regctl-linux-amd64 >$BIN_DIR/regctl \
-  && chmod +x $BIN_DIR/regctl
+  && chmod +x $BIN_DIR/regctl \
+  && curl -L https://github.com/mislav/hub/releases/download/v2.14.2/hub-linux-amd64-2.14.2.tgz --output ${BIN_DIR}/hub-linux-amd64.tgz \
+  && tmp_dir="$(mktemp -d)" \
+  && tar xvf ${BIN_DIR}/hub-linux-amd64.tgz -C "${tmp_dir}" \
+  && mv "${tmp_dir}"/hub-linux-amd64-2.14.2/bin/hub ${BIN_DIR}/hub \
+  && chmod +x ${BIN_DIR}/hub \
+  && rm -rf "${tmp_dir}" ${BIN_DIR}/hub-linux-amd64.tgz
 
 WORKDIR $APP_DIR
 

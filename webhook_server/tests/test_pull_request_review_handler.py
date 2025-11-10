@@ -1,10 +1,11 @@
-"""Tests for webhook_server.libs.pull_request_review_handler module."""
+"""Tests for webhook_server.libs.handlers.pull_request_review_handler module."""
+
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from unittest.mock import AsyncMock, Mock, patch
 from github.PullRequest import PullRequest
 
-from webhook_server.libs.pull_request_review_handler import PullRequestReviewHandler
+from webhook_server.libs.handlers.pull_request_review_handler import PullRequestReviewHandler
 from webhook_server.utils.constants import ADD_STR, APPROVE_STR
 
 
@@ -45,7 +46,9 @@ class TestPullRequestReviewHandler:
         """Test processing pull request review webhook data with submitted action."""
         mock_pull_request = Mock(spec=PullRequest)
 
-        with patch.object(pull_request_review_handler.labels_handler, "manage_reviewed_by_label") as mock_manage_label:
+        with patch.object(
+            pull_request_review_handler.labels_handler, "manage_reviewed_by_label", new_callable=AsyncMock
+        ) as mock_manage_label:
             with patch.object(
                 pull_request_review_handler.labels_handler, "label_by_user_comment"
             ) as mock_label_comment:
@@ -72,7 +75,9 @@ class TestPullRequestReviewHandler:
         mock_pull_request = Mock(spec=PullRequest)
         pull_request_review_handler.hook_data["action"] = "edited"
 
-        with patch.object(pull_request_review_handler.labels_handler, "manage_reviewed_by_label") as mock_manage_label:
+        with patch.object(
+            pull_request_review_handler.labels_handler, "manage_reviewed_by_label", new_callable=AsyncMock
+        ) as mock_manage_label:
             with patch.object(
                 pull_request_review_handler.labels_handler, "label_by_user_comment"
             ) as mock_label_comment:
@@ -89,7 +94,9 @@ class TestPullRequestReviewHandler:
         mock_pull_request = Mock(spec=PullRequest)
         pull_request_review_handler.hook_data["review"]["body"] = None
 
-        with patch.object(pull_request_review_handler.labels_handler, "manage_reviewed_by_label") as mock_manage_label:
+        with patch.object(
+            pull_request_review_handler.labels_handler, "manage_reviewed_by_label", new_callable=AsyncMock
+        ) as mock_manage_label:
             with patch.object(
                 pull_request_review_handler.labels_handler, "label_by_user_comment"
             ) as mock_label_comment:
@@ -111,7 +118,9 @@ class TestPullRequestReviewHandler:
         mock_pull_request = Mock(spec=PullRequest)
         pull_request_review_handler.hook_data["review"]["body"] = ""
 
-        with patch.object(pull_request_review_handler.labels_handler, "manage_reviewed_by_label") as mock_manage_label:
+        with patch.object(
+            pull_request_review_handler.labels_handler, "manage_reviewed_by_label", new_callable=AsyncMock
+        ) as mock_manage_label:
             with patch.object(
                 pull_request_review_handler.labels_handler, "label_by_user_comment"
             ) as mock_label_comment:
@@ -133,7 +142,9 @@ class TestPullRequestReviewHandler:
         mock_pull_request = Mock(spec=PullRequest)
         pull_request_review_handler.hook_data["review"]["body"] = "Good work, but needs some changes"
 
-        with patch.object(pull_request_review_handler.labels_handler, "manage_reviewed_by_label") as mock_manage_label:
+        with patch.object(
+            pull_request_review_handler.labels_handler, "manage_reviewed_by_label", new_callable=AsyncMock
+        ) as mock_manage_label:
             with patch.object(
                 pull_request_review_handler.labels_handler, "label_by_user_comment"
             ) as mock_label_comment:

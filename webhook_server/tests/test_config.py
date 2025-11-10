@@ -1,7 +1,8 @@
 import os
+import shutil
 import tempfile
-from unittest.mock import Mock, patch
 from typing import Any
+from unittest.mock import Mock, patch
 
 import pytest
 import yaml
@@ -75,8 +76,6 @@ class TestConfig:
             assert config.data_dir == custom_dir
             assert config.config_path == os.path.join(custom_dir, "config.yaml")
         finally:
-            import shutil
-
             shutil.rmtree(custom_dir)
 
     def test_exists_file_not_found(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -88,8 +87,6 @@ class TestConfig:
             with pytest.raises(FileNotFoundError, match="Config file .* not found"):
                 Config()
         finally:
-            import shutil
-
             shutil.rmtree(temp_dir)
 
     def test_repositories_exists_missing_repositories(
@@ -153,8 +150,9 @@ class TestConfig:
         config.config_path = config_file
         config.logger = Mock()
 
-        root_data = config.root_data
-        assert root_data == {}
+        # Corrupted YAML should raise yaml.YAMLError
+        with pytest.raises(yaml.YAMLError):
+            _ = config.root_data
 
     def test_repository_data_with_repository(self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test repository_data property when repository is specified."""
@@ -185,10 +183,7 @@ class TestConfig:
 
         assert repo_data == {}
 
-    @patch("webhook_server.utils.helpers.get_github_repo_api")
-    def test_repository_local_data_success(
-        self, mock_get_repo_api: Mock, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_repository_local_data_success(self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test repository_local_data method with successful config file retrieval."""
         monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
 
@@ -197,21 +192,18 @@ class TestConfig:
         mock_config_file = Mock()
         mock_config_file.decoded_content = yaml.dump({"local-setting": "value"}).encode()
         mock_repo.get_contents.return_value = mock_config_file
-        mock_get_repo_api.return_value = mock_repo
 
         config = Config(repository="test-repo")
         mock_github_api = Mock()
+        mock_github_api.get_repo.return_value = mock_repo
 
         result = config.repository_local_data(mock_github_api, "org/test-repo")
 
         assert result == {"local-setting": "value"}
-        mock_get_repo_api.assert_called_once_with(github_app_api=mock_github_api, repository="org/test-repo")
+        mock_github_api.get_repo.assert_called_once_with("org/test-repo")
         mock_repo.get_contents.assert_called_once_with(".github-webhook-server.yaml")
 
-    @patch("webhook_server.utils.helpers.get_github_repo_api")
-    def test_repository_local_data_list_result(
-        self, mock_get_repo_api: Mock, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_repository_local_data_list_result(self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test repository_local_data method when get_contents returns a list."""
         monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
 
@@ -220,10 +212,10 @@ class TestConfig:
         mock_config_file = Mock()
         mock_config_file.decoded_content = yaml.dump({"local-setting": "value"}).encode()
         mock_repo.get_contents.return_value = [mock_config_file]  # List result
-        mock_get_repo_api.return_value = mock_repo
 
         config = Config(repository="test-repo")
         mock_github_api = Mock()
+        mock_github_api.get_repo.return_value = mock_repo
 
         result = config.repository_local_data(mock_github_api, "org/test-repo")
 
