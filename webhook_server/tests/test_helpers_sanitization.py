@@ -379,7 +379,7 @@ class TestRunCommandMaskSensitive:
             mock_get_logger.return_value = mock_logger
 
             # Run command with a secret and mask_sensitive=False
-            success, stdout, stderr = await run_command(
+            success, stdout, _ = await run_command(
                 command="echo 'token: ghp_test123'",
                 log_prefix="test",
                 redact_secrets=["ghp_test123"],
@@ -411,7 +411,7 @@ class TestRunCommandMaskSensitive:
             mock_get_logger.return_value = mock_logger
 
             # Run command with a secret and mask_sensitive=True
-            success, stdout, stderr = await run_command(
+            success, stdout, _ = await run_command(
                 command="echo 'token: ghp_test456'",
                 log_prefix="test",
                 redact_secrets=["ghp_test456"],

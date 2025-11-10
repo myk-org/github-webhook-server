@@ -548,9 +548,9 @@ class TestFilteringEdgeCases:
             assert isinstance(filtered, list)
             # Verify all filter conditions are satisfied
             for entry in filtered:
-                if "level" in filter_params and filter_params["level"]:
+                if filter_params.get("level"):
                     assert entry.level == filter_params["level"]
-                if "repository" in filter_params and filter_params["repository"]:
+                if filter_params.get("repository"):
                     assert entry.repository == filter_params["repository"]
 
 

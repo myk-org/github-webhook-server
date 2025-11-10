@@ -115,5 +115,5 @@ def parse_datetime_string(datetime_str: str | None, field_name: str) -> datetime
     except ValueError as e:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid {field_name} format: {datetime_str}. Expected ISO 8601 format. Error: {str(e)}",
+            detail=f"Invalid {field_name} format: {datetime_str}. Expected ISO 8601 format. Error: {e!s}",
         ) from e
