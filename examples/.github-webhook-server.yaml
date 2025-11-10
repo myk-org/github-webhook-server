@@ -93,8 +93,27 @@ can-be-merged-required-labels:
   - "tests-passed"
   - "security-reviewed"
 
-# Conventional commit configuration
-conventional-title: "feat,fix,docs,style,refactor,test,chore"
+# Conventional Commits validation
+# Enforces Conventional Commits v1.0.0 specification for PR titles
+# Format: <type>[optional scope]: <description>
+#
+# Standard types (recommended):
+#   - feat: New features (triggers MINOR version bump in semver)
+#   - fix: Bug fixes (triggers PATCH version bump in semver)
+#   - build, chore, ci, docs, style, refactor, perf, test, revert
+#
+# Custom types: You can define your own types! The spec allows any noun.
+# Examples: my-title, hotfix, release, custom
+#
+# Valid PR title examples:
+#   - feat: add user authentication
+#   - fix(parser): handle edge case in XML parsing
+#   - feat!: breaking API change to authentication
+#   - my-title: custom type example
+#   - hotfix(api): resolve production issue
+#
+# Resources: https://www.conventionalcommits.org/en/v1.0.0/
+conventional-title: "feat,fix,build,chore,ci,docs,style,refactor,perf,test,revert"
 
 # Minimum LGTM count required
 minimum-lgtm: 2
