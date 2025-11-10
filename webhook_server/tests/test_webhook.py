@@ -42,7 +42,7 @@ class TestProcessGithubWebhook:
         """Test successful webhook creation when no existing hooks exist."""
         mock_get_repo_api.return_value = mock_repo
 
-        success, message, log_func = process_github_webhook(
+        success, message, _ = process_github_webhook(
             repository_name="test-repo", data=sample_data, webhook_ip="http://example.com", apis_dict=apis_dict
         )
 
@@ -70,7 +70,7 @@ class TestProcessGithubWebhook:
         """Test successful webhook creation with secret."""
         mock_get_repo_api.return_value = mock_repo
 
-        success, message, log_func = process_github_webhook(
+        success, _, _ = process_github_webhook(
             repository_name="test-repo",
             data=sample_data,
             webhook_ip="http://example.com",
@@ -100,7 +100,7 @@ class TestProcessGithubWebhook:
         mock_get_repo_api.return_value = mock_repo
         data_without_events = {"name": "owner/test-repo"}
 
-        success, message, log_func = process_github_webhook(
+        success, _, _ = process_github_webhook(
             repository_name="test-repo", data=data_without_events, webhook_ip="http://example.com", apis_dict=apis_dict
         )
 
@@ -129,7 +129,7 @@ class TestProcessGithubWebhook:
         mock_repo.get_hooks.return_value = [existing_hook]
         mock_get_repo_api.return_value = mock_repo
 
-        success, message, log_func = process_github_webhook(
+        success, message, _ = process_github_webhook(
             repository_name="test-repo", data=sample_data, webhook_ip="http://example.com", apis_dict=apis_dict
         )
 
@@ -160,7 +160,7 @@ class TestProcessGithubWebhook:
         mock_repo.get_hooks.return_value = [existing_hook]
         mock_get_repo_api.return_value = mock_repo
 
-        success, message, log_func = process_github_webhook(
+        success, _, _ = process_github_webhook(
             repository_name="test-repo",
             data=sample_data,
             webhook_ip="http://example.com",
@@ -204,7 +204,7 @@ class TestProcessGithubWebhook:
         mock_repo.get_hooks.return_value = [existing_hook]
         mock_get_repo_api.return_value = mock_repo
 
-        success, message, log_func = process_github_webhook(
+        success, _, _ = process_github_webhook(
             repository_name="test-repo",
             data=sample_data,
             webhook_ip="http://example.com",
@@ -234,7 +234,7 @@ class TestProcessGithubWebhook:
             }
         }
 
-        success, message, log_func = process_github_webhook(
+        success, message, _ = process_github_webhook(
             repository_name="test-repo", data=sample_data, webhook_ip="http://example.com", apis_dict=apis_dict_no_api
         )
 
@@ -249,7 +249,7 @@ class TestProcessGithubWebhook:
         """Test error handling when repository cannot be found."""
         mock_get_repo_api.return_value = None
 
-        success, message, log_func = process_github_webhook(
+        success, message, _ = process_github_webhook(
             repository_name="test-repo", data=sample_data, webhook_ip="http://example.com", apis_dict=apis_dict
         )
 
@@ -270,7 +270,7 @@ class TestProcessGithubWebhook:
         mock_repo.get_hooks.side_effect = Exception("Permission denied")
         mock_get_repo_api.return_value = mock_repo
 
-        success, message, log_func = process_github_webhook(
+        success, message, _ = process_github_webhook(
             repository_name="test-repo", data=sample_data, webhook_ip="http://example.com", apis_dict=apis_dict
         )
 
@@ -299,7 +299,7 @@ class TestProcessGithubWebhook:
         mock_repo.get_hooks.return_value = [matching_hook, non_matching_hook]
         mock_get_repo_api.return_value = mock_repo
 
-        success, message, log_func = process_github_webhook(
+        success, message, _ = process_github_webhook(
             repository_name="test-repo", data=sample_data, webhook_ip="http://example.com", apis_dict=apis_dict
         )
 

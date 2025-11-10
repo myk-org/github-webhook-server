@@ -99,7 +99,7 @@ class TestRunnerHandler:
         with patch(
             "webhook_server.libs.handlers.runner_handler.run_command", new=AsyncMock(return_value=(True, "success", ""))
         ):
-            rc, out, err = await runner_handler.run_podman_command("podman build .")
+            rc, out, _ = await runner_handler.run_podman_command("podman build .")
             assert rc is True
             assert "success" in out  # Relaxed assertion
 
@@ -110,7 +110,7 @@ class TestRunnerHandler:
         with patch("webhook_server.libs.handlers.runner_handler.run_command", new=AsyncMock()) as mock_run:
             mock_run.side_effect = [(False, "output", podman_bug_err), (True, "success after fix", "")]
             with patch.object(runner_handler, "fix_podman_bug") as mock_fix:
-                rc, out, err = await runner_handler.run_podman_command("podman build .")
+                _, _, _ = await runner_handler.run_podman_command("podman build .")
                 assert mock_fix.call_count >= 1
 
     @pytest.mark.asyncio
@@ -120,7 +120,7 @@ class TestRunnerHandler:
             "webhook_server.libs.handlers.runner_handler.run_command",
             new=AsyncMock(return_value=(False, "output", "other error")),
         ):
-            rc, out, err = await runner_handler.run_podman_command("podman build .")
+            rc, _, _ = await runner_handler.run_podman_command("podman build .")
             assert rc is False or rc is None
 
     @pytest.mark.asyncio
@@ -510,7 +510,7 @@ class TestRunnerHandler:
                 async with runner_handler._prepare_cloned_repo_dir(
                     "/tmp/test-repo-unique", mock_pull_request
                 ) as result:
-                    success, out, err = result
+                    success, _, _ = result
                     assert success is True
 
     @pytest.mark.asyncio
@@ -521,7 +521,7 @@ class TestRunnerHandler:
             new=AsyncMock(return_value=(False, "output", "error")),
         ):
             async with runner_handler._prepare_cloned_repo_dir("/tmp/test-repo-unique2") as result:
-                success, out, err = result
+                success, out, _ = result
                 assert success is False
                 assert out == "output"
 
@@ -536,7 +536,7 @@ class TestRunnerHandler:
             async with runner_handler._prepare_cloned_repo_dir(
                 "/tmp/test-repo-unique3", mock_pull_request, checkout="feature-branch"
             ) as result:
-                success, out, err = result
+                success, _, _ = result
                 assert success is True
 
     @pytest.mark.asyncio
@@ -550,7 +550,7 @@ class TestRunnerHandler:
             async with runner_handler._prepare_cloned_repo_dir(
                 "/tmp/test-repo-unique4", mock_pull_request, tag_name="v1.0.0"
             ) as result:
-                success, out, err = result
+                success, _, _ = result
                 assert success is True
 
     @pytest.mark.asyncio
@@ -564,7 +564,7 @@ class TestRunnerHandler:
             async with runner_handler._prepare_cloned_repo_dir(
                 "/tmp/test-repo-unique5", mock_pull_request, is_merged=True
             ) as result:
-                success, out, err = result
+                success, _, _ = result
                 assert success is True
 
     @pytest.mark.asyncio
@@ -583,7 +583,7 @@ class TestRunnerHandler:
             new=AsyncMock(side_effect=run_command_side_effect),
         ):
             async with runner_handler._prepare_cloned_repo_dir("/tmp/test-repo-x", mock_pull_request) as result:
-                success, out, err = result
+                success, out, _ = result
                 assert not success
                 assert out == "fail"
 
@@ -605,7 +605,7 @@ class TestRunnerHandler:
             new=AsyncMock(side_effect=run_command_side_effect),
         ):
             async with runner_handler._prepare_cloned_repo_dir("/tmp/test-repo-x", mock_pull_request) as result:
-                success, out, err = result
+                success, out, _ = result
                 assert not success
                 assert out == "fail"
 
@@ -627,7 +627,7 @@ class TestRunnerHandler:
             new=AsyncMock(side_effect=run_command_side_effect),
         ):
             async with runner_handler._prepare_cloned_repo_dir("/tmp/test-repo-x", mock_pull_request) as result:
-                success, out, err = result
+                success, out, _ = result
                 assert not success
                 assert out == "fail"
 
@@ -653,7 +653,7 @@ class TestRunnerHandler:
             new=AsyncMock(side_effect=run_command_side_effect),
         ):
             async with runner_handler._prepare_cloned_repo_dir("/tmp/test-repo-x", mock_pull_request) as result:
-                success, out, err = result
+                success, out, _ = result
                 assert not success
                 assert out == "fail"
 

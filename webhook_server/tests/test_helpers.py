@@ -316,18 +316,33 @@ class TestHelpers:
             def log(self, msg):
                 self.logged = msg
 
-        # Exception result
+        # Exception result - result() should RAISE the exception
         class DummyFutureException:
             def result(self):
-                return (False, "fail", lambda msg: self.log(msg))
+                raise RuntimeError("Repository configuration crashed")
 
             def exception(self):
-                return Exception("fail-exc")
+                return RuntimeError("Repository configuration crashed")
 
             def log(self, msg):
                 self.logged = msg
 
         futures = [DummyFuture(), DummyFutureFail(), DummyFutureException()]
-        # Patch as_completed to just yield the futures
+
+        # Patch as_completed to just yield the futures and capture logger calls
         with patch("webhook_server.utils.helpers.as_completed", return_value=futures):
-            get_future_results(futures)
+            with patch("webhook_server.utils.helpers.get_logger_with_params") as mock_get_logger:
+                mock_logger = Mock()
+                mock_get_logger.return_value = mock_logger
+
+                get_future_results(futures)
+
+                # Verify logger.exception was called for the exception case
+                mock_logger.exception.assert_called_once_with(
+                    "Repository configuration crashed. Check for archived repositories or API permission issues."
+                )
+
+                # Verify all futures were processed (success and failure futures should have logged)
+                assert futures[0].logged == "success"
+                assert futures[1].logged == "fail"
+                # futures[2] raised exception so no log attribute set
