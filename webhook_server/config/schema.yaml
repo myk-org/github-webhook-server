@@ -82,9 +82,12 @@ properties:
       type: object
       properties:
         threshold:
-          type: integer
-          minimum: 1
-          description: Minimum number of changes (additions + deletions) for this size category
+          oneOf:
+            - type: integer
+              minimum: 1
+            - type: string
+              enum: ["inf"]
+          description: Minimum number of changes (additions + deletions) for this size category, or 'inf' for unbounded largest category
         color:
           type: string
           description: CSS3 color name for the label (e.g., 'green', 'red', 'orange')
@@ -267,9 +270,12 @@ properties:
             type: object
             properties:
               threshold:
-                type: integer
-                minimum: 1
-                description: Minimum number of changes (additions + deletions) for this size category
+                oneOf:
+                  - type: integer
+                    minimum: 1
+                  - type: string
+                    enum: ["inf"]
+                description: Minimum number of changes (additions + deletions) for this size category, or 'inf' for unbounded largest category
               color:
                 type: string
                 description: CSS3 color name for the label (e.g., 'green', 'red', 'orange')

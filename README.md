@@ -342,7 +342,7 @@ their own categorization system.
 # Global configuration (applies to all repositories)
 pr-size-thresholds:
   Tiny:
-    threshold: 10 # Required: positive integer (lines changed)
+    threshold: 10 # Required: positive integer or 'inf' for unbounded category
     color: lightgray # Optional: CSS3 color name, defaults to lightgray
   Small:
     threshold: 50
@@ -353,6 +353,9 @@ pr-size-thresholds:
   Large:
     threshold: 300
     color: red
+  Massive:
+    threshold: inf # Infinity: captures all PRs >= 300 lines (unbounded largest category)
+    color: darkred
 
 # Repository-specific configuration (overrides global)
 repositories:
@@ -368,18 +371,24 @@ repositories:
       Premium:
         threshold: 500
         color: orange
+      Ultimate:
+        threshold: inf # Optional: ensures all PRs beyond 500 lines are captured
+        color: crimson
 ```
 
 #### Configuration Rules
 
-- **threshold**: Required positive integer representing total lines changed
-  (additions + deletions)
+- **threshold**: Required positive integer or string `'inf'` for infinity
+  - Positive integers represent minimum lines changed (additions + deletions)
+  - Use `inf` for an unbounded largest category (always sorted last)
+  - Infinity ensures all PRs beyond the largest finite threshold are captured
 - **color**: Optional CSS3 color name
-  (e.g., `red`, `green`, `orange`, `lightblue`, `darkred`)
-- **Label Names**: Any string (e.g., `Tiny`, `Express`, `Premium`, `Critical`)
+  (e.g., `red`, `green`, `orange`, `lightblue`, `darkred`, `crimson`)
+- **Label Names**: Any string (e.g., `Tiny`, `Express`, `Premium`, `Critical`, `Massive`)
 - **Hierarchy**: Repository-level configuration overrides global configuration
 - **Fallback**: If no custom configuration is provided, uses default static labels
   (XS, S, M, L, XL, XXL)
+- **Backward Compatibility**: Existing configurations with integer-only thresholds continue to work
 
 #### Supported Color Names
 

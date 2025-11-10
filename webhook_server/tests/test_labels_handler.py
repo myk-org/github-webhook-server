@@ -1021,3 +1021,123 @@ class TestLabelsHandler:
         # Test size label not in custom config - should fall back to static if exists
         # This would be the case where user has custom config but requests a static size
         assert labels_handler._get_label_color("size/XL") == "D93F0B"  # Falls back to STATIC_LABELS_DICT
+
+    def test_get_custom_pr_size_thresholds_with_infinity_float(self, mock_github_webhook: Mock) -> None:
+        """Test custom PR size thresholds with float('inf') threshold."""
+        # Mock config with float("inf") threshold
+        mock_github_webhook.config.get_value.return_value = {
+            "S": {"threshold": 100, "color": "green"},
+            "M": {"threshold": 300, "color": "orange"},
+            "XXL": {"threshold": float("inf"), "color": "red"},
+        }
+
+        labels_handler = LabelsHandler(github_webhook=mock_github_webhook, owners_file_handler=Mock())
+
+        thresholds = labels_handler._get_custom_pr_size_thresholds()
+
+        # Verify infinity threshold is accepted and sorted correctly (should be last)
+        expected = [
+            (100, "S", "008000"),  # green hex
+            (300, "M", "ffa500"),  # orange hex
+            (float("inf"), "XXL", "ff0000"),  # red hex - infinity should be last
+        ]
+        assert thresholds == expected
+        # Verify sorting: infinity should be last
+        assert thresholds[-1][0] == float("inf")
+        assert thresholds[-1][1] == "XXL"
+
+    def test_get_custom_pr_size_thresholds_with_infinity_string(self, mock_github_webhook: Mock) -> None:
+        """Test custom PR size thresholds with string 'inf' threshold (YAML compatibility)."""
+        # Mock config with string "inf" threshold (YAML compatibility)
+        mock_github_webhook.config.get_value.return_value = {
+            "S": {"threshold": 50, "color": "green"},
+            "L": {"threshold": 200, "color": "orange"},
+            "XXL": {"threshold": "inf", "color": "red"},
+        }
+
+        labels_handler = LabelsHandler(github_webhook=mock_github_webhook, owners_file_handler=Mock())
+
+        thresholds = labels_handler._get_custom_pr_size_thresholds()
+
+        # Verify string "inf" is converted to float("inf")
+        expected = [
+            (50, "S", "008000"),  # green hex
+            (200, "L", "ffa500"),  # orange hex
+            (float("inf"), "XXL", "ff0000"),  # red hex - converted from string
+        ]
+        assert thresholds == expected
+        # Verify string "inf" was converted to float("inf")
+        assert thresholds[-1][0] == float("inf")
+        assert isinstance(thresholds[-1][0], float)
+
+    def test_get_custom_pr_size_thresholds_mixed_with_infinity(self, mock_github_webhook: Mock) -> None:
+        """Test custom PR size thresholds with mixed integers and infinity."""
+        # Mock config with mixed thresholds (integers + infinity)
+        mock_github_webhook.config.get_value.return_value = {
+            "XS": {"threshold": 20, "color": "lightgray"},
+            "S": {"threshold": 100, "color": "green"},
+            "XXL": {"threshold": float("inf"), "color": "red"},
+            "M": {"threshold": 300, "color": "orange"},
+        }
+
+        labels_handler = LabelsHandler(github_webhook=mock_github_webhook, owners_file_handler=Mock())
+
+        thresholds = labels_handler._get_custom_pr_size_thresholds()
+
+        # Verify proper sorting (infinity should be last)
+        expected = [
+            (20, "XS", "d3d3d3"),  # lightgray hex
+            (100, "S", "008000"),  # green hex
+            (300, "M", "ffa500"),  # orange hex
+            (float("inf"), "XXL", "ff0000"),  # red hex - infinity should be last
+        ]
+        assert thresholds == expected
+        # Verify sorting correctness: numeric values first, then infinity
+        for i in range(len(thresholds) - 1):
+            assert thresholds[i][0] < thresholds[i + 1][0]
+
+    def test_get_size_with_infinity_threshold(self, mock_github_webhook: Mock) -> None:
+        """Test get_size() method with custom infinity threshold."""
+        # Mock config with infinity threshold
+        mock_github_webhook.config.get_value.return_value = {
+            "S": {"threshold": 100, "color": "green"},
+            "M": {"threshold": 300, "color": "orange"},
+            "XXL": {"threshold": float("inf"), "color": "red"},
+        }
+
+        labels_handler = LabelsHandler(github_webhook=mock_github_webhook, owners_file_handler=Mock())
+
+        # Test various PR sizes
+        test_cases = [
+            (50, 0, "size/S"),  # 50 < 100
+            (150, 0, "size/M"),  # 150 >= 100 but < 300
+            (400, 0, "size/XXL"),  # 400 >= 300 but < inf
+            (1000, 500, "size/XXL"),  # 1500 >= 300 but < inf (extremely large PR)
+            (10000, 5000, "size/XXL"),  # 15000 >= 300 but < inf (huge PR)
+        ]
+
+        for additions, deletions, expected in test_cases:
+            pull_request = Mock(spec=PullRequest)
+            pull_request.additions = additions
+            pull_request.deletions = deletions
+
+            result = labels_handler.get_size(pull_request=pull_request)
+            assert result == expected, (
+                f"Failed for {additions}+{deletions}={additions + deletions}, expected {expected}"
+            )
+
+    def test_get_label_color_with_infinity_threshold(self, mock_github_webhook: Mock) -> None:
+        """Test _get_label_color() with custom infinity threshold."""
+        # Mock config with infinity threshold
+        mock_github_webhook.config.get_value.return_value = {
+            "S": {"threshold": 100, "color": "green"},
+            "M": {"threshold": 300, "color": "orange"},
+            "XXL": {"threshold": float("inf"), "color": "red"},
+        }
+
+        labels_handler = LabelsHandler(github_webhook=mock_github_webhook, owners_file_handler=Mock())
+
+        # Verify color is returned correctly for infinity category
+        assert labels_handler._get_label_color("size/S") == "008000"  # green hex
+        assert labels_handler._get_label_color("size/M") == "ffa500"  # orange hex
+        assert labels_handler._get_label_color("size/XXL") == "ff0000"  # red hex (infinity category)
