@@ -27,7 +27,7 @@ class TestLogParser:
         entry = parser.parse_log_entry(log_line)
 
         assert entry is not None
-        assert entry.timestamp == datetime.datetime(2025, 7, 31, 10, 30, 0, 123000)
+        assert entry.timestamp == datetime.datetime(2025, 7, 31, 10, 30, 0, 123000, tzinfo=datetime.UTC)
         assert entry.level == "INFO"
         assert entry.logger_name == "GithubWebhook"
         assert entry.hook_id == "abc123-def456"
@@ -62,7 +62,7 @@ class TestLogParser:
         entry = parser.parse_log_entry(log_line)
 
         assert entry is not None
-        assert entry.timestamp == datetime.datetime(2025, 7, 31, 12, 45, 0, 789000)
+        assert entry.timestamp == datetime.datetime(2025, 7, 31, 12, 45, 0, 789000, tzinfo=datetime.UTC)
         assert entry.level == "WARNING"
         assert entry.logger_name == "helpers"
         assert entry.hook_id is None
@@ -83,7 +83,7 @@ class TestLogParser:
         entry = parser.parse_log_entry(log_line)
 
         assert entry is not None
-        assert entry.timestamp == datetime.datetime(2025, 7, 21, 6, 5, 48, 278206)
+        assert entry.timestamp == datetime.datetime(2025, 7, 21, 6, 5, 48, 278206, tzinfo=datetime.UTC)
         assert entry.level == "INFO"
         assert entry.logger_name == "GithubWebhook"
         assert entry.hook_id == "9948e8d0-65df-11f0-9e82-d8c2969b6368"
@@ -106,7 +106,7 @@ class TestLogParser:
         entry = parser.parse_log_entry(log_line)
 
         assert entry is not None
-        assert entry.timestamp == datetime.datetime(2025, 7, 21, 6, 5, 48, 290851)
+        assert entry.timestamp == datetime.datetime(2025, 7, 21, 6, 5, 48, 290851, tzinfo=datetime.UTC)
         assert entry.level == "DEBUG"
         assert entry.logger_name == "GithubWebhook"
         assert entry.hook_id == "9948e8d0-65df-11f0-9e82-d8c2969b6368"
@@ -127,7 +127,7 @@ class TestLogParser:
         entry = parser.parse_log_entry(log_line)
 
         assert entry is not None
-        assert entry.timestamp == datetime.datetime(2025, 7, 21, 6, 5, 53, 415209)
+        assert entry.timestamp == datetime.datetime(2025, 7, 21, 6, 5, 53, 415209, tzinfo=datetime.UTC)
         assert entry.level == "DEBUG"
         assert entry.logger_name == "GithubWebhook"
         assert entry.hook_id == "96d21c70-65df-11f0-89ca-d82effeb540d"
