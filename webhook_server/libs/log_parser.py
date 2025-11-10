@@ -341,7 +341,7 @@ class LogParser:
                     # Not following, exit when no more data
                     break
 
-    async def monitor_log_directory(self, log_dir: Path, _pattern: str = "*.log") -> AsyncGenerator[LogEntry, None]:
+    async def monitor_log_directory(self, log_dir: Path, pattern: str = "*.log") -> AsyncGenerator[LogEntry, None]:
         """
         Monitor a directory for log files and yield new entries from all files.
 
@@ -357,7 +357,7 @@ class LogParser:
 
         # Find all existing log files including rotated ones
         log_files: list[Path] = []
-        log_files.extend(log_dir.glob("*.log"))
+        log_files.extend(log_dir.glob(pattern))
         # Only monitor current log file, not rotated ones for real-time
         current_log_files = [
             f for f in log_files if not any(f.name.endswith(ext) for ext in [".1", ".2", ".3", ".4", ".5"])
