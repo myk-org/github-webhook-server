@@ -619,11 +619,11 @@ class RunnerHandler:
             f"Setting conventional title check status to in-progress",
         )
         await self.check_run_handler.set_conventional_title_in_progress()
-        allowed_names = [name.strip() for name in self.github_webhook.conventional_title.split(",")]
+        allowed_names = [name.strip() for name in self.github_webhook.conventional_title.split(",") if name.strip()]
         title = pull_request.title
 
         self.logger.debug(f"{self.log_prefix} Conventional title check for title: {title}, allowed: {allowed_names}")
-        if any([re.match(rf"^{re.escape(_name)}(\([^)]+\))?!?:\s.+", title) for _name in allowed_names]):
+        if any([re.match(rf"^{re.escape(_name)}(\([^)]+\))?!?: .+", title) for _name in allowed_names]):
             self.logger.step(  # type: ignore[attr-defined]
                 f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'completed')} "
                 f"Conventional title check completed successfully",
