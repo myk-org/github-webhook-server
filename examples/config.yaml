@@ -52,7 +52,7 @@ pr-size-thresholds:
     color: red
   Massive:
     threshold: inf     # PRs with 300+ lines changed (unbounded largest category)
-    color: darkred     # Optional: using 'inf' ensures no PR exceeds thresholds
+    color: darkred     # 'inf' means no upper limit - catches all PRs above 300 lines
 
 branch-protection:
   strict: True
