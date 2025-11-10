@@ -470,19 +470,29 @@ def log_rate_limit(rate_limit: RateLimitOverview, api_user: str) -> None:
 
 def get_future_results(futures: list[Future]) -> None:
     """
-    result must return tuple[bool, str, Callable] when the Callable is Logger function (LOGGER.info, LOGGER.error, etc)
+    Process futures from repository configuration tasks.
+
+    Args:
+        futures: List of futures that return (success, message, logger_func) tuples
+
+    Notes:
+        Continues processing on exceptions to handle partial failures gracefully.
+        Worker threads may crash on archived repositories or API permission issues.
     """
+    logger = get_logger_with_params()
+
     for result in as_completed(futures):
-        _res = result.result()
-        _log = _res[2]
-        if result.exception():
-            _log(result.exception())
-
-        if _res[0]:
+        try:
+            # CRITICAL FIX: Calling result.result() will raise exception if one exists
+            # This gives us proper exception context for logger.exception()
+            _res = result.result()
+            _log = _res[2]
             _log(_res[1])
-
-        else:
-            _log(_res[1])
+        except Exception:
+            # Proper exception context - logger.exception() can capture traceback
+            logger.exception(
+                "Repository configuration crashed. Check for archived repositories or API permission issues."
+            )
 
 
 def get_repository_color_for_log_prefix(repository_name: str, data_dir: str) -> str:
