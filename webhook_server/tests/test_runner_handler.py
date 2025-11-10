@@ -509,11 +509,19 @@ class TestRunnerHandler:
                         mock_set_progress.assert_called_once()
 
                         if should_pass:
-                            mock_set_success.assert_called_once()
-                            mock_set_failure.assert_not_called()
+                            assert mock_set_success.call_count == 1, (
+                                f"Expected '{title}' to pass validation ({reason}), but it failed"
+                            )
+                            assert mock_set_failure.call_count == 0, (
+                                f"Expected '{title}' to pass validation ({reason}), but failure was called"
+                            )
                         else:
-                            mock_set_failure.assert_called_once()
-                            mock_set_success.assert_not_called()
+                            assert mock_set_failure.call_count == 1, (
+                                f"Expected '{title}' to fail validation ({reason}), but it passed"
+                            )
+                            assert mock_set_success.call_count == 0, (
+                                f"Expected '{title}' to fail validation ({reason}), but success was called"
+                            )
 
     @pytest.mark.asyncio
     async def test_run_conventional_title_check_disabled(

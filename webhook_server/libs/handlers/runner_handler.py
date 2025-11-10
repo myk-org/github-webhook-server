@@ -619,7 +619,7 @@ class RunnerHandler:
             f"Setting conventional title check status to in-progress",
         )
         await self.check_run_handler.set_conventional_title_in_progress()
-        allowed_names = self.github_webhook.conventional_title.split(",")
+        allowed_names = [name.strip() for name in self.github_webhook.conventional_title.split(",")]
         title = pull_request.title
 
         self.logger.debug(f"{self.log_prefix} Conventional title check for title: {title}, allowed: {allowed_names}")
