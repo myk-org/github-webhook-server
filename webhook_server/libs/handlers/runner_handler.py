@@ -602,9 +602,13 @@ class RunnerHandler:
         )
 
         output: dict[str, str] = {
-            "title": "Conventional Title",
-            "summary": "",
-            "text": "",
+            "title": "✅ Conventional Title",
+            "summary": "PR title follows Conventional Commits format",
+            "text": (
+                f"**Format:** `<type>[optional scope]: <description>`\n\n"
+                f"**Your title:** `{pull_request.title}`\n\n"
+                f"This title complies with the Conventional Commits v1.0.0 specification."
+            ),
         }
 
         if await self.check_run_handler.is_check_run_in_progress(check_run=CONVENTIONAL_TITLE_STR):
@@ -619,7 +623,7 @@ class RunnerHandler:
         title = pull_request.title
 
         self.logger.debug(f"{self.log_prefix} Conventional title check for title: {title}, allowed: {allowed_names}")
-        if any([re.search(rf"{_name}(.*):", title) for _name in allowed_names]):
+        if any([re.match(rf"^{re.escape(_name)}(\([^)]+\))?!?:\s.+", title) for _name in allowed_names]):
             self.logger.step(  # type: ignore[attr-defined]
                 f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'completed')} "
                 f"Conventional title check completed successfully",
@@ -631,8 +635,41 @@ class RunnerHandler:
                 f"{format_task_fields('runner', 'ci_check', 'failed')} "
                 f"Conventional title check failed"
             )
-            output["summary"] = "Failed"
-            output["text"] = f"Pull request title must starts with allowed title: {': ,'.join(allowed_names)}"
+            output["title"] = "❌ Conventional Title"
+            output["summary"] = "Conventional Commit Format Violation"
+            output["text"] = f"""## Conventional Commits Validation Failed
+
+**Your PR title:**
+> {title}
+
+**Required format:**
+```
+<type>[optional scope]: <description>
+```
+
+**Configured types for this repository:**
+{", ".join(f"`{t}`" for t in allowed_names)}
+
+**Valid examples:**
+- `feat: add user authentication`
+- `fix(parser): handle edge case in URL parsing`
+- `feat!: breaking change in API response`
+- `refactor(core)!: major architectural change`
+- `docs: update installation guide`
+
+**Format rules:**
+- Type must be one of the configured types
+- Optional scope in parentheses: `(scope)`
+- Optional breaking change indicator: `!`
+- **Mandatory**: colon followed by space `: `
+- **Mandatory**: non-empty description after the space
+
+**Note:** The Conventional Commits specification allows custom types beyond the standard recommendations.
+Your team can configure additional types in the repository settings.
+
+**Resources:**
+- [Conventional Commits v1.0.0 Specification](https://www.conventionalcommits.org/en/v1.0.0/)
+"""
             await self.check_run_handler.set_conventional_title_failure(output=output)
 
     async def is_branch_exists(self, branch: str) -> Branch:

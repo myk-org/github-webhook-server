@@ -27,7 +27,7 @@ class TestRunnerHandler:
         mock_webhook.pre_commit = True
         mock_webhook.build_and_push_container = True
         mock_webhook.pypi = {"token": "dummy"}
-        mock_webhook.conventional_title = "feat,fix,docs"
+        mock_webhook.conventional_title = "feat,fix,docs,style,refactor,perf,test,build,ci,chore,revert"
         mock_webhook.container_repository_username = "test-user"
         mock_webhook.container_repository_password = "test-pass"  # pragma: allowlist secret
         mock_webhook.slack_webhook_url = "https://hooks.slack.com/test"
@@ -389,10 +389,109 @@ class TestRunnerHandler:
                             mock_set_failure.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_run_conventional_title_check_success(
-        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    @pytest.mark.parametrize(
+        "title,should_pass,reason",
+        [
+            # Valid: Basic format
+            ("feat: add authentication", True, "basic feat format"),
+            ("fix: resolve parsing error", True, "basic fix format"),
+            ("docs: update README", True, "basic docs format"),
+            ("style: fix formatting", True, "basic style format"),
+            ("refactor: improve code structure", True, "basic refactor format"),
+            ("perf: optimize database queries", True, "basic perf format"),
+            ("test: add unit tests", True, "basic test format"),
+            ("build: update dependencies", True, "basic build format"),
+            ("ci: configure GitHub Actions", True, "basic ci format"),
+            ("chore: update .gitignore", True, "basic chore format"),
+            ("revert: revert previous commit", True, "basic revert format"),
+            # Valid: With scope
+            ("feat(api): add new endpoint", True, "feat with scope"),
+            ("fix(parser): handle edge case", True, "fix with scope"),
+            ("docs(readme): update installation steps", True, "docs with scope"),
+            ("style(css): improve button styling", True, "style with scope"),
+            ("refactor(auth): simplify token handling", True, "refactor with scope"),
+            ("perf(db): optimize query performance", True, "perf with scope"),
+            ("test(unit): add parser tests", True, "test with scope"),
+            ("build(deps): upgrade packages", True, "build with scope"),
+            ("ci(actions): update workflow", True, "ci with scope"),
+            ("chore(config): update settings", True, "chore with scope"),
+            # Valid: With breaking change indicator
+            ("feat!: breaking API change", True, "feat with breaking change"),
+            ("fix!: breaking bug fix", True, "fix with breaking change"),
+            ("refactor!: major refactor", True, "refactor with breaking change"),
+            ("feat(api)!: breaking API change", True, "feat with scope and breaking change"),
+            ("fix(core)!: breaking bug fix", True, "fix with scope and breaking change"),
+            # Valid: Multi-word descriptions
+            ("feat: add user authentication with OAuth2", True, "feat with multi-word description"),
+            (
+                "fix(parser): handle edge case in URL parsing with special characters",
+                True,
+                "fix with scope and long description",
+            ),
+            ("docs: update installation guide for Windows users", True, "docs with multi-word description"),
+            # Valid: Spec examples
+            ("docs: correct spelling of CHANGELOG", True, "conventional commits spec example 1"),
+            ("feat(lang): add Polish language", True, "conventional commits spec example 2"),
+            ("fix: prevent racing of requests", True, "conventional commits spec example 3"),
+            # Valid: Special characters in description
+            ("feat: add support for UTF-8 characters 日本語", True, "feat with UTF-8 characters"),
+            ("fix: handle URLs with query params ?foo=bar&baz=qux", True, "fix with special characters"),
+            ("docs: update guide with symbols @#$%", True, "docs with symbols"),
+            # Valid: Numbers in scope
+            ("feat(v2): add version 2 API", True, "feat with version number in scope"),
+            ("fix(CVE-2023-1234): security patch", True, "fix with CVE number in scope"),
+            ("docs(python3.12): update compatibility notes", True, "docs with version in scope"),
+            # Invalid: Missing space after colon
+            ("feat:no space", False, "missing space after colon"),
+            ("fix(api):missing space", False, "missing space after colon with scope"),
+            ("docs:test", False, "missing space after colon for docs"),
+            # Invalid: Empty description
+            ("feat:", False, "empty description"),
+            ("feat: ", False, "empty description with space"),
+            ("fix(scope): ", False, "empty description with scope"),
+            ("fix(scope):", False, "empty description with scope no space"),
+            # Invalid: Wrong type
+            ("Feature: add authentication", False, "wrong type capitalized"),
+            ("FEAT: add auth", False, "wrong type uppercase"),
+            ("bugfix: fix issue", False, "wrong type bugfix instead of fix"),
+            ("feature: add new feature", False, "wrong type feature instead of feat"),
+            ("documentation: update docs", False, "wrong type documentation instead of docs"),
+            # Invalid: Missing colon
+            ("feat add auth", False, "missing colon"),
+            ("fix parser error", False, "missing colon for fix"),
+            ("docs update README", False, "missing colon for docs"),
+            # Invalid: Invalid characters before colon
+            ("feat hello: test", False, "invalid characters before colon"),
+            ("fix test test: broken", False, "invalid characters before colon"),
+            # Invalid: Malformed scope
+            ("feat(: broken scope", False, "malformed scope - missing closing paren"),
+            ("feat): broken scope", False, "malformed scope - missing opening paren"),
+            ("feat(): empty scope", False, "malformed scope - empty scope"),
+            ("feat(api)(auth): multiple scopes", False, "malformed scope - multiple scopes not allowed"),
+            # Invalid: No description after type
+            ("feat", False, "no colon or description"),
+            ("fix(api)", False, "no colon or description with scope"),
+            ("docs!", False, "no colon or description with breaking change indicator"),
+            # Edge cases: Numbers and special characters
+            ("fix: handle error #123", True, "fix with issue number"),
+            ("feat: add support for v1.0.0", True, "feat with version number"),
+            ("chore: update deps (security)", True, "chore with parentheses in description"),
+        ],
+    )
+    async def test_conventional_title_validation(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock, title: str, should_pass: bool, reason: str
     ) -> None:
-        """Test run_conventional_title_check with valid title."""
+        """Test Conventional Commits v1.0.0 title validation.
+
+        Tests comprehensive validation covering:
+        - Valid formats (basic, with scope, with breaking change indicator)
+        - Multi-word descriptions
+        - Special characters and UTF-8
+        - Invalid formats (missing space, empty description, wrong type, malformed scope)
+        - Edge cases (numbers, symbols, etc.)
+        """
+        mock_pull_request.title = title
+
         with patch.object(
             runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
         ):
@@ -402,29 +501,97 @@ class TestRunnerHandler:
                 with patch.object(
                     runner_handler.check_run_handler, "set_conventional_title_success"
                 ) as mock_set_success:
-                    await runner_handler.run_conventional_title_check(mock_pull_request)
-                    mock_set_progress.assert_called_once()
-                    mock_set_success.assert_called_once()
+                    with patch.object(
+                        runner_handler.check_run_handler, "set_conventional_title_failure"
+                    ) as mock_set_failure:
+                        await runner_handler.run_conventional_title_check(mock_pull_request)
+
+                        mock_set_progress.assert_called_once()
+
+                        if should_pass:
+                            mock_set_success.assert_called_once()
+                            mock_set_failure.assert_not_called()
+                        else:
+                            mock_set_failure.assert_called_once()
+                            mock_set_success.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_run_conventional_title_check_failure(
+    async def test_run_conventional_title_check_disabled(
         self, runner_handler: RunnerHandler, mock_pull_request: Mock
     ) -> None:
-        """Test run_conventional_title_check with invalid title."""
-        mock_pull_request.title = "Invalid title"
+        """Test run_conventional_title_check when conventional_title is not configured."""
+        runner_handler.github_webhook.conventional_title = ""
+
+        with patch.object(runner_handler.check_run_handler, "set_conventional_title_in_progress") as mock_set_progress:
+            with patch.object(runner_handler.check_run_handler, "set_conventional_title_success") as mock_set_success:
+                with patch.object(
+                    runner_handler.check_run_handler, "set_conventional_title_failure"
+                ) as mock_set_failure:
+                    await runner_handler.run_conventional_title_check(mock_pull_request)
+
+                    # Should return early without doing anything
+                    mock_set_progress.assert_not_called()
+                    mock_set_success.assert_not_called()
+                    mock_set_failure.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_run_conventional_title_check_custom_types(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test run_conventional_title_check with custom type configuration."""
+        runner_handler.github_webhook.conventional_title = "my-title,hotfix,custom"
+
+        # Valid custom types
+        valid_titles = [
+            "my-title: custom type example",
+            "hotfix: critical production fix",
+            "custom: special handling",
+            "my-title(api): custom type with scope",
+            "hotfix!: breaking hotfix",
+        ]
+
+        for title in valid_titles:
+            mock_pull_request.title = title
+
+            with patch.object(
+                runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+            ):
+                with patch.object(
+                    runner_handler.check_run_handler, "set_conventional_title_in_progress"
+                ) as mock_set_progress:
+                    with patch.object(
+                        runner_handler.check_run_handler, "set_conventional_title_success"
+                    ) as mock_set_success:
+                        with patch.object(
+                            runner_handler.check_run_handler, "set_conventional_title_failure"
+                        ) as mock_set_failure:
+                            await runner_handler.run_conventional_title_check(mock_pull_request)
+
+                            mock_set_progress.assert_called_once()
+                            mock_set_success.assert_called_once()
+                            mock_set_failure.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_run_conventional_title_check_in_progress(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test run_conventional_title_check when check is already in progress."""
+        mock_pull_request.title = "feat: test feature"
 
         with patch.object(
-            runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+            runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=True)
         ):
             with patch.object(
                 runner_handler.check_run_handler, "set_conventional_title_in_progress"
             ) as mock_set_progress:
                 with patch.object(
-                    runner_handler.check_run_handler, "set_conventional_title_failure"
-                ) as mock_set_failure:
+                    runner_handler.check_run_handler, "set_conventional_title_success"
+                ) as mock_set_success:
                     await runner_handler.run_conventional_title_check(mock_pull_request)
+
+                    # Should still proceed with the check
                     mock_set_progress.assert_called_once()
-                    mock_set_failure.assert_called_once()
+                    mock_set_success.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_is_branch_exists(self, runner_handler: RunnerHandler) -> None:

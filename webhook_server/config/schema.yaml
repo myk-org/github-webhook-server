@@ -254,7 +254,34 @@ properties:
           description: Required labels for PR to be marked as can-be-merged
         conventional-title:
           type: string
-          description: Comma-separated list of conventional commit prefixes
+          description: |
+            Comma-separated list of allowed commit types for Conventional Commits validation.
+
+            Enforces Conventional Commits v1.0.0 specification: <type>[optional scope]: <description>
+
+            Standard types (recommended):
+            - feat: New features (MINOR in semver)
+            - fix: Bug fixes (PATCH in semver)
+            - build, chore, ci, docs, style, refactor, perf, test, revert
+
+            Custom types: The specification allows custom types (any noun).
+            Examples: my-title, hotfix, release, custom
+
+            Format requirements:
+            - Type from configured list
+            - Optional scope in parentheses: (scope)
+            - Optional breaking change indicator: !
+            - Mandatory colon + space: ": "
+            - Non-empty description
+
+            Valid examples:
+            - feat: add authentication
+            - fix(api): handle edge case
+            - feat!: breaking change
+            - my-title: custom type
+
+            Resources: https://www.conventionalcommits.org/en/v1.0.0/
+          example: "feat,fix,build,chore,ci,docs,style,refactor,perf,test,revert"
         minimum-lgtm:
           type: integer
           description: Minimum number of LGTM required before approving PR
