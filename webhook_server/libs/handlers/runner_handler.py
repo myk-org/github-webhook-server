@@ -602,7 +602,7 @@ class RunnerHandler:
         )
 
         output: dict[str, str] = {
-            "title": "✅ Conventional Title",
+            "title": "Conventional Title",
             "summary": "PR title follows Conventional Commits format",
             "text": (
                 f"**Format:** `<type>[optional scope]: <description>`\n\n"
