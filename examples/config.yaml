@@ -62,6 +62,39 @@ branch-protection:
   required_linear_history: True
   required_conversation_resolution: True
 
+# AI Features Configuration (powered by Google Gemini)
+# Provides intelligent workflow automation complementing code review tools
+ai-features:
+  enabled: true  # Master toggle for all AI features
+  provider: gemini  # AI provider (currently only gemini supported)
+
+  gemini:
+    api-key-env: GEMINI_API_KEY  # Environment variable containing your Gemini API key
+    model: gemini-2.0-flash-latest  # Gemini model to use (fast and cost-effective)
+    temperature: 0.3  # Model temperature (0.0-2.0, lower = more deterministic)
+    max-tokens: 2000  # Maximum tokens in response
+
+  features:
+    # Natural Language Command Understanding
+    # Allows users to use natural language instead of exact command syntax
+    # Example: "looks good to me" instead of "/lgtm"
+    nlp-commands:
+      enabled: true
+
+    # Test Failure Analysis
+    # Analyzes test failures and categorizes them (FLAKY/REAL/INFRASTRUCTURE)
+    # Provides root cause analysis and remediation suggestions
+    test-analysis:
+      enabled: true
+
+    # Smart Reviewer Suggestions
+    # AI-powered reviewer recommendations based on:
+    # - File expertise (recent commits to changed files)
+    # - Current workload (open PRs assigned)
+    # - Availability
+    smart-reviewers:
+      enabled: true
+
 repositories:
   my-repository:
     name: my-org/my-repository
@@ -164,3 +197,18 @@ repositories:
 
     set-auto-merge-prs:
       - main
+
+    # AI Features Override (repository-specific)
+    # Override global AI settings for this repository
+    ai-features:
+      enabled: true  # Enable AI for this repo
+
+      features:
+        nlp-commands:
+          enabled: true  # Enable natural language commands
+
+        test-analysis:
+          enabled: false  # Disable test analysis for this repo
+
+        smart-reviewers:
+          enabled: true  # Enable smart reviewer suggestions

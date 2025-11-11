@@ -110,6 +110,71 @@ properties:
         type: boolean
       required_conversation_resolution:
         type: boolean
+  ai-features:
+    type: object
+    description: AI-powered workflow automation features using Google Gemini
+    properties:
+      enabled:
+        type: boolean
+        description: Enable AI features globally
+        default: false
+      provider:
+        type: string
+        description: AI provider to use
+        enum:
+          - gemini
+        default: gemini
+      gemini:
+        type: object
+        description: Google Gemini configuration
+        properties:
+          api-key-env:
+            type: string
+            description: Environment variable name containing Gemini API key
+            default: GEMINI_API_KEY
+          model:
+            type: string
+            description: Gemini model to use
+            default: gemini-2.0-flash-latest
+          temperature:
+            type: number
+            description: Model temperature (0.0-2.0)
+            minimum: 0.0
+            maximum: 2.0
+            default: 0.3
+          max-tokens:
+            type: integer
+            description: Maximum tokens in response
+            minimum: 1
+            default: 2000
+      features:
+        type: object
+        description: Individual AI feature toggles
+        properties:
+          nlp-commands:
+            type: object
+            description: Natural language command understanding
+            properties:
+              enabled:
+                type: boolean
+                description: Enable NLP command parsing
+                default: false
+          test-analysis:
+            type: object
+            description: Test failure analysis and categorization
+            properties:
+              enabled:
+                type: boolean
+                description: Enable test failure AI analysis
+                default: false
+          smart-reviewers:
+            type: object
+            description: Intelligent reviewer assignment suggestions
+            properties:
+              enabled:
+                type: boolean
+                description: Enable smart reviewer suggestions
+                default: false
   repositories:
     type: object
     additionalProperties:
@@ -309,3 +374,59 @@ properties:
             required:
               - threshold
             additionalProperties: false
+        ai-features:
+          type: object
+          description: Override AI features for this repository
+          properties:
+            enabled:
+              type: boolean
+              description: Enable AI features for this repository
+            provider:
+              type: string
+              description: AI provider to use for this repository
+              enum:
+                - gemini
+            gemini:
+              type: object
+              description: Google Gemini configuration override
+              properties:
+                api-key-env:
+                  type: string
+                  description: Environment variable name containing Gemini API key
+                model:
+                  type: string
+                  description: Gemini model to use
+                temperature:
+                  type: number
+                  description: Model temperature (0.0-2.0)
+                  minimum: 0.0
+                  maximum: 2.0
+                max-tokens:
+                  type: integer
+                  description: Maximum tokens in response
+                  minimum: 1
+            features:
+              type: object
+              description: Individual AI feature toggles for this repository
+              properties:
+                nlp-commands:
+                  type: object
+                  description: Natural language command understanding
+                  properties:
+                    enabled:
+                      type: boolean
+                      description: Enable NLP command parsing
+                test-analysis:
+                  type: object
+                  description: Test failure analysis and categorization
+                  properties:
+                    enabled:
+                      type: boolean
+                      description: Enable test failure AI analysis
+                smart-reviewers:
+                  type: object
+                  description: Intelligent reviewer assignment suggestions
+                  properties:
+                    enabled:
+                      type: boolean
+                      description: Enable smart reviewer suggestions
