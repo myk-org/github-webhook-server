@@ -329,6 +329,36 @@ class IssueCommentHandler:
     async def process_cherry_pick_command(
         self, pull_request: PullRequest, command_args: str, reviewed_user: str
     ) -> None:
+        """Process cherry-pick command for pull requests.
+
+        This method handles cherry-pick requests for both unmerged and merged PRs.
+        Cherry-pick labels (cherry-pick/<branch-name>) are added in BOTH scenarios:
+
+        **Unmerged PRs:**
+        - Labels indicate which branches need cherry-picking after the PR is merged
+        - Labels act as a TODO list for automatic cherry-picking
+        - When the PR is merged, the PR handler detects these labels and triggers cherry-picks
+
+        **Merged PRs:**
+        - Cherry-picks are executed immediately for all target branches
+        - Labels are added to track which branches have been cherry-picked to
+        - Labels serve as a historical record of completed cherry-pick operations
+        - Helps with auditing and tracking which releases include this change
+
+        Args:
+            pull_request: The pull request to cherry-pick
+            command_args: Space-separated list of target branches (e.g., "v1.0 v2.0")
+            reviewed_user: User who requested the cherry-pick
+
+        Example:
+            # Unmerged PR: /cherry-pick v1.0 v2.0
+            # - Adds labels: cherry-pick/v1.0, cherry-pick/v2.0
+            # - Posts comment explaining labels will trigger auto cherry-pick on merge
+
+            # Merged PR: /cherry-pick v1.0 v2.0
+            # - Executes cherry-pick to v1.0 and v2.0 immediately
+            # - Adds labels: cherry-pick/v1.0, cherry-pick/v2.0 to track completion
+        """
         _target_branches: list[str] = command_args.split()
         _exits_target_branches: set[str] = set()
         _non_exits_target_branches_msg: str = ""
@@ -349,19 +379,19 @@ class IssueCommentHandler:
             self.logger.info(f"{self.log_prefix} {_non_exits_target_branches_msg}")
             await asyncio.to_thread(pull_request.create_issue_comment, _non_exits_target_branches_msg)
 
+        cp_labels: list[str] = [
+            f"{CHERRY_PICK_LABEL_PREFIX}{_target_branch}" for _target_branch in _exits_target_branches
+        ]
+
         if _exits_target_branches:
             if not await asyncio.to_thread(pull_request.is_merged):
-                cp_labels: list[str] = [
-                    f"{CHERRY_PICK_LABEL_PREFIX}{_target_branch}" for _target_branch in _exits_target_branches
-                ]
                 info_msg: str = f"""
 Cherry-pick requested for PR: `{pull_request.title}` by user `{reviewed_user}`
 Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automatic cheery-pick once the PR is merged
 """
+
                 self.logger.info(f"{self.log_prefix} {info_msg}")
                 await asyncio.to_thread(pull_request.create_issue_comment, info_msg)
-                for _cp_label in cp_labels:
-                    await self.labels_handler._add_label(pull_request=pull_request, label=_cp_label)
             else:
                 for _exits_target_branch in _exits_target_branches:
                     await self.runner_handler.cherry_pick(
@@ -369,6 +399,9 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
                         target_branch=_exits_target_branch,
                         reviewed_user=reviewed_user,
                     )
+
+            for _cp_label in cp_labels:
+                await self.labels_handler._add_label(pull_request=pull_request, label=_cp_label)
 
     async def process_retest_command(
         self, pull_request: PullRequest, command_args: str, reviewed_user: str, automerge: bool = False
