@@ -1025,3 +1025,342 @@ class TestGithubWebhook:
 
                             result = await gh._get_last_commit(mock_pr)
                             assert result == mock_commits[-1]
+
+    @pytest.mark.asyncio
+    async def test_clone_repository_for_pr_success(
+        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
+    ) -> None:
+        """Test successful repository clone for PR."""
+        with patch("webhook_server.libs.github_api.Config") as mock_config:
+            mock_config.return_value.repository = True
+            mock_config.return_value.repository_local_data.return_value = {}
+
+            def get_value_side_effect(value: str, *args: Any, **kwargs: Any) -> Any:
+                if value == "mask-sensitive-data":
+                    return True
+                if value == "container":
+                    return {}
+                if value == "pypi":
+                    return {}
+                if value == "tox":
+                    return {}
+                if value == "verified-job":
+                    return True
+                return None
+
+            mock_config.return_value.get_value.side_effect = get_value_side_effect
+
+            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+                mock_get_api.return_value = (Mock(), "test-token", "apiuser")
+
+                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
+                    mock_repo = Mock()
+                    mock_repo.clone_url = "https://github.com/org/test-repo.git"
+                    mock_owner = Mock()
+                    mock_owner.login = "test-owner"
+                    mock_repo.owner = mock_owner
+                    mock_get_repo_api.return_value = mock_repo
+
+                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
+                        mock_get_app_api.return_value = Mock()
+
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
+                            mock_color.return_value = "test-repo"
+
+                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
+
+                            # Mock pull request
+                            mock_pr = Mock()
+                            mock_base = Mock()
+                            mock_base.ref = "main"
+                            mock_pr.base = mock_base
+
+                            # Mock run_command to succeed for all git operations
+                            async def mock_run_command(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+                                return (True, "", "")
+
+                            with (
+                                patch("webhook_server.libs.github_api.run_command", side_effect=mock_run_command),
+                                patch("asyncio.to_thread", side_effect=lambda f: f()),
+                            ):
+                                await gh._clone_repository_for_pr(mock_pr)
+
+                                # Verify clone succeeded
+                                assert gh._repo_cloned is True
+
+    @pytest.mark.asyncio
+    async def test_clone_repository_for_pr_already_cloned(
+        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
+    ) -> None:
+        """Test early return when repository already cloned."""
+        with patch("webhook_server.libs.github_api.Config") as mock_config:
+            mock_config.return_value.repository = True
+            mock_config.return_value.repository_local_data.return_value = {}
+
+            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+                mock_get_api.return_value = (Mock(), "test-token", "apiuser")
+
+                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
+                    mock_get_repo_api.return_value = Mock()
+
+                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
+                        mock_get_app_api.return_value = Mock()
+
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
+                            mock_color.return_value = "test-repo"
+
+                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
+                            gh._repo_cloned = True  # Mark as already cloned
+
+                            mock_pr = Mock()
+
+                            with patch("webhook_server.libs.github_api.run_command") as mock_run_cmd:
+                                await gh._clone_repository_for_pr(mock_pr)
+
+                                # Verify run_command was never called
+                                mock_run_cmd.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_clone_repository_for_pr_clone_failure(
+        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
+    ) -> None:
+        """Test RuntimeError raised when git clone fails."""
+        with patch("webhook_server.libs.github_api.Config") as mock_config:
+            mock_config.return_value.repository = True
+            mock_config.return_value.repository_local_data.return_value = {}
+
+            def get_value_side_effect(value: str, *args: Any, **kwargs: Any) -> Any:
+                if value == "mask-sensitive-data":
+                    return True
+                if value == "container":
+                    return {}
+                if value == "pypi":
+                    return {}
+                if value == "tox":
+                    return {}
+                if value == "verified-job":
+                    return True
+                return None
+
+            mock_config.return_value.get_value.side_effect = get_value_side_effect
+
+            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+                mock_get_api.return_value = (Mock(), "test-token", "apiuser")
+
+                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
+                    mock_repo = Mock()
+                    mock_repo.clone_url = "https://github.com/org/test-repo.git"
+                    mock_get_repo_api.return_value = mock_repo
+
+                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
+                        mock_get_app_api.return_value = Mock()
+
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
+                            mock_color.return_value = "test-repo"
+
+                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
+
+                            mock_pr = Mock()
+
+                            # Mock run_command to fail on clone
+                            async def mock_run_command(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+                                if "git clone" in command:
+                                    return (False, "", "Permission denied")
+                                return (True, "", "")
+
+                            with (
+                                patch("webhook_server.libs.github_api.run_command", side_effect=mock_run_command),
+                                pytest.raises(RuntimeError, match="Failed to clone repository: Permission denied"),
+                            ):
+                                await gh._clone_repository_for_pr(mock_pr)
+
+    @pytest.mark.asyncio
+    async def test_clone_repository_for_pr_checkout_failure(
+        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
+    ) -> None:
+        """Test RuntimeError raised when git checkout base branch fails."""
+        with patch("webhook_server.libs.github_api.Config") as mock_config:
+            mock_config.return_value.repository = True
+            mock_config.return_value.repository_local_data.return_value = {}
+
+            def get_value_side_effect(value: str, *args: Any, **kwargs: Any) -> Any:
+                if value == "mask-sensitive-data":
+                    return True
+                if value == "container":
+                    return {}
+                if value == "pypi":
+                    return {}
+                if value == "tox":
+                    return {}
+                if value == "verified-job":
+                    return True
+                return None
+
+            mock_config.return_value.get_value.side_effect = get_value_side_effect
+
+            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+                mock_get_api.return_value = (Mock(), "test-token", "apiuser")
+
+                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
+                    mock_repo = Mock()
+                    mock_repo.clone_url = "https://github.com/org/test-repo.git"
+                    mock_owner = Mock()
+                    mock_owner.login = "test-owner"
+                    mock_repo.owner = mock_owner
+                    mock_get_repo_api.return_value = mock_repo
+
+                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
+                        mock_get_app_api.return_value = Mock()
+
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
+                            mock_color.return_value = "test-repo"
+
+                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
+
+                            # Mock pull request
+                            mock_pr = Mock()
+                            mock_base = Mock()
+                            mock_base.ref = "main"
+                            mock_pr.base = mock_base
+
+                            # Mock run_command: succeed for clone/config, fail for checkout
+                            async def mock_run_command(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+                                if "checkout main" in command:
+                                    return (False, "", "Branch not found")
+                                return (True, "", "")
+
+                            with (
+                                patch("webhook_server.libs.github_api.run_command", side_effect=mock_run_command),
+                                patch("asyncio.to_thread", side_effect=lambda f: f()),
+                                pytest.raises(
+                                    RuntimeError, match="Failed to checkout base branch main: Branch not found"
+                                ),
+                            ):
+                                await gh._clone_repository_for_pr(mock_pr)
+
+    @pytest.mark.asyncio
+    async def test_clone_repository_for_pr_git_config_warnings(
+        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
+    ) -> None:
+        """Test that git config failures log warnings but don't raise exceptions."""
+        with patch("webhook_server.libs.github_api.Config") as mock_config:
+            mock_config.return_value.repository = True
+            mock_config.return_value.repository_local_data.return_value = {}
+
+            def get_value_side_effect(value: str, *args: Any, **kwargs: Any) -> Any:
+                if value == "mask-sensitive-data":
+                    return True
+                if value == "container":
+                    return {}
+                if value == "pypi":
+                    return {}
+                if value == "tox":
+                    return {}
+                if value == "verified-job":
+                    return True
+                return None
+
+            mock_config.return_value.get_value.side_effect = get_value_side_effect
+
+            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+                mock_get_api.return_value = (Mock(), "test-token", "apiuser")
+
+                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
+                    mock_repo = Mock()
+                    mock_repo.clone_url = "https://github.com/org/test-repo.git"
+                    mock_owner = Mock()
+                    mock_owner.login = "test-owner"
+                    mock_repo.owner = mock_owner
+                    mock_get_repo_api.return_value = mock_repo
+
+                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
+                        mock_get_app_api.return_value = Mock()
+
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
+                            mock_color.return_value = "test-repo"
+
+                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
+
+                            # Mock pull request
+                            mock_pr = Mock()
+                            mock_base = Mock()
+                            mock_base.ref = "main"
+                            mock_pr.base = mock_base
+
+                            # Mock run_command: succeed for clone/checkout, fail for config commands
+                            async def mock_run_command(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+                                if "config user.name" in command or "config user.email" in command:
+                                    return (False, "", "Config failed")
+                                if "config --local --add" in command or "remote update" in command:
+                                    return (False, "", "Config failed")
+                                return (True, "", "")
+
+                            mock_logger = Mock()
+
+                            with (
+                                patch("webhook_server.libs.github_api.run_command", side_effect=mock_run_command),
+                                patch("asyncio.to_thread", side_effect=lambda f: f()),
+                                patch.object(gh, "logger", mock_logger),
+                            ):
+                                await gh._clone_repository_for_pr(mock_pr)
+
+                                # Verify clone succeeded despite config failures
+                                assert gh._repo_cloned is True
+
+                                # Verify warnings were logged for each config failure
+                                warning_calls = [call for call in mock_logger.warning.call_args_list]
+                                assert len(warning_calls) == 4  # user.name, user.email, fetch config, remote update
+
+    @pytest.mark.asyncio
+    async def test_clone_repository_for_pr_general_exception(
+        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
+    ) -> None:
+        """Test exception handling during clone operation."""
+        with patch("webhook_server.libs.github_api.Config") as mock_config:
+            mock_config.return_value.repository = True
+            mock_config.return_value.repository_local_data.return_value = {}
+
+            def get_value_side_effect(value: str, *args: Any, **kwargs: Any) -> Any:
+                if value == "mask-sensitive-data":
+                    return True
+                if value == "container":
+                    return {}
+                if value == "pypi":
+                    return {}
+                if value == "tox":
+                    return {}
+                if value == "verified-job":
+                    return True
+                return None
+
+            mock_config.return_value.get_value.side_effect = get_value_side_effect
+
+            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+                mock_get_api.return_value = (Mock(), "test-token", "apiuser")
+
+                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
+                    mock_repo = Mock()
+                    mock_repo.clone_url = "https://github.com/org/test-repo.git"
+                    mock_get_repo_api.return_value = mock_repo
+
+                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
+                        mock_get_app_api.return_value = Mock()
+
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
+                            mock_color.return_value = "test-repo"
+
+                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
+
+                            mock_pr = Mock()
+
+                            # Mock run_command to raise an exception
+                            async def mock_run_command(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+                                raise ValueError("Unexpected error during git operation")
+
+                            with (
+                                patch("webhook_server.libs.github_api.run_command", side_effect=mock_run_command),
+                                pytest.raises(
+                                    RuntimeError, match="Repository clone failed: Unexpected error during git operation"
+                                ),
+                            ):
+                                await gh._clone_repository_for_pr(mock_pr)
