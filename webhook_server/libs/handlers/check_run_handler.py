@@ -36,6 +36,8 @@ class CheckRunHandler:
         self.logger = self.github_webhook.logger
         self.log_prefix: str = self.github_webhook.log_prefix
         self.repository: Repository = self.github_webhook.repository
+        self._repository_private: bool | None = None
+        self._branch_required_status_checks: list[str] | None = None
         if isinstance(self.owners_file_handler, OwnersFileHandler):
             self.labels_handler = LabelsHandler(
                 github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
@@ -393,17 +395,26 @@ class CheckRunHandler:
         return _all_required_status_checks
 
     async def get_branch_required_status_checks(self, pull_request: PullRequest) -> list[str]:
-        if self.repository.private:
+        # Check if private repo first (cache to avoid repeated API calls)
+        if self._repository_private is None:
+            self._repository_private = self.repository.private
+
+        if self._repository_private:
             self.logger.info(
                 f"{self.log_prefix} Repository is private, skipping getting branch protection required status checks"
             )
             return []
 
+        # Cache branch protection settings in instance variable to avoid repeated API calls
+        if self._branch_required_status_checks is not None:
+            return self._branch_required_status_checks
+
         pull_request_branch = await asyncio.to_thread(self.repository.get_branch, pull_request.base.ref)
         branch_protection = await asyncio.to_thread(pull_request_branch.get_protection)
         branch_required_status_checks = branch_protection.required_status_checks.contexts
         self.logger.debug(f"{self.log_prefix} branch_required_status_checks: {branch_required_status_checks}")
-        return branch_required_status_checks
+        self._branch_required_status_checks = branch_required_status_checks
+        return self._branch_required_status_checks
 
     async def required_check_in_progress(
         self, pull_request: PullRequest, last_commit_check_runs: list[CheckRun]
