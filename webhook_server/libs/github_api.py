@@ -125,7 +125,6 @@ class GithubWebhook:
         # This prevents predictable paths and ensures isolation between concurrent webhook handlers
         self.clone_repo_dir: str = tempfile.mkdtemp(prefix=f"github-webhook-{self.repository_name}-")
         self._repo_cloned: bool = False  # Track if repository has been cloned
-        self.cloned_repo_path: str | None = None  # Path to cloned repository (for OWNERS/changed files)
         # Initialize auto-verified users from API users
         self.add_api_users_to_auto_verified_and_merged_users()
 
@@ -169,35 +168,34 @@ class GithubWebhook:
             self.logger.debug(f"{self.log_prefix} Failed to get token metrics: {ex}")
             return ""
 
-    async def _clone_repository_for_pr(self, pull_request: PullRequest) -> bool:
-        """Clone repository for PR processing to enable local file operations.
+    async def _clone_repository_for_pr(self, pull_request: PullRequest) -> None:
+        """Clone repository once for all PR handlers to use with worktrees.
 
-        Clones the repository to self.clone_repo_dir and checks out the base branch.
-        This enables OWNERS file reading and changed file detection from local clone
-        instead of GitHub API calls.
+        Clones the repository to self.clone_repo_dir with PR fetch configuration.
+        Handlers create isolated worktrees from this single clone for their operations.
 
         Args:
             pull_request: PullRequest object to get base branch
 
-        Returns:
-            bool: True if clone successful, False otherwise
+        Raises:
+            RuntimeError: If clone fails (aborts webhook processing)
         """
         if self._repo_cloned:
             self.logger.debug(f"{self.log_prefix} Repository already cloned")
-            return True
+            return
 
         self.logger.step(  # type: ignore[attr-defined]
             f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'started')} "
-            "Cloning repository for local file processing"
+            "Cloning repository for handler worktrees"
         )
 
         try:
-            # Clone the repository
             github_token = self.token
             clone_url_with_token = self.repository.clone_url.replace("https://", f"https://{github_token}@")
             mask_sensitive = self.config.get_value("mask-sensitive-data", return_on_none=True)
+
             rc, _, err = await run_command(
-                command=f"git clone {clone_url_with_token} {self.clone_repo_dir}/repo",
+                command=f"git clone {clone_url_with_token} {self.clone_repo_dir}",
                 log_prefix=self.log_prefix,
                 redact_secrets=[github_token],
                 mask_sensitive=mask_sensitive,
@@ -207,27 +205,47 @@ class GithubWebhook:
                     f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'failed')} "
                     f"Failed to clone repository: {err}"
                 )
-                return False
+                raise RuntimeError(f"Failed to clone repository: {err}")
 
             # Configure git user
-            git_cmd = f"git -C {self.clone_repo_dir}/repo"
-            rc, _, err = await run_command(
+            git_cmd = f"git -C {self.clone_repo_dir}"
+            rc, _, _ = await run_command(
                 command=f"{git_cmd} config user.name '{self.repository.owner.login}'",
                 log_prefix=self.log_prefix,
                 mask_sensitive=mask_sensitive,
             )
             if not rc:
-                self.logger.warning(f"{self.log_prefix} Failed to configure git user.name: {err}")
+                self.logger.warning(f"{self.log_prefix} Failed to configure git user.name")
 
-            rc, _, err = await run_command(
+            rc, _, _ = await run_command(
                 command=f"{git_cmd} config user.email '{self.repository.owner.login}@users.noreply.github.com'",
                 log_prefix=self.log_prefix,
                 mask_sensitive=mask_sensitive,
             )
             if not rc:
-                self.logger.warning(f"{self.log_prefix} Failed to configure git user.email: {err}")
+                self.logger.warning(f"{self.log_prefix} Failed to configure git user.email")
 
-            # Checkout base branch for OWNERS file reading
+            # Configure PR fetch to enable origin/pr/* checkouts
+            rc, _, _ = await run_command(
+                command=(
+                    f"{git_cmd} config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
+                ),
+                log_prefix=self.log_prefix,
+                mask_sensitive=mask_sensitive,
+            )
+            if not rc:
+                self.logger.warning(f"{self.log_prefix} Failed to configure PR fetch refs")
+
+            # Fetch all refs including PRs
+            rc, _, _ = await run_command(
+                command=f"{git_cmd} remote update",
+                log_prefix=self.log_prefix,
+                mask_sensitive=mask_sensitive,
+            )
+            if not rc:
+                self.logger.warning(f"{self.log_prefix} Failed to fetch remote refs")
+
+            # Checkout base branch (for OWNERS files and default state)
             base_branch = await asyncio.to_thread(lambda: pull_request.base.ref)
             rc, _, err = await run_command(
                 command=f"{git_cmd} checkout {base_branch}",
@@ -239,22 +257,20 @@ class GithubWebhook:
                     f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'failed')} "
                     f"Failed to checkout base branch {base_branch}: {err}"
                 )
-                return False
+                raise RuntimeError(f"Failed to checkout base branch {base_branch}: {err}")
 
             self._repo_cloned = True
-            self.cloned_repo_path = f"{self.clone_repo_dir}/repo"
             self.logger.success(  # type: ignore[attr-defined]
                 f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'completed')} "
-                f"Repository cloned successfully to {self.cloned_repo_path} (branch: {base_branch})"
+                f"Repository cloned to {self.clone_repo_dir} (branch: {base_branch})"
             )
-            return True
 
         except Exception as ex:
             self.logger.exception(
                 f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'failed')} "
                 f"Exception during repository clone: {ex}"
             )
-            return False
+            raise RuntimeError(f"Repository clone failed: {ex}") from ex
 
     async def process(self) -> Any:
         event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"

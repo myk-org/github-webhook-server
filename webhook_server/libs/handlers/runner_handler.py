@@ -4,7 +4,6 @@ import re
 import shutil
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any
-from uuid import uuid4
 
 import shortuuid
 from github.Branch import Branch
@@ -48,147 +47,71 @@ class RunnerHandler:
         return self.github_webhook.config.get_value("mask-sensitive-data", return_on_none=True)
 
     @contextlib.asynccontextmanager
-    async def _prepare_cloned_repo_dir(
+    async def _checkout_worktree(
         self,
-        clone_repo_dir: str,
         pull_request: PullRequest | None = None,
         is_merged: bool = False,
         checkout: str = "",
         tag_name: str = "",
-    ) -> AsyncGenerator[tuple[bool, Any, Any], None]:
-        git_cmd = f"git --work-tree={clone_repo_dir} --git-dir={clone_repo_dir}/.git"
-        self.logger.debug(f"{self.log_prefix} Preparing cloned repo dir {clone_repo_dir} with git cmd: {git_cmd}")
-        result: tuple[bool, str, str] = (True, "", "")
-        success = True
+    ) -> AsyncGenerator[tuple[bool, str, str, str], None]:
+        """Create worktree from existing clone for handler operations.
 
-        try:
-            # Clone the repository
-            github_token = self.github_webhook.token
-            clone_url_with_token = self.repository.clone_url.replace("https://", f"https://{github_token}@")
-            rc, out, err = await run_command(
-                command=(f"git clone {clone_url_with_token} {clone_repo_dir}"),
-                log_prefix=self.log_prefix,
-                redact_secrets=[github_token],
-                mask_sensitive=self.mask_sensitive,
-            )
-            if not rc:
-                result = (rc, out, err)
-                success = False
+        Uses centralized clone from github_webhook.clone_repo_dir and creates
+        a worktree for isolated checkout operations. No cloning happens here.
 
-            if success:
-                rc, out, err = await run_command(
-                    command=f"{git_cmd} config user.name '{self.repository.owner.login}'",
-                    log_prefix=self.log_prefix,
-                    mask_sensitive=self.mask_sensitive,
-                )
-                if not rc:
-                    result = (rc, out, err)
-                    success = False
+        Args:
+            pull_request: Pull request object
+            is_merged: Whether PR is merged
+            checkout: Specific branch/commit to checkout
+            tag_name: Tag name to checkout
 
-            if success:
-                rc, out, err = await run_command(
-                    command=f"{git_cmd} config user.email '{self.repository.owner.email}'",
-                    log_prefix=self.log_prefix,
-                    mask_sensitive=self.mask_sensitive,
-                )
-                if not rc:
-                    result = (rc, out, err)
-                    success = False
+        Yields:
+            tuple: (success: bool, worktree_path: str, stdout: str, stderr: str)
+        """
+        from webhook_server.utils.helpers import git_worktree_checkout  # noqa: PLC0415
 
-            if success:
-                rc, out, err = await run_command(
-                    command=(
-                        f"{git_cmd} config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
-                    ),
-                    log_prefix=self.log_prefix,
-                    mask_sensitive=self.mask_sensitive,
-                )
-                if not rc:
-                    result = (rc, out, err)
-                    success = False
-
-            if success:
-                rc, out, err = await run_command(
-                    command=f"{git_cmd} remote update",
-                    log_prefix=self.log_prefix,
-                    mask_sensitive=self.mask_sensitive,
-                )
-                if not rc:
-                    result = (rc, out, err)
-                    success = False
-
-            # Checkout to requested branch/tag
-            if checkout and success:
-                rc, out, err = await run_command(
-                    command=f"{git_cmd} checkout {checkout}",
-                    log_prefix=self.log_prefix,
-                    mask_sensitive=self.mask_sensitive,
-                )
-                if not rc:
-                    result = (rc, out, err)
-                    success = False
-
-                if success and pull_request:
-                    rc, out, err = await run_command(
-                        command=f"{git_cmd} merge origin/{pull_request.base.ref} -m 'Merge {pull_request.base.ref}'",
-                        log_prefix=self.log_prefix,
-                        mask_sensitive=self.mask_sensitive,
-                    )
-                    if not rc:
-                        result = (rc, out, err)
-                        success = False
-
-            # Checkout the branch if pull request is merged or for release
+        # Determine what to checkout
+        checkout_target = ""
+        if checkout:
+            checkout_target = checkout
+        elif tag_name:
+            checkout_target = tag_name
+        elif is_merged and pull_request:
+            checkout_target = pull_request.base.ref
+        elif pull_request:
+            checkout_target = f"origin/pr/{pull_request.number}"
+        else:
+            # Fallback: try to get PR or use current HEAD
+            if _pull_request := await self.github_webhook.get_pull_request():
+                checkout_target = f"origin/pr/{_pull_request.number}"
             else:
-                if success:
-                    if is_merged and pull_request:
-                        rc, out, err = await run_command(
-                            command=f"{git_cmd} checkout {pull_request.base.ref}",
-                            log_prefix=self.log_prefix,
-                            mask_sensitive=self.mask_sensitive,
-                        )
-                        if not rc:
-                            result = (rc, out, err)
-                            success = False
+                checkout_target = "HEAD"
 
-                    elif tag_name:
-                        rc, out, err = await run_command(
-                            command=f"{git_cmd} checkout {tag_name}",
-                            log_prefix=self.log_prefix,
-                            mask_sensitive=self.mask_sensitive,
-                        )
-                        if not rc:
-                            result = (rc, out, err)
-                            success = False
+        # Use centralized clone
+        repo_dir = self.github_webhook.clone_repo_dir
+        self.logger.debug(f"{self.log_prefix} Creating worktree from {repo_dir} with checkout: {checkout_target}")
 
-                    # Checkout the pull request
-                    else:
-                        if _pull_request := await self.github_webhook.get_pull_request():
-                            rc, out, err = await run_command(
-                                command=f"{git_cmd} checkout origin/pr/{_pull_request.number}",
-                                log_prefix=self.log_prefix,
-                                mask_sensitive=self.mask_sensitive,
-                            )
-                            if not rc:
-                                result = (rc, out, err)
-                                success = False
+        # Create worktree for this operation
+        async with git_worktree_checkout(
+            repo_dir=repo_dir,
+            checkout=checkout_target,
+            log_prefix=self.log_prefix,
+            mask_sensitive=self.mask_sensitive,
+        ) as (success, worktree_path, out, err):
+            result: tuple[bool, str, str, str] = (success, worktree_path, out, err)
 
-                            if pull_request and success:
-                                rc, out, err = await run_command(
-                                    command=(
-                                        f"{git_cmd} merge origin/{pull_request.base.ref} "
-                                        f"-m 'Merge {pull_request.base.ref}'"
-                                    ),
-                                    log_prefix=self.log_prefix,
-                                    mask_sensitive=self.mask_sensitive,
-                                )
-                                if not rc:
-                                    result = (rc, out, err)
+            # Merge base branch if needed (for PR testing)
+            if success and pull_request and not is_merged and not tag_name:
+                git_cmd = f"git -C {worktree_path}"
+                rc, out, err = await run_command(
+                    command=f"{git_cmd} merge origin/{pull_request.base.ref} -m 'Merge {pull_request.base.ref}'",
+                    log_prefix=self.log_prefix,
+                    mask_sensitive=self.mask_sensitive,
+                )
+                if not rc:
+                    result = (False, worktree_path, out, err)
 
-        finally:
             yield result
-            self.logger.debug(f"{self.log_prefix} Deleting {clone_repo_dir}")
-            shutil.rmtree(clone_repo_dir, ignore_errors=True)
 
     def is_podman_bug(self, err: str) -> bool:
         _err = "Error: current system boot ID differs from cached boot ID; an unhandled reboot has occurred"
@@ -232,41 +155,41 @@ class RunnerHandler:
         if await self.check_run_handler.is_check_run_in_progress(check_run=TOX_STR):
             self.logger.debug(f"{self.log_prefix} Check run is in progress, re-running {TOX_STR}.")
 
-        clone_repo_dir = f"{self.github_webhook.clone_repo_dir}-{uuid4()}"
         python_ver = (
             f"--python={self.github_webhook.tox_python_version}" if self.github_webhook.tox_python_version else ""
         )
-        cmd = f"uvx {python_ver} {TOX_STR} --workdir {clone_repo_dir} --root {clone_repo_dir} -c {clone_repo_dir}"
         _tox_tests = self.github_webhook.tox.get(pull_request.base.ref, "")
-
-        if _tox_tests and _tox_tests != "all":
-            tests = _tox_tests.replace(" ", "")
-            cmd += f" -e {tests}"
 
         self.logger.step(  # type: ignore[attr-defined]
             f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
             f"Setting tox check status to in-progress",
         )
         await self.check_run_handler.set_run_tox_check_in_progress()
-        self.logger.debug(f"{self.log_prefix} Tox command to run: {cmd}")
 
         self.logger.step(  # type: ignore[attr-defined]
             f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
-            f"Preparing repository clone for tox execution",
+            f"Preparing repository checkout for tox execution",
         )
-        async with self._prepare_cloned_repo_dir(clone_repo_dir=clone_repo_dir, pull_request=pull_request) as _res:
+        async with self._checkout_worktree(pull_request=pull_request) as (success, worktree_path, out, err):
+            # Build tox command with worktree path
+            cmd = f"uvx {python_ver} {TOX_STR} --workdir {worktree_path} --root {worktree_path} -c {worktree_path}"
+            if _tox_tests and _tox_tests != "all":
+                tests = _tox_tests.replace(" ", "")
+                cmd += f" -e {tests}"
+            self.logger.debug(f"{self.log_prefix} Tox command to run: {cmd}")
+
             output: dict[str, Any] = {
                 "title": "Tox",
                 "summary": "",
                 "text": None,
             }
-            if not _res[0]:
+            if not success:
                 self.logger.step(  # type: ignore[attr-defined]
                     f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} "
                     f"Repository preparation failed for tox",
                 )
                 self.logger.error(f"{self.log_prefix} Repository preparation failed for tox")
-                output["text"] = self.check_run_handler.get_check_run_text(out=_res[1], err=_res[2])
+                output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
                 return await self.check_run_handler.set_run_tox_check_failure(output=output)
 
             self.logger.step(  # type: ignore[attr-defined]
@@ -303,9 +226,6 @@ class RunnerHandler:
         if await self.check_run_handler.is_check_run_in_progress(check_run=PRE_COMMIT_STR):
             self.logger.debug(f"{self.log_prefix} Check run is in progress, re-running {PRE_COMMIT_STR}.")
 
-        clone_repo_dir = f"{self.github_webhook.clone_repo_dir}-{uuid4()}"
-        cmd = f" uvx --directory {clone_repo_dir} {PREK_STR} run --all-files"
-
         self.logger.step(  # type: ignore[attr-defined]
             f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
             f"Setting pre-commit check status to in-progress",
@@ -314,21 +234,23 @@ class RunnerHandler:
 
         self.logger.step(  # type: ignore[attr-defined]
             f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
-            f"Preparing repository clone for pre-commit execution",
+            f"Preparing repository checkout for pre-commit execution",
         )
-        async with self._prepare_cloned_repo_dir(pull_request=pull_request, clone_repo_dir=clone_repo_dir) as _res:
+        async with self._checkout_worktree(pull_request=pull_request) as (success, worktree_path, out, err):
+            cmd = f" uvx --directory {worktree_path} {PREK_STR} run --all-files"
+
             output: dict[str, Any] = {
                 "title": "Pre-Commit",
                 "summary": "",
                 "text": None,
             }
-            if not _res[0]:
+            if not success:
                 self.logger.step(  # type: ignore[attr-defined]
                     f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} "
                     f"Repository preparation failed for pre-commit",
                 )
                 self.logger.error(f"{self.log_prefix} Repository preparation failed for pre-commit")
-                output["text"] = self.check_run_handler.get_check_run_text(out=_res[1], err=_res[2])
+                output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
                 return await self.check_run_handler.set_run_pre_commit_check_failure(output=output)
 
             self.logger.step(  # type: ignore[attr-defined]
@@ -380,8 +302,6 @@ class RunnerHandler:
         ):
             return
 
-        clone_repo_dir = f"{self.github_webhook.clone_repo_dir}-{uuid4()}"
-
         if pull_request and set_check:
             if await self.check_run_handler.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR) and not is_merged:
                 self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {BUILD_CONTAINER_STR}.")
@@ -396,45 +316,47 @@ class RunnerHandler:
             pull_request=pull_request, is_merged=is_merged, tag=tag
         )
         no_cache: str = " --no-cache" if is_merged else ""
-        build_cmd: str = (
-            f"--network=host {no_cache} -f "
-            f"{clone_repo_dir}/{self.github_webhook.dockerfile} "
-            f"{clone_repo_dir} -t {_container_repository_and_tag}"
-        )
 
-        if self.github_webhook.container_build_args:
-            build_args = " ".join(f"--build-arg {arg}" for arg in self.github_webhook.container_build_args)
-            build_cmd = f"{build_args} {build_cmd}"
-
-        if self.github_webhook.container_command_args:
-            build_cmd = f"{' '.join(self.github_webhook.container_command_args)} {build_cmd}"
-
-        if command_args:
-            build_cmd = f"{command_args} {build_cmd}"
-
-        podman_build_cmd: str = f"podman build {build_cmd}"
-        self.logger.debug(f"{self.log_prefix} Podman build command to run: {podman_build_cmd}")
         self.logger.step(  # type: ignore[attr-defined]
             f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
-            f"Preparing repository clone for container build",
+            f"Preparing repository checkout for container build",
         )
-        async with self._prepare_cloned_repo_dir(
+        async with self._checkout_worktree(
             pull_request=pull_request,
             is_merged=is_merged,
             tag_name=tag,
-            clone_repo_dir=clone_repo_dir,
-        ) as _res:
+        ) as (success, worktree_path, out, err):
+            # Build container build command with worktree path
+            build_cmd: str = (
+                f"--network=host {no_cache} -f "
+                f"{worktree_path}/{self.github_webhook.dockerfile} "
+                f"{worktree_path} -t {_container_repository_and_tag}"
+            )
+
+            if self.github_webhook.container_build_args:
+                build_args = " ".join(f"--build-arg {arg}" for arg in self.github_webhook.container_build_args)
+                build_cmd = f"{build_args} {build_cmd}"
+
+            if self.github_webhook.container_command_args:
+                build_cmd = f"{' '.join(self.github_webhook.container_command_args)} {build_cmd}"
+
+            if command_args:
+                build_cmd = f"{command_args} {build_cmd}"
+
+            podman_build_cmd: str = f"podman build {build_cmd}"
+            self.logger.debug(f"{self.log_prefix} Podman build command to run: {podman_build_cmd}")
+
             output: dict[str, Any] = {
                 "title": "Build container",
                 "summary": "",
                 "text": None,
             }
-            if not _res[0]:
+            if not success:
                 self.logger.step(  # type: ignore[attr-defined]
                     f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} "
                     f"Repository preparation failed for container build",
                 )
-                output["text"] = self.check_run_handler.get_check_run_text(out=_res[1], err=_res[2])
+                output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
                 if pull_request and set_check:
                     return await self.check_run_handler.set_container_build_failure(output=output)
 
@@ -539,7 +461,6 @@ class RunnerHandler:
         if await self.check_run_handler.is_check_run_in_progress(check_run=PYTHON_MODULE_INSTALL_STR):
             self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {PYTHON_MODULE_INSTALL_STR}.")
 
-        clone_repo_dir = f"{self.github_webhook.clone_repo_dir}-{uuid4()}"
         self.logger.info(f"{self.log_prefix} Installing python module")
         self.logger.step(  # type: ignore[attr-defined]
             f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
@@ -548,23 +469,20 @@ class RunnerHandler:
         await self.check_run_handler.set_python_module_install_in_progress()
         self.logger.step(  # type: ignore[attr-defined]
             f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
-            f"Preparing repository clone for Python module installation",
+            f"Preparing repository checkout for Python module installation",
         )
-        async with self._prepare_cloned_repo_dir(
-            pull_request=pull_request,
-            clone_repo_dir=clone_repo_dir,
-        ) as _res:
+        async with self._checkout_worktree(pull_request=pull_request) as (success, worktree_path, out, err):
             output: dict[str, Any] = {
                 "title": "Python module installation",
                 "summary": "",
                 "text": None,
             }
-            if not _res[0]:
+            if not success:
                 self.logger.step(  # type: ignore[attr-defined]
                     f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} "
                     f"Repository preparation failed for Python module installation",
                 )
-                output["text"] = self.check_run_handler.get_check_run_text(out=_res[1], err=_res[2])
+                output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
                 return await self.check_run_handler.set_python_module_install_failure(output=output)
 
             self.logger.step(  # type: ignore[attr-defined]
@@ -572,7 +490,7 @@ class RunnerHandler:
                 f"Executing Python module installation command",
             )
             rc, out, err = await run_command(
-                command=f"uvx pip wheel --no-cache-dir -w {clone_repo_dir}/dist {clone_repo_dir}",
+                command=f"uvx pip wheel --no-cache-dir -w {worktree_path}/dist {worktree_path}",
                 log_prefix=self.log_prefix,
                 mask_sensitive=self.mask_sensitive,
             )
@@ -705,36 +623,35 @@ Your team can configure additional types in the repository settings.
             commit_hash = pull_request.merge_commit_sha
             commit_msg_striped = pull_request.title.replace("'", "")
             pull_request_url = pull_request.html_url
-            clone_repo_dir = f"{self.github_webhook.clone_repo_dir}-{uuid4()}"
-            git_cmd = f"git --work-tree={clone_repo_dir} --git-dir={clone_repo_dir}/.git"
             github_token = self.github_webhook.token
-            hub_cmd = f"GITHUB_TOKEN={github_token} hub --work-tree={clone_repo_dir} --git-dir={clone_repo_dir}/.git"
-            commands: list[str] = [
-                f"{git_cmd} checkout {target_branch}",
-                f"{git_cmd} pull origin {target_branch}",
-                f"{git_cmd} checkout -b {new_branch_name} origin/{target_branch}",
-                f"{git_cmd} cherry-pick {commit_hash}",
-                f"{git_cmd} push origin {new_branch_name}",
-                f'bash -c "{hub_cmd} pull-request -b {target_branch} '
-                f"-h {new_branch_name} -l {CHERRY_PICKED_LABEL_PREFIX} "
-                f"-m '{CHERRY_PICKED_LABEL_PREFIX}: [{target_branch}] "
-                f"{commit_msg_striped}' -m 'cherry-pick {pull_request_url} "
-                f"into {target_branch}' -m 'requested-by {requested_by}'\"",
-            ]
 
-            rc, out, err = None, "", ""
-            async with self._prepare_cloned_repo_dir(pull_request=pull_request, clone_repo_dir=clone_repo_dir) as _res:
+            async with self._checkout_worktree(pull_request=pull_request) as (success, worktree_path, out, err):
+                git_cmd = f"git --work-tree={worktree_path} --git-dir={worktree_path}/.git"
+                hub_cmd = f"GITHUB_TOKEN={github_token} hub --work-tree={worktree_path} --git-dir={worktree_path}/.git"
+                commands: list[str] = [
+                    f"{git_cmd} checkout {target_branch}",
+                    f"{git_cmd} pull origin {target_branch}",
+                    f"{git_cmd} checkout -b {new_branch_name} origin/{target_branch}",
+                    f"{git_cmd} cherry-pick {commit_hash}",
+                    f"{git_cmd} push origin {new_branch_name}",
+                    f'bash -c "{hub_cmd} pull-request -b {target_branch} '
+                    f"-h {new_branch_name} -l {CHERRY_PICKED_LABEL_PREFIX} "
+                    f"-m '{CHERRY_PICKED_LABEL_PREFIX}: [{target_branch}] "
+                    f"{commit_msg_striped}' -m 'cherry-pick {pull_request_url} "
+                    f"into {target_branch}' -m 'requested-by {requested_by}'\"",
+                ]
+
                 output = {
                     "title": "Cherry-pick details",
                     "summary": "",
                     "text": None,
                 }
-                if not _res[0]:
+                if not success:
                     self.logger.step(  # type: ignore[attr-defined]
                         f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} "
                         f"Repository preparation failed for cherry-pick",
                     )
-                    output["text"] = self.check_run_handler.get_check_run_text(out=_res[1], err=_res[2])
+                    output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
                     await self.check_run_handler.set_cherry_pick_failure(output=output)
 
                 self.logger.step(  # type: ignore[attr-defined]

@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime
 import json
 import os
 import random
 import re
 import shlex
+import shutil
 import subprocess
+from collections.abc import AsyncGenerator
 from concurrent.futures import Future, as_completed
 from logging import Logger
 from typing import Any
+from uuid import uuid4
 
 import github
 from colorama import Fore
@@ -586,3 +590,63 @@ def prepare_log_prefix(
         prefix += f"[PR {pr_number}]"
 
     return prefix + ":"
+
+
+@contextlib.asynccontextmanager
+async def git_worktree_checkout(
+    repo_dir: str,
+    checkout: str,
+    log_prefix: str,
+    mask_sensitive: bool = True,
+) -> AsyncGenerator[tuple[bool, str, str, str], None]:
+    """Create git worktree for isolated checkout operations.
+
+    Creates a temporary worktree from existing cloned repository, allowing
+    multiple handlers to work with different checkouts simultaneously.
+
+    Args:
+        repo_dir: Path to cloned git repository
+        checkout: Branch, tag, or commit to checkout
+        log_prefix: Logging prefix
+        mask_sensitive: Whether to mask sensitive data in logs
+
+    Yields:
+        tuple: (success: bool, worktree_path: str, stdout: str, stderr: str)
+
+    Example:
+        async with git_worktree_checkout(repo_dir, "origin/pr/123", log_prefix) as (success, path, out, err):
+            if success:
+                # Use path for operations
+                await run_command(f"pytest {path}/tests")
+    """
+    worktree_path = f"{repo_dir}-worktree-{uuid4()}"
+    result: tuple[bool, str, str, str] = (False, "", "", "")
+
+    try:
+        # Create worktree
+        rc, out, err = await run_command(
+            command=f"git -C {repo_dir} worktree add {worktree_path} {checkout}",
+            log_prefix=log_prefix,
+            mask_sensitive=mask_sensitive,
+        )
+
+        if rc:
+            result = (True, worktree_path, out, err)
+        else:
+            result = (False, worktree_path, out, err)
+
+        yield result
+
+    finally:
+        # Cleanup: Remove worktree
+        if os.path.exists(worktree_path):
+            try:
+                # Remove worktree from git
+                await run_command(
+                    command=f"git -C {repo_dir} worktree remove {worktree_path} --force",
+                    log_prefix=log_prefix,
+                    mask_sensitive=mask_sensitive,
+                )
+            except Exception:
+                # Fallback: Force delete directory if git command fails
+                shutil.rmtree(worktree_path, ignore_errors=True)
