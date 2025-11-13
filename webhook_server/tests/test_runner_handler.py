@@ -138,11 +138,11 @@ class TestRunnerHandler:
             runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=True)
         ):
             with patch.object(runner_handler.check_run_handler, "set_run_tox_check_in_progress") as mock_set_progress:
-                with patch.object(runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
+                with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
                     # Simple mock that returns the expected tuple
-                    mock_prepare.return_value = AsyncMock()
-                    mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(True, "", ""))
-                    mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
+                    mock_checkout.return_value = AsyncMock()
+                    mock_checkout.return_value.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree-path", "", ""))
+                    mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
                     with patch(
                         "webhook_server.utils.helpers.run_command", new=AsyncMock(return_value=(True, "success", ""))
                     ):
@@ -159,10 +159,12 @@ class TestRunnerHandler:
         ):
             with patch.object(runner_handler.check_run_handler, "set_run_tox_check_in_progress") as mock_set_progress:
                 with patch.object(runner_handler.check_run_handler, "set_run_tox_check_failure") as mock_set_failure:
-                    with patch.object(runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-                        mock_prepare.return_value = AsyncMock()
-                        mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(False, "out", "err"))
-                        mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
+                    with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
+                        mock_checkout.return_value = AsyncMock()
+                        mock_checkout.return_value.__aenter__ = AsyncMock(
+                            return_value=(False, "/tmp/worktree-path", "out", "err")
+                        )
+                        mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
                         await runner_handler.run_tox(mock_pull_request)
                         mock_set_progress.assert_called_once()
                         mock_set_failure.assert_called_once()
@@ -180,10 +182,12 @@ class TestRunnerHandler:
                 with patch.object(
                     runner_handler.check_run_handler, "set_run_tox_check_success", new_callable=AsyncMock
                 ) as mock_set_success:
-                    with patch.object(runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-                        mock_prepare.return_value = AsyncMock()
-                        mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(True, "", ""))
-                        mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
+                    with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
+                        mock_checkout.return_value = AsyncMock()
+                        mock_checkout.return_value.__aenter__ = AsyncMock(
+                            return_value=(True, "/tmp/worktree-path", "", "")
+                        )
+                        mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
                         with patch(
                             "webhook_server.libs.handlers.runner_handler.run_command",
                             new=AsyncMock(return_value=(True, "success", "")),
@@ -201,10 +205,12 @@ class TestRunnerHandler:
         ):
             with patch.object(runner_handler.check_run_handler, "set_run_tox_check_in_progress") as mock_set_progress:
                 with patch.object(runner_handler.check_run_handler, "set_run_tox_check_failure") as mock_set_failure:
-                    with patch.object(runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-                        mock_prepare.return_value = AsyncMock()
-                        mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(True, "", ""))
-                        mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
+                    with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
+                        mock_checkout.return_value = AsyncMock()
+                        mock_checkout.return_value.__aenter__ = AsyncMock(
+                            return_value=(True, "/tmp/worktree-path", "", "")
+                        )
+                        mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
                         with patch(
                             "webhook_server.utils.helpers.run_command",
                             new=AsyncMock(return_value=(False, "output", "error")),
@@ -233,10 +239,12 @@ class TestRunnerHandler:
                 with patch.object(
                     runner_handler.check_run_handler, "set_run_pre_commit_check_success"
                 ) as mock_set_success:
-                    with patch.object(runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-                        mock_prepare.return_value = AsyncMock()
-                        mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(True, "", ""))
-                        mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
+                    with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
+                        mock_checkout.return_value = AsyncMock()
+                        mock_checkout.return_value.__aenter__ = AsyncMock(
+                            return_value=(True, "/tmp/worktree-path", "", "")
+                        )
+                        mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
                         with patch(
                             "webhook_server.libs.handlers.runner_handler.run_command",
                             new=AsyncMock(return_value=(True, "success", "")),
@@ -279,10 +287,12 @@ class TestRunnerHandler:
                     with patch.object(
                         runner_handler.check_run_handler, "set_container_build_success"
                     ) as mock_set_success:
-                        with patch.object(runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-                            mock_prepare.return_value = AsyncMock()
-                            mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(True, "", ""))
-                            mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
+                        with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
+                            mock_checkout.return_value = AsyncMock()
+                            mock_checkout.return_value.__aenter__ = AsyncMock(
+                                return_value=(True, "/tmp/worktree-path", "", "")
+                            )
+                            mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
                             with patch.object(
                                 runner_handler, "run_podman_command", new=AsyncMock(return_value=(True, "success", ""))
                             ):
@@ -308,10 +318,12 @@ class TestRunnerHandler:
                     with patch.object(
                         runner_handler.check_run_handler, "set_container_build_success"
                     ) as mock_set_success:
-                        with patch.object(runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-                            mock_prepare.return_value = AsyncMock()
-                            mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(True, "", ""))
-                            mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
+                        with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
+                            mock_checkout.return_value = AsyncMock()
+                            mock_checkout.return_value.__aenter__ = AsyncMock(
+                                return_value=(True, "/tmp/worktree-path", "", "")
+                            )
+                            mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
                             with patch.object(
                                 runner_handler, "run_podman_command", new=AsyncMock(return_value=(True, "success", ""))
                             ):
@@ -349,10 +361,12 @@ class TestRunnerHandler:
                 with patch.object(
                     runner_handler.check_run_handler, "set_python_module_install_success"
                 ) as mock_set_success:
-                    with patch.object(runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-                        mock_prepare.return_value = AsyncMock()
-                        mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(True, "", ""))
-                        mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
+                    with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
+                        mock_checkout.return_value = AsyncMock()
+                        mock_checkout.return_value.__aenter__ = AsyncMock(
+                            return_value=(True, "/tmp/worktree-path", "", "")
+                        )
+                        mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
                         with patch(
                             "webhook_server.libs.handlers.runner_handler.run_command",
                             new=AsyncMock(return_value=(True, "success", "")),
@@ -376,10 +390,12 @@ class TestRunnerHandler:
                 with patch.object(
                     runner_handler.check_run_handler, "set_python_module_install_failure"
                 ) as mock_set_failure:
-                    with patch.object(runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-                        mock_prepare.return_value = AsyncMock()
-                        mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(True, "", ""))
-                        mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
+                    with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
+                        mock_checkout.return_value = AsyncMock()
+                        mock_checkout.return_value.__aenter__ = AsyncMock(
+                            return_value=(True, "/tmp/worktree-path", "", "")
+                        )
+                        mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
                         with patch(
                             "webhook_server.utils.helpers.run_command",
                             new=AsyncMock(return_value=(False, "output", "error")),
@@ -624,10 +640,12 @@ class TestRunnerHandler:
         with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())):
             with patch.object(runner_handler.check_run_handler, "set_cherry_pick_in_progress") as mock_set_progress:
                 with patch.object(runner_handler.check_run_handler, "set_cherry_pick_failure") as mock_set_failure:
-                    with patch.object(runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-                        mock_prepare.return_value = AsyncMock()
-                        mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(False, "out", "err"))
-                        mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
+                    with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
+                        mock_checkout.return_value = AsyncMock()
+                        mock_checkout.return_value.__aenter__ = AsyncMock(
+                            return_value=(False, "/tmp/worktree-path", "out", "err")
+                        )
+                        mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
                         await runner_handler.cherry_pick(mock_pull_request, "main")
                         mock_set_progress.assert_called_once()
                         assert mock_set_failure.call_count >= 1
@@ -639,10 +657,12 @@ class TestRunnerHandler:
         with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())):
             with patch.object(runner_handler.check_run_handler, "set_cherry_pick_in_progress") as mock_set_progress:
                 with patch.object(runner_handler.check_run_handler, "set_cherry_pick_failure") as mock_set_failure:
-                    with patch.object(runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-                        mock_prepare.return_value = AsyncMock()
-                        mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(True, "", ""))
-                        mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
+                    with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
+                        mock_checkout.return_value = AsyncMock()
+                        mock_checkout.return_value.__aenter__ = AsyncMock(
+                            return_value=(True, "/tmp/worktree-path", "", "")
+                        )
+                        mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
                         with patch(
                             "webhook_server.utils.helpers.run_command",
                             new=AsyncMock(return_value=(False, "output", "error")),
@@ -658,10 +678,12 @@ class TestRunnerHandler:
         with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())):
             with patch.object(runner_handler.check_run_handler, "set_cherry_pick_in_progress") as mock_set_progress:
                 with patch.object(runner_handler.check_run_handler, "set_cherry_pick_success") as mock_set_success:
-                    with patch.object(runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-                        mock_prepare.return_value = AsyncMock()
-                        mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(True, "", ""))
-                        mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
+                    with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
+                        mock_checkout.return_value = AsyncMock()
+                        mock_checkout.return_value.__aenter__ = AsyncMock(
+                            return_value=(True, "/tmp/worktree-path", "", "")
+                        )
+                        mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
                         with patch(
                             "webhook_server.libs.handlers.runner_handler.run_command",
                             new=AsyncMock(return_value=(True, "success", "")),
@@ -672,165 +694,98 @@ class TestRunnerHandler:
                                 mock_set_success.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_prepare_cloned_repo_dir_success(
+    async def test_checkout_worktree_success(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
+        """Test _checkout_worktree with successful preparation."""
+        with patch("webhook_server.utils.helpers.git_worktree_checkout") as mock_git_worktree:
+            mock_git_worktree.return_value.__aenter__ = AsyncMock(
+                return_value=(True, "/tmp/worktree-path", "success", "")
+            )
+            mock_git_worktree.return_value.__aexit__ = AsyncMock(return_value=None)
+            with patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(return_value=(True, "success", "")),
+            ):
+                async with runner_handler._checkout_worktree(pull_request=mock_pull_request) as result:
+                    success, worktree_path, _, _ = result
+                    assert success is True
+                    assert worktree_path == "/tmp/worktree-path"
+
+    @pytest.mark.asyncio
+    async def test_checkout_worktree_failure(self, runner_handler: RunnerHandler) -> None:
+        """Test _checkout_worktree when checkout fails."""
+        with patch("webhook_server.utils.helpers.git_worktree_checkout") as mock_git_worktree:
+            mock_git_worktree.return_value.__aenter__ = AsyncMock(return_value=(False, "", "output", "error"))
+            mock_git_worktree.return_value.__aexit__ = AsyncMock(return_value=None)
+            with patch.object(runner_handler.github_webhook, "get_pull_request", new=AsyncMock(return_value=None)):
+                async with runner_handler._checkout_worktree() as result:
+                    success, _, out, _ = result
+                    assert success is False
+                    assert out == "output"
+
+    @pytest.mark.asyncio
+    async def test_checkout_worktree_with_checkout(
         self, runner_handler: RunnerHandler, mock_pull_request: Mock
     ) -> None:
-        """Test _prepare_cloned_repo_dir with successful preparation."""
-        with patch(
-            "webhook_server.libs.handlers.runner_handler.run_command", new=AsyncMock(return_value=(True, "success", ""))
-        ):
-            with patch.object(
-                runner_handler.github_webhook, "get_pull_request", new=AsyncMock(return_value=mock_pull_request)
+        """Test _checkout_worktree with checkout parameter."""
+        with patch("webhook_server.utils.helpers.git_worktree_checkout") as mock_git_worktree:
+            mock_git_worktree.return_value.__aenter__ = AsyncMock(
+                return_value=(True, "/tmp/worktree-path", "success", "")
+            )
+            mock_git_worktree.return_value.__aexit__ = AsyncMock(return_value=None)
+            with patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(return_value=(True, "success", "")),
             ):
-                async with runner_handler._prepare_cloned_repo_dir(
-                    "/tmp/test-repo-unique", mock_pull_request
+                async with runner_handler._checkout_worktree(
+                    pull_request=mock_pull_request, checkout="feature-branch"
                 ) as result:
-                    success, _, _ = result
+                    success, _, _, _ = result
                     assert success is True
 
     @pytest.mark.asyncio
-    async def test_prepare_cloned_repo_dir_clone_failure(self, runner_handler: RunnerHandler) -> None:
-        """Test _prepare_cloned_repo_dir when clone fails."""
-        with patch(
-            "webhook_server.libs.handlers.runner_handler.run_command",
-            new=AsyncMock(return_value=(False, "output", "error")),
-        ):
-            async with runner_handler._prepare_cloned_repo_dir("/tmp/test-repo-unique2") as result:
-                success, out, _ = result
-                assert success is False
-                assert out == "output"
-
-    @pytest.mark.asyncio
-    async def test_prepare_cloned_repo_dir_with_checkout(
-        self, runner_handler: RunnerHandler, mock_pull_request: Mock
-    ) -> None:
-        """Test _prepare_cloned_repo_dir with checkout parameter."""
-        with patch(
-            "webhook_server.libs.handlers.runner_handler.run_command", new=AsyncMock(return_value=(True, "success", ""))
-        ):
-            async with runner_handler._prepare_cloned_repo_dir(
-                "/tmp/test-repo-unique3", mock_pull_request, checkout="feature-branch"
-            ) as result:
-                success, _, _ = result
-                assert success is True
-
-    @pytest.mark.asyncio
-    async def test_prepare_cloned_repo_dir_with_tag(
-        self, runner_handler: RunnerHandler, mock_pull_request: Mock
-    ) -> None:
-        """Test _prepare_cloned_repo_dir with tag_name parameter."""
-        with patch(
-            "webhook_server.libs.handlers.runner_handler.run_command", new=AsyncMock(return_value=(True, "success", ""))
-        ):
-            async with runner_handler._prepare_cloned_repo_dir(
-                "/tmp/test-repo-unique4", mock_pull_request, tag_name="v1.0.0"
-            ) as result:
-                success, _, _ = result
-                assert success is True
-
-    @pytest.mark.asyncio
-    async def test_prepare_cloned_repo_dir_merged_pr(
-        self, runner_handler: RunnerHandler, mock_pull_request: Mock
-    ) -> None:
-        """Test _prepare_cloned_repo_dir with merged pull request."""
-        with patch(
-            "webhook_server.libs.handlers.runner_handler.run_command", new=AsyncMock(return_value=(True, "success", ""))
-        ):
-            async with runner_handler._prepare_cloned_repo_dir(
-                "/tmp/test-repo-unique5", mock_pull_request, is_merged=True
-            ) as result:
-                success, _, _ = result
-                assert success is True
-
-    @pytest.mark.asyncio
-    async def test_prepare_cloned_repo_dir_git_config_user_name_failure(self, runner_handler, mock_pull_request):
-        # Simulate failure at git config user.name
-        async def run_command_side_effect(*args, **kwargs):
-            cmd = kwargs.get("command", args[0] if args else "")
-            if "clone" in cmd:
-                return (True, "ok", "")
-            if "config user.name" in cmd:
-                return (False, "fail", "fail")
-            return (True, "ok", "")
-
-        with patch(
-            "webhook_server.libs.handlers.runner_handler.run_command",
-            new=AsyncMock(side_effect=run_command_side_effect),
-        ):
-            async with runner_handler._prepare_cloned_repo_dir("/tmp/test-repo-x", mock_pull_request) as result:
-                success, out, _ = result
-                assert not success
-                assert out == "fail"
-
-    @pytest.mark.asyncio
-    async def test_prepare_cloned_repo_dir_git_config_user_email_failure(self, runner_handler, mock_pull_request):
-        # Simulate failure at git config user.email
-        async def run_command_side_effect(*args, **kwargs):
-            cmd = kwargs.get("command", args[0] if args else "")
-            if "clone" in cmd:
-                return (True, "ok", "")
-            if "config user.name" in cmd:
-                return (True, "ok", "")
-            if "config user.email" in cmd:
-                return (False, "fail", "fail")
-            return (True, "ok", "")
-
-        with patch(
-            "webhook_server.libs.handlers.runner_handler.run_command",
-            new=AsyncMock(side_effect=run_command_side_effect),
-        ):
-            async with runner_handler._prepare_cloned_repo_dir("/tmp/test-repo-x", mock_pull_request) as result:
-                success, out, _ = result
-                assert not success
-                assert out == "fail"
-
-    @pytest.mark.asyncio
-    async def test_prepare_cloned_repo_dir_git_config_fetch_failure(self, runner_handler, mock_pull_request):
-        # Simulate failure at git config --local --add remote.origin.fetch
-        async def run_command_side_effect(*args, **kwargs):
-            cmd = kwargs.get("command", args[0] if args else "")
-            if "clone" in cmd:
-                return (True, "ok", "")
-            if "config user.name" in cmd or "config user.email" in cmd:
-                return (True, "ok", "")
-            if "config --local --add remote.origin.fetch" in cmd:
-                return (False, "fail", "fail")
-            return (True, "ok", "")
-
-        with patch(
-            "webhook_server.libs.handlers.runner_handler.run_command",
-            new=AsyncMock(side_effect=run_command_side_effect),
-        ):
-            async with runner_handler._prepare_cloned_repo_dir("/tmp/test-repo-x", mock_pull_request) as result:
-                success, out, _ = result
-                assert not success
-                assert out == "fail"
-
-    @pytest.mark.asyncio
-    async def test_prepare_cloned_repo_dir_git_remote_update_failure(self, runner_handler, mock_pull_request):
-        # Simulate failure at git remote update
-        async def run_command_side_effect(*args, **kwargs):
-            cmd = kwargs.get("command", args[0] if args else "")
-            if "clone" in cmd:
-                return (True, "ok", "")
-            if (
-                "config user.name" in cmd
-                or "config user.email" in cmd
-                or "config --local --add remote.origin.fetch" in cmd
+    async def test_checkout_worktree_with_tag(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
+        """Test _checkout_worktree with tag_name parameter."""
+        with patch("webhook_server.utils.helpers.git_worktree_checkout") as mock_git_worktree:
+            mock_git_worktree.return_value.__aenter__ = AsyncMock(
+                return_value=(True, "/tmp/worktree-path", "success", "")
+            )
+            mock_git_worktree.return_value.__aexit__ = AsyncMock(return_value=None)
+            with patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(return_value=(True, "success", "")),
             ):
-                return (True, "ok", "")
-            if "remote update" in cmd:
-                return (False, "fail", "fail")
-            return (True, "ok", "")
+                async with runner_handler._checkout_worktree(
+                    pull_request=mock_pull_request, tag_name="v1.0.0"
+                ) as result:
+                    success, _, _, _ = result
+                    assert success is True
 
-        with patch(
-            "webhook_server.libs.handlers.runner_handler.run_command",
-            new=AsyncMock(side_effect=run_command_side_effect),
-        ):
-            async with runner_handler._prepare_cloned_repo_dir("/tmp/test-repo-x", mock_pull_request) as result:
-                success, out, _ = result
-                assert not success
-                assert out == "fail"
+    @pytest.mark.asyncio
+    async def test_checkout_worktree_merged_pr(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
+        """Test _checkout_worktree with merged pull request."""
+        with patch("webhook_server.utils.helpers.git_worktree_checkout") as mock_git_worktree:
+            mock_git_worktree.return_value.__aenter__ = AsyncMock(
+                return_value=(True, "/tmp/worktree-path", "success", "")
+            )
+            mock_git_worktree.return_value.__aexit__ = AsyncMock(return_value=None)
+            async with runner_handler._checkout_worktree(pull_request=mock_pull_request, is_merged=True) as result:
+                success, _, _, _ = result
+                assert success is True
+
+    @pytest.mark.asyncio
+    async def test_checkout_worktree_merge_failure(self, runner_handler, mock_pull_request):
+        """Test _checkout_worktree when merge fails."""
+        with patch("webhook_server.utils.helpers.git_worktree_checkout") as mock_git_worktree:
+            mock_git_worktree.return_value.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree-path", "ok", ""))
+            mock_git_worktree.return_value.__aexit__ = AsyncMock(return_value=None)
+            with patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(return_value=(False, "fail", "merge conflict")),
+            ):
+                async with runner_handler._checkout_worktree(pull_request=mock_pull_request) as result:
+                    success, _, out, _ = result
+                    assert not success
+                    assert out == "fail"
 
     @pytest.mark.asyncio
     async def test_run_build_container_push_failure(self, runner_handler, mock_pull_request):
@@ -854,10 +809,12 @@ class TestRunnerHandler:
                         with patch.object(
                             runner_handler.check_run_handler, "set_container_build_failure"
                         ) as mock_set_failure:
-                            with patch.object(runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-                                mock_prepare.return_value = AsyncMock()
-                                mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(True, "", ""))
-                                mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
+                            with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
+                                mock_checkout.return_value = AsyncMock()
+                                mock_checkout.return_value.__aenter__ = AsyncMock(
+                                    return_value=(True, "/tmp/worktree-path", "", "")
+                                )
+                                mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
                                 with patch.object(runner_handler, "run_podman_command") as mock_run_podman:
                                     # First call (build) succeeds, second call (push) fails
                                     mock_run_podman.side_effect = [
@@ -907,10 +864,12 @@ class TestRunnerHandler:
                     with patch.object(
                         runner_handler.check_run_handler, "set_container_build_success"
                     ) as mock_set_success:
-                        with patch.object(runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-                            mock_prepare.return_value = AsyncMock()
-                            mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(True, "", ""))
-                            mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
+                        with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
+                            mock_checkout.return_value = AsyncMock()
+                            mock_checkout.return_value.__aenter__ = AsyncMock(
+                                return_value=(True, "/tmp/worktree-path", "", "")
+                            )
+                            mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
                             with patch.object(runner_handler, "run_podman_command", return_value=(True, "success", "")):
                                 await runner_handler.run_build_container(
                                     pull_request=mock_pull_request, command_args="--extra-arg"
@@ -924,10 +883,12 @@ class TestRunnerHandler:
         with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())):
             with patch.object(runner_handler.check_run_handler, "set_cherry_pick_in_progress") as mock_set_progress:
                 with patch.object(runner_handler.check_run_handler, "set_cherry_pick_failure") as mock_set_failure:
-                    with patch.object(runner_handler, "_prepare_cloned_repo_dir") as mock_prepare:
-                        mock_prepare.return_value = AsyncMock()
-                        mock_prepare.return_value.__aenter__ = AsyncMock(return_value=(True, "", ""))
-                        mock_prepare.return_value.__aexit__ = AsyncMock(return_value=None)
+                    with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
+                        mock_checkout.return_value = AsyncMock()
+                        mock_checkout.return_value.__aenter__ = AsyncMock(
+                            return_value=(True, "/tmp/worktree-path", "", "")
+                        )
+                        mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
                         # First command fails, triggers manual cherry-pick
                         with patch("webhook_server.utils.helpers.run_command", side_effect=[(False, "fail", "err")]):
                             with patch("asyncio.to_thread") as mock_to_thread:

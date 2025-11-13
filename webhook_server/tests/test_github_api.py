@@ -261,6 +261,7 @@ class TestGithubWebhook:
                 "get_contents",
                 return_value=Mock(decoded_content=b"approvers:\n  - user1\nreviewers:\n  - user2"),
             ),
+            patch.object(webhook, "_clone_repository_for_pr", new=AsyncMock(return_value=None)),
         ):
             await webhook.process()
             mock_process_pr.assert_called_once()
@@ -362,6 +363,7 @@ class TestGithubWebhook:
                 "get_contents",
                 return_value=Mock(decoded_content=b"approvers:\n  - user1\nreviewers:\n  - user2"),
             ),
+            patch.object(webhook, "_clone_repository_for_pr", new=AsyncMock(return_value=None)),
         ):
             await webhook.process()
             mock_process_comment.assert_called_once()
@@ -746,7 +748,10 @@ class TestGithubWebhook:
                                     mock_pr_handler.return_value.check_if_can_be_merged = AsyncMock(return_value=None)
 
                                     webhook = GithubWebhook(check_run_data, headers, logger)
-                                    await webhook.process()
+                                    with patch.object(
+                                        webhook, "_clone_repository_for_pr", new=AsyncMock(return_value=None)
+                                    ):
+                                        await webhook.process()
 
                                     mock_check_handler.return_value.process_pull_request_check_run_webhook_data.assert_awaited_once()
                                     mock_pr_handler.return_value.check_if_can_be_merged.assert_awaited_once()
