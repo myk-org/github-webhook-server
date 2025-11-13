@@ -43,6 +43,7 @@ from webhook_server.utils.helpers import (
     get_apis_and_tokes_from_config,
     get_github_repo_api,
     prepare_log_prefix,
+    run_command,
 )
 
 
@@ -123,6 +124,8 @@ class GithubWebhook:
         # Format: /tmp/tmp{random}/github-webhook-{repo_name}
         # This prevents predictable paths and ensures isolation between concurrent webhook handlers
         self.clone_repo_dir: str = tempfile.mkdtemp(prefix=f"github-webhook-{self.repository_name}-")
+        self._repo_cloned: bool = False  # Track if repository has been cloned
+        self.cloned_repo_path: str | None = None  # Path to cloned repository (for OWNERS/changed files)
         # Initialize auto-verified users from API users
         self.add_api_users_to_auto_verified_and_merged_users()
 
@@ -165,6 +168,93 @@ class GithubWebhook:
         except Exception as ex:
             self.logger.debug(f"{self.log_prefix} Failed to get token metrics: {ex}")
             return ""
+
+    async def _clone_repository_for_pr(self, pull_request: PullRequest) -> bool:
+        """Clone repository for PR processing to enable local file operations.
+
+        Clones the repository to self.clone_repo_dir and checks out the base branch.
+        This enables OWNERS file reading and changed file detection from local clone
+        instead of GitHub API calls.
+
+        Args:
+            pull_request: PullRequest object to get base branch
+
+        Returns:
+            bool: True if clone successful, False otherwise
+        """
+        if self._repo_cloned:
+            self.logger.debug(f"{self.log_prefix} Repository already cloned")
+            return True
+
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'started')} "
+            "Cloning repository for local file processing"
+        )
+
+        try:
+            # Clone the repository
+            github_token = self.token
+            clone_url_with_token = self.repository.clone_url.replace("https://", f"https://{github_token}@")
+            mask_sensitive = self.config.get_value("mask-sensitive-data", return_on_none=True)
+            rc, _, err = await run_command(
+                command=f"git clone {clone_url_with_token} {self.clone_repo_dir}/repo",
+                log_prefix=self.log_prefix,
+                redact_secrets=[github_token],
+                mask_sensitive=mask_sensitive,
+            )
+            if not rc:
+                self.logger.error(
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'failed')} "
+                    f"Failed to clone repository: {err}"
+                )
+                return False
+
+            # Configure git user
+            git_cmd = f"git -C {self.clone_repo_dir}/repo"
+            rc, _, err = await run_command(
+                command=f"{git_cmd} config user.name '{self.repository.owner.login}'",
+                log_prefix=self.log_prefix,
+                mask_sensitive=mask_sensitive,
+            )
+            if not rc:
+                self.logger.warning(f"{self.log_prefix} Failed to configure git user.name: {err}")
+
+            rc, _, err = await run_command(
+                command=f"{git_cmd} config user.email '{self.repository.owner.login}@users.noreply.github.com'",
+                log_prefix=self.log_prefix,
+                mask_sensitive=mask_sensitive,
+            )
+            if not rc:
+                self.logger.warning(f"{self.log_prefix} Failed to configure git user.email: {err}")
+
+            # Checkout base branch for OWNERS file reading
+            base_branch = await asyncio.to_thread(lambda: pull_request.base.ref)
+            rc, _, err = await run_command(
+                command=f"{git_cmd} checkout {base_branch}",
+                log_prefix=self.log_prefix,
+                mask_sensitive=mask_sensitive,
+            )
+            if not rc:
+                self.logger.error(
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'failed')} "
+                    f"Failed to checkout base branch {base_branch}: {err}"
+                )
+                return False
+
+            self._repo_cloned = True
+            self.cloned_repo_path = f"{self.clone_repo_dir}/repo"
+            self.logger.success(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'completed')} "
+                f"Repository cloned successfully to {self.cloned_repo_path} (branch: {base_branch})"
+            )
+            return True
+
+        except Exception as ex:
+            self.logger.exception(
+                f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'failed')} "
+                f"Exception during repository clone: {ex}"
+            )
+            return False
 
     async def process(self) -> Any:
         event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
@@ -241,6 +331,9 @@ class GithubWebhook:
             self.last_commit = await self._get_last_commit(pull_request=pull_request)
             self.parent_committer = pull_request.user.login
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
+
+            # Clone repository for local file processing (OWNERS, changed files)
+            await self._clone_repository_for_pr(pull_request=pull_request)
 
             if self.github_event == "issue_comment":
                 self.logger.step(  # type: ignore[attr-defined]
