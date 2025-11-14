@@ -169,6 +169,28 @@ class TestOwnersFileHandler:
         assert result == ("test content", "test/OWNERS")
 
     @pytest.mark.asyncio
+    async def test_get_file_content_from_local_file_not_found(
+        self, owners_file_handler: OwnersFileHandler, tmp_path: Path
+    ) -> None:
+        """Test _get_file_content_from_local method with missing file."""
+        # Create path to non-existent file
+        missing_file = tmp_path / "test" / "OWNERS"
+
+        # Set clone_repo_dir to tmp_path
+        owners_file_handler.github_webhook.clone_repo_dir = str(tmp_path)
+        owners_file_handler.logger.warning = Mock()
+
+        result = await owners_file_handler._get_file_content_from_local(missing_file)
+
+        assert result is None
+        owners_file_handler.logger.warning.assert_called_once()
+        # Verify the warning message contains expected information
+        warning_call = owners_file_handler.logger.warning.call_args[0][0]
+        assert "Failed to read OWNERS file" in warning_call
+        assert "test/OWNERS" in warning_call
+        assert "Skipping this file" in warning_call
+
+    @pytest.mark.asyncio
     async def test_get_all_repository_approvers_and_reviewers(
         self,
         owners_file_handler: OwnersFileHandler,
@@ -242,14 +264,14 @@ class TestOwnersFileHandler:
 
         # Set clone_repo_dir to tmp_path
         owners_file_handler.github_webhook.clone_repo_dir = str(tmp_path)
-        owners_file_handler.logger.error = Mock()
+        owners_file_handler.logger.exception = Mock()
 
         # Mock _clone_repository_for_pr
         with patch.object(owners_file_handler.github_webhook, "_clone_repository_for_pr", new=AsyncMock()):
             result = await owners_file_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
 
         assert result == {}
-        owners_file_handler.logger.error.assert_called_once()
+        owners_file_handler.logger.exception.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_all_repository_approvers_and_reviewers_invalid_content(

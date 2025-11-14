@@ -106,22 +106,29 @@ class OwnersFileHandler:
             self.logger.error(f"{self.log_prefix} Invalid OWNERS file {path}: {e}")
             return False
 
-    async def _get_file_content_from_local(self, content_path: Path) -> tuple[str, str]:
+    async def _get_file_content_from_local(self, content_path: Path) -> tuple[str, str] | None:
         """Read OWNERS file from local cloned repository.
 
         Args:
             content_path: Path object pointing to OWNERS file in clone_repo_dir
 
         Returns:
-            Tuple of (file_content, relative_path_str)
+            Tuple of (file_content, relative_path_str) or None if file is unreadable
         """
         relative_path = content_path.relative_to(self.github_webhook.clone_repo_dir)
         self.logger.debug(f"{self.log_prefix} Reading OWNERS file from local clone: {relative_path}")
 
-        # Read file content from local filesystem (wrap in thread pool for I/O)
-        file_content = await asyncio.to_thread(content_path.read_text, encoding="utf-8")
+        try:
+            # Read file content from local filesystem (wrap in thread pool for I/O)
+            file_content = await asyncio.to_thread(content_path.read_text, encoding="utf-8")
+            return file_content, str(relative_path)
 
-        return file_content, str(relative_path)
+        except OSError as ex:
+            # File may have been deleted or become unreadable between rglob and read_text
+            self.logger.warning(
+                f"{self.log_prefix} Failed to read OWNERS file {relative_path}: {ex}. Skipping this file."
+            )
+            return None
 
     async def get_all_repository_approvers_and_reviewers(self, pull_request: PullRequest) -> dict[str, dict[str, Any]]:
         """Get all repository approvers and reviewers from OWNERS files.
@@ -162,6 +169,10 @@ class OwnersFileHandler:
         results = await asyncio.gather(*tasks)
 
         for result in results:
+            # Skip files that couldn't be read (deleted or unreadable)
+            if result is None:
+                continue
+
             file_content, relative_path_str = result
 
             try:
@@ -172,8 +183,8 @@ class OwnersFileHandler:
                         parent_path = "."
                     _owners[parent_path] = content
 
-            except yaml.YAMLError as exp:
-                self.logger.error(f"{self.log_prefix} Invalid OWNERS file {relative_path_str}: {exp}")
+            except yaml.YAMLError:
+                self.logger.exception(f"{self.log_prefix} Invalid OWNERS file {relative_path_str}")
                 continue
 
         return _owners
