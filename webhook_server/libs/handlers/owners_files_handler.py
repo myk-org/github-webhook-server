@@ -1,4 +1,5 @@
 import asyncio
+import shlex
 from collections.abc import Coroutine
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -102,14 +103,22 @@ class OwnersFileHandler:
             )
 
             # Run git diff command on cloned repository
-            git_diff_command = f"git -C {self.github_webhook.clone_repo_dir} diff --name-only {base_sha}...{head_sha}"
+            # Quote clone_repo_dir to handle paths with spaces or special characters
+            git_diff_command = (
+                f"git -C {shlex.quote(self.github_webhook.clone_repo_dir)} diff --name-only {base_sha}...{head_sha}"
+            )
 
-            _, out, _ = await run_command(
+            success, out, _ = await run_command(
                 command=git_diff_command,
                 log_prefix=self.log_prefix,
                 verify_stderr=False,
                 mask_sensitive=self.github_webhook.mask_sensitive,
             )
+
+            # Check success flag - return empty list if git diff failed
+            if not success:
+                self.logger.error(f"{self.log_prefix} git diff command failed")
+                return []
 
             # Parse output: split by newlines and filter empty lines
             changed_files = [line.strip() for line in out.splitlines() if line.strip()]
@@ -220,13 +229,25 @@ class OwnersFileHandler:
             self.logger.debug(f"{self.log_prefix} Found OWNERS file: {relative_path}")
             tasks.append(self._get_file_content_from_local(owners_file_path))
 
-        results = await asyncio.gather(*tasks)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        for result in results:
+        for idx, result in enumerate(results):
+            # Handle unexpected exceptions from _get_file_content_from_local
+            if isinstance(result, BaseException):
+                # Get the relative path from the original owners_files list for logging
+                relative_path_str = (
+                    str(owners_files[idx].relative_to(clone_path)) if idx < len(owners_files) else "unknown"
+                )
+                self.logger.exception(
+                    f"{self.log_prefix} Unexpected exception reading OWNERS file {relative_path_str}: {result}"
+                )
+                continue
+
             # Skip files that couldn't be read (deleted or unreadable)
             if result is None:
                 continue
 
+            # At this point, result must be a tuple (file_content, relative_path_str)
             file_content, relative_path_str = result
 
             try:

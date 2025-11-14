@@ -86,18 +86,22 @@ class TestOwnersFileHandler:
         owners_file_handler._ensure_initialized()  # Should not raise
 
     @pytest.mark.asyncio
-    async def test_list_changed_files(self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock) -> None:
+    async def test_list_changed_files(
+        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock, tmp_path: Path
+    ) -> None:
         """Test list_changed_files method using git diff."""
         # Set up mock PR SHAs
         mock_pull_request.base.sha = "base123abc"
         mock_pull_request.head.sha = "head456def"
 
         # Set up handler properties
-        owners_file_handler.github_webhook.clone_repo_dir = "/tmp/test-repo"
+        owners_file_handler.github_webhook.clone_repo_dir = str(tmp_path)
         owners_file_handler.github_webhook.mask_sensitive = True
 
         # Mock run_command to return git diff output
-        with patch("webhook_server.libs.handlers.owners_files_handler.run_command") as mock_run_command:
+        with patch(
+            "webhook_server.libs.handlers.owners_files_handler.run_command", new=AsyncMock()
+        ) as mock_run_command:
             mock_run_command.return_value = (True, "file1.py\nfile2.py\n", "")
 
             result = await owners_file_handler.list_changed_files(mock_pull_request)
@@ -107,7 +111,7 @@ class TestOwnersFileHandler:
 
             # Verify run_command was called with correct git command
             mock_run_command.assert_called_once_with(
-                command="git -C /tmp/test-repo diff --name-only base123abc...head456def",
+                command=f"git -C {tmp_path} diff --name-only base123abc...head456def",
                 log_prefix="[TEST]",
                 verify_stderr=False,
                 mask_sensitive=True,
@@ -221,7 +225,7 @@ class TestOwnersFileHandler:
 
     @pytest.mark.asyncio
     async def test_get_all_repository_approvers_and_reviewers_too_many_files(
-        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock, tmp_path: Path
+        self, owners_file_handler: OwnersFileHandler, tmp_path: Path
     ) -> None:
         """Test that too many OWNERS files are handled correctly."""
         # Create 1001 OWNERS files
@@ -242,7 +246,7 @@ class TestOwnersFileHandler:
 
     @pytest.mark.asyncio
     async def test_get_all_repository_approvers_and_reviewers_invalid_yaml(
-        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock, tmp_path: Path
+        self, owners_file_handler: OwnersFileHandler, tmp_path: Path
     ) -> None:
         """Test handling of invalid YAML in OWNERS files."""
         # Create OWNERS file with invalid YAML
@@ -261,7 +265,7 @@ class TestOwnersFileHandler:
 
     @pytest.mark.asyncio
     async def test_get_all_repository_approvers_and_reviewers_invalid_content(
-        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock, tmp_path: Path
+        self, owners_file_handler: OwnersFileHandler, tmp_path: Path
     ) -> None:
         """Test handling of invalid content structure in OWNERS files."""
         # Create OWNERS file with invalid structure
