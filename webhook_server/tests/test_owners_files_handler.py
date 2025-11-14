@@ -170,7 +170,6 @@ class TestOwnersFileHandler:
     async def test_get_all_repository_approvers_and_reviewers(
         self,
         owners_file_handler: OwnersFileHandler,
-        mock_pull_request: Mock,
         owners_files_test_data: dict[str, str],
         tmp_path: Path,
     ) -> None:
