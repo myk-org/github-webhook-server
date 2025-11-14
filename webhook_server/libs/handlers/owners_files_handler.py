@@ -12,7 +12,6 @@ from github.Permissions import Permissions
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
-from webhook_server.utils import helpers as helpers_module
 from webhook_server.utils.constants import COMMAND_ADD_ALLOWED_USER_STR, ROOT_APPROVERS_KEY
 from webhook_server.utils.helpers import format_task_fields
 
@@ -33,13 +32,11 @@ class OwnersFileHandler:
         Phase 1: Fetch independent data in parallel (changed files + OWNERS data)
         Phase 2: Process derived data in parallel (approvers + reviewers)
         """
-        # Extract base branch for OWNERS files (PR target branch)
-        base_branch = await asyncio.to_thread(lambda: pull_request.base.ref)
 
         # Phase 1: Parallel data fetching - independent GitHub API operations
         self.changed_files, self.all_repository_approvers_and_reviewers = await asyncio.gather(
             self.list_changed_files(pull_request=pull_request),
-            self.get_all_repository_approvers_and_reviewers(branch=base_branch),
+            self.get_all_repository_approvers_and_reviewers(),
         )
 
         # Phase 2: Parallel data processing - all depend on phase 1 but independent of each other
@@ -145,13 +142,11 @@ class OwnersFileHandler:
             )
             return None
 
-    async def get_all_repository_approvers_and_reviewers(self, branch: str) -> dict[str, dict[str, Any]]:
+    async def get_all_repository_approvers_and_reviewers(self) -> dict[str, dict[str, Any]]:
         """Get all repository approvers and reviewers from OWNERS files.
 
-        Reads OWNERS files from local cloned repository at specified branch using worktree.
-
-        Args:
-            branch: Branch name to read OWNERS files from (e.g., 'main', 'develop')
+        Reads OWNERS files from local cloned repository.
+        The clone is already checked out to the base branch by _clone_repository_for_pr.
 
         Returns:
             Dictionary mapping OWNERS file paths to their approvers and reviewers
@@ -163,67 +158,53 @@ class OwnersFileHandler:
         max_owners_files = 1000  # Intentionally hardcoded limit to prevent runaway processing
         owners_count = 0
 
-        # Use existing worktree helper to create isolated checkout of specified branch
-        async with helpers_module.git_worktree_checkout(
-            repo_dir=self.github_webhook.clone_repo_dir,
-            checkout=branch,
-            log_prefix=self.log_prefix,
-            mask_sensitive=self.github_webhook.mask_sensitive,
-        ) as (success, worktree_path, _stdout, stderr):
-            if not success:
-                self.logger.error(f"{self.log_prefix} Failed to create worktree for branch {branch}: {stderr}")
-                raise RuntimeError(f"Failed to create worktree for branch {branch}")
+        # Clone is already checked out to base branch by _clone_repository_for_pr
 
-            self.logger.debug(
-                f"{self.log_prefix} Reading OWNERS files from branch '{branch}' using worktree at {worktree_path}"
-            )
+        clone_path = Path(self.github_webhook.clone_repo_dir)
 
-            # Read OWNERS files from worktree (not main clone)
-            clone_path = Path(worktree_path)
+        # Find all OWNERS files via filesystem walk
+        self.logger.debug(f"{self.log_prefix} Finding OWNERS files in local clone")
 
-            # Find all OWNERS files via filesystem walk
-            self.logger.debug(f"{self.log_prefix} Finding OWNERS files in worktree")
+        # Use rglob to recursively find all OWNERS files
+        def find_owners_files() -> list[Path]:
+            return [
+                p
+                for p in clone_path.rglob("OWNERS")
+                if not any(part.startswith(".") for part in p.relative_to(clone_path).parts)
+            ]
 
-            # Use rglob to recursively find all OWNERS files
-            def find_owners_files() -> list[Path]:
-                return [
-                    p
-                    for p in clone_path.rglob("OWNERS")
-                    if not any(part.startswith(".") for part in p.relative_to(clone_path).parts)
-                ]
+        owners_files = await asyncio.to_thread(find_owners_files)
 
-            owners_files = await asyncio.to_thread(find_owners_files)
+        for owners_file_path in owners_files:
+            owners_count += 1
+            if owners_count > max_owners_files:
+                self.logger.error(f"{self.log_prefix} Too many OWNERS files (>{max_owners_files})")
+                break
 
-            for owners_file_path in owners_files:
-                owners_count += 1
-                if owners_count > max_owners_files:
-                    self.logger.error(f"{self.log_prefix} Too many OWNERS files (>{max_owners_files})")
-                    break
+            relative_path = owners_file_path.relative_to(clone_path)
+            self.logger.debug(f"{self.log_prefix} Found OWNERS file: {relative_path}")
+            tasks.append(self._get_file_content_from_local(owners_file_path))
 
-                relative_path = owners_file_path.relative_to(clone_path)
-                self.logger.debug(f"{self.log_prefix} Found OWNERS file: {relative_path}")
-                tasks.append(self._get_file_content_from_local(owners_file_path, base_path=clone_path))
+        results = await asyncio.gather(*tasks)
 
-            results = await asyncio.gather(*tasks)
+        for result in results:
+            # Skip files that couldn't be read (deleted or unreadable)
+            if result is None:
+                continue
 
-            for result in results:
-                # Skip files that couldn't be read (deleted or unreadable)
-                if result is None:
-                    continue
+            file_content, relative_path_str = result
 
-                file_content, relative_path_str = result
+            try:
+                content = yaml.safe_load(file_content)
+                if self._validate_owners_content(content, relative_path_str):
+                    parent_path = str(Path(relative_path_str).parent)
+                    if not parent_path or parent_path == ".":
+                        parent_path = "."
+                    _owners[parent_path] = content
 
-                try:
-                    content = yaml.safe_load(file_content)
-                    if self._validate_owners_content(content, relative_path_str):
-                        parent_path = str(Path(relative_path_str).parent)
-                        if not parent_path or parent_path == ".":
-                            parent_path = "."
-                        _owners[parent_path] = content
-
-                except yaml.YAMLError:
-                    self.logger.exception(f"{self.log_prefix} Invalid OWNERS file {relative_path_str}")
-                    continue
+            except yaml.YAMLError:
+                self.logger.exception(f"{self.log_prefix} Invalid OWNERS file {relative_path_str}")
+                continue
 
         return _owners
 

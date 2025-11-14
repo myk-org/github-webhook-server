@@ -1,8 +1,6 @@
 import asyncio
 import os
 import tempfile
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -75,21 +73,6 @@ class TestGithubWebhook:
     @pytest.fixture
     def logger(self):
         return get_logger(name="test")
-
-    @pytest.fixture
-    def mock_git_worktree(self, tmp_path):
-        """Mock git_worktree_checkout context manager."""
-
-        @asynccontextmanager
-        async def mock_worktree(
-            repo_dir: str, checkout: str, log_prefix: str, mask_sensitive: bool = True
-        ) -> AsyncGenerator[tuple[bool, str, str, str], None]:
-            # Create temp directory to simulate worktree
-            worktree_path = str(tmp_path / "worktree")
-            os.makedirs(worktree_path, exist_ok=True)
-            yield (True, worktree_path, "", "")  # success, path, stdout, stderr
-
-        return mock_worktree
 
     @patch("webhook_server.libs.github_api.Config")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
@@ -235,7 +218,6 @@ class TestGithubWebhook:
         mock_repo_api: Mock,
         pull_request_payload: dict[str, Any],
         webhook_headers: Headers,
-        mock_git_worktree,
     ) -> None:
         """Test processing pull_request event."""
         # Mock GitHub API to prevent network calls
@@ -280,10 +262,6 @@ class TestGithubWebhook:
                 return_value=Mock(decoded_content=b"approvers:\n  - user1\nreviewers:\n  - user2"),
             ),
             patch.object(webhook, "_clone_repository_for_pr", new=AsyncMock(return_value=None)),
-            patch(
-                "webhook_server.libs.handlers.owners_files_handler.helpers_module.git_worktree_checkout",
-                new=mock_git_worktree,
-            ),
         ):
             await webhook.process()
             mock_process_pr.assert_called_once()
@@ -341,7 +319,6 @@ class TestGithubWebhook:
         mock_api_rate_limit: Mock,
         mock_repo_api: Mock,
         issue_comment_payload: dict[str, Any],
-        mock_git_worktree,
     ) -> None:
         """Test processing issue_comment event."""
         # Mock GitHub API to prevent network calls
@@ -387,10 +364,6 @@ class TestGithubWebhook:
                 return_value=Mock(decoded_content=b"approvers:\n  - user1\nreviewers:\n  - user2"),
             ),
             patch.object(webhook, "_clone_repository_for_pr", new=AsyncMock(return_value=None)),
-            patch(
-                "webhook_server.libs.handlers.owners_files_handler.helpers_module.git_worktree_checkout",
-                new=mock_git_worktree,
-            ),
         ):
             await webhook.process()
             mock_process_comment.assert_called_once()
@@ -715,9 +688,7 @@ class TestGithubWebhook:
             assert result2 is not None
 
     @pytest.mark.asyncio
-    async def test_process_check_run_event(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock, mock_git_worktree
-    ) -> None:
+    async def test_process_check_run_event(self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock) -> None:
         """Test processing check run event."""
         check_run_data = {
             "repository": {"name": "test-repo", "full_name": "org/test-repo"},
@@ -777,14 +748,8 @@ class TestGithubWebhook:
                                     mock_pr_handler.return_value.check_if_can_be_merged = AsyncMock(return_value=None)
 
                                     webhook = GithubWebhook(check_run_data, headers, logger)
-                                    with (
-                                        patch.object(
-                                            webhook, "_clone_repository_for_pr", new=AsyncMock(return_value=None)
-                                        ),
-                                        patch(
-                                            "webhook_server.libs.handlers.owners_files_handler.helpers_module.git_worktree_checkout",
-                                            new=mock_git_worktree,
-                                        ),
+                                    with patch.object(
+                                        webhook, "_clone_repository_for_pr", new=AsyncMock(return_value=None)
                                     ):
                                         await webhook.process()
 
