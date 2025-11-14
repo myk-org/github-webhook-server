@@ -14,6 +14,29 @@ os.environ["WEBHOOK_SERVER_DATA_DIR"] = "webhook_server/tests/manifests"
 os.environ["ENABLE_LOG_SERVER"] = "true"
 from webhook_server.libs.github_api import GithubWebhook
 
+# OWNERS test data - single source of truth for all test fixtures
+# This constant is used by both Repository.get_contents() and owners_files_test_data fixture
+OWNERS_TEST_DATA: dict[str, dict[str, list[str] | bool]] = {
+    "OWNERS": {
+        "approvers": ["root_approver1", "root_approver2"],
+        "reviewers": ["root_reviewer1", "root_reviewer2"],
+    },
+    "folder1/OWNERS": {
+        "approvers": ["folder1_approver1", "folder1_approver2"],
+        "reviewers": ["folder1_reviewer1", "folder1_reviewer2"],
+    },
+    "folder2/OWNERS": {},
+    "folder/folder4/OWNERS": {
+        "approvers": ["folder4_approver1", "folder4_approver2"],
+        "reviewers": ["folder4_reviewer1", "folder4_reviewer2"],
+    },
+    "folder5/OWNERS": {
+        "root-approvers": False,
+        "approvers": ["folder5_approver1", "folder5_approver2"],
+        "reviewers": ["folder5_reviewer1", "folder5_reviewer2"],
+    },
+}
+
 
 class Tree:
     def __init__(self, path: str):
@@ -52,43 +75,11 @@ class Repository:
         return Tree("")
 
     def get_contents(self, path: str, ref: str):
-        owners_data = yaml.dump({
-            "approvers": ["root_approver1", "root_approver2"],
-            "reviewers": ["root_reviewer1", "root_reviewer2"],
-        })
-
-        folder1_owners_data = yaml.dump({
-            "approvers": ["folder1_approver1", "folder1_approver2"],
-            "reviewers": ["folder1_reviewer1", "folder1_reviewer2"],
-        })
-
-        folder4_owners_data = yaml.dump({
-            "approvers": ["folder4_approver1", "folder4_approver2"],
-            "reviewers": ["folder4_reviewer1", "folder4_reviewer2"],
-        })
-
-        folder5_owners_data = yaml.dump({
-            "root-approvers": False,
-            "approvers": ["folder5_approver1", "folder5_approver2"],
-            "reviewers": ["folder5_reviewer1", "folder5_reviewer2"],
-        })
-        if path == "OWNERS":
-            return ContentFile(owners_data)
-
-        elif path == "folder1/OWNERS":
-            return ContentFile(folder1_owners_data)
-
-        elif path == "folder2/OWNERS":
-            return ContentFile(yaml.dump({}))
-
-        elif path == "folder/folder4/OWNERS":
-            return ContentFile(folder4_owners_data)
-
+        # Use centralized OWNERS_TEST_DATA constant
+        if path in OWNERS_TEST_DATA:
+            return ContentFile(yaml.dump(OWNERS_TEST_DATA[path]))
         elif path == "folder":
             return ContentFile(yaml.dump({}))
-
-        elif path == "folder5/OWNERS":
-            return ContentFile(folder5_owners_data)
 
 
 @dataclass
@@ -202,24 +193,7 @@ def owners_files_test_data():
     Returns a dict mapping file paths to YAML-serialized OWNERS content.
     This fixture eliminates duplication between test_pull_request_owners.py
     and test_owners_files_handler.py.
+
+    Uses centralized OWNERS_TEST_DATA constant to ensure consistency.
     """
-    return {
-        "OWNERS": yaml.dump({
-            "approvers": ["root_approver1", "root_approver2"],
-            "reviewers": ["root_reviewer1", "root_reviewer2"],
-        }),
-        "folder1/OWNERS": yaml.dump({
-            "approvers": ["folder1_approver1", "folder1_approver2"],
-            "reviewers": ["folder1_reviewer1", "folder1_reviewer2"],
-        }),
-        "folder2/OWNERS": yaml.dump({}),
-        "folder/folder4/OWNERS": yaml.dump({
-            "approvers": ["folder4_approver1", "folder4_approver2"],
-            "reviewers": ["folder4_reviewer1", "folder4_reviewer2"],
-        }),
-        "folder5/OWNERS": yaml.dump({
-            "root-approvers": False,
-            "approvers": ["folder5_approver1", "folder5_approver2"],
-            "reviewers": ["folder5_reviewer1", "folder5_reviewer2"],
-        }),
-    }
+    return {path: yaml.dump(data) for path, data in OWNERS_TEST_DATA.items()}

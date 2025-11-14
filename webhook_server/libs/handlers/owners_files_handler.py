@@ -130,6 +130,13 @@ class OwnersFileHandler:
             )
             return None
 
+        except UnicodeDecodeError as ex:
+            # File has invalid encoding - log and skip to allow processing to continue
+            self.logger.warning(
+                f"{self.log_prefix} OWNERS file {relative_path} has invalid encoding: {ex}. Skipping this file."
+            )
+            return None
+
     async def get_all_repository_approvers_and_reviewers(self, pull_request: PullRequest) -> dict[str, dict[str, Any]]:
         """Get all repository approvers and reviewers from OWNERS files.
 
