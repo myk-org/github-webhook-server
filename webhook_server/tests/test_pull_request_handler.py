@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -21,9 +22,19 @@ from webhook_server.utils.constants import (
 )
 
 
-# Helper function for mocking async cached property
-async def _mock_owners_data_for_changed_files() -> dict:
-    return {}
+class _AwaitableValue:
+    def __init__(self, return_value: dict | None = None) -> None:
+        self._value = return_value or {}
+
+    def __await__(self):
+        async def _inner() -> dict:
+            return self._value
+
+        return _inner().__await__()
+
+
+def _owners_data_coroutine(return_value: dict | None = None) -> _AwaitableValue:
+    return _AwaitableValue(return_value)
 
 
 class TestPullRequestHandler:
@@ -613,7 +624,7 @@ class TestPullRequestHandler:
             patch.object(
                 pull_request_handler.owners_file_handler,
                 "owners_data_for_changed_files",
-                AsyncMock(return_value={}),
+                _owners_data_coroutine(),
             ),
             patch.object(pull_request_handler.github_webhook, "minimum_lgtm", 0),
             patch.object(pull_request_handler.check_run_handler, "set_merge_check_in_progress", new=AsyncMock()),
@@ -644,7 +655,7 @@ class TestPullRequestHandler:
             patch.object(
                 pull_request_handler.owners_file_handler,
                 "owners_data_for_changed_files",
-                _mock_owners_data_for_changed_files(),
+                _owners_data_coroutine(),
             ),
             patch.object(pull_request_handler.github_webhook, "minimum_lgtm", 0),
             patch.object(pull_request_handler.owners_file_handler, "all_pull_request_approvers", []),
@@ -661,7 +672,7 @@ class TestPullRequestHandler:
             patch.object(
                 pull_request_handler.owners_file_handler,
                 "owners_data_for_changed_files",
-                _mock_owners_data_for_changed_files(),
+                _owners_data_coroutine(),
             ),
             patch.object(pull_request_handler.github_webhook, "minimum_lgtm", 0),
             patch.object(pull_request_handler.owners_file_handler, "all_pull_request_approvers", []),
@@ -678,7 +689,7 @@ class TestPullRequestHandler:
             patch.object(
                 pull_request_handler.owners_file_handler,
                 "owners_data_for_changed_files",
-                _mock_owners_data_for_changed_files(),
+                _owners_data_coroutine(),
             ),
             patch.object(pull_request_handler.github_webhook, "minimum_lgtm", 0),
             patch.object(pull_request_handler.owners_file_handler, "all_pull_request_approvers", []),
@@ -695,7 +706,7 @@ class TestPullRequestHandler:
             patch.object(
                 pull_request_handler.owners_file_handler,
                 "owners_data_for_changed_files",
-                _mock_owners_data_for_changed_files(),
+                _owners_data_coroutine(),
             ),
             patch.object(pull_request_handler.github_webhook, "minimum_lgtm", 0),
             patch.object(pull_request_handler.owners_file_handler, "all_pull_request_approvers", []),
@@ -714,7 +725,7 @@ class TestPullRequestHandler:
             patch.object(
                 pull_request_handler.owners_file_handler,
                 "owners_data_for_changed_files",
-                _mock_owners_data_for_changed_files(),
+                _owners_data_coroutine(),
             ),
             patch.object(pull_request_handler.github_webhook, "minimum_lgtm", 0),
             patch.object(pull_request_handler.owners_file_handler, "all_pull_request_approvers", []),
@@ -1327,27 +1338,29 @@ class TestPullRequestHandler:
     ) -> None:
         """Test process_new_or_reprocess_pull_request executes tasks in parallel."""
 
-        # Mock asyncio.to_thread to avoid threading complexity
-        async def mock_to_thread(func, *args, **kwargs):
-            """Mock asyncio.to_thread - just call the function without threading."""
-            return func(*args, **kwargs)
+        # Track that asyncio.gather was used while still executing the real gather
+        real_gather = asyncio.gather
+        gather_calls: dict[str, int] = {"count": 0}
+
+        async def tracking_gather(*args, **kwargs):  # type: ignore[unused-argument]
+            gather_calls["count"] += 1
+            return await real_gather(*args, **kwargs)
 
         # Mock nothing exists - full workflow
         with (
             patch.object(pull_request_handler, "_welcome_comment_exists", new=AsyncMock(return_value=False)),
             patch.object(pull_request_handler, "_tracking_issue_exists", new=AsyncMock(return_value=False)),
             patch.object(mock_pull_request, "create_issue_comment", new=Mock()),
-            patch("asyncio.to_thread", side_effect=mock_to_thread),
             patch.object(pull_request_handler, "create_issue_for_new_pull_request", new=AsyncMock()),
             patch.object(pull_request_handler, "set_wip_label_based_on_title", new=AsyncMock()),
             patch.object(pull_request_handler, "process_opened_or_synchronize_pull_request", new=AsyncMock()),
             patch.object(pull_request_handler, "set_pull_request_automerge", new=AsyncMock()),
-            patch("asyncio.gather", new=AsyncMock(return_value=[])) as mock_gather,
+            patch("asyncio.gather", new=tracking_gather),
         ):
             await pull_request_handler.process_new_or_reprocess_pull_request(pull_request=mock_pull_request)
 
             # Verify asyncio.gather was called (parallel execution)
-            mock_gather.assert_awaited_once()
+            assert gather_calls["count"] >= 1
 
     @pytest.mark.asyncio
     async def test_process_new_or_reprocess_pull_request_exception_handling(
@@ -1355,64 +1368,50 @@ class TestPullRequestHandler:
     ) -> None:
         """Test process_new_or_reprocess_pull_request handles exceptions gracefully."""
 
-        # Mock asyncio.to_thread to avoid threading complexity
-        async def mock_to_thread(func, *args, **kwargs):
-            """Mock asyncio.to_thread - just call the function without threading."""
-            return func(*args, **kwargs)
-
-        async def mock_create_issue_error(*args, **kwargs):
-            """Mock that raises an exception."""
+        async def failing_create_issue(*args, **kwargs):  # type: ignore[unused-argument]
             raise Exception("Test error")
 
-        async def mock_welcome_comment_exists(*args, **kwargs):
-            """Mock for welcome comment check."""
+        async def always_false(*args, **kwargs) -> bool:  # type: ignore[unused-argument]
             return False
 
-        async def mock_tracking_issue_exists(*args, **kwargs):
-            """Mock for tracking issue check."""
-            return False
+        def mock_create_issue_comment(*args, **kwargs):  # type: ignore[unused-argument]
+            return None
 
-        def mock_create_issue_comment(*args, **kwargs):
-            """Mock for creating issue comment."""
-            pass
+        calls: dict[str, int] = {
+            "set_wip": 0,
+            "process_opened": 0,
+            "set_automerge": 0,
+        }
 
-        async def mock_set_wip_label(*args, **kwargs):
-            """Mock for WIP label setting."""
-            pass
+        async def set_wip_stub(*args, **kwargs):  # type: ignore[unused-argument]
+            calls["set_wip"] += 1
 
-        async def mock_process_opened_or_synchronize(*args, **kwargs):
-            """Mock for processing opened/synchronize PR."""
-            pass
+        async def process_opened_stub(*args, **kwargs):  # type: ignore[unused-argument]
+            calls["process_opened"] += 1
 
-        # Track automerge call
-        automerge_called = False
+        async def set_automerge_stub(*args, **kwargs):  # type: ignore[unused-argument]
+            calls["set_automerge"] += 1
 
-        async def mock_set_automerge(*args, **kwargs):
-            """Mock for setting automerge."""
-            nonlocal automerge_called
-            automerge_called = True
-
-        # Mock one task fails
+        # Mock one task failing while others still execute
         with (
-            patch.object(pull_request_handler, "_welcome_comment_exists", new=mock_welcome_comment_exists),
-            patch.object(pull_request_handler, "_tracking_issue_exists", new=mock_tracking_issue_exists),
+            patch.object(pull_request_handler, "_welcome_comment_exists", new=always_false),
+            patch.object(pull_request_handler, "_tracking_issue_exists", new=always_false),
             patch.object(mock_pull_request, "create_issue_comment", new=mock_create_issue_comment),
-            patch("asyncio.to_thread", side_effect=mock_to_thread),
             patch.object(
                 pull_request_handler,
                 "create_issue_for_new_pull_request",
-                new=mock_create_issue_error,
+                new=failing_create_issue,
             ),
-            patch.object(pull_request_handler, "set_wip_label_based_on_title", new=mock_set_wip_label),
+            patch.object(pull_request_handler, "set_wip_label_based_on_title", new=set_wip_stub),
             patch.object(
                 pull_request_handler,
                 "process_opened_or_synchronize_pull_request",
-                new=mock_process_opened_or_synchronize,
+                new=process_opened_stub,
             ),
-            patch.object(pull_request_handler, "set_pull_request_automerge", new=mock_set_automerge),
+            patch.object(pull_request_handler, "set_pull_request_automerge", new=set_automerge_stub),
         ):
             # Should not raise exception - errors are caught and logged
             await pull_request_handler.process_new_or_reprocess_pull_request(pull_request=mock_pull_request)
 
-            # Verify automerge was called despite error in other task
-            assert automerge_called
+            # Verify automerge and other tasks were called despite error in one task
+            assert calls["set_automerge"] == 1

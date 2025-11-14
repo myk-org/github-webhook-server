@@ -282,10 +282,10 @@ class TestRunnerHandler:
                 runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
             ):
                 with patch.object(
-                    runner_handler.check_run_handler, "set_container_build_in_progress"
+                    runner_handler.check_run_handler, "set_container_build_in_progress", new=AsyncMock()
                 ) as mock_set_progress:
                     with patch.object(
-                        runner_handler.check_run_handler, "set_container_build_success"
+                        runner_handler.check_run_handler, "set_container_build_success", new=AsyncMock()
                     ) as mock_set_success:
                         with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
                             mock_checkout.return_value = AsyncMock()
@@ -297,8 +297,8 @@ class TestRunnerHandler:
                                 runner_handler, "run_podman_command", new=AsyncMock(return_value=(True, "success", ""))
                             ):
                                 await runner_handler.run_build_container(pull_request=mock_pull_request)
-                                mock_set_progress.assert_called_once()
-                                mock_set_success.assert_called_once()
+                                mock_set_progress.assert_awaited_once()
+                                mock_set_success.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_run_build_container_with_push_success(
@@ -313,10 +313,10 @@ class TestRunnerHandler:
                 runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
             ):
                 with patch.object(
-                    runner_handler.check_run_handler, "set_container_build_in_progress"
+                    runner_handler.check_run_handler, "set_container_build_in_progress", new=AsyncMock()
                 ) as mock_set_progress:
                     with patch.object(
-                        runner_handler.check_run_handler, "set_container_build_success"
+                        runner_handler.check_run_handler, "set_container_build_success", new=AsyncMock()
                     ) as mock_set_success:
                         with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
                             mock_checkout.return_value = AsyncMock()
@@ -327,10 +327,9 @@ class TestRunnerHandler:
                             with patch.object(
                                 runner_handler, "run_podman_command", new=AsyncMock(return_value=(True, "success", ""))
                             ):
-                                with patch("asyncio.to_thread"):
-                                    await runner_handler.run_build_container(pull_request=mock_pull_request, push=True)
-                                    mock_set_progress.assert_called_once()
-                                    mock_set_success.assert_called_once()
+                                await runner_handler.run_build_container(pull_request=mock_pull_request, push=True)
+                                mock_set_progress.assert_awaited_once()
+                                mock_set_success.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_run_install_python_module_disabled(
@@ -512,32 +511,28 @@ class TestRunnerHandler:
             runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
         ):
             with patch.object(
-                runner_handler.check_run_handler, "set_conventional_title_in_progress"
+                runner_handler.check_run_handler, "set_conventional_title_in_progress", new=AsyncMock()
             ) as mock_set_progress:
                 with patch.object(
-                    runner_handler.check_run_handler, "set_conventional_title_success"
+                    runner_handler.check_run_handler, "set_conventional_title_success", new=AsyncMock()
                 ) as mock_set_success:
                     with patch.object(
-                        runner_handler.check_run_handler, "set_conventional_title_failure"
+                        runner_handler.check_run_handler, "set_conventional_title_failure", new=AsyncMock()
                     ) as mock_set_failure:
                         await runner_handler.run_conventional_title_check(mock_pull_request)
 
-                        mock_set_progress.assert_called_once()
+                        mock_set_progress.assert_awaited_once()
 
                         if should_pass:
-                            assert mock_set_success.call_count == 1, (
+                            assert mock_set_success.await_count == 1, (
                                 f"Expected '{title}' to pass validation ({reason}), but it failed"
                             )
-                            assert mock_set_failure.call_count == 0, (
-                                f"Expected '{title}' to pass validation ({reason}), but failure was called"
-                            )
+                            mock_set_failure.assert_not_awaited()
                         else:
-                            assert mock_set_failure.call_count == 1, (
+                            assert mock_set_failure.await_count == 1, (
                                 f"Expected '{title}' to fail validation ({reason}), but it passed"
                             )
-                            assert mock_set_success.call_count == 0, (
-                                f"Expected '{title}' to fail validation ({reason}), but success was called"
-                            )
+                            mock_set_success.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_run_conventional_title_check_disabled(
@@ -546,17 +541,21 @@ class TestRunnerHandler:
         """Test run_conventional_title_check when conventional_title is not configured."""
         runner_handler.github_webhook.conventional_title = ""
 
-        with patch.object(runner_handler.check_run_handler, "set_conventional_title_in_progress") as mock_set_progress:
-            with patch.object(runner_handler.check_run_handler, "set_conventional_title_success") as mock_set_success:
+        with patch.object(
+            runner_handler.check_run_handler, "set_conventional_title_in_progress", new=AsyncMock()
+        ) as mock_set_progress:
+            with patch.object(
+                runner_handler.check_run_handler, "set_conventional_title_success", new=AsyncMock()
+            ) as mock_set_success:
                 with patch.object(
-                    runner_handler.check_run_handler, "set_conventional_title_failure"
+                    runner_handler.check_run_handler, "set_conventional_title_failure", new=AsyncMock()
                 ) as mock_set_failure:
                     await runner_handler.run_conventional_title_check(mock_pull_request)
 
                     # Should return early without doing anything
-                    mock_set_progress.assert_not_called()
-                    mock_set_success.assert_not_called()
-                    mock_set_failure.assert_not_called()
+                    mock_set_progress.assert_not_awaited()
+                    mock_set_success.assert_not_awaited()
+                    mock_set_failure.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_run_conventional_title_check_custom_types(
@@ -581,19 +580,19 @@ class TestRunnerHandler:
                 runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
             ):
                 with patch.object(
-                    runner_handler.check_run_handler, "set_conventional_title_in_progress"
+                    runner_handler.check_run_handler, "set_conventional_title_in_progress", new=AsyncMock()
                 ) as mock_set_progress:
                     with patch.object(
-                        runner_handler.check_run_handler, "set_conventional_title_success"
+                        runner_handler.check_run_handler, "set_conventional_title_success", new=AsyncMock()
                     ) as mock_set_success:
                         with patch.object(
-                            runner_handler.check_run_handler, "set_conventional_title_failure"
+                            runner_handler.check_run_handler, "set_conventional_title_failure", new=AsyncMock()
                         ) as mock_set_failure:
                             await runner_handler.run_conventional_title_check(mock_pull_request)
 
-                            mock_set_progress.assert_called_once()
-                            mock_set_success.assert_called_once()
-                            mock_set_failure.assert_not_called()
+                            mock_set_progress.assert_awaited_once()
+                            mock_set_success.assert_awaited_once()
+                            mock_set_failure.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_run_conventional_title_check_in_progress(
@@ -606,16 +605,16 @@ class TestRunnerHandler:
             runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=True)
         ):
             with patch.object(
-                runner_handler.check_run_handler, "set_conventional_title_in_progress"
+                runner_handler.check_run_handler, "set_conventional_title_in_progress", new=AsyncMock()
             ) as mock_set_progress:
                 with patch.object(
-                    runner_handler.check_run_handler, "set_conventional_title_success"
+                    runner_handler.check_run_handler, "set_conventional_title_success", new=AsyncMock()
                 ) as mock_set_success:
                     await runner_handler.run_conventional_title_check(mock_pull_request)
 
                     # Should still proceed with the check
-                    mock_set_progress.assert_called_once()
-                    mock_set_success.assert_called_once()
+                    mock_set_progress.assert_awaited_once()
+                    mock_set_success.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_is_branch_exists(self, runner_handler: RunnerHandler) -> None:
@@ -629,9 +628,9 @@ class TestRunnerHandler:
     async def test_cherry_pick_branch_not_exists(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
         """Test cherry_pick when target branch doesn't exist."""
         with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=None)):
-            with patch("asyncio.to_thread") as mock_to_thread:
+            with patch.object(mock_pull_request, "create_issue_comment", new=Mock()) as mock_comment:
                 await runner_handler.cherry_pick(mock_pull_request, "non-existent-branch")
-                mock_to_thread.assert_called_once()
+                mock_comment.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_cherry_pick_prepare_failure(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
@@ -688,10 +687,11 @@ class TestRunnerHandler:
                             "webhook_server.libs.handlers.runner_handler.run_command",
                             new=AsyncMock(return_value=(True, "success", "")),
                         ):
-                            with patch("asyncio.to_thread"):
+                            with patch.object(mock_pull_request, "create_issue_comment", new=Mock()) as mock_comment:
                                 await runner_handler.cherry_pick(mock_pull_request, "main")
                                 mock_set_progress.assert_called_once()
                                 mock_set_success.assert_called_once()
+                                mock_comment.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_checkout_worktree_success(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
@@ -711,16 +711,15 @@ class TestRunnerHandler:
                     assert worktree_path == "/tmp/worktree-path"
 
     @pytest.mark.asyncio
-    async def test_checkout_worktree_failure(self, runner_handler: RunnerHandler) -> None:
+    async def test_checkout_worktree_failure(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
         """Test _checkout_worktree when checkout fails."""
         with patch("webhook_server.utils.helpers.git_worktree_checkout") as mock_git_worktree:
             mock_git_worktree.return_value.__aenter__ = AsyncMock(return_value=(False, "", "output", "error"))
             mock_git_worktree.return_value.__aexit__ = AsyncMock(return_value=None)
-            with patch.object(runner_handler.github_webhook, "get_pull_request", new=AsyncMock(return_value=None)):
-                async with runner_handler._checkout_worktree() as result:
-                    success, _, out, _ = result
-                    assert success is False
-                    assert out == "output"
+            async with runner_handler._checkout_worktree(pull_request=mock_pull_request) as result:
+                success, _, out, _ = result
+                assert success is False
+                assert out == "output"
 
     @pytest.mark.asyncio
     async def test_checkout_worktree_with_checkout(
@@ -801,13 +800,13 @@ class TestRunnerHandler:
                 runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
             ):
                 with patch.object(
-                    runner_handler.check_run_handler, "set_container_build_in_progress"
+                    runner_handler.check_run_handler, "set_container_build_in_progress", new=AsyncMock()
                 ) as mock_set_progress:
                     with patch.object(
-                        runner_handler.check_run_handler, "set_container_build_success"
+                        runner_handler.check_run_handler, "set_container_build_success", new=AsyncMock()
                     ) as mock_set_success:
                         with patch.object(
-                            runner_handler.check_run_handler, "set_container_build_failure"
+                            runner_handler.check_run_handler, "set_container_build_failure", new=AsyncMock()
                         ) as mock_set_failure:
                             with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
                                 mock_checkout.return_value = AsyncMock()
@@ -827,27 +826,27 @@ class TestRunnerHandler:
                                         with patch(
                                             "webhook_server.libs.handlers.runner_handler.send_slack_message"
                                         ) as mock_slack:
-                                            with patch("asyncio.to_thread") as mock_to_thread:
+                                            with patch.object(
+                                                mock_pull_request,
+                                                "create_issue_comment",
+                                                new=Mock(),
+                                            ) as mock_comment:
                                                 # Set set_check=False to avoid early return after build success
                                                 await runner_handler.run_build_container(
                                                     pull_request=mock_pull_request, push=True, set_check=False
                                                 )
-                                                mock_set_progress.assert_called_once()
+                                                mock_set_progress.assert_awaited_once()
                                                 # Should not call set_success because set_check=False
-                                                mock_set_success.assert_not_called()
+                                                mock_set_success.assert_not_awaited()
                                                 # Slack message should be sent when push fails
                                                 mock_slack.assert_called_once()
                                                 # Should be called twice: build and push
                                                 assert mock_run_podman.call_count == 2, (
                                                     f"Expected 2 calls, got {mock_run_podman.call_count}"
                                                 )
-                                                # to_thread should be called to create issue comment on push failure
-                                                assert mock_to_thread.called, (
-                                                    f"to_thread was not called, calls: {mock_to_thread.call_args_list}"
-                                                )
-                                                called_args = mock_to_thread.call_args[0]
-                                                assert called_args[0] == mock_pull_request.create_issue_comment
-                                                mock_set_failure.assert_not_called()
+                                                # PR comment should be created on push failure
+                                                mock_comment.assert_called_once()
+                                                mock_set_failure.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_run_build_container_with_command_args(self, runner_handler, mock_pull_request):
@@ -859,10 +858,10 @@ class TestRunnerHandler:
                 runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
             ):
                 with patch.object(
-                    runner_handler.check_run_handler, "set_container_build_in_progress"
+                    runner_handler.check_run_handler, "set_container_build_in_progress", new=AsyncMock()
                 ) as mock_set_progress:
                     with patch.object(
-                        runner_handler.check_run_handler, "set_container_build_success"
+                        runner_handler.check_run_handler, "set_container_build_success", new=AsyncMock()
                     ) as mock_set_success:
                         with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
                             mock_checkout.return_value = AsyncMock()
@@ -874,8 +873,8 @@ class TestRunnerHandler:
                                 await runner_handler.run_build_container(
                                     pull_request=mock_pull_request, command_args="--extra-arg"
                                 )
-                                mock_set_progress.assert_called_once()
-                                mock_set_success.assert_called_once()
+                                mock_set_progress.assert_awaited_once()
+                                mock_set_success.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_cherry_pick_manual_needed(self, runner_handler, mock_pull_request):
@@ -891,8 +890,8 @@ class TestRunnerHandler:
                         mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
                         # First command fails, triggers manual cherry-pick
                         with patch("webhook_server.utils.helpers.run_command", side_effect=[(False, "fail", "err")]):
-                            with patch("asyncio.to_thread") as mock_to_thread:
+                            with patch.object(mock_pull_request, "create_issue_comment", new=Mock()) as mock_comment:
                                 await runner_handler.cherry_pick(mock_pull_request, "main")
                                 mock_set_progress.assert_called_once()
                                 mock_set_failure.assert_called_once()
-                                mock_to_thread.assert_called()
+                                mock_comment.assert_called_once()

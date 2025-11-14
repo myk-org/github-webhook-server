@@ -1,10 +1,26 @@
 """Tests for webhook_server.libs.handlers.push_handler module."""
 
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
 from webhook_server.libs.handlers.push_handler import PushHandler
+
+
+def _build_checkout_context(result: tuple[bool, str, str, str]):
+    """Create an async context manager that yields the provided result."""
+
+    @asynccontextmanager
+    async def _cm(*_args, **_kwargs):
+        yield result
+
+    return _cm()
+
+
+def _set_checkout_result(mock_checkout: Mock, result: tuple[bool, str, str, str]) -> None:
+    """Configure the checkout mock to return an async context manager."""
+    mock_checkout.side_effect = lambda *_a, **_kw: _build_checkout_context(result)
 
 
 class TestPushHandler:
@@ -113,7 +129,7 @@ class TestPushHandler:
             ) as mock_run_command:
                 with patch("webhook_server.libs.handlers.push_handler.send_slack_message") as mock_slack:
                     # Mock successful checkout
-                    mock_checkout.return_value.__aenter__.return_value = (True, "/tmp/worktree-path", "", "")
+                    _set_checkout_result(mock_checkout, (True, "/tmp/worktree-path", "", ""))
 
                     # Mock successful build
                     mock_run_command.side_effect = [
@@ -140,11 +156,14 @@ class TestPushHandler:
         with patch.object(push_handler.runner_handler, "_checkout_worktree") as mock_checkout:
             with patch.object(push_handler.repository, "create_issue") as mock_create_issue:
                 # Mock failed checkout
-                mock_checkout.return_value.__aenter__.return_value = (
-                    False,
-                    "/tmp/worktree-path",
-                    "Clone failed",
-                    "Error",
+                _set_checkout_result(
+                    mock_checkout,
+                    (
+                        False,
+                        "/tmp/worktree-path",
+                        "Clone failed",
+                        "Error",
+                    ),
                 )
 
                 await push_handler.upload_to_pypi(tag_name="v1.0.0")
@@ -163,7 +182,7 @@ class TestPushHandler:
             ) as mock_run_command:
                 with patch.object(push_handler.repository, "create_issue") as mock_create_issue:
                     # Mock successful checkout
-                    mock_checkout.return_value.__aenter__.return_value = (True, "/tmp/worktree-path", "", "")
+                    _set_checkout_result(mock_checkout, (True, "/tmp/worktree-path", "", ""))
 
                     # Mock failed build
                     mock_run_command.return_value = (False, "Build failed", "Error")
@@ -184,7 +203,7 @@ class TestPushHandler:
             ) as mock_run_command:
                 with patch.object(push_handler.repository, "create_issue") as mock_create_issue:
                     # Mock successful checkout
-                    mock_checkout.return_value.__aenter__.return_value = (True, "/tmp/worktree-path", "", "")
+                    _set_checkout_result(mock_checkout, (True, "/tmp/worktree-path", "", ""))
 
                     # Mock successful build, failed ls
                     mock_run_command.side_effect = [
@@ -208,7 +227,7 @@ class TestPushHandler:
             ) as mock_run_command:
                 with patch.object(push_handler.repository, "create_issue") as mock_create_issue:
                     # Mock successful checkout
-                    mock_checkout.return_value.__aenter__.return_value = (True, "/tmp/worktree-path", "", "")
+                    _set_checkout_result(mock_checkout, (True, "/tmp/worktree-path", "", ""))
 
                     # Mock successful build and ls, failed twine check
                     mock_run_command.side_effect = [
@@ -233,7 +252,7 @@ class TestPushHandler:
             ) as mock_run_command:
                 with patch.object(push_handler.repository, "create_issue") as mock_create_issue:
                     # Mock successful checkout
-                    mock_checkout.return_value.__aenter__.return_value = (True, "/tmp/worktree-path", "", "")
+                    _set_checkout_result(mock_checkout, (True, "/tmp/worktree-path", "", ""))
 
                     # Mock successful build, ls, and twine check, failed twine upload
                     mock_run_command.side_effect = [
@@ -260,7 +279,7 @@ class TestPushHandler:
                 "webhook_server.libs.handlers.push_handler.run_command", new_callable=AsyncMock
             ) as mock_run_command:
                 # Mock successful checkout
-                mock_checkout.return_value.__aenter__.return_value = (True, "/tmp/worktree-path", "", "")
+                _set_checkout_result(mock_checkout, (True, "/tmp/worktree-path", "", ""))
 
                 # Mock successful build
                 mock_run_command.side_effect = [
@@ -284,7 +303,7 @@ class TestPushHandler:
                 "webhook_server.libs.handlers.push_handler.run_command", new_callable=AsyncMock
             ) as mock_run_command:
                 # Mock successful checkout
-                mock_checkout.return_value.__aenter__.return_value = (True, "/tmp/worktree-path", "", "")
+                _set_checkout_result(mock_checkout, (True, "/tmp/worktree-path", "", ""))
 
                 # Mock successful all commands
                 mock_run_command.side_effect = [
@@ -315,7 +334,7 @@ class TestPushHandler:
                 "webhook_server.libs.handlers.push_handler.run_command", new_callable=AsyncMock
             ) as mock_run_command:
                 # Mock successful checkout
-                mock_checkout.return_value.__aenter__.return_value = (True, "/tmp/worktree-path", "", "")
+                _set_checkout_result(mock_checkout, (True, "/tmp/worktree-path", "", ""))
 
                 # Mock successful build
                 mock_run_command.side_effect = [
@@ -338,11 +357,14 @@ class TestPushHandler:
         with patch.object(push_handler.runner_handler, "_checkout_worktree") as mock_checkout:
             with patch.object(push_handler.repository, "create_issue") as mock_create_issue:
                 # Mock failed checkout
-                mock_checkout.return_value.__aenter__.return_value = (
-                    False,
-                    "/tmp/worktree-path",
-                    "Clone failed",
-                    "Error details",
+                _set_checkout_result(
+                    mock_checkout,
+                    (
+                        False,
+                        "/tmp/worktree-path",
+                        "Clone failed",
+                        "Error details",
+                    ),
                 )
 
                 await push_handler.upload_to_pypi(tag_name="v1.0.0")
@@ -366,7 +388,7 @@ class TestPushHandler:
             ) as mock_run_command:
                 with patch("webhook_server.libs.handlers.push_handler.send_slack_message") as mock_slack:
                     # Mock successful checkout
-                    mock_checkout.return_value.__aenter__.return_value = (True, "/tmp/worktree-path", "", "")
+                    _set_checkout_result(mock_checkout, (True, "/tmp/worktree-path", "", ""))
 
                     # Mock successful build
                     mock_run_command.side_effect = [

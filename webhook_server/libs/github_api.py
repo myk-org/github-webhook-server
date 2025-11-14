@@ -38,6 +38,7 @@ from webhook_server.utils.github_repository_settings import (
     get_repository_github_app_api,
 )
 from webhook_server.utils.helpers import (
+    _redact_secrets,
     format_task_fields,
     get_api_with_highest_rate_limit,
     get_apis_and_tokes_from_config,
@@ -192,27 +193,31 @@ class GithubWebhook:
         try:
             github_token = self.token
             clone_url_with_token = self.repository.clone_url.replace("https://", f"https://{github_token}@")
-            mask_sensitive = self.config.get_value("mask-sensitive-data", return_on_none=True)
 
             rc, _, err = await run_command(
                 command=f"git clone {clone_url_with_token} {self.clone_repo_dir}",
                 log_prefix=self.log_prefix,
                 redact_secrets=[github_token],
-                mask_sensitive=mask_sensitive,
+                mask_sensitive=self.mask_sensitive,
             )
+
+            def redact_output(value: str) -> str:
+                return _redact_secrets(value or "", [github_token], mask_sensitive=self.mask_sensitive)
+
             if not rc:
+                redacted_err = redact_output(err)
                 self.logger.error(
                     f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'failed')} "
-                    f"Failed to clone repository: {err}"
+                    f"Failed to clone repository: {redacted_err}"
                 )
-                raise RuntimeError(f"Failed to clone repository: {err}")
+                raise RuntimeError(f"Failed to clone repository: {redacted_err}")
 
             # Configure git user
             git_cmd = f"git -C {self.clone_repo_dir}"
             rc, _, _ = await run_command(
                 command=f"{git_cmd} config user.name '{self.repository.owner.login}'",
                 log_prefix=self.log_prefix,
-                mask_sensitive=mask_sensitive,
+                mask_sensitive=self.mask_sensitive,
             )
             if not rc:
                 self.logger.warning(f"{self.log_prefix} Failed to configure git user.name")
@@ -220,7 +225,7 @@ class GithubWebhook:
             rc, _, _ = await run_command(
                 command=f"{git_cmd} config user.email '{self.repository.owner.login}@users.noreply.github.com'",
                 log_prefix=self.log_prefix,
-                mask_sensitive=mask_sensitive,
+                mask_sensitive=self.mask_sensitive,
             )
             if not rc:
                 self.logger.warning(f"{self.log_prefix} Failed to configure git user.email")
@@ -231,7 +236,7 @@ class GithubWebhook:
                     f"{git_cmd} config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
                 ),
                 log_prefix=self.log_prefix,
-                mask_sensitive=mask_sensitive,
+                mask_sensitive=self.mask_sensitive,
             )
             if not rc:
                 self.logger.warning(f"{self.log_prefix} Failed to configure PR fetch refs")
@@ -240,7 +245,7 @@ class GithubWebhook:
             rc, _, _ = await run_command(
                 command=f"{git_cmd} remote update",
                 log_prefix=self.log_prefix,
-                mask_sensitive=mask_sensitive,
+                mask_sensitive=self.mask_sensitive,
             )
             if not rc:
                 self.logger.warning(f"{self.log_prefix} Failed to fetch remote refs")
@@ -250,14 +255,15 @@ class GithubWebhook:
             rc, _, err = await run_command(
                 command=f"{git_cmd} checkout {base_branch}",
                 log_prefix=self.log_prefix,
-                mask_sensitive=mask_sensitive,
+                mask_sensitive=self.mask_sensitive,
             )
             if not rc:
+                redacted_err = redact_output(err)
                 self.logger.error(
                     f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'failed')} "
-                    f"Failed to checkout base branch {base_branch}: {err}"
+                    f"Failed to checkout base branch {base_branch}: {redacted_err}"
                 )
-                raise RuntimeError(f"Failed to checkout base branch {base_branch}: {err}")
+                raise RuntimeError(f"Failed to checkout base branch {base_branch}: {redacted_err}")
 
             self._repo_cloned = True
             self.logger.success(  # type: ignore[attr-defined]
@@ -553,6 +559,8 @@ class GithubWebhook:
             value="create-issue-for-new-pr", return_on_none=global_create_issue_for_new_pr, extra_dict=repository_config
         )
 
+        self.mask_sensitive = self.config.get_value("mask-sensitive-data", return_on_none=True)
+
     async def get_pull_request(self, number: int | None = None) -> PullRequest | None:
         if number:
             self.logger.debug(f"{self.log_prefix} Attempting to get PR by number: {number}")
@@ -661,12 +669,12 @@ class GithubWebhook:
         return current_pull_request_supported_retest
 
     def __del__(self) -> None:
-        """Cleanup temporary clone directory on object destruction.
+        """Remove the shared clone directory when the webhook object is destroyed.
 
-        This ensures the base temp directory created by tempfile.mkdtemp() is removed
-        when the webhook handler is destroyed, preventing temp directory leaks.
-        The subdirectories (created with -uuid4() suffix) are cleaned up by
-        _prepare_cloned_repo_dir context manager in handlers.
+        GithubWebhook now creates a single clone via tempfile.mkdtemp() and individual
+        handlers operate on worktrees created by git_worktree_checkout, which already
+        clean up their own directories. Only the base clone directory must be removed
+        here to prevent accumulating stale repositories on disk.
         """
         if hasattr(self, "clone_repo_dir") and os.path.exists(self.clone_repo_dir):
             try:

@@ -616,17 +616,31 @@ For more information, please refer to the project documentation or contact the m
             f"-p {self.github_webhook.container_repository_password}"
         )
 
-        rc, out, err = await self.runner_handler.run_podman_command(command=reg_login_cmd)
+        redact_values = [
+            self.github_webhook.container_repository_username,
+            self.github_webhook.container_repository_password,
+        ]
+
+        rc, out, err = await self.runner_handler.run_podman_command(
+            command=reg_login_cmd,
+            redact_secrets=redact_values,
+        )
 
         if rc:
             try:
                 tag_ls_cmd = f"regctl tag ls {self.github_webhook.container_repository} --include {pr_tag}"
-                rc, out, err = await self.runner_handler.run_podman_command(command=tag_ls_cmd)
+                rc, out, err = await self.runner_handler.run_podman_command(
+                    command=tag_ls_cmd,
+                    redact_secrets=redact_values,
+                )
 
                 if rc and out:
                     tag_del_cmd = f"regctl tag delete {repository_full_tag}"
 
-                    rc, del_out, del_err = await self.runner_handler.run_podman_command(command=tag_del_cmd)
+                    rc, del_out, del_err = await self.runner_handler.run_podman_command(
+                        command=tag_del_cmd,
+                        redact_secrets=redact_values,
+                    )
                     if rc:
                         await asyncio.to_thread(
                             pull_request.create_issue_comment, f"Successfully removed PR tag: {repository_full_tag}."
@@ -673,16 +687,27 @@ For more information, please refer to the project documentation or contact the m
             self.logger.error(f"{self.log_prefix} Failed to delete tag: {repository_full_tag}. OUT:{out}. ERR:{err}")
 
     async def close_issue_for_merged_or_closed_pr(self, pull_request: PullRequest, hook_action: str) -> None:
-        for issue in await asyncio.to_thread(self.repository.get_issues):
-            if issue.body == self._generate_issue_body(pull_request=pull_request):
-                self.logger.info(f"{self.log_prefix} Closing issue {issue.title} for PR: {pull_request.title}")
-                await asyncio.to_thread(
-                    issue.create_comment,
-                    f"{self.log_prefix} Closing issue for PR: {pull_request.title}.\nPR was {hook_action}.",
-                )
-                await asyncio.to_thread(issue.edit, state="closed")
+        issue_body = self._generate_issue_body(pull_request=pull_request)
 
-                break
+        def _find_matching_issue() -> Any | None:
+            for existing_issue in self.repository.get_issues():
+                if existing_issue.body == issue_body:
+                    return existing_issue
+            return None
+
+        matching_issue = await asyncio.to_thread(_find_matching_issue)
+        if not matching_issue:
+            return
+
+        pr_title = await asyncio.to_thread(lambda: pull_request.title)
+        issue_title = await asyncio.to_thread(lambda: matching_issue.title)
+
+        self.logger.info(f"{self.log_prefix} Closing issue {issue_title} for PR: {pr_title}")
+        await asyncio.to_thread(
+            matching_issue.create_comment,
+            f"{self.log_prefix} Closing issue for PR: {pr_title}.\nPR was {hook_action}.",
+        )
+        await asyncio.to_thread(matching_issue.edit, state="closed")
 
     async def process_opened_or_synchronize_pull_request(self, pull_request: PullRequest) -> None:
         self.logger.step(  # type: ignore[attr-defined]

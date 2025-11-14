@@ -12,6 +12,7 @@ from github.Repository import Repository
 
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
+from webhook_server.utils import helpers as helpers_module
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CHERRY_PICKED_LABEL_PREFIX,
@@ -41,11 +42,6 @@ class RunnerHandler:
             github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
         )
 
-    @property
-    def mask_sensitive(self) -> bool:
-        """Get mask_sensitive configuration value."""
-        return self.github_webhook.config.get_value("mask-sensitive-data", return_on_none=True)
-
     @contextlib.asynccontextmanager
     async def _checkout_worktree(
         self,
@@ -68,7 +64,11 @@ class RunnerHandler:
         Yields:
             tuple: (success: bool, worktree_path: str, stdout: str, stderr: str)
         """
-        from webhook_server.utils.helpers import git_worktree_checkout  # noqa: PLC0415
+        pr_number: int | None = None
+        base_ref: str | None = None
+        if pull_request:
+            pr_number = await asyncio.to_thread(lambda: pull_request.number)
+            base_ref = await asyncio.to_thread(lambda: pull_request.base.ref)
 
         # Determine what to checkout
         checkout_target = ""
@@ -76,37 +76,39 @@ class RunnerHandler:
             checkout_target = checkout
         elif tag_name:
             checkout_target = tag_name
-        elif is_merged and pull_request:
-            checkout_target = pull_request.base.ref
-        elif pull_request:
-            checkout_target = f"origin/pr/{pull_request.number}"
+        elif is_merged and pull_request and base_ref is not None:
+            checkout_target = base_ref
+        elif pull_request and pr_number is not None:
+            checkout_target = f"origin/pr/{pr_number}"
         else:
-            # Fallback: try to get PR or use current HEAD
-            if _pull_request := await self.github_webhook.get_pull_request():
-                checkout_target = f"origin/pr/{_pull_request.number}"
-            else:
-                checkout_target = "HEAD"
+            raise RuntimeError(
+                f"{self.log_prefix} Unable to determine checkout target: "
+                "no checkout/tag_name provided and pull_request is missing."
+            )
 
         # Use centralized clone
         repo_dir = self.github_webhook.clone_repo_dir
         self.logger.debug(f"{self.log_prefix} Creating worktree from {repo_dir} with checkout: {checkout_target}")
 
         # Create worktree for this operation
-        async with git_worktree_checkout(
+        async with helpers_module.git_worktree_checkout(
             repo_dir=repo_dir,
             checkout=checkout_target,
             log_prefix=self.log_prefix,
-            mask_sensitive=self.mask_sensitive,
+            mask_sensitive=self.github_webhook.mask_sensitive,
         ) as (success, worktree_path, out, err):
             result: tuple[bool, str, str, str] = (success, worktree_path, out, err)
 
             # Merge base branch if needed (for PR testing)
             if success and pull_request and not is_merged and not tag_name:
+                merge_ref = base_ref
+                if merge_ref is None:
+                    merge_ref = await asyncio.to_thread(lambda: pull_request.base.ref)
                 git_cmd = f"git -C {worktree_path}"
                 rc, out, err = await run_command(
-                    command=f"{git_cmd} merge origin/{pull_request.base.ref} -m 'Merge {pull_request.base.ref}'",
+                    command=f"{git_cmd} merge origin/{merge_ref} -m 'Merge {merge_ref}'",
                     log_prefix=self.log_prefix,
-                    mask_sensitive=self.mask_sensitive,
+                    mask_sensitive=self.github_webhook.mask_sensitive,
                 )
                 if not rc:
                     result = (False, worktree_path, out, err)
@@ -122,11 +124,12 @@ class RunnerHandler:
         shutil.rmtree("/tmp/storage-run-1000/containers", ignore_errors=True)
         shutil.rmtree("/tmp/storage-run-1000/libpod/tmp", ignore_errors=True)
 
-    async def run_podman_command(
-        self, command: str, redact_secrets: list[str] | None = None, mask_sensitive: bool = True
-    ) -> tuple[bool, str, str]:
+    async def run_podman_command(self, command: str, redact_secrets: list[str] | None = None) -> tuple[bool, str, str]:
         rc, out, err = await run_command(
-            command=command, log_prefix=self.log_prefix, redact_secrets=redact_secrets, mask_sensitive=mask_sensitive
+            command=command,
+            log_prefix=self.log_prefix,
+            redact_secrets=redact_secrets,
+            mask_sensitive=self.github_webhook.mask_sensitive,
         )
 
         if rc:
@@ -138,7 +141,7 @@ class RunnerHandler:
                 command=command,
                 log_prefix=self.log_prefix,
                 redact_secrets=redact_secrets,
-                mask_sensitive=mask_sensitive,
+                mask_sensitive=self.github_webhook.mask_sensitive,
             )
 
         return rc, out, err
@@ -196,7 +199,9 @@ class RunnerHandler:
                 f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Executing tox command"
             )
             rc, out, err = await run_command(
-                command=cmd, log_prefix=self.log_prefix, mask_sensitive=self.mask_sensitive
+                command=cmd,
+                log_prefix=self.log_prefix,
+                mask_sensitive=self.github_webhook.mask_sensitive,
             )
 
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
@@ -258,7 +263,9 @@ class RunnerHandler:
                 f"Executing pre-commit command",
             )
             rc, out, err = await run_command(
-                command=cmd, log_prefix=self.log_prefix, mask_sensitive=self.mask_sensitive
+                command=cmd,
+                log_prefix=self.log_prefix,
+                mask_sensitive=self.github_webhook.mask_sensitive,
             )
 
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
@@ -365,7 +372,7 @@ class RunnerHandler:
                 f"Executing container build command",
             )
             build_rc, build_out, build_err = await self.run_podman_command(
-                command=podman_build_cmd, mask_sensitive=self.mask_sensitive
+                command=podman_build_cmd,
             )
             output["text"] = self.check_run_handler.get_check_run_text(err=build_err, out=build_out)
 
@@ -402,7 +409,6 @@ class RunnerHandler:
                         self.github_webhook.container_repository_username,
                         self.github_webhook.container_repository_password,
                     ],
-                    mask_sensitive=self.mask_sensitive,
                 )
                 if push_rc:
                     self.logger.step(  # type: ignore[attr-defined]
@@ -492,7 +498,7 @@ class RunnerHandler:
             rc, out, err = await run_command(
                 command=f"uvx pip wheel --no-cache-dir -w {worktree_path}/dist {worktree_path}",
                 log_prefix=self.log_prefix,
-                mask_sensitive=self.mask_sensitive,
+                mask_sensitive=self.github_webhook.mask_sensitive,
             )
 
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
@@ -664,7 +670,7 @@ Your team can configure additional types in the repository settings.
                         command=cmd,
                         log_prefix=self.log_prefix,
                         redact_secrets=[github_token],
-                        mask_sensitive=self.mask_sensitive,
+                        mask_sensitive=self.github_webhook.mask_sensitive,
                     )
                     if not rc:
                         self.logger.step(  # type: ignore[attr-defined]
@@ -674,8 +680,16 @@ Your team can configure additional types in the repository settings.
                         )
                         output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
                         await self.check_run_handler.set_cherry_pick_failure(output=output)
-                        redacted_out = _redact_secrets(out, [github_token], mask_sensitive=self.mask_sensitive)
-                        redacted_err = _redact_secrets(err, [github_token], mask_sensitive=self.mask_sensitive)
+                        redacted_out = _redact_secrets(
+                            out,
+                            [github_token],
+                            mask_sensitive=self.github_webhook.mask_sensitive,
+                        )
+                        redacted_err = _redact_secrets(
+                            err,
+                            [github_token],
+                            mask_sensitive=self.github_webhook.mask_sensitive,
+                        )
                         self.logger.error(f"{self.log_prefix} Cherry pick failed: {redacted_out} --- {redacted_err}")
                         local_branch_name = f"{pull_request.head.ref}-{target_branch}"
                         await asyncio.to_thread(
