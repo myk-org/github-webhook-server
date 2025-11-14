@@ -835,7 +835,8 @@ class TestRunnerHandler:
                                                 await runner_handler.run_build_container(
                                                     pull_request=mock_pull_request, push=True, set_check=False
                                                 )
-                                                mock_set_progress.assert_awaited_once()
+                                                # Should not call set_progress because set_check=False
+                                                mock_set_progress.assert_not_awaited()
                                                 # Should not call set_success because set_check=False
                                                 mock_set_success.assert_not_awaited()
                                                 # Slack message should be sent when push fails

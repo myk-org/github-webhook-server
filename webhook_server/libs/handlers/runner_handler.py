@@ -317,7 +317,8 @@ class RunnerHandler:
             f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
             f"Setting container build check status to in-progress",
         )
-        await self.check_run_handler.set_container_build_in_progress()
+        if set_check:
+            await self.check_run_handler.set_container_build_in_progress()
 
         _container_repository_and_tag = self.github_webhook.container_repository_and_tag(
             pull_request=pull_request, is_merged=is_merged, tag=tag

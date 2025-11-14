@@ -129,7 +129,6 @@ async def test_get_all_repository_approvers_and_reviewers(
     changed_files,  # noqa: ARG001
     process_github_webhook,
     owners_file_handler,
-    pull_request,
     all_repository_approvers_and_reviewers,  # noqa: ARG001
     tmp_path,
     owners_files_test_data,
