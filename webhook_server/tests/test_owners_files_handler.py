@@ -33,30 +33,6 @@ class TestOwnersFileHandler:
         """Create an OwnersFileHandler instance."""
         return OwnersFileHandler(mock_github_webhook)
 
-    @pytest.fixture
-    def mock_content_files(self) -> dict[str, str]:
-        """Create mock content files for different OWNERS files."""
-        return {
-            "OWNERS": yaml.dump({
-                "approvers": ["root_approver1", "root_approver2"],
-                "reviewers": ["root_reviewer1", "root_reviewer2"],
-            }),
-            "folder1/OWNERS": yaml.dump({
-                "approvers": ["folder1_approver1", "folder1_approver2"],
-                "reviewers": ["folder1_reviewer1", "folder1_reviewer2"],
-            }),
-            "folder2/OWNERS": yaml.dump({}),
-            "folder/folder4/OWNERS": yaml.dump({
-                "approvers": ["folder4_approver1", "folder4_approver2"],
-                "reviewers": ["folder4_reviewer1", "folder4_reviewer2"],
-            }),
-            "folder5/OWNERS": yaml.dump({
-                "root-approvers": False,
-                "approvers": ["folder5_approver1", "folder5_approver2"],
-                "reviewers": ["folder5_reviewer1", "folder5_reviewer2"],
-            }),
-        }
-
     @pytest.mark.asyncio
     async def test_initialize(self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock) -> None:
         """Test the initialize method."""
@@ -195,12 +171,12 @@ class TestOwnersFileHandler:
         self,
         owners_file_handler: OwnersFileHandler,
         mock_pull_request: Mock,
-        mock_content_files: dict[str, str],
+        owners_files_test_data: dict[str, str],
         tmp_path: Path,
     ) -> None:
         """Test reading OWNERS files from local cloned repository."""
         # Create a temporary directory structure with OWNERS files
-        for file_path, content in mock_content_files.items():
+        for file_path, content in owners_files_test_data.items():
             full_path = tmp_path / file_path
             full_path.parent.mkdir(parents=True, exist_ok=True)
             full_path.write_text(content)

@@ -132,31 +132,11 @@ async def test_get_all_repository_approvers_and_reviewers(
     pull_request,
     all_repository_approvers_and_reviewers,  # noqa: ARG001
     tmp_path,
+    owners_files_test_data,
 ):
     """Test reading OWNERS files from local cloned repository."""
     # Create a temporary directory structure with OWNERS files
-    owners_files_data = {
-        "OWNERS": yaml.dump({
-            "approvers": ["root_approver1", "root_approver2"],
-            "reviewers": ["root_reviewer1", "root_reviewer2"],
-        }),
-        "folder1/OWNERS": yaml.dump({
-            "approvers": ["folder1_approver1", "folder1_approver2"],
-            "reviewers": ["folder1_reviewer1", "folder1_reviewer2"],
-        }),
-        "folder2/OWNERS": yaml.dump({}),
-        "folder/folder4/OWNERS": yaml.dump({
-            "approvers": ["folder4_approver1", "folder4_approver2"],
-            "reviewers": ["folder4_reviewer1", "folder4_reviewer2"],
-        }),
-        "folder5/OWNERS": yaml.dump({
-            "root-approvers": False,
-            "approvers": ["folder5_approver1", "folder5_approver2"],
-            "reviewers": ["folder5_reviewer1", "folder5_reviewer2"],
-        }),
-    }
-
-    for file_path, content in owners_files_data.items():
+    for file_path, content in owners_files_test_data.items():
         full_path = tmp_path / file_path
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_text(content)

@@ -115,7 +115,7 @@ class OwnersFileHandler:
         Returns:
             Tuple of (file_content, relative_path_str) or None if file is unreadable
         """
-        relative_path = content_path.relative_to(self.github_webhook.clone_repo_dir)
+        relative_path = content_path.relative_to(Path(self.github_webhook.clone_repo_dir))
         self.logger.debug(f"{self.log_prefix} Reading OWNERS file from local clone: {relative_path}")
 
         try:
@@ -143,7 +143,7 @@ class OwnersFileHandler:
         _owners: dict[str, dict[str, Any]] = {}
         tasks: list[Coroutine[Any, Any, Any]] = []
 
-        max_owners_files = 1000  # Configurable limit
+        max_owners_files = 1000  # Intentionally hardcoded limit to prevent runaway processing
         owners_count = 0
 
         # Find all OWNERS files via filesystem walk

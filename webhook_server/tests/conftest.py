@@ -193,3 +193,33 @@ def optimize_test_environment():
 
     # Restore original timeout
     os.environ["PYTEST_TIMEOUT"] = original_timeout
+
+
+@pytest.fixture
+def owners_files_test_data():
+    """Shared OWNERS test data structure used across multiple test files.
+
+    Returns a dict mapping file paths to YAML-serialized OWNERS content.
+    This fixture eliminates duplication between test_pull_request_owners.py
+    and test_owners_files_handler.py.
+    """
+    return {
+        "OWNERS": yaml.dump({
+            "approvers": ["root_approver1", "root_approver2"],
+            "reviewers": ["root_reviewer1", "root_reviewer2"],
+        }),
+        "folder1/OWNERS": yaml.dump({
+            "approvers": ["folder1_approver1", "folder1_approver2"],
+            "reviewers": ["folder1_reviewer1", "folder1_reviewer2"],
+        }),
+        "folder2/OWNERS": yaml.dump({}),
+        "folder/folder4/OWNERS": yaml.dump({
+            "approvers": ["folder4_approver1", "folder4_approver2"],
+            "reviewers": ["folder4_reviewer1", "folder4_reviewer2"],
+        }),
+        "folder5/OWNERS": yaml.dump({
+            "root-approvers": False,
+            "approvers": ["folder5_approver1", "folder5_approver2"],
+            "reviewers": ["folder5_reviewer1", "folder5_reviewer2"],
+        }),
+    }
