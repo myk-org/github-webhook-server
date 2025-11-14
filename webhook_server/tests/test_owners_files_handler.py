@@ -1,3 +1,5 @@
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, call, patch
 
@@ -184,9 +186,17 @@ class TestOwnersFileHandler:
         # Set clone_repo_dir to tmp_path
         owners_file_handler.github_webhook.clone_repo_dir = str(tmp_path)
 
-        # Mock _clone_repository_for_pr to do nothing (already "cloned" to tmp_path)
-        with patch.object(owners_file_handler.github_webhook, "_clone_repository_for_pr", new=AsyncMock()):
-            result = await owners_file_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
+        # Mock git_worktree_checkout to use tmp_path directly (simulate successful worktree)
+        @asynccontextmanager
+        async def mock_worktree(
+            repo_dir: str, checkout: str, log_prefix: str, mask_sensitive: bool = True
+        ) -> AsyncGenerator[tuple[bool, str, str, str], None]:
+            yield (True, str(tmp_path), "", "")
+
+        with patch(
+            "webhook_server.libs.handlers.owners_files_handler.helpers_module.git_worktree_checkout", mock_worktree
+        ):
+            result = await owners_file_handler.get_all_repository_approvers_and_reviewers(branch="main")
 
         expected = {
             ".": {"approvers": ["root_approver1", "root_approver2"], "reviewers": ["root_reviewer1", "root_reviewer2"]},
@@ -222,9 +232,17 @@ class TestOwnersFileHandler:
         owners_file_handler.github_webhook.clone_repo_dir = str(tmp_path)
         owners_file_handler.logger.error = Mock()
 
-        # Mock _clone_repository_for_pr
-        with patch.object(owners_file_handler.github_webhook, "_clone_repository_for_pr", new=AsyncMock()):
-            result = await owners_file_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
+        # Mock git_worktree_checkout to use tmp_path directly
+        @asynccontextmanager
+        async def mock_worktree(
+            repo_dir: str, checkout: str, log_prefix: str, mask_sensitive: bool = True
+        ) -> AsyncGenerator[tuple[bool, str, str, str], None]:
+            yield (True, str(tmp_path), "", "")
+
+        with patch(
+            "webhook_server.libs.handlers.owners_files_handler.helpers_module.git_worktree_checkout", mock_worktree
+        ):
+            result = await owners_file_handler.get_all_repository_approvers_and_reviewers(branch="main")
 
         assert len(result) == 1000
         owners_file_handler.logger.error.assert_called_once()
@@ -242,9 +260,17 @@ class TestOwnersFileHandler:
         owners_file_handler.github_webhook.clone_repo_dir = str(tmp_path)
         owners_file_handler.logger.exception = Mock()
 
-        # Mock _clone_repository_for_pr
-        with patch.object(owners_file_handler.github_webhook, "_clone_repository_for_pr", new=AsyncMock()):
-            result = await owners_file_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
+        # Mock git_worktree_checkout to use tmp_path directly
+        @asynccontextmanager
+        async def mock_worktree(
+            repo_dir: str, checkout: str, log_prefix: str, mask_sensitive: bool = True
+        ) -> AsyncGenerator[tuple[bool, str, str, str], None]:
+            yield (True, str(tmp_path), "", "")
+
+        with patch(
+            "webhook_server.libs.handlers.owners_files_handler.helpers_module.git_worktree_checkout", mock_worktree
+        ):
+            result = await owners_file_handler.get_all_repository_approvers_and_reviewers(branch="main")
 
         assert result == {}
         owners_file_handler.logger.exception.assert_called_once()
@@ -262,9 +288,17 @@ class TestOwnersFileHandler:
         owners_file_handler.github_webhook.clone_repo_dir = str(tmp_path)
         owners_file_handler.logger.error = Mock()
 
-        # Mock _clone_repository_for_pr
-        with patch.object(owners_file_handler.github_webhook, "_clone_repository_for_pr", new=AsyncMock()):
-            result = await owners_file_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
+        # Mock git_worktree_checkout to use tmp_path directly
+        @asynccontextmanager
+        async def mock_worktree(
+            repo_dir: str, checkout: str, log_prefix: str, mask_sensitive: bool = True
+        ) -> AsyncGenerator[tuple[bool, str, str, str], None]:
+            yield (True, str(tmp_path), "", "")
+
+        with patch(
+            "webhook_server.libs.handlers.owners_files_handler.helpers_module.git_worktree_checkout", mock_worktree
+        ):
+            result = await owners_file_handler.get_all_repository_approvers_and_reviewers(branch="main")
 
         assert result == {}
         owners_file_handler.logger.error.assert_called_once()
