@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock, patch
+
 import pytest
 import yaml
 
@@ -124,10 +126,50 @@ def all_approvers_reviewers(owners_file_handler):
 
 @pytest.mark.asyncio
 async def test_get_all_repository_approvers_and_reviewers(
-    changed_files, process_github_webhook, owners_file_handler, pull_request, all_repository_approvers_and_reviewers
+    changed_files,
+    process_github_webhook,
+    owners_file_handler,
+    pull_request,
+    all_repository_approvers_and_reviewers,
+    tmp_path,
 ):
-    process_github_webhook.repository = Repository()
-    read_owners_result = await owners_file_handler.get_all_repository_approvers_and_reviewers(pull_request=pull_request)
+    """Test reading OWNERS files from local cloned repository."""
+    # Create a temporary directory structure with OWNERS files
+    owners_files_data = {
+        "OWNERS": yaml.dump({
+            "approvers": ["root_approver1", "root_approver2"],
+            "reviewers": ["root_reviewer1", "root_reviewer2"],
+        }),
+        "folder1/OWNERS": yaml.dump({
+            "approvers": ["folder1_approver1", "folder1_approver2"],
+            "reviewers": ["folder1_reviewer1", "folder1_reviewer2"],
+        }),
+        "folder2/OWNERS": yaml.dump({}),
+        "folder/folder4/OWNERS": yaml.dump({
+            "approvers": ["folder4_approver1", "folder4_approver2"],
+            "reviewers": ["folder4_reviewer1", "folder4_reviewer2"],
+        }),
+        "folder5/OWNERS": yaml.dump({
+            "root-approvers": False,
+            "approvers": ["folder5_approver1", "folder5_approver2"],
+            "reviewers": ["folder5_reviewer1", "folder5_reviewer2"],
+        }),
+    }
+
+    for file_path, content in owners_files_data.items():
+        full_path = tmp_path / file_path
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        full_path.write_text(content)
+
+    # Set clone_repo_dir to tmp_path
+    process_github_webhook.clone_repo_dir = str(tmp_path)
+
+    # Mock _clone_repository_for_pr to do nothing (already "cloned" to tmp_path)
+    with patch.object(process_github_webhook, "_clone_repository_for_pr", new=AsyncMock()):
+        read_owners_result = await owners_file_handler.get_all_repository_approvers_and_reviewers(
+            pull_request=pull_request
+        )
+
     assert read_owners_result == owners_file_handler.all_repository_approvers_and_reviewers
 
 
