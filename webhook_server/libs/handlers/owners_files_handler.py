@@ -13,7 +13,7 @@ from github.PullRequest import PullRequest
 from github.Repository import Repository
 
 from webhook_server.utils.constants import COMMAND_ADD_ALLOWED_USER_STR, ROOT_APPROVERS_KEY
-from webhook_server.utils.helpers import format_task_fields
+from webhook_server.utils.helpers import format_task_fields, run_command
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
@@ -83,9 +83,44 @@ class OwnersFileHandler:
         return _allowed_users
 
     async def list_changed_files(self, pull_request: PullRequest) -> list[str]:
-        changed_files = [_file.filename for _file in await asyncio.to_thread(pull_request.get_files)]
-        self.logger.debug(f"{self.log_prefix} Changed files: {changed_files}")
-        return changed_files
+        """List changed files in the PR using git diff on cloned repository.
+
+        Uses local git diff command instead of GitHub API to reduce API calls.
+        The repository is already cloned to self.github_webhook.clone_repo_dir.
+
+        Args:
+            pull_request: PyGithub PullRequest object
+
+        Returns:
+            List of changed file paths relative to repository root
+        """
+        try:
+            # Get base and head SHAs (wrap property accesses in asyncio.to_thread)
+            base_sha, head_sha = await asyncio.gather(
+                asyncio.to_thread(lambda: pull_request.base.sha),
+                asyncio.to_thread(lambda: pull_request.head.sha),
+            )
+
+            # Run git diff command on cloned repository
+            git_diff_command = f"git -C {self.github_webhook.clone_repo_dir} diff --name-only {base_sha}...{head_sha}"
+
+            _, out, _ = await run_command(
+                command=git_diff_command,
+                log_prefix=self.log_prefix,
+                verify_stderr=False,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+            )
+
+            # Parse output: split by newlines and filter empty lines
+            changed_files = [line.strip() for line in out.splitlines() if line.strip()]
+
+            self.logger.debug(f"{self.log_prefix} Changed files: {changed_files}")
+            return changed_files
+
+        except Exception:
+            # Log error and return empty list if git diff fails
+            self.logger.exception(f"{self.log_prefix} Failed to get changed files via git diff")
+            return []
 
     def _validate_owners_content(self, content: Any, path: str) -> bool:
         """Validate OWNERS file content structure."""

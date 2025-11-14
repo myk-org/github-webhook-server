@@ -87,17 +87,31 @@ class TestOwnersFileHandler:
 
     @pytest.mark.asyncio
     async def test_list_changed_files(self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock) -> None:
-        """Test list_changed_files method."""
-        mock_file1 = Mock()
-        mock_file1.filename = "file1.py"
-        mock_file2 = Mock()
-        mock_file2.filename = "file2.py"
-        mock_pull_request.get_files.return_value = [mock_file1, mock_file2]
+        """Test list_changed_files method using git diff."""
+        # Set up mock PR SHAs
+        mock_pull_request.base.sha = "base123abc"
+        mock_pull_request.head.sha = "head456def"
 
-        result = await owners_file_handler.list_changed_files(mock_pull_request)
+        # Set up handler properties
+        owners_file_handler.github_webhook.clone_repo_dir = "/tmp/test-repo"
+        owners_file_handler.github_webhook.mask_sensitive = True
 
-        assert result == ["file1.py", "file2.py"]
-        mock_pull_request.get_files.assert_called_once()
+        # Mock run_command to return git diff output
+        with patch("webhook_server.libs.handlers.owners_files_handler.run_command") as mock_run_command:
+            mock_run_command.return_value = (True, "file1.py\nfile2.py\n", "")
+
+            result = await owners_file_handler.list_changed_files(mock_pull_request)
+
+            # Verify result
+            assert result == ["file1.py", "file2.py"]
+
+            # Verify run_command was called with correct git command
+            mock_run_command.assert_called_once_with(
+                command="git -C /tmp/test-repo diff --name-only base123abc...head456def",
+                log_prefix="[TEST]",
+                verify_stderr=False,
+                mask_sensitive=True,
+            )
 
     def test_validate_owners_content_valid(self, owners_file_handler: OwnersFileHandler) -> None:
         """Test _validate_owners_content with valid content."""
