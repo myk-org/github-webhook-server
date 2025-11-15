@@ -1,3 +1,4 @@
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
@@ -5,7 +6,6 @@ import yaml
 from github.GithubException import GithubException
 
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
-from webhook_server.tests.conftest import ContentFile
 
 
 class TestOwnersFileHandler:
@@ -32,52 +32,6 @@ class TestOwnersFileHandler:
     def owners_file_handler(self, mock_github_webhook: Mock) -> OwnersFileHandler:
         """Create an OwnersFileHandler instance."""
         return OwnersFileHandler(mock_github_webhook)
-
-    @pytest.fixture
-    def mock_tree(self) -> Mock:
-        """Create a mock git tree with OWNERS files."""
-        tree = Mock()
-        tree.tree = [
-            Mock(type="blob", path="OWNERS"),
-            Mock(type="blob", path="folder1/OWNERS"),
-            Mock(type="blob", path="folder2/OWNERS"),
-            Mock(type="blob", path="folder/folder4/OWNERS"),
-            Mock(type="blob", path="folder5/OWNERS"),
-            Mock(type="blob", path="README.md"),  # Non-OWNERS file
-        ]
-        return tree
-
-    @pytest.fixture
-    def mock_content_files(self) -> dict[str, ContentFile]:
-        """Create mock content files for different OWNERS files."""
-        return {
-            "OWNERS": ContentFile(
-                yaml.dump({
-                    "approvers": ["root_approver1", "root_approver2"],
-                    "reviewers": ["root_reviewer1", "root_reviewer2"],
-                })
-            ),
-            "folder1/OWNERS": ContentFile(
-                yaml.dump({
-                    "approvers": ["folder1_approver1", "folder1_approver2"],
-                    "reviewers": ["folder1_reviewer1", "folder1_reviewer2"],
-                })
-            ),
-            "folder2/OWNERS": ContentFile(yaml.dump({})),
-            "folder/folder4/OWNERS": ContentFile(
-                yaml.dump({
-                    "approvers": ["folder4_approver1", "folder4_approver2"],
-                    "reviewers": ["folder4_reviewer1", "folder4_reviewer2"],
-                })
-            ),
-            "folder5/OWNERS": ContentFile(
-                yaml.dump({
-                    "root-approvers": False,
-                    "approvers": ["folder5_approver1", "folder5_approver2"],
-                    "reviewers": ["folder5_reviewer1", "folder5_reviewer2"],
-                })
-            ),
-        }
 
     @pytest.mark.asyncio
     async def test_initialize(self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock) -> None:
@@ -132,18 +86,36 @@ class TestOwnersFileHandler:
         owners_file_handler._ensure_initialized()  # Should not raise
 
     @pytest.mark.asyncio
-    async def test_list_changed_files(self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock) -> None:
-        """Test list_changed_files method."""
-        mock_file1 = Mock()
-        mock_file1.filename = "file1.py"
-        mock_file2 = Mock()
-        mock_file2.filename = "file2.py"
-        mock_pull_request.get_files.return_value = [mock_file1, mock_file2]
+    async def test_list_changed_files(
+        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock, tmp_path: Path
+    ) -> None:
+        """Test list_changed_files method using git diff."""
+        # Set up mock PR SHAs
+        mock_pull_request.base.sha = "base123abc"
+        mock_pull_request.head.sha = "head456def"
 
-        result = await owners_file_handler.list_changed_files(mock_pull_request)
+        # Set up handler properties
+        owners_file_handler.github_webhook.clone_repo_dir = str(tmp_path)
+        owners_file_handler.github_webhook.mask_sensitive = True
 
-        assert result == ["file1.py", "file2.py"]
-        mock_pull_request.get_files.assert_called_once()
+        # Mock run_command to return git diff output
+        with patch(
+            "webhook_server.libs.handlers.owners_files_handler.run_command", new=AsyncMock()
+        ) as mock_run_command:
+            mock_run_command.return_value = (True, "file1.py\nfile2.py\n", "")
+
+            result = await owners_file_handler.list_changed_files(mock_pull_request)
+
+            # Verify result
+            assert result == ["file1.py", "file2.py"]
+
+            # Verify run_command was called with correct git command
+            mock_run_command.assert_called_once_with(
+                command=f"git -C {tmp_path} diff --name-only base123abc...head456def",
+                log_prefix="[TEST]",
+                verify_stderr=False,
+                mask_sensitive=True,
+            )
 
     def test_validate_owners_content_valid(self, owners_file_handler: OwnersFileHandler) -> None:
         """Test _validate_owners_content with valid content."""
@@ -176,43 +148,62 @@ class TestOwnersFileHandler:
         assert owners_file_handler._validate_owners_content(invalid_content, "test/path") is False
 
     @pytest.mark.asyncio
-    async def test_get_file_content(self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock) -> None:
-        """Test _get_file_content method."""
-        mock_content = ContentFile("test content")
-        owners_file_handler.repository.get_contents = Mock(return_value=mock_content)
+    async def test_get_file_content_from_local(self, owners_file_handler: OwnersFileHandler, tmp_path: Path) -> None:
+        """Test _get_file_content_from_local method."""
+        # Create a temporary OWNERS file
+        owners_file = tmp_path / "test" / "OWNERS"
+        owners_file.parent.mkdir(parents=True, exist_ok=True)
+        owners_file.write_text("test content")
 
-        result = await owners_file_handler._get_file_content("test/path", mock_pull_request)
+        # Set clone_repo_dir to tmp_path
+        owners_file_handler.github_webhook.clone_repo_dir = str(tmp_path)
 
-        assert result == (mock_content, "test/path")
-        owners_file_handler.repository.get_contents.assert_called_once_with("test/path", "main")
+        result = await owners_file_handler._get_file_content_from_local(owners_file)
+
+        assert result == ("test content", "test/OWNERS")
 
     @pytest.mark.asyncio
-    async def test_get_file_content_list_result(
-        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
+    async def test_get_file_content_from_local_file_not_found(
+        self, owners_file_handler: OwnersFileHandler, tmp_path: Path
     ) -> None:
-        """Test _get_file_content when repository returns a list."""
-        mock_content = ContentFile("test content")
-        owners_file_handler.repository.get_contents = Mock(return_value=[mock_content])
+        """Test _get_file_content_from_local method with missing file."""
+        # Create path to non-existent file
+        missing_file = tmp_path / "test" / "OWNERS"
 
-        result = await owners_file_handler._get_file_content("test/path", mock_pull_request)
+        # Set clone_repo_dir to tmp_path
+        owners_file_handler.github_webhook.clone_repo_dir = str(tmp_path)
+        owners_file_handler.logger.warning = Mock()
 
-        assert result == (mock_content, "test/path")
+        result = await owners_file_handler._get_file_content_from_local(missing_file)
+
+        assert result is None
+        owners_file_handler.logger.warning.assert_called_once()
+        # Verify the warning message contains expected information
+        warning_call = owners_file_handler.logger.warning.call_args[0][0]
+        assert "Failed to read OWNERS file" in warning_call
+        assert "test/OWNERS" in warning_call
+        assert "Skipping this file" in warning_call
 
     @pytest.mark.asyncio
     async def test_get_all_repository_approvers_and_reviewers(
         self,
         owners_file_handler: OwnersFileHandler,
-        mock_pull_request: Mock,
-        mock_tree: Mock,
-        mock_content_files: dict[str, ContentFile],
+        owners_files_test_data: dict[str, str],
+        tmp_path: Path,
     ) -> None:
-        owners_file_handler.repository.get_git_tree = Mock(return_value=mock_tree)
+        """Test reading OWNERS files from local cloned repository."""
+        # Create a temporary directory structure with OWNERS files
+        for file_path, content in owners_files_test_data.items():
+            full_path = tmp_path / file_path
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            full_path.write_text(content)
 
-        def mock_get_contents(path: str, ref: str) -> ContentFile:
-            return mock_content_files.get(path, ContentFile(""))
+        # Set clone_repo_dir to tmp_path (simulating already cloned repo)
+        owners_file_handler.github_webhook.clone_repo_dir = str(tmp_path)
 
-        owners_file_handler.repository.get_contents = Mock(side_effect=mock_get_contents)
-        result = await owners_file_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
+        # No worktree needed - read directly from clone
+        result = await owners_file_handler.get_all_repository_approvers_and_reviewers()
+
         expected = {
             ".": {"approvers": ["root_approver1", "root_approver2"], "reviewers": ["root_reviewer1", "root_reviewer2"]},
             "folder1": {
@@ -234,44 +225,60 @@ class TestOwnersFileHandler:
 
     @pytest.mark.asyncio
     async def test_get_all_repository_approvers_and_reviewers_too_many_files(
-        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
+        self, owners_file_handler: OwnersFileHandler, tmp_path: Path
     ) -> None:
-        mock_tree = Mock()
-        mock_tree.tree = [Mock(type="blob", path=f"file{i}/OWNERS") for i in range(1001)]
-        owners_file_handler.repository.get_git_tree = Mock(return_value=mock_tree)
+        """Test that too many OWNERS files are handled correctly."""
+        # Create 1001 OWNERS files
+        for i in range(1001):
+            owners_file = tmp_path / f"file{i}" / "OWNERS"
+            owners_file.parent.mkdir(parents=True, exist_ok=True)
+            owners_file.write_text(yaml.dump({"approvers": [], "reviewers": []}))
+
+        # Set clone_repo_dir to tmp_path
+        owners_file_handler.github_webhook.clone_repo_dir = str(tmp_path)
         owners_file_handler.logger.error = Mock()
-        owners_file_handler.repository.get_contents = Mock(
-            return_value=ContentFile(yaml.dump({"approvers": [], "reviewers": []}))
-        )
-        result = await owners_file_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
+
+        # No worktree needed - read directly from clone
+        result = await owners_file_handler.get_all_repository_approvers_and_reviewers()
+
         assert len(result) == 1000
         owners_file_handler.logger.error.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_all_repository_approvers_and_reviewers_invalid_yaml(
-        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
+        self, owners_file_handler: OwnersFileHandler, tmp_path: Path
     ) -> None:
-        mock_tree = Mock()
-        mock_tree.tree = [Mock(type="blob", path="OWNERS")]
-        owners_file_handler.repository.get_git_tree = Mock(return_value=mock_tree)
-        mock_content = ContentFile("invalid: yaml: content: [")
-        owners_file_handler.repository.get_contents = Mock(return_value=mock_content)
-        owners_file_handler.logger.error = Mock()
-        result = await owners_file_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
+        """Test handling of invalid YAML in OWNERS files."""
+        # Create OWNERS file with invalid YAML
+        owners_file = tmp_path / "OWNERS"
+        owners_file.write_text("invalid: yaml: content: [")
+
+        # Set clone_repo_dir to tmp_path
+        owners_file_handler.github_webhook.clone_repo_dir = str(tmp_path)
+        owners_file_handler.logger.exception = Mock()
+
+        # No worktree needed - read directly from clone
+        result = await owners_file_handler.get_all_repository_approvers_and_reviewers()
+
         assert result == {}
-        owners_file_handler.logger.error.assert_called_once()
+        owners_file_handler.logger.exception.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_all_repository_approvers_and_reviewers_invalid_content(
-        self, owners_file_handler: OwnersFileHandler, mock_pull_request: Mock
+        self, owners_file_handler: OwnersFileHandler, tmp_path: Path
     ) -> None:
-        mock_tree = Mock()
-        mock_tree.tree = [Mock(type="blob", path="OWNERS")]
-        owners_file_handler.repository.get_git_tree = Mock(return_value=mock_tree)
-        mock_content = ContentFile(yaml.dump({"approvers": "not_a_list"}))
-        owners_file_handler.repository.get_contents = Mock(return_value=mock_content)
+        """Test handling of invalid content structure in OWNERS files."""
+        # Create OWNERS file with invalid structure
+        owners_file = tmp_path / "OWNERS"
+        owners_file.write_text(yaml.dump({"approvers": "not_a_list"}))
+
+        # Set clone_repo_dir to tmp_path
+        owners_file_handler.github_webhook.clone_repo_dir = str(tmp_path)
         owners_file_handler.logger.error = Mock()
-        result = await owners_file_handler.get_all_repository_approvers_and_reviewers(mock_pull_request)
+
+        # No worktree needed - read directly from clone
+        result = await owners_file_handler.get_all_repository_approvers_and_reviewers()
+
         assert result == {}
         owners_file_handler.logger.error.assert_called_once()
 

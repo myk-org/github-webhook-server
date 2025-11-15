@@ -1,7 +1,6 @@
 import asyncio
 import re
 from typing import TYPE_CHECKING
-from uuid import uuid4
 
 from github.Repository import Repository
 
@@ -94,21 +93,19 @@ Publish to PYPI failed: `{_error}`
             f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'started')} "
             f"Starting PyPI upload process for tag: {tag_name}",
         )
-        clone_repo_dir = f"{self.github_webhook.clone_repo_dir}-{uuid4()}"
-        uv_cmd_dir = f"--directory {clone_repo_dir}"
         self.logger.info(f"{self.log_prefix} Start uploading to pypi")
-        self.logger.debug(f"{self.log_prefix} Clone repo dir: {clone_repo_dir}")
-        _dist_dir: str = f"{clone_repo_dir}/pypi-dist"
 
-        async with self.runner_handler._prepare_cloned_repo_dir(
-            checkout=tag_name, clone_repo_dir=clone_repo_dir
-        ) as _res:
-            if not _res[0]:
+        async with self.runner_handler._checkout_worktree(checkout=tag_name) as (success, worktree_path, out, err):
+            uv_cmd_dir = f"--directory {worktree_path}"
+            _dist_dir: str = f"{worktree_path}/pypi-dist"
+            self.logger.debug(f"{self.log_prefix} Worktree path: {worktree_path}")
+
+            if not success:
                 self.logger.step(  # type: ignore[attr-defined]
                     f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'failed')} "
                     f"PyPI upload failed: repository preparation failed",
                 )
-                _error = self.check_run_handler.get_check_run_text(out=_res[1], err=_res[2])
+                _error = self.check_run_handler.get_check_run_text(out=out, err=err)
                 await _issue_on_error(_error=_error)
                 return
 
