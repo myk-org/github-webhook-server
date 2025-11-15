@@ -1,10 +1,8 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
-import yaml
 
 from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
-from webhook_server.tests.conftest import ContentFile, Tree
 from webhook_server.utils.constants import APPROVED_BY_LABEL_PREFIX
 
 ALL_CHANGED_FILES = [
@@ -16,53 +14,6 @@ ALL_CHANGED_FILES = [
     "folder/folder4/another_file.txt",
     "folder5/file",
 ]
-
-
-class Repository:
-    def __init__(self):
-        self.name = "test-repo"
-
-    def get_git_tree(self, sha: str, recursive: bool):
-        return Tree("")
-
-    def get_contents(self, path: str, ref: str):
-        owners_data = yaml.dump({
-            "approvers": ["root_approver1", "root_approver2"],
-            "reviewers": ["root_reviewer1", "root_reviewer2"],
-        })
-
-        folder1_owners_data = yaml.dump({
-            "approvers": ["folder1_approver1", "folder1_approver2"],
-            "reviewers": ["folder1_reviewer1", "folder1_reviewer2"],
-        })
-
-        folder4_owners_data = yaml.dump({
-            "approvers": ["folder4_approver1", "folder4_approver2"],
-            "reviewers": ["folder4_reviewer1", "folder4_reviewer2"],
-        })
-
-        folder5_owners_data = yaml.dump({
-            "root-approvers": False,
-            "approvers": ["folder5_approver1", "folder5_approver2"],
-            "reviewers": ["folder5_reviewer1", "folder5_reviewer2"],
-        })
-        if path == "OWNERS":
-            return ContentFile(owners_data)
-
-        elif path == "folder1/OWNERS":
-            return ContentFile(folder1_owners_data)
-
-        elif path == "folder2/OWNERS":
-            return ContentFile(yaml.dump({}))
-
-        elif path == "folder/folder4/OWNERS":
-            return ContentFile(folder4_owners_data)
-
-        elif path == "folder":
-            return ContentFile(yaml.dump({}))
-
-        elif path == "folder5/OWNERS":
-            return ContentFile(folder5_owners_data)
 
 
 @pytest.fixture(scope="function")
