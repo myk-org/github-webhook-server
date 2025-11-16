@@ -1039,7 +1039,7 @@ class TestGithubWebhook:
             mock_config.return_value.repository = True
             mock_config.return_value.repository_local_data.return_value = {}
 
-            def get_value_side_effect(value: str, *args: Any, **kwargs: Any) -> Any:
+            def get_value_side_effect(value: str, *_args: Any, **_kwargs: Any) -> Any:
                 if value == "mask-sensitive-data":
                     return True
                 if value == "container":
@@ -1080,12 +1080,16 @@ class TestGithubWebhook:
                             mock_pr.base = mock_base
 
                             # Mock run_command to succeed for all git operations
-                            async def mock_run_command(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+                            async def mock_run_command(*_args: Any, **_kwargs: Any) -> tuple[bool, str, str]:
                                 return (True, "", "")
+
+                            # Async helper to make asyncio.to_thread awaitable while executing inline
+                            async def to_thread_sync(fn: Any, *args: Any, **kwargs: Any) -> Any:
+                                return fn(*args, **kwargs)
 
                             with (
                                 patch("webhook_server.libs.github_api.run_command", side_effect=mock_run_command),
-                                patch("asyncio.to_thread", side_effect=lambda f: f()),
+                                patch("asyncio.to_thread", side_effect=to_thread_sync),
                             ):
                                 await gh._clone_repository(pull_request=mock_pr)
 
@@ -1133,7 +1137,7 @@ class TestGithubWebhook:
             mock_config.return_value.repository = True
             mock_config.return_value.repository_local_data.return_value = {}
 
-            def get_value_side_effect(value: str, *args: Any, **kwargs: Any) -> Any:
+            def get_value_side_effect(value: str, *_args: Any, **_kwargs: Any) -> Any:
                 if value == "mask-sensitive-data":
                     return True
                 if value == "container":
@@ -1167,7 +1171,7 @@ class TestGithubWebhook:
                             mock_pr = Mock()
 
                             # Mock run_command to fail on clone
-                            async def mock_run_command(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+                            async def mock_run_command(command: str, **_kwargs: Any) -> tuple[bool, str, str]:
                                 if "git clone" in command:
                                     return (False, "", "Permission denied")
                                 return (True, "", "")
@@ -1187,7 +1191,7 @@ class TestGithubWebhook:
             mock_config.return_value.repository = True
             mock_config.return_value.repository_local_data.return_value = {}
 
-            def get_value_side_effect(value: str, *args: Any, **kwargs: Any) -> Any:
+            def get_value_side_effect(value: str, *_args: Any, **_kwargs: Any) -> Any:
                 if value == "mask-sensitive-data":
                     return True
                 if value == "container":
@@ -1228,14 +1232,19 @@ class TestGithubWebhook:
                             mock_pr.base = mock_base
 
                             # Mock run_command: succeed for clone/config, fail for checkout
-                            async def mock_run_command(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+                            async def mock_run_command(**kwargs: Any) -> tuple[bool, str, str]:
+                                command = kwargs.get("command", "")
                                 if "checkout main" in command:
                                     return (False, "", "Branch not found")
                                 return (True, "", "")
 
+                            # Async helper to make asyncio.to_thread awaitable while executing inline
+                            async def to_thread_sync(fn: Any, *args: Any, **kwargs: Any) -> Any:
+                                return fn(*args, **kwargs)
+
                             with (
                                 patch("webhook_server.libs.github_api.run_command", side_effect=mock_run_command),
-                                patch("asyncio.to_thread", side_effect=lambda f: f()),
+                                patch("asyncio.to_thread", side_effect=to_thread_sync),
                                 pytest.raises(RuntimeError, match="Failed to checkout main: Branch not found"),
                             ):
                                 await gh._clone_repository(pull_request=mock_pr)
@@ -1249,7 +1258,7 @@ class TestGithubWebhook:
             mock_config.return_value.repository = True
             mock_config.return_value.repository_local_data.return_value = {}
 
-            def get_value_side_effect(value: str, *args: Any, **kwargs: Any) -> Any:
+            def get_value_side_effect(value: str, *_args: Any, **_kwargs: Any) -> Any:
                 if value == "mask-sensitive-data":
                     return True
                 if value == "container":
@@ -1290,18 +1299,23 @@ class TestGithubWebhook:
                             mock_pr.base = mock_base
 
                             # Mock run_command: succeed for clone/checkout, fail for config commands
-                            async def mock_run_command(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+                            async def mock_run_command(**kwargs: Any) -> tuple[bool, str, str]:
+                                command = kwargs.get("command", "")
                                 if "config user.name" in command or "config user.email" in command:
                                     return (False, "", "Config failed")
                                 if "config --local --add" in command or "remote update" in command:
                                     return (False, "", "Config failed")
                                 return (True, "", "")
 
+                            # Async helper to make asyncio.to_thread awaitable while executing inline
+                            async def to_thread_sync(fn: Any, *args: Any, **kwargs: Any) -> Any:
+                                return fn(*args, **kwargs)
+
                             mock_logger = Mock()
 
                             with (
                                 patch("webhook_server.libs.github_api.run_command", side_effect=mock_run_command),
-                                patch("asyncio.to_thread", side_effect=lambda f: f()),
+                                patch("asyncio.to_thread", side_effect=to_thread_sync),
                                 patch.object(gh, "logger", mock_logger),
                             ):
                                 await gh._clone_repository(pull_request=mock_pr)
@@ -1322,7 +1336,7 @@ class TestGithubWebhook:
             mock_config.return_value.repository = True
             mock_config.return_value.repository_local_data.return_value = {}
 
-            def get_value_side_effect(value: str, *args: Any, **kwargs: Any) -> Any:
+            def get_value_side_effect(value: str, *_args: Any, **_kwargs: Any) -> Any:
                 if value == "mask-sensitive-data":
                     return True
                 if value == "container":
@@ -1356,7 +1370,7 @@ class TestGithubWebhook:
                             mock_pr = Mock()
 
                             # Mock run_command to raise an exception
-                            async def mock_run_command(command: str, **kwargs: Any) -> tuple[bool, str, str]:
+                            async def mock_run_command(*_args: Any, **_kwargs: Any) -> tuple[bool, str, str]:
                                 raise ValueError("Unexpected error during git operation")
 
                             with (

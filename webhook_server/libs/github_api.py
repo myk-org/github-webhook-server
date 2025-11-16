@@ -296,6 +296,9 @@ class GithubWebhook:
                 f"Repository cloned to {self.clone_repo_dir} (ref: {checkout_target})"
             )
 
+        except RuntimeError:
+            # Re-raise RuntimeError unchanged to avoid double-wrapping
+            raise
         except Exception as ex:
             self.logger.exception(
                 f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'failed')} "
