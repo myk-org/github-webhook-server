@@ -94,8 +94,8 @@ async def test_get_all_repository_approvers_and_reviewers(
     # Set clone_repo_dir to tmp_path (simulating already cloned repo)
     process_github_webhook.clone_repo_dir = str(tmp_path)
 
-    # Mock _clone_repository_for_pr to do nothing (already "cloned" to tmp_path)
-    with patch.object(process_github_webhook, "_clone_repository_for_pr", new=AsyncMock()):
+    # Mock _clone_repository to do nothing (already "cloned" to tmp_path)
+    with patch.object(process_github_webhook, "_clone_repository", new=AsyncMock()):
         # No worktree needed - read directly from clone
         read_owners_result = await owners_file_handler.get_all_repository_approvers_and_reviewers()
 

@@ -169,26 +169,42 @@ class GithubWebhook:
             self.logger.debug(f"{self.log_prefix} Failed to get token metrics: {ex}")
             return ""
 
-    async def _clone_repository_for_pr(self, pull_request: PullRequest) -> None:
-        """Clone repository once for all PR handlers to use with worktrees.
+    async def _clone_repository(
+        self,
+        pull_request: PullRequest | None = None,
+        checkout_ref: str | None = None,
+    ) -> None:
+        """Clone repository for webhook processing with worktrees.
 
-        Clones the repository to self.clone_repo_dir with PR fetch configuration.
+        Clones the repository to self.clone_repo_dir.
         Handlers create isolated worktrees from this single clone for their operations.
 
         Args:
-            pull_request: PullRequest object to get base branch
+            pull_request: PullRequest object (for PR events)
+            checkout_ref: Git ref to checkout (for push events, e.g., "refs/tags/v11.0.104")
 
         Raises:
             RuntimeError: If clone fails (aborts webhook processing)
         """
-        if self._repo_cloned:
-            self.logger.debug(f"{self.log_prefix} Repository already cloned")
-            return
-
+        # Log start FIRST - even before early returns
         self.logger.step(  # type: ignore[attr-defined]
             f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'started')} "
             "Cloning repository for handler worktrees"
         )
+
+        if self._repo_cloned:
+            self.logger.debug(f"{self.log_prefix} Repository already cloned")
+            return
+
+        # Validate that at least one argument is provided
+        if pull_request is None and not checkout_ref:
+            self.logger.error(
+                f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'failed')} "
+                "Invalid arguments: either pull_request or checkout_ref must be provided"
+            )
+            raise ValueError(
+                f"{self.log_prefix} _clone_repository() requires either pull_request or checkout_ref to be provided"
+            )
 
         try:
             github_token = self.token
@@ -250,10 +266,19 @@ class GithubWebhook:
             if not rc:
                 self.logger.warning(f"{self.log_prefix} Failed to fetch remote refs")
 
-            # Checkout base branch (for OWNERS files and default state)
-            base_branch = await asyncio.to_thread(lambda: pull_request.base.ref)
+            # Determine checkout target
+            if pull_request:
+                checkout_target = await asyncio.to_thread(lambda: pull_request.base.ref)
+            else:
+                # For push events: "refs/tags/v11.0.104" → "v11.0.104"
+                #                   "refs/heads/main" → "main"
+                # checkout_ref guaranteed to be non-None by validation at function start
+                assert checkout_ref is not None  # mypy type narrowing
+                checkout_target = checkout_ref.replace("refs/tags/", "").replace("refs/heads/", "")
+
+            # Checkout target branch/tag
             rc, _, err = await run_command(
-                command=f"{git_cmd} checkout {base_branch}",
+                command=f"{git_cmd} checkout {checkout_target}",
                 log_prefix=self.log_prefix,
                 mask_sensitive=self.mask_sensitive,
             )
@@ -261,14 +286,14 @@ class GithubWebhook:
                 redacted_err = redact_output(err)
                 self.logger.error(
                     f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'failed')} "
-                    f"Failed to checkout base branch {base_branch}: {redacted_err}"
+                    f"Failed to checkout {checkout_target}: {redacted_err}"
                 )
-                raise RuntimeError(f"Failed to checkout base branch {base_branch}: {redacted_err}")
+                raise RuntimeError(f"Failed to checkout {checkout_target}: {redacted_err}")
 
             self._repo_cloned = True
             self.logger.success(  # type: ignore[attr-defined]
                 f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'completed')} "
-                f"Repository cloned to {self.clone_repo_dir} (branch: {base_branch})"
+                f"Repository cloned to {self.clone_repo_dir} (ref: {checkout_target})"
             )
 
         except Exception as ex:
@@ -304,6 +329,10 @@ class GithubWebhook:
                 f"Processing push event",
             )
             self.logger.debug(f"{self.log_prefix} {event_log}")
+
+            # Clone repository for push operations (PyPI uploads, container builds)
+            await self._clone_repository(checkout_ref=self.hook_data["ref"])
+
             await PushHandler(github_webhook=self).process_push_webhook_data()
             token_metrics = await self._get_token_metrics()
             self.logger.success(  # type: ignore[attr-defined]
@@ -355,7 +384,7 @@ class GithubWebhook:
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
 
             # Clone repository for local file processing (OWNERS, changed files)
-            await self._clone_repository_for_pr(pull_request=pull_request)
+            await self._clone_repository(pull_request=pull_request)
 
             if self.github_event == "issue_comment":
                 self.logger.step(  # type: ignore[attr-defined]

@@ -190,7 +190,7 @@ class OwnersFileHandler:
         """Get all repository approvers and reviewers from OWNERS files.
 
         Reads OWNERS files from local cloned repository.
-        The clone is already checked out to the base branch by _clone_repository_for_pr.
+        The clone is already checked out to the base branch by _clone_repository.
 
         Returns:
             Dictionary mapping OWNERS file paths to their approvers and reviewers
@@ -202,7 +202,7 @@ class OwnersFileHandler:
         max_owners_files = 1000  # Intentionally hardcoded limit to prevent runaway processing
         owners_count = 0
 
-        # Clone is already checked out to base branch by _clone_repository_for_pr
+        # Clone is already checked out to base branch by _clone_repository
 
         clone_path = Path(self.github_webhook.clone_repo_dir)
 
