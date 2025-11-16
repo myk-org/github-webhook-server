@@ -75,6 +75,34 @@ class TestGithubWebhook:
     def logger(self):
         return get_logger(name="test")
 
+    @pytest.fixture
+    def to_thread_sync(self) -> Any:
+        """Async helper to make asyncio.to_thread awaitable while executing inline."""
+
+        async def _to_thread_sync(fn: Any, *args: Any, **kwargs: Any) -> Any:
+            return fn(*args, **kwargs)
+
+        return _to_thread_sync
+
+    @pytest.fixture
+    def get_value_side_effect(self) -> Any:
+        """Side effect function for Config.get_value mock in clone tests."""
+
+        def _get_value_side_effect(value: str, *_args: Any, **_kwargs: Any) -> Any:
+            if value == "mask-sensitive-data":
+                return True
+            if value == "container":
+                return {}
+            if value == "pypi":
+                return {}
+            if value == "tox":
+                return {}
+            if value == "verified-job":
+                return True
+            return None
+
+        return _get_value_side_effect
+
     @patch("webhook_server.libs.github_api.Config")
     @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
     @patch("webhook_server.libs.github_api.get_github_repo_api")
@@ -1034,25 +1062,18 @@ class TestGithubWebhook:
                             assert result == mock_commits[-1]
 
     @pytest.mark.asyncio
-    async def test_clone_repository_success(self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock) -> None:
+    async def test_clone_repository_success(
+        self,
+        minimal_hook_data: dict,
+        minimal_headers: dict,
+        logger: Mock,
+        get_value_side_effect: Any,
+        to_thread_sync: Any,
+    ) -> None:
         """Test successful repository clone for PR."""
         with patch("webhook_server.libs.github_api.Config") as mock_config:
             mock_config.return_value.repository = True
             mock_config.return_value.repository_local_data.return_value = {}
-
-            def get_value_side_effect(value: str, *_args: Any, **_kwargs: Any) -> Any:
-                if value == "mask-sensitive-data":
-                    return True
-                if value == "container":
-                    return {}
-                if value == "pypi":
-                    return {}
-                if value == "tox":
-                    return {}
-                if value == "verified-job":
-                    return True
-                return None
-
             mock_config.return_value.get_value.side_effect = get_value_side_effect
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
@@ -1083,10 +1104,6 @@ class TestGithubWebhook:
                             # Mock run_command to succeed for all git operations
                             async def mock_run_command(*_args: Any, **_kwargs: Any) -> tuple[bool, str, str]:
                                 return (True, "", "")
-
-                            # Async helper to make asyncio.to_thread awaitable while executing inline
-                            async def to_thread_sync(fn: Any, *args: Any, **kwargs: Any) -> Any:
-                                return fn(*args, **kwargs)
 
                             with (
                                 patch("webhook_server.libs.github_api.run_command", side_effect=mock_run_command),
@@ -1131,26 +1148,16 @@ class TestGithubWebhook:
 
     @pytest.mark.asyncio
     async def test_clone_repository_clone_failure(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
+        self,
+        minimal_hook_data: dict,
+        minimal_headers: dict,
+        logger: Mock,
+        get_value_side_effect: Any,
     ) -> None:
         """Test RuntimeError raised when git clone fails."""
         with patch("webhook_server.libs.github_api.Config") as mock_config:
             mock_config.return_value.repository = True
             mock_config.return_value.repository_local_data.return_value = {}
-
-            def get_value_side_effect(value: str, *_args: Any, **_kwargs: Any) -> Any:
-                if value == "mask-sensitive-data":
-                    return True
-                if value == "container":
-                    return {}
-                if value == "pypi":
-                    return {}
-                if value == "tox":
-                    return {}
-                if value == "verified-job":
-                    return True
-                return None
-
             mock_config.return_value.get_value.side_effect = get_value_side_effect
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
@@ -1185,26 +1192,17 @@ class TestGithubWebhook:
 
     @pytest.mark.asyncio
     async def test_clone_repository_checkout_failure(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
+        self,
+        minimal_hook_data: dict,
+        minimal_headers: dict,
+        logger: Mock,
+        get_value_side_effect: Any,
+        to_thread_sync: Any,
     ) -> None:
         """Test RuntimeError raised when git checkout fails."""
         with patch("webhook_server.libs.github_api.Config") as mock_config:
             mock_config.return_value.repository = True
             mock_config.return_value.repository_local_data.return_value = {}
-
-            def get_value_side_effect(value: str, *_args: Any, **_kwargs: Any) -> Any:
-                if value == "mask-sensitive-data":
-                    return True
-                if value == "container":
-                    return {}
-                if value == "pypi":
-                    return {}
-                if value == "tox":
-                    return {}
-                if value == "verified-job":
-                    return True
-                return None
-
             mock_config.return_value.get_value.side_effect = get_value_side_effect
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
@@ -1239,10 +1237,6 @@ class TestGithubWebhook:
                                     return (False, "", "Branch not found")
                                 return (True, "", "")
 
-                            # Async helper to make asyncio.to_thread awaitable while executing inline
-                            async def to_thread_sync(fn: Any, *args: Any, **kwargs: Any) -> Any:
-                                return fn(*args, **kwargs)
-
                             with (
                                 patch("webhook_server.libs.github_api.run_command", side_effect=mock_run_command),
                                 patch("asyncio.to_thread", side_effect=to_thread_sync),
@@ -1252,26 +1246,17 @@ class TestGithubWebhook:
 
     @pytest.mark.asyncio
     async def test_clone_repository_git_config_warnings(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
+        self,
+        minimal_hook_data: dict,
+        minimal_headers: dict,
+        logger: Mock,
+        get_value_side_effect: Any,
+        to_thread_sync: Any,
     ) -> None:
         """Test that git config failures log warnings but don't raise exceptions."""
         with patch("webhook_server.libs.github_api.Config") as mock_config:
             mock_config.return_value.repository = True
             mock_config.return_value.repository_local_data.return_value = {}
-
-            def get_value_side_effect(value: str, *_args: Any, **_kwargs: Any) -> Any:
-                if value == "mask-sensitive-data":
-                    return True
-                if value == "container":
-                    return {}
-                if value == "pypi":
-                    return {}
-                if value == "tox":
-                    return {}
-                if value == "verified-job":
-                    return True
-                return None
-
             mock_config.return_value.get_value.side_effect = get_value_side_effect
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
@@ -1308,10 +1293,6 @@ class TestGithubWebhook:
                                     return (False, "", "Config failed")
                                 return (True, "", "")
 
-                            # Async helper to make asyncio.to_thread awaitable while executing inline
-                            async def to_thread_sync(fn: Any, *args: Any, **kwargs: Any) -> Any:
-                                return fn(*args, **kwargs)
-
                             mock_logger = Mock()
 
                             with (
@@ -1330,26 +1311,16 @@ class TestGithubWebhook:
 
     @pytest.mark.asyncio
     async def test_clone_repository_general_exception(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
+        self,
+        minimal_hook_data: dict,
+        minimal_headers: dict,
+        logger: Mock,
+        get_value_side_effect: Any,
     ) -> None:
         """Test exception handling during clone operation."""
         with patch("webhook_server.libs.github_api.Config") as mock_config:
             mock_config.return_value.repository = True
             mock_config.return_value.repository_local_data.return_value = {}
-
-            def get_value_side_effect(value: str, *_args: Any, **_kwargs: Any) -> Any:
-                if value == "mask-sensitive-data":
-                    return True
-                if value == "container":
-                    return {}
-                if value == "pypi":
-                    return {}
-                if value == "tox":
-                    return {}
-                if value == "verified-job":
-                    return True
-                return None
-
             mock_config.return_value.get_value.side_effect = get_value_side_effect
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
