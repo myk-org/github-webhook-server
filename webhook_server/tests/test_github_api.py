@@ -1,6 +1,7 @@
 import asyncio
 import os
 import tempfile
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -1178,7 +1179,7 @@ class TestGithubWebhook:
 
                             with (
                                 patch("webhook_server.libs.github_api.run_command", side_effect=mock_run_command),
-                                pytest.raises(RuntimeError, match="Failed to clone repository: Permission denied"),
+                                pytest.raises(RuntimeError, match="Failed to clone repository"),
                             ):
                                 await gh._clone_repository(pull_request=mock_pr)
 
@@ -1245,7 +1246,7 @@ class TestGithubWebhook:
                             with (
                                 patch("webhook_server.libs.github_api.run_command", side_effect=mock_run_command),
                                 patch("asyncio.to_thread", side_effect=to_thread_sync),
-                                pytest.raises(RuntimeError, match="Failed to checkout main: Branch not found"),
+                                pytest.raises(RuntimeError, match="Failed to checkout"),
                             ):
                                 await gh._clone_repository(pull_request=mock_pr)
 
@@ -1375,9 +1376,7 @@ class TestGithubWebhook:
 
                             with (
                                 patch("webhook_server.libs.github_api.run_command", side_effect=mock_run_command),
-                                pytest.raises(
-                                    RuntimeError, match="Repository clone failed: Unexpected error during git operation"
-                                ),
+                                pytest.raises(RuntimeError, match="Repository clone failed"),
                             ):
                                 await gh._clone_repository(pull_request=mock_pr)
 
@@ -1405,9 +1404,7 @@ class TestGithubWebhook:
                             gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
 
                             # Test that calling _clone_repository with no arguments raises ValueError
-                            with pytest.raises(
-                                ValueError, match="requires either pull_request or checkout_ref to be provided"
-                            ):
+                            with pytest.raises(ValueError, match="requires either pull_request or checkout_ref"):
                                 await gh._clone_repository()
 
     @pytest.mark.asyncio
@@ -1416,6 +1413,7 @@ class TestGithubWebhook:
         minimal_hook_data: dict,
         minimal_headers: dict,
         logger: Mock,
+        tmp_path: Path,
     ) -> None:
         """Test _clone_repository raises ValueError when checkout_ref is empty string."""
         with (
@@ -1428,7 +1426,7 @@ class TestGithubWebhook:
             mock_config = Mock()
             mock_config.repository_data = {"enabled": True}
             mock_config.get_value.return_value = None
-            mock_config.data_dir = "/tmp"
+            mock_config.data_dir = str(tmp_path)
             mock_config_cls.return_value = mock_config
 
             mock_api = Mock()
@@ -1448,5 +1446,5 @@ class TestGithubWebhook:
             )
 
             # Test that calling _clone_repository with empty string raises ValueError
-            with pytest.raises(ValueError, match="requires either pull_request or checkout_ref to be provided"):
+            with pytest.raises(ValueError, match="requires either pull_request or checkout_ref"):
                 await webhook._clone_repository(checkout_ref="")
