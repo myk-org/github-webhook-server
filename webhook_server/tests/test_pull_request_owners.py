@@ -1,8 +1,8 @@
+from unittest.mock import AsyncMock, patch
+
 import pytest
-import yaml
 
 from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
-from webhook_server.tests.conftest import ContentFile, Tree
 from webhook_server.utils.constants import APPROVED_BY_LABEL_PREFIX
 
 ALL_CHANGED_FILES = [
@@ -14,53 +14,6 @@ ALL_CHANGED_FILES = [
     "folder/folder4/another_file.txt",
     "folder5/file",
 ]
-
-
-class Repository:
-    def __init__(self):
-        self.name = "test-repo"
-
-    def get_git_tree(self, sha: str, recursive: bool):
-        return Tree("")
-
-    def get_contents(self, path: str, ref: str):
-        owners_data = yaml.dump({
-            "approvers": ["root_approver1", "root_approver2"],
-            "reviewers": ["root_reviewer1", "root_reviewer2"],
-        })
-
-        folder1_owners_data = yaml.dump({
-            "approvers": ["folder1_approver1", "folder1_approver2"],
-            "reviewers": ["folder1_reviewer1", "folder1_reviewer2"],
-        })
-
-        folder4_owners_data = yaml.dump({
-            "approvers": ["folder4_approver1", "folder4_approver2"],
-            "reviewers": ["folder4_reviewer1", "folder4_reviewer2"],
-        })
-
-        folder5_owners_data = yaml.dump({
-            "root-approvers": False,
-            "approvers": ["folder5_approver1", "folder5_approver2"],
-            "reviewers": ["folder5_reviewer1", "folder5_reviewer2"],
-        })
-        if path == "OWNERS":
-            return ContentFile(owners_data)
-
-        elif path == "folder1/OWNERS":
-            return ContentFile(folder1_owners_data)
-
-        elif path == "folder2/OWNERS":
-            return ContentFile(yaml.dump({}))
-
-        elif path == "folder/folder4/OWNERS":
-            return ContentFile(folder4_owners_data)
-
-        elif path == "folder":
-            return ContentFile(yaml.dump({}))
-
-        elif path == "folder5/OWNERS":
-            return ContentFile(folder5_owners_data)
 
 
 @pytest.fixture(scope="function")
@@ -124,10 +77,28 @@ def all_approvers_reviewers(owners_file_handler):
 
 @pytest.mark.asyncio
 async def test_get_all_repository_approvers_and_reviewers(
-    changed_files, process_github_webhook, owners_file_handler, pull_request, all_repository_approvers_and_reviewers
+    changed_files,  # noqa: ARG001
+    process_github_webhook,
+    owners_file_handler,
+    all_repository_approvers_and_reviewers,  # noqa: ARG001
+    tmp_path,
+    owners_files_test_data,
 ):
-    process_github_webhook.repository = Repository()
-    read_owners_result = await owners_file_handler.get_all_repository_approvers_and_reviewers(pull_request=pull_request)
+    """Test reading OWNERS files from local cloned repository."""
+    # Create a temporary directory structure with OWNERS files
+    for file_path, content in owners_files_test_data.items():
+        full_path = tmp_path / file_path
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        full_path.write_text(content)
+
+    # Set clone_repo_dir to tmp_path (simulating already cloned repo)
+    process_github_webhook.clone_repo_dir = str(tmp_path)
+
+    # Mock _clone_repository to do nothing (already "cloned" to tmp_path)
+    with patch.object(process_github_webhook, "_clone_repository", new=AsyncMock()):
+        # No worktree needed - read directly from clone
+        read_owners_result = await owners_file_handler.get_all_repository_approvers_and_reviewers()
+
     assert read_owners_result == owners_file_handler.all_repository_approvers_and_reviewers
 
 

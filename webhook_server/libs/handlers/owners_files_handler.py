@@ -1,11 +1,11 @@
 import asyncio
+import shlex
 from collections.abc import Coroutine
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml
 from asyncstdlib import functools
-from github.ContentFile import ContentFile
 from github.GithubException import GithubException
 from github.NamedUser import NamedUser
 from github.PaginatedList import PaginatedList
@@ -14,7 +14,7 @@ from github.PullRequest import PullRequest
 from github.Repository import Repository
 
 from webhook_server.utils.constants import COMMAND_ADD_ALLOWED_USER_STR, ROOT_APPROVERS_KEY
-from webhook_server.utils.helpers import format_task_fields
+from webhook_server.utils.helpers import format_task_fields, run_command
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
@@ -33,10 +33,11 @@ class OwnersFileHandler:
         Phase 1: Fetch independent data in parallel (changed files + OWNERS data)
         Phase 2: Process derived data in parallel (approvers + reviewers)
         """
+
         # Phase 1: Parallel data fetching - independent GitHub API operations
         self.changed_files, self.all_repository_approvers_and_reviewers = await asyncio.gather(
             self.list_changed_files(pull_request=pull_request),
-            self.get_all_repository_approvers_and_reviewers(pull_request=pull_request),
+            self.get_all_repository_approvers_and_reviewers(),
         )
 
         # Phase 2: Parallel data processing - all depend on phase 1 but independent of each other
@@ -83,9 +84,52 @@ class OwnersFileHandler:
         return _allowed_users
 
     async def list_changed_files(self, pull_request: PullRequest) -> list[str]:
-        changed_files = [_file.filename for _file in await asyncio.to_thread(pull_request.get_files)]
-        self.logger.debug(f"{self.log_prefix} Changed files: {changed_files}")
-        return changed_files
+        """List changed files in the PR using git diff on cloned repository.
+
+        Uses local git diff command instead of GitHub API to reduce API calls.
+        The repository is already cloned to self.github_webhook.clone_repo_dir.
+
+        Args:
+            pull_request: PyGithub PullRequest object
+
+        Returns:
+            List of changed file paths relative to repository root
+        """
+        try:
+            # Get base and head SHAs (wrap property accesses in asyncio.to_thread)
+            base_sha, head_sha = await asyncio.gather(
+                asyncio.to_thread(lambda: pull_request.base.sha),
+                asyncio.to_thread(lambda: pull_request.head.sha),
+            )
+
+            # Run git diff command on cloned repository
+            # Quote clone_repo_dir to handle paths with spaces or special characters
+            git_diff_command = (
+                f"git -C {shlex.quote(self.github_webhook.clone_repo_dir)} diff --name-only {base_sha}...{head_sha}"
+            )
+
+            success, out, _ = await run_command(
+                command=git_diff_command,
+                log_prefix=self.log_prefix,
+                verify_stderr=False,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+            )
+
+            # Check success flag - return empty list if git diff failed
+            if not success:
+                self.logger.error(f"{self.log_prefix} git diff command failed")
+                return []
+
+            # Parse output: split by newlines and filter empty lines
+            changed_files = [line.strip() for line in out.splitlines() if line.strip()]
+
+            self.logger.debug(f"{self.log_prefix} Changed files: {changed_files}")
+            return changed_files
+
+        except Exception:
+            # Log error and return empty list if git diff fails
+            self.logger.exception(f"{self.log_prefix} Failed to get changed files via git diff")
+            return []
 
     def _validate_owners_content(self, content: Any, path: str) -> bool:
         """Validate OWNERS file content structure."""
@@ -107,53 +151,115 @@ class OwnersFileHandler:
             self.logger.error(f"{self.log_prefix} Invalid OWNERS file {path}: {e}")
             return False
 
-    async def _get_file_content(self, content_path: str, pull_request: PullRequest) -> tuple[ContentFile, str]:
-        self.logger.debug(f"{self.log_prefix} Get OWNERS file from {content_path}")
+    async def _get_file_content_from_local(
+        self, content_path: Path, base_path: Path | None = None
+    ) -> tuple[str, str] | None:
+        """Read OWNERS file from local cloned repository.
 
-        _path = await asyncio.to_thread(self.repository.get_contents, content_path, pull_request.base.ref)
+        Args:
+            content_path: Path object pointing to OWNERS file in clone_repo_dir
+            base_path: Base path to compute relative path from (defaults to clone_repo_dir)
 
-        if isinstance(_path, list):
-            _path = _path[0]
+        Returns:
+            Tuple of (file_content, relative_path_str) or None if file is unreadable
+        """
+        _base_path = base_path if base_path else Path(self.github_webhook.clone_repo_dir)
+        relative_path = content_path.relative_to(_base_path)
+        self.logger.debug(f"{self.log_prefix} Reading OWNERS file from local clone: {relative_path}")
 
-        return _path, content_path
+        try:
+            # Read file content from local filesystem (wrap in thread pool for I/O)
+            file_content = await asyncio.to_thread(content_path.read_text, encoding="utf-8")
+            return file_content, str(relative_path)
 
-    async def get_all_repository_approvers_and_reviewers(self, pull_request: PullRequest) -> dict[str, dict[str, Any]]:
+        except OSError as ex:
+            # File may have been deleted or become unreadable between rglob and read_text
+            self.logger.warning(
+                f"{self.log_prefix} Failed to read OWNERS file {relative_path}: {ex}. Skipping this file."
+            )
+            return None
+
+        except UnicodeDecodeError as ex:
+            # File has invalid encoding - log and skip to allow processing to continue
+            self.logger.warning(
+                f"{self.log_prefix} OWNERS file {relative_path} has invalid encoding: {ex}. Skipping this file."
+            )
+            return None
+
+    async def get_all_repository_approvers_and_reviewers(self) -> dict[str, dict[str, Any]]:
+        """Get all repository approvers and reviewers from OWNERS files.
+
+        Reads OWNERS files from local cloned repository.
+        The clone is already checked out to the base branch by _clone_repository.
+
+        Returns:
+            Dictionary mapping OWNERS file paths to their approvers and reviewers
+        """
         # Dictionary mapping OWNERS file paths to their approvers and reviewers
         _owners: dict[str, dict[str, Any]] = {}
         tasks: list[Coroutine[Any, Any, Any]] = []
 
-        max_owners_files = 1000  # Configurable limit
+        max_owners_files = 1000  # Intentionally hardcoded limit to prevent runaway processing
         owners_count = 0
 
-        self.logger.debug(f"{self.log_prefix} Get git tree")
-        tree = await asyncio.to_thread(self.repository.get_git_tree, pull_request.base.ref, recursive=True)
+        # Clone is already checked out to base branch by _clone_repository
 
-        for element in tree.tree:
-            if element.type == "blob" and element.path.endswith("OWNERS"):
-                owners_count += 1
-                if owners_count > max_owners_files:
-                    self.logger.error(f"{self.log_prefix} Too many OWNERS files (>{max_owners_files})")
-                    break
+        clone_path = Path(self.github_webhook.clone_repo_dir)
 
-                content_path = element.path
-                self.logger.debug(f"{self.log_prefix} Found OWNERS file: {content_path}")
-                tasks.append(self._get_file_content(content_path, pull_request))
+        # Find all OWNERS files via filesystem walk
+        self.logger.debug(f"{self.log_prefix} Finding OWNERS files in local clone")
 
-        results = await asyncio.gather(*tasks)
+        # Use rglob to recursively find all OWNERS files
+        def find_owners_files() -> list[Path]:
+            return [
+                p
+                for p in clone_path.rglob("OWNERS")
+                if not any(part.startswith(".") for part in p.relative_to(clone_path).parts)
+            ]
 
-        for result in results:
-            _path, _content_path = result
+        owners_files = await asyncio.to_thread(find_owners_files)
+
+        for owners_file_path in owners_files:
+            owners_count += 1
+            if owners_count > max_owners_files:
+                self.logger.error(f"{self.log_prefix} Too many OWNERS files (>{max_owners_files})")
+                break
+
+            relative_path = owners_file_path.relative_to(clone_path)
+            self.logger.debug(f"{self.log_prefix} Found OWNERS file: {relative_path}")
+            tasks.append(self._get_file_content_from_local(owners_file_path))
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for idx, result in enumerate(results):
+            # Handle unexpected exceptions from _get_file_content_from_local
+            if isinstance(result, BaseException):
+                # Get the relative path from the original owners_files list for logging
+                relative_path_str = (
+                    str(owners_files[idx].relative_to(clone_path)) if idx < len(owners_files) else "unknown"
+                )
+                self.logger.exception(
+                    f"{self.log_prefix} Unexpected exception reading OWNERS file {relative_path_str}: {result}"
+                )
+                continue
+
+            # Skip files that couldn't be read (deleted or unreadable)
+            if result is None:
+                continue
+
+            # At this point, result must be a tuple (file_content, relative_path_str)
+            file_content, relative_path_str = result
 
             try:
-                content = yaml.safe_load(_path.decoded_content)
-                if self._validate_owners_content(content, _content_path):
-                    parent_path = str(Path(_content_path).parent)
-                    if not parent_path:
+                content = yaml.safe_load(file_content)
+                if self._validate_owners_content(content, relative_path_str):
+                    parent_path = str(Path(relative_path_str).parent)
+                    if not parent_path or parent_path == ".":
                         parent_path = "."
                     _owners[parent_path] = content
 
-            except yaml.YAMLError as exp:
-                self.logger.error(f"{self.log_prefix} Invalid OWNERS file {_content_path}: {exp}")
+            except yaml.YAMLError:
+                self.logger.exception(f"{self.log_prefix} Invalid OWNERS file {relative_path_str}")
                 continue
 
         return _owners

@@ -38,11 +38,13 @@ from webhook_server.utils.github_repository_settings import (
     get_repository_github_app_api,
 )
 from webhook_server.utils.helpers import (
+    _redact_secrets,
     format_task_fields,
     get_api_with_highest_rate_limit,
     get_apis_and_tokes_from_config,
     get_github_repo_api,
     prepare_log_prefix,
+    run_command,
 )
 
 
@@ -123,6 +125,7 @@ class GithubWebhook:
         # Format: /tmp/tmp{random}/github-webhook-{repo_name}
         # This prevents predictable paths and ensures isolation between concurrent webhook handlers
         self.clone_repo_dir: str = tempfile.mkdtemp(prefix=f"github-webhook-{self.repository_name}-")
+        self._repo_cloned: bool = False  # Track if repository has been cloned
         # Initialize auto-verified users from API users
         self.add_api_users_to_auto_verified_and_merged_users()
 
@@ -166,6 +169,143 @@ class GithubWebhook:
             self.logger.debug(f"{self.log_prefix} Failed to get token metrics: {ex}")
             return ""
 
+    async def _clone_repository(
+        self,
+        pull_request: PullRequest | None = None,
+        checkout_ref: str | None = None,
+    ) -> None:
+        """Clone repository for webhook processing with worktrees.
+
+        Clones the repository to self.clone_repo_dir.
+        Handlers create isolated worktrees from this single clone for their operations.
+
+        Args:
+            pull_request: PullRequest object (for PR events)
+            checkout_ref: Git ref to checkout (for push events, e.g., "refs/tags/v11.0.104")
+
+        Raises:
+            RuntimeError: If clone fails (aborts webhook processing)
+        """
+        # Log start FIRST - even before early returns
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'started')} "
+            "Cloning repository for handler worktrees"
+        )
+
+        if self._repo_cloned:
+            self.logger.debug(f"{self.log_prefix} Repository already cloned")
+            return
+
+        # Validate that at least one argument is provided
+        if pull_request is None and not checkout_ref:
+            self.logger.error(
+                f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'failed')} "
+                "Invalid arguments: either pull_request or checkout_ref must be provided"
+            )
+            raise ValueError(
+                f"{self.log_prefix} _clone_repository() requires either pull_request or checkout_ref to be provided"
+            )
+
+        try:
+            github_token = self.token
+            clone_url_with_token = self.repository.clone_url.replace("https://", f"https://{github_token}@")
+
+            rc, _, err = await run_command(
+                command=f"git clone {clone_url_with_token} {self.clone_repo_dir}",
+                log_prefix=self.log_prefix,
+                redact_secrets=[github_token],
+                mask_sensitive=self.mask_sensitive,
+            )
+
+            def redact_output(value: str) -> str:
+                return _redact_secrets(value or "", [github_token], mask_sensitive=self.mask_sensitive)
+
+            if not rc:
+                redacted_err = redact_output(err)
+                self.logger.error(
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'failed')} "
+                    f"Failed to clone repository: {redacted_err}"
+                )
+                raise RuntimeError(f"Failed to clone repository: {redacted_err}")
+
+            # Configure git user
+            git_cmd = f"git -C {self.clone_repo_dir}"
+            rc, _, _ = await run_command(
+                command=f"{git_cmd} config user.name '{self.repository.owner.login}'",
+                log_prefix=self.log_prefix,
+                mask_sensitive=self.mask_sensitive,
+            )
+            if not rc:
+                self.logger.warning(f"{self.log_prefix} Failed to configure git user.name")
+
+            rc, _, _ = await run_command(
+                command=f"{git_cmd} config user.email '{self.repository.owner.login}@users.noreply.github.com'",
+                log_prefix=self.log_prefix,
+                mask_sensitive=self.mask_sensitive,
+            )
+            if not rc:
+                self.logger.warning(f"{self.log_prefix} Failed to configure git user.email")
+
+            # Configure PR fetch to enable origin/pr/* checkouts
+            rc, _, _ = await run_command(
+                command=(
+                    f"{git_cmd} config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
+                ),
+                log_prefix=self.log_prefix,
+                mask_sensitive=self.mask_sensitive,
+            )
+            if not rc:
+                self.logger.warning(f"{self.log_prefix} Failed to configure PR fetch refs")
+
+            # Fetch all refs including PRs
+            rc, _, _ = await run_command(
+                command=f"{git_cmd} remote update",
+                log_prefix=self.log_prefix,
+                mask_sensitive=self.mask_sensitive,
+            )
+            if not rc:
+                self.logger.warning(f"{self.log_prefix} Failed to fetch remote refs")
+
+            # Determine checkout target
+            if pull_request:
+                checkout_target = await asyncio.to_thread(lambda: pull_request.base.ref)
+            else:
+                # For push events: "refs/tags/v11.0.104" → "v11.0.104"
+                #                   "refs/heads/main" → "main"
+                # checkout_ref guaranteed to be non-None by validation at function start
+                assert checkout_ref is not None  # mypy type narrowing
+                checkout_target = checkout_ref.replace("refs/tags/", "").replace("refs/heads/", "")
+
+            # Checkout target branch/tag
+            rc, _, err = await run_command(
+                command=f"{git_cmd} checkout {checkout_target}",
+                log_prefix=self.log_prefix,
+                mask_sensitive=self.mask_sensitive,
+            )
+            if not rc:
+                redacted_err = redact_output(err)
+                self.logger.error(
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'failed')} "
+                    f"Failed to checkout {checkout_target}: {redacted_err}"
+                )
+                raise RuntimeError(f"Failed to checkout {checkout_target}: {redacted_err}")
+
+            self._repo_cloned = True
+            self.logger.success(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'completed')} "
+                f"Repository cloned to {self.clone_repo_dir} (ref: {checkout_target})"
+            )
+
+        except RuntimeError:
+            # Re-raise RuntimeError unchanged to avoid double-wrapping
+            raise
+        except Exception as ex:
+            self.logger.exception(
+                f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'failed')} "
+                f"Exception during repository clone: {ex}"
+            )
+            raise RuntimeError(f"Repository clone failed: {ex}") from ex
+
     async def process(self) -> Any:
         event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
         self.logger.step(  # type: ignore[attr-defined]
@@ -192,6 +332,10 @@ class GithubWebhook:
                 f"Processing push event",
             )
             self.logger.debug(f"{self.log_prefix} {event_log}")
+
+            # Clone repository for push operations (PyPI uploads, container builds)
+            await self._clone_repository(checkout_ref=self.hook_data["ref"])
+
             await PushHandler(github_webhook=self).process_push_webhook_data()
             token_metrics = await self._get_token_metrics()
             self.logger.success(  # type: ignore[attr-defined]
@@ -241,6 +385,9 @@ class GithubWebhook:
             self.last_commit = await self._get_last_commit(pull_request=pull_request)
             self.parent_committer = pull_request.user.login
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
+
+            # Clone repository for local file processing (OWNERS, changed files)
+            await self._clone_repository(pull_request=pull_request)
 
             if self.github_event == "issue_comment":
                 self.logger.step(  # type: ignore[attr-defined]
@@ -444,6 +591,8 @@ class GithubWebhook:
             value="create-issue-for-new-pr", return_on_none=global_create_issue_for_new_pr, extra_dict=repository_config
         )
 
+        self.mask_sensitive = self.config.get_value("mask-sensitive-data", return_on_none=True)
+
     async def get_pull_request(self, number: int | None = None) -> PullRequest | None:
         if number:
             self.logger.debug(f"{self.log_prefix} Attempting to get PR by number: {number}")
@@ -552,12 +701,12 @@ class GithubWebhook:
         return current_pull_request_supported_retest
 
     def __del__(self) -> None:
-        """Cleanup temporary clone directory on object destruction.
+        """Remove the shared clone directory when the webhook object is destroyed.
 
-        This ensures the base temp directory created by tempfile.mkdtemp() is removed
-        when the webhook handler is destroyed, preventing temp directory leaks.
-        The subdirectories (created with -uuid4() suffix) are cleaned up by
-        _prepare_cloned_repo_dir context manager in handlers.
+        GithubWebhook now creates a single clone via tempfile.mkdtemp() and individual
+        handlers operate on worktrees created by git_worktree_checkout, which already
+        clean up their own directories. Only the base clone directory must be removed
+        here to prevent accumulating stale repositories on disk.
         """
         if hasattr(self, "clone_repo_dir") and os.path.exists(self.clone_repo_dir):
             try:
