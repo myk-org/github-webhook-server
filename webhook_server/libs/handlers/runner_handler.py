@@ -90,6 +90,28 @@ class RunnerHandler:
         repo_dir = self.github_webhook.clone_repo_dir
         self.logger.debug(f"{self.log_prefix} Creating worktree from {repo_dir} with checkout: {checkout_target}")
 
+        # Check if checkout_target is already checked out in main clone
+        # This prevents "already used by worktree" error when target branch matches current branch
+        rc, current_branch, _ = await run_command(
+            command=f"git -C {repo_dir} rev-parse --abbrev-ref HEAD",
+            log_prefix=self.log_prefix,
+            mask_sensitive=self.github_webhook.mask_sensitive,
+        )
+
+        if rc and current_branch.strip():
+            current = current_branch.strip()
+            # Normalize checkout_target (remove origin/ prefix if present)
+            target = checkout_target.replace("origin/", "")
+
+            if current == target:
+                # Current branch matches target - use main clone directly
+                self.logger.debug(
+                    f"{self.log_prefix} Branch {target} already checked out in main clone, "
+                    "using main clone instead of worktree"
+                )
+                yield (True, repo_dir, "", "")
+                return
+
         # Create worktree for this operation
         async with helpers_module.git_worktree_checkout(
             repo_dir=repo_dir,
@@ -366,7 +388,8 @@ class RunnerHandler:
                 )
                 output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
                 if pull_request and set_check:
-                    return await self.check_run_handler.set_container_build_failure(output=output)
+                    await self.check_run_handler.set_container_build_failure(output=output)
+                return
 
             self.logger.step(  # type: ignore[attr-defined]
                 f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "

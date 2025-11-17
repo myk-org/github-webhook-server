@@ -228,7 +228,7 @@ class TestGithubWebhook:
         headers["X-GitHub-Event"] = "ping"
         gh = GithubWebhook(minimal_hook_data, headers, logger)
         result = asyncio.run(gh.process())
-        assert result["message"] == "pong"
+        assert result is None
 
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
@@ -1419,3 +1419,146 @@ class TestGithubWebhook:
             # Test that calling _clone_repository with empty string raises ValueError
             with pytest.raises(ValueError, match="requires either pull_request or checkout_ref"):
                 await webhook._clone_repository(checkout_ref="")
+
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
+    @patch("webhook_server.libs.github_api.get_github_repo_api")
+    @patch("webhook_server.libs.github_api.get_repository_github_app_api")
+    @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
+    @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
+    @patch("webhook_server.libs.config.Config.repository_local_data")
+    @patch("webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users")
+    async def test_process_push_event_deletion(
+        self,
+        mock_auto_verified_prop: Mock,
+        mock_repo_local_data: Mock,
+        mock_get_apis: Mock,
+        mock_api_rate_limit: Mock,
+        mock_repo_api: Mock,
+        mock_get_repo: Mock,
+    ) -> None:
+        """Test that push event with deletion=True is skipped without cloning repository.
+
+        Verifies:
+        - Processing is skipped when hook_data["deleted"] == True
+        - _clone_repository is NOT called
+        - Appropriate log messages are generated
+        - Returns None
+        """
+        # Prepare deletion push payload
+        push_deletion_payload = {
+            "repository": {"name": "test-repo", "full_name": "my-org/test-repo"},
+            "ref": "refs/heads/feature-branch",
+            "deleted": True,  # Key field indicating deletion
+            "commits": [],
+        }
+
+        # Mock GitHub API to prevent network calls
+        mock_api = Mock()
+        mock_api.rate_limiting = [100, 5000]
+        mock_user = Mock()
+        mock_user.login = "test-user"
+        mock_api.get_user.return_value = mock_user
+        mock_api.get_rate_limit.return_value = Mock(rate=Mock(remaining=4990))
+
+        # Mock repository with proper clone_url
+        mock_repository = Mock()
+        mock_repository.clone_url = "https://github.com/test/repo.git"
+
+        mock_api_rate_limit.return_value = (mock_api, "TOKEN", "USER")
+        mock_repo_api.return_value = Mock()
+        mock_get_repo.return_value = mock_repository
+        mock_get_apis.return_value = []  # Return empty list to skip the problematic property code
+        mock_repo_local_data.return_value = {}
+
+        headers = Headers({"X-GitHub-Event": "push", "X-GitHub-Delivery": "test-deletion-123"})
+
+        # Create mock logger to verify log messages
+        mock_logger = Mock()
+        webhook = GithubWebhook(hook_data=push_deletion_payload, headers=headers, logger=mock_logger)
+
+        # Mock _clone_repository to verify it's NOT called
+        with patch.object(webhook, "_clone_repository", new=AsyncMock()) as mock_clone:
+            result = await webhook.process()
+
+            # Verify _clone_repository was NOT called (deletion should skip cloning)
+            mock_clone.assert_not_called()
+
+            # Verify return value is None (process() returns None now)
+            assert result is None
+
+            # Verify appropriate log messages
+            # Check that deletion detection was logged
+            info_calls = [str(call) for call in mock_logger.info.call_args_list]
+            assert any("deletion detected" in call.lower() for call in info_calls), (
+                f"Expected 'deletion detected' in info logs. Got: {info_calls}"
+            )
+
+            # Verify completion log with "deletion event (skipped)" message
+            success_calls = [str(call) for call in mock_logger.success.call_args_list]
+            assert any("deletion event (skipped)" in call.lower() for call in success_calls), (
+                f"Expected 'deletion event (skipped)' in success logs. Got: {success_calls}"
+            )
+
+    @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
+    @patch("webhook_server.libs.github_api.get_github_repo_api")
+    @patch("webhook_server.libs.github_api.get_repository_github_app_api")
+    @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
+    @patch("webhook_server.libs.handlers.push_handler.PushHandler.process_push_webhook_data")
+    @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
+    @patch("webhook_server.libs.config.Config.repository_local_data")
+    @patch("webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users")
+    async def test_process_push_event_normal_push_not_deletion(
+        self,
+        mock_auto_verified_prop: Mock,
+        mock_repo_local_data: Mock,
+        mock_get_apis: Mock,
+        mock_process_push: Mock,
+        mock_api_rate_limit: Mock,
+        mock_repo_api: Mock,
+        mock_get_repo: Mock,
+    ) -> None:
+        """Test that normal push event (deleted=False) proceeds with normal processing.
+
+        Verifies:
+        - Processing continues when hook_data["deleted"] == False
+        - _clone_repository IS called
+        - PushHandler.process_push_webhook_data IS called
+        """
+        # Normal push payload (no deletion)
+        push_normal_payload = {
+            "repository": {"name": "test-repo", "full_name": "my-org/test-repo"},
+            "ref": "refs/heads/main",
+            "deleted": False,  # Explicitly not a deletion
+            "commits": [{"id": "abc123", "message": "Test commit", "author": {"name": "Test User"}}],
+        }
+
+        # Mock GitHub API to prevent network calls
+        mock_api = Mock()
+        mock_api.rate_limiting = [100, 5000]
+        mock_user = Mock()
+        mock_user.login = "test-user"
+        mock_api.get_user.return_value = mock_user
+
+        # Mock repository with proper clone_url
+        mock_repository = Mock()
+        mock_repository.clone_url = "https://github.com/test/repo.git"
+
+        mock_api_rate_limit.return_value = (mock_api, "TOKEN", "USER")
+        mock_repo_api.return_value = Mock()
+        mock_get_repo.return_value = mock_repository
+        mock_get_apis.return_value = []  # Return empty list to skip the problematic property code
+        mock_repo_local_data.return_value = {}
+        mock_process_push.return_value = None
+
+        headers = Headers({"X-GitHub-Event": "push", "X-GitHub-Delivery": "test-normal-push-456"})
+        webhook = GithubWebhook(hook_data=push_normal_payload, headers=headers, logger=Mock())
+
+        # Mock _clone_repository to verify it IS called for normal pushes
+        with patch.object(webhook, "_clone_repository", new=AsyncMock(return_value=None)) as mock_clone:
+            await webhook.process()
+
+            # Verify _clone_repository WAS called (normal push should clone)
+            mock_clone.assert_called_once_with(checkout_ref="refs/heads/main")
+
+            # Verify PushHandler.process_push_webhook_data was called
+            mock_process_push.assert_called_once()
