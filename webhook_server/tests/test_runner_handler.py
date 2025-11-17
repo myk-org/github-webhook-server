@@ -896,3 +896,116 @@ class TestRunnerHandler:
                                 mock_set_progress.assert_called_once()
                                 mock_set_failure.assert_called_once()
                                 mock_comment.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_checkout_worktree_branch_already_checked_out(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test _checkout_worktree when target branch is already checked out in main clone.
+
+        This tests the worktree conflict fix - when the target branch is already
+        checked out in the main clone, use the main clone instead of creating a worktree.
+        """
+        # Mock git command to return current branch as "main"
+        with patch(
+            "webhook_server.libs.handlers.runner_handler.run_command",
+            new=AsyncMock(return_value=(True, "main\n", "")),
+        ):
+            # Pass checkout="main" which matches the current branch
+            async with runner_handler._checkout_worktree(pull_request=mock_pull_request, checkout="main") as result:
+                success, worktree_path, out, err = result
+                assert success is True
+                # Should use main clone directory instead of creating worktree
+                assert worktree_path == runner_handler.github_webhook.clone_repo_dir
+                assert out == ""
+                assert err == ""
+
+    @pytest.mark.asyncio
+    async def test_checkout_worktree_branch_already_checked_out_with_origin_prefix(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test _checkout_worktree when target branch with origin/ prefix matches current branch.
+
+        This tests the normalization logic that strips origin/ prefix from checkout target.
+        """
+        # Mock git command to return current branch as "main"
+        with patch(
+            "webhook_server.libs.handlers.runner_handler.run_command",
+            new=AsyncMock(return_value=(True, "main\n", "")),
+        ):
+            # Pass checkout="origin/main" which normalizes to "main" and matches current branch
+            async with runner_handler._checkout_worktree(
+                pull_request=mock_pull_request, checkout="origin/main"
+            ) as result:
+                success, worktree_path, out, err = result
+                assert success is True
+                # Should use main clone directory instead of creating worktree
+                assert worktree_path == runner_handler.github_webhook.clone_repo_dir
+                assert out == ""
+                assert err == ""
+
+    @pytest.mark.asyncio
+    async def test_checkout_worktree_different_branch(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test _checkout_worktree when target branch differs from current branch.
+
+        This tests that a worktree is created when branches don't match.
+        """
+        # Mock git command to return current branch as "main"
+        with patch(
+            "webhook_server.libs.handlers.runner_handler.run_command",
+            new=AsyncMock(return_value=(True, "main\n", "")),
+        ):
+            with patch("webhook_server.utils.helpers.git_worktree_checkout") as mock_git_worktree:
+                mock_git_worktree.return_value.__aenter__ = AsyncMock(
+                    return_value=(True, "/tmp/worktree-path", "success", "")
+                )
+                mock_git_worktree.return_value.__aexit__ = AsyncMock(return_value=None)
+                # Pass checkout="feature-branch" which differs from current "main"
+                async with runner_handler._checkout_worktree(
+                    pull_request=mock_pull_request, checkout="feature-branch"
+                ) as result:
+                    success, worktree_path, _, _ = result
+                    assert success is True
+                    # Should create a worktree, not use main clone
+                    assert worktree_path == "/tmp/worktree-path"
+                    # Verify git_worktree_checkout was called
+                    mock_git_worktree.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_run_build_container_prepare_failure(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test run_build_container returns early when repository preparation fails.
+
+        This tests the early return logic added in lines 385-392.
+        """
+        runner_handler.github_webhook.pypi = {"token": "dummy"}
+        with patch.object(
+            runner_handler.github_webhook, "container_repository_and_tag", return_value="test/repo:latest"
+        ):
+            with patch.object(
+                runner_handler.check_run_handler, "is_check_run_in_progress", new=AsyncMock(return_value=False)
+            ):
+                with patch.object(
+                    runner_handler.check_run_handler, "set_container_build_in_progress", new=AsyncMock()
+                ) as mock_set_progress:
+                    with patch.object(
+                        runner_handler.check_run_handler, "set_container_build_failure", new=AsyncMock()
+                    ) as mock_set_failure:
+                        with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
+                            # Repository preparation fails
+                            mock_checkout.return_value = AsyncMock()
+                            mock_checkout.return_value.__aenter__ = AsyncMock(
+                                return_value=(False, "/tmp/worktree-path", "checkout failed", "checkout error")
+                            )
+                            mock_checkout.return_value.__aexit__ = AsyncMock(return_value=None)
+                            with patch.object(runner_handler, "run_podman_command", new=AsyncMock()) as mock_run_podman:
+                                await runner_handler.run_build_container(pull_request=mock_pull_request)
+                                # Should set in progress
+                                mock_set_progress.assert_awaited_once()
+                                # Should set failure due to repo preparation failure
+                                mock_set_failure.assert_awaited_once()
+                                # Should NOT call run_podman_command (early return)
+                                mock_run_podman.assert_not_called()
