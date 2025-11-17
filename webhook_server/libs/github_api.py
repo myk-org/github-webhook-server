@@ -10,7 +10,6 @@ import tempfile
 from typing import Any
 
 import github
-import requests
 from github import GithubException
 from github.Commit import Commit
 from github.PullRequest import PullRequest
@@ -324,7 +323,7 @@ class GithubWebhook:
                 f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
                 f"Webhook processing completed successfully: ping - {token_metrics}",
             )
-            return {"status": requests.codes.ok, "message": "pong"}
+            return None
 
         if self.github_event == "push":
             self.logger.step(  # type: ignore[attr-defined]
@@ -332,6 +331,19 @@ class GithubWebhook:
                 f"Processing push event",
             )
             self.logger.debug(f"{self.log_prefix} {event_log}")
+
+            # Skip branch/tag deletions - no processing needed
+            if self.hook_data.get("deleted"):
+                self.logger.info(
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'skipped')} "
+                    f"Branch/tag deletion detected, skipping processing"
+                )
+                token_metrics = await self._get_token_metrics()
+                self.logger.success(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
+                    f"Webhook processing completed: deletion event (skipped) - {token_metrics}"
+                )
+                return None
 
             # Clone repository for push operations (PyPI uploads, container builds)
             await self._clone_repository(checkout_ref=self.hook_data["ref"])
