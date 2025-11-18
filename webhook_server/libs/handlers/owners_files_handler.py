@@ -209,6 +209,30 @@ class OwnersFileHandler:
         # Find all OWNERS files via filesystem walk
         self.logger.debug(f"{self.log_prefix} Finding OWNERS files in local clone")
 
+        # Run both git commands in parallel (RULE #0)
+        git_branch_cmd = f"git -C {shlex.quote(str(clone_path))} branch --show-current"
+        git_log_cmd = f"git -C {shlex.quote(str(clone_path))} log -1 --format=%H%x20%s -- OWNERS"
+
+        branch_task = run_command(
+            command=git_branch_cmd,
+            log_prefix=self.log_prefix,
+            verify_stderr=False,
+            mask_sensitive=self.github_webhook.mask_sensitive,
+        )
+        log_task = run_command(
+            command=git_log_cmd,
+            log_prefix=self.log_prefix,
+            verify_stderr=False,
+            mask_sensitive=self.github_webhook.mask_sensitive,
+        )
+
+        (branch_success, current_branch, _), (log_success, log_output, _) = await asyncio.gather(branch_task, log_task)
+
+        if branch_success and current_branch.strip():
+            self.logger.debug(f"{self.log_prefix} Reading OWNERS files from branch: {current_branch.strip()}")
+        if log_success and log_output.strip():
+            self.logger.debug(f"{self.log_prefix} Latest OWNERS commit: {log_output.strip()}")
+
         # Use rglob to recursively find all OWNERS files
         def find_owners_files() -> list[Path]:
             return [
@@ -250,8 +274,19 @@ class OwnersFileHandler:
             # At this point, result must be a tuple (file_content, relative_path_str)
             file_content, relative_path_str = result
 
+            self.logger.debug(
+                f"{self.log_prefix} Raw OWNERS file for {relative_path_str}: "
+                f"{len(file_content)} bytes, {len(file_content.splitlines())} lines"
+            )
+
             try:
                 content = yaml.safe_load(file_content)
+
+                self.logger.debug(
+                    f"{self.log_prefix} Parsed OWNERS structure for {relative_path_str} - "
+                    f"type: {type(content)}, keys: {list(content.keys()) if isinstance(content, dict) else 'N/A'}, "
+                    f"content: {content}"
+                )
                 if self._validate_owners_content(content, relative_path_str):
                     parent_path = str(Path(relative_path_str).parent)
                     if not parent_path or parent_path == ".":
