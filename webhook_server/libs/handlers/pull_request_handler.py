@@ -545,6 +545,7 @@ For more information, please refer to the project documentation or contact the m
                     f"{self.log_prefix} Package {package_name} not found for owner {owner_name} on GHCR"
                 )
                 return
+
             # Find version with matching tag
             version_to_delete_id: int | None = None
             for version in versions:
@@ -1057,7 +1058,8 @@ For more information, please refer to the project documentation or contact the m
                 reviewer = _label.split(LABELS_SEPARATOR)[-1]
                 if LGTM_BY_LABEL_PREFIX.lower() in _label.lower() and reviewer in all_reviewers_without_pr_owner:
                     lgtm_count += 1
-                    all_reviewers_without_pr_owner_and_lgtmed.remove(reviewer)
+                    if reviewer in all_reviewers_without_pr_owner_and_lgtmed:
+                        all_reviewers_without_pr_owner_and_lgtmed.remove(reviewer)
         self.logger.debug(f"{self.log_prefix} lgtm_count: {lgtm_count}")
 
         for _label in labels:

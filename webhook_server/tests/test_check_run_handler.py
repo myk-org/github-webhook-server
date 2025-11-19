@@ -478,9 +478,11 @@ class TestCheckRunHandler:
 
         result = check_run_handler.get_check_run_text(long_err, long_out)
 
-        # Should be truncated to 65534 characters
+        # Should be truncated to 65534 characters (GitHub limit safe margin)
         assert len(result) == 65534
         assert result.startswith("```\n")
+        # Verify the fix: it should end with the code block closer
+        assert result.endswith("\n```")
 
     def test_get_check_run_text_token_replacement(self, check_run_handler: CheckRunHandler) -> None:
         """Test that sensitive tokens are replaced in check run text."""

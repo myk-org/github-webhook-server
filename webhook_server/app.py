@@ -54,6 +54,10 @@ LOGGER = get_logger_with_params()
 _lifespan_http_client: httpx.AsyncClient | None = None
 _background_tasks: set[asyncio.Task] = set()
 
+# MCP Globals
+http_transport: Any | None = None
+mcp: Any | None = None
+
 
 # Helper function to wrap the imported gate_by_allowlist_ips with ALLOWED_IPS
 async def gate_by_allowlist_ips_dependency(request: Request) -> None:
@@ -147,6 +151,26 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
                 "Cannot start server in insecure state. "
                 "Check network connectivity to GitHub/Cloudflare API endpoints."
             )
+
+        # Initialize MCP session manager if enabled and configured
+        global http_transport, mcp
+        if MCP_SERVER_ENABLED and http_transport is not None and mcp is not None:
+            if http_transport._session_manager is None:
+                http_transport._session_manager = StreamableHTTPSessionManager(
+                    app=mcp.server,
+                    event_store=http_transport.event_store,
+                    json_response=True,
+                    stateless=True,  # Enable stateless mode - no session management required
+                )
+
+                async def run_manager() -> None:
+                    if http_transport and http_transport._session_manager:
+                        async with http_transport._session_manager.run():
+                            await asyncio.Event().wait()
+
+                http_transport._manager_task = asyncio.create_task(run_manager())
+                http_transport._manager_started = True
+                LOGGER.info("MCP session manager initialized in lifespan")
 
         yield
 
@@ -329,7 +353,10 @@ async def process_webhook(request: Request) -> JSONResponse:
         try:
             # Initialize GithubWebhook inside background task to avoid blocking webhook response
             _api: GithubWebhook = GithubWebhook(hook_data=_hook_data, headers=_headers, logger=_logger)
-            await _api.process()
+            try:
+                await _api.process()
+            finally:
+                await _api.cleanup()
         except RepositoryNotFoundInConfigError:
             # Repository-specific error - not exceptional, log as error not exception
             _logger.error(f"{_log_context} Repository not found in configuration")
@@ -1073,23 +1100,10 @@ if MCP_SERVER_ENABLED:
     # Register the HTTP endpoint manually
     @FASTAPI_APP.api_route("/mcp", methods=["GET", "POST", "DELETE"], include_in_schema=False, operation_id="mcp_http")
     async def handle_mcp_streamable_http(request: Request) -> Response:
-        # Ensure session manager is created with stateless=True
-        if http_transport._session_manager is None:
-            http_transport._session_manager = StreamableHTTPSessionManager(
-                app=mcp.server,
-                event_store=http_transport.event_store,
-                json_response=True,
-                stateless=True,  # Enable stateless mode - no session management required
-            )
-            # Start the session manager
-
-            async def run_manager() -> None:
-                async with http_transport._session_manager.run():
-                    await asyncio.Event().wait()
-
-            http_transport._manager_task = asyncio.create_task(run_manager())
-            http_transport._manager_started = True
-            await asyncio.sleep(0.1)  # Give it time to initialize
+        # Session manager is initialized in lifespan
+        if http_transport is None or http_transport._session_manager is None:
+            LOGGER.error("MCP session manager not initialized")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="MCP server not initialized")
 
         return await http_transport.handle_fastapi_request(request)
 

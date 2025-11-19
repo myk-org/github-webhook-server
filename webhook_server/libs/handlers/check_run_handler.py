@@ -301,12 +301,39 @@ class CheckRunHandler:
         err_clean = strip_ansi_codes(err)
         out_clean = strip_ansi_codes(out)
 
-        total_len: int = len(err_clean) + len(out_clean)
+        # GitHub limit is 65535 characters, but we use 65534 to be safe
+        # We reserve space for the markdown wrapper: ```\n{err}\n\n{out}\n```
+        # Wrapper overhead = len("```\n\n\n```") = 10 characters
+        MAX_LEN = 65534
+        WRAPPER_OVERHEAD = 10
 
-        if total_len > 65534:  # GitHub limit is 65535 characters
-            _output = f"```\n{err_clean}\n\n{out_clean}\n```"[:65534]
-        else:
-            _output = f"```\n{err_clean}\n\n{out_clean}\n```"
+        # Prepare error part first - we want to preserve it as much as possible
+        # If error itself is huge, we might need to truncate it too, but usually it's small
+        # If error + wrapper > MAX_LEN, we truncate error
+        if len(err_clean) + WRAPPER_OVERHEAD > MAX_LEN:
+            err_clean = err_clean[: MAX_LEN - WRAPPER_OVERHEAD - 3] + "..."
+            out_clean = ""  # No space for output
+
+        # Calculate remaining space for output
+        current_len = len(err_clean) + WRAPPER_OVERHEAD
+        remaining_space = MAX_LEN - current_len
+
+        if len(out_clean) > remaining_space:
+            # Truncate output: keep start and end
+            truncation_msg = "\n...[TRUNCATED]...\n"
+            msg_len = len(truncation_msg)
+
+            if remaining_space <= msg_len:
+                # Very little space, just take head
+                out_clean = out_clean[:remaining_space]
+            else:
+                # Keep head and tail
+                available_content = remaining_space - msg_len
+                head_len = available_content // 2
+                tail_len = available_content - head_len
+                out_clean = out_clean[:head_len] + truncation_msg + out_clean[-tail_len:]
+
+        _output = f"```\n{err_clean}\n\n{out_clean}\n```"
 
         _hased_str = "*****"
 
