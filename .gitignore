@@ -142,6 +142,7 @@ cython_debug/
 # App
 /config.yaml
 docker-compose.yaml
+!examples/docker-compose.yaml
 github-webhook-server.json
 /config-dev.yaml
 local-run.sh

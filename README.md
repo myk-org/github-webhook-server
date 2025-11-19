@@ -195,6 +195,8 @@ uv run entrypoint.py
 | `WEBHOOK_SECRET`          | GitHub webhook secret            | -                   | Recommended |
 | `VERIFY_GITHUB_IPS`       | Verify GitHub IP addresses       | `false`             | No          |
 | `VERIFY_CLOUDFLARE_IPS`   | Verify Cloudflare IP addresses   | `false`             | No          |
+| `ENABLE_LOG_SERVER`       | Enable log viewer endpoints      | `false`             | No          |
+| `ENABLE_MCP_SERVER`       | Enable MCP server endpoints      | `false`             | No          |
 
 ### Minimal Configuration
 
