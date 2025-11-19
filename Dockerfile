@@ -58,19 +58,12 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx ${BIN_DIR}/
 RUN uv tool install pre-commit && uv tool install poetry && uv tool install prek
 
 RUN set -x \
-  && curl https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz --output $BIN_DIR/rosa-linux.tar.gz \
-  && tar xvf $BIN_DIR/rosa-linux.tar.gz \
-  && mv rosa $BIN_DIR/rosa \
+  && curl -vL https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz | tar -C $BIN_DIR -xzvf - rosa \
   && chmod +x $BIN_DIR/rosa \
-  && rm -rf $BIN_DIR/rosa-linux.tar.gz \
-  && curl -L https://github.com/regclient/regclient/releases/latest/download/regctl-linux-amd64 >$BIN_DIR/regctl \
+  && curl -vL https://github.com/regclient/regclient/releases/latest/download/regctl-linux-amd64 >$BIN_DIR/regctl \
   && chmod +x $BIN_DIR/regctl \
-  && curl -L https://github.com/mislav/hub/releases/download/v2.14.2/hub-linux-amd64-2.14.2.tgz --output ${BIN_DIR}/hub-linux-amd64.tgz \
-  && tmp_dir="$(mktemp -d)" \
-  && tar xvf ${BIN_DIR}/hub-linux-amd64.tgz -C "${tmp_dir}" \
-  && mv "${tmp_dir}"/hub-linux-amd64-2.14.2/bin/hub ${BIN_DIR}/hub \
-  && chmod +x ${BIN_DIR}/hub \
-  && rm -rf "${tmp_dir}" ${BIN_DIR}/hub-linux-amd64.tgz
+  && curl -vL https://github.com/mislav/hub/releases/download/v2.14.2/hub-linux-amd64-2.14.2.tgz | tar --strip-components=2 -C $BIN_DIR -xzvf - '*/bin/hub' \
+  && chmod +x $BIN_DIR/hub
 
 WORKDIR $APP_DIR
 
