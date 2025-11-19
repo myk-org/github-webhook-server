@@ -320,6 +320,9 @@ async def run_command(
         logger.debug(f"{log_prefix} Running '{logged_command}' command")
         command_list = shlex.split(command)
 
+        # Create subprocess in a new process group so we can kill the entire tree
+        # This prevents zombie processes when killing processes that spawn children
+        kwargs.setdefault("preexec_fn", os.setsid)
         sub_process = await asyncio.create_subprocess_exec(
             *command_list,
             **kwargs,
@@ -340,8 +343,23 @@ async def run_command(
             logger.error(f"{log_prefix} Command '{logged_command}' timed out after {timeout}s")
             if sub_process:
                 try:
-                    sub_process.kill()
-                    await sub_process.wait()
+                    # Kill the process and all its children by killing the process group
+                    if sub_process.returncode is None:
+                        try:
+                            # Try to kill the process group (negative PID kills the group)
+                            os.killpg(os.getpgid(sub_process.pid), 15)  # SIGTERM
+                            try:
+                                await asyncio.wait_for(sub_process.wait(), timeout=5)
+                            except asyncio.TimeoutError:
+                                os.killpg(os.getpgid(sub_process.pid), 9)  # SIGKILL
+                                await sub_process.wait()
+                        except (ProcessLookupError, OSError):
+                            # Process group might not exist or process already dead
+                            try:
+                                sub_process.kill()
+                                await sub_process.wait()
+                            except Exception:
+                                pass
                 except Exception:
                     pass  # Process may already be dead
             return False, "", f"Command timed out after {timeout}s"
@@ -351,12 +369,22 @@ async def run_command(
             logger.error(f"{log_prefix} Command '{logged_command}' communicate() raised exception: {comm_exc}")
             if sub_process and sub_process.returncode is None:
                 try:
-                    sub_process.terminate()
+                    # Try to kill the process group to ensure all children are killed
                     try:
-                        await asyncio.wait_for(sub_process.wait(), timeout=5)
-                    except asyncio.TimeoutError:
-                        sub_process.kill()
-                        await sub_process.wait()
+                        os.killpg(os.getpgid(sub_process.pid), 15)  # SIGTERM
+                        try:
+                            await asyncio.wait_for(sub_process.wait(), timeout=5)
+                        except asyncio.TimeoutError:
+                            os.killpg(os.getpgid(sub_process.pid), 9)  # SIGKILL
+                            await sub_process.wait()
+                    except (ProcessLookupError, OSError):
+                        # Process group might not exist, fall back to regular kill
+                        sub_process.terminate()
+                        try:
+                            await asyncio.wait_for(sub_process.wait(), timeout=5)
+                        except asyncio.TimeoutError:
+                            sub_process.kill()
+                            await sub_process.wait()
                 except Exception:
                     pass  # Process may already be dead
             # Re-raise to be handled by outer exception handler
@@ -395,8 +423,14 @@ async def run_command(
         # Ensure subprocess is cleaned up to prevent zombie processes
         if sub_process and sub_process.returncode is None:
             try:
-                sub_process.kill()
-                await sub_process.wait()
+                # Kill the entire process group
+                try:
+                    os.killpg(os.getpgid(sub_process.pid), 9)  # SIGKILL
+                    await sub_process.wait()
+                except (ProcessLookupError, OSError):
+                    # Process group might not exist, fall back to regular kill
+                    sub_process.kill()
+                    await sub_process.wait()
             except Exception:
                 pass  # Process may already be dead or already cleaned up
         raise
@@ -406,13 +440,22 @@ async def run_command(
         # Only clean up if process is still running (returncode is None)
         if sub_process and sub_process.returncode is None:
             try:
-                # Try to terminate gracefully first, then kill if needed
-                sub_process.terminate()
+                # Try to kill the process group to ensure all children are killed
                 try:
-                    await asyncio.wait_for(sub_process.wait(), timeout=5)
-                except asyncio.TimeoutError:
-                    sub_process.kill()
-                    await sub_process.wait()
+                    os.killpg(os.getpgid(sub_process.pid), 15)  # SIGTERM
+                    try:
+                        await asyncio.wait_for(sub_process.wait(), timeout=5)
+                    except asyncio.TimeoutError:
+                        os.killpg(os.getpgid(sub_process.pid), 9)  # SIGKILL
+                        await sub_process.wait()
+                except (ProcessLookupError, OSError):
+                    # Process group might not exist, fall back to regular kill
+                    sub_process.terminate()
+                    try:
+                        await asyncio.wait_for(sub_process.wait(), timeout=5)
+                    except asyncio.TimeoutError:
+                        sub_process.kill()
+                        await sub_process.wait()
             except Exception:
                 pass  # Process may already be dead or already cleaned up
         return False, out_decoded, err_decoded
@@ -421,10 +464,15 @@ async def run_command(
         # This handles edge cases where exceptions might have been missed
         if sub_process and sub_process.returncode is None:
             try:
-                # Process is still running, force cleanup
+                # Process is still running, force cleanup of entire process group
                 logger.warning(f"{log_prefix} Subprocess still running in finally block, forcing cleanup")
-                sub_process.kill()
-                await sub_process.wait()
+                try:
+                    os.killpg(os.getpgid(sub_process.pid), 9)  # SIGKILL
+                    await sub_process.wait()
+                except (ProcessLookupError, OSError):
+                    # Process group might not exist, fall back to regular kill
+                    sub_process.kill()
+                    await sub_process.wait()
             except Exception:
                 pass  # Process may have finished or already been cleaned up
 
