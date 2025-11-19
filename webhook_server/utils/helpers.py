@@ -302,6 +302,7 @@ async def run_command(
     logger = get_logger_with_params()
     out_decoded: str = ""
     err_decoded: str = ""
+    sub_process = None  # Initialize to None for finally block cleanup
     # Don't override caller-provided pipes - use setdefault to respect provided kwargs
     kwargs.setdefault("stdout", subprocess.PIPE)
     kwargs.setdefault("stderr", subprocess.PIPE)
@@ -337,7 +338,7 @@ async def run_command(
             logger.error(f"{log_prefix} Command '{logged_command}' timed out after {timeout}s")
             try:
                 sub_process.kill()
-                await sub_process.wait()
+                # Cleanup handled by finally block
             except Exception:
                 pass  # Process may already be dead
             return False, "", f"Command timed out after {timeout}s"
@@ -372,10 +373,21 @@ async def run_command(
 
     except asyncio.CancelledError:
         logger.debug(f"{log_prefix} Command '{logged_command}' cancelled")
+        # Re-raise after finally block cleanup (prevents zombies on cancellation)
         raise
     except (OSError, subprocess.SubprocessError, ValueError):
         logger.exception(f"{log_prefix} Failed to run '{logged_command}' command")
         return False, out_decoded, err_decoded
+    finally:
+        # GUARANTEED cleanup - runs in ALL cases (normal return, exception, CancelledError, timeout)
+        # Check returncode is None to avoid double-wait if process already terminated
+        # Prevents zombie processes when exceptions occur before await sub_process.wait()
+        if sub_process and sub_process.returncode is None:
+            try:
+                sub_process.kill()
+                await sub_process.wait()
+            except Exception:
+                pass  # Process may already be terminated
 
 
 def get_apis_and_tokes_from_config(config: Config) -> list[tuple[github.Github, str]]:
