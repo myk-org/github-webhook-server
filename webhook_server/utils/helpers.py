@@ -313,6 +313,7 @@ async def run_command(
     # Redact sensitive data from command for logging
     logged_command = _redact_secrets(command, redact_secrets, mask_sensitive=mask_sensitive)
 
+    sub_process: asyncio.subprocess.Process | None = None
     try:
         logger.debug(f"{log_prefix} Running '{logged_command}' command")
         command_list = shlex.split(command)
@@ -335,11 +336,12 @@ async def run_command(
                 stdout, stderr = await sub_process.communicate(input=stdin_bytes)
         except TimeoutError:
             logger.error(f"{log_prefix} Command '{logged_command}' timed out after {timeout}s")
-            try:
-                sub_process.kill()
-                await sub_process.wait()
-            except Exception:
-                pass  # Process may already be dead
+            if sub_process:
+                try:
+                    sub_process.kill()
+                    await sub_process.wait()
+                except Exception:
+                    pass  # Process may already be dead
             return False, "", f"Command timed out after {timeout}s"
         # Ensure we always have strings, never None or bytes
         out_decoded = stdout.decode(errors="ignore") if isinstance(stdout, bytes) else (stdout or "")
@@ -372,9 +374,29 @@ async def run_command(
 
     except asyncio.CancelledError:
         logger.debug(f"{log_prefix} Command '{logged_command}' cancelled")
+        # Ensure subprocess is cleaned up to prevent zombie processes
+        if sub_process:
+            try:
+                sub_process.kill()
+                await sub_process.wait()
+            except Exception:
+                pass  # Process may already be dead or already cleaned up
         raise
     except (OSError, subprocess.SubprocessError, ValueError):
         logger.exception(f"{log_prefix} Failed to run '{logged_command}' command")
+        # Ensure subprocess is cleaned up to prevent zombie processes
+        if sub_process:
+            try:
+                # Try to terminate gracefully first, then kill if needed
+                if sub_process.returncode is None:
+                    sub_process.terminate()
+                    try:
+                        await asyncio.wait_for(sub_process.wait(), timeout=5)
+                    except asyncio.TimeoutError:
+                        sub_process.kill()
+                        await sub_process.wait()
+            except Exception:
+                pass  # Process may already be dead or already cleaned up
         return False, out_decoded, err_decoded
 
 
