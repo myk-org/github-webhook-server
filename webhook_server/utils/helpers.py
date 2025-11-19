@@ -275,7 +275,7 @@ async def _cleanup_subprocess(
 
     Attempts to kill the process group (created via os.setsid) to ensure all child
     processes are terminated. Falls back to regular process termination if process
-    group doesn't exist.
+    group doesn't exist. For git commands, also ensures all child processes are reaped.
 
     Args:
         sub_process: The subprocess to clean up, or None
@@ -285,39 +285,75 @@ async def _cleanup_subprocess(
     Notes:
         Swallows all exceptions during cleanup to avoid masking the original error.
         Only cleans up if process is still running (returncode is None).
+        After killing the process group, waits a short time to allow child processes to be reaped.
     """
     if not sub_process or sub_process.returncode is not None:
         return
 
     try:
+        process_group_id = None
+        try:
+            process_group_id = os.getpgid(sub_process.pid)
+        except (ProcessLookupError, OSError):
+            # Process might already be dead or process group doesn't exist
+            pass
+
         if graceful:
             # Try to kill the process group gracefully first
-            try:
-                os.killpg(os.getpgid(sub_process.pid), 15)  # SIGTERM
+            if process_group_id is not None:
                 try:
-                    await asyncio.wait_for(sub_process.wait(), timeout=5)
-                    return  # Successfully terminated
-                except asyncio.TimeoutError:
-                    # Process didn't terminate gracefully, escalate to SIGKILL
+                    os.killpg(process_group_id, 15)  # SIGTERM to entire process group
+                    try:
+                        await asyncio.wait_for(sub_process.wait(), timeout=5)
+                        # Give child processes a moment to be reaped
+                        await asyncio.sleep(0.1)
+                        return  # Successfully terminated
+                    except asyncio.TimeoutError:
+                        # Process didn't terminate gracefully, escalate to SIGKILL
+                        pass
+                except (ProcessLookupError, OSError):
+                    # Process group might not exist, fall back to regular process termination
                     pass
-            except (ProcessLookupError, OSError):
-                # Process group might not exist, fall back to regular process termination
+
+            # Fall back to regular process termination if process group kill failed
+            try:
                 sub_process.terminate()
                 try:
                     await asyncio.wait_for(sub_process.wait(), timeout=5)
+                    await asyncio.sleep(0.1)  # Allow child processes to be reaped
                     return  # Successfully terminated
                 except asyncio.TimeoutError:
                     # Process didn't terminate gracefully, escalate to kill
                     pass
+            except (ProcessLookupError, OSError):
+                # Process already dead
+                return
 
         # Forceful cleanup: kill the process group or process directly
-        try:
-            os.killpg(os.getpgid(sub_process.pid), 9)  # SIGKILL
-            await sub_process.wait()
-        except (ProcessLookupError, OSError):
-            # Process group might not exist, fall back to regular kill
-            sub_process.kill()
-            await sub_process.wait()
+        if process_group_id is not None:
+            try:
+                os.killpg(process_group_id, 9)  # SIGKILL to entire process group
+                await sub_process.wait()
+                # Give child processes a moment to be reaped
+                await asyncio.sleep(0.1)
+            except (ProcessLookupError, OSError):
+                # Process group might not exist, fall back to regular kill
+                try:
+                    sub_process.kill()
+                    await sub_process.wait()
+                    await asyncio.sleep(0.1)  # Allow child processes to be reaped
+                except (ProcessLookupError, OSError):
+                    # Process already dead
+                    pass
+        else:
+            # No process group, just kill the process directly
+            try:
+                sub_process.kill()
+                await sub_process.wait()
+                await asyncio.sleep(0.1)  # Allow child processes to be reaped
+            except (ProcessLookupError, OSError):
+                # Process already dead
+                pass
     except Exception:
         # Best effort cleanup; do not mask original error
         pass
@@ -369,12 +405,32 @@ async def run_command(
     # Redact sensitive data from command for logging
     logged_command = _redact_secrets(command, redact_secrets, mask_sensitive=mask_sensitive)
 
+    # Detect if this is a git command and set environment variables to prevent child processes
+    command_list = shlex.split(command)
+    is_git_command = len(command_list) > 0 and command_list[0] == "git"
+
+    # Set up environment to prevent git from spawning unnecessary child processes
+    env = kwargs.get("env", os.environ.copy())
+    if is_git_command:
+        # Disable git pager (prevents spawning less/more processes)
+        env.setdefault("GIT_PAGER", "cat")
+        env.setdefault("PAGER", "cat")
+        # Disable git credential helpers that might spawn processes
+        env.setdefault("GIT_ASKPASS", "")
+        # Ensure git doesn't use interactive prompts
+        env.setdefault("GIT_TERMINAL_PROMPT", "0")
+        # Disable git editor
+        env.setdefault("GIT_EDITOR", "")
+        env.setdefault("EDITOR", "")
+        # Ensure git uses non-interactive mode
+        env.setdefault("GIT_CONFIG_NOSYSTEM", "1")
+        kwargs["env"] = env
+
     sub_process: asyncio.subprocess.Process | None = None
     stdout: bytes | None = None
     stderr: bytes | None = None
     try:
         logger.debug(f"{log_prefix} Running '{logged_command}' command")
-        command_list = shlex.split(command)
 
         # Create subprocess in a new process group so we can kill the entire tree
         # This prevents zombie processes when killing processes that spawn children
@@ -406,6 +462,14 @@ async def run_command(
             await _cleanup_subprocess(sub_process, graceful=True, log_prefix=log_prefix)
             # Re-raise to be handled by outer exception handler
             raise
+        # For git commands, ensure all child processes are properly reaped
+        # Git can spawn child processes (like git-remote-https) that need to be waited for
+        # After communicate() completes, give git's child processes time to exit and be reaped by git
+        if is_git_command and sub_process.returncode is not None:
+            # Small delay to allow git's child processes to exit and be reaped
+            # This helps prevent zombies when git spawns helper processes
+            await asyncio.sleep(0.2)
+
         # Ensure we always have strings, never None or bytes
         out_decoded = stdout.decode(errors="ignore") if isinstance(stdout, bytes) else (stdout or "")
         err_decoded = stderr.decode(errors="ignore") if isinstance(stderr, bytes) else (stderr or "")
