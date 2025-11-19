@@ -718,15 +718,13 @@ class GithubWebhook:
         Explicitly removes the temporary clone directory. This should be called
         when the GithubWebhook instance is no longer needed.
         """
-        if hasattr(self, "clone_repo_dir") and os.path.exists(self.clone_repo_dir):
+        if self.clone_repo_dir and os.path.exists(self.clone_repo_dir):
             try:
                 # Use to_thread for blocking I/O operation
                 await asyncio.to_thread(shutil.rmtree, self.clone_repo_dir, ignore_errors=True)
-                if hasattr(self, "logger"):
-                    self.logger.debug(f"{self.log_prefix} Cleaned up temp directory: {self.clone_repo_dir}")
+                self.logger.debug(f"{self.log_prefix} Cleaned up temp directory: {self.clone_repo_dir}")
             except Exception as ex:
-                if hasattr(self, "logger"):
-                    self.logger.warning(f"{self.log_prefix} Failed to cleanup temp directory: {ex}")
+                self.logger.warning(f"{self.log_prefix} Failed to cleanup temp directory: {ex}")
 
     def __del__(self) -> None:
         """Remove the shared clone directory when the webhook object is destroyed.
@@ -736,10 +734,9 @@ class GithubWebhook:
         clean up their own directories. Only the base clone directory must be removed
         here to prevent accumulating stale repositories on disk.
         """
-        if hasattr(self, "clone_repo_dir") and os.path.exists(self.clone_repo_dir):
+        if self.clone_repo_dir and os.path.exists(self.clone_repo_dir):
             try:
                 shutil.rmtree(self.clone_repo_dir, ignore_errors=True)
-                if hasattr(self, "logger"):
-                    self.logger.debug(f"Cleaned up temp directory (in __del__): {self.clone_repo_dir}")
+                self.logger.debug(f"Cleaned up temp directory (in __del__): {self.clone_repo_dir}")
             except Exception:
                 pass  # Ignore errors during cleanup
