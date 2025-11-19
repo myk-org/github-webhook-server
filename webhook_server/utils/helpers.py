@@ -379,15 +379,46 @@ async def run_command(
         logger.exception(f"{log_prefix} Failed to run '{logged_command}' command")
         return False, out_decoded, err_decoded
     finally:
-        # GUARANTEED cleanup - runs in ALL cases (normal return, exception, CancelledError, timeout)
-        # Check returncode is None to avoid double-wait if process already terminated
-        # Prevents zombie processes when exceptions occur before await sub_process.wait()
-        if sub_process and sub_process.returncode is None:
+        # CRITICAL RACE CONDITION FIX:
+        #
+        # Original Bug: Zombies created when checking `if returncode is None` before wait()
+        # Root Cause: Event loop's child watcher can set returncode AFTER check but BEFORE wait()
+        # Result: wait() skipped → zombie process never reaped
+        #
+        # Solution: ALWAYS call wait() regardless of returncode
+        # Why This Works:
+        #   - wait() is idempotent - calling on already-reaped process is safe
+        #   - wait() is the ONLY API that guarantees zombie reaping
+        #   - Even if returncode is set, we MUST call wait() to cleanup OS resources
+        #
+        # Defense in Depth:
+        #   - ALWAYS try to kill() (may fail if already dead - that's OK via ProcessLookupError)
+        #   - ALWAYS call wait() (may raise ProcessLookupError if already reaped - that's OK)
+        #   - Handle expected exceptions (ProcessLookupError = already reaped = success)
+        #   - Re-raise CancelledError (don't suppress task cancellation)
+        #   - Log critical failures (unexpected exceptions = potential zombie)
+
+        if sub_process:
+            # Always try to kill - don't check returncode (racy!)
             try:
                 sub_process.kill()
-                await sub_process.wait()
+            except ProcessLookupError:
+                pass  # Already dead - this is OK
             except Exception:
-                pass  # Process may already be terminated
+                logger.debug(f"{log_prefix} Exception while killing process")
+
+            # ALWAYS wait - this is the ONLY way to guarantee zombie reaping
+            try:
+                await sub_process.wait()
+            except ProcessLookupError:
+                # Process was already reaped (e.g., by event loop child watcher) - this is OK
+                pass
+            except asyncio.CancelledError:
+                # Don't suppress cancellation - cleanup is done, now propagate cancellation
+                raise
+            except Exception:
+                # Genuinely critical - wait() failed for unknown reason
+                logger.exception(f"{log_prefix} CRITICAL: Failed to wait for subprocess - potential zombie")
 
 
 def get_apis_and_tokes_from_config(config: Config) -> list[tuple[github.Github, str]]:

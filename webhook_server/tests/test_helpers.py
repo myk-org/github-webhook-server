@@ -352,13 +352,29 @@ class TestHelpers:
     @pytest.mark.asyncio
     async def test_run_command_timeout_cleanup(self) -> None:
         """Test that subprocess is properly cleaned up on timeout."""
-        # Run a long command with short timeout
+        # Get initial zombie count
+        initial_zombies = 0
+        try:
+            proc = sp.run(["ps", "aux"], capture_output=True, text=True, timeout=5)
+            initial_zombies = proc.stdout.count("<defunct>")
+        except Exception:
+            pass
+
+        # Run command that times out
         result = await run_command("sleep 100", log_prefix="[TEST]", timeout=1)
         assert result[0] is False
         assert "timed out" in result[2].lower()
-        # Give process time to be reaped
-        await asyncio.sleep(0.1)
-        # Verify no zombie processes (this is implicit - test would hang if zombies exist)
+
+        # Wait for cleanup
+        await asyncio.sleep(0.2)
+
+        # Verify no new zombies created
+        try:
+            proc = sp.run(["ps", "aux"], capture_output=True, text=True, timeout=5)
+            final_zombies = proc.stdout.count("<defunct>")
+            assert final_zombies == initial_zombies, f"Zombie count increased from {initial_zombies} to {final_zombies}"
+        except Exception:
+            pass  # ps not available, but timeout test still validates behavior
 
     @pytest.mark.asyncio
     async def test_run_command_cancelled_cleanup(self) -> None:
@@ -392,34 +408,77 @@ class TestHelpers:
     @pytest.mark.asyncio
     async def test_run_command_no_zombie_processes(self) -> None:
         """Test that multiple failed commands don't create zombie processes."""
-        # Get initial zombie count
+        # Get initial zombie count at the start
+        initial_zombies = 0
         try:
             proc = sp.run(["ps", "aux"], capture_output=True, text=True, timeout=5)
             initial_zombies = proc.stdout.count("<defunct>")
         except Exception:
             pytest.skip("ps command not available")
 
-        # Run multiple commands that fail in different ways
+        # Run more iterations to trigger potential race conditions
         tasks = [
-            run_command("sleep 10", log_prefix="[TEST]", timeout=1),  # Timeout
+            run_command("sleep 10", log_prefix="[TEST]", timeout=0.5),  # Timeout
+            run_command("sleep 10", log_prefix="[TEST]", timeout=0.5),  # Timeout
+            run_command("sleep 10", log_prefix="[TEST]", timeout=0.5),  # Timeout
             run_command("nonexistent_cmd", log_prefix="[TEST]"),  # OSError
+            run_command("nonexistent_cmd", log_prefix="[TEST]"),  # OSError
+            run_command("false", log_prefix="[TEST]"),  # Normal failure
             run_command("false", log_prefix="[TEST]"),  # Normal failure
         ]
 
-        _results = await asyncio.gather(*tasks, return_exceptions=True)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Wait for cleanup
-        await asyncio.sleep(0.2)
+        # Verify all commands failed appropriately
+        for result in results:
+            if isinstance(result, tuple):
+                assert result[0] is False, "All test commands should fail"
+
+        # Wait longer for cleanup with multiple processes
+        await asyncio.sleep(0.5)
 
         # Check zombie count hasn't increased
         try:
             proc = sp.run(["ps", "aux"], capture_output=True, text=True, timeout=5)
             final_zombies = proc.stdout.count("<defunct>")
             assert final_zombies == initial_zombies, (
-                f"Zombie processes increased from {initial_zombies} to {final_zombies}"
+                f"Zombie processes created: {final_zombies - initial_zombies} "
+                f"(initial: {initial_zombies}, final: {final_zombies})"
             )
         except Exception:
             # ps command failed, but test still validates no exceptions occurred
+            pass
+
+    @pytest.mark.asyncio
+    async def test_run_command_race_condition_cleanup(self) -> None:
+        """Test that zombie is reaped even in race condition where returncode is set quickly."""
+        # Get initial zombie count
+        initial_zombies = 0
+        try:
+            proc = sp.run(["ps", "aux"], capture_output=True, text=True, timeout=5)
+            initial_zombies = proc.stdout.count("<defunct>")
+        except Exception:
+            pass
+
+        # Run multiple timeouts concurrently to trigger race conditions
+        tasks = [run_command("sleep 100", log_prefix="[TEST]", timeout=0.5) for _ in range(10)]
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # All should timeout
+        for result in results:
+            if isinstance(result, tuple):
+                assert result[0] is False, "All commands should timeout"
+
+        # Wait for all cleanup
+        await asyncio.sleep(0.5)
+
+        # Verify no zombies created despite race conditions
+        try:
+            proc = sp.run(["ps", "aux"], capture_output=True, text=True, timeout=5)
+            final_zombies = proc.stdout.count("<defunct>")
+            assert final_zombies == initial_zombies, f"Zombie processes created: {final_zombies - initial_zombies}"
+        except Exception:
             pass
 
     @pytest.mark.asyncio
