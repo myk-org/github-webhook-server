@@ -267,6 +267,62 @@ def get_github_repo_api(github_app_api: github.Github, repository: int | str) ->
     return github_app_api.get_repo(repository)
 
 
+async def _cleanup_subprocess(
+    sub_process: asyncio.subprocess.Process | None, *, graceful: bool = True, log_prefix: str = ""
+) -> None:
+    """
+    Clean up a subprocess and its entire process tree to prevent zombie processes.
+
+    Attempts to kill the process group (created via os.setsid) to ensure all child
+    processes are terminated. Falls back to regular process termination if process
+    group doesn't exist.
+
+    Args:
+        sub_process: The subprocess to clean up, or None
+        graceful: If True, try SIGTERM first, then SIGKILL on timeout. If False, use SIGKILL immediately.
+        log_prefix: Optional log prefix for warning messages
+
+    Notes:
+        Swallows all exceptions during cleanup to avoid masking the original error.
+        Only cleans up if process is still running (returncode is None).
+    """
+    if not sub_process or sub_process.returncode is not None:
+        return
+
+    try:
+        if graceful:
+            # Try to kill the process group gracefully first
+            try:
+                os.killpg(os.getpgid(sub_process.pid), 15)  # SIGTERM
+                try:
+                    await asyncio.wait_for(sub_process.wait(), timeout=5)
+                    return  # Successfully terminated
+                except asyncio.TimeoutError:
+                    # Process didn't terminate gracefully, escalate to SIGKILL
+                    pass
+            except (ProcessLookupError, OSError):
+                # Process group might not exist, fall back to regular process termination
+                sub_process.terminate()
+                try:
+                    await asyncio.wait_for(sub_process.wait(), timeout=5)
+                    return  # Successfully terminated
+                except asyncio.TimeoutError:
+                    # Process didn't terminate gracefully, escalate to kill
+                    pass
+
+        # Forceful cleanup: kill the process group or process directly
+        try:
+            os.killpg(os.getpgid(sub_process.pid), 9)  # SIGKILL
+            await sub_process.wait()
+        except (ProcessLookupError, OSError):
+            # Process group might not exist, fall back to regular kill
+            sub_process.kill()
+            await sub_process.wait()
+    except Exception:
+        # Best effort cleanup; do not mask original error
+        pass
+
+
 async def run_command(
     command: str,
     log_prefix: str,
@@ -341,52 +397,13 @@ async def run_command(
                 stdout, stderr = await sub_process.communicate(input=stdin_bytes)
         except TimeoutError:
             logger.error(f"{log_prefix} Command '{logged_command}' timed out after {timeout}s")
-            if sub_process:
-                try:
-                    # Kill the process and all its children by killing the process group
-                    if sub_process.returncode is None:
-                        try:
-                            # Try to kill the process group (negative PID kills the group)
-                            os.killpg(os.getpgid(sub_process.pid), 15)  # SIGTERM
-                            try:
-                                await asyncio.wait_for(sub_process.wait(), timeout=5)
-                            except asyncio.TimeoutError:
-                                os.killpg(os.getpgid(sub_process.pid), 9)  # SIGKILL
-                                await sub_process.wait()
-                        except (ProcessLookupError, OSError):
-                            # Process group might not exist or process already dead
-                            try:
-                                sub_process.kill()
-                                await sub_process.wait()
-                            except Exception:
-                                pass
-                except Exception:
-                    pass  # Process may already be dead
+            await _cleanup_subprocess(sub_process, graceful=True, log_prefix=log_prefix)
             return False, "", f"Command timed out after {timeout}s"
         except Exception as comm_exc:
             # If communicate() raises any exception (not just TimeoutError),
             # we need to ensure the subprocess is cleaned up
             logger.error(f"{log_prefix} Command '{logged_command}' communicate() raised exception: {comm_exc}")
-            if sub_process and sub_process.returncode is None:
-                try:
-                    # Try to kill the process group to ensure all children are killed
-                    try:
-                        os.killpg(os.getpgid(sub_process.pid), 15)  # SIGTERM
-                        try:
-                            await asyncio.wait_for(sub_process.wait(), timeout=5)
-                        except asyncio.TimeoutError:
-                            os.killpg(os.getpgid(sub_process.pid), 9)  # SIGKILL
-                            await sub_process.wait()
-                    except (ProcessLookupError, OSError):
-                        # Process group might not exist, fall back to regular kill
-                        sub_process.terminate()
-                        try:
-                            await asyncio.wait_for(sub_process.wait(), timeout=5)
-                        except asyncio.TimeoutError:
-                            sub_process.kill()
-                            await sub_process.wait()
-                except Exception:
-                    pass  # Process may already be dead
+            await _cleanup_subprocess(sub_process, graceful=True, log_prefix=log_prefix)
             # Re-raise to be handled by outer exception handler
             raise
         # Ensure we always have strings, never None or bytes
@@ -420,61 +437,18 @@ async def run_command(
 
     except asyncio.CancelledError:
         logger.debug(f"{log_prefix} Command '{logged_command}' cancelled")
-        # Ensure subprocess is cleaned up to prevent zombie processes
-        if sub_process and sub_process.returncode is None:
-            try:
-                # Kill the entire process group
-                try:
-                    os.killpg(os.getpgid(sub_process.pid), 9)  # SIGKILL
-                    await sub_process.wait()
-                except (ProcessLookupError, OSError):
-                    # Process group might not exist, fall back to regular kill
-                    sub_process.kill()
-                    await sub_process.wait()
-            except Exception:
-                pass  # Process may already be dead or already cleaned up
+        await _cleanup_subprocess(sub_process, graceful=False, log_prefix=log_prefix)
         raise
     except (OSError, subprocess.SubprocessError, ValueError) as exc:
         logger.exception(f"{log_prefix} Failed to run '{logged_command}' command")
-        # Ensure subprocess is cleaned up to prevent zombie processes
-        # Only clean up if process is still running (returncode is None)
-        if sub_process and sub_process.returncode is None:
-            try:
-                # Try to kill the process group to ensure all children are killed
-                try:
-                    os.killpg(os.getpgid(sub_process.pid), 15)  # SIGTERM
-                    try:
-                        await asyncio.wait_for(sub_process.wait(), timeout=5)
-                    except asyncio.TimeoutError:
-                        os.killpg(os.getpgid(sub_process.pid), 9)  # SIGKILL
-                        await sub_process.wait()
-                except (ProcessLookupError, OSError):
-                    # Process group might not exist, fall back to regular kill
-                    sub_process.terminate()
-                    try:
-                        await asyncio.wait_for(sub_process.wait(), timeout=5)
-                    except asyncio.TimeoutError:
-                        sub_process.kill()
-                        await sub_process.wait()
-            except Exception:
-                pass  # Process may already be dead or already cleaned up
+        await _cleanup_subprocess(sub_process, graceful=True, log_prefix=log_prefix)
         return False, out_decoded, err_decoded
     finally:
         # Final safety net: ensure subprocess is always waited for
         # This handles edge cases where exceptions might have been missed
         if sub_process and sub_process.returncode is None:
-            try:
-                # Process is still running, force cleanup of entire process group
-                logger.warning(f"{log_prefix} Subprocess still running in finally block, forcing cleanup")
-                try:
-                    os.killpg(os.getpgid(sub_process.pid), 9)  # SIGKILL
-                    await sub_process.wait()
-                except (ProcessLookupError, OSError):
-                    # Process group might not exist, fall back to regular kill
-                    sub_process.kill()
-                    await sub_process.wait()
-            except Exception:
-                pass  # Process may have finished or already been cleaned up
+            logger.warning(f"{log_prefix} Subprocess still running in finally block, forcing cleanup")
+        await _cleanup_subprocess(sub_process, graceful=False, log_prefix=log_prefix)
 
 
 def get_apis_and_tokes_from_config(config: Config) -> list[tuple[github.Github, str]]:
