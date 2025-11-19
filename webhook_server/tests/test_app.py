@@ -1,17 +1,26 @@
+import asyncio
 import hashlib
 import hmac
 import ipaddress
 import json
 import os
 from typing import Any
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import httpx
 import pytest
+from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 
 from webhook_server import app as app_module
-from webhook_server.app import FASTAPI_APP
+from webhook_server.app import (
+    FASTAPI_APP,
+    HTTPException,
+    get_log_viewer_controller,
+    require_log_server_enabled,
+    status,
+    websocket_log_stream,
+)
 from webhook_server.libs.exceptions import RepositoryNotFoundInConfigError
 from webhook_server.utils.app_utils import (
     gate_by_allowlist_ips,
@@ -27,6 +36,12 @@ class TestWebhookApp:
     def client(self) -> TestClient:
         """FastAPI test client."""
         return TestClient(FASTAPI_APP)
+
+    @pytest.fixture(autouse=True)
+    def reset_allowed_ips(self):
+        """Ensure ALLOWED_IPS is empty to avoid IP gating issues during tests."""
+        with patch("webhook_server.app.ALLOWED_IPS", ()):
+            yield
 
     @pytest.fixture
     def valid_webhook_payload(self) -> dict[str, Any]:
@@ -637,3 +652,341 @@ class TestWebhookApp:
         error_msg = str(exc_info.value)
         assert "exists but is not a directory" in error_msg
         assert "css/ and js/ subdirectories" in error_msg
+
+    def test_require_log_server_enabled_raises(self) -> None:
+        """Test that require_log_server_enabled raises 404 when disabled."""
+        with patch("webhook_server.app.LOG_SERVER_ENABLED", False):
+            with pytest.raises(HTTPException) as exc:
+                require_log_server_enabled()
+            assert exc.value.status_code == 404
+            assert "Log server is disabled" in exc.value.detail
+
+    @pytest.mark.asyncio
+    async def test_websocket_log_stream_disabled(self) -> None:
+        """Test websocket connection when log server is disabled."""
+        mock_ws = AsyncMock()
+        with patch("webhook_server.app.LOG_SERVER_ENABLED", False):
+            await websocket_log_stream(mock_ws)
+            mock_ws.close.assert_called_once_with(code=status.WS_1008_POLICY_VIOLATION, reason="Log server is disabled")
+
+    @pytest.mark.asyncio
+    async def test_websocket_log_stream_enabled(self) -> None:
+        """Test websocket connection when log server is enabled."""
+        mock_ws = AsyncMock()
+        mock_controller = AsyncMock()
+
+        with patch("webhook_server.app.LOG_SERVER_ENABLED", True):
+            with patch("webhook_server.app.get_log_viewer_controller", return_value=mock_controller):
+                await websocket_log_stream(mock_ws, hook_id="123")
+                mock_controller.handle_websocket.assert_called_once()
+                # Verify arguments
+                call_args = mock_controller.handle_websocket.call_args
+                assert call_args.kwargs["websocket"] == mock_ws
+                assert call_args.kwargs["hook_id"] == "123"
+
+    @patch("webhook_server.app.os.path.exists")
+    async def test_lifespan_static_files_not_found(self, mock_exists: Mock) -> None:
+        """Test lifespan raises FileNotFoundError when static files missing."""
+        mock_exists.return_value = False
+        # Mock AsyncClient to avoid connection errors if it tries to create one
+        with patch("httpx.AsyncClient", return_value=AsyncMock()):
+            with pytest.raises(FileNotFoundError):
+                async with app_module.lifespan(FASTAPI_APP):
+                    pass
+
+    @patch("webhook_server.app.os.path.exists")
+    @patch("webhook_server.app.os.path.isdir")
+    async def test_lifespan_static_files_not_dir(self, mock_isdir: Mock, mock_exists: Mock) -> None:
+        """Test lifespan raises NotADirectoryError when static files path is not a dir."""
+        mock_exists.return_value = True
+        mock_isdir.return_value = False
+        with patch("httpx.AsyncClient", return_value=AsyncMock()):
+            with pytest.raises(NotADirectoryError):
+                async with app_module.lifespan(FASTAPI_APP):
+                    pass
+
+    def test_get_log_viewer_controller_singleton(self) -> None:
+        """Test singleton behavior."""
+        # Reset singleton for test by patching it to None initially
+        with patch("webhook_server.app._log_viewer_controller_singleton", None):
+            # Need to patch LogViewerController to avoid actual instantiation issues
+            with patch("webhook_server.app.LogViewerController") as MockController:
+                c1 = get_log_viewer_controller()
+                c2 = get_log_viewer_controller()
+                assert c1 is c2
+                assert c1 is not None
+                MockController.assert_called_once()
+
+    @patch("webhook_server.app.Config")
+    async def test_lifespan_background_tasks(self, mock_config: Mock) -> None:
+        """Test waiting for background tasks."""
+
+        # We need to populate _background_tasks with a dummy task
+        async def dummy_coro():
+            await asyncio.sleep(0.01)
+
+        dummy_task = asyncio.create_task(dummy_coro())
+
+        # Mock config/etc to pass startup
+        mock_config.return_value.root_data = {"verify-github-ips": False, "verify-cloudflare-ips": False}
+
+        # Use a set containing our task
+        tasks_set = {dummy_task}
+
+        with patch("webhook_server.app._background_tasks", tasks_set):
+            with patch("httpx.AsyncClient", return_value=AsyncMock()):
+                async with app_module.lifespan(FASTAPI_APP):
+                    pass
+
+        # Task should be done
+        assert dummy_task.done()
+
+    @patch("webhook_server.app.MCP_SERVER_ENABLED", True)
+    @patch("webhook_server.app.StreamableHTTPSessionManager")
+    @patch("webhook_server.app.Config")
+    async def test_lifespan_mcp_init(self, mock_config: Mock, mock_stream_manager: Mock) -> None:
+        """Test MCP initialization in lifespan."""
+        # Mock config
+        mock_config.return_value.root_data = {"verify-github-ips": False, "verify-cloudflare-ips": False}
+
+        # Mock transport and mcp globals
+        mock_transport_instance = Mock()
+        mock_transport_instance._session_manager = None
+        # Mock the event store which is accessed
+        mock_transport_instance.event_store = Mock()
+
+        mock_mcp_instance = Mock()
+        mock_mcp_instance.server = Mock()
+
+        # We need to inject these mocks into the module globals `http_transport` and `mcp`
+        with patch("webhook_server.app.http_transport", mock_transport_instance):
+            with patch("webhook_server.app.mcp", mock_mcp_instance):
+                with patch("httpx.AsyncClient", return_value=AsyncMock()):
+                    async with app_module.lifespan(FASTAPI_APP):
+                        # Give the background task a moment to run
+                        await asyncio.sleep(0.01)
+
+                # Verify session manager was initialized
+                # The code sets: http_transport._session_manager = StreamableHTTPSessionManager(...)
+                assert mock_transport_instance._manager_started is True
+
+    @patch("webhook_server.app.get_cloudflare_allowlist")
+    @patch("webhook_server.app.Config")
+    async def test_lifespan_cloudflare_fail_only(self, mock_config: Mock, mock_cf_allowlist: Mock) -> None:
+        """Test lifespan fails when only Cloudflare enabled and fails."""
+        mock_config.return_value.root_data = {
+            "verify-github-ips": False,
+            "verify-cloudflare-ips": True,
+        }
+        mock_cf_allowlist.side_effect = Exception("Cloudflare error")
+
+        with patch("httpx.AsyncClient", return_value=AsyncMock()):
+            with pytest.raises(Exception, match="Cloudflare error"):
+                async with app_module.lifespan(FASTAPI_APP):
+                    pass
+
+    @patch("webhook_server.app.get_github_allowlist")
+    @patch("webhook_server.app.Config")
+    async def test_lifespan_github_fail_only(self, mock_config: Mock, mock_gh_allowlist: Mock) -> None:
+        """Test lifespan fails when only GitHub enabled and fails."""
+        mock_config.return_value.root_data = {
+            "verify-github-ips": True,
+            "verify-cloudflare-ips": False,
+        }
+        mock_gh_allowlist.side_effect = Exception("GitHub error")
+
+        with patch("httpx.AsyncClient", return_value=AsyncMock()):
+            with pytest.raises(Exception, match="GitHub error"):
+                async with app_module.lifespan(FASTAPI_APP):
+                    pass
+
+    @patch("webhook_server.app.Config")
+    async def test_lifespan_background_tasks_timeout(self, mock_config: Mock) -> None:
+        """Test cancelling background tasks on timeout."""
+        # Use a mock task instead of a real one to verify cancel call
+        mock_task = Mock()
+
+        mock_config.return_value.root_data = {"verify-github-ips": False, "verify-cloudflare-ips": False}
+
+        tasks_set = {mock_task}
+
+        with patch("webhook_server.app._background_tasks", tasks_set):
+            with patch("httpx.AsyncClient", return_value=AsyncMock()):
+                # Mock asyncio.wait to return (empty, pending) to simulate timeout
+                # asyncio.wait is used twice: first for completion, second for cancellation
+                with patch("asyncio.wait", new_callable=AsyncMock) as mock_wait:
+                    # First call returns ([], [task]), second call returns ([], [])
+                    mock_wait.side_effect = [
+                        (set(), {mock_task}),  # First wait times out
+                        (set(), set()),  # Second wait after cancel
+                    ]
+
+                    async with app_module.lifespan(FASTAPI_APP):
+                        pass
+
+                    assert mock_wait.call_count == 2
+                    # Task should have been cancelled
+                    mock_task.cancel.assert_called_once()
+
+    def test_process_webhook_missing_event_header(self, client: TestClient) -> None:
+        """Test missing X-GitHub-Event header."""
+        response = client.post("/webhook_server", content="{}", headers={})
+        assert response.status_code == 400
+        assert "Missing X-GitHub-Event header" in response.json()["detail"]
+
+    @patch("webhook_server.app.Config")
+    def test_process_webhook_missing_repo_name(self, mock_config: Mock, client: TestClient) -> None:
+        """Test payload missing repository.name."""
+        # Ensure no secret so verify_signature is skipped
+        mock_config.return_value.root_data = {"webhook-secret": None}
+
+        headers = {"X-GitHub-Event": "push", "Content-Type": "application/json"}
+        payload = {"repository": {"full_name": "org/repo"}}
+        response = client.post("/webhook_server", content=json.dumps(payload), headers=headers)
+        assert response.status_code == 400
+        assert "Missing repository.name in payload" in response.json()["detail"]
+
+    @patch("webhook_server.app.Config")
+    def test_process_webhook_missing_repo_full_name(self, mock_config: Mock, client: TestClient) -> None:
+        """Test payload missing repository.full_name."""
+        mock_config.return_value.root_data = {"webhook-secret": None}
+
+        headers = {"X-GitHub-Event": "push", "Content-Type": "application/json"}
+        payload = {"repository": {"name": "repo"}}
+        response = client.post("/webhook_server", content=json.dumps(payload), headers=headers)
+        assert response.status_code == 400
+        assert "Missing repository.full_name in payload" in response.json()["detail"]
+
+    @patch("webhook_server.app.LOG_SERVER_ENABLED", True)
+    def test_get_log_viewer_page(self, client: TestClient) -> None:
+        """Test get_log_viewer_page endpoint."""
+        mock_instance = MagicMock()
+        mock_instance.get_log_page.return_value = "<html></html>"
+
+        # Patch the singleton directly as controller_dependency captures reference to get_log_viewer_controller
+        with patch("webhook_server.app._log_viewer_controller_singleton", mock_instance):
+            response = client.get("/logs")
+            assert response.status_code == 200
+
+    @patch("webhook_server.app.LOG_SERVER_ENABLED", True)
+    def test_get_log_entries(self, client: TestClient) -> None:
+        """Test get_log_entries endpoint."""
+        mock_instance = MagicMock()
+        # The controller returns a dict
+        mock_instance.get_log_entries.return_value = {"entries": []}
+
+        with patch("webhook_server.app._log_viewer_controller_singleton", mock_instance):
+            response = client.get("/logs/api/entries")
+            assert response.status_code == 200
+            assert response.json() == {"entries": []}
+
+    @patch("webhook_server.app.LOG_SERVER_ENABLED", True)
+    def test_export_logs(self, client: TestClient) -> None:
+        """Test export_logs endpoint."""
+        mock_instance = MagicMock()
+
+        def iter_content():
+            yield b"data"
+
+        mock_instance.export_logs.return_value = StreamingResponse(iter_content())
+
+        with patch("webhook_server.app._log_viewer_controller_singleton", mock_instance):
+            response = client.get("/logs/api/export?format_type=json")
+            assert response.status_code == 200
+            assert response.content == b"data"
+
+    @patch("webhook_server.app.get_github_allowlist")
+    @patch("webhook_server.app.get_cloudflare_allowlist")
+    @patch("webhook_server.app.Config")
+    async def test_lifespan_log_viewer_shutdown(
+        self, mock_config: Mock, mock_cf_allowlist: Mock, mock_gh_allowlist: Mock
+    ) -> None:
+        """Test LogViewerController shutdown in lifespan."""
+        mock_config.return_value.root_data = {"verify-github-ips": False, "verify-cloudflare-ips": False}
+
+        mock_controller = AsyncMock()
+
+        # Inject mock controller into singleton
+        with patch("webhook_server.app._log_viewer_controller_singleton", mock_controller):
+            with patch("httpx.AsyncClient", return_value=AsyncMock()):
+                async with app_module.lifespan(FASTAPI_APP):
+                    pass
+
+                mock_controller.shutdown.assert_called_once()
+
+    @patch("webhook_server.app.GithubWebhook")
+    @patch("webhook_server.app.Config")
+    def test_process_webhook_connect_error(self, mock_config: Mock, mock_webhook_cls: Mock, client: TestClient) -> None:
+        """Test process_webhook with connection error."""
+        mock_config.return_value.root_data = {"webhook-secret": None}
+
+        mock_instance = mock_webhook_cls.return_value
+        mock_instance.process = AsyncMock(side_effect=httpx.ConnectError("Connection failed"))
+        mock_instance.cleanup = AsyncMock()
+
+        with patch("webhook_server.app.get_logger_with_params") as mock_get_logger:
+            mock_logger = mock_get_logger.return_value
+
+            headers = {"X-GitHub-Event": "push", "Content-Type": "application/json", "X-GitHub-Delivery": "123"}
+            payload = {"repository": {"name": "repo", "full_name": "org/repo"}}
+
+            captured_coro = None
+
+            # Mock create_task to return a dummy task but capture coro
+            mock_task = MagicMock()
+
+            def side_effect(coro):
+                nonlocal captured_coro
+                captured_coro = coro
+                return mock_task
+
+            with patch("webhook_server.app.asyncio.create_task", side_effect=side_effect):
+                response = client.post("/webhook_server", content=json.dumps(payload), headers=headers)
+                assert response.status_code == 200
+
+                # Run captured coro
+                if captured_coro:
+                    asyncio.run(captured_coro)
+
+                # Verify exception logging
+                mock_logger.exception.assert_called()
+                call_args = mock_logger.exception.call_args
+                assert "API connection error - check network connectivity" in call_args[0][0]
+
+    @patch("webhook_server.app.GithubWebhook")
+    @patch("webhook_server.app.Config")
+    def test_process_webhook_repo_not_found(
+        self, mock_config: Mock, mock_webhook_cls: Mock, client: TestClient
+    ) -> None:
+        """Test process_webhook with repository not found error."""
+        mock_config.return_value.root_data = {"webhook-secret": None}
+
+        mock_instance = mock_webhook_cls.return_value
+        mock_instance.process = AsyncMock(side_effect=RepositoryNotFoundInConfigError("Repo not found"))
+        mock_instance.cleanup = AsyncMock()
+
+        with patch("webhook_server.app.get_logger_with_params") as mock_get_logger:
+            mock_logger = mock_get_logger.return_value
+
+            headers = {"X-GitHub-Event": "push", "Content-Type": "application/json", "X-GitHub-Delivery": "123"}
+            payload = {"repository": {"name": "repo", "full_name": "org/repo"}}
+
+            captured_coro = None
+            mock_task = MagicMock()
+
+            def side_effect(coro):
+                nonlocal captured_coro
+                captured_coro = coro
+                return mock_task
+
+            with patch("webhook_server.app.asyncio.create_task", side_effect=side_effect):
+                response = client.post("/webhook_server", content=json.dumps(payload), headers=headers)
+                assert response.status_code == 200
+
+                if captured_coro:
+                    asyncio.run(captured_coro)
+
+                # Verify error logging
+                mock_logger.error.assert_called()
+                call_args = mock_logger.error.call_args
+                assert "Repository not found in configuration" in call_args[0][0]

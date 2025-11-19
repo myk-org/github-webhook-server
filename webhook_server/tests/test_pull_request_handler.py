@@ -1,10 +1,12 @@
 import asyncio
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from github import GithubException
 from github.PullRequest import PullRequest
 
+from webhook_server.libs.github_api import GithubWebhook
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
 from webhook_server.utils.constants import (
     APPROVED_BY_LABEL_PREFIX,
@@ -43,13 +45,14 @@ class TestPullRequestHandler:
     @pytest.fixture
     def mock_github_webhook(self) -> Mock:
         """Create a mock GithubWebhook instance."""
-        mock_webhook = Mock()
+        mock_webhook = Mock(spec=GithubWebhook)
         mock_webhook.hook_data = {
             "action": "opened",
-            "pull_request": {"number": 123, "merged": False},
+            "pull_request": {"number": 123, "merged": False, "title": "Test PR"},
             "sender": {"login": "test-user"},
+            "label": {"name": "bug"},
         }
-        mock_webhook.logger = Mock()
+        mock_webhook.logger = MagicMock()
         mock_webhook.log_prefix = "[TEST]"
         mock_webhook.repository = Mock()
         mock_webhook.issue_url_for_welcome_msg = "welcome-message-url"
@@ -63,27 +66,75 @@ class TestPullRequestHandler:
         mock_webhook.set_auto_merge_prs = []
         mock_webhook.auto_merge_enabled = True
         mock_webhook.container_repository = "docker.io/org/repo"
+        # New attributes for coverage
+        mock_webhook.conventional_title = False
+        mock_webhook.minimum_lgtm = 1
+        mock_webhook.container_repository_username = "test-user"
+        mock_webhook.container_repository_password = "test-password"  # pragma: allowlist secret
+        mock_webhook.github_api = Mock()
+        mock_webhook.tox = True
+        mock_webhook.pre_commit = True
+        mock_webhook.python_module_install = False
+        mock_webhook.pypi = False
+        mock_webhook.token = "test-token"  # pragma: allowlist secret
+        mock_webhook.auto_verify_cherry_picked_prs = True
+        mock_webhook.last_commit = Mock()
         return mock_webhook
 
     @pytest.fixture
     def mock_owners_file_handler(self) -> Mock:
         """Create a mock OwnersFileHandler instance."""
-        mock_handler = Mock()
+        mock_handler = Mock(spec=OwnersFileHandler)
         mock_handler.all_pull_request_approvers = ["approver1", "approver2"]
         mock_handler.all_pull_request_reviewers = ["reviewer1", "reviewer2"]
         mock_handler.root_approvers = ["root-approver"]
         mock_handler.root_reviewers = ["root-reviewer"]
+        mock_handler.assign_reviewers = AsyncMock()
         return mock_handler
 
     @pytest.fixture
     def pull_request_handler(self, mock_github_webhook: Mock, mock_owners_file_handler: Mock) -> PullRequestHandler:
         """Create a PullRequestHandler instance with mocked dependencies."""
-        return PullRequestHandler(mock_github_webhook, mock_owners_file_handler)
+        # Create handler instance first
+        handler = PullRequestHandler(mock_github_webhook, mock_owners_file_handler)
+
+        # Replace handler instances with mocks that have async methods
+        handler.labels_handler = Mock()
+        handler.labels_handler._add_label = AsyncMock()
+        handler.labels_handler._remove_label = AsyncMock()
+        handler.labels_handler.add_size_label = AsyncMock()
+        handler.labels_handler.pull_request_labels_names = AsyncMock(return_value=[])
+        handler.labels_handler.wip_or_hold_labels_exists = Mock(return_value=False)
+
+        handler.check_run_handler = Mock()
+        handler.check_run_handler.set_verify_check_queued = AsyncMock()
+        handler.check_run_handler.set_verify_check_success = AsyncMock()
+        handler.check_run_handler.set_merge_check_in_progress = AsyncMock()
+        handler.check_run_handler.set_merge_check_success = AsyncMock()
+        handler.check_run_handler.set_merge_check_failure = AsyncMock()
+        handler.check_run_handler.set_merge_check_queued = AsyncMock()
+        handler.check_run_handler.set_run_tox_check_queued = AsyncMock()
+        handler.check_run_handler.set_run_pre_commit_check_queued = AsyncMock()
+        handler.check_run_handler.set_python_module_install_queued = AsyncMock()
+        handler.check_run_handler.set_container_build_queued = AsyncMock()
+        handler.check_run_handler.set_conventional_title_queued = AsyncMock()
+
+        handler.runner_handler = Mock()
+        handler.runner_handler.run_container_build = AsyncMock()
+        handler.runner_handler.run_tox = AsyncMock()
+        handler.runner_handler.run_pre_commit = AsyncMock()
+        handler.runner_handler.run_conventional_title_check = AsyncMock()
+        handler.runner_handler.run_build_container = AsyncMock()
+        handler.runner_handler.run_install_python_module = AsyncMock()
+        handler.runner_handler.run_podman_command = AsyncMock(return_value=(0, "", ""))
+        handler.runner_handler.cherry_pick = AsyncMock()
+
+        return handler
 
     @pytest.fixture
     def mock_pull_request(self) -> Mock:
         """Create a mock PullRequest instance."""
-        mock_pr = Mock()
+        mock_pr = MagicMock()
         mock_pr.number = 123
         mock_pr.title = "Test PR"
         mock_pr.body = "Test PR body"
@@ -91,7 +142,7 @@ class TestPullRequestHandler:
         mock_pr.labels = []
         mock_pr.create_issue_comment = Mock()
         mock_pr.edit = Mock()
-        mock_pr.is_merged = False
+        mock_pr.is_merged = Mock(return_value=False)
         mock_pr.base = Mock()
         mock_pr.base.ref = "main"
         mock_pr.user = Mock()
@@ -100,6 +151,7 @@ class TestPullRequestHandler:
         mock_pr.mergeable_state = "clean"
         mock_pr.enable_automerge = Mock()
         mock_pr.add_to_assignees = Mock()
+        mock_pr.get_issue_comments = Mock(return_value=[])
         return mock_pr
 
     @pytest.mark.asyncio
@@ -121,12 +173,12 @@ class TestPullRequestHandler:
         """Test processing pull request webhook data when action is edited and title is changed."""
         pull_request_handler.hook_data["action"] = "edited"
         pull_request_handler.hook_data["changes"] = {"title": {"from": "old title"}}
+        pull_request_handler.github_webhook.conventional_title = True
 
-        with patch.object(
-            pull_request_handler.runner_handler, "run_conventional_title_check"
-        ) as mock_run_conventional_title_check:
-            await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
-            mock_run_conventional_title_check.assert_called_once_with(pull_request=mock_pull_request)
+        await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
+        pull_request_handler.runner_handler.run_conventional_title_check.assert_called_once_with(
+            pull_request=mock_pull_request
+        )
 
     @pytest.mark.asyncio
     async def test_process_pull_request_webhook_data_opened_action(
@@ -884,7 +936,7 @@ class TestPullRequestHandler:
             ),
             patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/org/repo"),
             patch.object(pull_request_handler.github_webhook, "github_api", Mock(requester=mock_requester)),
-            patch.object(pull_request_handler.github_webhook, "token", "test-token"),
+            patch.object(pull_request_handler.github_webhook, "token", "test-token"),  # pragma: allowlist secret
             patch.object(mock_pull_request, "create_issue_comment", new=Mock()),
         ):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
@@ -919,7 +971,7 @@ class TestPullRequestHandler:
             ),
             patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/org/repo"),
             patch.object(pull_request_handler.github_webhook, "github_api", Mock(requester=mock_requester)),
-            patch.object(pull_request_handler.github_webhook, "token", "test-token"),
+            patch.object(pull_request_handler.github_webhook, "token", "test-token"),  # pragma: allowlist secret
             patch.object(mock_pull_request, "create_issue_comment", new=Mock()),
         ):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
@@ -948,7 +1000,7 @@ class TestPullRequestHandler:
             ),
             patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/org/repo"),
             patch.object(pull_request_handler.github_webhook, "github_api", Mock(requester=mock_requester)),
-            patch.object(pull_request_handler.github_webhook, "token", "test-token"),
+            patch.object(pull_request_handler.github_webhook, "token", "test-token"),  # pragma: allowlist secret
         ):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
             assert pull_request_handler.logger.step.called
@@ -974,7 +1026,7 @@ class TestPullRequestHandler:
             ),
             patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/org/repo"),
             patch.object(pull_request_handler.github_webhook, "github_api", Mock(requester=mock_requester)),
-            patch.object(pull_request_handler.github_webhook, "token", "test-token"),
+            patch.object(pull_request_handler.github_webhook, "token", "test-token"),  # pragma: allowlist secret
         ):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
             assert pull_request_handler.logger.step.called
@@ -999,7 +1051,7 @@ class TestPullRequestHandler:
             ),
             patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/org/repo"),
             patch.object(pull_request_handler.github_webhook, "github_api", Mock(requester=mock_requester)),
-            patch.object(pull_request_handler.github_webhook, "token", "test-token"),
+            patch.object(pull_request_handler.github_webhook, "token", "test-token"),  # pragma: allowlist secret
         ):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
             assert pull_request_handler.logger.step.called
@@ -1021,7 +1073,7 @@ class TestPullRequestHandler:
             ),
             patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/org/repo"),
             patch.object(pull_request_handler.github_webhook, "github_api", None),
-            patch.object(pull_request_handler.github_webhook, "token", "test-token"),
+            patch.object(pull_request_handler.github_webhook, "token", "test-token"),  # pragma: allowlist secret
         ):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
             assert pull_request_handler.logger.step.called
@@ -1044,7 +1096,7 @@ class TestPullRequestHandler:
             ),
             patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/invalid"),
             patch.object(pull_request_handler.github_webhook, "github_api", Mock(requester=mock_requester)),
-            patch.object(pull_request_handler.github_webhook, "token", "test-token"),
+            patch.object(pull_request_handler.github_webhook, "token", "test-token"),  # pragma: allowlist secret
         ):
             # Directly call _delete_ghcr_tag_via_github_api to test invalid format check
             await pull_request_handler._delete_ghcr_tag_via_github_api(
@@ -1079,7 +1131,7 @@ class TestPullRequestHandler:
             ),
             patch.object(pull_request_handler.github_webhook, "container_repository", "ghcr.io/org/repo"),
             patch.object(pull_request_handler.github_webhook, "github_api", Mock(requester=mock_requester)),
-            patch.object(pull_request_handler.github_webhook, "token", "test-token"),
+            patch.object(pull_request_handler.github_webhook, "token", "test-token"),  # pragma: allowlist secret
             patch.object(mock_pull_request, "create_issue_comment", new=Mock()),
         ):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
@@ -1415,3 +1467,316 @@ class TestPullRequestHandler:
 
             # Verify automerge and other tasks were called despite error in one task
             assert calls["set_automerge"] == 1
+
+    @pytest.mark.asyncio
+    async def test_process_opened_async_exception(
+        self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock, mock_pull_request: Mock
+    ) -> None:
+        """Test exception handling in async tasks for opened event."""
+        mock_github_webhook.hook_data["action"] = "opened"
+
+        # Mock methods to raise exception
+        with (
+            patch.object(
+                pull_request_handler,
+                "create_issue_for_new_pull_request",
+                new=AsyncMock(side_effect=Exception("Task failed")),
+            ),
+            patch.object(pull_request_handler, "set_wip_label_based_on_title", new=AsyncMock()),
+            patch.object(pull_request_handler, "process_opened_or_synchronize_pull_request", new=AsyncMock()),
+            patch.object(pull_request_handler, "set_pull_request_automerge", new=AsyncMock()),
+            patch.object(pull_request_handler, "_prepare_welcome_comment", return_value="welcome"),
+        ):
+            await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
+
+            # Verify error logging
+            pull_request_handler.logger.error.assert_called_with("[TEST] Async task failed: Task failed")
+
+    @pytest.mark.asyncio
+    async def test_process_synchronize_async_exception(
+        self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock, mock_pull_request: Mock
+    ) -> None:
+        """Test exception handling in async tasks for synchronize event."""
+        mock_github_webhook.hook_data["action"] = "synchronize"
+
+        with (
+            patch.object(
+                pull_request_handler,
+                "process_opened_or_synchronize_pull_request",
+                new=AsyncMock(side_effect=Exception("Sync failed")),
+            ),
+            patch.object(pull_request_handler, "remove_labels_when_pull_request_sync", new=AsyncMock()),
+        ):
+            await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
+
+            pull_request_handler.logger.error.assert_called_with("[TEST] Async task failed: Sync failed")
+
+    @pytest.mark.asyncio
+    async def test_process_labeled_can_be_merged(
+        self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock, mock_pull_request: Mock
+    ) -> None:
+        """Test labeled event with can-be-merged label (should skip)."""
+        mock_github_webhook.hook_data["action"] = "labeled"
+        mock_github_webhook.hook_data["label"] = {"name": CAN_BE_MERGED_STR}
+        mock_github_webhook.verified_job = False
+
+        await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
+
+        # Verify step call with substring
+        found = False
+        for call in pull_request_handler.logger.step.call_args_list:
+            if "skipped - can-be-merged label" in str(call):
+                found = True
+                break
+        assert found, "Log step for can-be-merged label skip not found"
+
+    @pytest.mark.asyncio
+    async def test_process_labeled_wip(
+        self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock, mock_pull_request: Mock
+    ) -> None:
+        """Test labeled event with WIP label."""
+        mock_github_webhook.hook_data["action"] = "labeled"
+        mock_github_webhook.hook_data["label"] = {"name": WIP_STR}
+        mock_github_webhook.verified_job = False
+
+        # Mock labels
+        mock_label = MagicMock()
+        mock_label.name = WIP_STR
+        mock_pull_request.labels = [mock_label]
+
+        with patch.object(pull_request_handler, "check_if_can_be_merged", new=AsyncMock()) as mock_check_merge:
+            with patch("asyncio.to_thread", side_effect=lambda f, *args: f(*args) if callable(f) else None):
+                await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
+            mock_check_merge.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_process_unhandled_action(
+        self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock, mock_pull_request: Mock
+    ) -> None:
+        """Test unhandled action."""
+        mock_github_webhook.hook_data["action"] = "unknown_action"
+
+        await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
+
+        found = False
+        for call in pull_request_handler.logger.step.call_args_list:
+            if "no action handler - completed" in str(call):
+                found = True
+                break
+        assert found
+
+    @pytest.mark.asyncio
+    async def test_delete_ghcr_tag_exceptions(
+        self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock, mock_pull_request: Mock
+    ) -> None:
+        """Test exceptions in _delete_ghcr_tag_via_github_api."""
+        mock_github_webhook.build_and_push_container = True
+        mock_github_webhook.container_repository = "ghcr.io/org/pkg"
+        mock_github_webhook.container_repository_and_tag = MagicMock(return_value="ghcr.io/org/pkg:123")
+        mock_github_webhook.github_api = MagicMock()
+        mock_github_webhook.token = "token"  # pragma: allowlist secret
+
+        mock_pull_request.number = 123
+
+        # 1. Invalid repository format - call directly to bypass parent check
+        mock_github_webhook.container_repository = "ghcr.io/invalid"
+        await pull_request_handler._delete_ghcr_tag_via_github_api(mock_pull_request, "ghcr.io/invalid", "123")
+        pull_request_handler.logger.error.assert_called_with(
+            "[TEST] Invalid container repository format: ghcr.io/invalid"
+        )
+
+        # 2. Package not found (GithubException 404)
+        mock_github_webhook.container_repository = "ghcr.io/org/pkg"
+        mock_github_webhook.github_api.requester.requestJsonAndCheck = MagicMock(
+            side_effect=GithubException(404, "Not Found")
+        )
+
+        with patch(
+            "asyncio.to_thread", side_effect=lambda f, *args, **kwargs: f(*args, **kwargs) if callable(f) else None
+        ):
+            await pull_request_handler._delete_ghcr_tag_via_github_api(mock_pull_request, "ghcr.io/org/pkg:123", "123")
+
+        pull_request_handler.logger.warning.assert_called_with("[TEST] Package pkg not found for owner org on GHCR")
+
+    @pytest.mark.asyncio
+    async def test_add_assignee_exception(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test exception in add_pull_request_owner_as_assingee."""
+        mock_pull_request.user.login = "user"
+
+        # Set side_effect to raise first time, then succeed (or return None) second time
+        mock_pull_request.add_to_assignees.side_effect = [Exception("Failed"), None]
+
+        pull_request_handler.owners_file_handler.root_approvers = ["approver1"]
+
+        with patch(
+            "asyncio.to_thread", side_effect=lambda f, *args, **kwargs: f(*args, **kwargs) if callable(f) else None
+        ):
+            await pull_request_handler.add_pull_request_owner_as_assingee(mock_pull_request)
+
+        pull_request_handler.logger.debug.assert_any_call("[TEST] Exception while adding PR owner as assignee: Failed")
+        pull_request_handler.logger.debug.assert_any_call("[TEST] Falling back to first approver as assignee")
+        # Should verify add_to_assignees called twice
+        assert mock_pull_request.add_to_assignees.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_process_opened_setup_task_failure(
+        self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock, mock_pull_request: Mock
+    ) -> None:
+        """Test setup task failure in process_opened_or_synchronize_pull_request."""
+        mock_github_webhook.conventional_title = True
+
+        pull_request_handler.owners_file_handler.assign_reviewers = AsyncMock(side_effect=Exception("Setup failed"))
+        # Mock other methods to return coroutines
+        with (
+            patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()),
+            patch.object(pull_request_handler, "label_pull_request_by_merge_state", new=AsyncMock()),
+            patch.object(pull_request_handler.check_run_handler, "set_merge_check_queued", new=AsyncMock()),
+            patch.object(pull_request_handler.check_run_handler, "set_run_tox_check_queued", new=AsyncMock()),
+            patch.object(pull_request_handler.check_run_handler, "set_run_pre_commit_check_queued", new=AsyncMock()),
+            patch.object(pull_request_handler.check_run_handler, "set_python_module_install_queued", new=AsyncMock()),
+            patch.object(pull_request_handler.check_run_handler, "set_container_build_queued", new=AsyncMock()),
+            patch.object(pull_request_handler, "_process_verified_for_update_or_new_pull_request", new=AsyncMock()),
+            patch.object(pull_request_handler.labels_handler, "add_size_label", new=AsyncMock()),
+            patch.object(pull_request_handler, "add_pull_request_owner_as_assingee", new=AsyncMock()),
+            patch.object(pull_request_handler.check_run_handler, "set_conventional_title_queued", new=AsyncMock()),
+            patch.object(pull_request_handler.runner_handler, "run_tox", new=AsyncMock()),
+            patch.object(pull_request_handler.runner_handler, "run_pre_commit", new=AsyncMock()),
+            patch.object(pull_request_handler.runner_handler, "run_install_python_module", new=AsyncMock()),
+            patch.object(pull_request_handler.runner_handler, "run_build_container", new=AsyncMock()),
+            patch.object(pull_request_handler.runner_handler, "run_conventional_title_check", new=AsyncMock()),
+        ):
+            await pull_request_handler.process_opened_or_synchronize_pull_request(mock_pull_request)
+
+            pull_request_handler.logger.error.assert_any_call("[TEST] Setup task failed: Setup failed")
+
+    @pytest.mark.asyncio
+    async def test_process_opened_ci_task_failure(
+        self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock, mock_pull_request: Mock
+    ) -> None:
+        """Test CI task failure in process_opened_or_synchronize_pull_request."""
+        mock_github_webhook.conventional_title = False
+
+        # Mock setup tasks to succeed
+        pull_request_handler.owners_file_handler.assign_reviewers = AsyncMock()
+
+        with (
+            patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()),
+            patch.object(pull_request_handler, "label_pull_request_by_merge_state", new=AsyncMock()),
+            patch.object(pull_request_handler.check_run_handler, "set_merge_check_queued", new=AsyncMock()),
+            patch.object(pull_request_handler.check_run_handler, "set_run_tox_check_queued", new=AsyncMock()),
+            patch.object(pull_request_handler.check_run_handler, "set_run_pre_commit_check_queued", new=AsyncMock()),
+            patch.object(pull_request_handler.check_run_handler, "set_python_module_install_queued", new=AsyncMock()),
+            patch.object(pull_request_handler.check_run_handler, "set_container_build_queued", new=AsyncMock()),
+            patch.object(pull_request_handler, "_process_verified_for_update_or_new_pull_request", new=AsyncMock()),
+            patch.object(pull_request_handler.labels_handler, "add_size_label", new=AsyncMock()),
+            patch.object(pull_request_handler, "add_pull_request_owner_as_assingee", new=AsyncMock()),
+            patch.object(
+                pull_request_handler.runner_handler, "run_tox", new=AsyncMock(side_effect=Exception("CI failed"))
+            ),
+            patch.object(pull_request_handler.runner_handler, "run_pre_commit", new=AsyncMock()),
+            patch.object(pull_request_handler.runner_handler, "run_install_python_module", new=AsyncMock()),
+            patch.object(pull_request_handler.runner_handler, "run_build_container", new=AsyncMock()),
+        ):
+            await pull_request_handler.process_opened_or_synchronize_pull_request(mock_pull_request)
+
+            pull_request_handler.logger.error.assert_any_call("[TEST] CI/CD task failed: CI failed")
+
+    @pytest.mark.asyncio
+    async def test_create_issue_for_new_pr_disabled(
+        self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock, mock_pull_request: Mock
+    ) -> None:
+        """Test create_issue_for_new_pull_request when disabled."""
+        mock_github_webhook.create_issue_for_new_pr = False
+
+        await pull_request_handler.create_issue_for_new_pull_request(mock_pull_request)
+
+        pull_request_handler.logger.info.assert_called_with(
+            "[TEST] Issue creation for new PRs is disabled for this repository"
+        )
+
+    @pytest.mark.asyncio
+    async def test_create_issue_for_new_pr_auto_verified(
+        self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock, mock_pull_request: Mock
+    ) -> None:
+        """Test create_issue_for_new_pull_request for auto-verified user."""
+        mock_github_webhook.create_issue_for_new_pr = True
+        mock_github_webhook.parent_committer = "user"
+        mock_github_webhook.auto_verified_and_merged_users = ["user"]
+
+        await pull_request_handler.create_issue_for_new_pull_request(mock_pull_request)
+
+        pull_request_handler.logger.info.assert_called_with(
+            "[TEST] Committer user is part of ['user'], will not create issue."
+        )
+
+    @pytest.mark.asyncio
+    async def test_set_pull_request_automerge_exception(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test exception in set_pull_request_automerge."""
+        # Make enable_automerge raise exception
+        mock_pull_request.enable_automerge.side_effect = Exception("Automerge failed")
+        mock_pull_request.raw_data = {}
+
+        pull_request_handler.github_webhook.set_auto_merge_prs = ["main"]
+        mock_pull_request.base.ref = "main"
+
+        with patch(
+            "asyncio.to_thread", side_effect=lambda f, *args, **kwargs: f(*args, **kwargs) if callable(f) else None
+        ):
+            await pull_request_handler.set_pull_request_automerge(mock_pull_request)
+
+        pull_request_handler.logger.error.assert_called_with(
+            "[TEST] Exception while setting auto merge: Automerge failed"
+        )
+
+    @pytest.mark.asyncio
+    async def test_label_pull_request_by_merge_state_unknown(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test label_pull_request_by_merge_state when unknown."""
+        mock_pull_request.mergeable_state = "unknown"
+
+        with patch(
+            "asyncio.to_thread", side_effect=lambda f, *args, **kwargs: f(*args, **kwargs) if callable(f) else None
+        ):
+            await pull_request_handler.label_pull_request_by_merge_state(mock_pull_request)
+
+        # Should return early
+        pull_request_handler.labels_handler._add_label.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_delete_registry_tag_via_regctl_failure(
+        self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock, mock_pull_request: Mock
+    ) -> None:
+        """Test failures in _delete_registry_tag_via_regctl."""
+        mock_github_webhook.container_repository_username = "user"
+        mock_github_webhook.container_repository_password = "pass"  # pragma: allowlist secret
+        mock_github_webhook.container_repository = "registry.io/repo"
+
+        # 1. Login failure
+        pull_request_handler.runner_handler.run_podman_command = AsyncMock(
+            return_value=(False, "Login failed", "Error")
+        )
+
+        await pull_request_handler._delete_registry_tag_via_regctl(mock_pull_request, "tag", "pr-123", "registry.io")
+        pull_request_handler.logger.error.assert_called_with(
+            "[TEST] Failed to delete tag: tag. OUT:Login failed. ERR:Error"
+        )
+
+        # 2. Tag delete failure
+        pull_request_handler.runner_handler.run_podman_command = AsyncMock(
+            side_effect=[
+                (True, "Login success", ""),  # login
+                (True, "pr-123", ""),  # tag ls
+                (False, "Delete failed", "Error"),  # tag delete
+                (True, "", ""),  # logout
+            ]
+        )
+
+        await pull_request_handler._delete_registry_tag_via_regctl(mock_pull_request, "tag", "pr-123", "registry.io")
+        pull_request_handler.logger.error.assert_called_with(
+            "[TEST] Failed to delete tag: tag. OUT:Delete failed. ERR:Error"
+        )

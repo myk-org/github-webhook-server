@@ -1562,3 +1562,63 @@ class TestGithubWebhook:
 
             # Verify PushHandler.process_push_webhook_data was called
             mock_process_push.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_cleanup(
+        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock, to_thread_sync: Any
+    ) -> None:
+        """Test cleanup method removes temporary directory."""
+        mock_logger = Mock()
+        with patch("webhook_server.libs.github_api.Config") as mock_config:
+            mock_config.return_value.repository = True
+            mock_config.return_value.repository_local_data.return_value = {}
+
+            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+                mock_get_api.return_value = (Mock(), "token", "apiuser")
+
+                with patch("webhook_server.libs.github_api.get_github_repo_api"):
+                    with patch("webhook_server.libs.github_api.get_repository_github_app_api"):
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix"):
+                            gh = GithubWebhook(minimal_hook_data, minimal_headers, mock_logger)
+
+                            # Set a fake clone dir
+                            gh.clone_repo_dir = "/tmp/fake-clone-dir"
+
+                            with patch("os.path.exists", return_value=True):
+                                with patch("shutil.rmtree") as mock_rmtree:
+                                    with patch("asyncio.to_thread", side_effect=to_thread_sync):
+                                        await gh.cleanup()
+
+                                        mock_rmtree.assert_called_once_with("/tmp/fake-clone-dir", ignore_errors=True)
+                                        mock_logger.debug.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_exception(
+        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock, to_thread_sync: Any
+    ) -> None:
+        """Test cleanup method handles exceptions."""
+        mock_logger = Mock()
+        with patch("webhook_server.libs.github_api.Config") as mock_config:
+            mock_config.return_value.repository = True
+            mock_config.return_value.repository_local_data.return_value = {}
+
+            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+                mock_get_api.return_value = (Mock(), "token", "apiuser")
+
+                with patch("webhook_server.libs.github_api.get_github_repo_api"):
+                    with patch("webhook_server.libs.github_api.get_repository_github_app_api"):
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix"):
+                            gh = GithubWebhook(minimal_hook_data, minimal_headers, mock_logger)
+
+                            gh.clone_repo_dir = "/tmp/fake-clone-dir"
+
+                            with patch("os.path.exists", return_value=True):
+
+                                def rmtree_fail(*args, **kwargs):
+                                    raise PermissionError("Access denied")
+
+                                with patch("shutil.rmtree", side_effect=rmtree_fail):
+                                    with patch("asyncio.to_thread", side_effect=to_thread_sync):
+                                        await gh.cleanup()
+
+                                        mock_logger.warning.assert_called()
