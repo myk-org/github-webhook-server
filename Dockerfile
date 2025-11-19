@@ -29,6 +29,7 @@ RUN dnf -y install dnf-plugins-core \
   nodejs \
   npm \
   which \
+  tini \
   && dnf clean all \
   && rm -rf /var/cache /var/log/dnf* /var/log/yum.*
 
@@ -78,4 +79,4 @@ RUN uv sync
 
 HEALTHCHECK CMD curl --fail http://127.0.0.1:5000/webhook_server/healthcheck || exit 1
 
-ENTRYPOINT ["uv", "run", "entrypoint.py"]
+ENTRYPOINT ["tini", "--", "uv", "run", "entrypoint.py"]

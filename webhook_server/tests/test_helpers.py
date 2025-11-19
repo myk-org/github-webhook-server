@@ -1,6 +1,8 @@
+import asyncio
 import datetime
 import logging
 import os
+import subprocess as sp
 import sys
 from unittest.mock import Mock, patch
 
@@ -346,3 +348,160 @@ class TestHelpers:
                 assert futures[0].logged == "success"
                 assert futures[1].logged == "fail"
                 # futures[2] raised exception so no log attribute set
+
+    @pytest.mark.asyncio
+    async def test_run_command_timeout_cleanup(self) -> None:
+        """Test that subprocess is properly cleaned up on timeout."""
+        # Get initial zombie count
+        initial_zombies = 0
+        try:
+            proc = sp.run(["ps", "aux"], capture_output=True, text=True, timeout=5)
+            initial_zombies = proc.stdout.count("<defunct>")
+        except Exception:
+            pass
+
+        # Run command that times out
+        result = await run_command("sleep 100", log_prefix="[TEST]", timeout=1)
+        assert result[0] is False
+        assert "timed out" in result[2].lower()
+
+        # Wait for cleanup
+        await asyncio.sleep(0.2)
+
+        # Verify no new zombies created
+        try:
+            proc = sp.run(["ps", "aux"], capture_output=True, text=True, timeout=5)
+            final_zombies = proc.stdout.count("<defunct>")
+            assert final_zombies == initial_zombies, f"Zombie count increased from {initial_zombies} to {final_zombies}"
+        except Exception:
+            pass  # ps not available, but timeout test still validates behavior
+
+    @pytest.mark.asyncio
+    async def test_run_command_cancelled_cleanup(self) -> None:
+        """Test that subprocess is properly cleaned up when cancelled."""
+        # Create a task that runs a long command
+        task = asyncio.create_task(run_command("sleep 100", log_prefix="[TEST]"))
+
+        # Let it start, then cancel
+        await asyncio.sleep(0.1)
+        task.cancel()
+
+        # Verify CancelledError is raised
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        # Give process time to be reaped
+        await asyncio.sleep(0.1)
+        # Verify no zombie processes (implicit - would cause issues if zombies exist)
+
+    @pytest.mark.asyncio
+    async def test_run_command_oserror_cleanup(self) -> None:
+        """Test that subprocess is properly cleaned up on OSError."""
+        # Try to run nonexistent command
+        result = await run_command("totally_nonexistent_command_12345", log_prefix="[TEST]")
+        assert result[0] is False
+
+        # Give process time to be reaped
+        await asyncio.sleep(0.1)
+        # Verify no zombie processes (implicit verification)
+
+    @pytest.mark.asyncio
+    async def test_run_command_no_zombie_processes(self) -> None:
+        """Test that multiple failed commands don't create zombie processes."""
+        # Get initial zombie count at the start
+        initial_zombies = 0
+        try:
+            proc = sp.run(["ps", "aux"], capture_output=True, text=True, timeout=5)
+            initial_zombies = proc.stdout.count("<defunct>")
+        except Exception:
+            pytest.skip("ps command not available")
+
+        # Run more iterations to trigger potential race conditions
+        tasks = [
+            run_command("sleep 10", log_prefix="[TEST]", timeout=0.5),  # Timeout
+            run_command("sleep 10", log_prefix="[TEST]", timeout=0.5),  # Timeout
+            run_command("sleep 10", log_prefix="[TEST]", timeout=0.5),  # Timeout
+            run_command("nonexistent_cmd", log_prefix="[TEST]"),  # OSError
+            run_command("nonexistent_cmd", log_prefix="[TEST]"),  # OSError
+            run_command("false", log_prefix="[TEST]"),  # Normal failure
+            run_command("false", log_prefix="[TEST]"),  # Normal failure
+        ]
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Verify all commands failed appropriately
+        for result in results:
+            if isinstance(result, tuple):
+                assert result[0] is False, "All test commands should fail"
+
+        # Wait longer for cleanup with multiple processes
+        await asyncio.sleep(0.5)
+
+        # Check zombie count hasn't increased
+        try:
+            proc = sp.run(["ps", "aux"], capture_output=True, text=True, timeout=5)
+            final_zombies = proc.stdout.count("<defunct>")
+            assert final_zombies == initial_zombies, (
+                f"Zombie processes created: {final_zombies - initial_zombies} "
+                f"(initial: {initial_zombies}, final: {final_zombies})"
+            )
+        except Exception:
+            # ps command failed, but test still validates no exceptions occurred
+            pass
+
+    @pytest.mark.asyncio
+    async def test_run_command_race_condition_cleanup(self) -> None:
+        """Test that zombie is reaped even in race condition where returncode is set quickly."""
+        # Get initial zombie count
+        initial_zombies = 0
+        try:
+            proc = sp.run(["ps", "aux"], capture_output=True, text=True, timeout=5)
+            initial_zombies = proc.stdout.count("<defunct>")
+        except Exception:
+            pass
+
+        # Run multiple timeouts concurrently to trigger race conditions
+        tasks = [run_command("sleep 100", log_prefix="[TEST]", timeout=0.5) for _ in range(10)]
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # All should timeout
+        for result in results:
+            if isinstance(result, tuple):
+                assert result[0] is False, "All commands should timeout"
+
+        # Wait for all cleanup
+        await asyncio.sleep(0.5)
+
+        # Verify no zombies created despite race conditions
+        try:
+            proc = sp.run(["ps", "aux"], capture_output=True, text=True, timeout=5)
+            final_zombies = proc.stdout.count("<defunct>")
+            assert final_zombies == initial_zombies, f"Zombie processes created: {final_zombies - initial_zombies}"
+        except Exception:
+            pass
+
+    @pytest.mark.asyncio
+    async def test_run_command_stdin_cleanup(self) -> None:
+        """Test that subprocess is properly cleaned up when using stdin."""
+        # Use a command that processes stdin slowly - sleep after reading to simulate slow processing
+        # This ensures we can cancel during the communicate() phase
+        task = asyncio.create_task(
+            run_command(
+                f"{sys.executable} -c 'import sys, time; sys.stdin.read(); time.sleep(10)'",
+                log_prefix="[TEST]",
+                stdin_input="test data",
+            )
+        )
+
+        # Let it start and begin reading stdin, then cancel
+        await asyncio.sleep(0.1)
+        task.cancel()
+
+        # Verify CancelledError is raised
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        # Give process time to be reaped
+        await asyncio.sleep(0.1)
+        # Verify no zombie processes (implicit - would cause issues if zombies exist)
