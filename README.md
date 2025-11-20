@@ -226,6 +226,8 @@ port: 5000
 max-workers: 20
 log-level: INFO
 log-file: webhook-server.log
+mcp-log-file: mcp_server.log
+logs-server-log-file: logs_server.log
 
 # Security Configuration
 webhook-secret: "your-webhook-secret" # pragma: allowlist secret
@@ -1364,6 +1366,8 @@ Configure comprehensive logging:
 ```yaml
 log-level: INFO # DEBUG, INFO, WARNING, ERROR
 log-file: /path/to/webhook-server.log
+mcp-log-file: /path/to/mcp_server.log
+logs-server-log-file: /path/to/logs_server.log
 mask-sensitive-data: true # Mask sensitive data (tokens, passwords) in logs (default: true)
 ```
 

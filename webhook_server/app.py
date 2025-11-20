@@ -40,7 +40,10 @@ from webhook_server.utils.app_utils import (
     parse_datetime_string,
     verify_signature,
 )
-from webhook_server.utils.helpers import get_logger_with_params, prepare_log_prefix
+from webhook_server.utils.helpers import (
+    get_logger_with_params,
+    prepare_log_prefix,
+)
 from webhook_server.web.log_viewer import LogViewerController
 
 # Constants
@@ -120,6 +123,25 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
 
         config = Config(logger=LOGGER)
         root_config = config.root_data
+
+        # Configure MCP logging separation
+        if MCP_SERVER_ENABLED:
+            mcp_log_file = root_config.get("mcp-log-file", "mcp_server.log")
+
+            # Use get_logger_with_params to reuse existing logging configuration logic
+            # (rotation, sensitive data masking, formatting)
+            # This returns a logger configured for the specific file
+            mcp_file_logger = get_logger_with_params(log_file_name=mcp_log_file)
+
+            # Add the configured handler to the actual MCP logger and stop propagation
+            # This ensures MCP logs go ONLY to mcp_server.log and not webhook_server.log
+            if mcp_file_logger.handlers:
+                for handler in mcp_file_logger.handlers:
+                    mcp_logger.addHandler(handler)
+
+                mcp_logger.propagate = False
+                LOGGER.info(f"MCP logging configured to: {mcp_log_file} via handlers from {mcp_file_logger.name}")
+
         verify_github_ips = root_config.get("verify-github-ips", False)
         verify_cloudflare_ips = root_config.get("verify-cloudflare-ips", False)
         disable_ssl_warnings = root_config.get("disable-ssl-warnings", False)
@@ -428,7 +450,13 @@ def get_log_viewer_controller() -> LogViewerController:
     """
     global _log_viewer_controller_singleton
     if _log_viewer_controller_singleton is None:
-        _log_viewer_controller_singleton = LogViewerController(logger=LOGGER)
+        # Use global LOGGER for config operations
+        config = Config(logger=LOGGER)
+        logs_server_log_file = config.get_value("logs-server-log-file", return_on_none="logs_server.log")
+
+        # Create dedicated logger for log viewer
+        log_viewer_logger = get_logger_with_params(log_file_name=logs_server_log_file)
+        _log_viewer_controller_singleton = LogViewerController(logger=log_viewer_logger)
     return _log_viewer_controller_singleton
 
 
