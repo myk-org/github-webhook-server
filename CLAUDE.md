@@ -421,14 +421,18 @@ user_type = webhook_data["user"]["type"]
 ### 3. PyGithub REST API Usage
 
 - All GitHub API operations use PyGithub (synchronous REST API)
-- No async wrappers needed for PyGithub calls
+- **🔴 CRITICAL:** PyGithub is blocking - **MUST** wrap ALL calls with `asyncio.to_thread()` to avoid blocking event loop
 - Data sources are explicit and guaranteed
 
 ```python
-# ✅ CORRECT - Direct PyGithub usage
+# ✅ CORRECT - PyGithub wrapped in asyncio.to_thread()
 repository = self.github_webhook.repository
-pull_request = repository.get_pull(number)
-pull_request.create_issue_comment("Comment text")
+pull_request = await asyncio.to_thread(repository.get_pull, number)
+await asyncio.to_thread(pull_request.create_issue_comment, "Comment text")
+
+# ❌ WRONG - Direct PyGithub calls block event loop
+pull_request = repository.get_pull(number)  # BLOCKS!
+pull_request.create_issue_comment("Comment text")  # BLOCKS!
 ```
 
 ---
@@ -1104,14 +1108,6 @@ def mock_github_api():
 1. Create handler file in `webhook_server/libs/handlers/`
 2. Implement `__init__(self, github_webhook, ...)` and `process_event(event_data)`
 3. Use `self.github_webhook.unified_api` for GitHub operations
-4. Add tests in `webhook_server/tests/test_*_handler.py`
-5. Update `app.py` to instantiate handler
-
-### Adding a New Handler
-
-1. Create handler file in `webhook_server/libs/handlers/`
-2. Implement `__init__(self, github_webhook, ...)` and `process_event(event_data)`
-3. Use `self.github_webhook` for GitHub operations
 4. Add tests in `webhook_server/tests/test_*_handler.py`
 5. Update `app.py` to instantiate handler
 
