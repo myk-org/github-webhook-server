@@ -277,10 +277,10 @@ class PullRequestHandler:
         if self.github_webhook.create_issue_for_new_pr:
             issue_creation_note = (
                 "* **Issue Creation**: A tracking issue is created for this PR "
-                "and will be closed when the PR is merged or closed\n"
+                "and will be closed when the PR is merged or closed"
             )
         else:
-            issue_creation_note = "* **Issue Creation**: Disabled for this repository\n"
+            issue_creation_note = "* **Issue Creation**: Disabled for this repository"
 
         return f"""
 {self.github_webhook.issue_url_for_welcome_msg}
@@ -290,13 +290,10 @@ class PullRequestHandler:
 This pull request will be automatically processed with the following features:{auto_verified_note}
 
 ### 🔄 Automatic Actions
-* **Reviewer Assignment**: Reviewers are automatically assigned based on the "
-            "OWNERS file in the repository root\n"
-            "* **Size Labeling**: PR size labels (XS, S, M, L, XL, XXL) are "
-            "automatically applied based on changes\n"
-            f"{issue_creation_note}"
-            "* **Pre-commit Checks**: [pre-commit](https://pre-commit.ci/) runs "
-            "automatically if `.pre-commit-config.yaml` exists\n"
+* **Reviewer Assignment**: Reviewers are automatically assigned based on the OWNERS file in the repository root
+* **Size Labeling**: PR size labels (XS, S, M, L, XL, XXL) are automatically applied based on changes
+{issue_creation_note}
+* **Pre-commit Checks**: [pre-commit](https://pre-commit.ci/) runs automatically if `.pre-commit-config.yaml` exists
 * **Branch Labeling**: Branch-specific labels are applied to track the target branch
 * **Auto-verification**: Auto-verified users have their PRs automatically marked as verified
 
