@@ -45,8 +45,18 @@ function connectWebSocket() {
   if (user) filters.append("github_user", user);
   if (level) filters.append("level", level);
   if (search) filters.append("search", search);
-  if (startTime) filters.append("start_time", new Date(startTime).toISOString());
-  if (endTime) filters.append("end_time", new Date(endTime).toISOString());
+  if (startTime) {
+    const parsedStart = new Date(startTime);
+    if (!isNaN(parsedStart.getTime())) {
+      filters.append("start_time", parsedStart.toISOString());
+    }
+  }
+  if (endTime) {
+    const parsedEnd = new Date(endTime);
+    if (!isNaN(parsedEnd.getTime())) {
+      filters.append("end_time", parsedEnd.toISOString());
+    }
+  }
 
   const wsUrl = `${protocol}//${window.location.host}/logs/ws${
     filters.toString() ? "?" + filters.toString() : ""
@@ -348,8 +358,18 @@ async function loadHistoricalLogs() {
     if (user) filters.append("github_user", user);
     if (level) filters.append("level", level);
     if (search) filters.append("search", search);
-    if (startTime) filters.append("start_time", new Date(startTime).toISOString());
-    if (endTime) filters.append("end_time", new Date(endTime).toISOString());
+    if (startTime) {
+      const parsedStart = new Date(startTime);
+      if (!isNaN(parsedStart.getTime())) {
+        filters.append("start_time", parsedStart.toISOString());
+      }
+    }
+    if (endTime) {
+      const parsedEnd = new Date(endTime);
+      if (!isNaN(parsedEnd.getTime())) {
+        filters.append("end_time", parsedEnd.toISOString());
+      }
+    }
 
     const response = await fetch(`/logs/api/entries?${filters.toString()}`);
 
@@ -532,8 +552,18 @@ function exportLogs(format) {
   if (user) filters.append("github_user", user);
   if (level) filters.append("level", level);
   if (search) filters.append("search", search);
-  if (startTime) filters.append("start_time", new Date(startTime).toISOString());
-  if (endTime) filters.append("end_time", new Date(endTime).toISOString());
+  if (startTime) {
+    const parsedStart = new Date(startTime);
+    if (!isNaN(parsedStart.getTime())) {
+      filters.append("start_time", parsedStart.toISOString());
+    }
+  }
+  if (endTime) {
+    const parsedEnd = new Date(endTime);
+    if (!isNaN(parsedEnd.getTime())) {
+      filters.append("end_time", parsedEnd.toISOString());
+    }
+  }
   filters.append("limit", limit);
   filters.append("format", format);
 
@@ -653,6 +683,27 @@ function initializeTheme() {
 // Initialize theme on page load
 initializeTheme();
 
+// Initialize panel state from localStorage
+function initializePanelState() {
+  const isCollapsed = localStorage.getItem("log-viewer-panel-collapsed") === "true";
+  const container = document.querySelector(".filters-container");
+  const btn = document.getElementById("togglePanelBtn");
+
+  if (!container || !btn) return;
+
+  if (isCollapsed) {
+    container.classList.add("collapsed");
+    btn.style.transform = "rotate(-90deg)";
+    btn.title = "Expand Panel";
+  } else {
+    container.classList.remove("collapsed");
+    btn.style.transform = "rotate(0deg)";
+    btn.title = "Collapse Panel";
+  }
+}
+
+initializePanelState();
+
 // Initialize connection status
 updateConnectionStatus(false);
 
@@ -665,10 +716,12 @@ function togglePanel() {
     container.classList.remove("collapsed");
     btn.style.transform = "rotate(0deg)";
     btn.title = "Collapse Panel";
+    localStorage.setItem("log-viewer-panel-collapsed", "false");
   } else {
     container.classList.add("collapsed");
     btn.style.transform = "rotate(-90deg)";
     btn.title = "Expand Panel";
+    localStorage.setItem("log-viewer-panel-collapsed", "true");
   }
 }
 

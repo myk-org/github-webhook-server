@@ -95,7 +95,9 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     _lifespan_http_client = httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS)
 
     # Apply filter to MCP logger to suppress client disconnect noise
-    logging.getLogger("mcp.server.streamable_http").addFilter(IgnoreMCPClosedResourceErrorFilter())
+    mcp_logger = logging.getLogger("mcp.server.streamable_http")
+    if not any(isinstance(f, IgnoreMCPClosedResourceErrorFilter) for f in mcp_logger.filters):
+        mcp_logger.addFilter(IgnoreMCPClosedResourceErrorFilter())
 
     try:
         LOGGER.info("Application starting up...")

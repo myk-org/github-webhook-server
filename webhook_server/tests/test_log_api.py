@@ -470,14 +470,16 @@ class TestLogViewerController:
     def test_generate_json_export(self, controller, sample_log_entries):
         """Test JSON export generation."""
         filters = {"level": "INFO"}
-        result = controller._generate_json_export(sample_log_entries, filters)
+        # Filter entries to match the metadata for clarity
+        filtered_entries = [e for e in sample_log_entries if e.level == "INFO"]
+        result = controller._generate_json_export(filtered_entries, filters)
         assert isinstance(result, str)
         parsed = json.loads(result)
         assert "export_metadata" in parsed
         assert "log_entries" in parsed
         assert parsed["export_metadata"]["filters_applied"] == filters
-        assert parsed["export_metadata"]["total_entries"] == 3
-        assert len(parsed["log_entries"]) == 3
+        assert parsed["export_metadata"]["total_entries"] == 1
+        assert len(parsed["log_entries"]) == 1
         assert parsed["log_entries"][0]["level"] == "INFO"
 
     def test_analyze_pr_flow_empty_entries(self, controller):

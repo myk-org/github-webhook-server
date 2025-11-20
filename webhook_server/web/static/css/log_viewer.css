@@ -194,16 +194,7 @@ body {
   flex-wrap: wrap;
 }
 
-.log-stats {
-  display: flex;
-  gap: 20px;
-  font-size: 14px;
-  color: var(--text-secondary);
-}
 
-.log-stats strong {
-  color: var(--text-color);
-}
 
 /* Toggle Switch */
 .toggle-group {
