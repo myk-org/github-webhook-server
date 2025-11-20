@@ -38,6 +38,7 @@ class CheckRunHandler:
         self.repository: Repository = self.github_webhook.repository
         self._repository_private: bool | None = None
         self._branch_required_status_checks: list[str] | None = None
+        self._all_required_status_checks: list[str] | None = None
         if isinstance(self.owners_file_handler, OwnersFileHandler):
             self.labels_handler = LabelsHandler(
                 github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
@@ -363,7 +364,14 @@ class CheckRunHandler:
         self, pull_request: PullRequest, last_commit_check_runs: list[CheckRun], check_runs_in_progress: list[str]
     ) -> str:
         failed_check_runs: list[str] = []
-        no_status_check_runs: list[str] = []
+
+        # Find required checks that are missing entirely from check runs list
+        required_checks = set(await self.all_required_status_checks(pull_request=pull_request))
+        existing_check_names = {cr.name for cr in last_commit_check_runs}
+        missing_required_checks = required_checks - existing_check_names
+
+        # Add missing checks to no_status list (these haven't been created yet)
+        no_status_check_runs: list[str] = list(missing_required_checks)
 
         for check_run in last_commit_check_runs:
             self.logger.debug(f"{self.log_prefix} Check if {check_run.name} failed or do not have status.")
@@ -399,6 +407,10 @@ class CheckRunHandler:
         return msg
 
     async def all_required_status_checks(self, pull_request: PullRequest) -> list[str]:
+        # Cache to avoid repeated processing
+        if self._all_required_status_checks is not None:
+            return self._all_required_status_checks
+
         all_required_status_checks: list[str] = []
         branch_required_status_checks = await self.get_branch_required_status_checks(pull_request=pull_request)
 
@@ -419,12 +431,13 @@ class CheckRunHandler:
 
         _all_required_status_checks = branch_required_status_checks + all_required_status_checks
         self.logger.debug(f"{self.log_prefix} All required status checks: {_all_required_status_checks}")
+        self._all_required_status_checks = _all_required_status_checks
         return _all_required_status_checks
 
     async def get_branch_required_status_checks(self, pull_request: PullRequest) -> list[str]:
         # Check if private repo first (cache to avoid repeated API calls)
         if self._repository_private is None:
-            self._repository_private = self.repository.private
+            self._repository_private = await asyncio.to_thread(lambda: self.repository.private)
 
         if self._repository_private:
             self.logger.info(
@@ -438,7 +451,9 @@ class CheckRunHandler:
 
         pull_request_branch = await asyncio.to_thread(self.repository.get_branch, pull_request.base.ref)
         branch_protection = await asyncio.to_thread(pull_request_branch.get_protection)
-        branch_required_status_checks = branch_protection.required_status_checks.contexts
+        branch_required_status_checks = await asyncio.to_thread(
+            lambda: branch_protection.required_status_checks.contexts
+        )
         self.logger.debug(f"{self.log_prefix} branch_required_status_checks: {branch_required_status_checks}")
         self._branch_required_status_checks = branch_required_status_checks
         return self._branch_required_status_checks

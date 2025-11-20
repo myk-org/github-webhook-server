@@ -636,3 +636,272 @@ class TestCheckRunHandler:
 
             assert msg == ""
             assert in_progress_checks == []
+
+    @pytest.mark.asyncio
+    async def test_required_check_failed_or_no_status_missing_required_check(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """Test that missing required checks are detected and appear in error message."""
+        mock_pull_request = Mock()
+
+        # Setup: "tox" is required but completely missing from check runs
+        required_checks = [TOX_STR, VERIFIED_LABEL_STR]
+
+        # Only verified check exists, tox is missing
+        mock_verified_check = Mock()
+        mock_verified_check.name = VERIFIED_LABEL_STR
+        mock_verified_check.conclusion = SUCCESS_STR
+
+        with patch.object(check_run_handler, "all_required_status_checks", return_value=required_checks):
+            result = await check_run_handler.required_check_failed_or_no_status(
+                mock_pull_request, [mock_verified_check], []
+            )
+
+            assert TOX_STR in result
+            assert "not started" in result
+            # verified check is successful, should not appear in error
+            assert VERIFIED_LABEL_STR not in result
+
+    @pytest.mark.asyncio
+    async def test_required_check_failed_or_no_status_queued_required_check(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """Test that queued required checks (status=queued, conclusion=None) appear in error message."""
+        mock_pull_request = Mock()
+
+        # Setup: "tox" is required and queued (conclusion=None)
+        required_checks = [TOX_STR, VERIFIED_LABEL_STR]
+
+        mock_tox_check = Mock()
+        mock_tox_check.name = TOX_STR
+        mock_tox_check.status = QUEUED_STR
+        mock_tox_check.conclusion = None
+
+        mock_verified_check = Mock()
+        mock_verified_check.name = VERIFIED_LABEL_STR
+        mock_verified_check.conclusion = SUCCESS_STR
+
+        with patch.object(check_run_handler, "all_required_status_checks", return_value=required_checks):
+            result = await check_run_handler.required_check_failed_or_no_status(
+                mock_pull_request, [mock_tox_check, mock_verified_check], []
+            )
+
+            assert TOX_STR in result
+            assert "not started" in result
+            # verified check is successful, should not appear in error
+            assert VERIFIED_LABEL_STR not in result
+
+    @pytest.mark.asyncio
+    async def test_required_check_failed_or_no_status_failed_required_check(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """Test that failed required checks (conclusion=failure) appear in error message."""
+        mock_pull_request = Mock()
+
+        # Setup: "tox" is required and failed
+        required_checks = [TOX_STR, VERIFIED_LABEL_STR]
+
+        mock_tox_check = Mock()
+        mock_tox_check.name = TOX_STR
+        mock_tox_check.conclusion = FAILURE_STR
+
+        mock_verified_check = Mock()
+        mock_verified_check.name = VERIFIED_LABEL_STR
+        mock_verified_check.conclusion = SUCCESS_STR
+
+        with patch.object(check_run_handler, "all_required_status_checks", return_value=required_checks):
+            result = await check_run_handler.required_check_failed_or_no_status(
+                mock_pull_request, [mock_tox_check, mock_verified_check], []
+            )
+
+            assert TOX_STR in result
+            assert "failed" in result
+            # verified check is successful, should not appear in error
+            assert VERIFIED_LABEL_STR not in result
+
+    @pytest.mark.asyncio
+    async def test_required_check_failed_or_no_status_all_successful(self, check_run_handler: CheckRunHandler) -> None:
+        """Test that all successful required checks return empty string (no error)."""
+        mock_pull_request = Mock()
+
+        # Setup: All required checks are successful
+        required_checks = [TOX_STR, VERIFIED_LABEL_STR, BUILD_CONTAINER_STR]
+
+        mock_tox_check = Mock()
+        mock_tox_check.name = TOX_STR
+        mock_tox_check.conclusion = SUCCESS_STR
+
+        mock_verified_check = Mock()
+        mock_verified_check.name = VERIFIED_LABEL_STR
+        mock_verified_check.conclusion = SUCCESS_STR
+
+        mock_container_check = Mock()
+        mock_container_check.name = BUILD_CONTAINER_STR
+        mock_container_check.conclusion = SUCCESS_STR
+
+        with patch.object(check_run_handler, "all_required_status_checks", return_value=required_checks):
+            result = await check_run_handler.required_check_failed_or_no_status(
+                mock_pull_request, [mock_tox_check, mock_verified_check, mock_container_check], []
+            )
+
+            # No errors expected - all checks successful
+            assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_required_check_failed_or_no_status_missing_non_required_check(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """Test that missing non-required checks do NOT cause an error."""
+        mock_pull_request = Mock()
+
+        # Setup: Only TOX_STR is required, other checks are not
+        required_checks = [TOX_STR]
+
+        mock_tox_check = Mock()
+        mock_tox_check.name = TOX_STR
+        mock_tox_check.conclusion = SUCCESS_STR
+
+        # BUILD_CONTAINER_STR exists but is not required
+        mock_container_check = Mock()
+        mock_container_check.name = BUILD_CONTAINER_STR
+        mock_container_check.conclusion = SUCCESS_STR
+
+        # VERIFIED_LABEL_STR is missing but not required
+
+        with patch.object(check_run_handler, "all_required_status_checks", return_value=required_checks):
+            result = await check_run_handler.required_check_failed_or_no_status(
+                mock_pull_request, [mock_tox_check, mock_container_check], []
+            )
+
+            # No errors expected - only required check (tox) is successful
+            assert result == ""
+            # Missing non-required check should not appear in error
+            assert VERIFIED_LABEL_STR not in result
+
+    @pytest.mark.asyncio
+    async def test_required_check_failed_or_no_status_multiple_missing_checks(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """Test that multiple missing required checks all appear in error message."""
+        mock_pull_request = Mock()
+
+        # Setup: Multiple required checks, some missing
+        required_checks = [TOX_STR, VERIFIED_LABEL_STR, BUILD_CONTAINER_STR, PYTHON_MODULE_INSTALL_STR]
+
+        # Only verified check exists
+        mock_verified_check = Mock()
+        mock_verified_check.name = VERIFIED_LABEL_STR
+        mock_verified_check.conclusion = SUCCESS_STR
+
+        with patch.object(check_run_handler, "all_required_status_checks", return_value=required_checks):
+            result = await check_run_handler.required_check_failed_or_no_status(
+                mock_pull_request, [mock_verified_check], []
+            )
+
+            # All missing checks should appear in error
+            assert TOX_STR in result
+            assert BUILD_CONTAINER_STR in result
+            assert PYTHON_MODULE_INSTALL_STR in result
+            assert "not started" in result
+            # Successful check should not appear
+            assert VERIFIED_LABEL_STR not in result
+
+    @pytest.mark.asyncio
+    async def test_required_check_failed_or_no_status_mixed_states(self, check_run_handler: CheckRunHandler) -> None:
+        """Test mixed check states: missing, queued, failed, and successful."""
+        mock_pull_request = Mock()
+
+        # Setup: Multiple required checks in different states
+        required_checks = [TOX_STR, VERIFIED_LABEL_STR, BUILD_CONTAINER_STR, PYTHON_MODULE_INSTALL_STR]
+
+        mock_tox_check = Mock()
+        mock_tox_check.name = TOX_STR
+        mock_tox_check.conclusion = FAILURE_STR  # Failed
+
+        mock_verified_check = Mock()
+        mock_verified_check.name = VERIFIED_LABEL_STR
+        mock_verified_check.conclusion = None  # Queued/In progress
+        mock_verified_check.status = QUEUED_STR
+
+        mock_container_check = Mock()
+        mock_container_check.name = BUILD_CONTAINER_STR
+        mock_container_check.conclusion = SUCCESS_STR  # Successful
+
+        # PYTHON_MODULE_INSTALL_STR is missing entirely
+
+        with patch.object(check_run_handler, "all_required_status_checks", return_value=required_checks):
+            result = await check_run_handler.required_check_failed_or_no_status(
+                mock_pull_request, [mock_tox_check, mock_verified_check, mock_container_check], []
+            )
+
+            # Failed check should appear
+            assert TOX_STR in result
+            assert "failed" in result
+
+            # Queued check should appear as not started
+            assert VERIFIED_LABEL_STR in result
+            assert "not started" in result
+
+            # Missing check should appear as not started
+            assert PYTHON_MODULE_INSTALL_STR in result
+
+            # Successful check should not appear
+            # BUILD_CONTAINER_STR should not be in the error portion
+            assert result.count(BUILD_CONTAINER_STR) == 0
+
+    @pytest.mark.asyncio
+    async def test_required_check_failed_or_no_status_in_progress_excluded(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """Test that checks in progress are excluded from failed checks list."""
+        mock_pull_request = Mock()
+
+        # Setup: Failed check that is also in progress (being rerun)
+        required_checks = [TOX_STR, VERIFIED_LABEL_STR]
+
+        mock_tox_check = Mock()
+        mock_tox_check.name = TOX_STR
+        mock_tox_check.conclusion = FAILURE_STR  # Failed but in progress
+
+        mock_verified_check = Mock()
+        mock_verified_check.name = VERIFIED_LABEL_STR
+        mock_verified_check.conclusion = SUCCESS_STR
+
+        # TOX_STR is in the in_progress list (being rerun)
+        check_runs_in_progress = [TOX_STR]
+
+        with patch.object(check_run_handler, "all_required_status_checks", return_value=required_checks):
+            result = await check_run_handler.required_check_failed_or_no_status(
+                mock_pull_request, [mock_tox_check, mock_verified_check], check_runs_in_progress
+            )
+
+            # Since tox is in progress, it should not appear in failed checks
+            # (it's being rerun, so we wait for new result)
+            assert result == "" or TOX_STR not in result
+
+    @pytest.mark.asyncio
+    async def test_required_check_failed_or_no_status_can_be_merged_ignored(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """Test that can-be-merged check is ignored even if it fails."""
+        mock_pull_request = Mock()
+
+        # Setup: can-be-merged is in required checks but should be ignored
+        required_checks = [TOX_STR, CAN_BE_MERGED_STR]
+
+        mock_tox_check = Mock()
+        mock_tox_check.name = TOX_STR
+        mock_tox_check.conclusion = SUCCESS_STR
+
+        mock_merge_check = Mock()
+        mock_merge_check.name = CAN_BE_MERGED_STR
+        mock_merge_check.conclusion = FAILURE_STR  # Failed, but should be ignored
+
+        with patch.object(check_run_handler, "all_required_status_checks", return_value=required_checks):
+            result = await check_run_handler.required_check_failed_or_no_status(
+                mock_pull_request, [mock_tox_check, mock_merge_check], []
+            )
+
+            # No errors expected - can-be-merged is ignored
+            assert result == ""
+            assert CAN_BE_MERGED_STR not in result
