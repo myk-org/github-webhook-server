@@ -36,6 +36,14 @@ async def test_mcp_logging_configuration():
     # Mock dependencies
     mock_app = MagicMock()
 
+    # Mock asyncio.wait to return immediately (prevents 30-second shutdown timeout)
+    async def mock_wait(tasks, timeout=None, return_when=None):
+        # Cancel all tasks immediately to prevent blocking
+        for task in tasks:
+            task.cancel()
+        # Return empty done set and the tasks as pending
+        return set(), tasks
+
     with (
         patch("webhook_server.app.Config") as MockConfig,
         patch("webhook_server.app.MCP_SERVER_ENABLED", True),
@@ -45,6 +53,7 @@ async def test_mcp_logging_configuration():
         patch("webhook_server.app.get_cloudflare_allowlist", new_callable=AsyncMock),
         patch("webhook_server.app.httpx.AsyncClient") as MockClient,
         patch("webhook_server.app.LOGGER"),
+        patch("webhook_server.app.asyncio.wait", side_effect=mock_wait),
     ):
         # Setup mocks
         mock_config_instance = MockConfig.return_value
