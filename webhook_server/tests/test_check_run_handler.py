@@ -54,7 +54,9 @@ class TestCheckRunHandler:
     @pytest.fixture
     def mock_pull_request(self) -> Mock:
         """Create a mock PullRequest instance."""
-        return Mock()
+        mock_pr = Mock()
+        mock_pr.base.ref = "main"
+        return mock_pr
 
     @pytest.mark.asyncio
     async def test_process_pull_request_check_run_webhook_data_completed(
@@ -952,10 +954,12 @@ class TestCheckRunHandler:
         mock_status_precommit = Mock(spec=CommitStatus)
         mock_status_precommit.context = "pre-commit.ci - pr"
         mock_status_precommit.state = "success"
+        mock_status_precommit.id = 1
 
         mock_status_coderabbit = Mock(spec=CommitStatus)
         mock_status_coderabbit.context = "CodeRabbit"
         mock_status_coderabbit.state = "success"
+        mock_status_coderabbit.id = 2
 
         statuses = [mock_status_precommit, mock_status_coderabbit]
 
