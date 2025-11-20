@@ -728,6 +728,7 @@ class TestGithubWebhook:
     async def test_process_check_run_event(self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock) -> None:
         """Test processing check run event."""
         check_run_data = {
+            "action": "completed",
             "repository": {"name": "test-repo", "full_name": "org/test-repo"},
             "check_run": {"name": "test-check", "head_sha": "abc123", "status": "completed", "conclusion": "success"},
         }
