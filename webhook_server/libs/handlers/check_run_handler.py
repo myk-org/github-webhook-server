@@ -2,6 +2,7 @@ import asyncio
 from typing import TYPE_CHECKING, Any
 
 from github.CheckRun import CheckRun
+from github.CommitStatus import CommitStatus
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
@@ -361,7 +362,11 @@ class CheckRunHandler:
         return False
 
     async def required_check_failed_or_no_status(
-        self, pull_request: PullRequest, last_commit_check_runs: list[CheckRun], check_runs_in_progress: list[str]
+        self,
+        pull_request: PullRequest,
+        last_commit_check_runs: list[CheckRun],
+        last_commit_statuses: list[CommitStatus],
+        check_runs_in_progress: list[str],
     ) -> str:
         failed_check_runs: list[str] = []
 
@@ -372,6 +377,29 @@ class CheckRunHandler:
 
         # Add missing checks to no_status list (these haven't been created yet)
         no_status_check_runs: list[str] = list(missing_required_checks)
+
+        # Add commit statuses (legacy API) to existing checks
+        status_check_names = {status.context for status in last_commit_statuses}
+        existing_check_names = existing_check_names | status_check_names
+
+        # Recalculate missing checks after adding statuses
+        missing_required_checks = required_checks - existing_check_names
+        no_status_check_runs = list(missing_required_checks)
+
+        # Check commit statuses for failures/pending
+        for status in last_commit_statuses:
+            if status.context not in required_checks:
+                continue  # Not a required check
+
+            if status.state == "success":
+                continue  # Passed
+
+            if status.state == "pending":
+                if status.context not in no_status_check_runs:
+                    no_status_check_runs.append(status.context)
+            elif status.state in ("failure", "error"):
+                if status.context not in failed_check_runs:
+                    failed_check_runs.append(status.context)
 
         for check_run in last_commit_check_runs:
             self.logger.debug(f"{self.log_prefix} Check if {check_run.name} failed or do not have status.")
@@ -459,7 +487,10 @@ class CheckRunHandler:
         return self._branch_required_status_checks
 
     async def required_check_in_progress(
-        self, pull_request: PullRequest, last_commit_check_runs: list[CheckRun]
+        self,
+        pull_request: PullRequest,
+        last_commit_check_runs: list[CheckRun],
+        last_commit_statuses: list[CommitStatus],
     ) -> tuple[str, list[str]]:
         self.logger.debug(f"{self.log_prefix} Check if any required check runs in progress.")
 
@@ -470,6 +501,16 @@ class CheckRunHandler:
             and check_run.name != CAN_BE_MERGED_STR
             and check_run.name in await self.all_required_status_checks(pull_request=pull_request)
         ]
+
+        # Also check commit statuses (legacy API) for in-progress/pending state
+        status_in_progress = [
+            status.context
+            for status in last_commit_statuses
+            if status.state == "pending"
+            and status.context in await self.all_required_status_checks(pull_request=pull_request)
+        ]
+        check_runs_in_progress.extend(status_in_progress)
+
         if check_runs_in_progress:
             self.logger.debug(
                 f"{self.log_prefix} Some required check runs in progress {check_runs_in_progress}, "

@@ -551,7 +551,9 @@ class TestCheckRunHandler:
         mock_check_run.conclusion = FAILURE_STR
 
         with patch.object(check_run_handler, "all_required_status_checks", return_value=["test-check"]):
-            result = await check_run_handler.required_check_failed_or_no_status(mock_pull_request, [mock_check_run], [])
+            result = await check_run_handler.required_check_failed_or_no_status(
+                mock_pull_request, [mock_check_run], [], []
+            )
 
             assert "test-check" in result
 
@@ -615,7 +617,7 @@ class TestCheckRunHandler:
 
         with patch.object(check_run_handler, "all_required_status_checks", return_value=["test-check"]):
             msg, in_progress_checks = await check_run_handler.required_check_in_progress(
-                mock_pull_request, [mock_check_run]
+                mock_pull_request, [mock_check_run], []
             )
 
             assert "test-check" in msg
@@ -631,7 +633,7 @@ class TestCheckRunHandler:
 
         with patch.object(check_run_handler, "all_required_status_checks", return_value=[CAN_BE_MERGED_STR]):
             msg, in_progress_checks = await check_run_handler.required_check_in_progress(
-                mock_pull_request, [mock_check_run]
+                mock_pull_request, [mock_check_run], []
             )
 
             assert msg == ""
@@ -654,7 +656,7 @@ class TestCheckRunHandler:
 
         with patch.object(check_run_handler, "all_required_status_checks", return_value=required_checks):
             result = await check_run_handler.required_check_failed_or_no_status(
-                mock_pull_request, [mock_verified_check], []
+                mock_pull_request, [mock_verified_check], [], []
             )
 
             assert TOX_STR in result
@@ -683,7 +685,7 @@ class TestCheckRunHandler:
 
         with patch.object(check_run_handler, "all_required_status_checks", return_value=required_checks):
             result = await check_run_handler.required_check_failed_or_no_status(
-                mock_pull_request, [mock_tox_check, mock_verified_check], []
+                mock_pull_request, [mock_tox_check, mock_verified_check], [], []
             )
 
             assert TOX_STR in result
@@ -711,7 +713,7 @@ class TestCheckRunHandler:
 
         with patch.object(check_run_handler, "all_required_status_checks", return_value=required_checks):
             result = await check_run_handler.required_check_failed_or_no_status(
-                mock_pull_request, [mock_tox_check, mock_verified_check], []
+                mock_pull_request, [mock_tox_check, mock_verified_check], [], []
             )
 
             assert TOX_STR in result
@@ -741,7 +743,7 @@ class TestCheckRunHandler:
 
         with patch.object(check_run_handler, "all_required_status_checks", return_value=required_checks):
             result = await check_run_handler.required_check_failed_or_no_status(
-                mock_pull_request, [mock_tox_check, mock_verified_check, mock_container_check], []
+                mock_pull_request, [mock_tox_check, mock_verified_check, mock_container_check], [], []
             )
 
             # No errors expected - all checks successful
@@ -770,7 +772,7 @@ class TestCheckRunHandler:
 
         with patch.object(check_run_handler, "all_required_status_checks", return_value=required_checks):
             result = await check_run_handler.required_check_failed_or_no_status(
-                mock_pull_request, [mock_tox_check, mock_container_check], []
+                mock_pull_request, [mock_tox_check, mock_container_check], [], []
             )
 
             # No errors expected - only required check (tox) is successful
@@ -795,7 +797,7 @@ class TestCheckRunHandler:
 
         with patch.object(check_run_handler, "all_required_status_checks", return_value=required_checks):
             result = await check_run_handler.required_check_failed_or_no_status(
-                mock_pull_request, [mock_verified_check], []
+                mock_pull_request, [mock_verified_check], [], []
             )
 
             # All missing checks should appear in error
@@ -831,7 +833,7 @@ class TestCheckRunHandler:
 
         with patch.object(check_run_handler, "all_required_status_checks", return_value=required_checks):
             result = await check_run_handler.required_check_failed_or_no_status(
-                mock_pull_request, [mock_tox_check, mock_verified_check, mock_container_check], []
+                mock_pull_request, [mock_tox_check, mock_verified_check, mock_container_check], [], []
             )
 
             # Failed check should appear
@@ -872,7 +874,7 @@ class TestCheckRunHandler:
 
         with patch.object(check_run_handler, "all_required_status_checks", return_value=required_checks):
             result = await check_run_handler.required_check_failed_or_no_status(
-                mock_pull_request, [mock_tox_check, mock_verified_check], check_runs_in_progress
+                mock_pull_request, [mock_tox_check, mock_verified_check], [], check_runs_in_progress
             )
 
             # Since tox is in progress, it should not appear in failed checks
@@ -899,7 +901,7 @@ class TestCheckRunHandler:
 
         with patch.object(check_run_handler, "all_required_status_checks", return_value=required_checks):
             result = await check_run_handler.required_check_failed_or_no_status(
-                mock_pull_request, [mock_tox_check, mock_merge_check], []
+                mock_pull_request, [mock_tox_check, mock_merge_check], [], []
             )
 
             # No errors expected - can-be-merged is ignored
