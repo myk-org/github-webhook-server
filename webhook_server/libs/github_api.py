@@ -32,6 +32,7 @@ from webhook_server.utils.constants import (
     OTHER_MAIN_BRANCH,
     PRE_COMMIT_STR,
     PYTHON_MODULE_INSTALL_STR,
+    SUCCESS_STR,
     TOX_STR,
 )
 from webhook_server.utils.github_repository_settings import (
@@ -458,7 +459,9 @@ class GithubWebhook:
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
 
             # Clone repository for local file processing (OWNERS, changed files)
-            await self._clone_repository(pull_request=pull_request)
+            # For check_run events, cloning happens later only when needed
+            if self.github_event != "check_run":
+                await self._clone_repository(pull_request=pull_request)
 
             if self.github_event == "issue_comment":
                 self.logger.step(  # type: ignore[attr-defined]
@@ -529,6 +532,49 @@ class GithubWebhook:
                 return None
 
             elif self.github_event == "check_run":
+                # Check if we need to process this check_run
+                action = self.hook_data.get("action", "")
+                if action != "completed":
+                    self.logger.step(  # type: ignore[attr-defined]
+                        f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'skipped')} "
+                        f"Check run action is '{action}' (not 'completed'), skipping processing",
+                    )
+                    token_metrics = await self._get_token_metrics()
+                    self.logger.success(  # type: ignore[attr-defined]
+                        f"{self.log_prefix} "
+                        f"{format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
+                        f"Webhook processing completed successfully: check_run (action={action}, skipped) - "
+                        f"{token_metrics}",
+                    )
+                    return None
+
+                # Check if this is can-be-merged with non-success conclusion
+                check_run_name = self.hook_data.get("check_run", {}).get("name", "")
+                check_run_conclusion = self.hook_data.get("check_run", {}).get("conclusion", "")
+
+                if check_run_name == CAN_BE_MERGED_STR and check_run_conclusion != SUCCESS_STR:
+                    self.logger.step(  # type: ignore[attr-defined]
+                        f"{self.log_prefix} "
+                        f"{format_task_fields('webhook_processing', 'webhook_routing', 'skipped')} "
+                        f"Can-be-merged check has conclusion '{check_run_conclusion}' (not 'success'), "
+                        f"skipping processing",
+                    )
+                    token_metrics = await self._get_token_metrics()
+                    self.logger.success(  # type: ignore[attr-defined]
+                        f"{self.log_prefix} "
+                        f"{format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
+                        f"Webhook processing completed successfully: check_run "
+                        f"(can-be-merged, conclusion={check_run_conclusion}, skipped) - {token_metrics}",
+                    )
+                    return None
+
+                # Only clone repository when we actually need it (action is completed and processing is needed)
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
+                    f"Cloning repository for check run processing",
+                )
+                await self._clone_repository(pull_request=pull_request)
+
                 self.logger.step(  # type: ignore[attr-defined]
                     f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
                     f"Initializing OWNERS file handler for check run",
