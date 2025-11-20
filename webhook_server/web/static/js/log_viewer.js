@@ -21,6 +21,25 @@ function updateConnectionStatus(connected) {
   }
 }
 
+// Helper to append time filters to URLSearchParams
+function appendTimeFilters(filters) {
+  const startTime = document.getElementById("startTimeFilter").value;
+  const endTime = document.getElementById("endTimeFilter").value;
+
+  if (startTime) {
+    const parsedStart = new Date(startTime);
+    if (!isNaN(parsedStart.getTime())) {
+      filters.append("start_time", parsedStart.toISOString());
+    }
+  }
+  if (endTime) {
+    const parsedEnd = new Date(endTime);
+    if (!isNaN(parsedEnd.getTime())) {
+      filters.append("end_time", parsedEnd.toISOString());
+    }
+  }
+}
+
 function connectWebSocket() {
   if (ws) {
     ws.close();
@@ -36,8 +55,6 @@ function connectWebSocket() {
   const user = document.getElementById("userFilter").value.trim();
   const level = document.getElementById("levelFilter").value;
   const search = document.getElementById("searchFilter").value.trim();
-  const startTime = document.getElementById("startTimeFilter").value;
-  const endTime = document.getElementById("endTimeFilter").value;
 
   if (hookId) filters.append("hook_id", hookId);
   if (prNumber) filters.append("pr_number", prNumber);
@@ -45,18 +62,7 @@ function connectWebSocket() {
   if (user) filters.append("github_user", user);
   if (level) filters.append("level", level);
   if (search) filters.append("search", search);
-  if (startTime) {
-    const parsedStart = new Date(startTime);
-    if (!isNaN(parsedStart.getTime())) {
-      filters.append("start_time", parsedStart.toISOString());
-    }
-  }
-  if (endTime) {
-    const parsedEnd = new Date(endTime);
-    if (!isNaN(parsedEnd.getTime())) {
-      filters.append("end_time", parsedEnd.toISOString());
-    }
-  }
+  appendTimeFilters(filters);
 
   const wsUrl = `${protocol}//${window.location.host}/logs/ws${
     filters.toString() ? "?" + filters.toString() : ""
@@ -347,8 +353,6 @@ async function loadHistoricalLogs() {
     const level = document.getElementById("levelFilter").value;
     const search = document.getElementById("searchFilter").value.trim();
     const limit = document.getElementById("limitFilter").value;
-    const startTime = document.getElementById("startTimeFilter").value;
-    const endTime = document.getElementById("endTimeFilter").value;
 
     // Use user-configured limit
     filters.append("limit", limit);
@@ -358,18 +362,7 @@ async function loadHistoricalLogs() {
     if (user) filters.append("github_user", user);
     if (level) filters.append("level", level);
     if (search) filters.append("search", search);
-    if (startTime) {
-      const parsedStart = new Date(startTime);
-      if (!isNaN(parsedStart.getTime())) {
-        filters.append("start_time", parsedStart.toISOString());
-      }
-    }
-    if (endTime) {
-      const parsedEnd = new Date(endTime);
-      if (!isNaN(parsedEnd.getTime())) {
-        filters.append("end_time", parsedEnd.toISOString());
-      }
-    }
+    appendTimeFilters(filters);
 
     const response = await fetch(`/logs/api/entries?${filters.toString()}`);
 
@@ -543,8 +536,6 @@ function exportLogs(format) {
   const level = document.getElementById("levelFilter").value;
   const search = document.getElementById("searchFilter").value.trim();
   const limit = document.getElementById("limitFilter").value;
-  const startTime = document.getElementById("startTimeFilter").value;
-  const endTime = document.getElementById("endTimeFilter").value;
 
   if (hookId) filters.append("hook_id", hookId);
   if (prNumber) filters.append("pr_number", prNumber);
@@ -552,18 +543,7 @@ function exportLogs(format) {
   if (user) filters.append("github_user", user);
   if (level) filters.append("level", level);
   if (search) filters.append("search", search);
-  if (startTime) {
-    const parsedStart = new Date(startTime);
-    if (!isNaN(parsedStart.getTime())) {
-      filters.append("start_time", parsedStart.toISOString());
-    }
-  }
-  if (endTime) {
-    const parsedEnd = new Date(endTime);
-    if (!isNaN(parsedEnd.getTime())) {
-      filters.append("end_time", parsedEnd.toISOString());
-    }
-  }
+  appendTimeFilters(filters);
   filters.append("limit", limit);
   filters.append("format", format);
 
@@ -695,10 +675,14 @@ function initializePanelState() {
     container.classList.add("collapsed");
     btn.style.transform = "rotate(-90deg)";
     btn.title = "Expand Panel";
+    btn.setAttribute("aria-expanded", "false");
+    container.setAttribute("aria-hidden", "true");
   } else {
     container.classList.remove("collapsed");
     btn.style.transform = "rotate(0deg)";
     btn.title = "Collapse Panel";
+    btn.setAttribute("aria-expanded", "true");
+    container.setAttribute("aria-hidden", "false");
   }
 }
 
@@ -712,15 +696,21 @@ function togglePanel() {
   const container = document.querySelector(".filters-container");
   const btn = document.getElementById("togglePanelBtn");
 
+  if (!container || !btn) return;
+
   if (container.classList.contains("collapsed")) {
     container.classList.remove("collapsed");
     btn.style.transform = "rotate(0deg)";
     btn.title = "Collapse Panel";
+    btn.setAttribute("aria-expanded", "true");
+    container.setAttribute("aria-hidden", "false");
     localStorage.setItem("log-viewer-panel-collapsed", "false");
   } else {
     container.classList.add("collapsed");
     btn.style.transform = "rotate(-90deg)";
     btn.title = "Expand Panel";
+    btn.setAttribute("aria-expanded", "false");
+    container.setAttribute("aria-hidden", "true");
     localStorage.setItem("log-viewer-panel-collapsed", "true");
   }
 }

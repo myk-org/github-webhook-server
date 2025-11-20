@@ -240,11 +240,11 @@ body {
   border-radius: 50%;
 }
 
-input:checked + .slider {
+.toggle-switch input:checked + .slider {
   background-color: var(--button-bg);
 }
 
-input:checked + .slider:before {
+.toggle-switch input:checked + .slider:before {
   transform: translateX(20px);
 }
 

@@ -469,6 +469,7 @@ class TestLogViewerController:
 
     def test_generate_json_export(self, controller, sample_log_entries):
         """Test JSON export generation."""
+        # Test with standard filters
         filters = {"level": "INFO"}
         # Filter entries to match the metadata for clarity
         filtered_entries = [e for e in sample_log_entries if e.level == "INFO"]
@@ -481,6 +482,28 @@ class TestLogViewerController:
         assert parsed["export_metadata"]["total_entries"] == 1
         assert len(parsed["log_entries"]) == 1
         assert parsed["log_entries"][0]["level"] == "INFO"
+
+        # Test with filters=None
+        result_none = controller._generate_json_export(sample_log_entries, None)
+        parsed_none = json.loads(result_none)
+        assert parsed_none["export_metadata"]["filters_applied"] == {}
+        assert len(parsed_none["log_entries"]) == 3
+
+        # Test with empty filters {}
+        result_empty = controller._generate_json_export(sample_log_entries, {})
+        parsed_empty = json.loads(result_empty)
+        assert parsed_empty["export_metadata"]["filters_applied"] == {}
+        assert len(parsed_empty["log_entries"]) == 3
+
+        # Test with multiple filters
+        multi_filters = {"level": "INFO", "hook_id": "hook1"}
+        filtered_multi = [e for e in sample_log_entries if e.level == "INFO" and e.hook_id == "hook1"]
+        result_multi = controller._generate_json_export(filtered_multi, multi_filters)
+        parsed_multi = json.loads(result_multi)
+        assert parsed_multi["export_metadata"]["filters_applied"] == multi_filters
+        assert len(parsed_multi["log_entries"]) == 1
+        assert parsed_multi["log_entries"][0]["level"] == "INFO"
+        assert parsed_multi["log_entries"][0]["hook_id"] == "hook1"
 
     def test_analyze_pr_flow_empty_entries(self, controller):
         """Test PR flow analysis with empty entries."""
