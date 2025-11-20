@@ -7,6 +7,7 @@ import os
 import shlex
 import shutil
 import tempfile
+import threading
 from typing import Any
 
 import github
@@ -47,6 +48,31 @@ from webhook_server.utils.helpers import (
 )
 
 
+class CountingRequester:
+    """
+    Wrapper around PyGithub Requester to count API calls for a specific instance.
+    Intercepts request* methods to increment a counter.
+    """
+
+    def __init__(self, requester: Any) -> None:
+        self._requester = requester
+        self.count = 0
+        self._thread_lock = threading.Lock()
+
+    def __getattr__(self, name: str) -> Any:
+        attr = getattr(self._requester, name)
+        if name.startswith("request") and callable(attr):
+
+            def wrapper(*args: Any, **kwargs: Any) -> Any:
+                # Increment counter with thread safety since PyGithub may run in threads.
+                with self._thread_lock:
+                    self.count += 1
+                return attr(*args, **kwargs)
+
+            return wrapper
+        return attr
+
+
 class GithubWebhook:
     def __init__(self, hook_data: dict[Any, Any], headers: Headers, logger: logging.Logger) -> None:
         logger.name = "GithubWebhook"
@@ -68,6 +94,8 @@ class GithubWebhook:
         self.current_pull_request_supported_retest: list[str] = []
         self.github_api: github.Github | None = None
         self.initial_rate_limit_remaining: int | None = None
+        self.requester_wrapper: CountingRequester | None = None
+        self.initial_wrapper_count: int = 0
 
         if not self.config.repository_data:
             raise RepositoryNotFoundInConfigError(f"Repository {self.repository_name} not found in config file")
@@ -80,6 +108,22 @@ class GithubWebhook:
 
         if github_api and self.token:
             self.github_api = github_api
+
+            # Wrap the requester to count API calls per this webhook instance
+            # This must be done BEFORE creating self.repository so it shares the wrapped requester
+            # PyGithub stores the requester in _Github__requester (name mangling)
+            if hasattr(self.github_api, "_Github__requester"):
+                requester = self.github_api._Github__requester
+                if isinstance(requester, CountingRequester):
+                    # Already wrapped (shared Github instance), reuse existing wrapper
+                    self.requester_wrapper = requester
+                else:
+                    self.requester_wrapper = CountingRequester(requester)
+                    self.github_api._Github__requester = self.requester_wrapper
+
+                # Capture initial count for per-webhook delta calculation
+                self.initial_wrapper_count = self.requester_wrapper.count
+
             # Track initial rate limit for token spend calculation
             # Note: log_prefix not set yet, so we can't use it in error messages here
             try:
@@ -143,9 +187,24 @@ class GithubWebhook:
             return ""
 
         try:
+            # Use the wrapper count if available (thread-safe per request)
+            # We skip checking global rate limit to avoid inflating the API call count with an extra call
+            if self.requester_wrapper:
+                token_spend = self.requester_wrapper.count - self.initial_wrapper_count
+                # If rate limit was already low, or if the delta calculation leads to negative
+                # values due to race conditions (unlikely with correct locking), clamp to 0
+                remaining = max(0, self.initial_rate_limit_remaining - token_spend)
+
+                return (
+                    f"token {self.token[:8]}... {token_spend} API calls "
+                    f"(initial: {self.initial_rate_limit_remaining}, "
+                    f"remaining: {remaining})"
+                )
+
             final_rate_limit = await asyncio.to_thread(self.github_api.get_rate_limit)
             final_remaining = final_rate_limit.rate.remaining
 
+            # Fallback to global rate limit calculation (inaccurate under concurrency)
             # Calculate token spend (handle case where rate limit reset between checks)
             # If final > initial, rate limit reset occurred, so we can't calculate accurately
             if final_remaining > self.initial_rate_limit_remaining:
@@ -734,9 +793,10 @@ class GithubWebhook:
         clean up their own directories. Only the base clone directory must be removed
         here to prevent accumulating stale repositories on disk.
         """
-        if self.clone_repo_dir and os.path.exists(self.clone_repo_dir):
+        clone_repo_dir = getattr(self, "clone_repo_dir", None)
+        if clone_repo_dir and os.path.exists(clone_repo_dir):
             try:
-                shutil.rmtree(self.clone_repo_dir, ignore_errors=True)
-                self.logger.debug(f"Cleaned up temp directory (in __del__): {self.clone_repo_dir}")
+                shutil.rmtree(clone_repo_dir, ignore_errors=True)
+                self.logger.debug(f"Cleaned up temp directory (in __del__): {clone_repo_dir}")
             except Exception:
                 pass  # Ignore errors during cleanup
