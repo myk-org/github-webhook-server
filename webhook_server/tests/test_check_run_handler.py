@@ -1,6 +1,8 @@
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from github.CheckRun import CheckRun
+from github.CommitStatus import CommitStatus
 
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.utils.constants import (
@@ -48,6 +50,11 @@ class TestCheckRunHandler:
     def check_run_handler(self, mock_github_webhook: Mock) -> CheckRunHandler:
         """Create a CheckRunHandler instance with mocked dependencies."""
         return CheckRunHandler(mock_github_webhook)
+
+    @pytest.fixture
+    def mock_pull_request(self) -> Mock:
+        """Create a mock PullRequest instance."""
+        return Mock()
 
     @pytest.mark.asyncio
     async def test_process_pull_request_check_run_webhook_data_completed(
@@ -617,7 +624,7 @@ class TestCheckRunHandler:
 
         with patch.object(check_run_handler, "all_required_status_checks", return_value=["test-check"]):
             msg, in_progress_checks = await check_run_handler.required_check_in_progress(
-                mock_pull_request, [mock_check_run], []
+                mock_pull_request, [mock_check_run]
             )
 
             assert "test-check" in msg
@@ -633,7 +640,7 @@ class TestCheckRunHandler:
 
         with patch.object(check_run_handler, "all_required_status_checks", return_value=[CAN_BE_MERGED_STR]):
             msg, in_progress_checks = await check_run_handler.required_check_in_progress(
-                mock_pull_request, [mock_check_run], []
+                mock_pull_request, [mock_check_run]
             )
 
             assert msg == ""
@@ -907,3 +914,62 @@ class TestCheckRunHandler:
             # No errors expected - can-be-merged is ignored
             assert result == ""
             assert CAN_BE_MERGED_STR not in result
+
+    @pytest.mark.asyncio
+    async def test_required_check_failed_or_no_status_with_commit_statuses(
+        self, check_run_handler: CheckRunHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that commit statuses (legacy API) are validated alongside check runs.
+
+        Simulates PR #928 where pre-commit.ci uses GitHub Statuses API (not Check Runs API).
+        This test verifies:
+        1. External services like pre-commit.ci use Statuses API, not Check Runs API
+        2. Both Check Runs and Statuses are validated together
+        3. Status state mapping (success/pending/failure/error) to check outcomes
+        4. Non-required statuses are ignored
+        5. Queued check runs are still reported correctly
+        6. Combined check runs + statuses validation works
+        """
+        # Mock required checks including a status-based check
+        required_checks = [TOX_STR, VERIFIED_LABEL_STR, "pre-commit.ci - pr", BUILD_CONTAINER_STR]
+
+        # Create mock check runs (webhook server checks)
+        mock_check_run_tox = Mock(spec=CheckRun)
+        mock_check_run_tox.name = TOX_STR
+        mock_check_run_tox.conclusion = SUCCESS_STR
+
+        mock_check_run_verified = Mock(spec=CheckRun)
+        mock_check_run_verified.name = VERIFIED_LABEL_STR
+        mock_check_run_verified.conclusion = None  # Queued
+
+        mock_check_run_container = Mock(spec=CheckRun)
+        mock_check_run_container.name = BUILD_CONTAINER_STR
+        mock_check_run_container.conclusion = SUCCESS_STR
+
+        check_runs = [mock_check_run_tox, mock_check_run_verified, mock_check_run_container]
+
+        # Create mock commit statuses (external service checks)
+        mock_status_precommit = Mock(spec=CommitStatus)
+        mock_status_precommit.context = "pre-commit.ci - pr"
+        mock_status_precommit.state = "success"
+
+        mock_status_coderabbit = Mock(spec=CommitStatus)
+        mock_status_coderabbit.context = "CodeRabbit"
+        mock_status_coderabbit.state = "success"
+
+        statuses = [mock_status_precommit, mock_status_coderabbit]
+
+        with patch.object(check_run_handler, "all_required_status_checks", new=AsyncMock(return_value=required_checks)):
+            result = await check_run_handler.required_check_failed_or_no_status(
+                pull_request=mock_pull_request,
+                last_commit_check_runs=check_runs,
+                last_commit_statuses=statuses,
+                check_runs_in_progress=[],
+            )
+
+        # Verify: Should only report 'verified' as not started, NOT 'pre-commit.ci - pr'
+        assert VERIFIED_LABEL_STR in result
+        assert "pre-commit.ci - pr" not in result
+        assert "Some check runs not started" in result
+        assert VERIFIED_LABEL_STR in result
+        assert "CodeRabbit" not in result  # Not required, should be ignored

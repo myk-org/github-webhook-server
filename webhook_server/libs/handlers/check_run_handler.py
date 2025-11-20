@@ -387,7 +387,20 @@ class CheckRunHandler:
         no_status_check_runs = list(missing_required_checks)
 
         # Check commit statuses for failures/pending
+        self.logger.debug(f"{self.log_prefix} Status details: {[(s.context, s.state) for s in last_commit_statuses]}")
+
+        # Filter to latest status per context (highest ID = most recent)
+        status_by_context: dict[str, CommitStatus] = {}
         for status in last_commit_statuses:
+            if status.context not in status_by_context or status.id > status_by_context[status.context].id:
+                status_by_context[status.context] = status
+
+        latest_statuses = list(status_by_context.values())
+        self.logger.debug(
+            f"{self.log_prefix} Filtered {len(last_commit_statuses)} statuses to {len(latest_statuses)} latest statuses"
+        )
+
+        for status in latest_statuses:
             if status.context not in required_checks:
                 continue  # Not a required check
 
@@ -395,6 +408,9 @@ class CheckRunHandler:
                 continue  # Passed
 
             if status.state == "pending":
+                # Skip if already marked as in-progress (to avoid duplicate reporting)
+                if status.context in check_runs_in_progress:
+                    continue
                 if status.context not in no_status_check_runs:
                     no_status_check_runs.append(status.context)
             elif status.state in ("failure", "error"):
@@ -402,20 +418,28 @@ class CheckRunHandler:
                     failed_check_runs.append(status.context)
 
         for check_run in last_commit_check_runs:
-            self.logger.debug(f"{self.log_prefix} Check if {check_run.name} failed or do not have status.")
+            # Skip check runs that have a corresponding success status
+            status_contexts = {status.context for status in latest_statuses if status.state == "success"}
+            if check_run.name in status_contexts:
+                continue
+
             if (
                 check_run.name == CAN_BE_MERGED_STR
                 or check_run.conclusion == SUCCESS_STR
                 or check_run.name not in await self.all_required_status_checks(pull_request=pull_request)
             ):
-                self.logger.debug(f"{self.log_prefix} {check_run.name} is success or not required, skipping.")
                 continue
 
             if check_run.conclusion is None:
-                no_status_check_runs.append(check_run.name)
+                if check_run.name not in no_status_check_runs:
+                    no_status_check_runs.append(check_run.name)
 
             else:
-                failed_check_runs.append(check_run.name)
+                if check_run.name not in failed_check_runs:
+                    failed_check_runs.append(check_run.name)
+
+        self.logger.debug(f"{self.log_prefix} no_status_check_runs after processing check runs: {no_status_check_runs}")
+        self.logger.debug(f"{self.log_prefix} failed_check_runs after processing check runs: {failed_check_runs}")
 
         msg = ""
 
@@ -490,7 +514,6 @@ class CheckRunHandler:
         self,
         pull_request: PullRequest,
         last_commit_check_runs: list[CheckRun],
-        last_commit_statuses: list[CommitStatus],
     ) -> tuple[str, list[str]]:
         self.logger.debug(f"{self.log_prefix} Check if any required check runs in progress.")
 
@@ -502,14 +525,8 @@ class CheckRunHandler:
             and check_run.name in await self.all_required_status_checks(pull_request=pull_request)
         ]
 
-        # Also check commit statuses (legacy API) for in-progress/pending state
-        status_in_progress = [
-            status.context
-            for status in last_commit_statuses
-            if status.state == "pending"
-            and status.context in await self.all_required_status_checks(pull_request=pull_request)
-        ]
-        check_runs_in_progress.extend(status_in_progress)
+        # Note: Status API doesn't have an "in_progress" state - only pending (queued),
+        # success, failure, and error. We only check Check Runs for in-progress status.
 
         if check_runs_in_progress:
             self.logger.debug(

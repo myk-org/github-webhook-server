@@ -963,6 +963,13 @@ For more information, please refer to the project documentation or contact the m
             )
             last_commit_check_runs = _check_runs
             last_commit_statuses = _statuses
+            self.logger.debug(
+                f"{self.log_prefix} Fetched {len(last_commit_check_runs)} check runs "
+                f"and {len(last_commit_statuses)} statuses"
+            )
+            if last_commit_statuses:
+                status_names = [s.context for s in last_commit_statuses]
+                self.logger.debug(f"{self.log_prefix} Commit statuses: {status_names}")
             _labels = await self.labels_handler.pull_request_labels_names(pull_request=pull_request)
             self.logger.debug(f"{self.log_prefix} check if can be merged. PR labels are: {_labels}")
 
@@ -977,7 +984,6 @@ For more information, please refer to the project documentation or contact the m
             ) = await self.check_run_handler.required_check_in_progress(
                 pull_request=pull_request,
                 last_commit_check_runs=last_commit_check_runs,
-                last_commit_statuses=last_commit_statuses,
             )
             if required_check_in_progress_failure_output:
                 failure_output += required_check_in_progress_failure_output
