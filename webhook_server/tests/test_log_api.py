@@ -641,6 +641,14 @@ class TestLogAPI:
             mock_http_client = AsyncMock()
             mock_http_client.aclose = AsyncMock()
 
+            # Mock asyncio.wait to return immediately (prevents 30-second shutdown timeout)
+            async def mock_wait(tasks, timeout=None, return_when=None):
+                # Cancel all tasks immediately to prevent blocking
+                for task in tasks:
+                    task.cancel()
+                # Return empty done set and the tasks as pending
+                return set(), tasks
+
             with patch("webhook_server.app.httpx.AsyncClient", return_value=mock_http_client):
                 # Mock external HTTP dependencies
                 with patch(
@@ -649,13 +657,14 @@ class TestLogAPI:
                     with patch(
                         "webhook_server.utils.app_utils.get_cloudflare_allowlist", new_callable=AsyncMock
                     ) as mock_cloudflare:
-                        mock_github.return_value = []
-                        mock_cloudflare.return_value = []
+                        with patch("webhook_server.app.asyncio.wait", side_effect=mock_wait):
+                            mock_github.return_value = []
+                            mock_cloudflare.return_value = []
 
-                        with TestClient(FASTAPI_APP) as client:
-                            response = client.get("/logs")
-                            assert response.status_code == 200
-                            assert "Log Viewer" in response.text
+                            with TestClient(FASTAPI_APP) as client:
+                                response = client.get("/logs")
+                                assert response.status_code == 200
+                                assert "Log Viewer" in response.text
 
     def test_get_log_entries_no_filters(self, sample_log_entries: list[LogEntry]) -> None:
         """Test retrieving log entries without filters."""
