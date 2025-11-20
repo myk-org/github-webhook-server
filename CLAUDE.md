@@ -830,16 +830,19 @@ issues = self.github_webhook.repository_data['issues']['nodes']
 **Location:** `webhook_server/libs/github_api.py` lines 534-570
 
 **Early exit conditions (no clone needed):**
-1. **Action != "completed"** (~75% of check_run webhooks)
-   - Actions: `queued`, `in_progress`, `created`, `requested`
-   - These webhooks are informational only, no processing needed
+1. **Action != "completed"**
+   - Repository/organization webhooks only receive `created` and `completed` actions for check_run events
+   - `created` action indicates the check run was just created, no processing needed
+   - Code checks `action != "completed"` to skip clones for non-completed check runs
 
-2. **Can-be-merged with non-success conclusion** (~15-20% of remaining webhooks)
+2. **Can-be-merged with non-success conclusion** (primary optimization)
    - Check name: `can-be-merged`
    - Conclusions: `failure`, `cancelled`, `timed_out`, `action_required`, `neutral`, `skipped`
    - Cannot automerge without success conclusion
+   - This is the main optimization that prevents unnecessary repository cloning
 
 **Implementation pattern:**
+
 ```python
 elif self.github_event == "check_run":
     # Check if we need to process this check_run
