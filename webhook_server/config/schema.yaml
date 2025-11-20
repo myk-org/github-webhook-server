@@ -10,6 +10,12 @@ properties:
   log-file:
     type: string
     description: File path for the log file
+  mcp-log-file:
+    type: string
+    description: File path for the MCP log file (default: mcp_server.log)
+  logs-server-log-file:
+    type: string
+    description: File path for the Logs Server log file (default: logs_server.log)
   mask-sensitive-data:
     type: boolean
     description: Mask sensitive data in logs (tokens, passwords, secrets, etc.). Default is true for security.
