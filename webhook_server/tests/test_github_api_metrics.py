@@ -61,7 +61,7 @@ class TestCountingRequester:
         assert wrapper.count == 1000
 
 
-class TestGithubWebhookCoverage:
+class TestGithubWebhookMetrics:
     @pytest.fixture
     def minimal_hook_data(self):
         return {
