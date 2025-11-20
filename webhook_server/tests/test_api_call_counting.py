@@ -45,6 +45,8 @@ async def test_github_webhook_token_metrics_with_counter():
         patch("webhook_server.libs.github_api.get_github_repo_api"),
         patch("webhook_server.libs.github_api.get_repository_github_app_api"),
         patch("webhook_server.libs.github_api.prepare_log_prefix"),
+        # Patch this method to avoid calls to get_apis_and_tokes_from_config which isn't mocked
+        patch("webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users"),
     ):
         # Setup Config
         mock_config = MockConfig.return_value
@@ -87,4 +89,6 @@ async def test_github_webhook_token_metrics_with_counter():
         # Expect metrics to show 2 calls (our local usage), not 1000 (global usage)
         assert "2 API calls" in metrics
         assert "initial: 5000" in metrics
-        assert "final: 4000" in metrics
+        # When using wrapper, we don't show "final" anymore, but we show "remaining"
+        # remaining = initial - spend = 5000 - 2 = 4998
+        assert "remaining: 4998" in metrics

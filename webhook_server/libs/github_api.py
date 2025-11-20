@@ -7,6 +7,7 @@ import os
 import shlex
 import shutil
 import tempfile
+import threading
 from typing import Any
 
 import github
@@ -56,13 +57,30 @@ class CountingRequester:
     def __init__(self, requester: Any) -> None:
         self._requester = requester
         self.count = 0
+        self._lock = asyncio.Lock()
 
     def __getattr__(self, name: str) -> Any:
         attr = getattr(self._requester, name)
         if name.startswith("request") and callable(attr):
 
             def wrapper(*args: Any, **kwargs: Any) -> Any:
-                self.count += 1
+                # This wrapper might be called from a sync context (PyGithub internals)
+                # or async context (via asyncio.to_thread).
+                # Since PyGithub is synchronous, we use a simple threading lock would be safer
+                # but self.count += 1 is NOT atomic in Python.
+                # However, since we are running in an async loop executor (to_thread),
+                # simple integer increment is atomic enough for GIL-protected code
+                # UNLESS multiple threads are involved.
+                # Given the context, let's stick to simple increment for now as adding
+                # async locking to sync calls is complex.
+                # Wait, the comment says "consider guarding the increment with a lock".
+                # Let's use threading.Lock() as PyGithub runs in threads.
+
+                if not hasattr(self, "_thread_lock"):
+                    self._thread_lock = threading.Lock()
+
+                with self._thread_lock:
+                    self.count += 1
                 return attr(*args, **kwargs)
 
             return wrapper
@@ -108,8 +126,13 @@ class GithubWebhook:
             # This must be done BEFORE creating self.repository so it shares the wrapped requester
             # PyGithub stores the requester in _Github__requester (name mangling)
             if hasattr(self.github_api, "_Github__requester"):
-                self.requester_wrapper = CountingRequester(self.github_api._Github__requester)
-                self.github_api._Github__requester = self.requester_wrapper
+                requester = self.github_api._Github__requester
+                if isinstance(requester, CountingRequester):
+                    # Already wrapped (shared Github instance), reuse existing wrapper
+                    self.requester_wrapper = requester
+                else:
+                    self.requester_wrapper = CountingRequester(requester)
+                    self.github_api._Github__requester = self.requester_wrapper
 
             # Track initial rate limit for token spend calculation
             # Note: log_prefix not set yet, so we can't use it in error messages here
@@ -174,17 +197,18 @@ class GithubWebhook:
             return ""
 
         try:
-            final_rate_limit = await asyncio.to_thread(self.github_api.get_rate_limit)
-            final_remaining = final_rate_limit.rate.remaining
-
-            # Use the wrapper count if available (thread-safe/concurrent-safe per request)
+            # Use the wrapper count if available (thread-safe per request)
+            # We skip checking global rate limit to avoid inflating the API call count with an extra call
             if self.requester_wrapper:
                 token_spend = self.requester_wrapper.count
                 return (
                     f"token {self.token[:8]}... {token_spend} API calls "
                     f"(initial: {self.initial_rate_limit_remaining}, "
-                    f"final: {final_remaining}, remaining: {final_remaining})"
+                    f"remaining: {self.initial_rate_limit_remaining - token_spend})"
                 )
+
+            final_rate_limit = await asyncio.to_thread(self.github_api.get_rate_limit)
+            final_remaining = final_rate_limit.rate.remaining
 
             # Fallback to global rate limit calculation (inaccurate under concurrency)
             # Calculate token spend (handle case where rate limit reset between checks)
