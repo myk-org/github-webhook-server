@@ -47,6 +47,28 @@ from webhook_server.utils.helpers import (
 )
 
 
+class CountingRequester:
+    """
+    Wrapper around PyGithub Requester to count API calls for a specific instance.
+    Intercepts request* methods to increment a counter.
+    """
+
+    def __init__(self, requester: Any) -> None:
+        self._requester = requester
+        self.count = 0
+
+    def __getattr__(self, name: str) -> Any:
+        attr = getattr(self._requester, name)
+        if name.startswith("request") and callable(attr):
+
+            def wrapper(*args: Any, **kwargs: Any) -> Any:
+                self.count += 1
+                return attr(*args, **kwargs)
+
+            return wrapper
+        return attr
+
+
 class GithubWebhook:
     def __init__(self, hook_data: dict[Any, Any], headers: Headers, logger: logging.Logger) -> None:
         logger.name = "GithubWebhook"
@@ -68,6 +90,7 @@ class GithubWebhook:
         self.current_pull_request_supported_retest: list[str] = []
         self.github_api: github.Github | None = None
         self.initial_rate_limit_remaining: int | None = None
+        self.requester_wrapper: CountingRequester | None = None
 
         if not self.config.repository_data:
             raise RepositoryNotFoundInConfigError(f"Repository {self.repository_name} not found in config file")
@@ -80,6 +103,14 @@ class GithubWebhook:
 
         if github_api and self.token:
             self.github_api = github_api
+
+            # Wrap the requester to count API calls per this webhook instance
+            # This must be done BEFORE creating self.repository so it shares the wrapped requester
+            # PyGithub stores the requester in _Github__requester (name mangling)
+            if hasattr(self.github_api, "_Github__requester"):
+                self.requester_wrapper = CountingRequester(self.github_api._Github__requester)
+                self.github_api._Github__requester = self.requester_wrapper
+
             # Track initial rate limit for token spend calculation
             # Note: log_prefix not set yet, so we can't use it in error messages here
             try:
@@ -146,6 +177,16 @@ class GithubWebhook:
             final_rate_limit = await asyncio.to_thread(self.github_api.get_rate_limit)
             final_remaining = final_rate_limit.rate.remaining
 
+            # Use the wrapper count if available (thread-safe/concurrent-safe per request)
+            if self.requester_wrapper:
+                token_spend = self.requester_wrapper.count
+                return (
+                    f"token {self.token[:8]}... {token_spend} API calls "
+                    f"(initial: {self.initial_rate_limit_remaining}, "
+                    f"final: {final_remaining}, remaining: {final_remaining})"
+                )
+
+            # Fallback to global rate limit calculation (inaccurate under concurrency)
             # Calculate token spend (handle case where rate limit reset between checks)
             # If final > initial, rate limit reset occurred, so we can't calculate accurately
             if final_remaining > self.initial_rate_limit_remaining:
