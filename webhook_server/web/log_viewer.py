@@ -335,8 +335,24 @@ class LogViewerController:
                 if len(filtered_entries) >= limit:
                     break
 
+            # Collect filters for metadata
+            filters = {
+                "hook_id": hook_id,
+                "pr_number": pr_number,
+                "repository": repository,
+                "event_type": event_type,
+                "github_user": github_user,
+                "level": level,
+                "start_time": start_time.isoformat() if start_time else None,
+                "end_time": end_time.isoformat() if end_time else None,
+                "search": search,
+                "limit": limit,
+            }
+            # Remove None values
+            filters = {k: v for k, v in filters.items() if v is not None}
+
             # Generate JSON export content
-            content = self._generate_json_export(filtered_entries)
+            content = self._generate_json_export(filtered_entries, filters)
             media_type = "application/json"
             filename = f"webhook_logs_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
 
@@ -840,16 +856,26 @@ class LogViewerController:
 </body>
 </html>"""
 
-    def _generate_json_export(self, entries: list[LogEntry]) -> str:
+    def _generate_json_export(self, entries: list[LogEntry], filters: dict[str, Any] | None = None) -> str:
         """Generate JSON export content from log entries.
 
         Args:
             entries: List of log entries to export
+            filters: Dictionary of filters applied to the export
 
         Returns:
             JSON content as string
         """
-        return json.dumps([entry.to_dict() for entry in entries], indent=2)
+        export_data = {
+            "export_metadata": {
+                "generated_at": datetime.datetime.now(datetime.UTC).isoformat(),
+                "filters_applied": filters or {},
+                "total_entries": len(entries),
+                "export_format": "json",
+            },
+            "log_entries": [entry.to_dict() for entry in entries],
+        }
+        return json.dumps(export_data, indent=2)
 
     def _analyze_pr_flow(self, entries: list[LogEntry], hook_id: str) -> dict[str, Any]:
         """Analyze PR workflow stages from log entries.
