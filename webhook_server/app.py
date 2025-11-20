@@ -1,6 +1,7 @@
 import asyncio
 import ipaddress
 import json
+import logging
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -59,6 +60,20 @@ http_transport: Any | None = None
 mcp: Any | None = None
 
 
+class IgnoreMCPClosedResourceErrorFilter(logging.Filter):
+    """Filter to suppress ClosedResourceError logs from MCP server."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        # Check for the specific error message from mcp.server.streamable_http
+        if "Error in message router" in record.getMessage():
+            if record.exc_info:
+                exc_type, _, _ = record.exc_info
+                # Check if it's a ClosedResourceError (from anyio)
+                if exc_type and "ClosedResourceError" in exc_type.__name__:
+                    return False
+        return True
+
+
 # Helper function to wrap the imported gate_by_allowlist_ips with ALLOWED_IPS
 async def gate_by_allowlist_ips_dependency(request: Request) -> None:
     """Dependency wrapper for IP allowlist gating."""
@@ -78,6 +93,11 @@ def require_log_server_enabled() -> None:
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     global _lifespan_http_client
     _lifespan_http_client = httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS)
+
+    # Apply filter to MCP logger to suppress client disconnect noise
+    mcp_logger = logging.getLogger("mcp.server.streamable_http")
+    if not any(isinstance(f, IgnoreMCPClosedResourceErrorFilter) for f in mcp_logger.filters):
+        mcp_logger.addFilter(IgnoreMCPClosedResourceErrorFilter())
 
     try:
         LOGGER.info("Application starting up...")

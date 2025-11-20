@@ -27,85 +27,107 @@
         <span id="statusText">Connecting...</span>
       </div>
 
-      <div class="log-stats" id="logStats">
-        <div>
-          <span
-            ><strong>Displayed:</strong>
-            <span id="displayedCount">0</span> entries</span
-          >
-          <span
-            ><strong>Total Available:</strong>
-            <span id="totalCount">0</span> entries</span
-          >
-          <span
-            ><strong>Processed:</strong>
-            <span id="processedCount">0</span> entries</span
-          >
+      <div class="control-panel">
+        <div class="panel-header">
+          <h3>Filters & Controls</h3>
+          <button id="togglePanelBtn" class="btn-icon" title="Collapse Panel">▼</button>
+        </div>
+
+        <div class="filters-container">
+          <div class="filters">
+            <div class="filter-group">
+              <label for="searchFilter">Search:</label>
+              <input
+                type="text"
+                id="searchFilter"
+                placeholder="text in messages..."
+              />
+            </div>
+            <div class="filter-group">
+              <label for="hookIdFilter">Hook ID:</label>
+              <input
+                type="text"
+                id="hookIdFilter"
+                placeholder="delivery-id"
+                title="x-github-delivery value"
+              />
+            </div>
+            <div class="filter-group">
+              <label for="prNumberFilter">PR #:</label>
+              <input type="number" id="prNumberFilter" placeholder="123" />
+            </div>
+            <div class="filter-group">
+              <label for="repositoryFilter">Repository:</label>
+              <input type="text" id="repositoryFilter" placeholder="org/repo" />
+            </div>
+            <div class="filter-group">
+              <label for="userFilter">User:</label>
+              <input type="text" id="userFilter" placeholder="username" />
+            </div>
+            <div class="filter-group">
+              <label for="levelFilter">Level:</label>
+              <select id="levelFilter">
+                <option value="">All</option>
+                <option value="DEBUG">DEBUG</option>
+                <option value="INFO">INFO</option>
+                <option value="WARNING">WARNING</option>
+                <option value="ERROR">ERROR</option>
+                <option value="STEP">STEP</option>
+                <option value="SUCCESS">SUCCESS</option>
+              </select>
+            </div>
+             <div class="filter-group">
+              <label for="startTimeFilter">Start Time:</label>
+              <input type="datetime-local" id="startTimeFilter" />
+            </div>
+            <div class="filter-group">
+              <label for="endTimeFilter">End Time:</label>
+              <input type="datetime-local" id="endTimeFilter" />
+            </div>
+            <div class="filter-group">
+              <label for="limitFilter">Results Limit:</label>
+              <select id="limitFilter">
+                <option value="100">100</option>
+                <option value="500">500</option>
+                <option value="1000" selected>1000</option>
+                <option value="5000">5000</option>
+                <option value="10000">10000</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="controls-row">
+            <div class="log-stats" id="logStats">
+              <span title="Currently shown"><strong>Shown:</strong> <span id="displayedCount">0</span></span>
+              <span title="Total logs in DB"><strong>Total:</strong> <span id="totalCount">0</span></span>
+              <span title="Processed in last query"><strong>Scanned:</strong> <span id="processedCount">0</span></span>
+            </div>
+            <div class="toggle-group">
+              <label class="toggle-switch">
+                <input type="checkbox" id="autoScrollToggle" checked>
+                <span class="slider"></span>
+              </label>
+              <span>Auto-scroll</span>
+            </div>
+          </div>
+
+          <div class="controls-actions">
+            <button id="refreshBtn" class="btn btn-primary" title="Reload Logs">Refresh</button>
+            <button id="clearFiltersBtn" class="btn" title="Reset all filters">Clear Filters</button>
+             <button id="connectBtn" class="btn btn-success">Start Real-time</button>
+            <button id="disconnectBtn" class="btn btn-danger" style="display: none;">Stop Real-time</button>
+            <button id="clearLogsBtn" class="btn">Clear Logs</button>
+            <button id="exportBtn" class="btn">Export JSON</button>
+          </div>
         </div>
       </div>
 
-      <div class="controls">
-        <button id="connectBtn" class="btn">Start Real-time</button>
-        <button id="disconnectBtn" class="btn">Stop Real-time</button>
-        <button id="refreshBtn" class="btn">Refresh</button>
-        <button id="clearFiltersBtn" class="btn">Clear Filters</button>
-        <button id="clearLogsBtn" class="btn">Clear Logs</button>
-        <button id="exportBtn" class="btn">Export JSON</button>
+      <div class="log-header-row">
+         <div class="col-timestamp">Timestamp</div>
+         <div class="col-level">Level</div>
+         <div class="col-message">Message</div>
       </div>
 
-      <div class="filters">
-        <div class="filter-group">
-          <label for="searchFilter">Search:</label>
-          <input
-            type="text"
-            id="searchFilter"
-            placeholder="text in messages..."
-          />
-        </div>
-        <div class="filter-group">
-          <label for="hookIdFilter">Hook ID:</label>
-          <input
-            type="text"
-            id="hookIdFilter"
-            placeholder="delivery-id"
-            title="x-github-delivery value"
-          />
-        </div>
-        <div class="filter-group">
-          <label for="prNumberFilter">PR #:</label>
-          <input type="number" id="prNumberFilter" placeholder="123" />
-        </div>
-        <div class="filter-group">
-          <label for="repositoryFilter">Repository:</label>
-          <input type="text" id="repositoryFilter" placeholder="org/repo" />
-        </div>
-        <div class="filter-group">
-          <label for="userFilter">User:</label>
-          <input type="text" id="userFilter" placeholder="username" />
-        </div>
-        <div class="filter-group">
-          <label for="levelFilter">Level:</label>
-          <select id="levelFilter">
-            <option value="">All</option>
-            <option value="DEBUG">DEBUG</option>
-            <option value="INFO">INFO</option>
-            <option value="WARNING">WARNING</option>
-            <option value="ERROR">ERROR</option>
-            <option value="STEP">STEP</option>
-            <option value="SUCCESS">SUCCESS</option>
-          </select>
-        </div>
-        <div class="filter-group">
-          <label for="limitFilter">Results Limit:</label>
-          <select id="limitFilter">
-            <option value="100">100</option>
-            <option value="500">500</option>
-            <option value="1000" selected>1000</option>
-            <option value="5000">5000</option>
-            <option value="10000">10000</option>
-          </select>
-        </div>
-      </div>
 
       <!-- Hook Flow Modal (Popup) -->
       <div class="modal" id="flowModal" style="display: none">
