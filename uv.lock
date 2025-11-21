@@ -505,7 +505,7 @@ wheels = [
 
 [[package]]
 name = "github-webhook-server"
-version = "3.0.7"
+version = "4.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "asyncstdlib" },

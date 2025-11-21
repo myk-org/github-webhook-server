@@ -14,7 +14,7 @@ github-tokens:
   - <GITHIB TOKEN1>
   - <GITHIB TOKEN2>
 
-webhook-ip: <HTTP://IP OR URL:PORT>
+webhook-ip: <HTTP://IP OR URL:PORT/webhook_server> # Full URL with path (e.g., https://your-domain.com/webhook_server or https://smee.io/your-channel)
 
 docker: # Used to pull images from docker.io
   username: <username>

@@ -206,7 +206,7 @@ Create `config.yaml` in your data directory:
 # yaml-language-server: $schema=https://raw.githubusercontent.com/myk-org/github-webhook-server/refs/heads/main/webhook_server/config/schema.yaml
 
 github-app-id: 123456
-webhook-ip: https://your-domain.com
+webhook-ip: https://your-domain.com/webhook_server # Full URL with path (for smee.io use: https://smee.io/your-channel)
 github-tokens:
   - ghp_your_github_token
 
@@ -245,7 +245,7 @@ auto-verified-and-merged-users:
   - "renovate[bot]"
   - "dependabot[bot]"
 
-auto-verify-cherry-picked-prs: true  # Auto-verify cherry-picked PRs (default: true)
+auto-verify-cherry-picked-prs: true # Auto-verify cherry-picked PRs (default: true)
 
 # Global PR Size Labels (optional)
 pr-size-thresholds:
@@ -708,13 +708,11 @@ The webhook server includes a comprehensive log viewer web interface for monitor
 
 **Memory-Optimized Streaming**: The log viewer uses advanced streaming and chunked processing techniques that replaced traditional bulk loading:
 
-
 - **Constant Memory Usage**: Handles log files of any size with consistent memory footprint
 - **Early Filtering**: Reduces data transfer by filtering at the source before transmission
 - **Streaming Processing**: Real-time log processing without loading entire files into memory
 - **90% Memory Reduction**: Optimized for enterprise environments with gigabytes of log data
 - **Sub-second Response Times**: Fast query responses even with large datasets
-
 
 ### 🔒 Security Warning
 
@@ -757,6 +755,7 @@ processing   microsecond     before load     (100-1000       updates
 ```
 
 **Memory Efficiency**:
+
 - **Streaming Parser**: Reads log files line-by-line instead of loading entire files
 - **Early Filtering**: Applies search criteria during parsing to reduce memory usage
 - **Chunked Responses**: Delivers results in small batches for responsive UI
@@ -992,6 +991,7 @@ curl "http://localhost:5000/logs/api/export?format=json&level=ERROR" -o errors.j
 #### Performance Benchmarks
 
 The memory optimization work has achieved:
+
 - **90% reduction** in memory usage compared to bulk loading
 - **Sub-second response times** for filtered queries on multi-GB log files
 - **Constant memory footprint** regardless of log file size
@@ -1006,7 +1006,7 @@ of your GitHub webhook processing workflows.
 ### 🤖 MCP Features
 
 - **Real-time Log Analysis**: AI agents can query, filter, and analyze webhook processing logs
-- **System Monitoring**: Access to health status and system metrics  
+- **System Monitoring**: Access to health status and system metrics
 - **Workflow Analysis**: Programmatic access to PR flow visualization and timing data
 - **Secure Architecture**: Only safe, read-only endpoints exposed to AI agents
 - **Intelligent Troubleshooting**: AI-powered error pattern recognition and debugging assistance
@@ -1023,13 +1023,13 @@ The MCP integration follows a **security-first approach** with strict endpoint i
 
 ### 📡 Available MCP Endpoints
 
-| Endpoint | Description | Use Case |
-|----------|-------------|----------|
-| `/mcp/webhook_server/healthcheck` | Server health status | System monitoring and uptime checks |
-| `/mcp/logs/api/entries` | Historical log data with filtering | Log analysis and debugging |
-| `/mcp/logs/api/export` | Log export functionality | Data analysis and reporting |
-| `/mcp/logs/api/pr-flow/{identifier}` | PR flow visualization data | Workflow analysis and timing |
-| `/mcp/logs/api/workflow-steps/{identifier}` | Workflow timeline data | Performance analysis |
+| Endpoint                                    | Description                        | Use Case                            |
+| ------------------------------------------- | ---------------------------------- | ----------------------------------- |
+| `/mcp/webhook_server/healthcheck`           | Server health status               | System monitoring and uptime checks |
+| `/mcp/logs/api/entries`                     | Historical log data with filtering | Log analysis and debugging          |
+| `/mcp/logs/api/export`                      | Log export functionality           | Data analysis and reporting         |
+| `/mcp/logs/api/pr-flow/{identifier}`        | PR flow visualization data         | Workflow analysis and timing        |
+| `/mcp/logs/api/workflow-steps/{identifier}` | Workflow timeline data             | Performance analysis                |
 
 **Note:** All MCP endpoints are proxied under the `/mcp` mount point. The MCP server creates a separate
 FastAPI app instance that duplicates the core API endpoints while excluding webhook processing, static files,
@@ -1039,7 +1039,7 @@ and HTML pages for security.
 
 **IMPORTANT**: The `/mcp/logs/*` endpoints expose potentially **highly sensitive data** including:
 
-- 🔑 **GitHub Personal Access Tokens** and API credentials  
+- 🔑 **GitHub Personal Access Tokens** and API credentials
 - 👤 **User information and GitHub usernames**
 - 📋 **Repository details and webhook payloads**
 - 🔒 **Internal system information and error details**
@@ -1048,7 +1048,7 @@ and HTML pages for security.
 
 - ✅ Deploy **only on trusted networks** (VPN, internal network)
 - ✅ **Never expose MCP endpoints** directly to the internet
-- ✅ Implement **reverse proxy authentication** for any external access  
+- ✅ Implement **reverse proxy authentication** for any external access
 - ✅ Use **firewall rules** to restrict access to authorized IP ranges only
 - ✅ Monitor and **audit access** to these endpoints
 
@@ -1082,11 +1082,7 @@ http://your-server:5000/mcp
   "mcpServers": {
     "github-webhook-server-logs": {
       "command": "npx",
-      "args": [
-        "mcp-remote",
-        "http://your-server:port/mcp",
-        "--allow-http"
-      ]
+      "args": ["mcp-remote", "http://your-server:port/mcp", "--allow-http"]
     }
   }
 }
@@ -1096,13 +1092,13 @@ http://your-server:5000/mcp
 
 Once configured, you can ask AI agents natural language questions:
 
-- *"Show me recent webhook errors from the last hour"*
-- *"What's the current health status of my webhook server?"*
-- *"Analyze the processing time for PR #123 and identify bottlenecks"*
-- *"Find all webhook failures for repository myorg/myrepo today"*
-- *"Export error logs from the last 24 hours for analysis"*
-- *"Compare processing times between successful and failed webhooks"*
-- *"Show me memory usage patterns in recent webhook processing"*
+- _"Show me recent webhook errors from the last hour"_
+- _"What's the current health status of my webhook server?"_
+- _"Analyze the processing time for PR #123 and identify bottlenecks"_
+- _"Find all webhook failures for repository myorg/myrepo today"_
+- _"Export error logs from the last 24 hours for analysis"_
+- _"Compare processing times between successful and failed webhooks"_
+- _"Show me memory usage patterns in recent webhook processing"_
 
 ### 🎯 Use Cases
 
@@ -1139,18 +1135,18 @@ Users can interact with the webhook server through GitHub comments on pull reque
 
 ### Pull Request Commands
 
-| Command             | Description                                         | Example             |
-| ------------------- | --------------------------------------------------- | ------------------- |
-| `/verified`         | Mark PR as verified                                 | `/verified`         |
-| `/verified cancel`  | Remove verification                                 | `/verified cancel`  |
-| `/hold`             | Block PR merging                                    | `/hold`             |
-| `/hold cancel`      | Unblock PR merging                                  | `/hold cancel`      |
-| `/wip`              | Mark as work in progress                            | `/wip`              |
-| `/wip cancel`       | Remove WIP status                                   | `/wip cancel`       |
-| `/lgtm`             | Approve changes                                     | `/lgtm`             |
-| `/approve`          | Approve PR                                          | `/approve`          |
-| `/assign-reviewers` | Assign OWNERS-based reviewers                       | `/assign-reviewers` |
-| `/check-can-merge`  | Check merge readiness                               | `/check-can-merge`  |
+| Command             | Description                                             | Example             |
+| ------------------- | ------------------------------------------------------- | ------------------- |
+| `/verified`         | Mark PR as verified                                     | `/verified`         |
+| `/verified cancel`  | Remove verification                                     | `/verified cancel`  |
+| `/hold`             | Block PR merging                                        | `/hold`             |
+| `/hold cancel`      | Unblock PR merging                                      | `/hold cancel`      |
+| `/wip`              | Mark as work in progress                                | `/wip`              |
+| `/wip cancel`       | Remove WIP status                                       | `/wip cancel`       |
+| `/lgtm`             | Approve changes                                         | `/lgtm`             |
+| `/approve`          | Approve PR                                              | `/approve`          |
+| `/assign-reviewers` | Assign OWNERS-based reviewers                           | `/assign-reviewers` |
+| `/check-can-merge`  | Check merge readiness                                   | `/check-can-merge`  |
 | `/reprocess`        | Trigger complete PR workflow reprocessing (OWNERS only) | `/reprocess`        |
 
 ### Workflow Management
@@ -1162,6 +1158,7 @@ The `/reprocess` command triggers complete PR workflow reprocessing from scratch
 **Permissions**: Requires user to be in repository OWNERS file (same as `/retest`)
 
 **Use Cases**:
+
 - Webhook delivery failed or was missed
 - Processing interrupted mid-workflow
 - OWNERS file changed and reviewers need reassignment
@@ -1169,6 +1166,7 @@ The `/reprocess` command triggers complete PR workflow reprocessing from scratch
 - PR got into inconsistent state and needs full reset
 
 **Behavior**:
+
 - Re-runs entire PR workflow including reviewer assignment, label updates, check queuing, and CI/CD tests
 - Won't create duplicate welcome messages or tracking issues if they already exist
 - Respects current repository configuration and OWNERS file
@@ -1207,9 +1205,9 @@ Cherry-picked PRs can be automatically verified or require manual verification d
 | `/cherry-pick branch1 branch2` | Cherry-pick to multiple branches | `/cherry-pick v1.0 v2.0` |
 
 **Configuration**: Control auto-verification of cherry-picked PRs:
+
 ```yaml
-auto-verify-cherry-picked-prs: true  # Default: true (auto-verify)
-                                      # Set to false to require manual verification
+auto-verify-cherry-picked-prs: true # Default: true (auto-verify). Set to false to require manual verification
 ```
 
 ### Label Commands
