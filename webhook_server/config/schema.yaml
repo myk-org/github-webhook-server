@@ -32,6 +32,7 @@ properties:
       description: Global GitHub token for all repositories
   webhook-ip:
     type: string
+    format: uri
     description: Full webhook URL including path (e.g., https://your-domain.com/webhook_server or https://smee.io/your-channel). Must include the complete path where webhooks will be received.
 
   ip-bind:

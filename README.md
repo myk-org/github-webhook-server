@@ -1207,9 +1207,7 @@ Cherry-picked PRs can be automatically verified or require manual verification d
 **Configuration**: Control auto-verification of cherry-picked PRs:
 
 ```yaml
-auto-verify-cherry-picked-prs:
-  true # Default: true (auto-verify)
-  # Set to false to require manual verification
+auto-verify-cherry-picked-prs: true # Default: true (auto-verify). Set to false to require manual verification
 ```
 
 ### Label Commands
