@@ -32,7 +32,7 @@ def process_github_webhook(
     if not repo:
         return False, f"[API user {api_user}] - Could not find repository {full_repository_name}", LOGGER.error
 
-    config_: dict[str, str] = {"url": f"{webhook_ip}/webhook_server", "content_type": "json"}
+    config_: dict[str, str] = {"url": webhook_ip, "content_type": "json"}
 
     if secret:
         config_["secret"] = secret

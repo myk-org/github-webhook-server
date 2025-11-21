@@ -54,7 +54,7 @@ class TestProcessGithubWebhook:
         # Verify webhook creation was called
         mock_repo.create_hook.assert_called_once_with(
             name="web",
-            config={"url": "http://example.com/webhook_server", "content_type": "json"},
+            config={"url": "http://example.com", "content_type": "json"},
             events=["push", "pull_request"],
             active=True,
         )
@@ -84,7 +84,7 @@ class TestProcessGithubWebhook:
         mock_repo.create_hook.assert_called_once_with(
             name="web",
             config={
-                "url": "http://example.com/webhook_server",
+                "url": "http://example.com",
                 "content_type": "json",
                 "secret": "test-secret",  # pragma: allowlist secret
             },
@@ -109,7 +109,7 @@ class TestProcessGithubWebhook:
         # Verify default events are used
         mock_repo.create_hook.assert_called_once_with(
             name="web",
-            config={"url": "http://example.com/webhook_server", "content_type": "json"},
+            config={"url": "http://example.com", "content_type": "json"},
             events=["*"],  # Default events
             active=True,
         )
@@ -125,7 +125,7 @@ class TestProcessGithubWebhook:
         """Test when webhook already exists with same configuration."""
         # Mock existing hook with matching URL
         existing_hook = Mock()
-        existing_hook.config = {"url": "http://example.com/webhook_server", "content_type": "json"}
+        existing_hook.config = {"url": "http://example.com", "content_type": "json"}
         mock_repo.get_hooks.return_value = [existing_hook]
         mock_get_repo_api.return_value = mock_repo
 
@@ -153,7 +153,7 @@ class TestProcessGithubWebhook:
         # Mock existing hook without secret, but we're adding a secret
         existing_hook = Mock()
         existing_hook.config = {
-            "url": "http://example.com/webhook_server",
+            "url": "http://example.com",
             "content_type": "json",
             # No secret in existing hook
         }
@@ -177,7 +177,7 @@ class TestProcessGithubWebhook:
         mock_repo.create_hook.assert_called_once_with(
             name="web",
             config={
-                "url": "http://example.com/webhook_server",
+                "url": "http://example.com",
                 "content_type": "json",
                 "secret": "new-secret",  # pragma: allowlist secret
             },
@@ -197,7 +197,7 @@ class TestProcessGithubWebhook:
         # Mock existing hook with secret, but we're removing it
         existing_hook = Mock()
         existing_hook.config = {
-            "url": "http://example.com/webhook_server",
+            "url": "http://example.com",
             "content_type": "json",
             "secret": "old-secret",  # pragma: allowlist secret
         }
@@ -220,7 +220,7 @@ class TestProcessGithubWebhook:
         # Verify new hook was created without secret
         mock_repo.create_hook.assert_called_once_with(
             name="web",
-            config={"url": "http://example.com/webhook_server", "content_type": "json"},
+            config={"url": "http://example.com", "content_type": "json"},
             events=["push", "pull_request"],
             active=True,
         )
@@ -291,10 +291,10 @@ class TestProcessGithubWebhook:
         """Test handling of multiple existing hooks, only matching ones are affected."""
         # Mock multiple existing hooks
         matching_hook = Mock()
-        matching_hook.config = {"url": "http://example.com/webhook_server", "content_type": "json"}
+        matching_hook.config = {"url": "http://example.com", "content_type": "json"}
 
         non_matching_hook = Mock()
-        non_matching_hook.config = {"url": "http://different.com/webhook_server", "content_type": "json"}
+        non_matching_hook.config = {"url": "http://different.com", "content_type": "json"}
 
         mock_repo.get_hooks.return_value = [matching_hook, non_matching_hook]
         mock_get_repo_api.return_value = mock_repo

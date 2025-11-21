@@ -7,7 +7,7 @@ github-tokens:
   - GITHIB TOKEN1
   - GITHIB TOKEN2
 
-webhook-ip: HTTP://IP OR URL:PORT
+webhook-ip: HTTP://IP OR URL:PORT/webhook_server
 webhook-secret: test-webhook-secret # pragma: allowlist secret
 
 docker: # Used to pull images from docker.io
