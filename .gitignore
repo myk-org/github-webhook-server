@@ -154,6 +154,7 @@ webhook_server/tests/manifests/logs
 coverage.json
 webhook-examples
 find_unused_code.py
+.dev
 
 # AI
 .cursor/
