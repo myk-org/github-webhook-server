@@ -63,7 +63,7 @@ RUN set -ex \
   && chmod +x $BIN_DIR/rosa \
   && curl --fail -vL https://github.com/regclient/regclient/releases/latest/download/regctl-linux-amd64 -o $BIN_DIR/regctl \
   && chmod +x $BIN_DIR/regctl \
-  && curl --fail -vL https://github.com/mislav/hub/releases/download/v2.14.2/hub-linux-amd64-2.14.2.tgz | tar --strip-components=2 -C $BIN_DIR -xzvf - '*/bin/hub' \
+  && curl --fail -vL https://github.com/mislav/hub/releases/download/v2.14.2/hub-linux-amd64-2.14.2.tgz | tar --wildcards --strip-components=2 -C $BIN_DIR -xzvf - '*/bin/hub' \
   && chmod +x $BIN_DIR/hub
 
 WORKDIR $APP_DIR

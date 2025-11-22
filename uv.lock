@@ -430,7 +430,7 @@ requires-dist = [
     { name = "fastapi-mcp", specifier = ">=0.4.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "psutil", specifier = ">=7.0.0" },
-    { name = "pydantic", specifier = ">=2.5.0" },
+    { name = "pydantic", specifier = ">=2.8.0" },
     { name = "pygithub", specifier = ">=2.4.0" },
     { name = "pyhelper-utils", specifier = ">=0.0.42" },
     { name = "pyjwt", specifier = ">=2.8.0" },
@@ -446,7 +446,7 @@ requires-dist = [
     { name = "shortuuid", specifier = ">=1.0.13" },
     { name = "string-color", specifier = ">=1.2.3" },
     { name = "timeout-sampler", specifier = ">=0.0.46" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.31.0" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
     { name = "webcolors", specifier = ">=24.11.1" },
 ]
 provides-extras = ["tests"]
