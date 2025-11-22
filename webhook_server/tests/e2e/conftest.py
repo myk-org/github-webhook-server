@@ -263,61 +263,6 @@ def cloned_test_repo(
     yield repo_dir
 
 
-@pytest.fixture
-def git_repo_reset(cloned_test_repo: Path) -> None:
-    """Provides a clean, reset git repository for each test.
-
-    Args:
-        cloned_test_repo: Path to cloned repository
-
-    This fixture ensures the repository is in a clean state:
-    1. Resets any local changes
-    2. Checks out main branch
-    3. Pulls latest changes from remote
-
-    Each test receives a clean, up-to-date repository.
-    """
-    logger.info("Resetting test repository to clean state")
-
-    # Reset any local changes
-    subprocess.run(
-        ["git", "reset", "--hard", "HEAD"],
-        cwd=cloned_test_repo,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-
-    # Clean untracked files
-    subprocess.run(
-        ["git", "clean", "-fd"],
-        cwd=cloned_test_repo,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-
-    # Checkout main
-    subprocess.run(
-        ["git", "checkout", "main"],
-        cwd=cloned_test_repo,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-
-    # Pull latest changes
-    subprocess.run(
-        ["git", "pull", "origin", "main"],
-        cwd=cloned_test_repo,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-
-    logger.info("Repository reset complete")
-
-
 @pytest.fixture(scope="class")
 def branch_for_tests(cloned_test_repo: Path, test_repository_name: str) -> Generator[str, None, None]:
     """Provides a test branch for the current test.

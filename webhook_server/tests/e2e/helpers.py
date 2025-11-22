@@ -113,28 +113,6 @@ def create_pr(title: str, branch: str, body: str = "", base: str = "main", test_
     return pr_number
 
 
-def add_comment(pr_number: str, comment: str, test_repo: str) -> None:
-    """Add a comment to a pull request.
-
-    Args:
-        pr_number: PR number to comment on
-        comment: Comment body text
-        test_repo: Test repository in format owner/repo-name
-
-    Raises:
-        subprocess.CalledProcessError: If comment creation fails
-    """
-    logger.info(f"Adding comment to PR #{pr_number}")
-
-    subprocess.run(
-        ["gh", "pr", "comment", pr_number, "--repo", test_repo, "--body", comment],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    logger.info(f"Comment added to PR #{pr_number}")
-
-
 def get_check_runs(pr_number: str, test_repo: str) -> list[dict[str, Any]]:
     """Get all check runs for a pull request.
 
@@ -332,60 +310,6 @@ def cleanup_pr(pr_number: str, branch: str, test_repo: str) -> None:
     close_pr(pr_number, test_repo)
     delete_branch(branch, test_repo)
     logger.info(f"Cleanup complete for PR #{pr_number}")
-
-
-def toggle_validation(enabled: bool, repo_path: str) -> None:
-    """Update VALIDATION_ENABLED in tests/config.py in test repository using local git.
-
-    Reads current file content, replaces VALIDATION_ENABLED value, and commits the change.
-
-    Args:
-        enabled: Whether to enable validation (True/False)
-        repo_path: Path to cloned repository
-
-    Raises:
-        subprocess.CalledProcessError: If git operations fail
-        ValueError: If VALIDATION_ENABLED pattern not found in file
-        FileNotFoundError: If tests/config.py doesn't exist
-    """
-    logger.info(f"Toggling VALIDATION_ENABLED to {enabled}")
-
-    # Read current file content
-    config_file = f"{repo_path}/tests/config.py"
-    try:
-        with open(config_file) as f:
-            current_content = f.read()
-    except FileNotFoundError as ex:
-        raise FileNotFoundError(f"tests/config.py not found at {config_file}") from ex
-
-    # Replace VALIDATION_ENABLED value
-    pattern = r"VALIDATION_ENABLED\s*=\s*(True|False)"
-    if not re.search(pattern, current_content):
-        raise ValueError("VALIDATION_ENABLED pattern not found in tests/config.py")
-
-    new_content = re.sub(pattern, f"VALIDATION_ENABLED = {enabled}", current_content)
-
-    # Write updated content
-    with open(config_file, "w") as f:
-        f.write(new_content)
-
-    # Commit the change using local git
-    commit_message = f"test: toggle VALIDATION_ENABLED to {enabled}"
-    subprocess.run(
-        ["git", "add", "tests/config.py"],
-        cwd=repo_path,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    subprocess.run(
-        ["git", "commit", "-m", commit_message],
-        cwd=repo_path,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    logger.info(f"VALIDATION_ENABLED set to {enabled}")
 
 
 def get_repo_issues(test_repo: str) -> list[dict[str, Any]]:
