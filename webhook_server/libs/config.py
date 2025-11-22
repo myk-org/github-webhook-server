@@ -140,3 +140,103 @@ class Config:
                 return None
 
         return current
+
+    def get_ai_config(self, extra_dict: dict[str, Any] | None = None) -> dict[str, Any]:
+        """
+        Get AI features configuration with repository overrides.
+
+        Order of precedence:
+            1. extra_dict (e.g., from .github-webhook-server.yaml)
+            2. Repository-level config
+            3. Global config
+
+        Returns:
+            Dictionary with AI configuration, or empty dict if not configured
+        """
+        # Start with global AI config
+        ai_config = self.root_data.get("ai-features", {})
+
+        # Override with repository-level config if available
+        repo_ai_config = self.repository_data.get("ai-features", {})
+        if repo_ai_config:
+            # Deep merge: repository config overrides global config
+            ai_config = self._deep_merge(ai_config.copy(), repo_ai_config)
+
+        # Override with extra_dict if provided (e.g., .github-webhook-server.yaml)
+        if extra_dict and "ai-features" in extra_dict:
+            ai_config = self._deep_merge(ai_config.copy(), extra_dict["ai-features"])
+
+        return ai_config
+
+    def _deep_merge(self, base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+        """
+        Deep merge two dictionaries, with override taking precedence.
+
+        Args:
+            base: Base dictionary
+            override: Override dictionary (takes precedence)
+
+        Returns:
+            Merged dictionary
+        """
+        result = base.copy()
+
+        for key, value in override.items():
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                # Recursively merge nested dicts
+                result[key] = self._deep_merge(result[key], value)
+            else:
+                # Override value
+                result[key] = value
+
+        return result
+
+    def is_ai_feature_enabled(self, feature_name: str, extra_dict: dict[str, Any] | None = None) -> bool:
+        """
+        Check if a specific AI feature is enabled.
+
+        Args:
+            feature_name: Name of the feature (e.g., "nlp-commands", "test-analysis")
+            extra_dict: Extra config dict (e.g., from .github-webhook-server.yaml)
+
+        Returns:
+            True if feature is enabled, False otherwise
+        """
+        ai_config = self.get_ai_config(extra_dict)
+
+        # Check if AI features are globally enabled
+        if not ai_config.get("enabled", False):
+            return False
+
+        # Check if specific feature is enabled
+        features = ai_config.get("features", {})
+        feature_config = features.get(feature_name, {})
+
+        return feature_config.get("enabled", False)
+
+    def get_gemini_api_key(self, extra_dict: dict[str, Any] | None = None) -> str | None:
+        """
+        Get Gemini API key from environment variable.
+
+        The environment variable name is configured in ai-features.gemini.api-key-env
+        (defaults to GEMINI_API_KEY).
+
+        Args:
+            extra_dict: Extra config dict (e.g., from .github-webhook-server.yaml)
+
+        Returns:
+            API key if found, None otherwise
+        """
+        ai_config = self.get_ai_config(extra_dict)
+
+        # Get API key environment variable name
+        gemini_config = ai_config.get("gemini", {})
+        api_key_env = gemini_config.get("api-key-env", "GEMINI_API_KEY")
+
+        # Get API key from environment
+        api_key = os.getenv(api_key_env)
+
+        if not api_key:
+            self.logger.warning(f"Gemini API key not found in environment variable: {api_key_env}")
+
+        return api_key
