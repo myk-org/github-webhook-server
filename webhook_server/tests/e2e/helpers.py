@@ -293,7 +293,7 @@ def close_pr(pr_number: str, test_repo: str) -> None:
         )
         logger.info(f"PR #{pr_number} closed successfully")
     except subprocess.CalledProcessError as ex:
-        logger.error(f"Failed to close PR #{pr_number}: {ex.stderr}")
+        logger.exception(f"Failed to close PR #{pr_number}: {ex.stderr}")
 
 
 def cleanup_pr(pr_number: str, branch: str, test_repo: str) -> None:
@@ -347,5 +347,5 @@ def get_repo_issues(test_repo: str) -> list[dict[str, Any]]:
             except json.JSONDecodeError:
                 continue
 
-    logger.debug(f"Found {len(all_issues)} issues for{test_repo}")
+    logger.debug(f"Found {len(all_issues)} issues for {test_repo}")
     return all_issues
