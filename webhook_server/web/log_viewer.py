@@ -356,7 +356,7 @@ class LogViewerController:
             media_type = "application/json"
             filename = f"webhook_logs_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
 
-            def generate() -> Generator[bytes, None, None]:
+            def generate() -> Generator[bytes]:
                 yield content.encode("utf-8")
 
             return StreamingResponse(

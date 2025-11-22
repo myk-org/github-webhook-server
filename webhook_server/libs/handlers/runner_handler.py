@@ -49,7 +49,7 @@ class RunnerHandler:
         is_merged: bool = False,
         checkout: str = "",
         tag_name: str = "",
-    ) -> AsyncGenerator[tuple[bool, str, str, str], None]:
+    ) -> AsyncGenerator[tuple[bool, str, str, str]]:
         """Create worktree from existing clone for handler operations.
 
         Uses centralized clone from github_webhook.clone_repo_dir and creates

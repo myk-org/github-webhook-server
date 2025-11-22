@@ -309,7 +309,7 @@ class LogParser:
 
         return entries
 
-    async def tail_log_file(self, file_path: Path, follow: bool = True) -> AsyncGenerator[LogEntry, None]:
+    async def tail_log_file(self, file_path: Path, follow: bool = True) -> AsyncGenerator[LogEntry]:
         """
         Tail a log file and yield new LogEntry objects as they are added.
 
@@ -341,7 +341,7 @@ class LogParser:
                     # Not following, exit when no more data
                     break
 
-    async def monitor_log_directory(self, log_dir: Path, pattern: str = "*.log") -> AsyncGenerator[LogEntry, None]:
+    async def monitor_log_directory(self, log_dir: Path, pattern: str = "*.log") -> AsyncGenerator[LogEntry]:
         """
         Monitor a directory for log files and yield new entries from all files.
 
