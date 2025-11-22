@@ -21,6 +21,25 @@ function updateConnectionStatus(connected) {
   }
 }
 
+// Helper to append time filters to URLSearchParams
+function appendTimeFilters(filters) {
+  const startTime = document.getElementById("startTimeFilter").value;
+  const endTime = document.getElementById("endTimeFilter").value;
+
+  if (startTime) {
+    const parsedStart = new Date(startTime);
+    if (!isNaN(parsedStart.getTime())) {
+      filters.append("start_time", parsedStart.toISOString());
+    }
+  }
+  if (endTime) {
+    const parsedEnd = new Date(endTime);
+    if (!isNaN(parsedEnd.getTime())) {
+      filters.append("end_time", parsedEnd.toISOString());
+    }
+  }
+}
+
 function connectWebSocket() {
   if (ws) {
     ws.close();
@@ -43,6 +62,7 @@ function connectWebSocket() {
   if (user) filters.append("github_user", user);
   if (level) filters.append("level", level);
   if (search) filters.append("search", search);
+  appendTimeFilters(filters);
 
   const wsUrl = `${protocol}//${window.location.host}/logs/ws${
     filters.toString() ? "?" + filters.toString() : ""
@@ -101,6 +121,15 @@ function addLogEntry(entry) {
   clearFilterCache(); // Clear cache when entries change
   renderLogEntriesOptimized();
 
+  // Auto-scroll if enabled
+  const autoScrollToggle = document.getElementById("autoScrollToggle");
+  if (autoScrollToggle && autoScrollToggle.checked) {
+    const container = document.getElementById("logEntries");
+    if (container) {
+      container.scrollTop = 0;
+    }
+  }
+
   // Update displayed count for real-time entries
   updateDisplayedCount();
 }
@@ -156,23 +185,25 @@ function createLogEntryElement(entry) {
 
   div.className = `log-entry ${safeLevel}`;
 
-  // Create timestamp
-  const timestamp = document.createElement("span");
+  // Column 1: Timestamp
+  const timestamp = document.createElement("div");
   timestamp.className = "timestamp";
   timestamp.textContent = new Date(entry.timestamp).toLocaleString();
   div.appendChild(timestamp);
 
-  // Create level
-  const level = document.createElement("span");
+  // Column 2: Level
+  const level = document.createElement("div");
   level.className = "level";
-  level.textContent = `[${entry.level}]`;
+  level.textContent = entry.level;
   div.appendChild(level);
 
-  // Create message
-  const message = document.createElement("span");
-  message.className = "message";
-  message.textContent = entry.message;
-  div.appendChild(message);
+  // Column 3: Message and Metadata
+  const messageCol = document.createElement("div");
+  messageCol.className = "message";
+
+  const messageText = document.createElement("span");
+  messageText.textContent = entry.message + " "; // Add space for tags
+  messageCol.appendChild(messageText);
 
   // Create clickable hook ID link if present
   if (entry.hook_id) {
@@ -185,14 +216,15 @@ function createLogEntryElement(entry) {
     hookLink.textContent = entry.hook_id;
     hookLink.title = "Click to view workflow";
     hookLink.style.cursor = "pointer";
-    hookLink.addEventListener("click", () => {
+    hookLink.addEventListener("click", (e) => {
+      e.stopPropagation();
       showFlowModal(entry.hook_id);
     });
 
     hookIdSpan.appendChild(hookLink);
     const closeBracket = document.createTextNode("]");
     hookIdSpan.appendChild(closeBracket);
-    div.appendChild(hookIdSpan);
+    messageCol.appendChild(hookIdSpan);
   }
 
   // Add other metadata - make PR number clickable
@@ -206,30 +238,32 @@ function createLogEntryElement(entry) {
     prLink.textContent = entry.pr_number;
     prLink.title = "Click to view all webhook flows for this PR";
     prLink.style.cursor = "pointer";
-    prLink.addEventListener("click", () => {
+    prLink.addEventListener("click", (e) => {
+      e.stopPropagation();
       showPrModal(entry.pr_number);
     });
 
     prSpan.appendChild(prLink);
     const closeBracket = document.createTextNode("]");
     prSpan.appendChild(closeBracket);
-    div.appendChild(prSpan);
+    messageCol.appendChild(prSpan);
   }
 
   if (entry.repository) {
     const repoSpan = document.createElement("span");
     repoSpan.className = "repository";
     repoSpan.textContent = `[${entry.repository}]`;
-    div.appendChild(repoSpan);
+    messageCol.appendChild(repoSpan);
   }
 
   if (entry.github_user) {
     const userSpan = document.createElement("span");
     userSpan.className = "user";
     userSpan.textContent = `[User: ${entry.github_user}]`;
-    div.appendChild(userSpan);
+    messageCol.appendChild(userSpan);
   }
 
+  div.appendChild(messageCol);
   return div;
 }
 
@@ -328,6 +362,7 @@ async function loadHistoricalLogs() {
     if (user) filters.append("github_user", user);
     if (level) filters.append("level", level);
     if (search) filters.append("search", search);
+    appendTimeFilters(filters);
 
     const response = await fetch(`/logs/api/entries?${filters.toString()}`);
 
@@ -508,6 +543,7 @@ function exportLogs(format) {
   if (user) filters.append("github_user", user);
   if (level) filters.append("level", level);
   if (search) filters.append("search", search);
+  appendTimeFilters(filters);
   filters.append("limit", limit);
   filters.append("format", format);
 
@@ -549,6 +585,8 @@ function clearFilters() {
   document.getElementById("userFilter").value = "";
   document.getElementById("levelFilter").value = "";
   document.getElementById("searchFilter").value = "";
+  document.getElementById("startTimeFilter").value = "";
+  document.getElementById("endTimeFilter").value = "";
   document.getElementById("limitFilter").value = "1000"; // Reset to default
 
   // Reload data with cleared filters
@@ -573,6 +611,12 @@ document
   .addEventListener("input", debounceFilter);
 document
   .getElementById("limitFilter")
+  .addEventListener("change", debounceFilter);
+document
+  .getElementById("startTimeFilter")
+  .addEventListener("change", debounceFilter);
+document
+  .getElementById("endTimeFilter")
   .addEventListener("change", debounceFilter);
 
 // Theme management
@@ -619,11 +663,66 @@ function initializeTheme() {
 // Initialize theme on page load
 initializeTheme();
 
+// Initialize panel state from localStorage
+function initializePanelState() {
+  const isCollapsed = localStorage.getItem("log-viewer-panel-collapsed") === "true";
+  const container = document.querySelector(".filters-container");
+  const btn = document.getElementById("togglePanelBtn");
+
+  if (!container || !btn) return;
+
+  if (isCollapsed) {
+    container.classList.add("collapsed");
+    btn.style.transform = "rotate(-90deg)";
+    btn.title = "Expand Panel";
+    btn.setAttribute("aria-expanded", "false");
+    container.setAttribute("aria-hidden", "true");
+  } else {
+    container.classList.remove("collapsed");
+    btn.style.transform = "rotate(0deg)";
+    btn.title = "Collapse Panel";
+    btn.setAttribute("aria-expanded", "true");
+    container.setAttribute("aria-hidden", "false");
+  }
+}
+
+initializePanelState();
+
 // Initialize connection status
 updateConnectionStatus(false);
 
+// Toggle control panel
+function togglePanel() {
+  const container = document.querySelector(".filters-container");
+  const btn = document.getElementById("togglePanelBtn");
+
+  if (!container || !btn) return;
+
+  if (container.classList.contains("collapsed")) {
+    container.classList.remove("collapsed");
+    btn.style.transform = "rotate(0deg)";
+    btn.title = "Collapse Panel";
+    btn.setAttribute("aria-expanded", "true");
+    container.setAttribute("aria-hidden", "false");
+    localStorage.setItem("log-viewer-panel-collapsed", "false");
+  } else {
+    container.classList.add("collapsed");
+    btn.style.transform = "rotate(-90deg)";
+    btn.title = "Expand Panel";
+    btn.setAttribute("aria-expanded", "false");
+    container.setAttribute("aria-hidden", "true");
+    localStorage.setItem("log-viewer-panel-collapsed", "true");
+  }
+}
+
 // Initialize event listeners when DOM is ready
 function initializeEventListeners() {
+  // Panel toggle button
+  const togglePanelBtn = document.getElementById("togglePanelBtn");
+  if (togglePanelBtn) {
+    togglePanelBtn.addEventListener("click", togglePanel);
+  }
+
   // Theme toggle button
   const themeToggleBtn = document.getElementById("themeToggleBtn");
   if (themeToggleBtn) {
@@ -1655,27 +1754,8 @@ async function showStepLogsInModal(step, logsContainer) {
 
     // Render log entries
     data.entries.forEach((entry) => {
-      const logEntry = document.createElement("div");
-      const allowed = ["DEBUG", "INFO", "WARNING", "ERROR", "STEP", "SUCCESS"];
-      const safeLevel = allowed.includes(entry.level) ? entry.level : "INFO";
-      logEntry.className = `log-entry ${safeLevel}`;
-
-      const timestamp = document.createElement("span");
-      timestamp.className = "timestamp";
-      timestamp.textContent = new Date(entry.timestamp).toLocaleString();
-
-      const level = document.createElement("span");
-      level.className = "level";
-      level.textContent = ` [${entry.level}] `;
-
-      const message = document.createElement("span");
-      message.className = "message";
-      message.textContent = entry.message;
-
-      logEntry.appendChild(timestamp);
-      logEntry.appendChild(level);
-      logEntry.appendChild(message);
-
+      // Reuse the main log entry creator for consistency
+      const logEntry = createLogEntryElement(entry);
       logsContainer.appendChild(logEntry);
     });
 

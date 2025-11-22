@@ -695,7 +695,9 @@ class TestPullRequestHandler:
                 pull_request_handler.labels_handler, "pull_request_labels_names", new=AsyncMock(return_value=[])
             ),
             patch.object(
-                pull_request_handler.github_webhook, "last_commit", Mock(get_check_runs=Mock(return_value=[]))
+                pull_request_handler.github_webhook,
+                "last_commit",
+                Mock(get_check_runs=Mock(return_value=[]), get_statuses=Mock(return_value=[])),
             ),
         ):
             await pull_request_handler.check_if_can_be_merged(pull_request=mock_pull_request)

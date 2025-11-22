@@ -469,10 +469,41 @@ class TestLogViewerController:
 
     def test_generate_json_export(self, controller, sample_log_entries):
         """Test JSON export generation."""
-        result = controller._generate_json_export(sample_log_entries)
+        # Test with standard filters
+        filters = {"level": "INFO"}
+        # Filter entries to match the metadata for clarity
+        filtered_entries = [e for e in sample_log_entries if e.level == "INFO"]
+        result = controller._generate_json_export(filtered_entries, filters)
         assert isinstance(result, str)
         parsed = json.loads(result)
-        assert len(parsed) == 3
+        assert "export_metadata" in parsed
+        assert "log_entries" in parsed
+        assert parsed["export_metadata"]["filters_applied"] == filters
+        assert parsed["export_metadata"]["total_entries"] == 1
+        assert len(parsed["log_entries"]) == 1
+        assert parsed["log_entries"][0]["level"] == "INFO"
+
+        # Test with filters=None
+        result_none = controller._generate_json_export(sample_log_entries, None)
+        parsed_none = json.loads(result_none)
+        assert parsed_none["export_metadata"]["filters_applied"] == {}
+        assert len(parsed_none["log_entries"]) == 3
+
+        # Test with empty filters {}
+        result_empty = controller._generate_json_export(sample_log_entries, {})
+        parsed_empty = json.loads(result_empty)
+        assert parsed_empty["export_metadata"]["filters_applied"] == {}
+        assert len(parsed_empty["log_entries"]) == 3
+
+        # Test with multiple filters
+        multi_filters = {"level": "INFO", "hook_id": "hook1"}
+        filtered_multi = [e for e in sample_log_entries if e.level == "INFO" and e.hook_id == "hook1"]
+        result_multi = controller._generate_json_export(filtered_multi, multi_filters)
+        parsed_multi = json.loads(result_multi)
+        assert parsed_multi["export_metadata"]["filters_applied"] == multi_filters
+        assert len(parsed_multi["log_entries"]) == 1
+        assert parsed_multi["log_entries"][0]["level"] == "INFO"
+        assert parsed_multi["log_entries"][0]["hook_id"] == "hook1"
 
     def test_analyze_pr_flow_empty_entries(self, controller):
         """Test PR flow analysis with empty entries."""
@@ -610,6 +641,14 @@ class TestLogAPI:
             mock_http_client = AsyncMock()
             mock_http_client.aclose = AsyncMock()
 
+            # Mock asyncio.wait to return immediately (prevents 30-second shutdown timeout)
+            async def mock_wait(tasks, timeout=None, return_when=None):
+                # Cancel all tasks immediately to prevent blocking
+                for task in tasks:
+                    task.cancel()
+                # Return empty done set and the tasks as pending
+                return set(), tasks
+
             with patch("webhook_server.app.httpx.AsyncClient", return_value=mock_http_client):
                 # Mock external HTTP dependencies
                 with patch(
@@ -618,13 +657,14 @@ class TestLogAPI:
                     with patch(
                         "webhook_server.utils.app_utils.get_cloudflare_allowlist", new_callable=AsyncMock
                     ) as mock_cloudflare:
-                        mock_github.return_value = []
-                        mock_cloudflare.return_value = []
+                        with patch("webhook_server.app.asyncio.wait", side_effect=mock_wait):
+                            mock_github.return_value = []
+                            mock_cloudflare.return_value = []
 
-                        with TestClient(FASTAPI_APP) as client:
-                            response = client.get("/logs")
-                            assert response.status_code == 200
-                            assert "Log Viewer" in response.text
+                            with TestClient(FASTAPI_APP) as client:
+                                response = client.get("/logs")
+                                assert response.status_code == 200
+                                assert "Log Viewer" in response.text
 
     def test_get_log_entries_no_filters(self, sample_log_entries: list[LogEntry]) -> None:
         """Test retrieving log entries without filters."""

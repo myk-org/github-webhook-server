@@ -30,6 +30,7 @@ from webhook_server.libs.exceptions import NoApiTokenError
 
 def get_logger_with_params(
     repository_name: str = "",
+    log_file_name: str | None = None,
 ) -> Logger:
     mask_sensitive_patterns: list[str] = [
         # Passwords and secrets
@@ -67,33 +68,50 @@ def get_logger_with_params(
     _config = Config(repository=repository_name)
 
     log_level: str = _config.get_value(value="log-level", return_on_none="INFO")
-    log_file: str = _config.get_value(value="log-file")
+    log_file_config: str = _config.get_value(value="log-file")
+    log_file: str | None = log_file_name or log_file_config
     # Get mask-sensitive-data config (default: True to hide sensitive data)
     mask_sensitive: bool = _config.get_value(value="mask-sensitive-data", return_on_none=True)
 
-    if log_file and not log_file.startswith("/"):
-        log_file_path = os.path.join(_config.data_dir, "logs")
-
-        if not os.path.isdir(log_file_path):
-            os.makedirs(log_file_path, exist_ok=True)
-
-        log_file = os.path.join(log_file_path, log_file)
+    log_file_path_resolved = get_log_file_path(config=_config, log_file_name=log_file)
 
     # CRITICAL FIX: Use a fixed logger name for the same log file to ensure
     # only ONE RotatingFileHandler instance manages the file rotation.
     # Multiple handlers writing to the same file causes rotation to fail.
     # The original 'name' parameter is preserved in log records via the logger name.
-    logger_cache_key = os.path.basename(log_file) if log_file else "console"
+    logger_cache_key = os.path.basename(log_file_path_resolved) if log_file_path_resolved else "console"
 
     return get_logger(
         name=logger_cache_key,
-        filename=log_file,
+        filename=log_file_path_resolved,
         level=log_level,
         file_max_bytes=1024 * 1024 * 10,
         mask_sensitive=mask_sensitive,
         mask_sensitive_patterns=mask_sensitive_patterns,
         console=True,  # Enable console output for docker logs with FORCE_COLOR support
     )
+
+
+def get_log_file_path(config: Config, log_file_name: str | None) -> str | None:
+    """
+    Resolve the full path for a log file using the configuration data directory.
+
+    Args:
+        config: Config object containing data_dir
+        log_file_name: Name of the log file (e.g., "server.log")
+
+    Returns:
+        Full path to the log file, or None if log_file_name is None
+    """
+    if log_file_name and not log_file_name.startswith("/"):
+        log_file_path = os.path.join(config.data_dir, "logs")
+
+        if not os.path.isdir(log_file_path):
+            os.makedirs(log_file_path, exist_ok=True)
+
+        return os.path.join(log_file_path, log_file_name)
+
+    return log_file_name
 
 
 def _sanitize_log_value(value: str) -> str:

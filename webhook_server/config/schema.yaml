@@ -10,6 +10,14 @@ properties:
   log-file:
     type: string
     description: File path for the log file
+  mcp-log-file:
+    type: string
+    description: File path for the MCP log file
+    default: mcp_server.log
+  logs-server-log-file:
+    type: string
+    description: File path for the Logs Server log file
+    default: logs_server.log
   mask-sensitive-data:
     type: boolean
     description: Mask sensitive data in logs (tokens, passwords, secrets, etc.). Default is true for security.
@@ -24,7 +32,8 @@ properties:
       description: Global GitHub token for all repositories
   webhook-ip:
     type: string
-    description: IP or FQDN address of the webhook server for adding to the repositories
+    format: uri
+    description: Full webhook URL including path (e.g., https://your-domain.com/webhook_server or https://smee.io/your-channel). Must include the complete path where webhooks will be received.
 
   ip-bind:
     type: string

@@ -277,10 +277,10 @@ class PullRequestHandler:
         if self.github_webhook.create_issue_for_new_pr:
             issue_creation_note = (
                 "* **Issue Creation**: A tracking issue is created for this PR "
-                "and will be closed when the PR is merged or closed\n"
+                "and will be closed when the PR is merged or closed"
             )
         else:
-            issue_creation_note = "* **Issue Creation**: Disabled for this repository\n"
+            issue_creation_note = "* **Issue Creation**: Disabled for this repository"
 
         return f"""
 {self.github_webhook.issue_url_for_welcome_msg}
@@ -290,13 +290,10 @@ class PullRequestHandler:
 This pull request will be automatically processed with the following features:{auto_verified_note}
 
 ### 🔄 Automatic Actions
-* **Reviewer Assignment**: Reviewers are automatically assigned based on the "
-            "OWNERS file in the repository root\n"
-            "* **Size Labeling**: PR size labels (XS, S, M, L, XL, XXL) are "
-            "automatically applied based on changes\n"
-            f"{issue_creation_note}"
-            "* **Pre-commit Checks**: [pre-commit](https://pre-commit.ci/) runs "
-            "automatically if `.pre-commit-config.yaml` exists\n"
+* **Reviewer Assignment**: Reviewers are automatically assigned based on the OWNERS file in the repository root
+* **Size Labeling**: PR size labels (XS, S, M, L, XL, XXL) are automatically applied based on changes
+{issue_creation_note}
+* **Pre-commit Checks**: [pre-commit](https://pre-commit.ci/) runs automatically if `.pre-commit-config.yaml` exists
 * **Branch Labeling**: Branch-specific labels are applied to track the target branch
 * **Auto-verification**: Auto-verified users have their PRs automatically marked as verified
 
@@ -956,8 +953,20 @@ For more information, please refer to the project documentation or contact the m
         try:
             self.logger.info(f"{self.log_prefix} Check if {CAN_BE_MERGED_STR}.")
             await self.check_run_handler.set_merge_check_in_progress()
-            _last_commit_check_runs = await asyncio.to_thread(self.github_webhook.last_commit.get_check_runs)
-            last_commit_check_runs = list(_last_commit_check_runs)
+            # Fetch check runs and statuses in parallel (2 API calls → 1 concurrent operation)
+            _check_runs, _statuses = await asyncio.gather(
+                asyncio.to_thread(lambda: list(self.github_webhook.last_commit.get_check_runs())),
+                asyncio.to_thread(lambda: list(self.github_webhook.last_commit.get_statuses())),
+            )
+            last_commit_check_runs = _check_runs
+            last_commit_statuses = _statuses
+            self.logger.debug(
+                f"{self.log_prefix} Fetched {len(last_commit_check_runs)} check runs "
+                f"and {len(last_commit_statuses)} statuses"
+            )
+            if last_commit_statuses:
+                status_names = [s.context for s in last_commit_statuses]
+                self.logger.debug(f"{self.log_prefix} Commit statuses: {status_names}")
             _labels = await self.labels_handler.pull_request_labels_names(pull_request=pull_request)
             self.logger.debug(f"{self.log_prefix} check if can be merged. PR labels are: {_labels}")
 
@@ -970,7 +979,8 @@ For more information, please refer to the project documentation or contact the m
                 required_check_in_progress_failure_output,
                 check_runs_in_progress,
             ) = await self.check_run_handler.required_check_in_progress(
-                pull_request=pull_request, last_commit_check_runs=last_commit_check_runs
+                pull_request=pull_request,
+                last_commit_check_runs=last_commit_check_runs,
             )
             if required_check_in_progress_failure_output:
                 failure_output += required_check_in_progress_failure_output
@@ -984,6 +994,7 @@ For more information, please refer to the project documentation or contact the m
             required_check_failed_failure_output = await self.check_run_handler.required_check_failed_or_no_status(
                 pull_request=pull_request,
                 last_commit_check_runs=last_commit_check_runs,
+                last_commit_statuses=last_commit_statuses,
                 check_runs_in_progress=check_runs_in_progress,
             )
             if required_check_failed_failure_output:

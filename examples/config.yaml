@@ -2,6 +2,8 @@
 
 log-level: INFO # Set global log level, change take effect immediately without server restart
 log-file: webhook-server.log # Set global log file, change take effect immediately without server restart
+mcp-log-file: mcp_server.log # Set global MCP log file, change take effect immediately without server restart
+logs-server-log-file: logs_server.log # Set global Logs Server log file, change take effect immediately without server restart
 mask-sensitive-data: true # Mask sensitive data in logs (default: true). Set to false for debugging (NOT recommended in production)
 
 # Server configuration
@@ -12,7 +14,7 @@ github-tokens:
   - <GITHIB TOKEN1>
   - <GITHIB TOKEN2>
 
-webhook-ip: <HTTP://IP OR URL:PORT>
+webhook-ip: <HTTP://IP OR URL:PORT/webhook_server> # Full URL with path (e.g., https://your-domain.com/webhook_server or https://smee.io/your-channel)
 
 docker: # Used to pull images from docker.io
   username: <username>
