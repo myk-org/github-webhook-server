@@ -63,7 +63,7 @@ class TestRunnerHandler:
         return mock_pr
 
     @pytest.fixture(autouse=True)
-    def patch_check_run_text(self) -> Generator[None, None, None]:
+    def patch_check_run_text(self) -> Generator[None]:
         with patch(
             "webhook_server.libs.handlers.check_run_handler.CheckRunHandler.get_check_run_text",
             return_value="dummy output",
@@ -71,7 +71,7 @@ class TestRunnerHandler:
             yield
 
     @pytest.fixture(autouse=True)
-    def patch_shutil_rmtree(self) -> Generator[None, None, None]:
+    def patch_shutil_rmtree(self) -> Generator[None]:
         with patch("shutil.rmtree"):
             yield
 

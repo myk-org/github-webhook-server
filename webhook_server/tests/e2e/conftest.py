@@ -116,7 +116,7 @@ def server_envs() -> dict[str, str]:
 
 
 @pytest.fixture(scope="session")
-def github_webhook_cleanup(server_envs: dict[str, str]) -> Generator[None, None, None]:
+def github_webhook_cleanup(server_envs: dict[str, str]) -> Generator[None]:
     """Manages GitHub webhook lifecycle (session-scoped).
 
     This fixture ensures the GitHub webhook is properly cleaned up after all tests complete.
@@ -162,7 +162,7 @@ def github_webhook_cleanup(server_envs: dict[str, str]) -> Generator[None, None,
 
 
 @pytest.fixture(scope="session")
-def e2e_server(server_envs: dict[str, str], github_webhook_cleanup: None) -> Generator[None, None, None]:
+def e2e_server(server_envs: dict[str, str], github_webhook_cleanup: None) -> Generator[None]:
     """Session-scoped fixture that manages E2E testing infrastructure.
 
     This fixture manages the complete E2E testing infrastructure:
@@ -233,9 +233,7 @@ def test_repository_name(server_envs: dict[str, str]) -> str:
 
 
 @pytest.fixture(scope="session")
-def cloned_test_repo(
-    tmp_path_factory: pytest.TempPathFactory, test_repository_name: str
-) -> Generator[Path, None, None]:
+def cloned_test_repo(tmp_path_factory: pytest.TempPathFactory, test_repository_name: str) -> Generator[Path]:
     """Clone test repository to temporary directory (session-scoped).
 
     Args:
@@ -264,7 +262,7 @@ def cloned_test_repo(
 
 
 @pytest.fixture(scope="class")
-def branch_for_tests(cloned_test_repo: Path, test_repository_name: str) -> Generator[str, None, None]:
+def branch_for_tests(cloned_test_repo: Path, test_repository_name: str) -> Generator[str]:
     """Provides a test branch for the current test.
 
     Args:
@@ -326,9 +324,7 @@ def branch_for_tests(cloned_test_repo: Path, test_repository_name: str) -> Gener
 
 
 @pytest.fixture(scope="class")
-def pr_for_tests(
-    cloned_test_repo: Path, branch_for_tests: str, test_repository_name: str
-) -> Generator[str, None, None]:
+def pr_for_tests(cloned_test_repo: Path, branch_for_tests: str, test_repository_name: str) -> Generator[str]:
     """Provides a test PR for the current test.
 
     Args:

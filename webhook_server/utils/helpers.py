@@ -659,7 +659,7 @@ async def git_worktree_checkout(
     checkout: str,
     log_prefix: str,
     mask_sensitive: bool = True,
-) -> AsyncGenerator[tuple[bool, str, str, str], None]:
+) -> AsyncGenerator[tuple[bool, str, str, str]]:
     """Create git worktree for isolated checkout operations.
 
     Creates a temporary worktree from existing cloned repository, allowing

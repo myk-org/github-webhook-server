@@ -5,15 +5,15 @@ EXPOSE 5000
 ENV USERNAME="podman"
 ENV HOME_DIR="/home/$USERNAME"
 ENV BIN_DIR="$HOME_DIR/.local/bin"
-ENV PATH="$PATH:$BIN_DIR"
-ENV DATA_DIR="$HOME_DIR/data"
-ENV APP_DIR="$HOME_DIR/github-webhook-server"
+ENV PATH="$PATH:$BIN_DIR" \
+  DATA_DIR="$HOME_DIR/data" \
+  APP_DIR="$HOME_DIR/github-webhook-server"
 
 RUN systemd-machine-id-setup
 
-RUN dnf -y install dnf-plugins-core \
-  && dnf -y update \
-  && dnf -y install \
+RUN  dnf --nodocs --setopt=install_weak_deps=False --disable-repo=fedora-cisco-openh264 -y install dnf-plugins-core \
+  && dnf --nodocs --setopt=install_weak_deps=False --disable-repo=fedora-cisco-openh264 -y update \
+  && dnf --nodocs --setopt=install_weak_deps=False --disable-repo=fedora-cisco-openh264 -y install \
   git \
   unzip \
   gcc \
@@ -31,7 +31,7 @@ RUN dnf -y install dnf-plugins-core \
   which \
   tini \
   && dnf clean all \
-  && rm -rf /var/cache /var/log/dnf* /var/log/yum.*
+  && rm -rf /var/cache /var/log/dnf* /var/log/yum.* /var/lib/dnf /var/log/dnf.* /var/log/hawkey.log
 
 
 RUN mkdir -p $BIN_DIR \
@@ -49,29 +49,22 @@ RUN usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $USERNAME \
 USER $USERNAME
 WORKDIR $HOME_DIR
 
-ENV UV_PYTHON=python3.13
-ENV UV_COMPILE_BYTECODE=1
-ENV UV_NO_SYNC=1
-ENV UV_CACHE_DIR=${APP_DIR}/.cache
-ENV PYTHONUNBUFFERED=1
+ENV UV_PYTHON=python3.13 \
+  UV_COMPILE_BYTECODE=1 \
+  UV_NO_SYNC=1 \
+  UV_CACHE_DIR=${APP_DIR}/.cache \
+  PYTHONUNBUFFERED=1
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx ${BIN_DIR}/
-RUN uv tool install pre-commit && uv tool install poetry && uv tool install prek
+RUN uv tool install pre-commit && uv tool install poetry && uv tool install prek && uv tool install tox
 
-RUN set -x \
-  && curl https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz --output $BIN_DIR/rosa-linux.tar.gz \
-  && tar xvf $BIN_DIR/rosa-linux.tar.gz \
-  && mv rosa $BIN_DIR/rosa \
+RUN set -ex \
+  && curl --fail -vL https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz | tar -C $BIN_DIR -xzvf - rosa \
   && chmod +x $BIN_DIR/rosa \
-  && rm -rf $BIN_DIR/rosa-linux.tar.gz \
-  && curl -L https://github.com/regclient/regclient/releases/latest/download/regctl-linux-amd64 >$BIN_DIR/regctl \
+  && curl --fail -vL https://github.com/regclient/regclient/releases/latest/download/regctl-linux-amd64 -o $BIN_DIR/regctl \
   && chmod +x $BIN_DIR/regctl \
-  && curl -L https://github.com/mislav/hub/releases/download/v2.14.2/hub-linux-amd64-2.14.2.tgz --output ${BIN_DIR}/hub-linux-amd64.tgz \
-  && tmp_dir="$(mktemp -d)" \
-  && tar xvf ${BIN_DIR}/hub-linux-amd64.tgz -C "${tmp_dir}" \
-  && mv "${tmp_dir}"/hub-linux-amd64-2.14.2/bin/hub ${BIN_DIR}/hub \
-  && chmod +x ${BIN_DIR}/hub \
-  && rm -rf "${tmp_dir}" ${BIN_DIR}/hub-linux-amd64.tgz
+  && curl --fail -vL https://github.com/mislav/hub/releases/download/v2.14.2/hub-linux-amd64-2.14.2.tgz | tar --strip-components=2 -C $BIN_DIR -xzvf - '*/bin/hub' \
+  && chmod +x $BIN_DIR/hub
 
 WORKDIR $APP_DIR
 

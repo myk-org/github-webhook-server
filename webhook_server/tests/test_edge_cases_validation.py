@@ -28,7 +28,7 @@ from webhook_server.web.log_viewer import LogViewerController
 
 
 @pytest.fixture
-def temp_log_file() -> Generator[callable, None, None]:
+def temp_log_file() -> Generator[callable]:
     """Fixture that provides a helper function to create temporary log files with content.
 
     Returns a function that takes log content and optional encoding,
