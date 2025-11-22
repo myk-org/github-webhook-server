@@ -6,8 +6,8 @@ ENV USERNAME="podman"
 ENV HOME_DIR="/home/$USERNAME"
 ENV BIN_DIR="$HOME_DIR/.local/bin"
 ENV PATH="$PATH:$BIN_DIR" \
-    DATA_DIR="$HOME_DIR/data" \
-    APP_DIR="$HOME_DIR/github-webhook-server"
+  DATA_DIR="$HOME_DIR/data" \
+  APP_DIR="$HOME_DIR/github-webhook-server"
 
 RUN systemd-machine-id-setup
 
@@ -50,21 +50,21 @@ USER $USERNAME
 WORKDIR $HOME_DIR
 
 ENV UV_PYTHON=python3.13 \
-    UV_COMPILE_BYTECODE=1 \
-    UV_NO_SYNC=1 \
-    UV_CACHE_DIR=${APP_DIR}/.cache \
-    PYTHONUNBUFFERED=1
+  UV_COMPILE_BYTECODE=1 \
+  UV_NO_SYNC=1 \
+  UV_CACHE_DIR=${APP_DIR}/.cache \
+  PYTHONUNBUFFERED=1
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx ${BIN_DIR}/
-RUN uv tool install pre-commit && uv tool install poetry && uv tool install prek
+RUN uv tool install pre-commit && uv tool install poetry && uv tool install prek && uv tool install tox
 
 RUN set -ex \
-    && curl --fail -vL https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz | tar -C $BIN_DIR -xzvf - rosa \
-    && chmod +x $BIN_DIR/rosa \
-    && curl --fail -vL https://github.com/regclient/regclient/releases/latest/download/regctl-linux-amd64 -o $BIN_DIR/regctl \
-    && chmod +x $BIN_DIR/regctl \
-    && curl --fail -vL https://github.com/mislav/hub/releases/download/v2.14.2/hub-linux-amd64-2.14.2.tgz | tar --strip-components=2 -C $BIN_DIR -xzvf - '*/bin/hub' \
-    && chmod +x $BIN_DIR/hub
+  && curl --fail -vL https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz | tar -C $BIN_DIR -xzvf - rosa \
+  && chmod +x $BIN_DIR/rosa \
+  && curl --fail -vL https://github.com/regclient/regclient/releases/latest/download/regctl-linux-amd64 -o $BIN_DIR/regctl \
+  && chmod +x $BIN_DIR/regctl \
+  && curl --fail -vL https://github.com/mislav/hub/releases/download/v2.14.2/hub-linux-amd64-2.14.2.tgz | tar --strip-components=2 -C $BIN_DIR -xzvf - '*/bin/hub' \
+  && chmod +x $BIN_DIR/hub
 
 WORKDIR $APP_DIR
 
