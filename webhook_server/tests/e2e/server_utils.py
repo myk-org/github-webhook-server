@@ -81,9 +81,9 @@ def start_docker_compose(docker_compose_file: str, project_root: str) -> None:
     Raises:
         E2EInfrastructureError: If docker-compose fails to start
     """
-    logger.info("Starting docker-compose container...")
+    logger.info("Building and starting docker-compose container...")
     result = subprocess.run(
-        ["docker", "compose", "--file", docker_compose_file, "up", "-d"],
+        ["docker", "compose", "--file", docker_compose_file, "up", "-d", "--build", "--build"],
         cwd=project_root,
         capture_output=True,
         text=True,

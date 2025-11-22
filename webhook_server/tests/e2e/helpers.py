@@ -388,11 +388,10 @@ def toggle_validation(enabled: bool, repo_path: str) -> None:
     logger.info(f"VALIDATION_ENABLED set to {enabled}")
 
 
-def get_pr_linked_issues(pr_number: str, test_repo: str) -> list[dict[str, Any]]:
+def get_repo_issues(test_repo: str) -> list[dict[str, Any]]:
     """Get all issues linked/referenced by a PR.
 
     Args:
-        pr_number: PR number to check
         test_repo: Test repository in format owner/repo-name
 
     Returns:
@@ -401,7 +400,7 @@ def get_pr_linked_issues(pr_number: str, test_repo: str) -> list[dict[str, Any]]
     Raises:
         subprocess.CalledProcessError: If API call fails
     """
-    logger.debug(f"Getting linked issues for PR #{pr_number}")
+    logger.debug(f"Getting {test_repo} issues")
 
     # Get all issues in the repository
     result = subprocess.run(
@@ -424,12 +423,5 @@ def get_pr_linked_issues(pr_number: str, test_repo: str) -> list[dict[str, Any]]
             except json.JSONDecodeError:
                 continue
 
-    # Filter issues that reference this PR in their body
-    linked_issues = []
-    for issue in all_issues:
-        body = issue.get("body", "")
-        if f"#{pr_number}" in body or f"/pull/{pr_number}" in body:
-            linked_issues.append(issue)
-
-    logger.debug(f"Found {len(linked_issues)} linked issues for PR #{pr_number}")
-    return linked_issues
+    logger.debug(f"Found {len(all_issues)} issues for{test_repo}")
+    return all_issues

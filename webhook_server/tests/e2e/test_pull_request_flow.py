@@ -15,7 +15,7 @@ from webhook_server.tests.e2e.helpers import (
     QUEUED_CHECK_RUNS,
     get_check_runs,
     get_pr_labels,
-    get_pr_linked_issues,
+    get_repo_issues,
     wait_for_check_runs,
     wait_for_labels,
 )
@@ -47,15 +47,13 @@ class TestPullRequestFlow:
             pr_for_tests: PR number from fixture
             test_repository_name: Test repository name from environment
         """
-        pr_number = pr_for_tests
-
-        logger.info(f"Waiting for webhook server to add labels to PR #{pr_number}...")
-        wait_for_labels(pr_number, test_repository_name, expected_labels=EXPECTED_LABELS, timeout=180)
-        labels = get_pr_labels(pr_number, test_repository_name)
+        logger.info(f"Waiting for webhook server to add labels to PR #{pr_for_tests}...")
+        wait_for_labels(pr_for_tests, test_repository_name, expected_labels=EXPECTED_LABELS, timeout=120)
+        labels = get_pr_labels(pr_for_tests, test_repository_name)
 
         for expected_label in EXPECTED_LABELS:
             assert expected_label in labels, (
-                f"Expected label '{expected_label}' not found on PR #{pr_number}. Found labels: {labels}"
+                f"Expected label '{expected_label}' not found on PR #{pr_for_tests}. Found labels: {labels}"
             )
 
         logger.info(f"Labels verified: {EXPECTED_LABELS} found on PR")
@@ -74,16 +72,14 @@ class TestPullRequestFlow:
             pr_for_tests: PR number from fixture
             test_repository_name: Test repository name from environment
         """
-        pr_number = pr_for_tests
+        logger.info(f"Waiting for passing check runs on PR #{pr_for_tests}...")
+        wait_for_check_runs(pr_for_tests, test_repository_name, expected_checks=PASSING_CHECK_RUNS, timeout=120)
 
-        logger.info(f"Waiting for passing check runs on PR #{pr_number}...")
-        wait_for_check_runs(pr_number, test_repository_name, expected_checks=PASSING_CHECK_RUNS, timeout=180)
-
-        check_runs = get_check_runs(pr_number, test_repository_name)
+        check_runs = get_check_runs(pr_for_tests, test_repository_name)
         check_run_map = {run["name"]: run for run in check_runs}
 
         for check_name in PASSING_CHECK_RUNS:
-            assert check_name in check_run_map, f"Expected check run '{check_name}' not found on PR #{pr_number}"
+            assert check_name in check_run_map, f"Expected check run '{check_name}' not found on PR #{pr_for_tests}"
             check_run = check_run_map[check_name]
             status = check_run.get("status", "")
             conclusion = check_run.get("conclusion", "")
@@ -106,14 +102,15 @@ class TestPullRequestFlow:
             pr_for_tests: PR number from fixture
             test_repository_name: Test repository name from environment
         """
-        pr_number = pr_for_tests
+        logger.info(f"Waiting for failing check runs on PR #{pr_for_tests}...")
+        wait_for_check_runs(pr_for_tests, test_repository_name, expected_checks=FAILING_CHECK_RUNS, timeout=120)
 
-        logger.info(f"Verifying failing check runs on PR #{pr_number}...")
-        check_runs = get_check_runs(pr_number, test_repository_name)
+        logger.info(f"Verifying failing check runs on PR #{pr_for_tests}...")
+        check_runs = get_check_runs(pr_for_tests, test_repository_name)
         check_run_map = {run["name"]: run for run in check_runs}
 
         for check_name in FAILING_CHECK_RUNS:
-            assert check_name in check_run_map, f"Expected check run '{check_name}' not found on PR #{pr_number}"
+            assert check_name in check_run_map, f"Expected check run '{check_name}' not found on PR #{pr_for_tests}"
             check_run = check_run_map[check_name]
             status = check_run.get("status", "")
             conclusion = check_run.get("conclusion", "")
@@ -136,14 +133,12 @@ class TestPullRequestFlow:
             pr_for_tests: PR number from fixture
             test_repository_name: Test repository name from environment
         """
-        pr_number = pr_for_tests
-
-        logger.info(f"Verifying queued check runs on PR #{pr_number}...")
-        check_runs = get_check_runs(pr_number, test_repository_name)
+        logger.info(f"Verifying queued check runs on PR #{pr_for_tests}...")
+        check_runs = get_check_runs(pr_for_tests, test_repository_name)
         check_run_map = {run["name"]: run for run in check_runs}
 
         for check_name in QUEUED_CHECK_RUNS:
-            assert check_name in check_run_map, f"Expected check run '{check_name}' not found on PR #{pr_number}"
+            assert check_name in check_run_map, f"Expected check run '{check_name}' not found on PR #{pr_for_tests}"
             check_run = check_run_map[check_name]
             status = check_run.get("status", "")
 
@@ -159,14 +154,13 @@ class TestPullRequestFlow:
             pr_for_tests: PR number from fixture
             test_repository_name: Test repository name from environment
         """
-        pr_number = pr_for_tests
+        logger.info(f"Verifying issue was created for PR #{pr_for_tests}...")
+        for issue in get_repo_issues(test_repository_name):
+            if issue["body"] == f"[Auto generated]\nNumber: [#{pr_for_tests}]":
+                logger.info(f"Issue created for PR {pr_for_tests} found")
+                return
 
-        logger.info(f"Verifying issue was created for PR #{pr_number}...")
-        linked_issues = get_pr_linked_issues(pr_number, test_repository_name)
-
-        assert len(linked_issues) > 0, f"Expected at least one issue to be created for PR #{pr_number}, but found none"
-
-        logger.info(f"Issue created for PR (found {len(linked_issues)} linked issue(s))")
+        pytest.fail(f"Expected at least one issue to be created for PR #{pr_for_tests}, but found none")
 
     def test_welcome_message(self, e2e_server: None, pr_for_tests: str, test_repository_name: str) -> None:
         """Verify webhook server posts a welcome message to the PR.
@@ -179,20 +173,18 @@ class TestPullRequestFlow:
             pr_for_tests: PR number from fixture
             test_repository_name: Test repository name from environment
         """
-        pr_number = pr_for_tests
-
         welcome_msg_identifier = "Report bugs in [Issues](https://github.com/myakove/github-webhook-server/issues)"
 
-        logger.info(f"Verifying welcome message on PR #{pr_number}...")
+        logger.info(f"Verifying welcome message on PR #{pr_for_tests}...")
         result = subprocess.run(
-            ["gh", "api", f"repos/{test_repository_name}/issues/{pr_number}/comments", "--jq", ".[].body"],
+            ["gh", "api", f"repos/{test_repository_name}/issues/{pr_for_tests}/comments", "--jq", ".[].body"],
             capture_output=True,
             text=True,
             check=True,
         )
 
         assert welcome_msg_identifier in result.stdout, (
-            f"Expected welcome message with identifier '{welcome_msg_identifier}' in PR #{pr_number} comments, "
+            f"Expected welcome message with identifier '{welcome_msg_identifier}' in PR #{pr_for_tests} comments, "
             f"but not found. Comments: {result.stdout[:500]}"
         )
 
