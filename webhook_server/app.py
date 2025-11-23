@@ -5,6 +5,7 @@ import logging
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -32,6 +33,7 @@ from starlette.datastructures import Headers
 from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import RepositoryNotFoundInConfigError
 from webhook_server.libs.github_api import GithubWebhook
+from webhook_server.libs.metrics_tracker import MetricsTracker
 from webhook_server.utils.app_utils import (
     HTTP_TIMEOUT_SECONDS,
     gate_by_allowlist_ips,
@@ -50,6 +52,7 @@ from webhook_server.web.log_viewer import LogViewerController
 APP_URL_ROOT_PATH: str = "/webhook_server"
 LOG_SERVER_ENABLED: bool = os.environ.get("ENABLE_LOG_SERVER") == "true"
 MCP_SERVER_ENABLED: bool = os.environ.get("ENABLE_MCP_SERVER") == "true"
+METRICS_SERVER_ENABLED: bool = os.environ.get("ENABLE_METRICS_SERVER") == "true"
 
 # Global variables
 ALLOWED_IPS: tuple[ipaddress._BaseNetwork, ...] = ()
@@ -61,6 +64,11 @@ _background_tasks: set[asyncio.Task] = set()
 # MCP Globals
 http_transport: Any | None = None
 mcp: Any | None = None
+
+# Metrics Server Globals
+db_manager: Any | None = None
+redis_manager: Any | None = None
+metrics_tracker: Any | None = None
 
 
 class IgnoreMCPClosedResourceErrorFilter(logging.Filter):
@@ -92,9 +100,19 @@ def require_log_server_enabled() -> None:
         )
 
 
+def require_metrics_server_enabled() -> None:
+    """Dependency to ensure metrics server is enabled before accessing metrics APIs."""
+    if not METRICS_SERVER_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Metrics server is disabled. Set ENABLE_METRICS_SERVER=true to enable.",
+        )
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
-    global _lifespan_http_client
+    global _lifespan_http_client, ALLOWED_IPS, http_transport, mcp, db_manager, redis_manager
+    global metrics_tracker, _log_viewer_controller_singleton, _background_tasks
     _lifespan_http_client = httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS)
 
     # Apply filter to MCP logger to suppress client disconnect noise
@@ -142,6 +160,28 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
                 mcp_logger.propagate = False
                 LOGGER.info(f"MCP logging configured to: {mcp_log_file} via handlers from {mcp_file_logger.name}")
 
+        # Configure Metrics Server logging separation
+        if METRICS_SERVER_ENABLED:
+            metrics_log_file = root_config.get("metrics-server-log-file", "metrics_server.log")
+
+            # Use get_logger_with_params to reuse existing logging configuration logic
+            # (rotation, sensitive data masking, formatting)
+            # This returns a logger configured for the specific file
+            metrics_file_logger = get_logger_with_params(log_file_name=metrics_log_file)
+
+            # Create dedicated logger for metrics server and stop propagation
+            # This ensures Metrics logs go ONLY to metrics_server.log and not webhook_server.log
+            metrics_logger = logging.getLogger("webhook_server.metrics")
+            if metrics_file_logger.handlers:
+                for handler in metrics_file_logger.handlers:
+                    metrics_logger.addHandler(handler)
+
+                metrics_logger.propagate = False
+                LOGGER.info(
+                    f"Metrics Server logging configured to: {metrics_log_file} "
+                    f"via handlers from {metrics_file_logger.name}"
+                )
+
         verify_github_ips = root_config.get("verify-github-ips", False)
         verify_cloudflare_ips = root_config.get("verify-cloudflare-ips", False)
         disable_ssl_warnings = root_config.get("disable-ssl-warnings", False)
@@ -153,7 +193,6 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 
         LOGGER.debug(f"verify_github_ips: {verify_github_ips}, verify_cloudflare_ips: {verify_cloudflare_ips}")
 
-        global ALLOWED_IPS
         networks: set[ipaddress._BaseNetwork] = set()
 
         if verify_cloudflare_ips:
@@ -195,7 +234,6 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
             )
 
         # Initialize MCP session manager if enabled and configured
-        global http_transport, mcp
         if MCP_SERVER_ENABLED and http_transport is not None and mcp is not None:
             if http_transport._session_manager is None:
                 http_transport._session_manager = StreamableHTTPSessionManager(
@@ -214,6 +252,22 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
                 http_transport._manager_started = True
                 LOGGER.info("MCP session manager initialized in lifespan")
 
+        # Initialize database managers if metrics server is enabled
+        if METRICS_SERVER_ENABLED:
+            from webhook_server.libs.database import DatabaseManager, RedisManager  # noqa: PLC0415
+
+            metrics_logger = logging.getLogger("webhook_server.metrics")
+            db_manager = DatabaseManager(config, metrics_logger)
+            redis_manager = RedisManager(config, metrics_logger)
+
+            await db_manager.connect()
+            await redis_manager.connect()
+            LOGGER.info("Metrics Server database managers initialized successfully")
+
+            # Initialize metrics tracker
+            metrics_tracker = MetricsTracker(db_manager, redis_manager, metrics_logger)
+            LOGGER.info("Metrics tracker initialized successfully")
+
         yield
 
     except Exception as ex:
@@ -221,8 +275,17 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         raise
 
     finally:
+        # Disconnect database managers if they exist
+        if db_manager is not None:
+            await db_manager.disconnect()
+            LOGGER.debug("Database manager disconnected")
+        if redis_manager is not None:
+            await redis_manager.disconnect()
+            LOGGER.debug("Redis manager disconnected")
+        if db_manager is not None or redis_manager is not None:
+            LOGGER.info("Metrics Server database managers shutdown complete")
+
         # Shutdown LogViewerController singleton and close WebSocket connections
-        global _log_viewer_controller_singleton
         if _log_viewer_controller_singleton is not None:
             await _log_viewer_controller_singleton.shutdown()
             LOGGER.debug("LogViewerController singleton shutdown complete")
@@ -232,7 +295,6 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
             LOGGER.debug("HTTP client closed")
 
         # Optionally wait for pending background tasks for graceful shutdown
-        global _background_tasks
         if _background_tasks:
             LOGGER.info(f"Waiting for {len(_background_tasks)} pending background task(s) to complete...")
             # Wait up to 30 seconds for tasks to complete
@@ -384,6 +446,9 @@ async def process_webhook(request: Request) -> JSONResponse:
             _delivery_id: GitHub delivery ID for logging
             _event_type: GitHub event type for logging
         """
+        # Track processing start time for metrics
+        start_time = datetime.now(UTC)
+
         # Create repository-specific logger in background
         repository_name = _hook_data.get("repository", {}).get("name", "unknown")
         _logger = get_logger_with_params(repository_name=repository_name)
@@ -392,22 +457,91 @@ async def process_webhook(request: Request) -> JSONResponse:
         )
         _logger.info(f"{_log_context} Processing webhook")
 
+        # Extract common webhook metadata for metrics tracking
+        _repository = _hook_data.get("repository", {}).get("full_name", "unknown")
+        _action = _hook_data.get("action")
+        _sender = _hook_data.get("sender", {}).get("login")
+        _pr_number = _hook_data.get("pull_request", {}).get("number")
+
         try:
             # Initialize GithubWebhook inside background task to avoid blocking webhook response
             _api: GithubWebhook = GithubWebhook(hook_data=_hook_data, headers=_headers, logger=_logger)
             try:
                 await _api.process()
+
+                # Track successful webhook event
+                if METRICS_SERVER_ENABLED and metrics_tracker:
+                    processing_time = (datetime.now(UTC) - start_time).total_seconds() * 1000
+                    await metrics_tracker.track_webhook_event(
+                        delivery_id=_delivery_id,
+                        repository=_repository,
+                        event_type=_event_type,
+                        action=_action,
+                        sender=_sender,
+                        payload=_hook_data,
+                        processing_time_ms=int(processing_time),
+                        status="success",
+                        pr_number=_pr_number,
+                    )
             finally:
                 await _api.cleanup()
-        except RepositoryNotFoundInConfigError:
+        except RepositoryNotFoundInConfigError as ex:
             # Repository-specific error - not exceptional, log as error not exception
             _logger.error(f"{_log_context} Repository not found in configuration")
-        except (httpx.ConnectError, httpx.RequestError, requests.exceptions.ConnectionError):
+
+            # Track failed webhook event
+            if METRICS_SERVER_ENABLED and metrics_tracker:
+                processing_time = (datetime.now(UTC) - start_time).total_seconds() * 1000
+                await metrics_tracker.track_webhook_event(
+                    delivery_id=_delivery_id,
+                    repository=_repository,
+                    event_type=_event_type,
+                    action=_action,
+                    sender=_sender,
+                    payload=_hook_data,
+                    processing_time_ms=int(processing_time),
+                    status="error",
+                    error_message=str(ex),
+                    pr_number=_pr_number,
+                )
+        except (httpx.ConnectError, httpx.RequestError, requests.exceptions.ConnectionError) as ex:
             # Network/connection errors - can be transient
             _logger.exception(f"{_log_context} API connection error - check network connectivity")
-        except Exception:
+
+            # Track failed webhook event
+            if METRICS_SERVER_ENABLED and metrics_tracker:
+                processing_time = (datetime.now(UTC) - start_time).total_seconds() * 1000
+                await metrics_tracker.track_webhook_event(
+                    delivery_id=_delivery_id,
+                    repository=_repository,
+                    event_type=_event_type,
+                    action=_action,
+                    sender=_sender,
+                    payload=_hook_data,
+                    processing_time_ms=int(processing_time),
+                    status="error",
+                    error_message=str(ex),
+                    pr_number=_pr_number,
+                )
+        except Exception as ex:
             # Catch-all for unexpected errors
             _logger.exception(f"{_log_context} Unexpected error in background webhook processing")
+
+            # Track failed webhook event
+            if METRICS_SERVER_ENABLED and metrics_tracker:
+                processing_time = (datetime.now(UTC) - start_time).total_seconds() * 1000
+                await metrics_tracker.track_webhook_event(
+                    delivery_id=_delivery_id,
+                    repository=_repository,
+                    event_type=_event_type,
+                    action=_action,
+                    sender=_sender,
+                    payload=_hook_data,
+                    processing_time_ms=int(processing_time),
+                    status="error",
+                    error_message=str(ex),
+                    pr_number=_pr_number,
+                )
 
     # Start background task immediately using asyncio.create_task
     # This ensures the HTTP response is sent immediately without waiting
@@ -1125,6 +1259,850 @@ async def websocket_log_stream(
         github_user=github_user,
         level=level,
     )
+
+
+# Metrics API Endpoints - Only register if ENABLE_METRICS_SERVER=true
+@FASTAPI_APP.get(
+    "/api/metrics/webhooks",
+    operation_id="get_webhook_events",
+    dependencies=[Depends(require_metrics_server_enabled)],
+)
+async def get_webhook_events(
+    repository: str | None = Query(default=None, description="Filter by repository (org/repo format)"),
+    event_type: str | None = Query(
+        default=None, description="Filter by event type (pull_request, issue_comment, etc.)"
+    ),
+    event_status: str | None = Query(default=None, description="Filter by status (success, error, partial)"),
+    start_time: str | None = Query(
+        default=None, description="Start time in ISO 8601 format (e.g., 2024-01-15T00:00:00Z)"
+    ),
+    end_time: str | None = Query(default=None, description="End time in ISO 8601 format (e.g., 2024-01-31T23:59:59Z)"),
+    limit: int = Query(default=100, ge=1, le=1000, description="Maximum entries to return (1-1000)"),
+    offset: int = Query(default=0, ge=0, description="Number of entries to skip for pagination"),
+) -> dict[str, Any]:
+    """Retrieve recent webhook events with filtering and pagination.
+
+    This endpoint provides comprehensive access to webhook event history for monitoring,
+    debugging, and analytics. It supports multiple filtering dimensions and is optimized
+    for memory-efficient querying of large datasets.
+
+    **Primary Use Cases:**
+    - Monitor webhook processing status and identify failures
+    - Analyze webhook traffic patterns by repository or event type
+    - Debug specific webhook delivery issues
+    - Generate reports on webhook processing performance
+    - Track webhook event trends over time
+    - Audit webhook activity for specific repositories
+
+    **Parameters:**
+    - `repository` (str, optional): Repository name in "owner/repo" format.
+      Example: "myakove/github-webhook-server"
+    - `event_type` (str, optional): GitHub webhook event type.
+      Common values: "pull_request", "push", "issues", "issue_comment", "pull_request_review"
+    - `status` (str, optional): Processing status filter.
+      Values: "success", "error", "partial"
+    - `start_time` (str, optional): Start of time range in ISO 8601 format.
+      Example: "2024-01-15T10:00:00Z" or "2024-01-15T10:00:00.123456"
+    - `end_time` (str, optional): End of time range in ISO 8601 format.
+      Example: "2024-01-15T18:00:00Z"
+    - `limit` (int, default=100): Maximum entries to return (1-1000).
+    - `offset` (int, default=0): Number of entries to skip for pagination.
+
+    **Return Structure:**
+    ```json
+    {
+      "events": [
+        {
+          "delivery_id": "f4b3c2d1-a9b8-4c5d-9e8f-1a2b3c4d5e6f",
+          "repository": "myakove/test-repo",
+          "event_type": "pull_request",
+          "action": "opened",
+          "pr_number": 42,
+          "sender": "contributor123",
+          "status": "success",
+          "created_at": "2024-01-15T14:30:25.123456Z",
+          "processed_at": "2024-01-15T14:30:30.456789Z",
+          "duration_ms": 5333,
+          "api_calls_count": 12,
+          "token_spend": 12,
+          "token_remaining": 4988,
+          "error_message": null
+        }
+      ],
+      "total_count": 1542,
+      "has_more": true,
+      "next_offset": 100
+    }
+    ```
+
+    **Common Filtering Scenarios:**
+    - Recent errors: `status=error&start_time=2024-01-15T00:00:00Z`
+    - Repository-specific events: `repository=owner/repo&limit=50`
+    - Event type analysis: `event_type=pull_request&start_time=2024-01-01T00:00:00Z`
+    - Failed webhooks: `status=error&event_type=pull_request`
+
+    **Error Conditions:**
+    - 400: Invalid datetime format in start_time/end_time parameters
+    - 404: Metrics server disabled (ENABLE_METRICS_SERVER=false)
+    - 500: Database connection errors or query failures
+
+    **Performance Notes:**
+    - Response times increase with larger date ranges
+    - Use specific filters (repository, event_type) for fastest queries
+    - Pagination recommended for large result sets
+    """
+    # Validate database manager is available
+    if db_manager is None:
+        LOGGER.error("Database manager not initialized - metrics server may not be properly configured")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Metrics database not available",
+        )
+
+    # Parse datetime strings
+    start_datetime = parse_datetime_string(start_time, "start_time")
+    end_datetime = parse_datetime_string(end_time, "end_time")
+
+    # Build query with filters
+    query = """
+        SELECT
+            delivery_id,
+            repository,
+            event_type,
+            action,
+            pr_number,
+            sender,
+            status,
+            created_at,
+            processed_at,
+            duration_ms,
+            api_calls_count,
+            token_spend,
+            token_remaining,
+            error_message
+        FROM webhooks
+        WHERE 1=1
+    """
+    params: list[Any] = []
+    param_idx = 1
+
+    if repository:
+        query += f" AND repository = ${param_idx}"
+        params.append(repository)
+        param_idx += 1
+
+    if event_type:
+        query += f" AND event_type = ${param_idx}"
+        params.append(event_type)
+        param_idx += 1
+
+    if event_status:
+        query += f" AND status = ${param_idx}"
+        params.append(event_status)
+        param_idx += 1
+
+    if start_datetime:
+        query += f" AND created_at >= ${param_idx}"
+        params.append(start_datetime)
+        param_idx += 1
+
+    if end_datetime:
+        query += f" AND created_at <= ${param_idx}"
+        params.append(end_datetime)
+        param_idx += 1
+
+    # Get total count for pagination
+    count_query = f"SELECT COUNT(*) FROM ({query}) AS filtered"
+    query += f" ORDER BY created_at DESC LIMIT ${param_idx} OFFSET ${param_idx + 1}"
+    params.extend([limit, offset])
+
+    try:
+        # Validate pool is initialized
+        if db_manager.pool is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Database pool not initialized",
+            )
+
+        async with db_manager.pool.acquire() as conn:
+            # Get total count
+            total_count = await conn.fetchval(count_query, *params[:-2])
+
+            # Get paginated results
+            rows = await conn.fetch(query, *params)
+
+            events = [
+                {
+                    "delivery_id": row["delivery_id"],
+                    "repository": row["repository"],
+                    "event_type": row["event_type"],
+                    "action": row["action"],
+                    "pr_number": row["pr_number"],
+                    "sender": row["sender"],
+                    "status": row["status"],
+                    "created_at": row["created_at"].isoformat(),
+                    "processed_at": row["processed_at"].isoformat(),
+                    "duration_ms": row["duration_ms"],
+                    "api_calls_count": row["api_calls_count"],
+                    "token_spend": row["token_spend"],
+                    "token_remaining": row["token_remaining"],
+                    "error_message": row["error_message"],
+                }
+                for row in rows
+            ]
+
+            has_more = (offset + limit) < total_count
+            next_offset = offset + limit if has_more else None
+
+            return {
+                "events": events,
+                "total_count": total_count,
+                "has_more": has_more,
+                "next_offset": next_offset,
+            }
+    except Exception as ex:
+        LOGGER.exception("Failed to fetch webhook events from database")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch webhook events: {ex!s}",
+        ) from ex
+
+
+@FASTAPI_APP.get(
+    "/api/metrics/webhooks/{delivery_id}",
+    operation_id="get_webhook_event_by_id",
+    dependencies=[Depends(require_metrics_server_enabled)],
+)
+async def get_webhook_event_by_id(delivery_id: str) -> dict[str, Any]:
+    """Get specific webhook event details including full payload.
+
+    Retrieve comprehensive details for a specific webhook event, including the complete
+    GitHub webhook payload, processing metrics, and related metadata. Essential for
+    debugging specific webhook deliveries and analyzing event processing.
+
+    **Primary Use Cases:**
+    - Debug specific webhook delivery failures
+    - Inspect complete webhook payload for analysis
+    - Verify webhook processing metrics and timing
+    - Audit specific webhook events for compliance
+    - Troubleshoot GitHub API integration issues
+
+    **Parameters:**
+    - `delivery_id` (str, required): GitHub webhook delivery ID (X-GitHub-Delivery header).
+      Example: "f4b3c2d1-a9b8-4c5d-9e8f-1a2b3c4d5e6f"
+
+    **Return Structure:**
+    ```json
+    {
+      "delivery_id": "f4b3c2d1-a9b8-4c5d-9e8f-1a2b3c4d5e6f",
+      "repository": "myakove/test-repo",
+      "event_type": "pull_request",
+      "action": "opened",
+      "pr_number": 42,
+      "sender": "contributor123",
+      "status": "success",
+      "created_at": "2024-01-15T14:30:25.123456Z",
+      "processed_at": "2024-01-15T14:30:30.456789Z",
+      "duration_ms": 5333,
+      "api_calls_count": 12,
+      "token_spend": 12,
+      "token_remaining": 4988,
+      "error_message": null,
+      "payload": {
+        "action": "opened",
+        "number": 42,
+        "pull_request": {...},
+        "repository": {...},
+        "sender": {...}
+      }
+    }
+    ```
+
+    **Error Conditions:**
+    - 404: Webhook event not found for the specified delivery_id
+    - 404: Metrics server disabled (ENABLE_METRICS_SERVER=false)
+    - 500: Database connection errors or query failures
+
+    **AI Agent Usage Examples:**
+    - "Get webhook details for delivery abc123 to debug processing failure"
+    - "Show full payload for webhook xyz789 to analyze event structure"
+    - "Retrieve webhook event def456 to verify API call metrics"
+    """
+    # Validate database manager is available
+    if db_manager is None:
+        LOGGER.error("Database manager not initialized - metrics server may not be properly configured")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Metrics database not available",
+        )
+
+    query = """
+        SELECT
+            delivery_id,
+            repository,
+            event_type,
+            action,
+            pr_number,
+            sender,
+            payload,
+            status,
+            created_at,
+            processed_at,
+            duration_ms,
+            api_calls_count,
+            token_spend,
+            token_remaining,
+            error_message
+        FROM webhooks
+        WHERE delivery_id = $1
+    """
+
+    try:
+        # Validate pool is initialized
+        if db_manager.pool is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Database pool not initialized",
+            )
+
+        async with db_manager.pool.acquire() as conn:
+            row = await conn.fetchrow(query, delivery_id)
+
+            if not row:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Webhook event not found: {delivery_id}",
+                )
+
+            return {
+                "delivery_id": row["delivery_id"],
+                "repository": row["repository"],
+                "event_type": row["event_type"],
+                "action": row["action"],
+                "pr_number": row["pr_number"],
+                "sender": row["sender"],
+                "status": row["status"],
+                "created_at": row["created_at"].isoformat(),
+                "processed_at": row["processed_at"].isoformat(),
+                "duration_ms": row["duration_ms"],
+                "api_calls_count": row["api_calls_count"],
+                "token_spend": row["token_spend"],
+                "token_remaining": row["token_remaining"],
+                "error_message": row["error_message"],
+                "payload": row["payload"],
+            }
+    except HTTPException:
+        raise
+    except Exception as ex:
+        LOGGER.exception(f"Failed to fetch webhook event {delivery_id} from database")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch webhook event: {ex!s}",
+        ) from ex
+
+
+@FASTAPI_APP.get(
+    "/api/metrics/repositories",
+    operation_id="get_repository_statistics",
+    dependencies=[Depends(require_metrics_server_enabled)],
+)
+async def get_repository_statistics(
+    start_time: str | None = Query(
+        default=None, description="Start time in ISO 8601 format (e.g., 2024-01-01T00:00:00Z)"
+    ),
+    end_time: str | None = Query(default=None, description="End time in ISO 8601 format (e.g., 2024-01-31T23:59:59Z)"),
+) -> dict[str, Any]:
+    """Get aggregated statistics per repository.
+
+    Provides comprehensive repository-level metrics including event counts, processing
+    performance, success rates, and API usage. Essential for identifying high-traffic
+    repositories, performance bottlenecks, and operational trends.
+
+    **Primary Use Cases:**
+    - Identify repositories with highest webhook traffic
+    - Analyze repository-specific processing performance
+    - Monitor success rates and error patterns by repository
+    - Track API usage and rate limiting by repository
+    - Generate repository-level operational reports
+    - Optimize webhook processing for high-volume repositories
+
+    **Parameters:**
+    - `start_time` (str, optional): Start of time range in ISO 8601 format.
+      Example: "2024-01-01T00:00:00Z"
+      Default: No time filter (all-time stats)
+    - `end_time` (str, optional): End of time range in ISO 8601 format.
+      Example: "2024-01-31T23:59:59Z"
+      Default: No time filter (up to current time)
+
+    **Return Structure:**
+    ```json
+    {
+      "time_range": {
+        "start_time": "2024-01-01T00:00:00Z",
+        "end_time": "2024-01-31T23:59:59Z"
+      },
+      "repositories": [
+        {
+          "repository": "myakove/test-repo",
+          "total_events": 1542,
+          "successful_events": 1489,
+          "failed_events": 53,
+          "success_rate": 96.56,
+          "avg_processing_time_ms": 5234,
+          "median_processing_time_ms": 4123,
+          "p95_processing_time_ms": 12456,
+          "max_processing_time_ms": 45230,
+          "total_api_calls": 18504,
+          "avg_api_calls_per_event": 12.0,
+          "total_token_spend": 18504,
+          "event_type_breakdown": {
+            "pull_request": 856,
+            "issue_comment": 423,
+            "check_run": 263
+          }
+        }
+      ],
+      "total_repositories": 5
+    }
+    ```
+
+    **Metrics Explained:**
+    - `total_events`: Total webhook events processed for this repository
+    - `successful_events`: Events that completed successfully
+    - `failed_events`: Events that failed or partially failed
+    - `success_rate`: Percentage of successful events (0-100)
+    - `avg_processing_time_ms`: Average processing duration in milliseconds
+    - `median_processing_time_ms`: Median processing duration (50th percentile)
+    - `p95_processing_time_ms`: 95th percentile processing time (performance SLA)
+    - `max_processing_time_ms`: Maximum processing time (worst case)
+    - `total_api_calls`: Total GitHub API calls made
+    - `avg_api_calls_per_event`: Average API calls per webhook event
+    - `total_token_spend`: Total rate limit tokens consumed
+    - `event_type_breakdown`: Event count distribution by type
+
+    **Common Analysis Scenarios:**
+    - Monthly repository metrics: `start_time=2024-01-01&end_time=2024-01-31`
+    - High-traffic repositories: Sort by `total_events` descending
+    - Performance issues: Analyze `p95_processing_time_ms` and `max_processing_time_ms`
+    - Error-prone repositories: Sort by `failed_events` descending or `success_rate` ascending
+    - API usage optimization: Analyze `avg_api_calls_per_event` and `total_token_spend`
+
+    **Error Conditions:**
+    - 400: Invalid datetime format in start_time/end_time parameters
+    - 404: Metrics server disabled (ENABLE_METRICS_SERVER=false)
+    - 500: Database connection errors or query failures
+
+    **AI Agent Usage Examples:**
+    - "Show repository statistics for last month to identify high-traffic repos"
+    - "Get repository performance metrics to find slow processing repositories"
+    - "Analyze repository error rates to identify problematic configurations"
+    - "Review API usage by repository to optimize rate limiting strategy"
+
+    **Performance Notes:**
+    - Statistics are computed in real-time from webhook events table
+    - Queries with time filters are optimized using indexed created_at column
+    - Large date ranges may increase query time
+    - Results ordered by total events (highest traffic first)
+    """
+    # Validate database manager is available
+    if db_manager is None:
+        LOGGER.error("Database manager not initialized - metrics server may not be properly configured")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Metrics database not available",
+        )
+
+    # Parse datetime strings
+    start_datetime = parse_datetime_string(start_time, "start_time")
+    end_datetime = parse_datetime_string(end_time, "end_time")
+
+    # Build query with time filters
+    where_clause = "WHERE 1=1"
+    params: list[Any] = []
+    param_idx = 1
+
+    if start_datetime:
+        where_clause += f" AND created_at >= ${param_idx}"
+        params.append(start_datetime)
+        param_idx += 1
+
+    if end_datetime:
+        where_clause += f" AND created_at <= ${param_idx}"
+        params.append(end_datetime)
+        param_idx += 1
+
+    query = f"""
+        SELECT
+            repository,
+            COUNT(*) as total_events,
+            COUNT(*) FILTER (WHERE status = 'success') as successful_events,
+            COUNT(*) FILTER (WHERE status IN ('error', 'partial')) as failed_events,
+            ROUND(
+                (COUNT(*) FILTER (WHERE status = 'success')::numeric / COUNT(*)::numeric * 100)::numeric,
+                2
+            ) as success_rate,
+            ROUND(AVG(duration_ms)) as avg_processing_time_ms,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms) as median_processing_time_ms,
+            PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY duration_ms) as p95_processing_time_ms,
+            MAX(duration_ms) as max_processing_time_ms,
+            SUM(api_calls_count) as total_api_calls,
+            ROUND(AVG(api_calls_count), 2) as avg_api_calls_per_event,
+            SUM(token_spend) as total_token_spend,
+            jsonb_object_agg(event_type, event_count) as event_type_breakdown
+        FROM (
+            SELECT
+                repository,
+                event_type,
+                status,
+                duration_ms,
+                api_calls_count,
+                token_spend,
+                COUNT(*) OVER (PARTITION BY repository, event_type) as event_count
+            FROM webhooks
+            {where_clause}
+        ) as events_with_counts
+        GROUP BY repository
+        ORDER BY total_events DESC
+    """
+
+    try:
+        # Validate pool is initialized
+        if db_manager.pool is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Database pool not initialized",
+            )
+
+        async with db_manager.pool.acquire() as conn:
+            rows = await conn.fetch(query, *params)
+
+            repositories = [
+                {
+                    "repository": row["repository"],
+                    "total_events": row["total_events"],
+                    "successful_events": row["successful_events"],
+                    "failed_events": row["failed_events"],
+                    "success_rate": float(row["success_rate"]) if row["success_rate"] is not None else 0.0,
+                    "avg_processing_time_ms": int(row["avg_processing_time_ms"])
+                    if row["avg_processing_time_ms"] is not None
+                    else 0,
+                    "median_processing_time_ms": int(row["median_processing_time_ms"])
+                    if row["median_processing_time_ms"] is not None
+                    else 0,
+                    "p95_processing_time_ms": int(row["p95_processing_time_ms"])
+                    if row["p95_processing_time_ms"] is not None
+                    else 0,
+                    "max_processing_time_ms": row["max_processing_time_ms"] or 0,
+                    "total_api_calls": row["total_api_calls"] or 0,
+                    "avg_api_calls_per_event": float(row["avg_api_calls_per_event"])
+                    if row["avg_api_calls_per_event"] is not None
+                    else 0.0,
+                    "total_token_spend": row["total_token_spend"] or 0,
+                    "event_type_breakdown": row["event_type_breakdown"] or {},
+                }
+                for row in rows
+            ]
+
+            return {
+                "time_range": {
+                    "start_time": start_datetime.isoformat() if start_datetime else None,
+                    "end_time": end_datetime.isoformat() if end_datetime else None,
+                },
+                "repositories": repositories,
+                "total_repositories": len(repositories),
+            }
+    except Exception as ex:
+        LOGGER.exception("Failed to fetch repository statistics from database")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch repository statistics: {ex!s}",
+        ) from ex
+
+
+@FASTAPI_APP.get(
+    "/api/metrics/summary",
+    operation_id="get_metrics_summary",
+    dependencies=[Depends(require_metrics_server_enabled)],
+)
+async def get_metrics_summary(
+    start_time: str | None = Query(
+        default=None, description="Start time in ISO 8601 format (e.g., 2024-01-01T00:00:00Z)"
+    ),
+    end_time: str | None = Query(default=None, description="End time in ISO 8601 format (e.g., 2024-01-31T23:59:59Z)"),
+) -> dict[str, Any]:
+    """Get overall metrics summary for webhook processing.
+
+    Provides high-level overview of webhook processing metrics including total events,
+    performance statistics, success rates, and top repositories. Essential for operational
+    dashboards, executive reporting, and system health monitoring.
+
+    **Primary Use Cases:**
+    - Generate executive dashboards and summary reports
+    - Monitor overall system health and performance
+    - Track webhook processing trends over time
+    - Identify system-wide performance issues
+    - Analyze API usage patterns across all repositories
+    - Quick health check for webhook processing system
+
+    **Parameters:**
+    - `start_time` (str, optional): Start of time range in ISO 8601 format.
+      Example: "2024-01-01T00:00:00Z"
+      Default: No time filter (all-time stats)
+    - `end_time` (str, optional): End of time range in ISO 8601 format.
+      Example: "2024-01-31T23:59:59Z"
+      Default: No time filter (up to current time)
+
+    **Return Structure:**
+    ```json
+    {
+      "time_range": {
+        "start_time": "2024-01-01T00:00:00Z",
+        "end_time": "2024-01-31T23:59:59Z"
+      },
+      "summary": {
+        "total_events": 8745,
+        "successful_events": 8423,
+        "failed_events": 322,
+        "success_rate": 96.32,
+        "avg_processing_time_ms": 5834,
+        "median_processing_time_ms": 4521,
+        "p95_processing_time_ms": 14234,
+        "max_processing_time_ms": 52134,
+        "total_api_calls": 104940,
+        "avg_api_calls_per_event": 12.0,
+        "total_token_spend": 104940
+      },
+      "top_repositories": [
+        {
+          "repository": "myakove/high-traffic-repo",
+          "total_events": 3456,
+          "success_rate": 98.5
+        },
+        {
+          "repository": "myakove/medium-traffic-repo",
+          "total_events": 2134,
+          "success_rate": 95.2
+        },
+        {
+          "repository": "myakove/low-traffic-repo",
+          "total_events": 856,
+          "success_rate": 97.8
+        }
+      ],
+      "event_type_distribution": {
+        "pull_request": 4523,
+        "issue_comment": 2134,
+        "check_run": 1234,
+        "push": 854
+      },
+      "hourly_event_rate": 12.3,
+      "daily_event_rate": 295.4
+    }
+    ```
+
+    **Metrics Explained:**
+    - `total_events`: Total webhook events processed in time range
+    - `successful_events`: Events that completed successfully
+    - `failed_events`: Events that failed or partially failed
+    - `success_rate`: Overall success percentage (0-100)
+    - `avg_processing_time_ms`: Average processing duration across all events
+    - `median_processing_time_ms`: Median processing duration (50th percentile)
+    - `p95_processing_time_ms`: 95th percentile processing time (SLA metric)
+    - `max_processing_time_ms`: Maximum processing time (worst case scenario)
+    - `total_api_calls`: Total GitHub API calls made across all events
+    - `avg_api_calls_per_event`: Average API calls per webhook event
+    - `total_token_spend`: Total rate limit tokens consumed
+    - `top_repositories`: Top 10 repositories by event volume
+    - `event_type_distribution`: Event count breakdown by type
+    - `hourly_event_rate`: Average events per hour in time range
+    - `daily_event_rate`: Average events per day in time range
+
+    **Common Analysis Scenarios:**
+    - Daily summary: `start_time=<today>&end_time=<now>`
+    - Weekly trends: `start_time=<week_start>&end_time=<week_end>`
+    - Monthly reporting: `start_time=2024-01-01&end_time=2024-01-31`
+    - System health check: No time filters (all-time stats)
+
+    **Error Conditions:**
+    - 400: Invalid datetime format in start_time/end_time parameters
+    - 404: Metrics server disabled (ENABLE_METRICS_SERVER=false)
+    - 500: Database connection errors or query failures
+
+    **AI Agent Usage Examples:**
+    - "Show overall metrics summary for last month for executive report"
+    - "Get webhook processing health metrics to check system status"
+    - "Analyze event type distribution to understand webhook traffic patterns"
+    - "Review top repositories by event volume to identify high-traffic sources"
+
+    **Performance Notes:**
+    - Summary computed in real-time from webhooks table
+    - Optimized queries using indexed columns (created_at, repository, event_type)
+    - Large date ranges may increase query time
+    - Consider caching for frequently accessed time ranges
+    """
+    # Validate database manager is available
+    if db_manager is None:
+        LOGGER.error("Database manager not initialized - metrics server may not be properly configured")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Metrics database not available",
+        )
+
+    # Parse datetime strings
+    start_datetime = parse_datetime_string(start_time, "start_time")
+    end_datetime = parse_datetime_string(end_time, "end_time")
+
+    # Build query with time filters
+    where_clause = "WHERE 1=1"
+    params: list[Any] = []
+    param_idx = 1
+
+    if start_datetime:
+        where_clause += f" AND created_at >= ${param_idx}"
+        params.append(start_datetime)
+        param_idx += 1
+
+    if end_datetime:
+        where_clause += f" AND created_at <= ${param_idx}"
+        params.append(end_datetime)
+        param_idx += 1
+
+    # Main summary query
+    summary_query = f"""
+        SELECT
+            COUNT(*) as total_events,
+            COUNT(*) FILTER (WHERE status = 'success') as successful_events,
+            COUNT(*) FILTER (WHERE status IN ('error', 'partial')) as failed_events,
+            ROUND(
+                (COUNT(*) FILTER (WHERE status = 'success')::numeric / NULLIF(COUNT(*), 0)::numeric * 100)::numeric,
+                2
+            ) as success_rate,
+            ROUND(AVG(duration_ms)) as avg_processing_time_ms,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms) as median_processing_time_ms,
+            PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY duration_ms) as p95_processing_time_ms,
+            MAX(duration_ms) as max_processing_time_ms,
+            SUM(api_calls_count) as total_api_calls,
+            ROUND(AVG(api_calls_count), 2) as avg_api_calls_per_event,
+            SUM(token_spend) as total_token_spend
+        FROM webhooks
+        {where_clause}
+    """
+
+    # Top repositories query
+    top_repos_query = f"""
+        SELECT
+            repository,
+            COUNT(*) as total_events,
+            ROUND(
+                (COUNT(*) FILTER (WHERE status = 'success')::numeric / COUNT(*)::numeric * 100)::numeric,
+                2
+            ) as success_rate
+        FROM webhooks
+        {where_clause}
+        GROUP BY repository
+        ORDER BY total_events DESC
+        LIMIT 10
+    """
+
+    # Event type distribution query
+    event_type_query = f"""
+        SELECT
+            event_type,
+            COUNT(*) as event_count
+        FROM webhooks
+        {where_clause}
+        GROUP BY event_type
+        ORDER BY event_count DESC
+    """
+
+    # Time range for rate calculations
+    time_range_query = f"""
+        SELECT
+            MIN(created_at) as first_event_time,
+            MAX(created_at) as last_event_time
+        FROM webhooks
+        {where_clause}
+    """
+
+    try:
+        # Validate pool is initialized
+        if db_manager.pool is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Database pool not initialized",
+            )
+
+        async with db_manager.pool.acquire() as conn:
+            # Execute all queries in parallel
+            summary_row = await conn.fetchrow(summary_query, *params)
+            top_repos_rows = await conn.fetch(top_repos_query, *params)
+            event_type_rows = await conn.fetch(event_type_query, *params)
+            time_range_row = await conn.fetchrow(time_range_query, *params)
+
+            # Process summary metrics
+            total_events = summary_row["total_events"] or 0
+            summary = {
+                "total_events": total_events,
+                "successful_events": summary_row["successful_events"] or 0,
+                "failed_events": summary_row["failed_events"] or 0,
+                "success_rate": float(summary_row["success_rate"]) if summary_row["success_rate"] is not None else 0.0,
+                "avg_processing_time_ms": int(summary_row["avg_processing_time_ms"])
+                if summary_row["avg_processing_time_ms"] is not None
+                else 0,
+                "median_processing_time_ms": int(summary_row["median_processing_time_ms"])
+                if summary_row["median_processing_time_ms"] is not None
+                else 0,
+                "p95_processing_time_ms": int(summary_row["p95_processing_time_ms"])
+                if summary_row["p95_processing_time_ms"] is not None
+                else 0,
+                "max_processing_time_ms": summary_row["max_processing_time_ms"] or 0,
+                "total_api_calls": summary_row["total_api_calls"] or 0,
+                "avg_api_calls_per_event": float(summary_row["avg_api_calls_per_event"])
+                if summary_row["avg_api_calls_per_event"] is not None
+                else 0.0,
+                "total_token_spend": summary_row["total_token_spend"] or 0,
+            }
+
+            # Process top repositories
+            top_repositories = [
+                {
+                    "repository": row["repository"],
+                    "total_events": row["total_events"],
+                    "success_rate": float(row["success_rate"]) if row["success_rate"] is not None else 0.0,
+                }
+                for row in top_repos_rows
+            ]
+
+            # Process event type distribution
+            event_type_distribution = {row["event_type"]: row["event_count"] for row in event_type_rows}
+
+            # Calculate event rates
+            hourly_event_rate = 0.0
+            daily_event_rate = 0.0
+            if time_range_row and time_range_row["first_event_time"] and time_range_row["last_event_time"]:
+                time_diff = time_range_row["last_event_time"] - time_range_row["first_event_time"]
+                total_hours = max(time_diff.total_seconds() / 3600, 1)  # Avoid division by zero
+                total_days = max(time_diff.total_seconds() / 86400, 1)  # Avoid division by zero
+                hourly_event_rate = round(total_events / total_hours, 2)
+                daily_event_rate = round(total_events / total_days, 2)
+
+            return {
+                "time_range": {
+                    "start_time": start_datetime.isoformat() if start_datetime else None,
+                    "end_time": end_datetime.isoformat() if end_datetime else None,
+                },
+                "summary": summary,
+                "top_repositories": top_repositories,
+                "event_type_distribution": event_type_distribution,
+                "hourly_event_rate": hourly_event_rate,
+                "daily_event_rate": daily_event_rate,
+            }
+    except Exception as ex:
+        LOGGER.exception("Failed to fetch metrics summary from database")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch metrics summary: {ex!s}",
+        ) from ex
 
 
 # MCP Integration - Only register if ENABLE_MCP_SERVER=true
