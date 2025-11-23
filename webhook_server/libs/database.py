@@ -52,10 +52,7 @@ class DatabaseManager:
         # Load database configuration - fail-fast if missing required fields
         db_config = self.config.root_data.get("metrics-database")
         if not db_config:
-            raise ValueError(
-                "Database configuration missing. Add 'metrics-database' section to config.yaml. "
-                "See examples/config.yaml for reference."
-            )
+            raise ValueError("Missing 'metrics-database' section in config.yaml")
 
         self.host: str = db_config.get("host", "localhost")
         self.port: int = db_config.get("port", 5432)
@@ -66,11 +63,11 @@ class DatabaseManager:
 
         # Validate required fields - fail-fast
         if not self.database:
-            raise ValueError("Database name ('database') is required in metrics-database configuration")
+            raise ValueError("Missing required field 'database' in metrics-database configuration")
         if not self.username:
-            raise ValueError("Database username ('username') is required in metrics-database configuration")
+            raise ValueError("Missing required field 'username' in metrics-database configuration")
         if not self.password:
-            raise ValueError("Database password ('password') is required in metrics-database configuration")
+            raise ValueError("Missing required field 'password' in metrics-database configuration")
 
     async def connect(self) -> None:
         """

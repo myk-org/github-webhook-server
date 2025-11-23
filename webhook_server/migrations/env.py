@@ -73,8 +73,8 @@ try:
 except FileNotFoundError:
     logger.exception("Config file not found. Ensure config.yaml exists in WEBHOOK_SERVER_DATA_DIR.")
     raise
-except KeyError as ex:
-    logger.exception(f"Missing required database configuration field: {ex}")
+except KeyError:
+    logger.exception("Missing required database configuration field")
     raise
 except Exception:
     logger.exception("Failed to load database configuration")

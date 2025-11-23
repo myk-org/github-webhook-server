@@ -22,13 +22,13 @@ services:
   github-webhook-server-redis:
     image: redis:7-alpine
     container_name: github-webhook-server-redis
-    command: redis-server --requirepass <REDIS_PASSWORD> # Change this! Remove --requirepass for no auth
+    command: redis-server --requirepass ${REDIS_PASSWORD}  # Set REDIS_PASSWORD in .env or remove --requirepass for no auth
     volumes:
       - redis-data:/data
     ports:
       - "6379:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "--raw", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5

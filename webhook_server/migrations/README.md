@@ -9,7 +9,7 @@ Alembic manages database schema changes through versioned migration scripts. Eac
 ## Prerequisites
 
 - PostgreSQL database configured in `config.yaml` (metrics-database section)
-- Metrics dependencies installed: `uv sync --group metrics` or `uv add asyncpg alembic sqlalchemy[asyncio]`
+- Metrics dependencies installed: `uv sync --extra metrics --extra ai` or `uv add asyncpg alembic sqlalchemy[asyncio]`
 - Database connection verified (see DatabaseManager health check)
 
 ## Configuration
@@ -117,7 +117,7 @@ psql -h localhost -U webhook_user -d webhook_metrics -f migration.sql
 
 Migration files use timestamp-based naming for better organization:
 
-```
+```text
 Format: YYYYMMDD_HHMM_<revision>_<slug>.py
 Example: 20250123_1430_abc123def456_add_webhook_events_table.py
 ```
@@ -297,15 +297,14 @@ Database configuration is loaded from `config.yaml` (NOT `alembic.ini`):
 
 ### Model Discovery
 
-SQLAlchemy models will be imported in `env.py` for autogenerate support:
+SQLAlchemy models are imported in `env.py` for autogenerate support:
 
 ```python
-# TODO: Import models when created (task #5)
-# from webhook_server.libs.models import Base
-# target_metadata = Base.metadata
+from webhook_server.libs.models import Base
+target_metadata = Base.metadata
 ```
 
-Until models are created, autogenerate is disabled.
+This enables Alembic to auto-detect schema changes by comparing SQLAlchemy models to the database.
 
 ## Next Steps
 

@@ -9,8 +9,11 @@ mask-sensitive-data: true # Mask sensitive data in logs (default: true). Set to 
 
 # Metrics Server Configuration (requires ENABLE_METRICS_SERVER=true environment variable)
 # Provides PostgreSQL-based historical analytics and AI-powered natural language queries
+# NOTE: For docker-compose deployments, use service names as hostnames:
+#   - metrics-database host: github-webhook-server-postgres
+#   - metrics-redis host: github-webhook-server-redis
 metrics-database:
-  host: localhost  # PostgreSQL server hostname
+  host: localhost  # PostgreSQL server hostname (use 'github-webhook-server-postgres' in docker-compose)
   port: 5432  # PostgreSQL server port
   database: webhook_metrics  # Database name for metrics
   username: webhook_user  # Database username
@@ -18,14 +21,15 @@ metrics-database:
   pool-size: 20  # Connection pool size (default: 20)
 
 metrics-redis:
-  host: localhost  # Redis server hostname (default: localhost)
+  host: localhost  # Redis server hostname (use 'github-webhook-server-redis' in docker-compose)
   port: 6379  # Redis server port (default: 6379)
   password: <REDIS_PASSWORD>  # Redis password (optional, leave blank if no auth)
   cache-ttl: 300  # Cache TTL in seconds (default: 300 = 5 minutes)
 
 # AI Query Configuration (optional - enables natural language queries in dashboard)
+# Requires a valid Gemini API key - set ai-query-enabled to true only after configuring the key
 gemini-api-key: <GEMINI_API_KEY>  # Google Gemini API key for AI queries
-ai-query-enabled: true  # Enable AI-powered queries (default: false)
+ai-query-enabled: false  # Enable AI-powered queries (default: false, requires valid API key)
 
 # Server configuration
 disable-ssl-warnings: true # Disable SSL warnings (useful in production to reduce log noise from SSL certificate issues)

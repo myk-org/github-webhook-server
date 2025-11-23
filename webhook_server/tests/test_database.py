@@ -32,7 +32,7 @@ class TestDatabaseManager:
                 "port": 5432,
                 "database": "test_db",
                 "username": "test_user",
-                "password": "test_pass",  # pragma: allowlist secret
+                "password": "test_pass",  # noqa: S105  # pragma: allowlist secret
                 "pool-size": 10,
             }
         }
@@ -57,7 +57,7 @@ class TestDatabaseManager:
         assert manager.port == 5432
         assert manager.database == "test_db"
         assert manager.username == "test_user"
-        assert manager.password == "test_pass"  # pragma: allowlist secret
+        assert manager.password == "test_pass"  # noqa: S105  # pragma: allowlist secret
         assert manager.pool_size == 10
         assert manager.pool is None
 
@@ -71,7 +71,7 @@ class TestDatabaseManager:
         mock_config = Mock()
         mock_config.root_data = {}
 
-        with pytest.raises(ValueError, match="Database configuration missing"):
+        with pytest.raises(ValueError, match="Missing 'metrics-database' section"):
             DatabaseManager(mock_config, mock_logger)
 
     def test_database_manager_init_missing_database(
@@ -87,11 +87,11 @@ class TestDatabaseManager:
                 "host": "localhost",
                 "port": 5432,
                 "username": "test_user",
-                "password": "test_pass",  # pragma: allowlist secret
+                "password": "test_pass",  # noqa: S105  # pragma: allowlist secret
             }
         }
 
-        with pytest.raises(ValueError, match="Database name"):
+        with pytest.raises(ValueError, match="Missing required field 'database'"):
             DatabaseManager(mock_config, mock_logger)
 
     def test_database_manager_init_missing_username(
@@ -107,7 +107,7 @@ class TestDatabaseManager:
                 "host": "localhost",
                 "port": 5432,
                 "database": "test_db",
-                "password": "test_pass",  # pragma: allowlist secret
+                "password": "test_pass",  # noqa: S105  # pragma: allowlist secret
             }
         }
 
@@ -936,7 +936,7 @@ class TestFactoryFunctions:
                         "port": 5432,
                         "database": "test_db",
                         "username": "test_user",
-                        "password": "test_pass",  # pragma: allowlist secret
+                        "password": "test_pass",  # noqa: S105  # pragma: allowlist secret
                     }
                 }
                 mock_config_class.return_value = mock_config

@@ -146,7 +146,7 @@ class MetricsTracker:
 
             # Validate pool is initialized (should be guaranteed by architecture)
             if self.db_manager.pool is None:
-                raise RuntimeError("Database pool not initialized - call db_manager.connect() first")
+                raise ValueError("Database pool not initialized - call db_manager.connect() first")
 
             # Insert webhook event into database
             async with self.db_manager.pool.acquire() as conn:

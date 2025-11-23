@@ -142,7 +142,7 @@ class TestMetricsTracker:
         self,
         metrics_tracker: MetricsTracker,
         mock_db_manager: Mock,
-        mock_logger: Mock,
+        mock_logger: Mock,  # noqa: ARG002
     ) -> None:
         """Test tracking webhook event with API usage metrics."""
         await metrics_tracker.track_webhook_event(
@@ -207,7 +207,7 @@ class TestMetricsTracker:
         mock_db_manager.pool = None
         tracker = MetricsTracker(mock_db_manager, mock_redis_manager, mock_logger)
 
-        with pytest.raises(RuntimeError, match="Database pool not initialized"):
+        with pytest.raises(ValueError, match="Database pool not initialized"):
             await tracker.track_webhook_event(
                 delivery_id="test-delivery-id",
                 repository="org/repo",
@@ -227,7 +227,7 @@ class TestMetricsTracker:
         self,
         metrics_tracker: MetricsTracker,
         mock_db_manager: Mock,
-        mock_logger: Mock,
+        mock_logger: Mock,  # noqa: ARG002
     ) -> None:
         """Test tracking webhook event with complex payload structure."""
         complex_payload = {
@@ -270,7 +270,7 @@ class TestMetricsTracker:
         self,
         metrics_tracker: MetricsTracker,
         mock_db_manager: Mock,
-        mock_logger: Mock,
+        mock_logger: Mock,  # noqa: ARG002
     ) -> None:
         """Test tracking webhook event without PR number (e.g., issue_comment)."""
         await metrics_tracker.track_webhook_event(
@@ -295,7 +295,7 @@ class TestMetricsTracker:
         self,
         metrics_tracker: MetricsTracker,
         mock_db_manager: Mock,
-        mock_logger: Mock,
+        mock_logger: Mock,  # noqa: ARG002
     ) -> None:
         """Test tracking webhook event with all optional parameters set."""
         await metrics_tracker.track_webhook_event(
@@ -329,7 +329,7 @@ class TestMetricsTracker:
         self,
         metrics_tracker: MetricsTracker,
         mock_db_manager: Mock,
-        mock_logger: Mock,
+        mock_logger: Mock,  # noqa: ARG002
     ) -> None:
         """Test tracking webhook event with zero API calls (default values)."""
         await metrics_tracker.track_webhook_event(

@@ -38,6 +38,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -222,6 +223,7 @@ class PullRequest(Base):
     """
 
     __tablename__ = "pull_requests"
+    __table_args__ = (UniqueConstraint("repository", "pr_number", name="uq_pull_requests_repository_pr_number"),)
 
     id: Mapped[UUID] = mapped_column(
         UUID(as_uuid=True),

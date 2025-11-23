@@ -19,7 +19,9 @@ from fastapi import (
     Request,
     Response,
     WebSocket,
-    status,
+)
+from fastapi import (
+    status as http_status,
 )
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -96,7 +98,7 @@ def require_log_server_enabled() -> None:
     """Dependency to ensure log server is enabled before accessing log viewer APIs."""
     if not LOG_SERVER_ENABLED:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=http_status.HTTP_404_NOT_FOUND,
             detail="Log server is disabled. Set ENABLE_LOG_SERVER=true to enable.",
         )
 
@@ -105,7 +107,7 @@ def require_metrics_server_enabled() -> None:
     """Dependency to ensure metrics server is enabled before accessing metrics APIs."""
     if not METRICS_SERVER_ENABLED:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=http_status.HTTP_404_NOT_FOUND,
             detail="Metrics server is disabled. Set ENABLE_METRICS_SERVER=true to enable.",
         )
 
@@ -173,7 +175,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
             # Create dedicated logger for metrics server and stop propagation
             # This ensures Metrics logs go ONLY to metrics_server.log and not webhook_server.log
             metrics_logger = logging.getLogger("webhook_server.metrics")
-            if metrics_file_logger.handlers:
+            if metrics_file_logger.handlers and not metrics_logger.handlers:
                 for handler in metrics_file_logger.handlers:
                     metrics_logger.addHandler(handler)
 
@@ -462,85 +464,63 @@ async def process_webhook(request: Request) -> JSONResponse:
         _sender = _hook_data.get("sender", {}).get("login")
         _pr_number = _hook_data.get("pull_request", {}).get("number")
 
+        async def track_metrics_safe(status: str, error_message: str | None = None) -> None:
+            """Track webhook metrics in best-effort manner - never fail webhook processing.
+
+            Args:
+                status: Processing status (success, error, partial)
+                error_message: Optional error message for failures
+            """
+            if not (METRICS_SERVER_ENABLED and metrics_tracker):
+                return
+
+            try:
+                processing_time = (datetime.now(UTC) - start_time).total_seconds() * 1000
+                await metrics_tracker.track_webhook_event(
+                    delivery_id=_delivery_id,
+                    repository=_repository,
+                    event_type=_event_type,
+                    action=_action,
+                    sender=_sender,
+                    payload=_hook_data,
+                    processing_time_ms=int(processing_time),
+                    status=status,
+                    pr_number=_pr_number,
+                    error_message=error_message,
+                )
+            except Exception:
+                # Metrics tracking failures should never affect webhook processing
+                # Log the failure but don't re-raise
+                _logger.exception(f"{_log_context} Metrics tracking failed (non-critical)")
+
         try:
             # Initialize GithubWebhook inside background task to avoid blocking webhook response
             _api: GithubWebhook = GithubWebhook(hook_data=_hook_data, headers=_headers, logger=_logger)
             try:
                 await _api.process()
 
-                # Track successful webhook event
-                if METRICS_SERVER_ENABLED and metrics_tracker:
-                    processing_time = (datetime.now(UTC) - start_time).total_seconds() * 1000
-                    await metrics_tracker.track_webhook_event(
-                        delivery_id=_delivery_id,
-                        repository=_repository,
-                        event_type=_event_type,
-                        action=_action,
-                        sender=_sender,
-                        payload=_hook_data,
-                        processing_time_ms=int(processing_time),
-                        status="success",
-                        pr_number=_pr_number,
-                    )
+                # Track successful webhook event (best-effort)
+                await track_metrics_safe(status="success")
             finally:
                 await _api.cleanup()
         except RepositoryNotFoundInConfigError as ex:
             # Repository-specific error - not exceptional, log as error not exception
             _logger.error(f"{_log_context} Repository not found in configuration")
 
-            # Track failed webhook event
-            if METRICS_SERVER_ENABLED and metrics_tracker:
-                processing_time = (datetime.now(UTC) - start_time).total_seconds() * 1000
-                await metrics_tracker.track_webhook_event(
-                    delivery_id=_delivery_id,
-                    repository=_repository,
-                    event_type=_event_type,
-                    action=_action,
-                    sender=_sender,
-                    payload=_hook_data,
-                    processing_time_ms=int(processing_time),
-                    status="error",
-                    error_message=str(ex),
-                    pr_number=_pr_number,
-                )
+            # Track failed webhook event (best-effort)
+            await track_metrics_safe(status="error", error_message=str(ex))
         except (httpx.ConnectError, httpx.RequestError, requests.exceptions.ConnectionError) as ex:
             # Network/connection errors - can be transient
             _logger.exception(f"{_log_context} API connection error - check network connectivity")
 
-            # Track failed webhook event
-            if METRICS_SERVER_ENABLED and metrics_tracker:
-                processing_time = (datetime.now(UTC) - start_time).total_seconds() * 1000
-                await metrics_tracker.track_webhook_event(
-                    delivery_id=_delivery_id,
-                    repository=_repository,
-                    event_type=_event_type,
-                    action=_action,
-                    sender=_sender,
-                    payload=_hook_data,
-                    processing_time_ms=int(processing_time),
-                    status="error",
-                    error_message=str(ex),
-                    pr_number=_pr_number,
-                )
+            # Track failed webhook event (best-effort)
+            await track_metrics_safe(status="error", error_message=str(ex))
         except Exception as ex:
             # Catch-all for unexpected errors
             _logger.exception(f"{_log_context} Unexpected error in background webhook processing")
 
-            # Track failed webhook event
-            if METRICS_SERVER_ENABLED and metrics_tracker:
-                processing_time = (datetime.now(UTC) - start_time).total_seconds() * 1000
-                await metrics_tracker.track_webhook_event(
-                    delivery_id=_delivery_id,
-                    repository=_repository,
-                    event_type=_event_type,
-                    action=_action,
-                    sender=_sender,
-                    payload=_hook_data,
-                    processing_time_ms=int(processing_time),
-                    status="error",
-                    error_message=str(ex),
-                    pr_number=_pr_number,
-                )
+            # Track failed webhook event (best-effort)
+            await track_metrics_safe(status="error", error_message=str(ex))
 
     # Start background task immediately using asyncio.create_task
     # This ensures the HTTP response is sent immediately without waiting
@@ -558,9 +538,9 @@ async def process_webhook(request: Request) -> JSONResponse:
 
     # Return 200 immediately with JSONResponse for fastest serialization
     return JSONResponse(
-        status_code=status.HTTP_200_OK,
+        status_code=http_status.HTTP_200_OK,
         content={
-            "status": status.HTTP_200_OK,
+            "status": http_status.HTTP_200_OK,
             "message": "Webhook queued for processing",
             "delivery_id": delivery_id,
             "event_type": event_type,
@@ -1245,7 +1225,7 @@ async def websocket_log_stream(
     """Handle WebSocket connection for real-time log streaming."""
     # Check if log server is enabled (manual check since WebSocket doesn't support dependencies same way)
     if not LOG_SERVER_ENABLED:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Log server is disabled")
+        await websocket.close(code=http_status.WS_1008_POLICY_VIOLATION, reason="Log server is disabled")
         return
 
     controller = get_log_viewer_controller()
@@ -1271,7 +1251,7 @@ async def get_webhook_events(
     event_type: str | None = Query(
         default=None, description="Filter by event type (pull_request, issue_comment, etc.)"
     ),
-    event_status: str | None = Query(default=None, description="Filter by status (success, error, partial)"),
+    status: str | None = Query(default=None, description="Filter by status (success, error, partial)"),
     start_time: str | None = Query(
         default=None, description="Start time in ISO 8601 format (e.g., 2024-01-15T00:00:00Z)"
     ),
@@ -1354,7 +1334,7 @@ async def get_webhook_events(
     if db_manager is None:
         LOGGER.error("Database manager not initialized - metrics server may not be properly configured")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Metrics database not available",
         )
 
@@ -1395,9 +1375,9 @@ async def get_webhook_events(
         params.append(event_type)
         param_idx += 1
 
-    if event_status:
+    if status:
         query += f" AND status = ${param_idx}"
-        params.append(event_status)
+        params.append(status)
         param_idx += 1
 
     if start_datetime:
@@ -1419,7 +1399,7 @@ async def get_webhook_events(
         # Validate pool is initialized
         if db_manager.pool is None:
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Database pool not initialized",
             )
 
@@ -1462,7 +1442,7 @@ async def get_webhook_events(
     except Exception as ex:
         LOGGER.exception("Failed to fetch webhook events from database")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch webhook events: {ex!s}",
         ) from ex
 
@@ -1531,7 +1511,7 @@ async def get_webhook_event_by_id(delivery_id: str) -> dict[str, Any]:
     if db_manager is None:
         LOGGER.error("Database manager not initialized - metrics server may not be properly configured")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Metrics database not available",
         )
 
@@ -1560,7 +1540,7 @@ async def get_webhook_event_by_id(delivery_id: str) -> dict[str, Any]:
         # Validate pool is initialized
         if db_manager.pool is None:
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Database pool not initialized",
             )
 
@@ -1569,7 +1549,7 @@ async def get_webhook_event_by_id(delivery_id: str) -> dict[str, Any]:
 
             if not row:
                 raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
+                    status_code=http_status.HTTP_404_NOT_FOUND,
                     detail=f"Webhook event not found: {delivery_id}",
                 )
 
@@ -1595,7 +1575,7 @@ async def get_webhook_event_by_id(delivery_id: str) -> dict[str, Any]:
     except Exception as ex:
         LOGGER.exception(f"Failed to fetch webhook event {delivery_id} from database")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch webhook event: {ex!s}",
         ) from ex
 
@@ -1707,7 +1687,7 @@ async def get_repository_statistics(
     if db_manager is None:
         LOGGER.error("Database manager not initialized - metrics server may not be properly configured")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Metrics database not available",
         )
 
@@ -1768,7 +1748,7 @@ async def get_repository_statistics(
         # Validate pool is initialized
         if db_manager.pool is None:
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Database pool not initialized",
             )
 
@@ -1813,7 +1793,7 @@ async def get_repository_statistics(
     except Exception as ex:
         LOGGER.exception("Failed to fetch repository statistics from database")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch repository statistics: {ex!s}",
         ) from ex
 
@@ -1943,7 +1923,7 @@ async def get_metrics_summary(
     if db_manager is None:
         LOGGER.error("Database manager not initialized - metrics server may not be properly configured")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Metrics database not available",
         )
 
@@ -2027,12 +2007,12 @@ async def get_metrics_summary(
         # Validate pool is initialized
         if db_manager.pool is None:
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Database pool not initialized",
             )
 
         async with db_manager.pool.acquire() as conn:
-            # Execute all queries in parallel
+            # Execute queries sequentially on single connection
             summary_row = await conn.fetchrow(summary_query, *params)
             top_repos_rows = await conn.fetch(top_repos_query, *params)
             event_type_rows = await conn.fetch(event_type_query, *params)
@@ -2099,7 +2079,7 @@ async def get_metrics_summary(
     except Exception as ex:
         LOGGER.exception("Failed to fetch metrics summary from database")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch metrics summary: {ex!s}",
         ) from ex
 
@@ -2128,7 +2108,9 @@ if MCP_SERVER_ENABLED:
         # Session manager is initialized in lifespan
         if http_transport is None or http_transport._session_manager is None:
             LOGGER.error("MCP session manager not initialized")
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="MCP server not initialized")
+            raise HTTPException(
+                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail="MCP server not initialized"
+            )
 
         return await http_transport.handle_fastapi_request(request)
 

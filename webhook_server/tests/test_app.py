@@ -17,8 +17,8 @@ from webhook_server.app import (
     FASTAPI_APP,
     HTTPException,
     get_log_viewer_controller,
+    http_status,
     require_log_server_enabled,
-    status,
     websocket_log_stream,
 )
 from webhook_server.libs.exceptions import RepositoryNotFoundInConfigError
@@ -667,7 +667,9 @@ class TestWebhookApp:
         mock_ws = AsyncMock()
         with patch("webhook_server.app.LOG_SERVER_ENABLED", False):
             await websocket_log_stream(mock_ws)
-            mock_ws.close.assert_called_once_with(code=status.WS_1008_POLICY_VIOLATION, reason="Log server is disabled")
+            mock_ws.close.assert_called_once_with(
+                code=http_status.WS_1008_POLICY_VIOLATION, reason="Log server is disabled"
+            )
 
     @pytest.mark.asyncio
     async def test_websocket_log_stream_enabled(self) -> None:

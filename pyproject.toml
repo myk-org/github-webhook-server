@@ -97,7 +97,7 @@ metrics = [
   "alembic>=1.13.0",
   "sqlalchemy[asyncio]>=2.0.0",
 ]
-ai = ["google-generativeai>=0.8.0"]
+ai = ["google-genai>=0.1.0"]
 
 [build-system]
 requires = ["hatchling"]
