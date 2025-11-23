@@ -68,7 +68,7 @@ RUN set -ex \
 
 WORKDIR $APP_DIR
 
-RUN uv sync
+RUN uv sync --extra metrics --extra ai
 
 HEALTHCHECK CMD curl --fail http://127.0.0.1:5000/webhook_server/healthcheck || exit 1
 
