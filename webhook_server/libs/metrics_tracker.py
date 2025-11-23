@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -140,16 +141,20 @@ class MetricsTracker:
             # Serialize payload to JSON string for JSONB storage
             payload_json = json.dumps(payload)
 
+            # Calculate processed_at right before INSERT to minimize time discrepancy
+            # Note: processed_at is required by schema (nullable=False, no server_default)
+            processed_at = datetime.now(UTC)
+
             # Insert webhook event into database using DatabaseManager.execute()
             # This centralizes pool management and precondition checks
             await self.db_manager.execute(
                 """
                 INSERT INTO webhooks (
                     id, delivery_id, repository, event_type, action,
-                    pr_number, sender, payload, duration_ms,
+                    pr_number, sender, payload, processed_at, duration_ms,
                     status, error_message, api_calls_count, token_spend, token_remaining
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                 """,
                 uuid4(),
                 delivery_id,
@@ -159,6 +164,7 @@ class MetricsTracker:
                 pr_number,
                 sender,
                 payload_json,
+                processed_at,
                 processing_time_ms,
                 status,
                 error_message,
