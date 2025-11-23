@@ -1017,20 +1017,32 @@ class TestWebhookApp:
                     # Mock MetricsTracker
                     mock_metrics_tracker = Mock()
 
+                    # Mock logger
+                    mock_logger = Mock()
+                    mock_logger.handlers = []
+                    mock_logger.filters = []
+
                     with patch("webhook_server.app.Config", return_value=mock_config):
                         with patch("webhook_server.app.DatabaseManager", return_value=mock_db_manager):
                             with patch("webhook_server.app.RedisManager", return_value=mock_redis_manager):
                                 with patch("webhook_server.app.MetricsTracker", return_value=mock_metrics_tracker):
                                     with patch("httpx.AsyncClient", return_value=AsyncMock()):
-                                        # Run lifespan
-                                        async with app_module.lifespan(FASTAPI_APP):
-                                            # Verify managers were connected
-                                            mock_db_manager.connect.assert_called_once()
-                                            mock_redis_manager.connect.assert_called_once()
+                                        with patch("os.path.exists", return_value=True):
+                                            with patch("os.path.isdir", return_value=True):
+                                                with patch(
+                                                    "webhook_server.app.get_logger_with_params",
+                                                    return_value=mock_logger,
+                                                ):
+                                                    with patch("logging.getLogger", return_value=mock_logger):
+                                                        # Run lifespan
+                                                        async with app_module.lifespan(FASTAPI_APP):
+                                                            # Verify managers were connected
+                                                            mock_db_manager.connect.assert_called_once()
+                                                            mock_redis_manager.connect.assert_called_once()
 
-                                        # Verify managers were disconnected
-                                        mock_db_manager.disconnect.assert_called_once()
-                                        mock_redis_manager.disconnect.assert_called_once()
+                                                        # Verify managers were disconnected
+                                                        mock_db_manager.disconnect.assert_called_once()
+                                                        mock_redis_manager.disconnect.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_lifespan_metrics_server_disabled(self) -> None:
@@ -1050,14 +1062,25 @@ class TestWebhookApp:
                     mock_db_class = Mock()
                     mock_redis_class = Mock()
 
+                    # Mock logger
+                    mock_logger = Mock()
+                    mock_logger.handlers = []
+                    mock_logger.filters = []
+
                     with patch("webhook_server.app.Config", return_value=mock_config):
                         with patch("webhook_server.app.DatabaseManager", mock_db_class):
                             with patch("webhook_server.app.RedisManager", mock_redis_class):
                                 with patch("httpx.AsyncClient", return_value=AsyncMock()):
-                                    # Run lifespan
-                                    async with app_module.lifespan(FASTAPI_APP):
-                                        pass
+                                    with patch("os.path.exists", return_value=True):
+                                        with patch("os.path.isdir", return_value=True):
+                                            with patch(
+                                                "webhook_server.app.get_logger_with_params", return_value=mock_logger
+                                            ):
+                                                with patch("logging.getLogger", return_value=mock_logger):
+                                                    # Run lifespan
+                                                    async with app_module.lifespan(FASTAPI_APP):
+                                                        pass
 
-                                    # Verify managers were NOT instantiated
-                                    mock_db_class.assert_not_called()
-                                    mock_redis_class.assert_not_called()
+                                                    # Verify managers were NOT instantiated
+                                                    mock_db_class.assert_not_called()
+                                                    mock_redis_class.assert_not_called()
