@@ -10,18 +10,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import asyncpg
+import redis.asyncio as redis_async
+
 from webhook_server.libs.config import Config
 from webhook_server.utils.helpers import get_logger_with_params
-
-try:
-    import asyncpg
-except ImportError:
-    asyncpg = None
-
-try:
-    import redis.asyncio as redis_async
-except ImportError:
-    redis_async = None
 
 
 class DatabaseManager:
@@ -50,19 +43,11 @@ class DatabaseManager:
             logger: Logger instance for connection lifecycle events
 
         Raises:
-            ImportError: If asyncpg is not installed (metrics optional dependency)
             ValueError: If required database configuration is missing
         """
         self.config = config
         self.logger = logger
         self.pool: asyncpg.Pool[asyncpg.Record] | None = None  # Lazy initialization
-
-        # Validate asyncpg availability
-        if asyncpg is None:
-            raise ImportError(
-                "asyncpg is not installed. Install with: uv add --optional metrics asyncpg "
-                "or pip install 'github-webhook-server[metrics]'"
-            )
 
         # Load database configuration - fail-fast if missing required fields
         db_config = self.config.root_data.get("metrics-database")
@@ -294,20 +279,10 @@ class RedisManager:
         Args:
             config: Configuration object containing Redis settings
             logger: Logger instance for connection lifecycle events
-
-        Raises:
-            ImportError: If redis is not installed (metrics optional dependency)
         """
         self.config = config
         self.logger = logger
         self.client: redis_async.Redis | None = None  # Lazy initialization
-
-        # Validate redis availability
-        if redis_async is None:
-            raise ImportError(
-                "redis is not installed. Install with: uv add --optional metrics redis "
-                "or pip install 'github-webhook-server[metrics]'"
-            )
 
         # Load Redis configuration (with defaults for optional deployment)
         redis_config = self.config.root_data.get("metrics-redis", {})
