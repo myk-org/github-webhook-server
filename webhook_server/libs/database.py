@@ -261,8 +261,11 @@ def get_database_manager(repository_name: str = "") -> DatabaseManager:
         Configured DatabaseManager instance
 
     Raises:
-        ImportError: If asyncpg not installed
         ValueError: If database configuration missing
+
+    Note:
+        asyncpg import is checked at module load time (line 13), not function call time.
+        If asyncpg is not installed, module import will fail before this function can be called.
 
     Example:
         db_manager = get_database_manager()

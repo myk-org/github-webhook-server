@@ -273,12 +273,6 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         raise
 
     finally:
-        # Disconnect database managers if they exist
-        if db_manager is not None:
-            await db_manager.disconnect()
-            LOGGER.debug("Database manager disconnected")
-            LOGGER.info("Metrics Server database manager shutdown complete")
-
         # Shutdown LogViewerController singleton and close WebSocket connections
         if _log_viewer_controller_singleton is not None:
             await _log_viewer_controller_singleton.shutdown()
@@ -300,6 +294,12 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
                 # Wait briefly for cancellations to propagate
                 await asyncio.wait(pending, timeout=5.0)
             LOGGER.debug(f"Background tasks cleanup complete: {len(done)} completed, {len(pending)} cancelled")
+
+        # Disconnect database managers if they exist (after background tasks complete)
+        if db_manager is not None:
+            await db_manager.disconnect()
+            LOGGER.debug("Database manager disconnected")
+            LOGGER.info("Metrics Server database manager shutdown complete")
 
         LOGGER.info("Application shutdown complete.")
 
@@ -1233,7 +1233,7 @@ async def websocket_log_stream(
     )
 
 
-# Metrics API Endpoints - Only register if ENABLE_METRICS_SERVER=true
+# Metrics API Endpoints - Only functional if ENABLE_METRICS_SERVER=true (guarded by dependency)
 @FASTAPI_APP.get(
     "/api/metrics/webhooks",
     operation_id="get_webhook_events",
@@ -1412,8 +1412,8 @@ async def get_webhook_events(
                     "pr_number": row["pr_number"],
                     "sender": row["sender"],
                     "status": row["status"],
-                    "created_at": row["created_at"].isoformat(),
-                    "processed_at": row["processed_at"].isoformat(),
+                    "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                    "processed_at": row["processed_at"].isoformat() if row["processed_at"] else None,
                     "duration_ms": row["duration_ms"],
                     "api_calls_count": row["api_calls_count"],
                     "token_spend": row["token_spend"],
@@ -1432,11 +1432,13 @@ async def get_webhook_events(
                 "has_more": has_more,
                 "next_offset": next_offset,
             }
+    except HTTPException:
+        raise
     except Exception as ex:
         LOGGER.exception("Failed to fetch webhook events from database")
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch webhook events: {ex!s}",
+            detail="Failed to fetch webhook events",
         ) from ex
 
 
@@ -1554,8 +1556,8 @@ async def get_webhook_event_by_id(delivery_id: str) -> dict[str, Any]:
                 "pr_number": row["pr_number"],
                 "sender": row["sender"],
                 "status": row["status"],
-                "created_at": row["created_at"].isoformat(),
-                "processed_at": row["processed_at"].isoformat(),
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                "processed_at": row["processed_at"].isoformat() if row["processed_at"] else None,
                 "duration_ms": row["duration_ms"],
                 "api_calls_count": row["api_calls_count"],
                 "token_spend": row["token_spend"],
@@ -1569,7 +1571,7 @@ async def get_webhook_event_by_id(delivery_id: str) -> dict[str, Any]:
         LOGGER.exception(f"Failed to fetch webhook event {delivery_id} from database")
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch webhook event: {ex!s}",
+            detail="Failed to fetch webhook event",
         ) from ex
 
 
@@ -1783,11 +1785,13 @@ async def get_repository_statistics(
                 "repositories": repositories,
                 "total_repositories": len(repositories),
             }
+    except HTTPException:
+        raise
     except Exception as ex:
         LOGGER.exception("Failed to fetch repository statistics from database")
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch repository statistics: {ex!s}",
+            detail="Failed to fetch repository statistics",
         ) from ex
 
 
@@ -2069,11 +2073,13 @@ async def get_metrics_summary(
                 "hourly_event_rate": hourly_event_rate,
                 "daily_event_rate": daily_event_rate,
             }
+    except HTTPException:
+        raise
     except Exception as ex:
         LOGGER.exception("Failed to fetch metrics summary from database")
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch metrics summary: {ex!s}",
+            detail="Failed to fetch metrics summary",
         ) from ex
 
 
