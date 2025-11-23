@@ -176,6 +176,7 @@ class Webhook(Base):
         Boolean,
         nullable=False,
         default=True,
+        server_default=text("TRUE"),
         comment="Whether API metrics are available (False = no tracking, True = metrics tracked)",
     )
 
