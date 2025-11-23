@@ -1,8 +1,8 @@
 services:
   # PostgreSQL database for metrics storage
-  postgres:
+  github-webhook-server-postgres:
     image: postgres:16-alpine
-    container_name: webhook-postgres
+    container_name: github-webhook-server-postgres
     environment:
       - POSTGRES_DB=webhook_metrics
       - POSTGRES_USER=webhook_user
@@ -19,9 +19,9 @@ services:
     restart: unless-stopped
 
   # Redis cache for metrics server
-  redis:
+  github-webhook-server-redis:
     image: redis:7-alpine
-    container_name: webhook-redis
+    container_name: github-webhook-server-redis
     command: redis-server --requirepass <REDIS_PASSWORD> # Change this! Remove --requirepass for no auth
     volumes:
       - redis-data:/data
@@ -58,9 +58,9 @@ services:
       - "5000:5000"
     privileged: true
     depends_on:
-      postgres:
+      github-webhook-server-postgres:
         condition: service_healthy
-      redis:
+      github-webhook-server-redis:
         condition: service_healthy
     restart: unless-stopped
 
