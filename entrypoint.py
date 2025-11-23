@@ -59,8 +59,9 @@ def run_database_migrations() -> None:
 
     try:
         print("🗄️  Running database migrations...")
+        alembic_ini = Path(__file__).parent / "alembic.ini"
         result = subprocess.run(
-            ["uv", "run", "alembic", "upgrade", "head"],
+            ["uv", "run", "alembic", "-c", str(alembic_ini), "upgrade", "head"],
             check=True,
             capture_output=True,
             text=True,
