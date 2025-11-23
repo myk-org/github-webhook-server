@@ -39,7 +39,7 @@ RUN mkdir -p $BIN_DIR \
   && mkdir -p $DATA_DIR \
   && mkdir -p $DATA_DIR/logs
 
-COPY entrypoint.py pyproject.toml uv.lock README.md $APP_DIR/
+COPY entrypoint.py pyproject.toml uv.lock README.md alembic.ini $APP_DIR/
 COPY webhook_server $APP_DIR/webhook_server/
 COPY scripts $APP_DIR/scripts/
 

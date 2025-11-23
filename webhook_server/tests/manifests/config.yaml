@@ -25,6 +25,13 @@ auto-verified-and-merged-users:
 
 auto-verify-cherry-picked-prs: true
 
+metrics-database:
+  host: localhost
+  port: 5432
+  database: webhook_metrics
+  username: webhook_user
+  password: webhook_pass  # pragma: allowlist secret
+
 repositories:
   test-repo:
     name: my-org/test-repo
