@@ -20,25 +20,16 @@ Architecture guarantees:
 from __future__ import annotations
 
 import asyncio
-import os
-import sys
 from logging.config import fileConfig
 
-# Add project root to Python path BEFORE importing third-party/project modules
-# This must come early to ensure webhook_server modules can be imported
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
+from alembic import context
+from simple_logger.logger import get_logger
+from sqlalchemy import pool
+from sqlalchemy.engine import Connection
+from sqlalchemy.ext.asyncio import async_engine_from_config
 
-# Third-party imports (after sys.path modification)
-from alembic import context  # noqa: E402
-from simple_logger.logger import get_logger  # noqa: E402
-from sqlalchemy import pool  # noqa: E402
-from sqlalchemy.engine import Connection  # noqa: E402
-from sqlalchemy.ext.asyncio import async_engine_from_config  # noqa: E402
-
-# Project imports (after sys.path modification)
-from webhook_server.libs.config import Config  # noqa: E402
+from webhook_server.libs.config import Config
+from webhook_server.libs.models import Base
 
 # Alembic Config object provides access to alembic.ini values
 config = context.config
@@ -89,26 +80,9 @@ except Exception:
     logger.exception("Failed to load database configuration")
     raise
 
-# Import all SQLAlchemy models here for autogenerate support
-# This ensures Alembic can detect model changes for autogenerate
-try:
-    from webhook_server.libs.models import (  # noqa: E402, F401
-        APIUsage,
-        Base,
-        CheckRun,
-        PREvent,
-        PRLabel,
-        PRReview,
-        PullRequest,
-        Webhook,
-    )
-
-    # Set target metadata for autogenerate - enables schema comparison
-    target_metadata = Base.metadata
-    logger.info("Successfully loaded SQLAlchemy models for autogenerate")
-except ImportError:
-    logger.exception("Failed to import SQLAlchemy models - autogenerate will be disabled")
-    target_metadata = None
+# Set target metadata for autogenerate - enables schema comparison
+# All models in models.py are automatically registered with Base.metadata when Base is imported
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:

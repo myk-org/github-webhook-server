@@ -31,6 +31,7 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from starlette.datastructures import Headers
 
 from webhook_server.libs.config import Config
+from webhook_server.libs.database import DatabaseManager, RedisManager
 from webhook_server.libs.exceptions import RepositoryNotFoundInConfigError
 from webhook_server.libs.github_api import GithubWebhook
 from webhook_server.libs.metrics_tracker import MetricsTracker
@@ -254,8 +255,6 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 
         # Initialize database managers if metrics server is enabled
         if METRICS_SERVER_ENABLED:
-            from webhook_server.libs.database import DatabaseManager, RedisManager  # noqa: PLC0415
-
             metrics_logger = logging.getLogger("webhook_server.metrics")
             db_manager = DatabaseManager(config, metrics_logger)
             redis_manager = RedisManager(config, metrics_logger)

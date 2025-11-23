@@ -1,0 +1,797 @@
+"""
+Comprehensive tests for metrics API endpoints.
+
+Tests 4 new metrics endpoints:
+- GET /api/metrics/webhooks - List webhook events with filtering
+- GET /api/metrics/webhooks/{delivery_id} - Get specific webhook details
+- GET /api/metrics/repositories - Get repository statistics
+- GET /api/metrics/summary - Get overall metrics summary
+"""
+
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, Mock, patch
+from urllib.parse import quote
+
+import pytest
+from fastapi.testclient import TestClient
+
+from webhook_server.app import FASTAPI_APP
+
+
+@pytest.fixture(autouse=True)
+def enable_metrics_server(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Enable metrics server for all tests in this module."""
+    import webhook_server.app
+
+    monkeypatch.setattr(webhook_server.app, "METRICS_SERVER_ENABLED", True)
+
+
+@pytest.fixture
+def setup_db_manager(mock_db_manager: Mock, monkeypatch: pytest.MonkeyPatch) -> Mock:
+    """Set up global db_manager for metrics endpoints."""
+    import webhook_server.app
+
+    monkeypatch.setattr(webhook_server.app, "db_manager", mock_db_manager)
+    return mock_db_manager
+
+
+class TestMetricsAPIEndpoints:
+    """Test metrics API endpoints for webhook analytics."""
+
+    @pytest.fixture
+    def client(self) -> TestClient:
+        """FastAPI test client."""
+        return TestClient(FASTAPI_APP)
+
+    @pytest.fixture
+    def mock_db_manager(self) -> Mock:
+        """Mock database manager with connection pool."""
+        db_manager = Mock()
+        mock_pool = Mock()
+        mock_conn = AsyncMock()
+
+        # Setup pool.acquire() async context manager
+        mock_acquire_cm = AsyncMock()
+        mock_acquire_cm.__aenter__.return_value = mock_conn
+        mock_acquire_cm.__aexit__.return_value = None
+
+        # pool.acquire() returns the async context manager
+        mock_pool.acquire.return_value = mock_acquire_cm
+
+        db_manager.pool = mock_pool
+        return db_manager
+
+
+class TestRequireMetricsServerEnabled(TestMetricsAPIEndpoints):
+    """Test require_metrics_server_enabled dependency."""
+
+    def test_metrics_endpoint_requires_enabled_server(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test metrics endpoints return 404 when metrics server is disabled."""
+        import webhook_server.app
+
+        # Override the module-level fixture to disable metrics server
+        monkeypatch.setattr(webhook_server.app, "METRICS_SERVER_ENABLED", False)
+
+        # Try all metrics endpoints
+        endpoints = [
+            "/api/metrics/webhooks",
+            "/api/metrics/webhooks/test-delivery-123",
+            "/api/metrics/repositories",
+            "/api/metrics/summary",
+        ]
+
+        for endpoint in endpoints:
+            response = client.get(endpoint)
+            assert response.status_code == 404
+            assert "Metrics server is disabled" in response.json()["detail"]
+
+
+class TestGetWebhookEventsEndpoint(TestMetricsAPIEndpoints):
+    """Test GET /api/metrics/webhooks endpoint."""
+
+    def test_get_webhook_events_success_no_filters(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test getting webhook events without filters."""
+        # Mock database query results
+        mock_acquire_cm = setup_db_manager.pool.acquire.return_value
+        mock_conn = mock_acquire_cm.__aenter__.return_value
+        now = datetime.now(UTC)
+
+        # Mock fetchval (count query)
+        mock_conn.fetchval.return_value = 2
+
+        # Mock fetch (main query)
+        mock_conn.fetch.return_value = [
+            {
+                "delivery_id": "test-delivery-1",
+                "repository": "org/repo1",
+                "event_type": "pull_request",
+                "action": "opened",
+                "pr_number": 42,
+                "sender": "user1",
+                "status": "success",
+                "created_at": now,
+                "processed_at": now + timedelta(seconds=1),
+                "duration_ms": 1000,
+                "api_calls_count": 5,
+                "token_spend": 10,
+                "token_remaining": 4990,
+                "error_message": None,
+            },
+            {
+                "delivery_id": "test-delivery-2",
+                "repository": "org/repo2",
+                "event_type": "issue_comment",
+                "action": "created",
+                "pr_number": None,
+                "sender": "user2",
+                "status": "failure",
+                "created_at": now - timedelta(minutes=5),
+                "processed_at": now - timedelta(minutes=4, seconds=58),
+                "duration_ms": 2000,
+                "api_calls_count": 3,
+                "token_spend": 5,
+                "token_remaining": 4995,
+                "error_message": "Processing failed",
+            },
+        ]
+
+        response = client.get("/api/metrics/webhooks")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert len(data["events"]) == 2
+        assert data["total_count"] == 2
+        assert data["has_more"] is False
+        assert data["next_offset"] is None
+
+        # Verify first event
+        event1 = data["events"][0]
+        assert event1["delivery_id"] == "test-delivery-1"
+        assert event1["repository"] == "org/repo1"
+        assert event1["event_type"] == "pull_request"
+        assert event1["action"] == "opened"
+        assert event1["pr_number"] == 42
+        assert event1["status"] == "success"
+        assert event1["duration_ms"] == 1000
+        assert event1["error_message"] is None
+
+        # Verify second event
+        event2 = data["events"][1]
+        assert event2["status"] == "failure"
+        assert event2["error_message"] == "Processing failed"
+
+    def test_get_webhook_events_with_repository_filter(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test filtering webhook events by repository."""
+        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
+        mock_conn.fetchval.return_value = 1
+        now = datetime.now(UTC)
+
+        mock_conn.fetch.return_value = [
+            {
+                "delivery_id": "test-delivery-1",
+                "repository": "org/repo1",
+                "event_type": "pull_request",
+                "action": "opened",
+                "pr_number": 42,
+                "sender": "user1",
+                "status": "success",
+                "created_at": now,
+                "processed_at": now,
+                "duration_ms": 1000,
+                "api_calls_count": 5,
+                "token_spend": 10,
+                "token_remaining": 4990,
+                "error_message": None,
+            }
+        ]
+
+        response = client.get("/api/metrics/webhooks?repository=org/repo1")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["events"]) == 1
+        assert data["events"][0]["repository"] == "org/repo1"
+
+    def test_get_webhook_events_with_event_type_filter(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test filtering webhook events by event type."""
+        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
+        mock_conn.fetchval.return_value = 1
+        now = datetime.now(UTC)
+
+        mock_conn.fetch.return_value = [
+            {
+                "delivery_id": "test-delivery-1",
+                "repository": "org/repo1",
+                "event_type": "check_run",
+                "action": "completed",
+                "pr_number": 42,
+                "sender": "github-actions",
+                "status": "success",
+                "created_at": now,
+                "processed_at": now,
+                "duration_ms": 500,
+                "api_calls_count": 2,
+                "token_spend": 2,
+                "token_remaining": 4998,
+                "error_message": None,
+            }
+        ]
+
+        response = client.get("/api/metrics/webhooks?event_type=check_run")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["events"][0]["event_type"] == "check_run"
+
+    def test_get_webhook_events_with_status_filter(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test filtering webhook events by status."""
+        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
+        mock_conn.fetchval.return_value = 1
+        now = datetime.now(UTC)
+
+        mock_conn.fetch.return_value = [
+            {
+                "delivery_id": "test-delivery-error",
+                "repository": "org/repo1",
+                "event_type": "pull_request",
+                "action": "opened",
+                "pr_number": 99,
+                "sender": "user1",
+                "status": "failure",
+                "created_at": now,
+                "processed_at": now,
+                "duration_ms": 5000,
+                "api_calls_count": 10,
+                "token_spend": 10,
+                "token_remaining": 4990,
+                "error_message": "Connection timeout",
+            }
+        ]
+
+        response = client.get("/api/metrics/webhooks?event_status=failure")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["events"][0]["status"] == "failure"
+        assert data["events"][0]["error_message"] == "Connection timeout"
+
+    def test_get_webhook_events_with_time_filters(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test filtering webhook events by time range."""
+        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
+        mock_conn.fetchval.return_value = 1
+        now = datetime.now(UTC)
+
+        mock_conn.fetch.return_value = [
+            {
+                "delivery_id": "test-delivery-1",
+                "repository": "org/repo1",
+                "event_type": "pull_request",
+                "action": "opened",
+                "pr_number": 42,
+                "sender": "user1",
+                "status": "success",
+                "created_at": now,
+                "processed_at": now,
+                "duration_ms": 1000,
+                "api_calls_count": 5,
+                "token_spend": 10,
+                "token_remaining": 4990,
+                "error_message": None,
+            }
+        ]
+
+        start_time = quote((now - timedelta(hours=1)).isoformat())
+        end_time = quote((now + timedelta(hours=1)).isoformat())
+
+        response = client.get(f"/api/metrics/webhooks?start_time={start_time}&end_time={end_time}")
+
+        assert response.status_code == 200
+
+    def test_get_webhook_events_pagination(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test webhook events pagination."""
+        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
+        mock_conn.fetchval.return_value = 150  # Total count
+        now = datetime.now(UTC)
+
+        # Generate 50 mock events
+        mock_events = [
+            {
+                "delivery_id": f"test-delivery-{i}",
+                "repository": "org/repo1",
+                "event_type": "pull_request",
+                "action": "opened",
+                "pr_number": i,
+                "sender": "user1",
+                "status": "success",
+                "created_at": now,
+                "processed_at": now,
+                "duration_ms": 1000,
+                "api_calls_count": 5,
+                "token_spend": 10,
+                "token_remaining": 4990,
+                "error_message": None,
+            }
+            for i in range(50)
+        ]
+        mock_conn.fetch.return_value = mock_events
+
+        response = client.get("/api/metrics/webhooks?limit=50&offset=0")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["events"]) == 50
+        assert data["total_count"] == 150
+        assert data["has_more"] is True
+        assert data["next_offset"] == 50
+
+    def test_get_webhook_events_db_manager_none(self, client: TestClient) -> None:
+        """Test endpoint returns 500 when db_manager is None."""
+        with patch("webhook_server.app.db_manager", None):
+            response = client.get("/api/metrics/webhooks")
+
+            assert response.status_code == 500
+            assert "Metrics database not available" in response.json()["detail"]
+
+    def test_get_webhook_events_pool_none(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test endpoint returns 500 when database pool is not initialized."""
+        setup_db_manager.pool = None
+
+        response = client.get("/api/metrics/webhooks")
+
+        assert response.status_code == 500
+        assert "Database pool not initialized" in response.json()["detail"]
+
+    def test_get_webhook_events_database_error(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test endpoint handles database errors gracefully."""
+        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
+        mock_conn.fetchval.side_effect = Exception("Database connection lost")
+
+        response = client.get("/api/metrics/webhooks")
+
+        assert response.status_code == 500
+        assert "Failed to fetch webhook events" in response.json()["detail"]
+
+
+class TestGetWebhookEventByIdEndpoint(TestMetricsAPIEndpoints):
+    """Test GET /api/metrics/webhooks/{delivery_id} endpoint."""
+
+    def test_get_webhook_event_by_id_success(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test getting specific webhook event by delivery ID."""
+        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
+        now = datetime.now(UTC)
+
+        mock_conn.fetchrow.return_value = {
+            "delivery_id": "test-delivery-123",
+            "repository": "org/repo",
+            "event_type": "pull_request",
+            "action": "opened",
+            "pr_number": 42,
+            "sender": "user1",
+            "status": "success",
+            "created_at": now,
+            "processed_at": now + timedelta(seconds=1),
+            "duration_ms": 1000,
+            "api_calls_count": 5,
+            "token_spend": 10,
+            "token_remaining": 4990,
+            "error_message": None,
+            "payload": {"key": "value", "nested": {"data": "test"}},
+        }
+
+        response = client.get("/api/metrics/webhooks/test-delivery-123")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["delivery_id"] == "test-delivery-123"
+        assert data["repository"] == "org/repo"
+        assert data["status"] == "success"
+        assert data["payload"] == {"key": "value", "nested": {"data": "test"}}
+
+    def test_get_webhook_event_by_id_not_found(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test getting non-existent webhook event returns 404."""
+        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
+        mock_conn.fetchrow.return_value = None
+
+        response = client.get("/api/metrics/webhooks/nonexistent-delivery-id")
+
+        assert response.status_code == 404
+        assert "Webhook event not found" in response.json()["detail"]
+
+    def test_get_webhook_event_by_id_db_manager_none(self, client: TestClient) -> None:
+        """Test endpoint returns 500 when db_manager is None."""
+        with patch("webhook_server.app.db_manager", None):
+            response = client.get("/api/metrics/webhooks/test-delivery-123")
+
+            assert response.status_code == 500
+            assert "Metrics database not available" in response.json()["detail"]
+
+    def test_get_webhook_event_by_id_pool_none(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test endpoint returns 500 when database pool is not initialized."""
+        setup_db_manager.pool = None
+
+        response = client.get("/api/metrics/webhooks/test-delivery-123")
+
+        assert response.status_code == 500
+        assert "Database pool not initialized" in response.json()["detail"]
+
+    def test_get_webhook_event_by_id_database_error(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test endpoint handles database errors gracefully."""
+        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
+        mock_conn.fetchrow.side_effect = Exception("Database connection lost")
+
+        response = client.get("/api/metrics/webhooks/test-delivery-123")
+
+        assert response.status_code == 500
+        assert "Failed to fetch webhook event" in response.json()["detail"]
+
+
+class TestGetRepositoryStatisticsEndpoint(TestMetricsAPIEndpoints):
+    """Test GET /api/metrics/repositories endpoint."""
+
+    def test_get_repository_statistics_success(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test getting repository statistics."""
+        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
+
+        mock_conn.fetch.return_value = [
+            {
+                "repository": "org/repo1",
+                "total_events": 100,
+                "successful_events": 95,
+                "failed_events": 5,
+                "success_rate": 95.00,
+                "avg_processing_time_ms": 1500,
+                "median_processing_time_ms": 1200,
+                "p95_processing_time_ms": 3000,
+                "max_processing_time_ms": 5000,
+                "total_api_calls": 500,
+                "avg_api_calls_per_event": 5.00,
+                "total_token_spend": 1000,
+                "event_type_breakdown": {"pull_request": 80, "issue_comment": 20},
+            },
+            {
+                "repository": "org/repo2",
+                "total_events": 50,
+                "successful_events": 48,
+                "failed_events": 2,
+                "success_rate": 96.00,
+                "avg_processing_time_ms": 800,
+                "median_processing_time_ms": 750,
+                "p95_processing_time_ms": 1500,
+                "max_processing_time_ms": 2000,
+                "total_api_calls": 200,
+                "avg_api_calls_per_event": 4.00,
+                "total_token_spend": 400,
+                "event_type_breakdown": {"check_run": 30, "pull_request": 20},
+            },
+        ]
+
+        response = client.get("/api/metrics/repositories")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total_repositories"] == 2
+        assert len(data["repositories"]) == 2
+
+        # Verify first repository
+        repo1 = data["repositories"][0]
+        assert repo1["repository"] == "org/repo1"
+        assert repo1["total_events"] == 100
+        assert repo1["success_rate"] == 95.00
+        assert repo1["event_type_breakdown"] == {"pull_request": 80, "issue_comment": 20}
+
+        # Verify second repository
+        repo2 = data["repositories"][1]
+        assert repo2["repository"] == "org/repo2"
+        assert repo2["total_events"] == 50
+
+    def test_get_repository_statistics_with_time_range(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test getting repository statistics with time range filter."""
+        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
+        now = datetime.now(UTC)
+
+        mock_conn.fetch.return_value = []
+
+        start_time = quote((now - timedelta(days=7)).isoformat())
+        end_time = quote(now.isoformat())
+
+        response = client.get(f"/api/metrics/repositories?start_time={start_time}&end_time={end_time}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "time_range" in data
+        assert data["time_range"]["start_time"] is not None
+        assert data["time_range"]["end_time"] is not None
+
+    def test_get_repository_statistics_empty(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test getting repository statistics when no data exists."""
+        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
+        mock_conn.fetch.return_value = []
+
+        response = client.get("/api/metrics/repositories")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total_repositories"] == 0
+        assert data["repositories"] == []
+
+    def test_get_repository_statistics_db_manager_none(self, client: TestClient) -> None:
+        """Test endpoint returns 500 when db_manager is None."""
+        with patch("webhook_server.app.db_manager", None):
+            response = client.get("/api/metrics/repositories")
+
+            assert response.status_code == 500
+            assert "Metrics database not available" in response.json()["detail"]
+
+    def test_get_repository_statistics_pool_none(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test endpoint returns 500 when database pool is not initialized."""
+        setup_db_manager.pool = None
+
+        response = client.get("/api/metrics/repositories")
+
+        assert response.status_code == 500
+        assert "Database pool not initialized" in response.json()["detail"]
+
+    def test_get_repository_statistics_database_error(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test endpoint handles database errors gracefully."""
+        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
+        mock_conn.fetch.side_effect = Exception("Database connection lost")
+
+        response = client.get("/api/metrics/repositories")
+
+        assert response.status_code == 500
+        assert "Failed to fetch repository statistics" in response.json()["detail"]
+
+
+class TestGetMetricsSummaryEndpoint(TestMetricsAPIEndpoints):
+    """Test GET /api/metrics/summary endpoint."""
+
+    def test_get_metrics_summary_success(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test getting overall metrics summary."""
+        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
+        now = datetime.now(UTC)
+
+        # Mock summary query
+        mock_conn.fetchrow.side_effect = [
+            # Summary row
+            {
+                "total_events": 1000,
+                "successful_events": 950,
+                "failed_events": 50,
+                "success_rate": 95.00,
+                "avg_processing_time_ms": 1500,
+                "median_processing_time_ms": 1200,
+                "p95_processing_time_ms": 3000,
+                "max_processing_time_ms": 8000,
+                "total_api_calls": 5000,
+                "avg_api_calls_per_event": 5.00,
+                "total_token_spend": 10000,
+            },
+            # Time range row
+            {
+                "first_event_time": now - timedelta(days=7),
+                "last_event_time": now,
+            },
+        ]
+
+        # Mock top repositories query
+        mock_conn.fetch.side_effect = [
+            # Top repos
+            [
+                {"repository": "org/repo1", "total_events": 600, "success_rate": 96.00},
+                {"repository": "org/repo2", "total_events": 400, "success_rate": 94.00},
+            ],
+            # Event type distribution
+            [
+                {"event_type": "pull_request", "event_count": 700},
+                {"event_type": "issue_comment", "event_count": 200},
+                {"event_type": "check_run", "event_count": 100},
+            ],
+        ]
+
+        response = client.get("/api/metrics/summary")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify summary
+        assert data["summary"]["total_events"] == 1000
+        assert data["summary"]["successful_events"] == 950
+        assert data["summary"]["success_rate"] == 95.00
+
+        # Verify top repositories
+        assert len(data["top_repositories"]) == 2
+        assert data["top_repositories"][0]["repository"] == "org/repo1"
+
+        # Verify event type distribution
+        assert data["event_type_distribution"]["pull_request"] == 700
+        assert data["event_type_distribution"]["issue_comment"] == 200
+
+        # Verify event rates
+        assert "hourly_event_rate" in data
+        assert "daily_event_rate" in data
+
+    def test_get_metrics_summary_with_time_range(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test getting metrics summary with time range filter."""
+        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
+        now = datetime.now(UTC)
+
+        mock_conn.fetchrow.side_effect = [
+            {
+                "total_events": 100,
+                "successful_events": 95,
+                "failed_events": 5,
+                "success_rate": 95.00,
+                "avg_processing_time_ms": 1500,
+                "median_processing_time_ms": 1200,
+                "p95_processing_time_ms": 3000,
+                "max_processing_time_ms": 5000,
+                "total_api_calls": 500,
+                "avg_api_calls_per_event": 5.00,
+                "total_token_spend": 1000,
+            },
+            {
+                "first_event_time": now - timedelta(hours=24),
+                "last_event_time": now,
+            },
+        ]
+
+        mock_conn.fetch.side_effect = [[], []]
+
+        start_time = quote((now - timedelta(days=1)).isoformat())
+        end_time = quote(now.isoformat())
+
+        response = client.get(f"/api/metrics/summary?start_time={start_time}&end_time={end_time}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "time_range" in data
+        assert data["time_range"]["start_time"] is not None
+
+    def test_get_metrics_summary_empty(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test getting metrics summary when no data exists."""
+        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
+
+        mock_conn.fetchrow.side_effect = [
+            {
+                "total_events": 0,
+                "successful_events": 0,
+                "failed_events": 0,
+                "success_rate": None,
+                "avg_processing_time_ms": None,
+                "median_processing_time_ms": None,
+                "p95_processing_time_ms": None,
+                "max_processing_time_ms": None,
+                "total_api_calls": None,
+                "avg_api_calls_per_event": None,
+                "total_token_spend": None,
+            },
+            None,
+        ]
+
+        mock_conn.fetch.side_effect = [[], []]
+
+        response = client.get("/api/metrics/summary")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["summary"]["total_events"] == 0
+        assert data["top_repositories"] == []
+        assert data["event_type_distribution"] == {}
+
+    def test_get_metrics_summary_db_manager_none(self, client: TestClient) -> None:
+        """Test endpoint returns 500 when db_manager is None."""
+        with patch("webhook_server.app.db_manager", None):
+            response = client.get("/api/metrics/summary")
+
+            assert response.status_code == 500
+            assert "Metrics database not available" in response.json()["detail"]
+
+    def test_get_metrics_summary_pool_none(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test endpoint returns 500 when database pool is not initialized."""
+        setup_db_manager.pool = None
+
+        response = client.get("/api/metrics/summary")
+
+        assert response.status_code == 500
+        assert "Database pool not initialized" in response.json()["detail"]
+
+    def test_get_metrics_summary_database_error(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test endpoint handles database errors gracefully."""
+        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
+        mock_conn.fetchrow.side_effect = Exception("Database connection lost")
+
+        response = client.get("/api/metrics/summary")
+
+        assert response.status_code == 500
+        assert "Failed to fetch metrics summary" in response.json()["detail"]
