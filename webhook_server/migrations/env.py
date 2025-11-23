@@ -90,17 +90,24 @@ except Exception:
     raise
 
 # Import all SQLAlchemy models here for autogenerate support
-# Models will be created in task #5
-# Example:
-# from webhook_server.libs.models import WebhookEvent, PullRequestMetric, RepositoryMetric
-# Add all models to target_metadata for autogenerate
+# This ensures Alembic can detect model changes for autogenerate
 try:
-    # TODO: Import models when they are created (task #5)
-    # from webhook_server.libs.models import Base
-    # target_metadata = Base.metadata
-    target_metadata = None  # Placeholder until models are created
+    from webhook_server.libs.models import (  # noqa: E402, F401
+        APIUsage,
+        Base,
+        CheckRun,
+        PREvent,
+        PRLabel,
+        PRReview,
+        PullRequest,
+        Webhook,
+    )
+
+    # Set target metadata for autogenerate - enables schema comparison
+    target_metadata = Base.metadata
+    logger.info("Successfully loaded SQLAlchemy models for autogenerate")
 except ImportError:
-    logger.warning("SQLAlchemy models not yet created - autogenerate will be disabled")
+    logger.exception("Failed to import SQLAlchemy models - autogenerate will be disabled")
     target_metadata = None
 
 
