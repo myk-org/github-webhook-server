@@ -54,28 +54,6 @@ properties:
       - database
       - username
       - password
-  metrics-redis:
-    type: object
-    description: Redis configuration for metrics caching
-    properties:
-      host:
-        type: string
-        description: Redis server hostname or IP address
-        default: localhost
-      port:
-        type: integer
-        description: Redis server port
-        default: 6379
-      password:
-        type: string
-        format: password
-        description: Redis password (optional)
-      cache-ttl:
-        type: integer
-        description: Default cache TTL in seconds
-        default: 300
-        minimum: 60
-        maximum: 3600
   gemini-api-key:
     type: string
     format: password
