@@ -113,7 +113,7 @@ def run_database_migrations() -> None:
         )
         print(result.stdout)
         if result.stderr:
-            print(f"⚠️  Migration warnings: {result.stderr}", file=sys.stderr)
+            print(result.stderr, file=sys.stderr)
         print("✅ Database migrations completed successfully")
     except subprocess.CalledProcessError as e:
         print(f"⚠️  Database migration failed: {e}", file=sys.stderr)
