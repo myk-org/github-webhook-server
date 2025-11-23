@@ -105,10 +105,10 @@ class Webhook(Base):
         nullable=False,
         comment="GitHub event type: pull_request, issue_comment, check_run, etc.",
     )
-    action: Mapped[str] = mapped_column(
+    action: Mapped[str | None] = mapped_column(
         String(50),
-        nullable=False,
-        comment="Event action: opened, synchronize, closed, etc.",
+        nullable=True,
+        comment="Event action: opened, synchronize, closed, etc. (null for events without actions like push)",
     )
     pr_number: Mapped[int | None] = mapped_column(
         Integer,
