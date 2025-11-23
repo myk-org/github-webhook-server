@@ -1,4 +1,5 @@
 import asyncio
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -41,9 +42,56 @@ def run_podman_cleanup() -> None:
         print(f"ℹ️  Podman cleanup script not found at {cleanup_script}")
 
 
+def run_database_migrations() -> None:
+    """Run Alembic database migrations to create/update database tables.
+
+    Only runs if ENABLE_METRICS_SERVER environment variable is set to "true".
+    Uses subprocess to execute 'uv run alembic upgrade head' with proper error handling.
+
+    Raises:
+        Does not raise exceptions - prints warnings if migration fails
+    """
+    metrics_enabled = os.environ.get("ENABLE_METRICS_SERVER") == "true"
+
+    if not metrics_enabled:
+        print("ℹ️  Metrics server disabled - skipping database migrations")
+        return
+
+    try:
+        print("🗄️  Running database migrations...")
+        result = subprocess.run(
+            ["uv", "run", "alembic", "upgrade", "head"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            cwd=Path(__file__).parent,
+        )
+        print(result.stdout)
+        if result.stderr:
+            print(f"⚠️  Migration warnings: {result.stderr}", file=sys.stderr)
+        print("✅ Database migrations completed successfully")
+    except subprocess.CalledProcessError as e:
+        print(f"⚠️  Database migration failed: {e}", file=sys.stderr)
+        if e.stdout:
+            print(f"stdout: {e.stdout}", file=sys.stderr)
+        if e.stderr:
+            print(f"stderr: {e.stderr}", file=sys.stderr)
+        print("⚠️  Server will start but metrics features may not work correctly", file=sys.stderr)
+    except subprocess.TimeoutExpired:
+        print("⚠️  Database migration timed out after 60 seconds", file=sys.stderr)
+        print("⚠️  Server will start but metrics features may not work correctly", file=sys.stderr)
+    except Exception as e:
+        print(f"⚠️  Unexpected error during database migration: {e}", file=sys.stderr)
+        print("⚠️  Server will start but metrics features may not work correctly", file=sys.stderr)
+
+
 if __name__ == "__main__":
     # Run Podman cleanup before starting the application
     run_podman_cleanup()
+
+    # Run database migrations if metrics server is enabled
+    run_database_migrations()
 
     result = asyncio.run(repository_and_webhook_settings(webhook_secret=_webhook_secret))
 
