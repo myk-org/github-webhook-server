@@ -45,20 +45,18 @@ class TestMetricsAPIEndpoints:
 
     @pytest.fixture
     def mock_db_manager(self) -> Mock:
-        """Mock database manager with connection pool."""
+        """Mock database manager with helper methods."""
         db_manager = Mock()
-        mock_pool = Mock()
-        mock_conn = AsyncMock()
 
-        # Setup pool.acquire() async context manager
-        mock_acquire_cm = AsyncMock()
-        mock_acquire_cm.__aenter__.return_value = mock_conn
-        mock_acquire_cm.__aexit__.return_value = None
+        # Mock the helper methods that DatabaseManager provides
+        db_manager.fetch = AsyncMock(return_value=[])
+        db_manager.fetchrow = AsyncMock(return_value=None)
+        db_manager.fetchval = AsyncMock(return_value=0)
+        db_manager.execute = AsyncMock(return_value="INSERT 0 1")
 
-        # pool.acquire() returns the async context manager
-        mock_pool.acquire.return_value = mock_acquire_cm
+        # Mock pool for tests that check pool existence
+        db_manager.pool = Mock()
 
-        db_manager.pool = mock_pool
         return db_manager
 
 
@@ -98,15 +96,13 @@ class TestGetWebhookEventsEndpoint(TestMetricsAPIEndpoints):
     ) -> None:
         """Test getting webhook events without filters."""
         # Mock database query results
-        mock_acquire_cm = setup_db_manager.pool.acquire.return_value
-        mock_conn = mock_acquire_cm.__aenter__.return_value
         now = datetime.now(UTC)
 
         # Mock fetchval (count query)
-        mock_conn.fetchval.return_value = 2
+        setup_db_manager.fetchval.return_value = 2
 
         # Mock fetch (main query)
-        mock_conn.fetch.return_value = [
+        setup_db_manager.fetch.return_value = [
             {
                 "delivery_id": "test-delivery-1",
                 "repository": "org/repo1",
@@ -173,11 +169,10 @@ class TestGetWebhookEventsEndpoint(TestMetricsAPIEndpoints):
         setup_db_manager: Mock,
     ) -> None:
         """Test filtering webhook events by repository."""
-        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
-        mock_conn.fetchval.return_value = 1
+        setup_db_manager.fetchval.return_value = 1
         now = datetime.now(UTC)
 
-        mock_conn.fetch.return_value = [
+        setup_db_manager.fetch.return_value = [
             {
                 "delivery_id": "test-delivery-1",
                 "repository": "org/repo1",
@@ -209,11 +204,10 @@ class TestGetWebhookEventsEndpoint(TestMetricsAPIEndpoints):
         setup_db_manager: Mock,
     ) -> None:
         """Test filtering webhook events by event type."""
-        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
-        mock_conn.fetchval.return_value = 1
+        setup_db_manager.fetchval.return_value = 1
         now = datetime.now(UTC)
 
-        mock_conn.fetch.return_value = [
+        setup_db_manager.fetch.return_value = [
             {
                 "delivery_id": "test-delivery-1",
                 "repository": "org/repo1",
@@ -244,11 +238,10 @@ class TestGetWebhookEventsEndpoint(TestMetricsAPIEndpoints):
         setup_db_manager: Mock,
     ) -> None:
         """Test filtering webhook events by status."""
-        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
-        mock_conn.fetchval.return_value = 1
+        setup_db_manager.fetchval.return_value = 1
         now = datetime.now(UTC)
 
-        mock_conn.fetch.return_value = [
+        setup_db_manager.fetch.return_value = [
             {
                 "delivery_id": "test-delivery-error",
                 "repository": "org/repo1",
@@ -280,11 +273,10 @@ class TestGetWebhookEventsEndpoint(TestMetricsAPIEndpoints):
         setup_db_manager: Mock,
     ) -> None:
         """Test filtering webhook events by time range."""
-        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
-        mock_conn.fetchval.return_value = 1
+        setup_db_manager.fetchval.return_value = 1
         now = datetime.now(UTC)
 
-        mock_conn.fetch.return_value = [
+        setup_db_manager.fetch.return_value = [
             {
                 "delivery_id": "test-delivery-1",
                 "repository": "org/repo1",
@@ -316,8 +308,7 @@ class TestGetWebhookEventsEndpoint(TestMetricsAPIEndpoints):
         setup_db_manager: Mock,
     ) -> None:
         """Test webhook events pagination."""
-        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
-        mock_conn.fetchval.return_value = 150  # Total count
+        setup_db_manager.fetchval.return_value = 150  # Total count
         now = datetime.now(UTC)
 
         # Generate 50 mock events
@@ -340,7 +331,7 @@ class TestGetWebhookEventsEndpoint(TestMetricsAPIEndpoints):
             }
             for i in range(50)
         ]
-        mock_conn.fetch.return_value = mock_events
+        setup_db_manager.fetch.return_value = mock_events
 
         response = client.get("/api/metrics/webhooks?limit=50&offset=0")
 
@@ -365,12 +356,14 @@ class TestGetWebhookEventsEndpoint(TestMetricsAPIEndpoints):
         setup_db_manager: Mock,
     ) -> None:
         """Test endpoint returns 500 when database pool is not initialized."""
+        # Simulate pool not initialized - helper methods raise ValueError
         setup_db_manager.pool = None
+        setup_db_manager.fetchval.side_effect = ValueError("Database pool not initialized. Call connect() first.")
 
         response = client.get("/api/metrics/webhooks")
 
         assert response.status_code == 500
-        assert "Database pool not initialized" in response.json()["detail"]
+        assert "Failed to fetch webhook events" in response.json()["detail"]
 
     def test_get_webhook_events_database_error(
         self,
@@ -378,8 +371,7 @@ class TestGetWebhookEventsEndpoint(TestMetricsAPIEndpoints):
         setup_db_manager: Mock,
     ) -> None:
         """Test endpoint handles database errors gracefully."""
-        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
-        mock_conn.fetchval.side_effect = Exception("Database connection lost")
+        setup_db_manager.fetchval.side_effect = Exception("Database connection lost")
 
         response = client.get("/api/metrics/webhooks")
 
@@ -396,10 +388,9 @@ class TestGetWebhookEventByIdEndpoint(TestMetricsAPIEndpoints):
         setup_db_manager: Mock,
     ) -> None:
         """Test getting specific webhook event by delivery ID."""
-        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
         now = datetime.now(UTC)
 
-        mock_conn.fetchrow.return_value = {
+        setup_db_manager.fetchrow.return_value = {
             "delivery_id": "test-delivery-123",
             "repository": "org/repo",
             "event_type": "pull_request",
@@ -432,8 +423,7 @@ class TestGetWebhookEventByIdEndpoint(TestMetricsAPIEndpoints):
         setup_db_manager: Mock,
     ) -> None:
         """Test getting non-existent webhook event returns 404."""
-        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
-        mock_conn.fetchrow.return_value = None
+        setup_db_manager.fetchrow.return_value = None
 
         response = client.get("/api/metrics/webhooks/nonexistent-delivery-id")
 
@@ -454,12 +444,14 @@ class TestGetWebhookEventByIdEndpoint(TestMetricsAPIEndpoints):
         setup_db_manager: Mock,
     ) -> None:
         """Test endpoint returns 500 when database pool is not initialized."""
+        # Simulate pool not initialized - helper methods raise ValueError
         setup_db_manager.pool = None
+        setup_db_manager.fetchrow.side_effect = ValueError("Database pool not initialized. Call connect() first.")
 
         response = client.get("/api/metrics/webhooks/test-delivery-123")
 
         assert response.status_code == 500
-        assert "Database pool not initialized" in response.json()["detail"]
+        assert "Failed to fetch webhook event" in response.json()["detail"]
 
     def test_get_webhook_event_by_id_database_error(
         self,
@@ -467,8 +459,7 @@ class TestGetWebhookEventByIdEndpoint(TestMetricsAPIEndpoints):
         setup_db_manager: Mock,
     ) -> None:
         """Test endpoint handles database errors gracefully."""
-        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
-        mock_conn.fetchrow.side_effect = Exception("Database connection lost")
+        setup_db_manager.fetchrow.side_effect = Exception("Database connection lost")
 
         response = client.get("/api/metrics/webhooks/test-delivery-123")
 
@@ -485,9 +476,7 @@ class TestGetRepositoryStatisticsEndpoint(TestMetricsAPIEndpoints):
         setup_db_manager: Mock,
     ) -> None:
         """Test getting repository statistics."""
-        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
-
-        mock_conn.fetch.return_value = [
+        setup_db_manager.fetch.return_value = [
             {
                 "repository": "org/repo1",
                 "total_events": 100,
@@ -545,10 +534,9 @@ class TestGetRepositoryStatisticsEndpoint(TestMetricsAPIEndpoints):
         setup_db_manager: Mock,
     ) -> None:
         """Test getting repository statistics with time range filter."""
-        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
         now = datetime.now(UTC)
 
-        mock_conn.fetch.return_value = []
+        setup_db_manager.fetch.return_value = []
 
         start_time = quote((now - timedelta(days=7)).isoformat())
         end_time = quote(now.isoformat())
@@ -567,8 +555,7 @@ class TestGetRepositoryStatisticsEndpoint(TestMetricsAPIEndpoints):
         setup_db_manager: Mock,
     ) -> None:
         """Test getting repository statistics when no data exists."""
-        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
-        mock_conn.fetch.return_value = []
+        setup_db_manager.fetch.return_value = []
 
         response = client.get("/api/metrics/repositories")
 
@@ -591,12 +578,14 @@ class TestGetRepositoryStatisticsEndpoint(TestMetricsAPIEndpoints):
         setup_db_manager: Mock,
     ) -> None:
         """Test endpoint returns 500 when database pool is not initialized."""
+        # Simulate pool not initialized - helper methods raise ValueError
         setup_db_manager.pool = None
+        setup_db_manager.fetch.side_effect = ValueError("Database pool not initialized. Call connect() first.")
 
         response = client.get("/api/metrics/repositories")
 
         assert response.status_code == 500
-        assert "Database pool not initialized" in response.json()["detail"]
+        assert "Failed to fetch repository statistics" in response.json()["detail"]
 
     def test_get_repository_statistics_database_error(
         self,
@@ -604,8 +593,7 @@ class TestGetRepositoryStatisticsEndpoint(TestMetricsAPIEndpoints):
         setup_db_manager: Mock,
     ) -> None:
         """Test endpoint handles database errors gracefully."""
-        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
-        mock_conn.fetch.side_effect = Exception("Database connection lost")
+        setup_db_manager.fetch.side_effect = Exception("Database connection lost")
 
         response = client.get("/api/metrics/repositories")
 
@@ -622,11 +610,10 @@ class TestGetMetricsSummaryEndpoint(TestMetricsAPIEndpoints):
         setup_db_manager: Mock,
     ) -> None:
         """Test getting overall metrics summary."""
-        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
         now = datetime.now(UTC)
 
         # Mock summary query
-        mock_conn.fetchrow.side_effect = [
+        setup_db_manager.fetchrow.side_effect = [
             # Summary row
             {
                 "total_events": 1000,
@@ -649,7 +636,7 @@ class TestGetMetricsSummaryEndpoint(TestMetricsAPIEndpoints):
         ]
 
         # Mock top repositories query
-        mock_conn.fetch.side_effect = [
+        setup_db_manager.fetch.side_effect = [
             # Top repos
             [
                 {"repository": "org/repo1", "total_events": 600, "success_rate": 96.00},
@@ -691,10 +678,9 @@ class TestGetMetricsSummaryEndpoint(TestMetricsAPIEndpoints):
         setup_db_manager: Mock,
     ) -> None:
         """Test getting metrics summary with time range filter."""
-        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
         now = datetime.now(UTC)
 
-        mock_conn.fetchrow.side_effect = [
+        setup_db_manager.fetchrow.side_effect = [
             {
                 "total_events": 100,
                 "successful_events": 95,
@@ -714,7 +700,7 @@ class TestGetMetricsSummaryEndpoint(TestMetricsAPIEndpoints):
             },
         ]
 
-        mock_conn.fetch.side_effect = [[], []]
+        setup_db_manager.fetch.side_effect = [[], []]
 
         start_time = quote((now - timedelta(days=1)).isoformat())
         end_time = quote(now.isoformat())
@@ -732,9 +718,7 @@ class TestGetMetricsSummaryEndpoint(TestMetricsAPIEndpoints):
         setup_db_manager: Mock,
     ) -> None:
         """Test getting metrics summary when no data exists."""
-        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
-
-        mock_conn.fetchrow.side_effect = [
+        setup_db_manager.fetchrow.side_effect = [
             {
                 "total_events": 0,
                 "successful_events": 0,
@@ -751,7 +735,7 @@ class TestGetMetricsSummaryEndpoint(TestMetricsAPIEndpoints):
             None,
         ]
 
-        mock_conn.fetch.side_effect = [[], []]
+        setup_db_manager.fetch.side_effect = [[], []]
 
         response = client.get("/api/metrics/summary")
 
@@ -775,12 +759,14 @@ class TestGetMetricsSummaryEndpoint(TestMetricsAPIEndpoints):
         setup_db_manager: Mock,
     ) -> None:
         """Test endpoint returns 500 when database pool is not initialized."""
+        # Simulate pool not initialized - helper methods raise ValueError
         setup_db_manager.pool = None
+        setup_db_manager.fetchrow.side_effect = ValueError("Database pool not initialized. Call connect() first.")
 
         response = client.get("/api/metrics/summary")
 
         assert response.status_code == 500
-        assert "Database pool not initialized" in response.json()["detail"]
+        assert "Failed to fetch metrics summary" in response.json()["detail"]
 
     def test_get_metrics_summary_database_error(
         self,
@@ -788,8 +774,7 @@ class TestGetMetricsSummaryEndpoint(TestMetricsAPIEndpoints):
         setup_db_manager: Mock,
     ) -> None:
         """Test endpoint handles database errors gracefully."""
-        mock_conn = setup_db_manager.pool.acquire.return_value.__aenter__.return_value
-        mock_conn.fetchrow.side_effect = Exception("Database connection lost")
+        setup_db_manager.fetchrow.side_effect = Exception("Database connection lost")
 
         response = client.get("/api/metrics/summary")
 

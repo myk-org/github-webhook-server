@@ -216,6 +216,37 @@ class DatabaseManager:
             self.logger.exception(f"Failed to fetch single row: {query}")
             raise
 
+    async def fetchval(self, query: str, *args: Any) -> Any:
+        """
+        Execute a SQL query and fetch single scalar value (SELECT).
+
+        Args:
+            query: SQL query with $1, $2, ... placeholders
+            *args: Query parameters
+
+        Returns:
+            Single scalar value (e.g., int, str, bool) or None if no results
+
+        Raises:
+            ValueError: If connection pool not initialized
+            asyncpg.PostgresError: If query execution fails
+
+        Example:
+            count = await db.fetchval("SELECT COUNT(*) FROM metrics WHERE status = $1", "active")
+            print(f"Active metrics: {count}")
+        """
+        if self.pool is None:  # Legitimate check - lazy initialization
+            raise ValueError("Database pool not initialized. Call connect() first.")
+
+        try:
+            async with self.pool.acquire() as connection:
+                result = await connection.fetchval(query, *args)
+                self.logger.debug(f"Query returned value: {result}")
+                return result
+        except Exception:
+            self.logger.exception(f"Failed to fetch scalar value: {query}")
+            raise
+
     async def health_check(self) -> bool:
         """
         Check database connectivity and responsiveness.

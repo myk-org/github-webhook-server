@@ -479,6 +479,7 @@ async def process_webhook(request: Request) -> JSONResponse:
             api_calls_count: int = 0,
             token_spend: int = 0,
             token_remaining: int = 0,
+            metrics_available: bool = True,
         ) -> None:
             """Track webhook metrics in best-effort manner - never fail webhook processing.
 
@@ -488,6 +489,7 @@ async def process_webhook(request: Request) -> JSONResponse:
                 api_calls_count: Number of GitHub API calls made
                 token_spend: Rate limit tokens consumed
                 token_remaining: Remaining rate limit tokens
+                metrics_available: Whether API metrics are available (False = no tracking)
             """
             if not (METRICS_SERVER_ENABLED and metrics_tracker):
                 return
@@ -508,6 +510,7 @@ async def process_webhook(request: Request) -> JSONResponse:
                     api_calls_count=api_calls_count,
                     token_spend=token_spend,
                     token_remaining=token_remaining,
+                    metrics_available=metrics_available,
                 )
             except Exception:
                 # Metrics tracking failures should never affect webhook processing
@@ -526,9 +529,10 @@ async def process_webhook(request: Request) -> JSONResponse:
                 # Track successful webhook event with API metrics (best-effort)
                 await track_metrics_safe(
                     status="success",
-                    api_calls_count=api_metrics["api_calls_count"],
-                    token_spend=api_metrics["token_spend"],
-                    token_remaining=api_metrics["token_remaining"],
+                    api_calls_count=int(api_metrics["api_calls_count"]),
+                    token_spend=int(api_metrics["token_spend"]),
+                    token_remaining=int(api_metrics["token_remaining"]),
+                    metrics_available=bool(api_metrics["metrics_available"]),
                 )
             finally:
                 await _api.cleanup()
@@ -1428,49 +1432,41 @@ async def get_webhook_events(
     params.extend([limit, offset])
 
     try:
-        # Validate pool is initialized
-        if db_manager.pool is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Database pool not initialized",
-            )
+        # Get total count using DatabaseManager helper
+        total_count = await db_manager.fetchval(count_query, *params[:-2])
 
-        async with db_manager.pool.acquire() as conn:
-            # Get total count
-            total_count = await conn.fetchval(count_query, *params[:-2])
+        # Get paginated results using DatabaseManager helper
+        rows = await db_manager.fetch(query, *params)
 
-            # Get paginated results
-            rows = await conn.fetch(query, *params)
-
-            events = [
-                {
-                    "delivery_id": row["delivery_id"],
-                    "repository": row["repository"],
-                    "event_type": row["event_type"],
-                    "action": row["action"],
-                    "pr_number": row["pr_number"],
-                    "sender": row["sender"],
-                    "status": row["status"],
-                    "created_at": row["created_at"].isoformat() if row["created_at"] else None,
-                    "processed_at": row["processed_at"].isoformat() if row["processed_at"] else None,
-                    "duration_ms": row["duration_ms"],
-                    "api_calls_count": row["api_calls_count"],
-                    "token_spend": row["token_spend"],
-                    "token_remaining": row["token_remaining"],
-                    "error_message": row["error_message"],
-                }
-                for row in rows
-            ]
-
-            has_more = (offset + limit) < total_count
-            next_offset = offset + limit if has_more else None
-
-            return {
-                "events": events,
-                "total_count": total_count,
-                "has_more": has_more,
-                "next_offset": next_offset,
+        events = [
+            {
+                "delivery_id": row["delivery_id"],
+                "repository": row["repository"],
+                "event_type": row["event_type"],
+                "action": row["action"],
+                "pr_number": row["pr_number"],
+                "sender": row["sender"],
+                "status": row["status"],
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                "processed_at": row["processed_at"].isoformat() if row["processed_at"] else None,
+                "duration_ms": row["duration_ms"],
+                "api_calls_count": row["api_calls_count"],
+                "token_spend": row["token_spend"],
+                "token_remaining": row["token_remaining"],
+                "error_message": row["error_message"],
             }
+            for row in rows
+        ]
+
+        has_more = (offset + limit) < total_count
+        next_offset = offset + limit if has_more else None
+
+        return {
+            "events": events,
+            "total_count": total_count,
+            "has_more": has_more,
+            "next_offset": next_offset,
+        }
     except HTTPException:
         raise
     except Exception as ex:
@@ -1571,39 +1567,32 @@ async def get_webhook_event_by_id(delivery_id: str) -> dict[str, Any]:
     """
 
     try:
-        # Validate pool is initialized
-        if db_manager.pool is None:
+        # Fetch single row using DatabaseManager helper
+        row = await db_manager.fetchrow(query, delivery_id)
+
+        if not row:
             raise HTTPException(
-                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Database pool not initialized",
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"Webhook event not found: {delivery_id}",
             )
 
-        async with db_manager.pool.acquire() as conn:
-            row = await conn.fetchrow(query, delivery_id)
-
-            if not row:
-                raise HTTPException(
-                    status_code=http_status.HTTP_404_NOT_FOUND,
-                    detail=f"Webhook event not found: {delivery_id}",
-                )
-
-            return {
-                "delivery_id": row["delivery_id"],
-                "repository": row["repository"],
-                "event_type": row["event_type"],
-                "action": row["action"],
-                "pr_number": row["pr_number"],
-                "sender": row["sender"],
-                "status": row["status"],
-                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
-                "processed_at": row["processed_at"].isoformat() if row["processed_at"] else None,
-                "duration_ms": row["duration_ms"],
-                "api_calls_count": row["api_calls_count"],
-                "token_spend": row["token_spend"],
-                "token_remaining": row["token_remaining"],
-                "error_message": row["error_message"],
-                "payload": row["payload"],
-            }
+        return {
+            "delivery_id": row["delivery_id"],
+            "repository": row["repository"],
+            "event_type": row["event_type"],
+            "action": row["action"],
+            "pr_number": row["pr_number"],
+            "sender": row["sender"],
+            "status": row["status"],
+            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+            "processed_at": row["processed_at"].isoformat() if row["processed_at"] else None,
+            "duration_ms": row["duration_ms"],
+            "api_calls_count": row["api_calls_count"],
+            "token_spend": row["token_spend"],
+            "token_remaining": row["token_remaining"],
+            "error_message": row["error_message"],
+            "payload": row["payload"],
+        }
     except HTTPException:
         raise
     except Exception as ex:
@@ -1779,51 +1768,44 @@ async def get_repository_statistics(
     """
 
     try:
-        # Validate pool is initialized
-        if db_manager.pool is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Database pool not initialized",
-            )
+        # Fetch repository statistics using DatabaseManager helper
+        rows = await db_manager.fetch(query, *params)
 
-        async with db_manager.pool.acquire() as conn:
-            rows = await conn.fetch(query, *params)
-
-            repositories = [
-                {
-                    "repository": row["repository"],
-                    "total_events": row["total_events"],
-                    "successful_events": row["successful_events"],
-                    "failed_events": row["failed_events"],
-                    "success_rate": float(row["success_rate"]) if row["success_rate"] is not None else 0.0,
-                    "avg_processing_time_ms": int(row["avg_processing_time_ms"])
-                    if row["avg_processing_time_ms"] is not None
-                    else 0,
-                    "median_processing_time_ms": int(row["median_processing_time_ms"])
-                    if row["median_processing_time_ms"] is not None
-                    else 0,
-                    "p95_processing_time_ms": int(row["p95_processing_time_ms"])
-                    if row["p95_processing_time_ms"] is not None
-                    else 0,
-                    "max_processing_time_ms": row["max_processing_time_ms"] or 0,
-                    "total_api_calls": row["total_api_calls"] or 0,
-                    "avg_api_calls_per_event": float(row["avg_api_calls_per_event"])
-                    if row["avg_api_calls_per_event"] is not None
-                    else 0.0,
-                    "total_token_spend": row["total_token_spend"] or 0,
-                    "event_type_breakdown": row["event_type_breakdown"] or {},
-                }
-                for row in rows
-            ]
-
-            return {
-                "time_range": {
-                    "start_time": start_datetime.isoformat() if start_datetime else None,
-                    "end_time": end_datetime.isoformat() if end_datetime else None,
-                },
-                "repositories": repositories,
-                "total_repositories": len(repositories),
+        repositories = [
+            {
+                "repository": row["repository"],
+                "total_events": row["total_events"],
+                "successful_events": row["successful_events"],
+                "failed_events": row["failed_events"],
+                "success_rate": float(row["success_rate"]) if row["success_rate"] is not None else 0.0,
+                "avg_processing_time_ms": int(row["avg_processing_time_ms"])
+                if row["avg_processing_time_ms"] is not None
+                else 0,
+                "median_processing_time_ms": int(row["median_processing_time_ms"])
+                if row["median_processing_time_ms"] is not None
+                else 0,
+                "p95_processing_time_ms": int(row["p95_processing_time_ms"])
+                if row["p95_processing_time_ms"] is not None
+                else 0,
+                "max_processing_time_ms": row["max_processing_time_ms"] or 0,
+                "total_api_calls": row["total_api_calls"] or 0,
+                "avg_api_calls_per_event": float(row["avg_api_calls_per_event"])
+                if row["avg_api_calls_per_event"] is not None
+                else 0.0,
+                "total_token_spend": row["total_token_spend"] or 0,
+                "event_type_breakdown": row["event_type_breakdown"] or {},
             }
+            for row in rows
+        ]
+
+        return {
+            "time_range": {
+                "start_time": start_datetime.isoformat() if start_datetime else None,
+                "end_time": end_datetime.isoformat() if end_datetime else None,
+            },
+            "repositories": repositories,
+            "total_repositories": len(repositories),
+        }
     except HTTPException:
         raise
     except Exception as ex:
@@ -2040,78 +2022,70 @@ async def get_metrics_summary(
     """
 
     try:
-        # Validate pool is initialized
-        if db_manager.pool is None:
-            raise HTTPException(
-                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Database pool not initialized",
-            )
+        # Execute queries using DatabaseManager helpers
+        summary_row = await db_manager.fetchrow(summary_query, *params)
+        top_repos_rows = await db_manager.fetch(top_repos_query, *params)
+        event_type_rows = await db_manager.fetch(event_type_query, *params)
+        time_range_row = await db_manager.fetchrow(time_range_query, *params)
 
-        async with db_manager.pool.acquire() as conn:
-            # Execute queries sequentially on single connection
-            summary_row = await conn.fetchrow(summary_query, *params)
-            top_repos_rows = await conn.fetch(top_repos_query, *params)
-            event_type_rows = await conn.fetch(event_type_query, *params)
-            time_range_row = await conn.fetchrow(time_range_query, *params)
+        # Process summary metrics
+        total_events = summary_row["total_events"] or 0
+        summary = {
+            "total_events": total_events,
+            "successful_events": summary_row["successful_events"] or 0,
+            "failed_events": summary_row["failed_events"] or 0,
+            "success_rate": float(summary_row["success_rate"]) if summary_row["success_rate"] is not None else 0.0,
+            "avg_processing_time_ms": int(summary_row["avg_processing_time_ms"])
+            if summary_row["avg_processing_time_ms"] is not None
+            else 0,
+            "median_processing_time_ms": int(summary_row["median_processing_time_ms"])
+            if summary_row["median_processing_time_ms"] is not None
+            else 0,
+            "p95_processing_time_ms": int(summary_row["p95_processing_time_ms"])
+            if summary_row["p95_processing_time_ms"] is not None
+            else 0,
+            "max_processing_time_ms": summary_row["max_processing_time_ms"] or 0,
+            "total_api_calls": summary_row["total_api_calls"] or 0,
+            "avg_api_calls_per_event": float(summary_row["avg_api_calls_per_event"])
+            if summary_row["avg_api_calls_per_event"] is not None
+            else 0.0,
+            "total_token_spend": summary_row["total_token_spend"] or 0,
+        }
 
-            # Process summary metrics
-            total_events = summary_row["total_events"] or 0
-            summary = {
-                "total_events": total_events,
-                "successful_events": summary_row["successful_events"] or 0,
-                "failed_events": summary_row["failed_events"] or 0,
-                "success_rate": float(summary_row["success_rate"]) if summary_row["success_rate"] is not None else 0.0,
-                "avg_processing_time_ms": int(summary_row["avg_processing_time_ms"])
-                if summary_row["avg_processing_time_ms"] is not None
-                else 0,
-                "median_processing_time_ms": int(summary_row["median_processing_time_ms"])
-                if summary_row["median_processing_time_ms"] is not None
-                else 0,
-                "p95_processing_time_ms": int(summary_row["p95_processing_time_ms"])
-                if summary_row["p95_processing_time_ms"] is not None
-                else 0,
-                "max_processing_time_ms": summary_row["max_processing_time_ms"] or 0,
-                "total_api_calls": summary_row["total_api_calls"] or 0,
-                "avg_api_calls_per_event": float(summary_row["avg_api_calls_per_event"])
-                if summary_row["avg_api_calls_per_event"] is not None
-                else 0.0,
-                "total_token_spend": summary_row["total_token_spend"] or 0,
+        # Process top repositories
+        top_repositories = [
+            {
+                "repository": row["repository"],
+                "total_events": row["total_events"],
+                "success_rate": float(row["success_rate"]) if row["success_rate"] is not None else 0.0,
             }
+            for row in top_repos_rows
+        ]
 
-            # Process top repositories
-            top_repositories = [
-                {
-                    "repository": row["repository"],
-                    "total_events": row["total_events"],
-                    "success_rate": float(row["success_rate"]) if row["success_rate"] is not None else 0.0,
-                }
-                for row in top_repos_rows
-            ]
+        # Process event type distribution
+        event_type_distribution = {row["event_type"]: row["event_count"] for row in event_type_rows}
 
-            # Process event type distribution
-            event_type_distribution = {row["event_type"]: row["event_count"] for row in event_type_rows}
+        # Calculate event rates
+        hourly_event_rate = 0.0
+        daily_event_rate = 0.0
+        if time_range_row and time_range_row["first_event_time"] and time_range_row["last_event_time"]:
+            time_diff = time_range_row["last_event_time"] - time_range_row["first_event_time"]
+            total_hours = max(time_diff.total_seconds() / 3600, 1)  # Avoid division by zero
+            total_days = max(time_diff.total_seconds() / 86400, 1)  # Avoid division by zero
+            hourly_event_rate = round(total_events / total_hours, 2)
+            daily_event_rate = round(total_events / total_days, 2)
 
-            # Calculate event rates
-            hourly_event_rate = 0.0
-            daily_event_rate = 0.0
-            if time_range_row and time_range_row["first_event_time"] and time_range_row["last_event_time"]:
-                time_diff = time_range_row["last_event_time"] - time_range_row["first_event_time"]
-                total_hours = max(time_diff.total_seconds() / 3600, 1)  # Avoid division by zero
-                total_days = max(time_diff.total_seconds() / 86400, 1)  # Avoid division by zero
-                hourly_event_rate = round(total_events / total_hours, 2)
-                daily_event_rate = round(total_events / total_days, 2)
-
-            return {
-                "time_range": {
-                    "start_time": start_datetime.isoformat() if start_datetime else None,
-                    "end_time": end_datetime.isoformat() if end_datetime else None,
-                },
-                "summary": summary,
-                "top_repositories": top_repositories,
-                "event_type_distribution": event_type_distribution,
-                "hourly_event_rate": hourly_event_rate,
-                "daily_event_rate": daily_event_rate,
-            }
+        return {
+            "time_range": {
+                "start_time": start_datetime.isoformat() if start_datetime else None,
+                "end_time": end_datetime.isoformat() if end_datetime else None,
+            },
+            "summary": summary,
+            "top_repositories": top_repositories,
+            "event_type_distribution": event_type_distribution,
+            "hourly_event_rate": hourly_event_rate,
+            "daily_event_rate": daily_event_rate,
+        }
     except HTTPException:
         raise
     except Exception as ex:

@@ -228,7 +228,7 @@ class GithubWebhook:
             self.logger.debug(f"{self.log_prefix} Failed to get token metrics: {ex}")
             return ""
 
-    def get_api_metrics(self) -> dict[str, int]:
+    def get_api_metrics(self) -> dict[str, int | bool]:
         """Get API usage metrics for this webhook instance.
 
         Returns:
@@ -236,15 +236,19 @@ class GithubWebhook:
                 - api_calls_count: Number of API calls made during webhook processing
                 - token_spend: Rate limit tokens consumed (same as api_calls_count)
                 - token_remaining: Estimated remaining rate limit tokens
+                - metrics_available: Boolean indicating if metrics are available
+                  (False = no metrics tracking, True = metrics tracked)
 
         Note:
-            Returns zeros if metrics unavailable (no requester wrapper or rate limit tracking).
+            When metrics_available=False, all counts will be zero (metrics not tracked).
+            When metrics_available=True with zero counts, it indicates legitimate zero API calls.
         """
         if not self.requester_wrapper or self.initial_rate_limit_remaining is None:
             return {
                 "api_calls_count": 0,
                 "token_spend": 0,
                 "token_remaining": 0,
+                "metrics_available": False,
             }
 
         # Calculate API calls made during this webhook (thread-safe via CountingRequester)
@@ -258,6 +262,7 @@ class GithubWebhook:
             "api_calls_count": api_calls_count,
             "token_spend": token_spend,
             "token_remaining": token_remaining,
+            "metrics_available": True,
         }
 
     async def _clone_repository(

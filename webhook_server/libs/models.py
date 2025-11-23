@@ -172,6 +172,12 @@ class Webhook(Base):
         default=0,
         comment="Rate limit remaining after processing",
     )
+    metrics_available: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Whether API metrics are available (False = no tracking, True = metrics tracked)",
+    )
 
     # Relationships
     pr_events: Mapped[list[PREvent]] = relationship(

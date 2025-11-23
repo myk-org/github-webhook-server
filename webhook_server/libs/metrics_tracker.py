@@ -87,6 +87,7 @@ class MetricsTracker:
         api_calls_count: int = 0,
         token_spend: int = 0,
         token_remaining: int = 0,
+        metrics_available: bool = True,
     ) -> None:
         """
         Track webhook event with comprehensive metrics.
@@ -94,7 +95,7 @@ class MetricsTracker:
         Stores webhook event in database with processing metrics including:
         - Event metadata (delivery ID, repository, event type, action)
         - Processing metrics (duration, API calls, token usage)
-        - Status tracking (success, failure, partial)
+        - Status tracking (success, error, partial)
         - Full payload for debugging and analytics
 
         Uses DatabaseManager.execute() for centralized pool management and
@@ -109,12 +110,13 @@ class MetricsTracker:
             sender: GitHub username who triggered the event
             payload: Full webhook payload from GitHub
             processing_time_ms: Processing duration in milliseconds
-            status: Processing status (success, failure, partial)
+            status: Processing status (success, error, partial)
             pr_number: PR number if applicable (optional)
             error_message: Error message if processing failed (optional)
             api_calls_count: Number of GitHub API calls made (default: 0)
             token_spend: GitHub API calls consumed (default: 0)
             token_remaining: Rate limit remaining after processing (default: 0)
+            metrics_available: Whether API metrics are available (default: True)
 
         Raises:
             asyncpg.PostgresError: If database insert fails
@@ -134,6 +136,7 @@ class MetricsTracker:
                 api_calls_count=3,
                 token_spend=3,
                 token_remaining=4997,
+                metrics_available=True,
             )
         """
         try:
@@ -148,9 +151,10 @@ class MetricsTracker:
                 INSERT INTO webhooks (
                     id, delivery_id, repository, event_type, action,
                     pr_number, sender, payload, duration_ms,
-                    status, error_message, api_calls_count, token_spend, token_remaining
+                    status, error_message, api_calls_count, token_spend, token_remaining,
+                    metrics_available
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                 """,
                 uuid4(),
                 delivery_id,
@@ -166,6 +170,7 @@ class MetricsTracker:
                 api_calls_count,
                 token_spend,
                 token_remaining,
+                metrics_available,
             )
 
             self.logger.info(

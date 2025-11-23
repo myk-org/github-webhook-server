@@ -67,9 +67,9 @@ class TestMetricsTracker:
         mock_db_manager.execute.assert_called_once()
 
         # Verify the execute call parameters
-        # Parameter order: uuid4(), delivery_id, repository, event_type, action,
-        #                  pr_number, sender, payload_json, processed_at, duration_ms,
-        #                  status, error_message, api_calls_count, token_spend, token_remaining
+        # Parameter order: SQL query, uuid4(), delivery_id, repository, event_type, action,
+        #                  pr_number, sender, payload_json, duration_ms, status,
+        #                  error_message, api_calls_count, token_spend, token_remaining, metrics_available
         call_args = mock_db_manager.execute.call_args
         assert "INSERT INTO webhooks" in call_args[0][0]
         assert call_args[0][2] == "test-delivery-id"  # delivery_id
@@ -78,8 +78,8 @@ class TestMetricsTracker:
         assert call_args[0][5] == "opened"  # action
         assert call_args[0][6] == 42  # pr_number
         assert call_args[0][7] == "testuser"  # sender
-        assert call_args[0][10] == 150  # duration_ms
-        assert call_args[0][11] == "success"  # status
+        assert call_args[0][9] == 150  # duration_ms
+        assert call_args[0][10] == "success"  # status
 
         # Verify log message
         mock_logger.info.assert_called_once()
@@ -112,8 +112,8 @@ class TestMetricsTracker:
 
         # Verify execute was called with error message
         call_args = mock_db_manager.execute.call_args
-        assert call_args[0][11] == "error"  # status
-        assert call_args[0][12] == "Test error message"  # error_message
+        assert call_args[0][10] == "error"  # status
+        assert call_args[0][11] == "Test error message"  # error_message
 
         # Verify log message
         mock_logger.info.assert_called_once()
@@ -142,9 +142,9 @@ class TestMetricsTracker:
 
         # Verify execute was called with API metrics
         call_args = mock_db_manager.execute.call_args
-        assert call_args[0][13] == 5  # api_calls_count
-        assert call_args[0][14] == 10  # token_spend
-        assert call_args[0][15] == 4990  # token_remaining
+        assert call_args[0][12] == 5  # api_calls_count
+        assert call_args[0][13] == 10  # token_spend
+        assert call_args[0][14] == 4990  # token_remaining
 
     @pytest.mark.asyncio
     async def test_track_webhook_event_database_error(
@@ -295,10 +295,10 @@ class TestMetricsTracker:
         call_args = mock_db_manager.execute.call_args
         assert len(call_args[0]) == 16  # SQL query + 15 parameters
         assert call_args[0][6] == 42  # pr_number
-        assert call_args[0][12] is None  # error_message
-        assert call_args[0][13] == 3  # api_calls_count
-        assert call_args[0][14] == 5  # token_spend
-        assert call_args[0][15] == 4995  # token_remaining
+        assert call_args[0][11] is None  # error_message
+        assert call_args[0][12] == 3  # api_calls_count
+        assert call_args[0][13] == 5  # token_spend
+        assert call_args[0][14] == 4995  # token_remaining
 
     @pytest.mark.asyncio
     async def test_track_webhook_event_zero_api_calls(
@@ -321,6 +321,6 @@ class TestMetricsTracker:
 
         # Verify default zero values for API metrics
         call_args = mock_db_manager.execute.call_args
-        assert call_args[0][13] == 0  # api_calls_count default
-        assert call_args[0][14] == 0  # token_spend default
-        assert call_args[0][15] == 0  # token_remaining default
+        assert call_args[0][12] == 0  # api_calls_count default
+        assert call_args[0][13] == 0  # token_spend default
+        assert call_args[0][14] == 0  # token_remaining default
