@@ -413,12 +413,15 @@ name = "github-webhook-server"
 version = "4.0.0"
 source = { editable = "." }
 dependencies = [
+    { name = "alembic" },
+    { name = "asyncpg" },
     { name = "asyncstdlib" },
     { name = "build" },
     { name = "colorama" },
     { name = "colorlog" },
     { name = "fastapi" },
     { name = "fastapi-mcp" },
+    { name = "google-genai" },
     { name = "httpx" },
     { name = "psutil" },
     { name = "pydantic" },
@@ -430,24 +433,15 @@ dependencies = [
     { name = "pytest-mock" },
     { name = "python-simple-logger" },
     { name = "pyyaml" },
+    { name = "redis" },
     { name = "requests" },
     { name = "ruff" },
     { name = "shortuuid" },
+    { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "string-color" },
     { name = "timeout-sampler" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "webcolors" },
-]
-
-[package.optional-dependencies]
-ai = [
-    { name = "google-genai" },
-]
-metrics = [
-    { name = "alembic" },
-    { name = "asyncpg" },
-    { name = "redis" },
-    { name = "sqlalchemy", extra = ["asyncio"] },
 ]
 
 [package.dev-dependencies]
@@ -466,15 +460,15 @@ tests = [
 
 [package.metadata]
 requires-dist = [
-    { name = "alembic", marker = "extra == 'metrics'", specifier = ">=1.13.0" },
-    { name = "asyncpg", marker = "extra == 'metrics'", specifier = ">=0.29.0" },
+    { name = "alembic", specifier = ">=1.13.0" },
+    { name = "asyncpg", specifier = ">=0.29.0" },
     { name = "asyncstdlib", specifier = ">=3.13.1" },
     { name = "build", specifier = ">=1.2.2.post1" },
     { name = "colorama", specifier = ">=0.4.6" },
     { name = "colorlog", specifier = ">=6.8.2" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "fastapi-mcp", specifier = ">=0.4.0" },
-    { name = "google-genai", marker = "extra == 'ai'", specifier = ">=0.1.0" },
+    { name = "google-genai", specifier = ">=0.1.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "psutil", specifier = ">=7.0.0" },
     { name = "pydantic", specifier = ">=2.8.0" },
@@ -486,17 +480,16 @@ requires-dist = [
     { name = "pytest-mock", specifier = ">=3.14.0" },
     { name = "python-simple-logger", specifier = ">=1.0.40" },
     { name = "pyyaml", specifier = ">=6.0.2" },
-    { name = "redis", marker = "extra == 'metrics'", specifier = ">=5.0.0" },
+    { name = "redis", specifier = ">=5.0.0" },
     { name = "requests", specifier = ">=2.32.3" },
     { name = "ruff", specifier = ">=0.6.9" },
     { name = "shortuuid", specifier = ">=1.0.13" },
-    { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'metrics'", specifier = ">=2.0.0" },
+    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.0" },
     { name = "string-color", specifier = ">=1.2.3" },
     { name = "timeout-sampler", specifier = ">=0.0.46" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
     { name = "webcolors", specifier = ">=24.11.1" },
 ]
-provides-extras = ["metrics", "ai"]
 
 [package.metadata.requires-dev]
 dev = [

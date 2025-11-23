@@ -33,7 +33,7 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from starlette.datastructures import Headers
 
 from webhook_server.libs.config import Config
-from webhook_server.libs.database import DatabaseManager, RedisManager
+from webhook_server.libs.database import DatabaseManager
 from webhook_server.libs.exceptions import RepositoryNotFoundInConfigError
 from webhook_server.libs.github_api import GithubWebhook
 from webhook_server.libs.metrics_tracker import MetricsTracker
@@ -70,7 +70,6 @@ mcp: Any | None = None
 
 # Metrics Server Globals
 db_manager: Any | None = None
-redis_manager: Any | None = None
 metrics_tracker: Any | None = None
 
 
@@ -114,7 +113,7 @@ def require_metrics_server_enabled() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
-    global _lifespan_http_client, ALLOWED_IPS, http_transport, mcp, db_manager, redis_manager
+    global _lifespan_http_client, ALLOWED_IPS, http_transport, mcp, db_manager
     global metrics_tracker, _log_viewer_controller_singleton, _background_tasks
     _lifespan_http_client = httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS)
 
@@ -259,14 +258,12 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         if METRICS_SERVER_ENABLED:
             metrics_logger = logging.getLogger("webhook_server.metrics")
             db_manager = DatabaseManager(config, metrics_logger)
-            redis_manager = RedisManager(config, metrics_logger)
 
             await db_manager.connect()
-            await redis_manager.connect()
-            LOGGER.info("Metrics Server database managers initialized successfully")
+            LOGGER.info("Metrics Server database manager initialized successfully")
 
             # Initialize metrics tracker
-            metrics_tracker = MetricsTracker(db_manager, redis_manager, metrics_logger)
+            metrics_tracker = MetricsTracker(db_manager, metrics_logger)
             LOGGER.info("Metrics tracker initialized successfully")
 
         yield
@@ -280,11 +277,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         if db_manager is not None:
             await db_manager.disconnect()
             LOGGER.debug("Database manager disconnected")
-        if redis_manager is not None:
-            await redis_manager.disconnect()
-            LOGGER.debug("Redis manager disconnected")
-        if db_manager is not None or redis_manager is not None:
-            LOGGER.info("Metrics Server database managers shutdown complete")
+            LOGGER.info("Metrics Server database manager shutdown complete")
 
         # Shutdown LogViewerController singleton and close WebSocket connections
         if _log_viewer_controller_singleton is not None:

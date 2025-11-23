@@ -11,7 +11,7 @@ Architecture:
 - Async database operations using asyncpg connection pool
 - No defensive checks on required parameters (fail-fast principle)
 - Proper error handling with structured logging
-- Integration with DatabaseManager and RedisManager
+- Integration with DatabaseManager
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from webhook_server.libs.database import DatabaseManager, RedisManager
+from webhook_server.libs.database import DatabaseManager
 
 
 class MetricsTracker:
@@ -37,11 +37,10 @@ class MetricsTracker:
 
     Architecture guarantees:
     - db_manager is ALWAYS provided (required parameter) - no defensive checks
-    - redis_manager is ALWAYS provided (required parameter) - no defensive checks
     - logger is ALWAYS provided (required parameter) - no defensive checks
 
     Example:
-        tracker = MetricsTracker(db_manager, redis_manager, logger)
+        tracker = MetricsTracker(db_manager, logger)
         await tracker.track_webhook_event(
             delivery_id="abc123",
             repository="org/repo",
@@ -58,7 +57,6 @@ class MetricsTracker:
     def __init__(
         self,
         db_manager: DatabaseManager,
-        redis_manager: RedisManager,
         logger: logging.Logger,
     ) -> None:
         """
@@ -66,7 +64,6 @@ class MetricsTracker:
 
         Args:
             db_manager: Database connection manager for metrics storage
-            redis_manager: Redis connection manager for metrics caching
             logger: Logger instance for metrics tracking events
 
         Note:
@@ -74,7 +71,6 @@ class MetricsTracker:
             Architecture guarantees these are initialized before MetricsTracker.
         """
         self.db_manager = db_manager
-        self.redis_manager = redis_manager
         self.logger = logger
 
     async def track_webhook_event(
@@ -101,6 +97,10 @@ class MetricsTracker:
         - Processing metrics (duration, API calls, token usage)
         - Status tracking (success, failure, partial)
         - Full payload for debugging and analytics
+
+        Uses DatabaseManager.execute() for centralized pool management and
+        precondition checking. All database operations go through DatabaseManager
+        to avoid duplicated connection handling logic.
 
         Args:
             delivery_id: GitHub webhook delivery ID (X-GitHub-Delivery header)
@@ -144,37 +144,33 @@ class MetricsTracker:
             # Current timestamp for processed_at
             processed_at = datetime.now(UTC)
 
-            # Validate pool is initialized (should be guaranteed by architecture)
-            if self.db_manager.pool is None:
-                raise ValueError("Database pool not initialized - call db_manager.connect() first")
-
-            # Insert webhook event into database
-            async with self.db_manager.pool.acquire() as conn:
-                await conn.execute(
-                    """
-                    INSERT INTO webhooks (
-                        id, delivery_id, repository, event_type, action,
-                        pr_number, sender, payload, processed_at, duration_ms,
-                        status, error_message, api_calls_count, token_spend, token_remaining
-                    )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-                    """,
-                    uuid4(),
-                    delivery_id,
-                    repository,
-                    event_type,
-                    action,
-                    pr_number,
-                    sender,
-                    payload_json,
-                    processed_at,
-                    processing_time_ms,
-                    status,
-                    error_message,
-                    api_calls_count,
-                    token_spend,
-                    token_remaining,
+            # Insert webhook event into database using DatabaseManager.execute()
+            # This centralizes pool management and precondition checks
+            await self.db_manager.execute(
+                """
+                INSERT INTO webhooks (
+                    id, delivery_id, repository, event_type, action,
+                    pr_number, sender, payload, processed_at, duration_ms,
+                    status, error_message, api_calls_count, token_spend, token_remaining
                 )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                """,
+                uuid4(),
+                delivery_id,
+                repository,
+                event_type,
+                action,
+                pr_number,
+                sender,
+                payload_json,
+                processed_at,
+                processing_time_ms,
+                status,
+                error_message,
+                api_calls_count,
+                token_spend,
+                token_remaining,
+            )
 
             self.logger.info(
                 f"Webhook event tracked successfully: delivery_id={delivery_id}, "

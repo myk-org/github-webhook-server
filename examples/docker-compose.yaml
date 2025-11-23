@@ -6,29 +6,13 @@ services:
     environment:
       - POSTGRES_DB=webhook_metrics
       - POSTGRES_USER=webhook_user
-      - POSTGRES_PASSWORD=<DATABASE_PASSWORD> # Change this!
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}  # Set POSTGRES_PASSWORD in .env or environment
     volumes:
       - postgres-data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U webhook_user -d webhook_metrics"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-  # Redis cache for metrics server
-  github-webhook-server-redis:
-    image: redis:7-alpine
-    container_name: github-webhook-server-redis
-    command: redis-server --requirepass ${REDIS_PASSWORD}  # Set REDIS_PASSWORD in .env or remove --requirepass for no auth
-    volumes:
-      - redis-data:/data
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "--raw", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -53,19 +37,15 @@ services:
       - VERIFY_CLOUDFLARE_IPS=1 # Verify hook request is from Cloudflare IPs
       - ENABLE_LOG_SERVER=true # Enable log viewer endpoints (default: false)
       - ENABLE_MCP_SERVER=false # Enable MCP server for AI agent integration (default: false)
-      - ENABLE_METRICS_SERVER=true # Enable metrics server with PostgreSQL and Redis (default: false)
+      - ENABLE_METRICS_SERVER=true # Enable metrics server with PostgreSQL (default: false)
     ports:
       - "5000:5000"
     privileged: true
     depends_on:
       github-webhook-server-postgres:
         condition: service_healthy
-      github-webhook-server-redis:
-        condition: service_healthy
     restart: unless-stopped
 
 volumes:
   postgres-data:
-    driver: local
-  redis-data:
     driver: local

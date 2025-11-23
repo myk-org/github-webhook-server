@@ -75,6 +75,11 @@ dependencies = [
   "pydantic>=2.8.0",
   "psutil>=7.0.0",
   "fastapi-mcp>=0.4.0",
+  "asyncpg>=0.29.0",
+  "redis>=5.0.0",
+  "alembic>=1.13.0",
+  "sqlalchemy[asyncio]>=2.0.0",
+  "google-genai>=0.1.0",
 ]
 
 [[project.authors]]
@@ -90,14 +95,6 @@ homepage = "https://github.com/myakove/github-webhook-server"
 repository = "https://github.com/myakove/github-webhook-server"
 "Bug Tracker" = "https://github.com/myakove/github-webhook-server/issues"
 
-[project.optional-dependencies]
-metrics = [
-  "asyncpg>=0.29.0",
-  "redis>=5.0.0",
-  "alembic>=1.13.0",
-  "sqlalchemy[asyncio]>=2.0.0",
-]
-ai = ["google-genai>=0.1.0"]
 
 [build-system]
 requires = ["hatchling"]

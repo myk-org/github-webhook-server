@@ -14,20 +14,9 @@ class TestMetricsTracker:
     def mock_db_manager(self) -> Mock:
         """Create a mock database manager."""
         mock = Mock()
-        mock.pool = Mock()
-        # Setup async context manager for pool.acquire()
-        mock_conn = Mock()
-        mock_conn.execute = AsyncMock()
-        mock_acquire_cm = AsyncMock()
-        mock_acquire_cm.__aenter__.return_value = mock_conn
-        mock_acquire_cm.__aexit__.return_value = None
-        mock.pool.acquire.return_value = mock_acquire_cm
+        # Mock the execute method that MetricsTracker now uses
+        mock.execute = AsyncMock(return_value="INSERT 0 1")
         return mock
-
-    @pytest.fixture
-    def mock_redis_manager(self) -> Mock:
-        """Create a mock Redis manager."""
-        return Mock()
 
     @pytest.fixture
     def mock_logger(self) -> Mock:
@@ -38,23 +27,20 @@ class TestMetricsTracker:
     def metrics_tracker(
         self,
         mock_db_manager: Mock,
-        mock_redis_manager: Mock,
         mock_logger: Mock,
     ) -> MetricsTracker:
         """Create a MetricsTracker instance with mocked dependencies."""
-        return MetricsTracker(mock_db_manager, mock_redis_manager, mock_logger)
+        return MetricsTracker(mock_db_manager, mock_logger)
 
     def test_metrics_tracker_init(
         self,
         mock_db_manager: Mock,
-        mock_redis_manager: Mock,
         mock_logger: Mock,
     ) -> None:
         """Test MetricsTracker initialization."""
-        tracker = MetricsTracker(mock_db_manager, mock_redis_manager, mock_logger)
+        tracker = MetricsTracker(mock_db_manager, mock_logger)
 
         assert tracker.db_manager is mock_db_manager
-        assert tracker.redis_manager is mock_redis_manager
         assert tracker.logger is mock_logger
 
     @pytest.mark.asyncio
@@ -77,18 +63,14 @@ class TestMetricsTracker:
             pr_number=42,
         )
 
-        # Verify pool.acquire was called
-        mock_db_manager.pool.acquire.assert_called_once()
-
-        # Verify execute was called
-        mock_conn = await mock_db_manager.pool.acquire.return_value.__aenter__()
-        mock_conn.execute.assert_called_once()
+        # Verify execute was called via DatabaseManager
+        mock_db_manager.execute.assert_called_once()
 
         # Verify the execute call parameters
         # Parameter order: uuid4(), delivery_id, repository, event_type, action,
         #                  pr_number, sender, payload_json, processed_at, duration_ms,
         #                  status, error_message, api_calls_count, token_spend, token_remaining
-        call_args = mock_conn.execute.call_args
+        call_args = mock_db_manager.execute.call_args
         assert "INSERT INTO webhooks" in call_args[0][0]
         assert call_args[0][2] == "test-delivery-id"  # delivery_id
         assert call_args[0][3] == "org/repo"  # repository
@@ -125,12 +107,11 @@ class TestMetricsTracker:
             error_message="Test error message",
         )
 
-        # Verify execution
-        mock_db_manager.pool.acquire.assert_called_once()
+        # Verify execute was called via DatabaseManager
+        mock_db_manager.execute.assert_called_once()
 
         # Verify execute was called with error message
-        mock_conn = await mock_db_manager.pool.acquire.return_value.__aenter__()
-        call_args = mock_conn.execute.call_args
+        call_args = mock_db_manager.execute.call_args
         assert call_args[0][11] == "error"  # status
         assert call_args[0][12] == "Test error message"  # error_message
 
@@ -160,8 +141,7 @@ class TestMetricsTracker:
         )
 
         # Verify execute was called with API metrics
-        mock_conn = await mock_db_manager.pool.acquire.return_value.__aenter__()
-        call_args = mock_conn.execute.call_args
+        call_args = mock_db_manager.execute.call_args
         assert call_args[0][13] == 5  # api_calls_count
         assert call_args[0][14] == 10  # token_spend
         assert call_args[0][15] == 4990  # token_remaining
@@ -175,8 +155,7 @@ class TestMetricsTracker:
     ) -> None:
         """Test handling database errors during tracking."""
         # Make execute raise an exception
-        mock_conn = await mock_db_manager.pool.acquire.return_value.__aenter__()
-        mock_conn.execute.side_effect = Exception("Database error")
+        mock_db_manager.execute.side_effect = Exception("Database error")
 
         with pytest.raises(Exception, match="Database error"):
             await metrics_tracker.track_webhook_event(
@@ -200,12 +179,12 @@ class TestMetricsTracker:
     async def test_track_webhook_event_pool_not_initialized(
         self,
         mock_db_manager: Mock,
-        mock_redis_manager: Mock,
         mock_logger: Mock,
     ) -> None:
         """Test error when database pool is not initialized."""
-        mock_db_manager.pool = None
-        tracker = MetricsTracker(mock_db_manager, mock_redis_manager, mock_logger)
+        # Make execute raise ValueError when pool is not initialized
+        mock_db_manager.execute.side_effect = ValueError("Database pool not initialized. Call connect() first.")
+        tracker = MetricsTracker(mock_db_manager, mock_logger)
 
         with pytest.raises(ValueError, match="Database pool not initialized"):
             await tracker.track_webhook_event(
@@ -258,8 +237,7 @@ class TestMetricsTracker:
         )
 
         # Verify payload was serialized to JSON
-        mock_conn = await mock_db_manager.pool.acquire.return_value.__aenter__()
-        call_args = mock_conn.execute.call_args
+        call_args = mock_db_manager.execute.call_args
         payload_json = call_args[0][8]  # payload_json parameter position
         assert "pull_request" in payload_json
         assert "repository" in payload_json
@@ -286,8 +264,7 @@ class TestMetricsTracker:
         )
 
         # Verify pr_number is None in execute call
-        mock_conn = await mock_db_manager.pool.acquire.return_value.__aenter__()
-        call_args = mock_conn.execute.call_args
+        call_args = mock_db_manager.execute.call_args
         assert call_args[0][6] is None  # pr_number
 
     @pytest.mark.asyncio
@@ -315,8 +292,7 @@ class TestMetricsTracker:
         )
 
         # Verify all parameters were passed to execute
-        mock_conn = await mock_db_manager.pool.acquire.return_value.__aenter__()
-        call_args = mock_conn.execute.call_args
+        call_args = mock_db_manager.execute.call_args
         assert len(call_args[0]) == 16  # SQL query + 15 parameters
         assert call_args[0][6] == 42  # pr_number
         assert call_args[0][12] is None  # error_message
@@ -344,8 +320,7 @@ class TestMetricsTracker:
         )
 
         # Verify default zero values for API metrics
-        mock_conn = await mock_db_manager.pool.acquire.return_value.__aenter__()
-        call_args = mock_conn.execute.call_args
+        call_args = mock_db_manager.execute.call_args
         assert call_args[0][13] == 0  # api_calls_count default
         assert call_args[0][14] == 0  # token_spend default
         assert call_args[0][15] == 0  # token_remaining default
