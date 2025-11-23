@@ -228,6 +228,38 @@ class GithubWebhook:
             self.logger.debug(f"{self.log_prefix} Failed to get token metrics: {ex}")
             return ""
 
+    def get_api_metrics(self) -> dict[str, int]:
+        """Get API usage metrics for this webhook instance.
+
+        Returns:
+            dict with keys:
+                - api_calls_count: Number of API calls made during webhook processing
+                - token_spend: Rate limit tokens consumed (same as api_calls_count)
+                - token_remaining: Estimated remaining rate limit tokens
+
+        Note:
+            Returns zeros if metrics unavailable (no requester wrapper or rate limit tracking).
+        """
+        if not self.requester_wrapper or self.initial_rate_limit_remaining is None:
+            return {
+                "api_calls_count": 0,
+                "token_spend": 0,
+                "token_remaining": 0,
+            }
+
+        # Calculate API calls made during this webhook (thread-safe via CountingRequester)
+        api_calls_count = self.requester_wrapper.count - self.initial_wrapper_count
+        token_spend = api_calls_count  # Same value per GitHub API rate limit semantics
+
+        # Calculate remaining tokens (clamp to 0 if negative due to race conditions)
+        token_remaining = max(0, self.initial_rate_limit_remaining - token_spend)
+
+        return {
+            "api_calls_count": api_calls_count,
+            "token_spend": token_spend,
+            "token_remaining": token_remaining,
+        }
+
     async def _clone_repository(
         self,
         pull_request: PullRequest | None = None,

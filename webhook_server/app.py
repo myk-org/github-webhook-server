@@ -455,14 +455,39 @@ async def process_webhook(request: Request) -> JSONResponse:
         _repository = _hook_data.get("repository", {}).get("full_name", "unknown")
         _action = _hook_data.get("action")
         _sender = _hook_data.get("sender", {}).get("login")
-        _pr_number = _hook_data.get("pull_request", {}).get("number")
 
-        async def track_metrics_safe(status: str, error_message: str | None = None) -> None:
+        # Extract PR number from multiple sources depending on event type
+        _pr_number = _hook_data.get("pull_request", {}).get("number")  # pull_request events
+
+        # For issue_comment events on PRs: issue has pull_request key
+        if not _pr_number and "issue" in _hook_data:
+            issue = _hook_data["issue"]
+            # If issue has pull_request key, it's actually a PR comment
+            if "pull_request" in issue:
+                _pr_number = issue.get("number")
+
+        # For check_run events: extract from pull_requests array
+        if not _pr_number and "check_run" in _hook_data:
+            check_run = _hook_data["check_run"]
+            pull_requests = check_run.get("pull_requests", [])
+            if pull_requests and len(pull_requests) > 0:
+                _pr_number = pull_requests[0].get("number")
+
+        async def track_metrics_safe(
+            status: str,
+            error_message: str | None = None,
+            api_calls_count: int = 0,
+            token_spend: int = 0,
+            token_remaining: int = 0,
+        ) -> None:
             """Track webhook metrics in best-effort manner - never fail webhook processing.
 
             Args:
                 status: Processing status (success, error, partial)
                 error_message: Optional error message for failures
+                api_calls_count: Number of GitHub API calls made
+                token_spend: Rate limit tokens consumed
+                token_remaining: Remaining rate limit tokens
             """
             if not (METRICS_SERVER_ENABLED and metrics_tracker):
                 return
@@ -480,6 +505,9 @@ async def process_webhook(request: Request) -> JSONResponse:
                     status=status,
                     pr_number=_pr_number,
                     error_message=error_message,
+                    api_calls_count=api_calls_count,
+                    token_spend=token_spend,
+                    token_remaining=token_remaining,
                 )
             except Exception:
                 # Metrics tracking failures should never affect webhook processing
@@ -492,8 +520,16 @@ async def process_webhook(request: Request) -> JSONResponse:
             try:
                 await _api.process()
 
-                # Track successful webhook event (best-effort)
-                await track_metrics_safe(status="success")
+                # Extract API usage metrics for database tracking
+                api_metrics = _api.get_api_metrics()
+
+                # Track successful webhook event with API metrics (best-effort)
+                await track_metrics_safe(
+                    status="success",
+                    api_calls_count=api_metrics["api_calls_count"],
+                    token_spend=api_metrics["token_spend"],
+                    token_remaining=api_metrics["token_remaining"],
+                )
             finally:
                 await _api.cleanup()
         except RepositoryNotFoundInConfigError as ex:
@@ -501,18 +537,21 @@ async def process_webhook(request: Request) -> JSONResponse:
             _logger.error(f"{_log_context} Repository not found in configuration")
 
             # Track failed webhook event (best-effort)
+            # Note: No API metrics available - error happened before GithubWebhook processing
             await track_metrics_safe(status="error", error_message=str(ex))
         except (httpx.ConnectError, httpx.RequestError, requests.exceptions.ConnectionError) as ex:
             # Network/connection errors - can be transient
             _logger.exception(f"{_log_context} API connection error - check network connectivity")
 
             # Track failed webhook event (best-effort)
+            # Note: No API metrics available - error happened during GithubWebhook processing
             await track_metrics_safe(status="error", error_message=str(ex))
         except Exception as ex:
             # Catch-all for unexpected errors
             _logger.exception(f"{_log_context} Unexpected error in background webhook processing")
 
             # Track failed webhook event (best-effort)
+            # Note: No API metrics available - error happened during GithubWebhook processing
             await track_metrics_safe(status="error", error_message=str(ex))
 
     # Start background task immediately using asyncio.create_task
