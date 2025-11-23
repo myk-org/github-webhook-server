@@ -18,6 +18,72 @@ properties:
     type: string
     description: File path for the Logs Server log file
     default: logs_server.log
+  metrics-server-log-file:
+    type: string
+    description: File path for the Metrics Server log file
+    default: metrics_server.log
+  metrics-database:
+    type: object
+    description: PostgreSQL database configuration for metrics storage
+    properties:
+      host:
+        type: string
+        description: PostgreSQL server hostname or IP address
+      port:
+        type: integer
+        description: PostgreSQL server port
+        default: 5432
+      database:
+        type: string
+        description: Database name for metrics storage
+      username:
+        type: string
+        description: Database username
+      password:
+        type: string
+        format: password
+        description: Database password
+      pool-size:
+        type: integer
+        description: Connection pool size
+        default: 20
+        minimum: 1
+        maximum: 100
+    required:
+      - host
+      - database
+      - username
+      - password
+  metrics-redis:
+    type: object
+    description: Redis configuration for metrics caching
+    properties:
+      host:
+        type: string
+        description: Redis server hostname or IP address
+        default: localhost
+      port:
+        type: integer
+        description: Redis server port
+        default: 6379
+      password:
+        type: string
+        format: password
+        description: Redis password (optional)
+      cache-ttl:
+        type: integer
+        description: Default cache TTL in seconds
+        default: 300
+        minimum: 60
+        maximum: 3600
+  gemini-api-key:
+    type: string
+    format: password
+    description: Google Gemini API key for AI-powered natural language queries
+  ai-query-enabled:
+    type: boolean
+    description: Enable AI-powered natural language queries in metrics dashboard
+    default: false
   mask-sensitive-data:
     type: boolean
     description: Mask sensitive data in logs (tokens, passwords, secrets, etc.). Default is true for security.

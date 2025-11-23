@@ -4,7 +4,28 @@ log-level: INFO # Set global log level, change take effect immediately without s
 log-file: webhook-server.log # Set global log file, change take effect immediately without server restart
 mcp-log-file: mcp_server.log # Set global MCP log file, change take effect immediately without server restart
 logs-server-log-file: logs_server.log # Set global Logs Server log file, change take effect immediately without server restart
+metrics-server-log-file: metrics_server.log # Set global Metrics Server log file, change take effect immediately without server restart
 mask-sensitive-data: true # Mask sensitive data in logs (default: true). Set to false for debugging (NOT recommended in production)
+
+# Metrics Server Configuration (requires ENABLE_METRICS_SERVER=true environment variable)
+# Provides PostgreSQL-based historical analytics and AI-powered natural language queries
+metrics-database:
+  host: localhost  # PostgreSQL server hostname
+  port: 5432  # PostgreSQL server port
+  database: webhook_metrics  # Database name for metrics
+  username: webhook_user  # Database username
+  password: <DATABASE_PASSWORD>  # Database password
+  pool-size: 20  # Connection pool size (default: 20)
+
+metrics-redis:
+  host: localhost  # Redis server hostname (default: localhost)
+  port: 6379  # Redis server port (default: 6379)
+  password: <REDIS_PASSWORD>  # Redis password (optional, leave blank if no auth)
+  cache-ttl: 300  # Cache TTL in seconds (default: 300 = 5 minutes)
+
+# AI Query Configuration (optional - enables natural language queries in dashboard)
+gemini-api-key: <GEMINI_API_KEY>  # Google Gemini API key for AI queries
+ai-query-enabled: true  # Enable AI-powered queries (default: false)
 
 # Server configuration
 disable-ssl-warnings: true # Disable SSL warnings (useful in production to reduce log noise from SSL certificate issues)

@@ -92,6 +92,13 @@ repository = "https://github.com/myakove/github-webhook-server"
 
 [project.optional-dependencies]
 tests = ["pytest-asyncio>=0.26.0", "pytest-xdist>=3.7.0"]
+metrics = [
+  "asyncpg>=0.29.0",
+  "redis>=5.0.0",
+  "alembic>=1.13.0",
+  "sqlalchemy[asyncio]>=2.0.0",
+]
+ai = ["google-generativeai>=0.8.0"]
 
 [build-system]
 requires = ["hatchling"]
