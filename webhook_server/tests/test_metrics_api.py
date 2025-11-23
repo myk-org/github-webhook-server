@@ -28,10 +28,30 @@ def enable_metrics_server(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def setup_db_manager(mock_db_manager: Mock, monkeypatch: pytest.MonkeyPatch) -> Mock:
-    """Set up global db_manager for metrics endpoints."""
-    import webhook_server.app
+    """Set up global db_manager for metrics endpoints.
 
+    This fixture prevents the app lifespan from constructing a real DatabaseManager
+    by monkeypatching the DatabaseManager class to return the mock, ensuring that
+    any DatabaseManager() instantiation during startup uses the mock and its
+    connect()/disconnect() are no-ops.
+    """
+    import webhook_server.app
+    from webhook_server.libs.database import DatabaseManager
+
+    # Monkeypatch DatabaseManager class to return the mock when instantiated
+    # This prevents lifespan from creating a real DB connection at line 260
+    def mock_db_manager_constructor(*args, **kwargs):  # noqa: ARG001
+        return mock_db_manager
+
+    monkeypatch.setattr(DatabaseManager, "__new__", lambda cls, *args, **kwargs: mock_db_manager_constructor())
+
+    # Also set the global db_manager for request handling
     monkeypatch.setattr(webhook_server.app, "db_manager", mock_db_manager)
+
+    # Mock connect/disconnect to prevent real DB operations during lifespan
+    mock_db_manager.connect = AsyncMock(return_value=None)
+    mock_db_manager.disconnect = AsyncMock(return_value=None)
+
     return mock_db_manager
 
 
@@ -249,7 +269,7 @@ class TestGetWebhookEventsEndpoint(TestMetricsAPIEndpoints):
                 "action": "opened",
                 "pr_number": 99,
                 "sender": "user1",
-                "status": "failure",
+                "status": "error",
                 "created_at": now,
                 "processed_at": now,
                 "duration_ms": 5000,
@@ -260,12 +280,16 @@ class TestGetWebhookEventsEndpoint(TestMetricsAPIEndpoints):
             }
         ]
 
-        response = client.get("/api/metrics/webhooks?event_status=failure")
+        response = client.get("/api/metrics/webhooks?status=error")
 
         assert response.status_code == 200
         data = response.json()
-        assert data["events"][0]["status"] == "failure"
+        assert data["events"][0]["status"] == "error"
         assert data["events"][0]["error_message"] == "Connection timeout"
+
+        # Verify DB queries were executed (fetchval for count, fetch for results)
+        setup_db_manager.fetchval.assert_called_once()
+        setup_db_manager.fetch.assert_called_once()
 
     def test_get_webhook_events_with_time_filters(
         self,

@@ -63,7 +63,7 @@ class Webhook(Base):
     Stores complete webhook payload and processing metrics including:
     - Event metadata (delivery ID, repository, event type, action)
     - Processing metrics (duration, API calls, token usage)
-    - Status tracking (success, failure, partial)
+    - Status tracking (success, error, partial)
 
     Indexes:
     - delivery_id (unique): Fast lookup by GitHub delivery ID
@@ -147,7 +147,7 @@ class Webhook(Base):
     status: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
-        comment="Processing status: success, failure, partial",
+        comment="Processing status: success, error, partial",
     )
     error_message: Mapped[str | None] = mapped_column(
         Text,

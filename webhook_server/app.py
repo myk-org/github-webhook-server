@@ -542,21 +542,21 @@ async def process_webhook(request: Request) -> JSONResponse:
 
             # Track failed webhook event (best-effort)
             # Note: No API metrics available - error happened before GithubWebhook processing
-            await track_metrics_safe(status="error", error_message=str(ex))
+            await track_metrics_safe(status="error", error_message=str(ex), metrics_available=False)
         except (httpx.ConnectError, httpx.RequestError, requests.exceptions.ConnectionError) as ex:
             # Network/connection errors - can be transient
             _logger.exception(f"{_log_context} API connection error - check network connectivity")
 
             # Track failed webhook event (best-effort)
             # Note: No API metrics available - error happened during GithubWebhook processing
-            await track_metrics_safe(status="error", error_message=str(ex))
+            await track_metrics_safe(status="error", error_message=str(ex), metrics_available=False)
         except Exception as ex:
             # Catch-all for unexpected errors
             _logger.exception(f"{_log_context} Unexpected error in background webhook processing")
 
             # Track failed webhook event (best-effort)
             # Note: No API metrics available - error happened during GithubWebhook processing
-            await track_metrics_safe(status="error", error_message=str(ex))
+            await track_metrics_safe(status="error", error_message=str(ex), metrics_available=False)
 
     # Start background task immediately using asyncio.create_task
     # This ensures the HTTP response is sent immediately without waiting
