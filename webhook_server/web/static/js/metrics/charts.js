@@ -284,6 +284,7 @@ function createEventDistributionChart(canvasId) {
                     lineWidth: 2,
                     hidden: false,
                     index: i,
+                    fontColor: theme.textColor,  // Add theme-specific text color
                   };
                 });
               }
