@@ -2264,7 +2264,11 @@ async def get_metrics_summary(
         "max_processing_time_ms": 52134,
         "total_api_calls": 104940,
         "avg_api_calls_per_event": 12.0,
-        "total_token_spend": 104940
+        "total_token_spend": 104940,
+        "total_events_trend": 15.3,
+        "success_rate_trend": 2.1,
+        "failed_events_trend": -8.5,
+        "avg_duration_trend": -12.4
       },
       "top_repositories": [
         {
@@ -2306,10 +2310,22 @@ async def get_metrics_summary(
     - `total_api_calls`: Total GitHub API calls made across all events
     - `avg_api_calls_per_event`: Average API calls per webhook event
     - `total_token_spend`: Total rate limit tokens consumed
+    - `total_events_trend`: Percentage change in total events vs previous period (e.g., 15.3 = 15.3% increase)
+    - `success_rate_trend`: Percentage change in success rate vs previous period
+    - `failed_events_trend`: Percentage change in failed events vs previous period (negative = improvement)
+    - `avg_duration_trend`: Percentage change in avg processing time vs previous period (negative = faster)
     - `top_repositories`: Top 10 repositories by event volume
     - `event_type_distribution`: Event count breakdown by type
     - `hourly_event_rate`: Average events per hour in time range
     - `daily_event_rate`: Average events per day in time range
+
+    **Trend Calculation:**
+    - Trends compare current period to previous period of equal duration
+    - Example: If querying last 24 hours, trends compare to 24 hours before that
+    - Trend = ((current - previous) / previous) * 100
+    - Returns 0.0 if no previous data or both periods have no events
+    - Returns 100.0 if previous period had 0 but current period has data
+    - Negative trends for duration metrics indicate performance improvement
 
     **Common Analysis Scenarios:**
     - Daily summary: `start_time=<today>&end_time=<now>`
@@ -2334,6 +2350,24 @@ async def get_metrics_summary(
     - Large date ranges may increase query time
     - Consider caching for frequently accessed time ranges
     """
+
+    # Helper function to calculate percentage change trends
+    def calculate_trend(current: float, previous: float) -> float:
+        """Calculate percentage change from previous to current.
+
+        Args:
+            current: Current period value
+            previous: Previous period value
+
+        Returns:
+            Percentage change rounded to 1 decimal place
+            - Returns 0.0 if both values are 0
+            - Returns 100.0 if previous is 0 but current is not
+        """
+        if previous == 0:
+            return 0.0 if current == 0 else 100.0
+        return round(((current - previous) / previous) * 100, 1)
+
     # Validate database manager is available
     if db_manager is None:
         LOGGER.error("Database manager not initialized - metrics server may not be properly configured")
@@ -2346,7 +2380,16 @@ async def get_metrics_summary(
     start_datetime = parse_datetime_string(start_time, "start_time")
     end_datetime = parse_datetime_string(end_time, "end_time")
 
-    # Build query with time filters
+    # Calculate previous period for trend comparison
+    prev_start_datetime = None
+    prev_end_datetime = None
+    if start_datetime and end_datetime:
+        # Previous period has same duration as current period
+        period_duration = end_datetime - start_datetime
+        prev_start_datetime = start_datetime - period_duration
+        prev_end_datetime = end_datetime - period_duration
+
+    # Build query with time filters for current period
     where_clause = "WHERE 1=1"
     params: list[Any] = []
     param_idx = 1
@@ -2360,6 +2403,21 @@ async def get_metrics_summary(
         where_clause += f" AND created_at <= ${param_idx}"
         params.append(end_datetime)
         param_idx += 1
+
+    # Build query with time filters for previous period
+    prev_where_clause = "WHERE 1=1"
+    prev_params: list[Any] = []
+    prev_param_idx = 1
+
+    if prev_start_datetime:
+        prev_where_clause += f" AND created_at >= ${prev_param_idx}"
+        prev_params.append(prev_start_datetime)
+        prev_param_idx += 1
+
+    if prev_end_datetime:
+        prev_where_clause += f" AND created_at <= ${prev_param_idx}"
+        prev_params.append(prev_end_datetime)
+        prev_param_idx += 1
 
     # Main summary query
     # noqa: S608  # Safe: where_clause is parameterized, no direct user input concatenation
@@ -2422,6 +2480,22 @@ async def get_metrics_summary(
         {where_clause}
     """
 
+    # Previous period summary query for trend calculation
+    # noqa: S608  # Safe: prev_where_clause is parameterized, no direct user input concatenation
+    prev_summary_query = f"""
+        SELECT
+            COUNT(*) as total_events,
+            COUNT(*) FILTER (WHERE status = 'success') as successful_events,
+            COUNT(*) FILTER (WHERE status IN ('error', 'partial')) as failed_events,
+            ROUND(
+                (COUNT(*) FILTER (WHERE status = 'success')::numeric / NULLIF(COUNT(*), 0)::numeric * 100)::numeric,
+                2
+            ) as success_rate,
+            ROUND(AVG(duration_ms)) as avg_processing_time_ms
+        FROM webhooks
+        {prev_where_clause}
+    """
+
     try:
         # Execute queries using DatabaseManager helpers
         summary_row = await db_manager.fetchrow(summary_query, *params)
@@ -2429,16 +2503,25 @@ async def get_metrics_summary(
         event_type_rows = await db_manager.fetch(event_type_query, *params)
         time_range_row = await db_manager.fetchrow(time_range_query, *params)
 
+        # Execute previous period query if time range is specified
+        prev_summary_row = None
+        if prev_start_datetime and prev_end_datetime:
+            prev_summary_row = await db_manager.fetchrow(prev_summary_query, *prev_params)
+
         # Process summary metrics
         total_events = summary_row["total_events"] or 0
+        current_success_rate = float(summary_row["success_rate"]) if summary_row["success_rate"] is not None else 0.0
+        current_failed_events = summary_row["failed_events"] or 0
+        current_avg_duration = (
+            int(summary_row["avg_processing_time_ms"]) if summary_row["avg_processing_time_ms"] is not None else 0
+        )
+
         summary = {
             "total_events": total_events,
             "successful_events": summary_row["successful_events"] or 0,
-            "failed_events": summary_row["failed_events"] or 0,
-            "success_rate": float(summary_row["success_rate"]) if summary_row["success_rate"] is not None else 0.0,
-            "avg_processing_time_ms": int(summary_row["avg_processing_time_ms"])
-            if summary_row["avg_processing_time_ms"] is not None
-            else 0,
+            "failed_events": current_failed_events,
+            "success_rate": current_success_rate,
+            "avg_processing_time_ms": current_avg_duration,
             "median_processing_time_ms": int(summary_row["median_processing_time_ms"])
             if summary_row["median_processing_time_ms"] is not None
             else 0,
@@ -2452,6 +2535,30 @@ async def get_metrics_summary(
             else 0.0,
             "total_token_spend": summary_row["total_token_spend"] or 0,
         }
+
+        # Calculate and add trend fields if previous period data is available
+        if prev_summary_row:
+            prev_total_events = prev_summary_row["total_events"] or 0
+            prev_success_rate = (
+                float(prev_summary_row["success_rate"]) if prev_summary_row["success_rate"] is not None else 0.0
+            )
+            prev_failed_events = prev_summary_row["failed_events"] or 0
+            prev_avg_duration = (
+                int(prev_summary_row["avg_processing_time_ms"])
+                if prev_summary_row["avg_processing_time_ms"] is not None
+                else 0
+            )
+
+            summary["total_events_trend"] = calculate_trend(float(total_events), float(prev_total_events))
+            summary["success_rate_trend"] = calculate_trend(current_success_rate, prev_success_rate)
+            summary["failed_events_trend"] = calculate_trend(float(current_failed_events), float(prev_failed_events))
+            summary["avg_duration_trend"] = calculate_trend(float(current_avg_duration), float(prev_avg_duration))
+        else:
+            # No previous period data - set trends to 0.0
+            summary["total_events_trend"] = 0.0
+            summary["success_rate_trend"] = 0.0
+            summary["failed_events_trend"] = 0.0
+            summary["avg_duration_trend"] = 0.0
 
         # Process top repositories
         top_repositories = [
