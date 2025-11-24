@@ -2,140 +2,18 @@
  * Metrics Dashboard - Main JavaScript Controller
  *
  * This module handles:
- * - WebSocket connection for real-time metrics updates
  * - Initial data loading via REST API
  * - KPI card updates
  * - Chart updates via charts.js
  * - Theme management (dark/light mode)
  * - Time range filtering
+ * - Manual refresh
  */
-
-// WebSocket Client Class with Auto-Reconnect
-class MetricsWebSocketClient {
-    /**
-     * Create a WebSocket client with auto-reconnect capability.
-     *
-     * @param {string} url - WebSocket URL (ws:// or wss://)
-     * @param {Object} options - Configuration options
-     * @param {Function} options.onUpdate - Callback for data updates
-     * @param {Function} options.onConnectionChange - Callback for connection status changes
-     */
-    constructor(url, options = {}) {
-        this.url = url;
-        this.reconnectDelay = 1000;  // Start with 1 second
-        this.maxReconnectDelay = 30000;  // Max 30 seconds
-        this.onUpdate = options.onUpdate || (() => {});
-        this.onConnectionChange = options.onConnectionChange || (() => {});
-        this.ws = null;
-        this.isManualDisconnect = false;
-        this.reconnectTimer = null;
-
-        this.connect();
-    }
-
-    /**
-     * Establish WebSocket connection with error handling.
-     */
-    connect() {
-        try {
-            console.log(`[WebSocket] Connecting to ${this.url}`);
-            this.ws = new WebSocket(this.url);
-
-            this.ws.onopen = () => {
-                console.log('[WebSocket] Connected successfully');
-                this.reconnectDelay = 1000;  // Reset backoff on successful connection
-                this.onConnectionChange(true);
-            };
-
-            this.ws.onmessage = (event) => {
-                try {
-                    const data = JSON.parse(event.data);
-                    console.log('[WebSocket] Received update:', data);
-                    this.onUpdate(data);
-                } catch (error) {
-                    console.error('[WebSocket] Error parsing message:', error);
-                }
-            };
-
-            this.ws.onclose = (event) => {
-                console.log(`[WebSocket] Disconnected (code: ${event.code}, reason: ${event.reason})`);
-                this.onConnectionChange(false);
-
-                // Only attempt reconnection if not manually disconnected
-                if (!this.isManualDisconnect) {
-                    this.scheduleReconnect();
-                }
-            };
-
-            this.ws.onerror = (error) => {
-                console.error('[WebSocket] Error:', error);
-                // Connection will close, triggering onclose which handles reconnection
-            };
-
-        } catch (error) {
-            console.error('[WebSocket] Error creating WebSocket:', error);
-            this.scheduleReconnect();
-        }
-    }
-
-    /**
-     * Schedule reconnection with exponential backoff.
-     */
-    scheduleReconnect() {
-        if (this.reconnectTimer) {
-            clearTimeout(this.reconnectTimer);
-        }
-
-        console.log(`[WebSocket] Reconnecting in ${this.reconnectDelay}ms...`);
-
-        this.reconnectTimer = setTimeout(() => {
-            this.connect();
-        }, this.reconnectDelay);
-
-        // Exponential backoff: double the delay, up to max
-        this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
-    }
-
-    /**
-     * Manually disconnect WebSocket (prevents auto-reconnect).
-     */
-    disconnect() {
-        console.log('[WebSocket] Manually disconnecting');
-        this.isManualDisconnect = true;
-
-        if (this.reconnectTimer) {
-            clearTimeout(this.reconnectTimer);
-            this.reconnectTimer = null;
-        }
-
-        if (this.ws) {
-            this.ws.close();
-            this.ws = null;
-        }
-    }
-
-    /**
-     * Send message to server via WebSocket.
-     *
-     * @param {Object} message - Message to send (will be JSON stringified)
-     * @returns {boolean} True if sent successfully, false otherwise
-     */
-    send(message) {
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify(message));
-            return true;
-        }
-        console.warn('[WebSocket] Cannot send message - connection not open');
-        return false;
-    }
-}
-
 
 // Dashboard Controller
 class MetricsDashboard {
     constructor() {
-        this.wsClient = null;
-        this.apiClient = null;  // Will be initialized in init()
+        this.apiClient = null;  // Will be initialized in initialize()
         this.charts = {};  // Will hold Chart.js instances
         this.currentData = {
             summary: null,
@@ -143,21 +21,15 @@ class MetricsDashboard {
             repositories: null
         };
         this.timeRange = '24h';  // Default time range
-        this.autoRefresh = true;
 
-        // Debounced chart update function
-        this.debouncedUpdateCharts = window.MetricsUtils.debounce(() => {
-            this.updateCharts(this.currentData);
-        }, 500);
-
-        this.init();
+        this.initialize();
     }
 
     /**
-     * Initialize dashboard - load theme, data, WebSocket, charts.
+     * Initialize dashboard - load theme, data, and charts.
      */
-    async init() {
-        console.log('[Dashboard] Initializing...');
+    async initialize() {
+        console.log('[Dashboard] Initializing metrics dashboard');
 
         // 1. Initialize API client (from api-client.js loaded globally)
         this.apiClient = window.MetricsAPI?.apiClient;
@@ -167,13 +39,16 @@ class MetricsDashboard {
             return;
         }
 
-        // 2. Load and apply theme from localStorage
-        this.loadTheme();
+        // 2. Set ready status
+        this.updateConnectionStatus(true);
 
-        // 3. Set up event listeners
+        // 3. Initialize theme
+        this.initializeTheme();
+
+        // 4. Set up event listeners
         this.setupEventListeners();
 
-        // 4. Populate date inputs with default 24h range logic so they are not empty
+        // 5. Populate date inputs with default 24h range logic so they are not empty
         const { startTime, endTime } = this.getTimeRangeDates(this.timeRange);
         const startInput = document.getElementById('startTime');
         const endInput = document.getElementById('endTime');
@@ -189,20 +64,17 @@ class MetricsDashboard {
             endInput.value = formatForInput(endTime);
         }
 
-        // 5. Show loading state
+        // 6. Show loading state
         this.showLoading(true);
 
         try {
-            // 6. Load initial data via REST API
+            // 7. Load initial data via REST API
             await this.loadInitialData();
 
-            // 7. Initialize charts (calls functions from charts.js)
+            // 8. Initialize charts (calls functions from charts.js)
             this.initializeCharts();
 
-            // 8. Initialize WebSocket connection for real-time updates
-            this.initWebSocket();
-
-            console.log('[Dashboard] Initialization complete');
+            console.log('[Dashboard] Dashboard initialization complete');
         } catch (error) {
             console.error('[Dashboard] Initialization error:', error);
             this.showError('Failed to load dashboard data. Please refresh the page.');
@@ -322,135 +194,6 @@ class MetricsDashboard {
         };
     }
 
-    /**
-     * Initialize WebSocket connection for real-time updates.
-     */
-    initWebSocket() {
-        console.log('[Dashboard] Initializing WebSocket...');
-
-        // Construct WebSocket URL
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const host = window.location.host;
-        const wsUrl = `${protocol}//${host}/metrics/ws`;
-
-        // Create WebSocket client
-        this.wsClient = new MetricsWebSocketClient(wsUrl, {
-            onUpdate: (data) => this.handleWebSocketUpdate(data),
-            onConnectionChange: (connected) => this.updateConnectionStatus(connected)
-        });
-    }
-
-    /**
-     * Handle WebSocket update message.
-     *
-     * @param {Object} data - Update data from server
-     */
-    handleWebSocketUpdate(data) {
-        console.log('[Dashboard] WebSocket update received:', data);
-
-        if (!data || !data.type) {
-            console.warn('[Dashboard] Invalid WebSocket message format');
-            return;
-        }
-
-        switch (data.type) {
-            case 'metric_update':
-                this.handleMetricUpdate(data);
-                break;
-
-            case 'heartbeat':
-                // Server heartbeat - no action needed
-                console.debug('[Dashboard] Heartbeat received');
-                break;
-
-            default:
-                console.warn(`[Dashboard] Unknown message type: ${data.type}`);
-        }
-    }
-
-    /**
-     * Handle metric update from WebSocket.
-     *
-     * @param {Object} data - Metric update data
-     */
-    handleMetricUpdate(data) {
-        if (!data.data) {
-            console.warn('[Dashboard] Metric update missing data');
-            return;
-        }
-
-        const { event, summary_delta } = data.data;
-
-        // Update summary data with delta
-        if (summary_delta && this.currentData.summary) {
-            this.applyDeltaToSummary(summary_delta);
-            this.updateKPICards(this.currentData.summary?.summary || this.currentData.summary);
-        }
-
-        // Add new event to webhooks data
-        if (event && this.currentData.webhooks) {
-            this.addEventToWebhooks(event);
-        }
-
-        // Update charts with new data
-        this.debouncedUpdateCharts();
-
-        // Show brief notification
-        this.showUpdateNotification();
-    }
-
-    /**
-     * Apply delta changes to summary data.
-     *
-     * @param {Object} delta - Summary delta from server
-     */
-    applyDeltaToSummary(delta) {
-        if (!this.currentData.summary) {
-            return;
-        }
-
-        const summary = this.currentData.summary;
-
-        // Apply delta to totals
-        if (delta.total_events !== undefined) {
-            summary.total_events = (summary.total_events || 0) + delta.total_events;
-        }
-        if (delta.successful_events !== undefined) {
-            summary.successful_events = (summary.successful_events || 0) + delta.successful_events;
-        }
-        if (delta.failed_events !== undefined) {
-            summary.failed_events = (summary.failed_events || 0) + delta.failed_events;
-        }
-
-        // Recalculate success rate
-        if (summary.total_events > 0) {
-            summary.success_rate = (summary.successful_events / summary.total_events) * 100;
-        }
-
-        console.log('[Dashboard] Summary updated with delta:', summary);
-    }
-
-    /**
-     * Add new event to webhooks data.
-     *
-     * @param {Object} event - New webhook event
-     */
-    addEventToWebhooks(event) {
-        // Ensure webhooks is always an array
-        if (!Array.isArray(this.currentData.webhooks)) {
-            this.currentData.webhooks = [];
-        }
-
-        // Prepend new event to list
-        this.currentData.webhooks.unshift(event);
-
-        // Keep only latest 100 events in memory
-        if (this.currentData.webhooks.length > 100) {
-            this.currentData.webhooks = this.currentData.webhooks.slice(0, 100);
-        }
-
-        console.log('[Dashboard] Event added to webhooks:', event);
-    }
 
     /**
      * Update KPI cards with new data.
@@ -597,9 +340,8 @@ class MetricsDashboard {
             }
 
             // Update Event Distribution Chart (pie chart)
-            if (this.charts.eventDistribution) {
-                // Try both locations for event_type_distribution
-                const eventDist = summary?.event_type_distribution || data.summary?.event_type_distribution;
+            if (this.charts.eventDistribution && summary) {
+                const eventDist = summary.event_type_distribution || {};
 
                 if (eventDist && Object.keys(eventDist).length > 0) {
                     const distData = {
@@ -607,6 +349,7 @@ class MetricsDashboard {
                         values: Object.values(eventDist)
                     };
                     window.MetricsCharts.updateEventDistributionChart(this.charts.eventDistribution, distData);
+                    console.log('[Dashboard] Event distribution chart updated');
                 } else {
                     console.warn('[Dashboard] No event type distribution data available');
                 }
@@ -671,31 +414,31 @@ class MetricsDashboard {
     /**
      * Update repository table with new data.
      *
-     * @param {Object} repositories - Repository data
+     * @param {Object} reposData - Repository data ({repositories: [...]})
      */
-    updateRepositoryTable(repositories) {
+    updateRepositoryTable(reposData) {
         const tableBody = document.getElementById('repository-table-body');
         if (!tableBody) {
             console.warn('[Dashboard] Repository table body not found');
             return;
         }
 
-        if (!repositories || !repositories.repositories || repositories.repositories.length === 0) {
+        // Handle both {repositories: [...]} and direct array
+        const repositories = reposData.repositories || reposData;
+
+        if (!repositories || !Array.isArray(repositories) || repositories.length === 0) {
             tableBody.innerHTML = '<tr><td colspan="3" style="text-align: center;">No repository data available</td></tr>';
             return;
         }
 
-        // Calculate total events for percentage
-        const totalEvents = repositories.repositories.reduce((sum, repo) => sum + (repo.total_events || 0), 0);
-
-        // Generate table rows
-        const rows = repositories.repositories.slice(0, 5).map(repo => {
-            const percentage = totalEvents > 0 ? ((repo.total_events / totalEvents) * 100).toFixed(1) : '0.0';
+        // Generate table rows - show success_rate as percentage
+        const rows = repositories.slice(0, 5).map(repo => {
+            const percentage = repo.success_rate || 0; // Already a percentage from API
             return `
                 <tr>
                     <td>${this.escapeHtml(repo.repository || 'Unknown')}</td>
                     <td>${repo.total_events || 0}</td>
-                    <td>${percentage}%</td>
+                    <td>${percentage.toFixed(1)}%</td>
                 </tr>
             `;
         }).join('');
@@ -853,15 +596,6 @@ class MetricsDashboard {
             endTimeInput.addEventListener('change', handleCustomDateChange);
         }
 
-        // Auto-refresh toggle
-        const autoRefreshToggle = document.getElementById('auto-refresh-toggle');
-        if (autoRefreshToggle) {
-            autoRefreshToggle.addEventListener('change', (e) => {
-                this.autoRefresh = e.target.checked;
-                console.log(`[Dashboard] Auto-refresh ${this.autoRefresh ? 'enabled' : 'disabled'}`);
-            });
-        }
-
         // Manual refresh button
         const refreshButton = document.getElementById('refresh-button');
         if (refreshButton) {
@@ -872,12 +606,12 @@ class MetricsDashboard {
     }
 
     /**
-     * Load theme from localStorage and apply it.
+     * Initialize theme from localStorage and apply it.
      */
-    loadTheme() {
+    initializeTheme() {
         const savedTheme = localStorage.getItem('theme') || 'light';
         document.documentElement.setAttribute('data-theme', savedTheme);
-        console.log(`[Dashboard] Theme loaded: ${savedTheme}`);
+        console.log(`[Dashboard] Theme initialized: ${savedTheme}`);
     }
 
     /**
@@ -963,9 +697,9 @@ class MetricsDashboard {
     /**
      * Update connection status indicator.
      *
-     * @param {boolean} connected - WebSocket connection status
+     * @param {boolean} ready - Dashboard ready status
      */
-    updateConnectionStatus(connected) {
+    updateConnectionStatus(ready) {
         const statusElement = document.getElementById('connection-status');
         const statusText = document.getElementById('statusText');
 
@@ -973,15 +707,15 @@ class MetricsDashboard {
             return;
         }
 
-        if (connected) {
+        if (ready) {
             statusElement.className = 'status connected';
-            statusText.textContent = 'Connected - Real-time updates active';
+            statusText.textContent = 'Ready';
         } else {
             statusElement.className = 'status disconnected';
-            statusText.textContent = 'Disconnected - Attempting to reconnect...';
+            statusText.textContent = 'Initializing...';
         }
 
-        console.log(`[Dashboard] Connection status: ${connected ? 'connected' : 'disconnected'}`);
+        console.log(`[Dashboard] Status: ${ready ? 'Ready' : 'Initializing'}`);
     }
 
     /**
@@ -1005,21 +739,6 @@ class MetricsDashboard {
         console.error(`[Dashboard] Error: ${message}`);
         // Could implement toast notification here
         alert(message);
-    }
-
-    /**
-     * Show brief update notification.
-     */
-    showUpdateNotification() {
-        const notification = document.getElementById('update-notification');
-        if (!notification) {
-            return;
-        }
-
-        notification.style.display = 'block';
-        setTimeout(() => {
-            notification.style.display = 'none';
-        }, 2000);
     }
 
     /**
@@ -1112,11 +831,6 @@ class MetricsDashboard {
     destroy() {
         console.log('[Dashboard] Destroying dashboard...');
 
-        // Disconnect WebSocket
-        if (this.wsClient) {
-            this.wsClient.disconnect();
-        }
-
         // Destroy charts
         Object.values(this.charts).forEach(chart => {
             if (chart && typeof chart.destroy === 'function') {
@@ -1125,6 +839,18 @@ class MetricsDashboard {
         });
 
         console.log('[Dashboard] Dashboard destroyed');
+    }
+
+    /**
+     * Escape HTML to prevent XSS.
+     *
+     * @param {string} text - Text to escape
+     * @returns {string} Escaped text
+     */
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
 }
 
