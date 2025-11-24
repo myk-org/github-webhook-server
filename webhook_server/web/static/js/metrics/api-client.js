@@ -2,7 +2,7 @@
  * Metrics API Client - REST API Wrapper for GitHub Webhook Metrics
  *
  * This module provides a centralized, production-ready client for all metrics API endpoints
- * with comprehensive error handling, timeout management, and retry logic.
+ * with comprehensive error handling and timeout management.
  *
  * Features:
  * - Automatic timeout handling with AbortController
@@ -292,6 +292,7 @@ class MetricsAPIClient {
     /**
      * Cancel an active request by its request ID.
      *
+     * NOTE: Reserved for future use - not currently used in the codebase.
      * Useful for cancelling long-running requests when user navigates away
      * or changes filters quickly.
      *

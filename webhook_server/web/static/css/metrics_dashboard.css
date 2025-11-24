@@ -114,13 +114,15 @@ h3 {
 
 /* Container */
 .container {
-  max-width: 98vw;
+  max-width: calc(100% - 40px); /* More flexible for mobile */
+  width: 100%;
   margin: 0 auto;
   background: var(--container-bg); /* Changed to container-bg to match Log Viewer container style */
   padding: 20px; /* Added padding to match Log Viewer */
   border-radius: 8px; /* Added border radius */
   box-shadow: var(--card-shadow); /* Added shadow */
   transition: background-color 0.3s ease;
+  box-sizing: border-box; /* Ensures padding is included in width calculation */
 }
 
 /* Header */
@@ -524,7 +526,7 @@ tbody td {
   .kpi-grid {
     grid-template-columns: 1fr;
   }
-  .control-row {
+  .controls-row {
     flex-direction: column;
     align-items: stretch;
     gap: 15px;

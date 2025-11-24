@@ -266,6 +266,7 @@ class MetricsDashboardController:
         where_clause = "WHERE " + " AND ".join(where_conditions) if where_conditions else ""
 
         # Query for new events (newest first, limit to 100 per poll)
+        # noqa: S608  # Safe: all user inputs passed as bind parameters
         query = f"""
             SELECT
                 delivery_id,

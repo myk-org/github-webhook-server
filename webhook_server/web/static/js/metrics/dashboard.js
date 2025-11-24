@@ -257,7 +257,7 @@ class MetricsDashboard {
             // Store data
             this.currentData = {
                 summary: summaryData.summary || summaryData,
-                webhooks: webhooksData.events || [],
+                webhooks: webhooksData.events || webhooksData || [],
                 repositories: reposData.repositories || [],
                 trends: trendsData.trends || [],
                 contributors: contributorsData  // Add contributors data
@@ -436,16 +436,17 @@ class MetricsDashboard {
      * @param {Object} event - New webhook event
      */
     addEventToWebhooks(event) {
-        if (!this.currentData.webhooks) {
-            this.currentData.webhooks = { events: [] };
+        // Ensure webhooks is always an array
+        if (!Array.isArray(this.currentData.webhooks)) {
+            this.currentData.webhooks = [];
         }
 
         // Prepend new event to list
-        this.currentData.webhooks.events.unshift(event);
+        this.currentData.webhooks.unshift(event);
 
         // Keep only latest 100 events in memory
-        if (this.currentData.webhooks.events.length > 100) {
-            this.currentData.webhooks.events = this.currentData.webhooks.events.slice(0, 100);
+        if (this.currentData.webhooks.length > 100) {
+            this.currentData.webhooks = this.currentData.webhooks.slice(0, 100);
         }
 
         console.log('[Dashboard] Event added to webhooks:', event);
@@ -485,7 +486,7 @@ class MetricsDashboard {
         // Average Duration
         const avgDuration = summary.avg_duration_ms ?? summary.avg_processing_time_ms ?? 0;
         this.updateKPICard('avg-duration', {
-            value: this.formatDuration(avgDuration),
+            value: window.MetricsUtils.formatDuration(avgDuration),
             trend: summary.avg_duration_trend ?? 0
         });
 
@@ -625,6 +626,9 @@ class MetricsDashboard {
             // Update Recent Events Table
             if (webhooks && Array.isArray(webhooks)) {
                 this.updateRecentEventsTable(webhooks);
+            } else if (webhooks && Array.isArray(webhooks.events)) {
+                // Backward compatibility for old data structure
+                this.updateRecentEventsTable(webhooks.events);
             }
 
             // Update Contributors Tables
@@ -928,7 +932,6 @@ class MetricsDashboard {
         this.showLoading(true);
         try {
             await this.loadInitialData();
-            this.updateCharts(this.currentData);
         } catch (error) {
             console.error('[Dashboard] Error changing time range:', error);
             this.showError('Failed to load data for selected time range');
@@ -1100,36 +1103,6 @@ class MetricsDashboard {
             labels: sorted.map(r => r.repository?.split('/')[1] || r.repository || 'Unknown'),
             values: sorted.map(r => r.total_api_calls || 0)
         };
-    }
-
-    /**
-     * Format duration in milliseconds to human-readable string.
-     *
-     * @param {number} ms - Duration in milliseconds
-     * @returns {string} Formatted duration
-     */
-    formatDuration(ms) {
-        if (ms < 1000) {
-            return `${ms}ms`;
-        } else if (ms < 60000) {
-            return `${(ms / 1000).toFixed(1)}s`;
-        } else {
-            const minutes = Math.floor(ms / 60000);
-            const seconds = ((ms % 60000) / 1000).toFixed(0);
-            return `${minutes}m ${seconds}s`;
-        }
-    }
-
-    /**
-     * Escape HTML to prevent XSS.
-     *
-     * @param {string} text - Text to escape
-     * @returns {string} Escaped text
-     */
-    escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
     }
 
     /**

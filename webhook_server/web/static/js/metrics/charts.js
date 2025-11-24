@@ -152,7 +152,7 @@ function createEventTrendsChart(canvasId) {
           display: true,
           position: 'top',
           labels: {
-            color: '#ffffff',  // Always white for dark theme (dashboard default)
+            color: theme.textColor,  // Use theme-specific text color
             padding: 15,
             font: {
               size: 13,
@@ -261,7 +261,7 @@ function createEventDistributionChart(canvasId) {
           display: true,
           position: 'bottom',
           labels: {
-            color: '#ffffff',  // Always white for dark theme (dashboard default)
+            color: theme.textColor,  // Use theme-specific text color
             padding: 12,
             font: {
               size: 12,
@@ -362,7 +362,7 @@ function createAPIUsageChart(canvasId) {
           display: true,
           position: 'top',
           labels: {
-            color: '#ffffff',  // Always white for dark theme (dashboard default)
+            color: theme.textColor,  // Use theme-specific text color
             padding: 15,
             font: {
               size: 13,

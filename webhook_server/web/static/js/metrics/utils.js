@@ -167,7 +167,7 @@ function formatNumber(num) {
 
 /**
  * Format number as percentage
- * @param {number} num - Number to format (0-100 or 0-1)
+ * @param {number} num - Number in percentage form (0-100, not 0-1)
  * @param {number} decimals - Number of decimal places
  * @returns {string} Formatted percentage (e.g., "96.32%")
  */

@@ -1459,6 +1459,7 @@ async def get_webhook_events(
     end_datetime = parse_datetime_string(end_time, "end_time")
 
     # Build query with filters
+    # noqa: S608  # Safe: dynamic parts are parameterized, no direct user input concatenation
     query = """
         SELECT
             delivery_id,
@@ -1813,6 +1814,7 @@ async def get_repository_statistics(
         params.append(end_datetime)
         param_idx += 1
 
+    # noqa: S608  # Safe: where_clause is parameterized, no direct user input concatenation
     query = f"""
         SELECT
             repository,
@@ -1906,7 +1908,9 @@ async def get_metrics_contributors(
         default=None, description="Start time in ISO 8601 format (e.g., 2024-01-01T00:00:00Z)"
     ),
     end_time: str | None = Query(default=None, description="End time in ISO 8601 format (e.g., 2024-01-31T23:59:59Z)"),
-    limit: int = Query(default=10, description="Maximum number of contributors to return per category"),
+    limit: int = Query(
+        default=10, ge=1, le=100, description="Maximum number of contributors to return per category (1-100)"
+    ),
 ) -> dict[str, Any]:
     """Get PR contributors statistics (owners, reviewers, approvers).
 
@@ -1987,6 +1991,7 @@ async def get_metrics_contributors(
         params.append(end_datetime)
 
     # Query PR Creators (from pull_request events with action='opened' or 'reopened')
+    # noqa: S608  # Safe: time_filter is parameterized, no direct user input concatenation
     pr_creators_query = f"""
         SELECT
             COALESCE(payload->'pull_request'->'user'->>'login', sender) as user,
@@ -2003,6 +2008,7 @@ async def get_metrics_contributors(
     """
 
     # Query PR Reviewers (from pull_request_review events)
+    # noqa: S608  # Safe: time_filter is parameterized, no direct user input concatenation
     pr_reviewers_query = f"""
         SELECT
             sender as user,
@@ -2018,6 +2024,7 @@ async def get_metrics_contributors(
     """
 
     # Query PR Approvers (from pull_request_review with state='approved')
+    # noqa: S608  # Safe: time_filter is parameterized, no direct user input concatenation
     pr_approvers_query = f"""
         SELECT
             sender as user,
@@ -2160,6 +2167,7 @@ async def get_metrics_trends(
     params.append(bucket)
     bucket_param_idx = param_idx
 
+    # noqa: S608  # Safe: where_clause is parameterized, bucket_param_idx used with $ parameter
     query = f"""
         SELECT
             date_trunc(${bucket_param_idx}, created_at) as bucket,
@@ -2349,6 +2357,7 @@ async def get_metrics_summary(
         param_idx += 1
 
     # Main summary query
+    # noqa: S608  # Safe: where_clause is parameterized, no direct user input concatenation
     summary_query = f"""
         SELECT
             COUNT(*) as total_events,
@@ -2370,6 +2379,7 @@ async def get_metrics_summary(
     """
 
     # Top repositories query
+    # noqa: S608  # Safe: where_clause is parameterized, no direct user input concatenation
     top_repos_query = f"""
         SELECT
             repository,
@@ -2386,6 +2396,7 @@ async def get_metrics_summary(
     """
 
     # Event type distribution query
+    # noqa: S608  # Safe: where_clause is parameterized, no direct user input concatenation
     event_type_query = f"""
         SELECT
             event_type,
@@ -2397,6 +2408,7 @@ async def get_metrics_summary(
     """
 
     # Time range for rate calculations
+    # noqa: S608  # Safe: where_clause is parameterized, no direct user input concatenation
     time_range_query = f"""
         SELECT
             MIN(created_at) as first_event_time,
