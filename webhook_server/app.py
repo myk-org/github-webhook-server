@@ -1978,16 +1978,17 @@ async def get_metrics_contributors(
     page: int = Query(default=1, ge=1, description="Page number (1-indexed)"),
     page_size: int = Query(default=10, ge=1, le=100, description="Items per page (1-100)"),
 ) -> dict[str, Any]:
-    """Get PR contributors statistics (owners, reviewers, approvers).
+    """Get PR contributors statistics (creators, reviewers, approvers, LGTM).
 
     Analyzes webhook payloads to extract contributor activity including PR creation,
-    code review, and approval metrics. Essential for understanding team contributions
+    code review, approval, and LGTM metrics. Essential for understanding team contributions
     and identifying active contributors.
 
     **Primary Use Cases:**
     - Track who is creating PRs and how many
     - Monitor code review participation
     - Identify approval patterns and bottlenecks
+    - Track LGTM activity separate from approvals
     - Measure team collaboration and engagement
     - Generate contributor leaderboards
 
@@ -2000,7 +2001,7 @@ async def get_metrics_contributors(
     - `page_size` (int, default=10): Items per page (1-100)
 
     **Pagination:**
-    - Each category (pr_creators, pr_reviewers, pr_approvers) includes pagination metadata
+    - Each category (pr_creators, pr_reviewers, pr_approvers, pr_lgtm) includes pagination metadata
     - `total`: Total number of contributors in this category
     - `total_pages`: Total number of pages
     - `has_next`: Whether there's a next page
@@ -2067,9 +2068,31 @@ async def get_metrics_contributors(
           "has_next": true,
           "has_prev": false
         }
+      },
+      "pr_lgtm": {
+        "data": [
+          {
+            "user": "alice-jones",
+            "total_lgtm": 42,
+            "prs_lgtm": 40
+          }
+        ],
+        "pagination": {
+          "total": 78,
+          "page": 1,
+          "page_size": 10,
+          "total_pages": 8,
+          "has_next": true,
+          "has_prev": false
+        }
       }
     }
     ```
+
+    **Notes:**
+    - PR Approvers: Tracks /approve commands (approved-<username> labels)
+    - PR LGTM: Tracks /lgtm commands (lgtm-<username> labels)
+    - LGTM is separate from approvals in this workflow
 
     **Errors:**
     - 500: Database connection error or metrics server disabled
@@ -2199,7 +2222,7 @@ async def get_metrics_contributors(
 
     # Query PR Approvers (from pull_request labeled events with 'approved-' prefix only)
     # Custom approval workflow: /approve comment triggers 'approved-<username>' label
-    # Note: LGTM is separate from approval - not counted here
+    # Note: LGTM is separate from approval - tracked separately
     # noqa: S608  # Safe: filters are parameterized, no direct user input concatenation
     pr_approvers_query = f"""
         SELECT
@@ -2218,6 +2241,39 @@ async def get_metrics_contributors(
         LIMIT ${page_size_param} OFFSET ${offset_param}
     """
 
+    # Count query for LGTM
+    # noqa: S608  # Safe: filters are parameterized
+    pr_lgtm_count_query = f"""
+        SELECT COUNT(DISTINCT SUBSTRING(payload->'label'->>'name' FROM 6)) as total
+        FROM webhooks
+        WHERE event_type = 'pull_request'
+          AND action = 'labeled'
+          AND payload->'label'->>'name' LIKE 'lgtm-%'
+          {time_filter}
+          {user_filter}
+          {repository_filter}
+    """
+
+    # Query LGTM (from pull_request labeled events with 'lgtm-' prefix)
+    # Custom LGTM workflow: /lgtm comment triggers 'lgtm-<username>' label
+    # noqa: S608  # Safe: filters are parameterized, no direct user input concatenation
+    pr_lgtm_query = f"""
+        SELECT
+            SUBSTRING(payload->'label'->>'name' FROM 6) as user,
+            COUNT(*) as total_lgtm,
+            COUNT(DISTINCT pr_number) as prs_lgtm
+        FROM webhooks
+        WHERE event_type = 'pull_request'
+          AND action = 'labeled'
+          AND payload->'label'->>'name' LIKE 'lgtm-%'
+          {time_filter}
+          {user_filter}
+          {repository_filter}
+        GROUP BY SUBSTRING(payload->'label'->>'name' FROM 6)
+        ORDER BY total_lgtm DESC
+        LIMIT ${page_size_param} OFFSET ${offset_param}
+    """
+
     try:
         # Execute all count queries in parallel (params without LIMIT/OFFSET)
         params_without_pagination = params[:-2]
@@ -2225,17 +2281,20 @@ async def get_metrics_contributors(
             pr_creators_total,
             pr_reviewers_total,
             pr_approvers_total,
+            pr_lgtm_total,
         ) = await asyncio.gather(
             db_manager.fetchval(pr_creators_count_query, *params_without_pagination),
             db_manager.fetchval(pr_reviewers_count_query, *params_without_pagination),
             db_manager.fetchval(pr_approvers_count_query, *params_without_pagination),
+            db_manager.fetchval(pr_lgtm_count_query, *params_without_pagination),
         )
 
         # Execute all data queries in parallel for better performance
-        pr_creators_rows, pr_reviewers_rows, pr_approvers_rows = await asyncio.gather(
+        pr_creators_rows, pr_reviewers_rows, pr_approvers_rows, pr_lgtm_rows = await asyncio.gather(
             db_manager.fetch(pr_creators_query, *params),
             db_manager.fetch(pr_reviewers_query, *params),
             db_manager.fetch(pr_approvers_query, *params),
+            db_manager.fetch(pr_lgtm_query, *params),
         )
 
         # Format PR creators
@@ -2272,10 +2331,21 @@ async def get_metrics_contributors(
             for row in pr_approvers_rows
         ]
 
+        # Format LGTM
+        pr_lgtm = [
+            {
+                "user": row["user"],
+                "total_lgtm": row["total_lgtm"],
+                "prs_lgtm": row["prs_lgtm"],
+            }
+            for row in pr_lgtm_rows
+        ]
+
         # Calculate pagination metadata for each category
         total_pages_creators = math.ceil(pr_creators_total / page_size) if pr_creators_total > 0 else 0
         total_pages_reviewers = math.ceil(pr_reviewers_total / page_size) if pr_reviewers_total > 0 else 0
         total_pages_approvers = math.ceil(pr_approvers_total / page_size) if pr_approvers_total > 0 else 0
+        total_pages_lgtm = math.ceil(pr_lgtm_total / page_size) if pr_lgtm_total > 0 else 0
 
         return {
             "time_range": {
@@ -2312,6 +2382,17 @@ async def get_metrics_contributors(
                     "page_size": page_size,
                     "total_pages": total_pages_approvers,
                     "has_next": page < total_pages_approvers,
+                    "has_prev": page > 1,
+                },
+            },
+            "pr_lgtm": {
+                "data": pr_lgtm,
+                "pagination": {
+                    "total": pr_lgtm_total,
+                    "page": page,
+                    "page_size": page_size,
+                    "total_pages": total_pages_lgtm,
+                    "has_next": page < total_pages_lgtm,
                     "has_prev": page > 1,
                 },
             },
