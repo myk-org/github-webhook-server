@@ -132,7 +132,8 @@ class MetricsDashboard {
                 webhooks: webhooksData.events || webhooksData || [],
                 repositories: reposData.repositories || [],
                 trends: trendsData.trends || [],
-                contributors: contributorsData  // Add contributors data
+                contributors: contributorsData,  // Add contributors data
+                eventTypeDistribution: summaryData.event_type_distribution || {}  // Store top-level event_type_distribution
             };
 
             console.log('[Dashboard] Initial data loaded:', this.currentData);
@@ -341,7 +342,7 @@ class MetricsDashboard {
 
             // Update Event Distribution Chart (pie chart)
             if (this.charts.eventDistribution && summary) {
-                const eventDist = summary.event_type_distribution || {};
+                const eventDist = data.eventTypeDistribution || summary.event_type_distribution || {};
 
                 if (eventDist && Object.keys(eventDist).length > 0) {
                     const distData = {
