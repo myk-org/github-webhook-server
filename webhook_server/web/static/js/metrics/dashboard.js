@@ -330,13 +330,28 @@ class MetricsDashboard {
                 if (trends && trends.length > 0) {
                     // Use aggregated trends data from API
                     trendsData = this.processTrendsData(trends);
+                    console.log('[Dashboard] Event Trends using API trends data:', {
+                        buckets: trends.length,
+                        totalFailed: trends.reduce((sum, t) => sum + t.failed_events, 0),
+                        totalSuccess: trends.reduce((sum, t) => sum + t.successful_events, 0)
+                    });
                 } else if (webhooks) {
                     // Fallback to calculating from webhooks list (less accurate)
                     trendsData = this.prepareEventTrendsData(webhooks);
+                    console.log('[Dashboard] Event Trends using fallback webhooks data:', {
+                        totalEvents: webhooks.length,
+                        errors: trendsData.errors.reduce((a, b) => a + b, 0),
+                        success: trendsData.success.reduce((a, b) => a + b, 0)
+                    });
                 }
 
                 if (trendsData) {
                     window.MetricsCharts.updateEventTrendsChart(this.charts.eventTrends, trendsData);
+                    console.log('[Dashboard] Event Trends chart data:', {
+                        totalErrors: trendsData.errors.reduce((a, b) => a + b, 0),
+                        totalSuccess: trendsData.success.reduce((a, b) => a + b, 0),
+                        totalTotal: trendsData.total.reduce((a, b) => a + b, 0)
+                    });
                 }
             }
 
@@ -627,20 +642,11 @@ class MetricsDashboard {
 
         console.log(`[Dashboard] Theme changed to: ${newTheme}`);
 
-        // Recreate charts with new theme colors
-        if (this.currentData.summary) {
-            // Destroy existing charts
-            Object.values(this.charts).forEach(chart => {
-                if (chart && typeof chart.destroy === 'function') {
-                    chart.destroy();
-                }
-            });
-
-            // Clear charts object
-            this.charts = {};
-
-            // Recreate charts with new theme
-            this.initializeCharts();
+        // Update all chart themes with new colors (without destroying/recreating)
+        if (window.MetricsCharts && Object.keys(this.charts).length > 0) {
+            const isDark = newTheme === 'dark';
+            window.MetricsCharts.updateAllChartsTheme(this.charts, isDark);
+            console.log(`[Dashboard] All charts updated to ${newTheme} theme`);
         }
     }
 
