@@ -319,15 +319,30 @@ class MetricsDashboard {
             return;
         }
 
-        const summary = data.summary;
-        let webhooks = data.webhooks;
-        let repositories = data.repositories;
-        const trends = data.trends;
+        // Create working copy to avoid mutating original data
+        // This allows filter to be cleared and original data restored
+        const workingData = {
+            summary: { ...data.summary },
+            webhooks: data.webhooks,
+            repositories: data.repositories,
+            trends: data.trends,
+            contributors: data.contributors ? {
+                pr_creators: data.contributors.pr_creators,
+                pr_reviewers: data.contributors.pr_reviewers,
+                pr_approvers: data.contributors.pr_approvers
+            } : null,
+            eventTypeDistribution: data.eventTypeDistribution
+        };
+
+        const summary = workingData.summary;
+        let webhooks = workingData.webhooks;
+        let repositories = workingData.repositories;
+        const trends = workingData.trends;
 
         // Apply repository filter
         let filteredWebhooks = webhooks;
         let filteredRepositories = repositories;
-        let filteredContributors = data.contributors;
+        let filteredContributors = workingData.contributors;
         let filteredSummary = summary;
 
         if (this.repositoryFilter) {
@@ -341,11 +356,11 @@ class MetricsDashboard {
                 const eventType = event.event_type || 'unknown';
                 eventTypeCount[eventType] = (eventTypeCount[eventType] || 0) + 1;
             });
-            data.eventTypeDistribution = eventTypeCount;
+            workingData.eventTypeDistribution = eventTypeCount;
 
             // Filter contributors by repository
             // Extract repository from webhook events to find users active in this repo
-            if (data.contributors) {
+            if (workingData.contributors) {
                 const usersInRepo = new Set();
                 filteredWebhooks.forEach(event => {
                     const user = event.sender || event.user || (event.payload && (event.payload.sender || event.payload.user));
@@ -355,9 +370,9 @@ class MetricsDashboard {
                 });
 
                 filteredContributors = {
-                    pr_creators: (data.contributors.pr_creators || []).filter(c => usersInRepo.has(c.user)),
-                    pr_reviewers: (data.contributors.pr_reviewers || []).filter(c => usersInRepo.has(c.user)),
-                    pr_approvers: (data.contributors.pr_approvers || []).filter(c => usersInRepo.has(c.user))
+                    pr_creators: (workingData.contributors.pr_creators || []).filter(c => usersInRepo.has(c.user)),
+                    pr_reviewers: (workingData.contributors.pr_reviewers || []).filter(c => usersInRepo.has(c.user)),
+                    pr_approvers: (workingData.contributors.pr_approvers || []).filter(c => usersInRepo.has(c.user))
                 };
             }
 
@@ -382,7 +397,7 @@ class MetricsDashboard {
         webhooks = filteredWebhooks;
         repositories = filteredRepositories;
         if (filteredContributors) {
-            data.contributors = filteredContributors;
+            workingData.contributors = filteredContributors;
         }
 
         try {
@@ -429,7 +444,7 @@ class MetricsDashboard {
 
             // Update Event Distribution Chart (pie chart)
             if (this.charts.eventDistribution && summary) {
-                const eventDist = data.eventTypeDistribution || summary.event_type_distribution || {};
+                const eventDist = workingData.eventTypeDistribution || summary.event_type_distribution || {};
 
                 if (eventDist && Object.keys(eventDist).length > 0) {
                     const distData = {
@@ -463,8 +478,8 @@ class MetricsDashboard {
             }
 
             // Update Contributors Tables
-            if (data.contributors) {
-                this.updateContributorsTables(data.contributors);
+            if (workingData.contributors) {
+                this.updateContributorsTables(workingData.contributors);
             }
 
             console.log('[Dashboard] Charts updated');
