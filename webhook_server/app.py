@@ -2475,7 +2475,7 @@ async def get_user_pull_requests(
     try:
         # Execute count and data queries in parallel
         count_result, pr_rows = await asyncio.gather(
-            db_manager.fetch_one(count_query, *params),
+            db_manager.fetchrow(count_query, *params),
             db_manager.fetch(data_query, *params, page_size, offset),
         )
 

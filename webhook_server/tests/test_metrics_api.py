@@ -822,7 +822,7 @@ class TestUserPullRequestsEndpoint(TestMetricsAPIEndpoints):
     def test_get_user_prs_success(self, client: TestClient, setup_db_manager: Mock) -> None:
         """Test successful retrieval of user's pull requests."""
         # Mock database responses
-        setup_db_manager.fetch_one = AsyncMock(return_value={"total": 2})
+        setup_db_manager.fetchrow = AsyncMock(return_value={"total": 2})
         setup_db_manager.fetch = AsyncMock(
             return_value=[
                 {
@@ -882,7 +882,7 @@ class TestUserPullRequestsEndpoint(TestMetricsAPIEndpoints):
 
     def test_get_user_prs_with_repository_filter(self, client: TestClient, setup_db_manager: Mock) -> None:
         """Test filtering by repository."""
-        setup_db_manager.fetch_one = AsyncMock(return_value={"total": 1})
+        setup_db_manager.fetchrow = AsyncMock(return_value={"total": 1})
         setup_db_manager.fetch = AsyncMock(
             return_value=[
                 {
@@ -909,7 +909,7 @@ class TestUserPullRequestsEndpoint(TestMetricsAPIEndpoints):
 
     def test_get_user_prs_with_time_range(self, client: TestClient, setup_db_manager: Mock) -> None:
         """Test filtering by time range."""
-        setup_db_manager.fetch_one = AsyncMock(return_value={"total": 1})
+        setup_db_manager.fetchrow = AsyncMock(return_value={"total": 1})
         setup_db_manager.fetch = AsyncMock(return_value=[])
 
         start_time = "2024-11-01T00:00:00Z"
@@ -922,7 +922,7 @@ class TestUserPullRequestsEndpoint(TestMetricsAPIEndpoints):
     def test_get_user_prs_pagination(self, client: TestClient, setup_db_manager: Mock) -> None:
         """Test pagination with multiple pages."""
         # Total of 25 PRs, page size 10
-        setup_db_manager.fetch_one = AsyncMock(return_value={"total": 25})
+        setup_db_manager.fetchrow = AsyncMock(return_value={"total": 25})
         setup_db_manager.fetch = AsyncMock(return_value=[])
 
         # Test page 2
@@ -941,7 +941,7 @@ class TestUserPullRequestsEndpoint(TestMetricsAPIEndpoints):
 
     def test_get_user_prs_empty_result(self, client: TestClient, setup_db_manager: Mock) -> None:
         """Test endpoint with no matching PRs."""
-        setup_db_manager.fetch_one = AsyncMock(return_value={"total": 0})
+        setup_db_manager.fetchrow = AsyncMock(return_value={"total": 0})
         setup_db_manager.fetch = AsyncMock(return_value=[])
 
         response = client.get("/api/metrics/user-prs?user=nonexistent-user")
@@ -990,7 +990,7 @@ class TestUserPullRequestsEndpoint(TestMetricsAPIEndpoints):
 
     def test_get_user_prs_database_error(self, client: TestClient, setup_db_manager: Mock) -> None:
         """Test endpoint handles database errors gracefully."""
-        setup_db_manager.fetch_one = AsyncMock(side_effect=Exception("Database connection lost"))
+        setup_db_manager.fetchrow = AsyncMock(side_effect=Exception("Database connection lost"))
 
         response = client.get("/api/metrics/user-prs?user=john-doe")
 
@@ -999,7 +999,7 @@ class TestUserPullRequestsEndpoint(TestMetricsAPIEndpoints):
 
     def test_get_user_prs_null_commits_count(self, client: TestClient, setup_db_manager: Mock) -> None:
         """Test endpoint handles null commits_count gracefully."""
-        setup_db_manager.fetch_one = AsyncMock(return_value={"total": 1})
+        setup_db_manager.fetchrow = AsyncMock(return_value={"total": 1})
         setup_db_manager.fetch = AsyncMock(
             return_value=[
                 {
@@ -1035,7 +1035,7 @@ class TestUserPullRequestsEndpoint(TestMetricsAPIEndpoints):
 
     def test_get_user_prs_combined_filters(self, client: TestClient, setup_db_manager: Mock) -> None:
         """Test endpoint with all filters combined."""
-        setup_db_manager.fetch_one = AsyncMock(return_value={"total": 1})
+        setup_db_manager.fetchrow = AsyncMock(return_value={"total": 1})
         setup_db_manager.fetch = AsyncMock(return_value=[])
 
         response = client.get(
