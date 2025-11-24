@@ -2197,8 +2197,9 @@ async def get_metrics_contributors(
           {repository_filter}
     """
 
-    # Query PR Approvers (from pull_request labeled events with 'approved-' prefix)
+    # Query PR Approvers (from pull_request labeled events with 'approved-' prefix only)
     # Custom approval workflow: /approve comment triggers 'approved-<username>' label
+    # Note: LGTM is separate from approval - not counted here
     # noqa: S608  # Safe: filters are parameterized, no direct user input concatenation
     pr_approvers_query = f"""
         SELECT
