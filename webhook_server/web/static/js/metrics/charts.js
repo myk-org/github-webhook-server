@@ -191,8 +191,9 @@ function createEventTrendsChart(canvasId) {
           },
           ticks: {
             color: theme.textColor,
-            maxRotation: 45,
-            minRotation: 0,
+            maxRotation: 0,
+            autoSkip: true,
+            maxTicksLimit: 8,
           },
           border: {
             color: theme.borderColor,
@@ -394,8 +395,9 @@ function createAPIUsageChart(canvasId) {
           },
           ticks: {
             color: theme.textColor,
-            maxRotation: 45,
-            minRotation: 0,
+            maxRotation: 0,
+            autoSkip: true,
+            maxTicksLimit: 6,
           },
           border: {
             color: theme.borderColor,
