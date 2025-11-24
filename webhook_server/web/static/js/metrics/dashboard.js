@@ -1638,8 +1638,8 @@ class MetricsDashboard {
                 const mergedBadge = pr.merged ? '<span class="badge-merged">Merged</span>' : '';
 
                 return `
-                    <tr class="pr-row" data-pr-id="${pr.number}">
-                        <td>#${pr.number}</td>
+                    <tr class="pr-row" data-pr-id="${pr.pr_number}">
+                        <td>#${pr.pr_number}</td>
                         <td>${this.escapeHtml(pr.title)}</td>
                         <td>${this.escapeHtml(pr.repository)}</td>
                         <td><span class="${stateClass}">${pr.state}</span> ${mergedBadge}</td>
