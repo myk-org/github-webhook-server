@@ -112,8 +112,8 @@ class MetricsAPIClient {
      * @param {string} options.status - Filter by status ('success', 'error', 'partial')
      * @param {string} options.start_time - ISO 8601 start time filter
      * @param {string} options.end_time - ISO 8601 end time filter
-     * @param {number} options.limit - Maximum number of events to return (default: 100)
-     * @param {number} options.offset - Number of events to skip for pagination (default: 0)
+     * @param {number} options.page - Page number (1-indexed, default: 1)
+     * @param {number} options.page_size - Items per page (default: 10)
      * @returns {Promise<Object>} Webhook events data or error object
      *
      * Response format (success):
@@ -165,8 +165,8 @@ class MetricsAPIClient {
         if (options.end_time) params.end_time = options.end_time;
 
         // Add pagination parameters
-        if (options.limit !== undefined) params.limit = options.limit;
-        if (options.offset !== undefined) params.offset = options.offset;
+        if (options.page !== undefined) params.page = options.page;
+        if (options.page_size !== undefined) params.page_size = options.page_size;
 
         return await this._fetch('/webhooks', params);
     }
