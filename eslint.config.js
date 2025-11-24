@@ -4,7 +4,7 @@ module.exports = [
     files: ["webhook_server/web/static/**/*.js"],
     languageOptions: {
       ecmaVersion: 2022,
-      sourceType: "script",
+      sourceType: "module",
       globals: {
         // Browser environment globals
         window: "readonly",
@@ -23,6 +23,11 @@ module.exports = [
         clearInterval: "readonly",
         URLSearchParams: "readonly",
         AbortController: "readonly",
+        URL: "readonly",
+        // CommonJS globals for conditional exports
+        module: "readonly",
+        // Chart.js global
+        Chart: "readonly",
       },
     },
     rules: {

@@ -50,6 +50,7 @@ from webhook_server.utils.helpers import (
     prepare_log_prefix,
 )
 from webhook_server.web.log_viewer import LogViewerController
+from webhook_server.web.metrics_dashboard import MetricsDashboardController
 
 # Constants
 APP_URL_ROOT_PATH: str = "/webhook_server"
@@ -114,7 +115,7 @@ def require_metrics_server_enabled() -> None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     global _lifespan_http_client, ALLOWED_IPS, http_transport, mcp, db_manager
-    global metrics_tracker, _log_viewer_controller_singleton, _background_tasks
+    global metrics_tracker, _log_viewer_controller_singleton, _metrics_dashboard_controller_singleton, _background_tasks
     _lifespan_http_client = httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS)
 
     # Apply filter to MCP logger to suppress client disconnect noise
@@ -277,6 +278,11 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         if _log_viewer_controller_singleton is not None:
             await _log_viewer_controller_singleton.shutdown()
             LOGGER.debug("LogViewerController singleton shutdown complete")
+
+        # Shutdown MetricsDashboardController singleton and close WebSocket connections
+        if _metrics_dashboard_controller_singleton is not None:
+            await _metrics_dashboard_controller_singleton.shutdown()
+            LOGGER.debug("MetricsDashboardController singleton shutdown complete")
 
         if _lifespan_http_client:
             await _lifespan_http_client.aclose()
@@ -584,8 +590,9 @@ async def process_webhook(request: Request) -> JSONResponse:
     )
 
 
-# Module-level singleton instance
+# Module-level singleton instances
 _log_viewer_controller_singleton: LogViewerController | None = None
+_metrics_dashboard_controller_singleton: MetricsDashboardController | None = None
 
 
 def get_log_viewer_controller() -> LogViewerController:
@@ -611,6 +618,30 @@ def get_log_viewer_controller() -> LogViewerController:
 
 # Create dependency instance to avoid flake8 M511 warnings
 controller_dependency = Depends(get_log_viewer_controller)
+
+
+def get_metrics_dashboard_controller() -> MetricsDashboardController:
+    """Dependency to provide a singleton MetricsDashboardController instance.
+
+    Returns the same MetricsDashboardController instance across all requests to ensure
+    proper WebSocket connection tracking and shared state management.
+
+    Returns:
+        MetricsDashboardController: The singleton instance
+    """
+    global _metrics_dashboard_controller_singleton
+    if _metrics_dashboard_controller_singleton is None:
+        # Metrics dashboard requires database manager and logger
+        if db_manager is None:
+            raise RuntimeError("Metrics database not available - metrics server not enabled")
+
+        metrics_logger = logging.getLogger("webhook_server.metrics")
+        _metrics_dashboard_controller_singleton = MetricsDashboardController(db_manager, metrics_logger)
+    return _metrics_dashboard_controller_singleton
+
+
+# Create dependency instance to avoid flake8 M511 warnings
+metrics_dashboard_dependency = Depends(get_metrics_dashboard_controller)
 
 
 # Log Viewer Endpoints - Only register if ENABLE_LOG_SERVER=true
@@ -1274,6 +1305,38 @@ async def websocket_log_stream(
         github_user=github_user,
         level=level,
     )
+
+
+# Metrics Dashboard Endpoints - Only register if ENABLE_METRICS_SERVER=true
+if METRICS_SERVER_ENABLED:
+
+    @FASTAPI_APP.get("/metrics", operation_id="get_metrics_dashboard_page", response_class=HTMLResponse)
+    def get_metrics_dashboard_page(
+        controller: MetricsDashboardController = metrics_dashboard_dependency,
+    ) -> HTMLResponse:
+        """Serve the metrics dashboard HTML page."""
+        return controller.get_dashboard_page()
+
+    @FASTAPI_APP.websocket("/metrics/ws")
+    async def websocket_metrics_stream(
+        websocket: WebSocket,
+        repository: str | None = None,
+        event_type: str | None = None,
+        status: str | None = None,
+    ) -> None:
+        """Handle WebSocket connection for real-time metrics streaming."""
+        # Check if metrics server is enabled (manual check since WebSocket doesn't support dependencies same way)
+        if not METRICS_SERVER_ENABLED:
+            await websocket.close(code=http_status.WS_1008_POLICY_VIOLATION, reason="Metrics server is disabled")
+            return
+
+        controller = get_metrics_dashboard_controller()
+        await controller.handle_websocket(
+            websocket=websocket,
+            repository=repository,
+            event_type=event_type,
+            status=status,
+        )
 
 
 # Metrics API Endpoints - Only functional if ENABLE_METRICS_SERVER=true (guarded by dependency)
