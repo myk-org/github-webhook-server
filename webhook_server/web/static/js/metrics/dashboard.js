@@ -277,7 +277,7 @@ class MetricsDashboard {
                 start.setDate(now.getDate() - 30);
                 break;
             case 'custom': {
-                // Handle custom range inputs if implemented
+                // Handle custom range inputs
                 const startInput = document.getElementById('startTime');
                 const endInput = document.getElementById('endTime');
                 if (startInput && endInput && startInput.value && endInput.value) {
@@ -286,7 +286,9 @@ class MetricsDashboard {
                         endTime: new Date(endInput.value).toISOString()
                     };
                 }
-                return { startTime: null, endTime: null };
+                // Fallback to 24h if inputs invalid
+                start.setHours(now.getHours() - 24);
+                break;
             }
             default:
                 // Default to 24h if unknown
@@ -667,6 +669,27 @@ class MetricsDashboard {
             timeRangeSelect.addEventListener('change', (e) => this.changeTimeRange(e.target.value));
         }
 
+        // Custom date inputs
+        const startTimeInput = document.getElementById('startTime');
+        const endTimeInput = document.getElementById('endTime');
+
+        if (startTimeInput && endTimeInput) {
+            const handleCustomDateChange = () => {
+                // Switch dropdown to custom if not already
+                if (timeRangeSelect && timeRangeSelect.value !== 'custom') {
+                    timeRangeSelect.value = 'custom';
+                    this.timeRange = 'custom';
+                }
+                // Only reload if both dates are valid
+                if (startTimeInput.value && endTimeInput.value) {
+                    this.changeTimeRange('custom');
+                }
+            };
+
+            startTimeInput.addEventListener('change', handleCustomDateChange);
+            endTimeInput.addEventListener('change', handleCustomDateChange);
+        }
+
         // Auto-refresh toggle
         const autoRefreshToggle = document.getElementById('auto-refresh-toggle');
         if (autoRefreshToggle) {
@@ -716,13 +739,26 @@ class MetricsDashboard {
         console.log(`[Dashboard] Changing time range to: ${timeRange}`);
         this.timeRange = timeRange;
 
-        // Toggle custom range inputs
-        const customInputs = document.getElementById('customRangeInputs');
-        if (customInputs) {
-            customInputs.style.display = timeRange === 'custom' ? 'flex' : 'none';
+        // If preset selected, populate inputs
+        if (timeRange !== 'custom') {
+            const { startTime, endTime } = this.getTimeRangeDates(timeRange);
+            const startInput = document.getElementById('startTime');
+            const endInput = document.getElementById('endTime');
+
+            if (startInput && endInput) {
+                // Format for datetime-local input: YYYY-MM-DDThh:mm
+                const formatForInput = (isoString) => {
+                    const date = new Date(isoString);
+                    // Adjust for local timezone for display
+                    const localDate = new Date(date.getTime() - (date.getTimezoneOffset() * 60000));
+                    return localDate.toISOString().slice(0, 16);
+                };
+                startInput.value = formatForInput(startTime);
+                endInput.value = formatForInput(endTime);
+            }
         }
 
-        // For custom range, don't reload immediately if inputs are empty
+        // For custom range, validation
         if (timeRange === 'custom') {
             const startInput = document.getElementById('startTime');
             const endInput = document.getElementById('endTime');
