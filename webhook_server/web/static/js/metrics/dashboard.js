@@ -173,17 +173,33 @@ class MetricsDashboard {
         // 3. Set up event listeners
         this.setupEventListeners();
 
-        // 4. Show loading state
+        // 4. Populate date inputs with default 24h range logic so they are not empty
+        const { startTime, endTime } = this.getTimeRangeDates(this.timeRange);
+        const startInput = document.getElementById('startTime');
+        const endInput = document.getElementById('endTime');
+        if (startInput && endInput) {
+            // Format for datetime-local input: YYYY-MM-DDThh:mm
+            const formatForInput = (isoString) => {
+                const date = new Date(isoString);
+                // Adjust for local timezone for display
+                const localDate = new Date(date.getTime() - (date.getTimezoneOffset() * 60000));
+                return localDate.toISOString().slice(0, 16);
+            };
+            startInput.value = formatForInput(startTime);
+            endInput.value = formatForInput(endTime);
+        }
+
+        // 5. Show loading state
         this.showLoading(true);
 
         try {
-            // 5. Load initial data via REST API
+            // 6. Load initial data via REST API
             await this.loadInitialData();
 
-            // 6. Initialize charts (calls functions from charts.js)
+            // 7. Initialize charts (calls functions from charts.js)
             this.initializeCharts();
 
-            // 7. Initialize WebSocket connection for real-time updates
+            // 8. Initialize WebSocket connection for real-time updates
             this.initWebSocket();
 
             console.log('[Dashboard] Initialization complete');
