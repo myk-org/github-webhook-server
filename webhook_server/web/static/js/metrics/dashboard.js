@@ -119,13 +119,13 @@ class MetricsDashboard {
 
             const [summaryData, webhooksData, reposData, trendsData, contributorsData, userPrsData] = await Promise.all([
                 this.apiClient.fetchSummary(startTime, endTime),
-                this.apiClient.fetchWebhooks({ limit: 100, start_time: startTime, end_time: endTime }),
-                this.apiClient.fetchRepositories(startTime, endTime),
+                this.apiClient.fetchWebhooks({ page: 1, page_size: 10, start_time: startTime, end_time: endTime }),
+                this.apiClient.fetchRepositories(startTime, endTime, { page: 1, page_size: 10 }),
                 this.apiClient.fetchTrends(startTime, endTime, bucket).catch(err => {
                     console.warn('[Dashboard] Trends endpoint not available:', err);
                     return { trends: [] }; // Return empty trends if endpoint doesn't exist
                 }),
-                this.apiClient.fetchContributors(startTime, endTime, 10),
+                this.apiClient.fetchContributors(startTime, endTime, 10, { page: 1, page_size: 10 }),
                 this.apiClient.fetchUserPRs(startTime, endTime, { page: 1, page_size: 10 }).catch(err => {
                     console.warn('[Dashboard] User PRs endpoint error:', err);
                     return { data: [], pagination: { total: 0, page: 1, page_size: 10, total_pages: 0 } };
@@ -150,17 +150,13 @@ class MetricsDashboard {
                 // Don't fail completely if trends fail, just log it
             }
 
-            // Store data
+            // Store data (preserve full paginated responses for tables)
             this.currentData = {
                 summary: summaryData.summary || summaryData,
-                webhooks: webhooksData.data || webhooksData || [],
-                repositories: reposData.repositories || [],
+                webhooks: webhooksData,  // Store full response with pagination
+                repositories: reposData,  // Store full response with pagination
                 trends: trendsData.trends || [],
-                contributors: contributorsData ? {
-                    pr_creators: contributorsData.pr_creators?.data || contributorsData.pr_creators || [],
-                    pr_reviewers: contributorsData.pr_reviewers?.data || contributorsData.pr_reviewers || [],
-                    pr_approvers: contributorsData.pr_approvers?.data || contributorsData.pr_approvers || []
-                } : null,
+                contributors: contributorsData,  // Store full response with pagination
                 eventTypeDistribution: summaryData.event_type_distribution || {}  // Store top-level event_type_distribution
             };
 
@@ -355,10 +351,11 @@ class MetricsDashboard {
 
         // Create working copy to avoid mutating original data
         // This allows filter to be cleared and original data restored
+        // Extract arrays from paginated responses for filtering
         const workingData = {
             summary: { ...data.summary },
-            webhooks: data.webhooks,
-            repositories: data.repositories,
+            webhooks: data.webhooks?.data || data.webhooks || [],
+            repositories: data.repositories?.data || data.repositories?.repositories || data.repositories || [],
             trends: data.trends,
             contributors: data.contributors ? {
                 pr_creators: data.contributors.pr_creators?.data || data.contributors.pr_creators || [],
@@ -510,21 +507,18 @@ class MetricsDashboard {
             }
 
             // Update Repository Table
-            if (repositories) {
-                this.updateRepositoryTable({ repositories });
+            if (data.repositories) {
+                this.updateRepositoryTable(data.repositories);
             }
 
             // Update Recent Events Table
-            if (webhooks && Array.isArray(webhooks)) {
-                this.updateRecentEventsTable(webhooks);
-            } else if (webhooks && Array.isArray(webhooks.data)) {
-                // Handle paginated response format
-                this.updateRecentEventsTable(webhooks.data);
+            if (data.webhooks) {
+                this.updateRecentEventsTable(data.webhooks);
             }
 
             // Update Contributors Tables
-            if (workingData.contributors) {
-                this.updateContributorsTables(workingData.contributors);
+            if (data.contributors) {
+                this.updateContributorsTables(data.contributors);
             }
 
             console.log('[Dashboard] Charts updated');
@@ -562,7 +556,7 @@ class MetricsDashboard {
     /**
      * Update repository table with new data.
      *
-     * @param {Object} reposData - Repository data ({repositories: [...]})
+     * @param {Object} reposData - Repository data with pagination ({repositories: [...], pagination: {...}})
      */
     updateRepositoryTable(reposData) {
         const tableBody = document.getElementById('repository-table-body');
@@ -571,8 +565,19 @@ class MetricsDashboard {
             return;
         }
 
-        // Handle both {repositories: [...]} and direct array
-        const repositories = reposData.repositories || reposData;
+        // Handle both paginated response and legacy format
+        const repositories = reposData.data || reposData.repositories || reposData;
+        const pagination = reposData.pagination;
+
+        // Update pagination state if available
+        if (pagination) {
+            this.pagination.topRepositories = {
+                page: pagination.page,
+                pageSize: pagination.page_size,
+                total: pagination.total,
+                totalPages: pagination.total_pages
+            };
+        }
 
         if (!repositories || !Array.isArray(repositories) || repositories.length === 0) {
             tableBody.innerHTML = '<tr><td colspan="3" style="text-align: center;">No repository data available</td></tr>';
@@ -580,7 +585,7 @@ class MetricsDashboard {
         }
 
         // Generate table rows - show success_rate as percentage
-        const rows = repositories.slice(0, 5).map(repo => {
+        const rows = repositories.map(repo => {
             const percentage = repo.success_rate || 0; // Already a percentage from API
             return `
                 <tr>
@@ -592,18 +597,43 @@ class MetricsDashboard {
         }).join('');
 
         tableBody.innerHTML = rows;
+
+        // Add pagination controls
+        const container = document.querySelector('[data-section="top-repositories"] .chart-content');
+        const existingControls = container?.querySelector('.pagination-controls');
+        if (existingControls) {
+            existingControls.remove();
+        }
+
+        if (container && pagination) {
+            container.insertAdjacentHTML('beforeend', this.createPaginationControls('topRepositories'));
+        }
     }
 
     /**
      * Update recent events table with new data.
      *
-     * @param {Array} events - Recent webhook events
+     * @param {Object|Array} eventsData - Recent webhook events (can be array or {data: [...], pagination: {...}})
      */
-    updateRecentEventsTable(events) {
+    updateRecentEventsTable(eventsData) {
         const tableBody = document.querySelector('#recentEventsTable tbody');
         if (!tableBody) {
             console.warn('[Dashboard] Recent events table body not found');
             return;
+        }
+
+        // Handle both array format and paginated response format
+        const events = Array.isArray(eventsData) ? eventsData : (eventsData.data || eventsData.events || []);
+        const pagination = Array.isArray(eventsData) ? null : eventsData.pagination;
+
+        // Update pagination state if available
+        if (pagination) {
+            this.pagination.recentEvents = {
+                page: pagination.page,
+                pageSize: pagination.page_size,
+                total: pagination.total,
+                totalPages: pagination.total_pages
+            };
         }
 
         if (!events || !Array.isArray(events) || events.length === 0) {
@@ -611,8 +641,8 @@ class MetricsDashboard {
             return;
         }
 
-        // Generate table rows for last 10 events
-        const rows = events.slice(0, 10).map(event => {
+        // Generate table rows
+        const rows = events.map(event => {
             const time = new Date(event.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             const status = event.status || 'unknown';
             const statusClass = status === 'success' ? 'status-success' : status === 'error' ? 'status-error' : 'status-partial';
@@ -628,12 +658,23 @@ class MetricsDashboard {
         }).join('');
 
         tableBody.innerHTML = rows;
+
+        // Add pagination controls
+        const container = document.querySelector('[data-section="recent-events"] .chart-content');
+        const existingControls = container?.querySelector('.pagination-controls');
+        if (existingControls) {
+            existingControls.remove();
+        }
+
+        if (container && pagination) {
+            container.insertAdjacentHTML('beforeend', this.createPaginationControls('recentEvents'));
+        }
     }
 
     /**
      * Update PR contributors tables with new data.
      *
-     * @param {Object} contributors - Contributors data
+     * @param {Object} contributors - Contributors data with pagination
      */
     updateContributorsTables(contributors) {
         if (!contributors) {
@@ -641,10 +682,23 @@ class MetricsDashboard {
             return;
         }
 
+        // Extract data and pagination for PR Creators
+        const prCreatorsData = contributors.pr_creators?.data || contributors.pr_creators || [];
+        const prCreatorsPagination = contributors.pr_creators?.pagination;
+
+        if (prCreatorsPagination) {
+            this.pagination.prCreators = {
+                page: prCreatorsPagination.page,
+                pageSize: prCreatorsPagination.page_size,
+                total: prCreatorsPagination.total,
+                totalPages: prCreatorsPagination.total_pages
+            };
+        }
+
         // Update PR Creators table
         this.updateContributorsTable(
             'pr-creators-table-body',
-            contributors.pr_creators || [],
+            prCreatorsData,
             (creator) => `
                 <tr>
                     <td><span class="clickable-username" data-user="${this.escapeHtml(creator.user)}">${this.escapeHtml(creator.user)}</span></td>
@@ -656,10 +710,33 @@ class MetricsDashboard {
             `
         );
 
+        // Add pagination controls for PR Creators
+        const creatorsContainer = document.querySelector('[data-section="pr-creators"]');
+        const creatorsExistingControls = creatorsContainer?.querySelector('.pagination-controls');
+        if (creatorsExistingControls) {
+            creatorsExistingControls.remove();
+        }
+        if (creatorsContainer && prCreatorsPagination) {
+            creatorsContainer.insertAdjacentHTML('beforeend', this.createPaginationControls('prCreators'));
+        }
+
+        // Extract data and pagination for PR Reviewers
+        const prReviewersData = contributors.pr_reviewers?.data || contributors.pr_reviewers || [];
+        const prReviewersPagination = contributors.pr_reviewers?.pagination;
+
+        if (prReviewersPagination) {
+            this.pagination.prReviewers = {
+                page: prReviewersPagination.page,
+                pageSize: prReviewersPagination.page_size,
+                total: prReviewersPagination.total,
+                totalPages: prReviewersPagination.total_pages
+            };
+        }
+
         // Update PR Reviewers table
         this.updateContributorsTable(
             'pr-reviewers-table-body',
-            contributors.pr_reviewers || [],
+            prReviewersData,
             (reviewer) => `
                 <tr>
                     <td><span class="clickable-username" data-user="${this.escapeHtml(reviewer.user)}">${this.escapeHtml(reviewer.user)}</span></td>
@@ -670,10 +747,33 @@ class MetricsDashboard {
             `
         );
 
+        // Add pagination controls for PR Reviewers
+        const reviewersContainer = document.querySelector('[data-section="pr-reviewers"]');
+        const reviewersExistingControls = reviewersContainer?.querySelector('.pagination-controls');
+        if (reviewersExistingControls) {
+            reviewersExistingControls.remove();
+        }
+        if (reviewersContainer && prReviewersPagination) {
+            reviewersContainer.insertAdjacentHTML('beforeend', this.createPaginationControls('prReviewers'));
+        }
+
+        // Extract data and pagination for PR Approvers
+        const prApproversData = contributors.pr_approvers?.data || contributors.pr_approvers || [];
+        const prApproversPagination = contributors.pr_approvers?.pagination;
+
+        if (prApproversPagination) {
+            this.pagination.prApprovers = {
+                page: prApproversPagination.page,
+                pageSize: prApproversPagination.page_size,
+                total: prApproversPagination.total,
+                totalPages: prApproversPagination.total_pages
+            };
+        }
+
         // Update PR Approvers table
         this.updateContributorsTable(
             'pr-approvers-table-body',
-            contributors.pr_approvers || [],
+            prApproversData,
             (approver) => `
                 <tr>
                     <td><span class="clickable-username" data-user="${this.escapeHtml(approver.user)}">${this.escapeHtml(approver.user)}</span></td>
@@ -682,6 +782,16 @@ class MetricsDashboard {
                 </tr>
             `
         );
+
+        // Add pagination controls for PR Approvers
+        const approversContainer = document.querySelector('[data-section="pr-approvers"]');
+        const approversExistingControls = approversContainer?.querySelector('.pagination-controls');
+        if (approversExistingControls) {
+            approversExistingControls.remove();
+        }
+        if (approversContainer && prApproversPagination) {
+            approversContainer.insertAdjacentHTML('beforeend', this.createPaginationControls('prApprovers'));
+        }
     }
 
     /**
@@ -1590,7 +1700,7 @@ class MetricsDashboard {
                     params.start_time = startTime;
                     params.end_time = endTime;
                     data = await this.apiClient.fetchWebhooks(params);
-                    this.updateRecentEventsTable(data.data || data.events);
+                    this.updateRecentEventsTable(data);
                     break;
                 case 'prCreators':
                 case 'prReviewers':
