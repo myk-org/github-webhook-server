@@ -173,6 +173,7 @@ class MetricsAPIClient {
      *
      * @param {string|null} startTime - ISO 8601 start time filter (optional)
      * @param {string|null} endTime - ISO 8601 end time filter (optional)
+     * @param {Object} extraParams - Additional parameters (page, page_size, repository, user)
      * @returns {Promise<Object>} Repository statistics or error object
      *
      * Response format (success):
@@ -199,8 +200,8 @@ class MetricsAPIClient {
      *     status: null
      * }
      */
-    async fetchRepositories(startTime = null, endTime = null) {
-        const params = {};
+    async fetchRepositories(startTime = null, endTime = null, extraParams = {}) {
+        const params = { ...extraParams };
         if (startTime) params.start_time = startTime;
         if (endTime) params.end_time = endTime;
 
@@ -233,14 +234,33 @@ class MetricsAPIClient {
      * @param {string|null} startTime - ISO 8601 start time filter (optional)
      * @param {string|null} endTime - ISO 8601 end time filter (optional)
      * @param {number} limit - Maximum contributors per category (default: 10)
+     * @param {Object} extraParams - Additional parameters (repository, user, page, page_size)
      * @returns {Promise<Object>} Contributors data or error object
      */
-    async fetchContributors(startTime = null, endTime = null, limit = 10) {
-        const params = { limit };
+    async fetchContributors(startTime = null, endTime = null, limit = 10, extraParams = {}) {
+        const params = { limit, ...extraParams };
         if (startTime) params.start_time = startTime;
         if (endTime) params.end_time = endTime;
 
         return await this._fetch('/contributors', params);
+    }
+
+    /**
+     * Fetch user pull requests.
+     *
+     * Returns pull requests for a specific user or all users.
+     *
+     * @param {string|null} startTime - ISO 8601 start time filter (optional)
+     * @param {string|null} endTime - ISO 8601 end time filter (optional)
+     * @param {Object} params - Additional parameters (user, repository, page, page_size)
+     * @returns {Promise<Object>} User PRs data with pagination or error object
+     */
+    async fetchUserPRs(startTime = null, endTime = null, params = {}) {
+        const queryParams = { ...params };
+        if (startTime) queryParams.start_time = startTime;
+        if (endTime) queryParams.end_time = endTime;
+
+        return await this._fetch('/user-prs', queryParams);
     }
 
     /**

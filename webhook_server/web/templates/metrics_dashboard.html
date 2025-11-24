@@ -64,6 +64,12 @@
               <label for="repositoryFilter">Repository:</label>
               <input type="text" id="repositoryFilter" placeholder="org/repo" />
             </div>
+            <div class="filter-group">
+              <label for="userFilter">User:</label>
+              <select id="userFilter">
+                <option value="">All Users</option>
+              </select>
+            </div>
           </div>
 
           <div class="controls-row">
@@ -276,6 +282,35 @@
               </div>
             </div>
           </div>
+          </div>
+        </div>
+
+        <div class="chart-container full-width" data-section="user-prs">
+          <div class="chart-header">
+            <h2>User Pull Requests</h2>
+            <button class="btn-icon collapse-btn" data-section="user-prs" title="Collapse">▼</button>
+          </div>
+          <div class="chart-content">
+            <div class="table-wrapper">
+              <table id="userPrsTable">
+                <thead>
+                  <tr>
+                    <th>PR</th>
+                    <th>Title</th>
+                    <th>Repository</th>
+                    <th>State</th>
+                    <th>Created</th>
+                    <th>Updated</th>
+                    <th>Commits</th>
+                  </tr>
+                </thead>
+                <tbody id="user-prs-table-body">
+                  <tr class="loading-row">
+                    <td colspan="7">Loading...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>

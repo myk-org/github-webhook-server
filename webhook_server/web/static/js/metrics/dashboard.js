@@ -22,6 +22,25 @@ class MetricsDashboard {
         };
         this.timeRange = '24h';  // Default time range
         this.repositoryFilter = '';  // Repository filter (empty = show all)
+        this.userFilter = '';  // User filter (empty = show all)
+
+        // Pagination state for each section
+        this.pagination = {
+            topRepositories: { page: 1, pageSize: 10, total: 0, totalPages: 0 },
+            recentEvents: { page: 1, pageSize: 10, total: 0, totalPages: 0 },
+            prCreators: { page: 1, pageSize: 10, total: 0, totalPages: 0 },
+            prReviewers: { page: 1, pageSize: 10, total: 0, totalPages: 0 },
+            prApprovers: { page: 1, pageSize: 10, total: 0, totalPages: 0 },
+            userPrs: { page: 1, pageSize: 10, total: 0, totalPages: 0 }
+        };
+
+        // Load saved page sizes from localStorage
+        Object.keys(this.pagination).forEach(section => {
+            const saved = localStorage.getItem(`pageSize_${section}`);
+            if (saved) {
+                this.pagination[section].pageSize = parseInt(saved);
+            }
+        });
 
         this.initialize();
     }
@@ -142,6 +161,9 @@ class MetricsDashboard {
             // Update UI with loaded data
             this.updateKPICards(summaryData.summary || summaryData);
             this.updateCharts(this.currentData);
+
+            // Populate user filter dropdown
+            this.populateUserFilter();
 
         } catch (error) {
             console.error('[Dashboard] Error loading initial data:', error);
@@ -387,7 +409,18 @@ class MetricsDashboard {
                 ? (filteredSummary.successful_events / filteredSummary.total_events * 100)
                 : 0;
 
-            console.log(`[Dashboard] Filtered data: ${filteredWebhooks.length} events, ${filteredRepositories.length} repos, ${filteredContributors.pr_creators.length} creators`);
+            console.log(`[Dashboard] Filtered by repository: ${filteredWebhooks.length} events, ${filteredRepositories.length} repos`);
+        }
+
+        // Apply user filter second (on already-filtered data)
+        if (this.userFilter && filteredContributors) {
+            filteredContributors = {
+                pr_creators: this.filterDataByUser(filteredContributors.pr_creators || []),
+                pr_reviewers: this.filterDataByUser(filteredContributors.pr_reviewers || []),
+                pr_approvers: this.filterDataByUser(filteredContributors.pr_approvers || [])
+            };
+
+            console.log(`[Dashboard] Filtered by user: ${filteredContributors.pr_creators.length} creators, ${filteredContributors.pr_reviewers.length} reviewers, ${filteredContributors.pr_approvers.length} approvers`);
         }
 
         // ALWAYS update KPI cards (whether filtered or not)
@@ -602,7 +635,7 @@ class MetricsDashboard {
             contributors.pr_creators || [],
             (creator) => `
                 <tr>
-                    <td>${this.escapeHtml(creator.user)}</td>
+                    <td><span class="clickable-username" data-user="${this.escapeHtml(creator.user)}">${this.escapeHtml(creator.user)}</span></td>
                     <td>${creator.total_prs}</td>
                     <td>${creator.merged_prs}</td>
                     <td>${creator.closed_prs}</td>
@@ -617,7 +650,7 @@ class MetricsDashboard {
             contributors.pr_reviewers || [],
             (reviewer) => `
                 <tr>
-                    <td>${this.escapeHtml(reviewer.user)}</td>
+                    <td><span class="clickable-username" data-user="${this.escapeHtml(reviewer.user)}">${this.escapeHtml(reviewer.user)}</span></td>
                     <td>${reviewer.total_reviews}</td>
                     <td>${reviewer.prs_reviewed}</td>
                     <td>${reviewer.avg_reviews_per_pr}</td>
@@ -631,7 +664,7 @@ class MetricsDashboard {
             contributors.pr_approvers || [],
             (approver) => `
                 <tr>
-                    <td>${this.escapeHtml(approver.user)}</td>
+                    <td><span class="clickable-username" data-user="${this.escapeHtml(approver.user)}">${this.escapeHtml(approver.user)}</span></td>
                     <td>${approver.total_approvals}</td>
                     <td>${approver.prs_approved}</td>
                 </tr>
@@ -710,6 +743,27 @@ class MetricsDashboard {
         if (repositoryFilterInput) {
             repositoryFilterInput.addEventListener('input', (e) => this.filterByRepository(e.target.value));
         }
+
+        // User filter
+        const userFilterSelect = document.getElementById('userFilter');
+        if (userFilterSelect) {
+            userFilterSelect.addEventListener('change', (e) => this.filterByUser(e.target.value));
+        }
+
+        // Clickable usernames
+        document.addEventListener('click', (e) => {
+            if (e.target.classList.contains('clickable-username')) {
+                const username = e.target.dataset.user;
+                const userFilterSelect = document.getElementById('userFilter');
+                if (userFilterSelect) {
+                    userFilterSelect.value = username;
+                    this.filterByUser(username);
+                }
+            }
+        });
+
+        // Pagination listeners
+        this.setupPaginationListeners();
 
         // Collapse buttons
         this.setupCollapseButtons();
@@ -982,6 +1036,84 @@ class MetricsDashboard {
             const repo = (item.repository || '').toLowerCase();
             return repo.includes(this.repositoryFilter);
         });
+    }
+
+    /**
+     * Filter dashboard data by user.
+     *
+     * @param {string} filterValue - User to filter by
+     */
+    filterByUser(filterValue) {
+        const newFilter = filterValue.trim();
+
+        // Check if filter actually changed
+        if (newFilter === this.userFilter) {
+            return;  // No change, skip update
+        }
+
+        this.userFilter = newFilter;
+        console.log(`[Dashboard] Filtering by user: "${this.userFilter || '(showing all users)'}"`);
+
+        // Re-render charts and tables
+        if (this.currentData) {
+            this.updateCharts(this.currentData);
+        }
+    }
+
+    /**
+     * Filter data array by user.
+     *
+     * @param {Array} data - Array of contributor data
+     * @returns {Array} Filtered data
+     */
+    filterDataByUser(data) {
+        if (!this.userFilter || !Array.isArray(data)) {
+            return data;  // No filter or invalid data, return as-is
+        }
+
+        return data.filter(item => {
+            const user = (item.user || '').toLowerCase();
+            return user === this.userFilter.toLowerCase();
+        });
+    }
+
+    /**
+     * Populate user filter dropdown from contributors data.
+     */
+    populateUserFilter() {
+        const userFilterSelect = document.getElementById('userFilter');
+        if (!userFilterSelect) {
+            console.warn('[Dashboard] User filter dropdown not found');
+            return;
+        }
+
+        // Collect all unique users from contributors data
+        const users = new Set();
+
+        if (this.currentData.contributors) {
+            const { pr_creators, pr_reviewers, pr_approvers } = this.currentData.contributors;
+
+            // Add users from all contributor types
+            [...(pr_creators || []), ...(pr_reviewers || []), ...(pr_approvers || [])]
+                .forEach(contributor => {
+                    if (contributor.user) {
+                        users.add(contributor.user);
+                    }
+                });
+        }
+
+        // Clear existing options except "All Users"
+        userFilterSelect.innerHTML = '<option value="">All Users</option>';
+
+        // Add user options sorted alphabetically
+        Array.from(users).sort().forEach(user => {
+            const option = document.createElement('option');
+            option.value = user;
+            option.textContent = user;
+            userFilterSelect.appendChild(option);
+        });
+
+        console.log(`[Dashboard] User filter populated with ${users.size} users`);
     }
 
     /**
@@ -1317,6 +1449,209 @@ class MetricsDashboard {
         a.download = `${chartId}.png`;
         a.click();
         console.log(`[Dashboard] Downloaded chart: ${chartId}`);
+    }
+
+    /**
+     * Create pagination controls HTML
+     * @param {string} section - Section identifier
+     * @returns {string} Pagination HTML
+     */
+    createPaginationControls(section) {
+        const state = this.pagination[section];
+        const { page, pageSize, total, totalPages } = state;
+
+        const hasNext = page < totalPages;
+        const hasPrev = page > 1;
+
+        return `
+            <div class="pagination-controls">
+                <div class="pagination-size">
+                    <label>Show</label>
+                    <select class="page-size-select" data-section="${section}">
+                        <option value="10" ${pageSize === 10 ? 'selected' : ''}>10</option>
+                        <option value="25" ${pageSize === 25 ? 'selected' : ''}>25</option>
+                        <option value="50" ${pageSize === 50 ? 'selected' : ''}>50</option>
+                        <option value="100" ${pageSize === 100 ? 'selected' : ''}>100</option>
+                    </select>
+                    <label>per page</label>
+                </div>
+                <div class="pagination-nav">
+                    <button class="btn-pagination" data-section="${section}" data-action="prev"
+                            ${!hasPrev ? 'disabled' : ''}>← Prev</button>
+                    <span class="pagination-info">Page ${page} of ${totalPages || 1}</span>
+                    <button class="btn-pagination" data-section="${section}" data-action="next"
+                            ${!hasNext ? 'disabled' : ''}>Next →</button>
+                </div>
+                <div class="pagination-total">
+                    <span>Total: ${total} items</span>
+                </div>
+            </div>
+        `;
+    }
+
+    /**
+     * Handle page size change
+     * @param {string} section - Section identifier
+     * @param {number} newSize - New page size
+     */
+    async changePageSize(section, newSize) {
+        this.pagination[section].pageSize = newSize;
+        this.pagination[section].page = 1; // Reset to page 1
+        localStorage.setItem(`pageSize_${section}`, newSize);
+
+        await this.loadSectionData(section);
+    }
+
+    /**
+     * Handle page navigation
+     * @param {string} section - Section identifier
+     * @param {string} action - 'next' or 'prev'
+     */
+    async navigatePage(section, action) {
+        const state = this.pagination[section];
+
+        if (action === 'next' && state.page < state.totalPages) {
+            state.page++;
+        } else if (action === 'prev' && state.page > 1) {
+            state.page--;
+        }
+
+        await this.loadSectionData(section);
+    }
+
+    /**
+     * Set up pagination event listeners
+     */
+    setupPaginationListeners() {
+        // Page size selectors
+        document.addEventListener('change', (e) => {
+            if (e.target.classList.contains('page-size-select')) {
+                const section = e.target.dataset.section;
+                const newSize = parseInt(e.target.value);
+                this.changePageSize(section, newSize);
+            }
+        });
+
+        // Navigation buttons
+        document.addEventListener('click', (e) => {
+            if (e.target.classList.contains('btn-pagination')) {
+                const section = e.target.dataset.section;
+                const action = e.target.dataset.action;
+                if (!e.target.disabled) {
+                    this.navigatePage(section, action);
+                }
+            }
+        });
+    }
+
+    /**
+     * Load data for a specific section with pagination
+     * @param {string} section - Section identifier
+     */
+    async loadSectionData(section) {
+        const state = this.pagination[section];
+        const { startTime, endTime } = this.getTimeRangeDates(this.timeRange);
+
+        this.showLoading(true);
+
+        try {
+            let data;
+            const params = {
+                page: state.page,
+                page_size: state.pageSize
+            };
+
+            // Add filters
+            if (this.repositoryFilter) {
+                params.repository = this.repositoryFilter;
+            }
+            if (this.userFilter) {
+                params.user = this.userFilter;
+            }
+
+            switch (section) {
+                case 'topRepositories':
+                    data = await this.apiClient.fetchRepositories(startTime, endTime, params);
+                    this.updateRepositoryTable(data);
+                    break;
+                case 'recentEvents':
+                    params.start_time = startTime;
+                    params.end_time = endTime;
+                    data = await this.apiClient.fetchWebhooks(params);
+                    this.updateRecentEventsTable(data.data || data.events);
+                    break;
+                case 'prCreators':
+                case 'prReviewers':
+                case 'prApprovers':
+                    data = await this.apiClient.fetchContributors(startTime, endTime, state.pageSize, params);
+                    this.updateContributorsTables(data);
+                    break;
+                case 'userPrs':
+                    data = await this.apiClient.fetchUserPRs(startTime, endTime, params);
+                    this.updateUserPRsTable(data);
+                    break;
+            }
+        } catch (error) {
+            console.error(`[Dashboard] Error loading ${section} data:`, error);
+        } finally {
+            this.showLoading(false);
+        }
+    }
+
+    /**
+     * Update User PRs table with new data.
+     * @param {Object} prsData - User PRs data with pagination
+     */
+    updateUserPRsTable(prsData) {
+        const tableBody = document.getElementById('user-prs-table-body');
+        if (!tableBody) return;
+
+        const prs = prsData.data || [];
+        const pagination = prsData.pagination;
+
+        if (pagination) {
+            this.pagination.userPrs = {
+                page: pagination.page,
+                pageSize: pagination.page_size,
+                total: pagination.total,
+                totalPages: pagination.total_pages
+            };
+        }
+
+        if (!prs || prs.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="7" style="text-align: center;">No pull requests found</td></tr>';
+        } else {
+            const rows = prs.map(pr => {
+                const created = new Date(pr.created_at).toLocaleDateString();
+                const updated = new Date(pr.updated_at).toLocaleDateString();
+                const stateClass = pr.state === 'open' ? 'status-success' : 'status-error';
+                const mergedBadge = pr.merged ? '<span class="badge-merged">Merged</span>' : '';
+
+                return `
+                    <tr class="pr-row" data-pr-id="${pr.number}">
+                        <td>#${pr.number}</td>
+                        <td>${this.escapeHtml(pr.title)}</td>
+                        <td>${this.escapeHtml(pr.repository)}</td>
+                        <td><span class="${stateClass}">${pr.state}</span> ${mergedBadge}</td>
+                        <td>${created}</td>
+                        <td>${updated}</td>
+                        <td>${pr.commits_count || 0}</td>
+                    </tr>
+                `;
+            }).join('');
+            tableBody.innerHTML = rows;
+        }
+
+        // Add pagination controls
+        const container = document.querySelector('[data-section="user-prs"] .chart-content');
+        const existingControls = container?.querySelector('.pagination-controls');
+        if (existingControls) {
+            existingControls.remove();
+        }
+
+        if (container && pagination) {
+            container.insertAdjacentHTML('beforeend', this.createPaginationControls('userPrs'));
+        }
     }
 
     /**
