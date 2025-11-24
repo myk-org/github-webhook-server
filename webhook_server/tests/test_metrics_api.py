@@ -804,3 +804,238 @@ class TestGetMetricsSummaryEndpoint(TestMetricsAPIEndpoints):
 
         assert response.status_code == 500
         assert "Failed to fetch metrics summary" in response.json()["detail"]
+
+
+class TestUserPullRequestsEndpoint(TestMetricsAPIEndpoints):
+    """Test GET /api/metrics/user-prs endpoint."""
+
+    def test_get_user_prs_success(self, client: TestClient, setup_db_manager: Mock) -> None:
+        """Test successful retrieval of user's pull requests."""
+        # Mock database responses
+        setup_db_manager.fetch_one = AsyncMock(return_value={"total": 2})
+        setup_db_manager.fetch = AsyncMock(
+            return_value=[
+                {
+                    "pr_number": 123,
+                    "title": "Add feature X",
+                    "repository": "org/repo1",
+                    "state": "closed",
+                    "merged": True,
+                    "url": "https://github.com/org/repo1/pull/123",
+                    "created_at": "2024-11-20T10:00:00Z",
+                    "updated_at": "2024-11-21T15:30:00Z",
+                    "commits_count": 5,
+                    "head_sha": "abc123def456",  # pragma: allowlist secret
+                },
+                {
+                    "pr_number": 124,
+                    "title": "Fix bug Y",
+                    "repository": "org/repo1",
+                    "state": "open",
+                    "merged": False,
+                    "url": "https://github.com/org/repo1/pull/124",
+                    "created_at": "2024-11-22T09:00:00Z",
+                    "updated_at": "2024-11-22T09:00:00Z",
+                    "commits_count": 2,
+                    "head_sha": "def456abc789",  # pragma: allowlist secret
+                },
+            ]
+        )
+
+        response = client.get("/api/metrics/user-prs?user=john-doe&page=1&page_size=10")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Check data structure
+        assert "data" in data
+        assert "pagination" in data
+        assert len(data["data"]) == 2
+
+        # Verify first PR
+        pr1 = data["data"][0]
+        assert pr1["pr_number"] == 123
+        assert pr1["title"] == "Add feature X"
+        assert pr1["repository"] == "org/repo1"
+        assert pr1["state"] == "closed"
+        assert pr1["merged"] is True
+        assert pr1["commits_count"] == 5
+
+        # Verify pagination
+        pagination = data["pagination"]
+        assert pagination["total"] == 2
+        assert pagination["page"] == 1
+        assert pagination["page_size"] == 10
+        assert pagination["total_pages"] == 1
+        assert pagination["has_next"] is False
+        assert pagination["has_prev"] is False
+
+    def test_get_user_prs_with_repository_filter(self, client: TestClient, setup_db_manager: Mock) -> None:
+        """Test filtering by repository."""
+        setup_db_manager.fetch_one = AsyncMock(return_value={"total": 1})
+        setup_db_manager.fetch = AsyncMock(
+            return_value=[
+                {
+                    "pr_number": 123,
+                    "title": "Add feature X",
+                    "repository": "org/repo1",
+                    "state": "closed",
+                    "merged": True,
+                    "url": "https://github.com/org/repo1/pull/123",
+                    "created_at": "2024-11-20T10:00:00Z",
+                    "updated_at": "2024-11-21T15:30:00Z",
+                    "commits_count": 5,
+                    "head_sha": "abc123",
+                }
+            ]
+        )
+
+        response = client.get("/api/metrics/user-prs?user=john-doe&repository=org/repo1")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["data"]) == 1
+        assert data["data"][0]["repository"] == "org/repo1"
+
+    def test_get_user_prs_with_time_range(self, client: TestClient, setup_db_manager: Mock) -> None:
+        """Test filtering by time range."""
+        setup_db_manager.fetch_one = AsyncMock(return_value={"total": 1})
+        setup_db_manager.fetch = AsyncMock(return_value=[])
+
+        start_time = "2024-11-01T00:00:00Z"
+        end_time = "2024-11-30T23:59:59Z"
+
+        response = client.get(f"/api/metrics/user-prs?user=john-doe&start_time={start_time}&end_time={end_time}")
+
+        assert response.status_code == 200
+
+    def test_get_user_prs_pagination(self, client: TestClient, setup_db_manager: Mock) -> None:
+        """Test pagination with multiple pages."""
+        # Total of 25 PRs, page size 10
+        setup_db_manager.fetch_one = AsyncMock(return_value={"total": 25})
+        setup_db_manager.fetch = AsyncMock(return_value=[])
+
+        # Test page 2
+        response = client.get("/api/metrics/user-prs?user=john-doe&page=2&page_size=10")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        pagination = data["pagination"]
+        assert pagination["total"] == 25
+        assert pagination["page"] == 2
+        assert pagination["page_size"] == 10
+        assert pagination["total_pages"] == 3
+        assert pagination["has_next"] is True
+        assert pagination["has_prev"] is True
+
+    def test_get_user_prs_empty_result(self, client: TestClient, setup_db_manager: Mock) -> None:
+        """Test endpoint with no matching PRs."""
+        setup_db_manager.fetch_one = AsyncMock(return_value={"total": 0})
+        setup_db_manager.fetch = AsyncMock(return_value=[])
+
+        response = client.get("/api/metrics/user-prs?user=nonexistent-user")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["data"]) == 0
+        assert data["pagination"]["total"] == 0
+        assert data["pagination"]["total_pages"] == 0
+
+    def test_get_user_prs_missing_user_parameter(self, client: TestClient, setup_db_manager: Mock) -> None:
+        """Test endpoint fails when user parameter is missing."""
+        response = client.get("/api/metrics/user-prs")
+
+        assert response.status_code == 422  # FastAPI validation error
+
+    def test_get_user_prs_empty_user_parameter(self, client: TestClient, setup_db_manager: Mock) -> None:
+        """Test endpoint fails when user parameter is empty."""
+        response = client.get("/api/metrics/user-prs?user=")
+
+        assert response.status_code == 400
+        assert "User parameter cannot be empty" in response.json()["detail"]
+
+    def test_get_user_prs_whitespace_user_parameter(self, client: TestClient, setup_db_manager: Mock) -> None:
+        """Test endpoint fails when user parameter is only whitespace."""
+        response = client.get("/api/metrics/user-prs?user=%20%20%20")
+
+        assert response.status_code == 400
+        assert "User parameter cannot be empty" in response.json()["detail"]
+
+    def test_get_user_prs_invalid_page_number(self, client: TestClient, setup_db_manager: Mock) -> None:
+        """Test endpoint fails with invalid page number."""
+        response = client.get("/api/metrics/user-prs?user=john-doe&page=0")
+
+        assert response.status_code == 422  # FastAPI validation error
+
+    def test_get_user_prs_invalid_page_size(self, client: TestClient, setup_db_manager: Mock) -> None:
+        """Test endpoint fails with invalid page size."""
+        # Too large
+        response = client.get("/api/metrics/user-prs?user=john-doe&page_size=101")
+        assert response.status_code == 422
+
+        # Too small
+        response = client.get("/api/metrics/user-prs?user=john-doe&page_size=0")
+        assert response.status_code == 422
+
+    def test_get_user_prs_database_error(self, client: TestClient, setup_db_manager: Mock) -> None:
+        """Test endpoint handles database errors gracefully."""
+        setup_db_manager.fetch_one = AsyncMock(side_effect=Exception("Database connection lost"))
+
+        response = client.get("/api/metrics/user-prs?user=john-doe")
+
+        assert response.status_code == 500
+        assert "Failed to fetch user pull requests" in response.json()["detail"]
+
+    def test_get_user_prs_null_commits_count(self, client: TestClient, setup_db_manager: Mock) -> None:
+        """Test endpoint handles null commits_count gracefully."""
+        setup_db_manager.fetch_one = AsyncMock(return_value={"total": 1})
+        setup_db_manager.fetch = AsyncMock(
+            return_value=[
+                {
+                    "pr_number": 123,
+                    "title": "Add feature X",
+                    "repository": "org/repo1",
+                    "state": "open",
+                    "merged": False,
+                    "url": "https://github.com/org/repo1/pull/123",
+                    "created_at": "2024-11-20T10:00:00Z",
+                    "updated_at": "2024-11-21T15:30:00Z",
+                    "commits_count": None,  # NULL from database
+                    "head_sha": "abc123",
+                }
+            ]
+        )
+
+        response = client.get("/api/metrics/user-prs?user=john-doe")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["data"][0]["commits_count"] == 0  # NULL converted to 0
+
+    def test_get_user_prs_metrics_server_disabled(self, client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test endpoint returns 404 when metrics server is disabled."""
+        import webhook_server.app
+
+        monkeypatch.setattr(webhook_server.app, "METRICS_SERVER_ENABLED", False)
+
+        response = client.get("/api/metrics/user-prs?user=john-doe")
+
+        assert response.status_code == 404
+
+    def test_get_user_prs_combined_filters(self, client: TestClient, setup_db_manager: Mock) -> None:
+        """Test endpoint with all filters combined."""
+        setup_db_manager.fetch_one = AsyncMock(return_value={"total": 1})
+        setup_db_manager.fetch = AsyncMock(return_value=[])
+
+        response = client.get(
+            "/api/metrics/user-prs"
+            "?user=john-doe"
+            "&repository=org/repo1"
+            "&start_time=2024-11-01T00:00:00Z"
+            "&end_time=2024-11-30T23:59:59Z"
+            "&page=1"
+            "&page_size=20"
+        )
+
+        assert response.status_code == 200

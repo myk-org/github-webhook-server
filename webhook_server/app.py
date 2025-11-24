@@ -3,6 +3,7 @@ import base64
 import ipaddress
 import json
 import logging
+import math
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -1372,8 +1373,8 @@ async def get_webhook_events(
         default=None, description="Start time in ISO 8601 format (e.g., 2024-01-15T00:00:00Z)"
     ),
     end_time: str | None = Query(default=None, description="End time in ISO 8601 format (e.g., 2024-01-31T23:59:59Z)"),
-    limit: int = Query(default=100, ge=1, le=1000, description="Maximum entries to return (1-1000)"),
-    offset: int = Query(default=0, ge=0, description="Number of entries to skip for pagination"),
+    page: int = Query(default=1, ge=1, description="Page number (1-indexed)"),
+    page_size: int = Query(default=100, ge=1, le=1000, description="Items per page (1-1000)"),
 ) -> dict[str, Any]:
     """Retrieve recent webhook events with filtering and pagination.
 
@@ -1400,8 +1401,13 @@ async def get_webhook_events(
       Example: "2024-01-15T10:00:00Z" or "2024-01-15T10:00:00.123456"
     - `end_time` (str, optional): End of time range in ISO 8601 format.
       Example: "2024-01-15T18:00:00Z"
-    - `limit` (int, default=100): Maximum entries to return (1-1000).
-    - `offset` (int, default=0): Number of entries to skip for pagination.
+    - `page` (int, default=1): Page number (1-indexed).
+    - `page_size` (int, default=100): Items per page (1-1000).
+
+    **Pagination:**
+    - Response includes pagination metadata with total count, page info, and navigation flags
+    - Use `page` and `page_size` to navigate through results
+    - `has_next` and `has_prev` indicate if more pages are available
 
     **Return Structure:**
     ```json
@@ -1424,9 +1430,14 @@ async def get_webhook_events(
           "error_message": null
         }
       ],
-      "total_count": 1542,
-      "has_more": true,
-      "next_offset": 100
+      "pagination": {
+        "total": 1542,
+        "page": 1,
+        "page_size": 100,
+        "total_pages": 16,
+        "has_next": true,
+        "has_prev": false
+      }
     }
     ```
 
@@ -1507,10 +1518,13 @@ async def get_webhook_events(
         params.append(end_datetime)
         param_idx += 1
 
+    # Calculate offset for pagination
+    offset = (page - 1) * page_size
+
     # Get total count for pagination
     count_query = f"SELECT COUNT(*) FROM ({query}) AS filtered"
     query += f" ORDER BY created_at DESC LIMIT ${param_idx} OFFSET ${param_idx + 1}"
-    params.extend([limit, offset])
+    params.extend([page_size, offset])
 
     try:
         # Get total count using DatabaseManager helper
@@ -1539,14 +1553,20 @@ async def get_webhook_events(
             for row in rows
         ]
 
-        has_more = (offset + limit) < total_count
-        next_offset = offset + limit if has_more else None
+        total_pages = math.ceil(total_count / page_size) if total_count > 0 else 0
+        has_next = page < total_pages
+        has_prev = page > 1
 
         return {
             "events": events,
-            "total_count": total_count,
-            "has_more": has_more,
-            "next_offset": next_offset,
+            "pagination": {
+                "total": total_count,
+                "page": page,
+                "page_size": page_size,
+                "total_pages": total_pages,
+                "has_next": has_next,
+                "has_prev": has_prev,
+            },
         }
     except HTTPException:
         raise
@@ -1694,6 +1714,8 @@ async def get_repository_statistics(
         default=None, description="Start time in ISO 8601 format (e.g., 2024-01-01T00:00:00Z)"
     ),
     end_time: str | None = Query(default=None, description="End time in ISO 8601 format (e.g., 2024-01-31T23:59:59Z)"),
+    page: int = Query(default=1, ge=1, description="Page number (1-indexed)"),
+    page_size: int = Query(default=10, ge=1, le=100, description="Items per page (1-100)"),
 ) -> dict[str, Any]:
     """Get aggregated statistics per repository.
 
@@ -1716,6 +1738,15 @@ async def get_repository_statistics(
     - `end_time` (str, optional): End of time range in ISO 8601 format.
       Example: "2024-01-31T23:59:59Z"
       Default: No time filter (up to current time)
+    - `page` (int, default=1): Page number (1-indexed)
+    - `page_size` (int, default=10): Items per page (1-100)
+
+    **Pagination:**
+    - Response includes pagination metadata
+    - `total`: Total number of repositories
+    - `total_pages`: Total number of pages
+    - `has_next`: Whether there's a next page
+    - `has_prev`: Whether there's a previous page
 
     **Return Structure:**
     ```json
@@ -1724,7 +1755,7 @@ async def get_repository_statistics(
         "start_time": "2024-01-01T00:00:00Z",
         "end_time": "2024-01-31T23:59:59Z"
       },
-      "repositories": [
+      "data": [
         {
           "repository": "myakove/test-repo",
           "total_events": 1542,
@@ -1745,7 +1776,14 @@ async def get_repository_statistics(
           }
         }
       ],
-      "total_repositories": 5
+      "pagination": {
+        "total": 150,
+        "page": 1,
+        "page_size": 10,
+        "total_pages": 15,
+        "has_next": true,
+        "has_prev": false
+      }
     }
     ```
 
@@ -1814,6 +1852,17 @@ async def get_repository_statistics(
         params.append(end_datetime)
         param_idx += 1
 
+    # Calculate offset for pagination
+    offset = (page - 1) * page_size
+
+    # Count total repositories for pagination
+    # noqa: S608  # Safe: where_clause is parameterized
+    count_query = f"""
+        SELECT COUNT(DISTINCT repository) as total
+        FROM webhooks
+        {where_clause}
+    """
+
     # noqa: S608  # Safe: where_clause is parameterized, no direct user input concatenation
     query = f"""
         SELECT
@@ -1847,9 +1896,14 @@ async def get_repository_statistics(
         ) as events_with_counts
         GROUP BY repository
         ORDER BY total_events DESC
+        LIMIT ${param_idx} OFFSET ${param_idx + 1}
     """
+    params.extend([page_size, offset])
 
     try:
+        # Get total count for pagination (params without LIMIT/OFFSET)
+        total_count = await db_manager.fetchval(count_query, *params[:-2])
+
         # Fetch repository statistics using DatabaseManager helper
         rows = await db_manager.fetch(query, *params)
 
@@ -1880,13 +1934,24 @@ async def get_repository_statistics(
             for row in rows
         ]
 
+        total_pages = math.ceil(total_count / page_size) if total_count > 0 else 0
+        has_next = page < total_pages
+        has_prev = page > 1
+
         return {
             "time_range": {
                 "start_time": start_datetime.isoformat() if start_datetime else None,
                 "end_time": end_datetime.isoformat() if end_datetime else None,
             },
-            "repositories": repositories,
-            "total_repositories": len(repositories),
+            "data": repositories,
+            "pagination": {
+                "total": total_count,
+                "page": page,
+                "page_size": page_size,
+                "total_pages": total_pages,
+                "has_next": has_next,
+                "has_prev": has_prev,
+            },
         }
     except HTTPException:
         raise
@@ -1908,9 +1973,10 @@ async def get_metrics_contributors(
         default=None, description="Start time in ISO 8601 format (e.g., 2024-01-01T00:00:00Z)"
     ),
     end_time: str | None = Query(default=None, description="End time in ISO 8601 format (e.g., 2024-01-31T23:59:59Z)"),
-    limit: int = Query(
-        default=10, ge=1, le=100, description="Maximum number of contributors to return per category (1-100)"
-    ),
+    user: str | None = Query(default=None, description="Filter by username"),
+    repository: str | None = Query(default=None, description="Filter by repository (org/repo format)"),
+    page: int = Query(default=1, ge=1, description="Page number (1-indexed)"),
+    page_size: int = Query(default=10, ge=1, le=100, description="Items per page (1-100)"),
 ) -> dict[str, Any]:
     """Get PR contributors statistics (owners, reviewers, approvers).
 
@@ -1928,7 +1994,17 @@ async def get_metrics_contributors(
     **Parameters:**
     - `start_time` (str, optional): Start of time range in ISO 8601 format
     - `end_time` (str, optional): End of time range in ISO 8601 format
-    - `limit` (int, optional): Max contributors to return per category (default: 10)
+    - `user` (str, optional): Filter by username
+    - `repository` (str, optional): Filter by repository (org/repo format)
+    - `page` (int, default=1): Page number (1-indexed)
+    - `page_size` (int, default=10): Items per page (1-100)
+
+    **Pagination:**
+    - Each category (pr_creators, pr_reviewers, pr_approvers) includes pagination metadata
+    - `total`: Total number of contributors in this category
+    - `total_pages`: Total number of pages
+    - `has_next`: Whether there's a next page
+    - `has_prev`: Whether there's a previous page
 
     **Return Structure:**
     ```json
@@ -1937,31 +2013,61 @@ async def get_metrics_contributors(
         "start_time": "2024-01-01T00:00:00Z",
         "end_time": "2024-01-31T23:59:59Z"
       },
-      "pr_creators": [
-        {
-          "user": "john-doe",
-          "total_prs": 45,
-          "merged_prs": 42,
-          "closed_prs": 3,
-          "total_commits": 135,
-          "avg_commits_per_pr": 3.0
+      "pr_creators": {
+        "data": [
+          {
+            "user": "john-doe",
+            "total_prs": 45,
+            "merged_prs": 42,
+            "closed_prs": 3,
+            "total_commits": 135,
+            "avg_commits_per_pr": 3.0
+          }
+        ],
+        "pagination": {
+          "total": 150,
+          "page": 1,
+          "page_size": 10,
+          "total_pages": 15,
+          "has_next": true,
+          "has_prev": false
         }
-      ],
-      "pr_reviewers": [
-        {
-          "user": "jane-smith",
-          "total_reviews": 78,
-          "prs_reviewed": 65,
-          "avg_reviews_per_pr": 1.2
+      },
+      "pr_reviewers": {
+        "data": [
+          {
+            "user": "jane-smith",
+            "total_reviews": 78,
+            "prs_reviewed": 65,
+            "avg_reviews_per_pr": 1.2
+          }
+        ],
+        "pagination": {
+          "total": 120,
+          "page": 1,
+          "page_size": 10,
+          "total_pages": 12,
+          "has_next": true,
+          "has_prev": false
         }
-      ],
-      "pr_approvers": [
-        {
-          "user": "bob-wilson",
-          "total_approvals": 56,
-          "prs_approved": 54
+      },
+      "pr_approvers": {
+        "data": [
+          {
+            "user": "bob-wilson",
+            "total_approvals": 56,
+            "prs_approved": 54
+          }
+        ],
+        "pagination": {
+          "total": 95,
+          "page": 1,
+          "page_size": 10,
+          "total_pages": 10,
+          "has_next": true,
+          "has_prev": false
         }
-      ]
+      }
     }
     ```
 
@@ -1977,10 +2083,10 @@ async def get_metrics_contributors(
     start_datetime = parse_datetime_string(start_time, "start_time")
     end_datetime = parse_datetime_string(end_time, "end_time")
 
-    # Build time filter clause
+    # Build filter clause with time, user, and repository filters
     time_filter = ""
-    params: list[Any] = [limit]
-    param_count = 1
+    params: list[Any] = []
+    param_count = 0
 
     if start_datetime:
         param_count += 1
@@ -1992,8 +2098,44 @@ async def get_metrics_contributors(
         time_filter += f" AND created_at <= ${param_count}"
         params.append(end_datetime)
 
+    # Add user filter if provided
+    user_filter = ""
+    if user:
+        param_count += 1
+        user_filter = f" AND sender = ${param_count}"
+        params.append(user)
+
+    # Add repository filter if provided
+    repository_filter = ""
+    if repository:
+        param_count += 1
+        repository_filter = f" AND repository = ${param_count}"
+        params.append(repository)
+
+    # Calculate offset for pagination
+    offset = (page - 1) * page_size
+
+    # Add page_size and offset to params
+    param_count += 1
+    page_size_param = param_count
+    param_count += 1
+    offset_param = param_count
+    params.extend([page_size, offset])
+
+    # Count query for PR Creators
+    # noqa: S608  # Safe: filters are parameterized
+    pr_creators_count_query = f"""
+        SELECT COUNT(DISTINCT COALESCE(payload->'pull_request'->'user'->>'login', sender)) as total
+        FROM webhooks
+        WHERE event_type = 'pull_request'
+          AND action IN ('opened', 'reopened')
+          {time_filter}
+          {user_filter}
+          {repository_filter}
+    """
+
     # Query PR Creators (from pull_request events with action='opened' or 'reopened')
-    # noqa: S608  # Safe: time_filter is parameterized, no direct user input concatenation
+    # noqa: S608  # Safe: filters are parameterized, no direct user input concatenation
     pr_creators_query = f"""
         SELECT
             COALESCE(payload->'pull_request'->'user'->>'login', sender) as user,
@@ -2005,13 +2147,27 @@ async def get_metrics_contributors(
         WHERE event_type = 'pull_request'
           AND action IN ('opened', 'reopened')
           {time_filter}
+          {user_filter}
+          {repository_filter}
         GROUP BY COALESCE(payload->'pull_request'->'user'->>'login', sender)
         ORDER BY total_prs DESC
-        LIMIT $1
+        LIMIT ${page_size_param} OFFSET ${offset_param}
+    """
+
+    # Count query for PR Reviewers
+    # noqa: S608  # Safe: filters are parameterized
+    pr_reviewers_count_query = f"""
+        SELECT COUNT(DISTINCT sender) as total
+        FROM webhooks
+        WHERE event_type = 'pull_request_review'
+          AND action = 'submitted'
+          {time_filter}
+          {user_filter}
+          {repository_filter}
     """
 
     # Query PR Reviewers (from pull_request_review events)
-    # noqa: S608  # Safe: time_filter is parameterized, no direct user input concatenation
+    # noqa: S608  # Safe: filters are parameterized, no direct user input concatenation
     pr_reviewers_query = f"""
         SELECT
             sender as user,
@@ -2021,13 +2177,28 @@ async def get_metrics_contributors(
         WHERE event_type = 'pull_request_review'
           AND action = 'submitted'
           {time_filter}
+          {user_filter}
+          {repository_filter}
         GROUP BY sender
         ORDER BY total_reviews DESC
-        LIMIT $1
+        LIMIT ${page_size_param} OFFSET ${offset_param}
+    """
+
+    # Count query for PR Approvers
+    # noqa: S608  # Safe: filters are parameterized
+    pr_approvers_count_query = f"""
+        SELECT COUNT(DISTINCT sender) as total
+        FROM webhooks
+        WHERE event_type = 'pull_request_review'
+          AND action = 'submitted'
+          AND payload->'review'->>'state' = 'approved'
+          {time_filter}
+          {user_filter}
+          {repository_filter}
     """
 
     # Query PR Approvers (from pull_request_review with state='approved')
-    # noqa: S608  # Safe: time_filter is parameterized, no direct user input concatenation
+    # noqa: S608  # Safe: filters are parameterized, no direct user input concatenation
     pr_approvers_query = f"""
         SELECT
             sender as user,
@@ -2038,13 +2209,27 @@ async def get_metrics_contributors(
           AND action = 'submitted'
           AND payload->'review'->>'state' = 'approved'
           {time_filter}
+          {user_filter}
+          {repository_filter}
         GROUP BY sender
         ORDER BY total_approvals DESC
-        LIMIT $1
+        LIMIT ${page_size_param} OFFSET ${offset_param}
     """
 
     try:
-        # Execute all queries in parallel for better performance
+        # Execute all count queries in parallel (params without LIMIT/OFFSET)
+        params_without_pagination = params[:-2]
+        (
+            pr_creators_total,
+            pr_reviewers_total,
+            pr_approvers_total,
+        ) = await asyncio.gather(
+            db_manager.fetchval(pr_creators_count_query, *params_without_pagination),
+            db_manager.fetchval(pr_reviewers_count_query, *params_without_pagination),
+            db_manager.fetchval(pr_approvers_count_query, *params_without_pagination),
+        )
+
+        # Execute all data queries in parallel for better performance
         pr_creators_rows, pr_reviewers_rows, pr_approvers_rows = await asyncio.gather(
             db_manager.fetch(pr_creators_query, *params),
             db_manager.fetch(pr_reviewers_query, *params),
@@ -2085,14 +2270,49 @@ async def get_metrics_contributors(
             for row in pr_approvers_rows
         ]
 
+        # Calculate pagination metadata for each category
+        total_pages_creators = math.ceil(pr_creators_total / page_size) if pr_creators_total > 0 else 0
+        total_pages_reviewers = math.ceil(pr_reviewers_total / page_size) if pr_reviewers_total > 0 else 0
+        total_pages_approvers = math.ceil(pr_approvers_total / page_size) if pr_approvers_total > 0 else 0
+
         return {
             "time_range": {
                 "start_time": start_datetime.isoformat() if start_datetime else None,
                 "end_time": end_datetime.isoformat() if end_datetime else None,
             },
-            "pr_creators": pr_creators,
-            "pr_reviewers": pr_reviewers,
-            "pr_approvers": pr_approvers,
+            "pr_creators": {
+                "data": pr_creators,
+                "pagination": {
+                    "total": pr_creators_total,
+                    "page": page,
+                    "page_size": page_size,
+                    "total_pages": total_pages_creators,
+                    "has_next": page < total_pages_creators,
+                    "has_prev": page > 1,
+                },
+            },
+            "pr_reviewers": {
+                "data": pr_reviewers,
+                "pagination": {
+                    "total": pr_reviewers_total,
+                    "page": page,
+                    "page_size": page_size,
+                    "total_pages": total_pages_reviewers,
+                    "has_next": page < total_pages_reviewers,
+                    "has_prev": page > 1,
+                },
+            },
+            "pr_approvers": {
+                "data": pr_approvers,
+                "pagination": {
+                    "total": pr_approvers_total,
+                    "page": page,
+                    "page_size": page_size,
+                    "total_pages": total_pages_approvers,
+                    "has_next": page < total_pages_approvers,
+                    "has_prev": page > 1,
+                },
+            },
         }
     except HTTPException:
         raise
@@ -2101,6 +2321,202 @@ async def get_metrics_contributors(
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch contributor metrics",
+        ) from None
+
+
+@FASTAPI_APP.get(
+    "/api/metrics/user-prs",
+    operation_id="get_user_pull_requests",
+    dependencies=[Depends(require_metrics_server_enabled)],
+)
+async def get_user_pull_requests(
+    user: str = Query(..., description="GitHub username"),
+    repository: str | None = Query(None, description="Filter by repository (org/repo)"),
+    start_time: str | None = Query(
+        default=None, description="Start time in ISO 8601 format (e.g., 2024-01-01T00:00:00Z)"
+    ),
+    end_time: str | None = Query(default=None, description="End time in ISO 8601 format (e.g., 2024-01-31T23:59:59Z)"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(10, ge=1, le=100, description="Items per page"),
+) -> dict[str, Any]:
+    """Get pull requests created by a specific user with commit details.
+
+    Retrieves all pull requests created by the specified user, including detailed
+    commit information for each PR. Supports filtering by repository and time range,
+    with pagination for large result sets.
+
+    **Primary Use Cases:**
+    - View all PRs created by a specific user
+    - Track user's contribution history
+    - Analyze commit patterns per PR
+    - Monitor PR lifecycle (created, merged, closed)
+    - Filter user activity by repository or time period
+
+    **Parameters:**
+    - `user` (str, required): GitHub username to query
+    - `repository` (str, optional): Filter by specific repository (format: org/repo)
+    - `start_time` (str, optional): Start of time range in ISO 8601 format
+    - `end_time` (str, optional): End of time range in ISO 8601 format
+    - `page` (int, optional): Page number for pagination (default: 1)
+    - `page_size` (int, optional): Items per page, 1-100 (default: 10)
+
+    **Return Structure:**
+    ```json
+    {
+      "data": [
+        {
+          "pr_number": 123,
+          "title": "Add feature X",
+          "repository": "org/repo1",
+          "state": "closed",
+          "merged": true,
+          "url": "https://github.com/org/repo1/pull/123",
+          "created_at": "2024-11-20T10:00:00Z",
+          "updated_at": "2024-11-21T15:30:00Z",
+          "commits_count": 5,
+          "head_sha": "abc123def456"  # pragma: allowlist secret
+        }
+      ],
+      "pagination": {
+        "total": 45,
+        "page": 1,
+        "page_size": 10,
+        "total_pages": 5,
+        "has_next": true,
+        "has_prev": false
+      }
+    }
+    ```
+
+    **Errors:**
+    - 400: Invalid user parameter (empty string)
+    - 500: Database connection error or metrics server disabled
+    """
+    if db_manager is None:
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Metrics database not available",
+        )
+
+    # Validate user parameter
+    if not user or not user.strip():
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail="User parameter cannot be empty",
+        )
+
+    user = user.strip()
+
+    # Parse datetime strings
+    start_datetime = parse_datetime_string(start_time, "start_time")
+    end_datetime = parse_datetime_string(end_time, "end_time")
+
+    # Build filter clauses
+    filters = []
+    params: list[Any] = [user]
+    param_count = 1
+
+    if start_datetime:
+        param_count += 1
+        filters.append(f"created_at >= ${param_count}")
+        params.append(start_datetime)
+
+    if end_datetime:
+        param_count += 1
+        filters.append(f"created_at <= ${param_count}")
+        params.append(end_datetime)
+
+    if repository:
+        param_count += 1
+        filters.append(f"repository = ${param_count}")
+        params.append(repository)
+
+    where_clause = " AND ".join(filters) if filters else "1=1"
+
+    # Count total matching PRs
+    # noqa: S608  # Safe: where_clause is parameterized, no direct user input concatenation
+    count_query = f"""
+        SELECT COUNT(DISTINCT (payload->'pull_request'->>'number')::int) as total
+        FROM webhooks
+        WHERE event_type = 'pull_request'
+          AND (payload->'pull_request'->'user'->>'login' = $1 OR sender = $1)
+          AND {where_clause}
+    """
+
+    # Calculate pagination
+    offset = (page - 1) * page_size
+    param_count += 1
+    limit_param_idx = param_count
+    param_count += 1
+    offset_param_idx = param_count
+
+    # Query for PR data with pagination
+    # noqa: S608  # Safe: where_clause is parameterized, no direct user input concatenation
+    data_query = f"""
+        SELECT DISTINCT ON (pr_number)
+            (payload->'pull_request'->>'number')::int as pr_number,
+            payload->'pull_request'->>'title' as title,
+            repository,
+            payload->'pull_request'->>'state' as state,
+            (payload->'pull_request'->>'merged')::boolean as merged,
+            payload->'pull_request'->>'html_url' as url,
+            payload->'pull_request'->>'created_at' as created_at,
+            payload->'pull_request'->>'updated_at' as updated_at,
+            (payload->'pull_request'->>'commits')::int as commits_count,
+            payload->'pull_request'->'head'->>'sha' as head_sha
+        FROM webhooks
+        WHERE event_type = 'pull_request'
+          AND (payload->'pull_request'->'user'->>'login' = $1 OR sender = $1)
+          AND {where_clause}
+        ORDER BY pr_number DESC, created_at DESC
+        LIMIT ${limit_param_idx} OFFSET ${offset_param_idx}
+    """
+
+    try:
+        # Execute count and data queries in parallel
+        count_result, pr_rows = await asyncio.gather(
+            db_manager.fetch_one(count_query, *params),
+            db_manager.fetch(data_query, *params, page_size, offset),
+        )
+
+        total = count_result["total"] if count_result else 0
+        total_pages = (total + page_size - 1) // page_size if total > 0 else 0
+
+        # Format PR data
+        prs = [
+            {
+                "pr_number": row["pr_number"],
+                "title": row["title"],
+                "repository": row["repository"],
+                "state": row["state"],
+                "merged": row["merged"] or False,
+                "url": row["url"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+                "commits_count": row["commits_count"] or 0,
+                "head_sha": row["head_sha"],
+            }
+            for row in pr_rows
+        ]
+
+        return {
+            "data": prs,
+            "pagination": {
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+                "total_pages": total_pages,
+                "has_next": page < total_pages,
+                "has_prev": page > 1,
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        LOGGER.exception("Failed to fetch user pull requests from database")
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch user pull requests",
         ) from None
 
 
