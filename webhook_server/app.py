@@ -1942,7 +1942,9 @@ async def get_metrics_contributors(
           "user": "john-doe",
           "total_prs": 45,
           "merged_prs": 42,
-          "closed_prs": 3
+          "closed_prs": 3,
+          "total_commits": 135,
+          "avg_commits_per_pr": 3.0
         }
       ],
       "pr_reviewers": [
@@ -1997,7 +1999,8 @@ async def get_metrics_contributors(
             COALESCE(payload->'pull_request'->'user'->>'login', sender) as user,
             COUNT(*) as total_prs,
             COUNT(*) FILTER (WHERE payload->>'merged' = 'true') as merged_prs,
-            COUNT(*) FILTER (WHERE payload->>'state' = 'closed' AND payload->>'merged' = 'false') as closed_prs
+            COUNT(*) FILTER (WHERE payload->>'state' = 'closed' AND payload->>'merged' = 'false') as closed_prs,
+            SUM(COALESCE((payload->'pull_request'->>'commits')::int, 0)) as total_commits
         FROM webhooks
         WHERE event_type = 'pull_request'
           AND action IN ('opened', 'reopened')
@@ -2055,6 +2058,8 @@ async def get_metrics_contributors(
                 "total_prs": row["total_prs"],
                 "merged_prs": row["merged_prs"] or 0,
                 "closed_prs": row["closed_prs"] or 0,
+                "total_commits": row["total_commits"] or 0,
+                "avg_commits_per_pr": round((row["total_commits"] or 0) / max(row["total_prs"], 1), 1),
             }
             for row in pr_creators_rows
         ]

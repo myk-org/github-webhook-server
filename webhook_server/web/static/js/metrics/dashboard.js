@@ -760,6 +760,7 @@ class MetricsDashboard {
                     <td>${creator.total_prs}</td>
                     <td>${creator.merged_prs}</td>
                     <td>${creator.closed_prs}</td>
+                    <td>${creator.avg_commits_per_pr || 0}</td>
                 </tr>
             `
         );
@@ -807,7 +808,7 @@ class MetricsDashboard {
         }
 
         if (!data || data.length === 0) {
-            tableBody.innerHTML = '<tr><td colspan="4" style="text-align: center;">No data available</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="5" style="text-align: center;">No data available</td></tr>';
             return;
         }
 
