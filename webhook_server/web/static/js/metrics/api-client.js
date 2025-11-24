@@ -208,6 +208,24 @@ class MetricsAPIClient {
     }
 
     /**
+     * Fetch event trends (time series data).
+     *
+     * Returns aggregated event counts over time buckets.
+     *
+     * @param {string|null} startTime - ISO 8601 start time filter
+     * @param {string|null} endTime - ISO 8601 end time filter
+     * @param {string} bucket - Time bucket ('hour', 'day')
+     * @returns {Promise<Object>} Trends data or error object
+     */
+    async fetchTrends(startTime = null, endTime = null, bucket = 'hour') {
+        const params = { bucket };
+        if (startTime) params.start_time = startTime;
+        if (endTime) params.end_time = endTime;
+
+        return await this._fetch('/trends', params);
+    }
+
+    /**
      * Fetch specific webhook event by delivery ID.
      *
      * Returns complete details for a single webhook event including full payload.
@@ -277,10 +295,8 @@ class MetricsAPIClient {
      */
     cancelAllRequests() {
         console.log(`[API Client] Cancelling ${this.activeRequests.size} active requests`);
-        for (const [requestId, controller] of this.activeRequests.entries()) {
+        for (const controller of this.activeRequests.values()) {
             controller.abort();
-            // We don't delete from map here as the timeout handler will do it
-            // or we could clear the map after the loop
         }
         this.activeRequests.clear();
     }
@@ -395,7 +411,7 @@ class MetricsAPIClient {
             } else if (errorData.message) {
                 detail = errorData.message;
             }
-        } catch (parseError) {
+        } catch (error) {
             // Failed to parse error response - use default detail
             detail = response.statusText || detail;
         }

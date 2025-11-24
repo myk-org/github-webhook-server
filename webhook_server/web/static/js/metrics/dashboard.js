@@ -145,6 +145,11 @@ class MetricsDashboard {
         this.timeRange = '24h';  // Default time range
         this.autoRefresh = true;
 
+        // Debounced chart update function
+        this.debouncedUpdateCharts = window.MetricsUtils.debounce(() => {
+            this.updateCharts(this.currentData);
+        }, 500);
+
         this.init();
     }
 
@@ -197,11 +202,18 @@ class MetricsDashboard {
         console.log('[Dashboard] Loading initial data...');
 
         try {
+            const { startTime, endTime } = this.getTimeRangeDates(this.timeRange);
+            console.log(`[Dashboard] Time range: ${this.timeRange} (${startTime} to ${endTime})`);
+
             // Fetch all data in parallel using apiClient
-            const [summaryData, webhooksData, reposData] = await Promise.all([
-                this.apiClient.fetchSummary(),
-                this.apiClient.fetchWebhooks({ limit: 100 }),
-                this.apiClient.fetchRepositories()
+            // Use bucket='hour' for ranges <= 24h, 'day' for others
+            const bucket = (this.timeRange === '1h' || this.timeRange === '24h') ? 'hour' : 'day';
+
+            const [summaryData, webhooksData, reposData, trendsData] = await Promise.all([
+                this.apiClient.fetchSummary(startTime, endTime),
+                this.apiClient.fetchWebhooks({ limit: 100, start_time: startTime, end_time: endTime }),
+                this.apiClient.fetchRepositories(startTime, endTime),
+                this.apiClient.fetchTrends(startTime, endTime, bucket)
             ]);
 
             // Check for errors in responses
@@ -217,12 +229,17 @@ class MetricsDashboard {
                 console.error('[Dashboard] Repositories fetch error:', reposData);
                 throw new Error(reposData.detail || 'Failed to fetch repositories data');
             }
+            if (trendsData.error) {
+                console.error('[Dashboard] Trends fetch error:', trendsData);
+                // Don't fail completely if trends fail, just log it
+            }
 
             // Store data
             this.currentData = {
                 summary: summaryData,
                 webhooks: webhooksData.events || [],
-                repositories: reposData.repositories || []
+                repositories: reposData.repositories || [],
+                trends: trendsData.trends || []
             };
 
             console.log('[Dashboard] Initial data loaded:', this.currentData);
@@ -235,6 +252,51 @@ class MetricsDashboard {
             console.error('[Dashboard] Error loading initial data:', error);
             throw error;
         }
+    }
+
+    /**
+     * Calculate start and end dates based on selected time range.
+     * @param {string} range - Time range identifier
+     * @returns {Object} { startTime, endTime } in ISO format
+     */
+    getTimeRangeDates(range) {
+        const now = new Date();
+        let start = new Date();
+
+        switch (range) {
+            case '1h':
+                start.setHours(now.getHours() - 1);
+                break;
+            case '24h':
+                start.setHours(now.getHours() - 24);
+                break;
+            case '7d':
+                start.setDate(now.getDate() - 7);
+                break;
+            case '30d':
+                start.setDate(now.getDate() - 30);
+                break;
+            case 'custom': {
+                // Handle custom range inputs if implemented
+                const startInput = document.getElementById('startTime');
+                const endInput = document.getElementById('endTime');
+                if (startInput && endInput && startInput.value && endInput.value) {
+                    return {
+                        startTime: new Date(startInput.value).toISOString(),
+                        endTime: new Date(endInput.value).toISOString()
+                    };
+                }
+                return { startTime: null, endTime: null };
+            }
+            default:
+                // Default to 24h if unknown
+                start.setHours(now.getHours() - 24);
+        }
+
+        return {
+            startTime: start.toISOString(),
+            endTime: now.toISOString()
+        };
     }
 
     /**
@@ -308,7 +370,7 @@ class MetricsDashboard {
         }
 
         // Update charts with new data
-        this.updateCharts(this.currentData);
+        this.debouncedUpdateCharts();
 
         // Show brief notification
         this.showUpdateNotification();
@@ -489,12 +551,23 @@ class MetricsDashboard {
         const summary = data.summary;
         const webhooks = data.webhooks;
         const repositories = data.repositories;
+        const trends = data.trends;
 
         try {
             // Update Event Trends Chart (line chart)
-            if (this.charts.eventTrends && webhooks) {
-                const trendsData = this.prepareEventTrendsData(webhooks);
-                window.MetricsCharts.updateEventTrendsChart(this.charts.eventTrends, trendsData);
+            if (this.charts.eventTrends) {
+                let trendsData;
+                if (trends && trends.length > 0) {
+                    // Use aggregated trends data from API
+                    trendsData = this.processTrendsData(trends);
+                } else if (webhooks) {
+                    // Fallback to calculating from webhooks list (less accurate)
+                    trendsData = this.prepareEventTrendsData(webhooks);
+                }
+
+                if (trendsData) {
+                    window.MetricsCharts.updateEventTrendsChart(this.charts.eventTrends, trendsData);
+                }
             }
 
             // Update Event Distribution Chart (pie chart)
@@ -521,6 +594,32 @@ class MetricsDashboard {
         } catch (error) {
             console.error('[Dashboard] Error updating charts:', error);
         }
+    }
+
+    /**
+     * Process trends data from API for chart.
+     * @param {Array} trends - Trends data from API
+     * @returns {Object} Chart data
+     */
+    processTrendsData(trends) {
+        // Sort by bucket time
+        const sortedTrends = [...trends].sort((a, b) => new Date(a.bucket) - new Date(b.bucket));
+
+        // Format labels based on bucket granularity
+        const labels = sortedTrends.map(t => {
+            const date = new Date(t.bucket);
+            // Simple heuristic: if buckets are < 24h apart, show time, else date
+            // For now just use local time string
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) +
+                   (this.timeRange !== '1h' && this.timeRange !== '24h' ? ` ${date.getMonth() + 1}/${date.getDate()}` : '');
+        });
+
+        return {
+            labels: labels,
+            success: sortedTrends.map(t => t.successful_events),
+            errors: sortedTrends.map(t => t.failed_events),
+            total: sortedTrends.map(t => t.total_events)
+        };
     }
 
     /**

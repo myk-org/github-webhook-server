@@ -516,3 +516,25 @@ if (typeof module !== 'undefined' && module.exports) {
         isValidRepository
     };
 }
+
+// Browser globals
+if (typeof window !== 'undefined') {
+    window.MetricsUtils = {
+        formatDuration,
+        formatTimestamp,
+        formatRelativeTime,
+        formatNumber,
+        formatPercentage,
+        formatBytes,
+        calculateTrend,
+        aggregateByTimeRange,
+        calculateSuccessRate,
+        escapeHTML,
+        debounce,
+        throttle,
+        getLocalStorage,
+        setLocalStorage,
+        isValidTimeRange,
+        isValidRepository
+    };
+}
