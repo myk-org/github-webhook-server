@@ -126,7 +126,10 @@ class MetricsDashboard {
                     return { trends: [] }; // Return empty trends if endpoint doesn't exist
                 }),
                 this.apiClient.fetchContributors(startTime, endTime, 10),
-                this.apiClient.fetchUserPRs(startTime, endTime, { page: 1, page_size: 10 })
+                this.apiClient.fetchUserPRs(startTime, endTime, { page: 1, page_size: 10 }).catch(err => {
+                    console.warn('[Dashboard] User PRs endpoint error:', err);
+                    return { data: [], pagination: { total: 0, page: 1, page_size: 10, total_pages: 0 } };
+                })
             ]);
 
             // Check for errors in responses
@@ -168,9 +171,8 @@ class MetricsDashboard {
             this.updateCharts(this.currentData);
 
             // Update User PRs table
-            if (userPrsData) {
-                this.updateUserPRsTable(userPrsData);
-            }
+            console.log('[Dashboard] Updating User PRs table with data:', userPrsData);
+            this.updateUserPRsTable(userPrsData);
 
             // Populate user filter dropdown
             this.populateUserFilter();
