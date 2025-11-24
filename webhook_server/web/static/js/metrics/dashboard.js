@@ -21,6 +21,7 @@ class MetricsDashboard {
             repositories: null
         };
         this.timeRange = '24h';  // Default time range
+        this.repositoryFilter = '';  // Repository filter (empty = show all)
 
         this.initialize();
     }
@@ -319,9 +320,28 @@ class MetricsDashboard {
         }
 
         const summary = data.summary;
-        const webhooks = data.webhooks;
-        const repositories = data.repositories;
+        let webhooks = data.webhooks;
+        let repositories = data.repositories;
         const trends = data.trends;
+
+        // Apply repository filter
+        if (this.repositoryFilter) {
+            webhooks = this.filterDataByRepository(webhooks);
+            repositories = this.filterDataByRepository(repositories);
+
+            // Recalculate summary for filtered data
+            summary.total_events = webhooks.length;
+            summary.successful_events = webhooks.filter(e => e.status === 'success').length;
+            summary.failed_events = webhooks.filter(e => e.status === 'error').length;
+            summary.success_rate = summary.total_events > 0
+                ? (summary.successful_events / summary.total_events * 100)
+                : 0;
+
+            console.log(`[Dashboard] Filtered data: ${webhooks.length} events, ${repositories.length} repos`);
+
+            // Update KPI cards with filtered summary
+            this.updateKPICards(summary);
+        }
 
         try {
             // Update Event Trends Chart (line chart)
@@ -618,6 +638,12 @@ class MetricsDashboard {
             refreshButton.addEventListener('click', () => this.manualRefresh());
         }
 
+        // Repository filter
+        const repositoryFilterInput = document.getElementById('repositoryFilter');
+        if (repositoryFilterInput) {
+            repositoryFilterInput.addEventListener('input', (e) => this.filterByRepository(e.target.value));
+        }
+
         console.log('[Dashboard] Event listeners set up');
     }
 
@@ -724,6 +750,38 @@ class MetricsDashboard {
         } finally {
             this.showLoading(false);
         }
+    }
+
+    /**
+     * Filter dashboard data by repository name.
+     *
+     * @param {string} filterValue - Repository name or partial name to filter by
+     */
+    filterByRepository(filterValue) {
+        this.repositoryFilter = filterValue.trim().toLowerCase();
+        console.log(`[Dashboard] Filtering by repository: "${this.repositoryFilter}"`);
+
+        // Re-render charts and tables with filtered data
+        if (this.currentData) {
+            this.updateCharts(this.currentData);
+        }
+    }
+
+    /**
+     * Filter data array by repository name.
+     *
+     * @param {Array} data - Array of data objects with 'repository' field
+     * @returns {Array} Filtered data
+     */
+    filterDataByRepository(data) {
+        if (!this.repositoryFilter || !Array.isArray(data)) {
+            return data;  // No filter or invalid data, return as-is
+        }
+
+        return data.filter(item => {
+            const repo = (item.repository || '').toLowerCase();
+            return repo.includes(this.repositoryFilter);
+        });
     }
 
     /**
