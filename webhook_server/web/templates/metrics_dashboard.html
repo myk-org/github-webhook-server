@@ -29,34 +29,49 @@
       </div>
 
       <div class="control-panel">
-        <div class="filters">
-          <div class="filter-group">
-            <label for="time-range-select">Time Range:</label>
-            <select id="time-range-select">
-              <option value="1h">Last Hour</option>
-              <option value="24h" selected>Last 24 Hours</option>
-              <option value="7d">Last 7 Days</option>
-              <option value="30d">Last 30 Days</option>
-              <option value="custom">Custom Range...</option>
-            </select>
+        <div class="panel-header">
+          <h3>Filters & Controls</h3>
+          <button id="togglePanelBtn" class="btn-icon" title="Collapse Panel">▼</button>
+        </div>
+
+        <div class="filters-container">
+          <div class="filters">
+            <div class="filter-group">
+              <label for="time-range-select">Quick Range:</label>
+              <select id="time-range-select">
+                <option value="1h">Last Hour</option>
+                <option value="24h" selected>Last 24 Hours</option>
+                <option value="7d">Last 7 Days</option>
+                <option value="30d">Last 30 Days</option>
+              </select>
+            </div>
+            <div class="filter-group">
+              <label for="startTime">Start Time:</label>
+              <input type="datetime-local" id="startTime" />
+            </div>
+            <div class="filter-group">
+              <label for="endTime">End Time:</label>
+              <input type="datetime-local" id="endTime" />
+            </div>
+            <div class="filter-group">
+              <label for="repositoryFilter">Repository:</label>
+              <input type="text" id="repositoryFilter" placeholder="org/repo" />
+            </div>
           </div>
-          <div class="filter-group custom-range" id="customRangeInputs" style="display: none;">
-            <label for="startTime">From:</label>
-            <input type="datetime-local" id="startTime" />
-            <label for="endTime">To:</label>
-            <input type="datetime-local" id="endTime" />
-          </div>
-          <div class="filter-group">
-            <label class="toggle-switch">
-              <input type="checkbox" id="auto-refresh-toggle" checked />
-              <span class="slider"></span>
-            </label>
-            <span>Auto-refresh</span>
-          </div>
-          <div class="controls-actions">
-            <button id="refresh-button" class="btn btn-primary" title="Reload Metrics">Refresh</button>
-            <button id="connect-button" class="btn btn-success">Start Real-time</button>
-            <button id="disconnect-button" class="btn btn-danger" style="display: none;">Stop Real-time</button>
+
+          <div class="controls-row">
+            <div class="toggle-group">
+              <label class="toggle-switch">
+                <input type="checkbox" id="auto-refresh-toggle" checked />
+                <span class="slider"></span>
+              </label>
+              <span>Auto-refresh</span>
+            </div>
+            <div class="controls-actions">
+              <button id="refresh-button" class="btn btn-primary" title="Reload Metrics">Refresh</button>
+              <button id="connect-button" class="btn btn-success">Start Real-time</button>
+              <button id="disconnect-button" class="btn btn-danger" style="display: none;">Stop Real-time</button>
+            </div>
           </div>
         </div>
       </div>
@@ -96,15 +111,34 @@
         </div>
       </div>
 
-      <div class="chart-container">
-        <div class="chart-header">
-          <h2>Event Trends</h2>
-          <button class="btn-icon" id="eventTrendsSettings" title="Chart Settings">⚙</button>
+      <div class="dashboard-grid">
+        <div class="chart-container full-width">
+          <div class="chart-header">
+            <h2>Event Trends</h2>
+            <button class="btn-icon" id="eventTrendsSettings" title="Chart Settings">⚙</button>
+          </div>
+          <div class="chart-wrapper">
+            <canvas id="eventTrendsChart"></canvas>
+          </div>
         </div>
-        <canvas id="eventTrendsChart"></canvas>
-      </div>
 
-      <div class="two-column-grid">
+        <div class="chart-container">
+          <div class="chart-header">
+            <h2>API Usage Trends</h2>
+            <button class="btn-icon" id="apiUsageSettings" title="Chart Settings">⚙</button>
+          </div>
+          <div class="chart-wrapper">
+            <canvas id="apiUsageChart"></canvas>
+          </div>
+        </div>
+
+        <div class="chart-container">
+          <h2>Event Distribution</h2>
+          <div class="chart-wrapper">
+            <canvas id="eventDistributionChart"></canvas>
+          </div>
+        </div>
+
         <div class="chart-container">
           <h2>Top Repositories</h2>
           <div class="table-wrapper">
@@ -124,40 +158,26 @@
             </table>
           </div>
         </div>
+
         <div class="chart-container">
-          <h2>Event Distribution</h2>
-          <canvas id="eventDistributionChart"></canvas>
-        </div>
-      </div>
-
-      <div class="chart-container">
-        <div class="chart-header">
-          <h2>API Usage Trends</h2>
-          <button class="btn-icon" id="apiUsageSettings" title="Chart Settings">⚙</button>
-        </div>
-        <canvas id="apiUsageChart"></canvas>
-      </div>
-
-      <div class="chart-container">
-        <h2>Recent Events</h2>
-        <div class="table-wrapper">
-          <table id="recentEventsTable">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Repository</th>
-                <th>Event Type</th>
-                <th>Status</th>
-                <th>Duration</th>
-                <th>PR#</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr class="loading-row">
-                <td colspan="6">Loading...</td>
-              </tr>
-            </tbody>
-          </table>
+          <h2>Recent Events</h2>
+          <div class="table-wrapper">
+            <table id="recentEventsTable">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Repository</th>
+                  <th>Event</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="loading-row">
+                  <td colspan="4">Loading...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
