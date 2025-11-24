@@ -626,6 +626,22 @@ class MetricsDashboard {
         localStorage.setItem('theme', newTheme);
 
         console.log(`[Dashboard] Theme changed to: ${newTheme}`);
+
+        // Recreate charts with new theme colors
+        if (this.currentData.summary) {
+            // Destroy existing charts
+            Object.values(this.charts).forEach(chart => {
+                if (chart && typeof chart.destroy === 'function') {
+                    chart.destroy();
+                }
+            });
+
+            // Clear charts object
+            this.charts = {};
+
+            // Recreate charts with new theme
+            this.initializeCharts();
+        }
     }
 
     /**
