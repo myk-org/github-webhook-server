@@ -245,19 +245,49 @@ h3 {
   cursor: pointer;
   font-size: 16px;
   color: var(--text-secondary);
+  transition: transform 0.3s ease, color 0.2s ease;
+}
+
+.btn-icon:hover {
+  color: var(--text-color);
+}
+
+.collapse-btn {
   transition: transform 0.3s ease;
 }
 
-.filters-container {
+.panel-content {
   padding: 20px;
-  transition: max-height 0.3s ease, opacity 0.3s ease;
+  max-height: 1000px;
+  overflow: hidden;
+  transition: max-height 0.3s ease-out, padding 0.3s ease-out, opacity 0.3s ease-out;
+  opacity: 1;
 }
 
-.filters-container.collapsed {
+.control-panel.collapsed .panel-content {
+  max-height: 0;
+  padding: 0 20px;
+  opacity: 0;
+}
+
+.control-panel.collapsed .collapse-btn {
+  transform: rotate(180deg);
+}
+
+.chart-content {
+  max-height: 1000px;
+  overflow: hidden;
+  transition: max-height 0.3s ease-out, opacity 0.3s ease-out;
+  opacity: 1;
+}
+
+.chart-container.collapsed .chart-content {
   max-height: 0;
   opacity: 0;
-  padding: 0 20px;
-  overflow: hidden;
+}
+
+.chart-container.collapsed .collapse-btn {
+  transform: rotate(180deg);
 }
 
 .filters {
@@ -448,6 +478,12 @@ h3 {
   border-bottom: 1px solid var(--border-color);
 }
 
+.header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .chart-wrapper {
   position: relative;
   height: 250px; /* Standardized height */
@@ -606,4 +642,146 @@ tbody td {
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
+}
+
+/* Modal Styles */
+.modal {
+  display: none;
+  position: fixed;
+  z-index: 10000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  animation: fadeIn 0.3s ease;
+}
+
+.modal.show {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modal-content {
+  background-color: var(--container-bg);
+  border-radius: 8px;
+  padding: 0;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(50px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.modal-header h3 {
+  margin: 0;
+  color: var(--text-color);
+}
+
+.close-modal {
+  background: none;
+  border: none;
+  font-size: 28px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: color 0.2s ease;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.close-modal:hover {
+  color: var(--text-color);
+}
+
+.modal-body {
+  padding: 20px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.setting-group {
+  margin-bottom: 20px;
+}
+
+.setting-group:last-child {
+  margin-bottom: 0;
+}
+
+.setting-group h4 {
+  margin: 0 0 10px 0;
+  color: var(--text-color);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.setting-group label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-color);
+  cursor: pointer;
+  user-select: none;
+}
+
+.setting-group input[type="checkbox"],
+.setting-group input[type="radio"] {
+  margin-right: 8px;
+  cursor: pointer;
+}
+
+.setting-group select {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background-color: var(--input-bg);
+  color: var(--text-color);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.setting-group select:focus {
+  outline: none;
+  border-color: var(--primary-color);
+}
+
+.setting-group .btn {
+  margin-right: 8px;
+  margin-bottom: 8px;
+}
+
+.btn-secondary {
+  background-color: var(--text-secondary);
+  color: white;
+}
+
+.btn-secondary:hover {
+  background-color: var(--text-color);
 }

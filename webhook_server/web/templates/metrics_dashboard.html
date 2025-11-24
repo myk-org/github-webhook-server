@@ -35,13 +35,13 @@
         <p>Loading metrics...</p>
       </div>
 
-      <div class="control-panel">
+      <div class="control-panel" data-section="control-panel">
         <div class="panel-header">
           <h3>Filters & Controls</h3>
-          <button id="togglePanelBtn" class="btn-icon" title="Collapse Panel">▼</button>
+          <button class="btn-icon collapse-btn" data-section="control-panel" title="Collapse Panel">▼</button>
         </div>
 
-        <div class="filters-container">
+        <div class="panel-content">
           <div class="filters">
             <div class="filter-group">
               <label for="time-range-select">Quick Range:</label>
@@ -71,6 +71,7 @@
               <button id="refresh-button" class="btn btn-primary" title="Reload Metrics">Refresh</button>
             </div>
           </div>
+        </div>
         </div>
       </div>
 
@@ -110,77 +111,106 @@
       </div>
 
       <div class="dashboard-grid">
-        <div class="chart-container full-width">
+        <div class="chart-container full-width" data-section="event-trends">
           <div class="chart-header">
             <h2>Event Trends</h2>
-            <button class="btn-icon" id="eventTrendsSettings" title="Chart Settings">⚙</button>
+            <div class="header-actions">
+              <button class="btn-icon collapse-btn" data-section="event-trends" title="Collapse">▼</button>
+              <button class="btn-icon" id="eventTrendsSettings" title="Chart Settings">⚙</button>
+            </div>
           </div>
-          <div class="chart-wrapper">
-            <canvas id="eventTrendsChart"></canvas>
+          <div class="chart-content">
+            <div class="chart-wrapper">
+              <canvas id="eventTrendsChart"></canvas>
+            </div>
           </div>
         </div>
 
-        <div class="chart-container">
+        <div class="chart-container" data-section="api-usage">
           <div class="chart-header">
             <h2>API Usage Trends</h2>
-            <button class="btn-icon" id="apiUsageSettings" title="Chart Settings">⚙</button>
+            <div class="header-actions">
+              <button class="btn-icon collapse-btn" data-section="api-usage" title="Collapse">▼</button>
+              <button class="btn-icon" id="apiUsageSettings" title="Chart Settings">⚙</button>
+            </div>
           </div>
-          <div class="chart-wrapper">
-            <canvas id="apiUsageChart"></canvas>
-          </div>
-        </div>
-
-        <div class="chart-container">
-          <h2>Event Distribution</h2>
-          <div class="chart-wrapper">
-            <canvas id="eventDistributionChart"></canvas>
+          <div class="chart-content">
+            <div class="chart-wrapper">
+              <canvas id="apiUsageChart"></canvas>
+            </div>
           </div>
         </div>
 
-        <div class="chart-container">
-          <h2>Top Repositories</h2>
-          <div class="table-wrapper">
-            <table id="topRepositoriesTable">
-              <thead>
-                <tr>
-                  <th>Repository</th>
-                  <th>Events</th>
-                  <th>%</th>
-                </tr>
-              </thead>
-              <tbody id="repository-table-body">
-                <tr class="loading-row">
-                  <td colspan="3">Loading...</td>
-                </tr>
-              </tbody>
-            </table>
+        <div class="chart-container" data-section="event-distribution">
+          <div class="chart-header">
+            <h2>Event Distribution</h2>
+            <button class="btn-icon collapse-btn" data-section="event-distribution" title="Collapse">▼</button>
+          </div>
+          <div class="chart-content">
+            <div class="chart-wrapper">
+              <canvas id="eventDistributionChart"></canvas>
+            </div>
           </div>
         </div>
 
-        <div class="chart-container">
-          <h2>Recent Events</h2>
-          <div class="table-wrapper">
-            <table id="recentEventsTable">
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Repository</th>
-                  <th>Event</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr class="loading-row">
-                  <td colspan="4">Loading...</td>
-                </tr>
-              </tbody>
-            </table>
+        <div class="chart-container" data-section="top-repositories">
+          <div class="chart-header">
+            <h2>Top Repositories</h2>
+            <button class="btn-icon collapse-btn" data-section="top-repositories" title="Collapse">▼</button>
+          </div>
+          <div class="chart-content">
+            <div class="table-wrapper">
+              <table id="topRepositoriesTable">
+                <thead>
+                  <tr>
+                    <th>Repository</th>
+                    <th>Events</th>
+                    <th>%</th>
+                  </tr>
+                </thead>
+                <tbody id="repository-table-body">
+                  <tr class="loading-row">
+                    <td colspan="3">Loading...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
 
-        <div class="chart-container full-width">
-          <h2>PR Contributors</h2>
-          <div class="contributors-grid">
+        <div class="chart-container" data-section="recent-events">
+          <div class="chart-header">
+            <h2>Recent Events</h2>
+            <button class="btn-icon collapse-btn" data-section="recent-events" title="Collapse">▼</button>
+          </div>
+          <div class="chart-content">
+            <div class="table-wrapper">
+              <table id="recentEventsTable">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Repository</th>
+                    <th>Event</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr class="loading-row">
+                    <td colspan="4">Loading...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="chart-container full-width" data-section="pr-contributors">
+          <div class="chart-header">
+            <h2>PR Contributors</h2>
+            <button class="btn-icon collapse-btn" data-section="pr-contributors" title="Collapse">▼</button>
+          </div>
+          <div class="chart-content">
+            <div class="contributors-grid">
             <!-- PR Creators -->
             <div class="contributor-section">
               <h3>PR Creators</h3>
@@ -246,6 +276,81 @@
                 </table>
               </div>
             </div>
+          </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Event Trends Settings Modal -->
+    <div id="eventTrendsModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Event Trends Settings</h3>
+          <button class="close-modal" aria-label="Close modal">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="setting-group">
+            <h4>Visible Datasets</h4>
+            <label><input type="checkbox" id="showSuccess" checked> Success (green)</label>
+            <label><input type="checkbox" id="showErrors" checked> Errors (red)</label>
+            <label><input type="checkbox" id="showTotal" checked> Total (blue)</label>
+          </div>
+
+          <div class="setting-group">
+            <h4>Chart Type</h4>
+            <label><input type="radio" name="trendChartType" value="line" checked> Line Chart</label>
+            <label><input type="radio" name="trendChartType" value="area"> Area Chart</label>
+            <label><input type="radio" name="trendChartType" value="bar"> Bar Chart</label>
+          </div>
+
+          <div class="setting-group">
+            <h4>Export</h4>
+            <button id="exportTrendsCsv" class="btn btn-secondary">Download CSV</button>
+            <button id="exportTrendsJson" class="btn btn-secondary">Download JSON</button>
+            <button id="downloadTrendsChart" class="btn btn-secondary">Download PNG</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- API Usage Settings Modal -->
+    <div id="apiUsageModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>API Usage Settings</h3>
+          <button class="close-modal" aria-label="Close modal">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="setting-group">
+            <h4>Top Repositories</h4>
+            <select id="apiTopN">
+              <option value="5">Top 5</option>
+              <option value="7" selected>Top 7</option>
+              <option value="10">Top 10</option>
+              <option value="15">Top 15</option>
+              <option value="20">Top 20</option>
+            </select>
+          </div>
+
+          <div class="setting-group">
+            <h4>Sort Order</h4>
+            <label><input type="radio" name="apiSortOrder" value="desc" checked> Descending (highest first)</label>
+            <label><input type="radio" name="apiSortOrder" value="asc"> Ascending (lowest first)</label>
+          </div>
+
+          <div class="setting-group">
+            <h4>Chart Type</h4>
+            <label><input type="radio" name="apiChartType" value="bar" checked> Vertical Bar</label>
+            <label><input type="radio" name="apiChartType" value="horizontalBar"> Horizontal Bar</label>
+            <label><input type="radio" name="apiChartType" value="line"> Line Chart</label>
+          </div>
+
+          <div class="setting-group">
+            <h4>Export</h4>
+            <button id="exportApiCsv" class="btn btn-secondary">Download CSV</button>
+            <button id="exportApiJson" class="btn btn-secondary">Download JSON</button>
+            <button id="downloadApiChart" class="btn btn-secondary">Download PNG</button>
           </div>
         </div>
       </div>
