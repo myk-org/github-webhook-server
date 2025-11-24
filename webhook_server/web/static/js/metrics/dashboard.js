@@ -149,10 +149,14 @@ class MetricsDashboard {
             // Store data
             this.currentData = {
                 summary: summaryData.summary || summaryData,
-                webhooks: webhooksData.events || webhooksData || [],
+                webhooks: webhooksData.data || webhooksData || [],
                 repositories: reposData.repositories || [],
                 trends: trendsData.trends || [],
-                contributors: contributorsData,  // Add contributors data
+                contributors: contributorsData ? {
+                    pr_creators: contributorsData.pr_creators?.data || contributorsData.pr_creators || [],
+                    pr_reviewers: contributorsData.pr_reviewers?.data || contributorsData.pr_reviewers || [],
+                    pr_approvers: contributorsData.pr_approvers?.data || contributorsData.pr_approvers || []
+                } : null,
                 eventTypeDistribution: summaryData.event_type_distribution || {}  // Store top-level event_type_distribution
             };
 
@@ -349,9 +353,9 @@ class MetricsDashboard {
             repositories: data.repositories,
             trends: data.trends,
             contributors: data.contributors ? {
-                pr_creators: data.contributors.pr_creators,
-                pr_reviewers: data.contributors.pr_reviewers,
-                pr_approvers: data.contributors.pr_approvers
+                pr_creators: data.contributors.pr_creators?.data || data.contributors.pr_creators || [],
+                pr_reviewers: data.contributors.pr_reviewers?.data || data.contributors.pr_reviewers || [],
+                pr_approvers: data.contributors.pr_approvers?.data || data.contributors.pr_approvers || []
             } : null,
             eventTypeDistribution: data.eventTypeDistribution
         };
@@ -505,9 +509,9 @@ class MetricsDashboard {
             // Update Recent Events Table
             if (webhooks && Array.isArray(webhooks)) {
                 this.updateRecentEventsTable(webhooks);
-            } else if (webhooks && Array.isArray(webhooks.events)) {
-                // Backward compatibility for old data structure
-                this.updateRecentEventsTable(webhooks.events);
+            } else if (webhooks && Array.isArray(webhooks.data)) {
+                // Handle paginated response format
+                this.updateRecentEventsTable(webhooks.data);
             }
 
             // Update Contributors Tables

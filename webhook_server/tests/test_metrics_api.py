@@ -162,13 +162,12 @@ class TestGetWebhookEventsEndpoint(TestMetricsAPIEndpoints):
         assert response.status_code == 200
         data = response.json()
 
-        assert len(data["events"]) == 2
-        assert data["total_count"] == 2
-        assert data["has_more"] is False
-        assert data["next_offset"] is None
+        assert len(data["data"]) == 2
+        assert data["pagination"]["total"] == 2
+        assert data["pagination"]["has_next"] is False
 
         # Verify first event
-        event1 = data["events"][0]
+        event1 = data["data"][0]
         assert event1["delivery_id"] == "test-delivery-1"
         assert event1["repository"] == "org/repo1"
         assert event1["event_type"] == "pull_request"
@@ -179,7 +178,7 @@ class TestGetWebhookEventsEndpoint(TestMetricsAPIEndpoints):
         assert event1["error_message"] is None
 
         # Verify second event
-        event2 = data["events"][1]
+        event2 = data["data"][1]
         assert event2["status"] == "failure"
         assert event2["error_message"] == "Processing failed"
 
@@ -215,8 +214,8 @@ class TestGetWebhookEventsEndpoint(TestMetricsAPIEndpoints):
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data["events"]) == 1
-        assert data["events"][0]["repository"] == "org/repo1"
+        assert len(data["data"]) == 1
+        assert data["data"][0]["repository"] == "org/repo1"
 
     def test_get_webhook_events_with_event_type_filter(
         self,
@@ -250,7 +249,7 @@ class TestGetWebhookEventsEndpoint(TestMetricsAPIEndpoints):
 
         assert response.status_code == 200
         data = response.json()
-        assert data["events"][0]["event_type"] == "check_run"
+        assert data["data"][0]["event_type"] == "check_run"
 
     def test_get_webhook_events_with_status_filter(
         self,
@@ -284,8 +283,8 @@ class TestGetWebhookEventsEndpoint(TestMetricsAPIEndpoints):
 
         assert response.status_code == 200
         data = response.json()
-        assert data["events"][0]["status"] == "error"
-        assert data["events"][0]["error_message"] == "Connection timeout"
+        assert data["data"][0]["status"] == "error"
+        assert data["data"][0]["error_message"] == "Connection timeout"
 
         # Verify DB queries were executed (fetchval for count, fetch for results)
         setup_db_manager.fetchval.assert_called_once()
@@ -361,10 +360,9 @@ class TestGetWebhookEventsEndpoint(TestMetricsAPIEndpoints):
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data["events"]) == 50
-        assert data["total_count"] == 150
-        assert data["has_more"] is True
-        assert data["next_offset"] == 50
+        assert len(data["data"]) == 50
+        assert data["pagination"]["total"] == 150
+        assert data["pagination"]["has_next"] is True
 
     def test_get_webhook_events_db_manager_none(self, client: TestClient) -> None:
         """Test endpoint returns 500 when db_manager is None."""
@@ -500,6 +498,7 @@ class TestGetRepositoryStatisticsEndpoint(TestMetricsAPIEndpoints):
         setup_db_manager: Mock,
     ) -> None:
         """Test getting repository statistics."""
+        setup_db_manager.fetchval.return_value = 2
         setup_db_manager.fetch.return_value = [
             {
                 "repository": "org/repo1",
@@ -537,18 +536,18 @@ class TestGetRepositoryStatisticsEndpoint(TestMetricsAPIEndpoints):
 
         assert response.status_code == 200
         data = response.json()
-        assert data["total_repositories"] == 2
-        assert len(data["repositories"]) == 2
+        assert data["pagination"]["total"] == 2
+        assert len(data["data"]) == 2
 
         # Verify first repository
-        repo1 = data["repositories"][0]
+        repo1 = data["data"][0]
         assert repo1["repository"] == "org/repo1"
         assert repo1["total_events"] == 100
         assert repo1["success_rate"] == 95.00
         assert repo1["event_type_breakdown"] == {"pull_request": 80, "issue_comment": 20}
 
         # Verify second repository
-        repo2 = data["repositories"][1]
+        repo2 = data["data"][1]
         assert repo2["repository"] == "org/repo2"
         assert repo2["total_events"] == 50
 
@@ -579,14 +578,15 @@ class TestGetRepositoryStatisticsEndpoint(TestMetricsAPIEndpoints):
         setup_db_manager: Mock,
     ) -> None:
         """Test getting repository statistics when no data exists."""
+        setup_db_manager.fetchval.return_value = 0
         setup_db_manager.fetch.return_value = []
 
         response = client.get("/api/metrics/repositories")
 
         assert response.status_code == 200
         data = response.json()
-        assert data["total_repositories"] == 0
-        assert data["repositories"] == []
+        assert data["pagination"]["total"] == 0
+        assert data["data"] == []
 
     def test_get_repository_statistics_db_manager_none(self, client: TestClient) -> None:
         """Test endpoint returns 500 when db_manager is None."""
@@ -705,6 +705,7 @@ class TestGetMetricsSummaryEndpoint(TestMetricsAPIEndpoints):
         now = datetime.now(UTC)
 
         setup_db_manager.fetchrow.side_effect = [
+            # Summary row
             {
                 "total_events": 100,
                 "successful_events": 95,
@@ -718,9 +719,18 @@ class TestGetMetricsSummaryEndpoint(TestMetricsAPIEndpoints):
                 "avg_api_calls_per_event": 5.00,
                 "total_token_spend": 1000,
             },
+            # Time range row
             {
                 "first_event_time": now - timedelta(hours=24),
                 "last_event_time": now,
+            },
+            # Previous period summary row (for trend calculation)
+            {
+                "total_events": 90,
+                "successful_events": 85,
+                "failed_events": 5,
+                "success_rate": 94.44,
+                "avg_processing_time_ms": 1600,
             },
         ]
 
@@ -1039,3 +1049,48 @@ class TestUserPullRequestsEndpoint(TestMetricsAPIEndpoints):
         )
 
         assert response.status_code == 200
+
+
+class TestGetTrendsEndpoint(TestMetricsAPIEndpoints):
+    """Test GET /api/metrics/trends endpoint."""
+
+    def test_get_trends_success(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test getting trends data."""
+        now = datetime.now(UTC)
+
+        setup_db_manager.fetch.return_value = [
+            {
+                "bucket": now - timedelta(hours=2),
+                "total_events": 10,
+                "successful_events": 9,
+                "failed_events": 1,
+            },
+            {
+                "bucket": now - timedelta(hours=1),
+                "total_events": 15,
+                "successful_events": 14,
+                "failed_events": 1,
+            },
+        ]
+
+        response = client.get("/api/metrics/trends?bucket=hour")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["trends"]) == 2
+        assert data["trends"][0]["total_events"] == 10
+        assert data["trends"][1]["total_events"] == 15
+
+    def test_get_trends_invalid_bucket(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test trends endpoint with invalid bucket parameter."""
+        response = client.get("/api/metrics/trends?bucket=invalid")
+
+        assert response.status_code == 422  # Validation error

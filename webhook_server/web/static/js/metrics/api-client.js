@@ -118,7 +118,7 @@ class MetricsAPIClient {
      *
      * Response format (success):
      * {
-     *     events: [
+     *     data: [
      *         {
      *             delivery_id: 'abc123...',
      *             repository: 'org/repo',
@@ -137,8 +137,14 @@ class MetricsAPIClient {
      *         },
      *         ...
      *     ],
-     *     total_count: 1234,
-     *     has_more: true
+     *     pagination: {
+     *         total: 1234,
+     *         page: 1,
+     *         page_size: 100,
+     *         total_pages: 13,
+     *         has_next: true,
+     *         has_prev: false
+     *     }
      * }
      *
      * Response format (error):

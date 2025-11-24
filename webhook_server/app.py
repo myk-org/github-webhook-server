@@ -1558,7 +1558,7 @@ async def get_webhook_events(
         has_prev = page > 1
 
         return {
-            "events": events,
+            "data": events,
             "pagination": {
                 "total": total_count,
                 "page": page,
