@@ -24,6 +24,7 @@ module.exports = [
         URLSearchParams: "readonly",
         AbortController: "readonly",
         URL: "readonly",
+        Blob: "readonly",
         // CommonJS globals for conditional exports
         module: "readonly",
         // Chart.js global

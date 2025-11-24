@@ -329,6 +329,26 @@ class MetricsDashboard {
             webhooks = this.filterDataByRepository(webhooks);
             repositories = this.filterDataByRepository(repositories);
 
+            // Filter trends data by repository (filter each trend bucket)
+            // Note: trends API data doesn't have repository field, so we skip filtering trends
+            // Instead we'll use prepareEventTrendsData from filtered webhooks
+
+            // Recalculate event type distribution from filtered webhooks
+            const eventTypeCount = {};
+            webhooks.forEach(event => {
+                const eventType = event.event_type || 'unknown';
+                eventTypeCount[eventType] = (eventTypeCount[eventType] || 0) + 1;
+            });
+            data.eventTypeDistribution = eventTypeCount;
+
+            // Filter contributors data by repository
+            if (data.contributors) {
+                // Contributors data structure: {pr_creators: [], pr_reviewers: [], pr_approvers: []}
+                // Each item has 'user' field but NOT 'repository', so we need to filter differently
+                // For now, skip contributor filtering as it's user-centric, not repo-centric
+                // TODO: Backend should provide repo-specific contributor data in API
+            }
+
             // Recalculate summary for filtered data
             summary.total_events = webhooks.length;
             summary.successful_events = webhooks.filter(e => e.status === 'success').length;
@@ -347,7 +367,17 @@ class MetricsDashboard {
             // Update Event Trends Chart (line chart)
             if (this.charts.eventTrends) {
                 let trendsData;
-                if (trends && trends.length > 0) {
+
+                // When filtering by repository, always use filtered webhooks
+                if (this.repositoryFilter) {
+                    // Use filtered webhooks to calculate trends
+                    trendsData = this.prepareEventTrendsData(webhooks);
+                    console.log('[Dashboard] Event Trends using filtered webhooks data:', {
+                        totalEvents: webhooks.length,
+                        errors: trendsData.errors.reduce((a, b) => a + b, 0),
+                        success: trendsData.success.reduce((a, b) => a + b, 0)
+                    });
+                } else if (trends && trends.length > 0) {
                     // Use aggregated trends data from API
                     trendsData = this.processTrendsData(trends);
                     console.log('[Dashboard] Event Trends using API trends data:', {
@@ -644,7 +674,133 @@ class MetricsDashboard {
             repositoryFilterInput.addEventListener('input', (e) => this.filterByRepository(e.target.value));
         }
 
+        // Collapse buttons
+        this.setupCollapseButtons();
+
+        // Chart settings buttons
+        const eventTrendsSettings = document.getElementById('eventTrendsSettings');
+        if (eventTrendsSettings) {
+            eventTrendsSettings.addEventListener('click', () => this.openModal('eventTrendsModal'));
+        }
+
+        const apiUsageSettings = document.getElementById('apiUsageSettings');
+        if (apiUsageSettings) {
+            apiUsageSettings.addEventListener('click', () => this.openModal('apiUsageModal'));
+        }
+
+        // Close modal buttons
+        document.querySelectorAll('.close-modal').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const modal = e.target.closest('.modal');
+                if (modal) this.closeModal(modal.id);
+            });
+        });
+
+        // Click outside modal to close
+        document.querySelectorAll('.modal').forEach(modal => {
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) this.closeModal(modal.id);
+            });
+        });
+
+        // Event Trends settings
+        document.getElementById('showSuccess')?.addEventListener('change', () => this.updateTrendsVisibility());
+        document.getElementById('showErrors')?.addEventListener('change', () => this.updateTrendsVisibility());
+        document.getElementById('showTotal')?.addEventListener('change', () => this.updateTrendsVisibility());
+        document.querySelectorAll('input[name="trendChartType"]').forEach(radio => {
+            radio.addEventListener('change', (e) => this.changeTrendsChartType(e.target.value));
+        });
+        document.getElementById('exportTrendsCsv')?.addEventListener('click', () => this.exportTrendsData('csv'));
+        document.getElementById('exportTrendsJson')?.addEventListener('click', () => this.exportTrendsData('json'));
+        document.getElementById('downloadTrendsChart')?.addEventListener('click', () => this.downloadChart('eventTrendsChart'));
+
+        // API Usage settings
+        document.getElementById('apiTopN')?.addEventListener('change', (e) => this.updateApiTopN(parseInt(e.target.value)));
+        document.querySelectorAll('input[name="apiSortOrder"]').forEach(radio => {
+            radio.addEventListener('change', (e) => this.updateApiSortOrder(e.target.value));
+        });
+        document.querySelectorAll('input[name="apiChartType"]').forEach(radio => {
+            radio.addEventListener('change', (e) => this.changeApiChartType(e.target.value));
+        });
+        document.getElementById('exportApiCsv')?.addEventListener('click', () => this.exportApiData('csv'));
+        document.getElementById('exportApiJson')?.addEventListener('click', () => this.exportApiData('json'));
+        document.getElementById('downloadApiChart')?.addEventListener('click', () => this.downloadChart('apiUsageChart'));
+
         console.log('[Dashboard] Event listeners set up');
+    }
+
+    /**
+     * Set up collapse button listeners and restore collapsed state.
+     */
+    setupCollapseButtons() {
+        const collapseButtons = document.querySelectorAll('.collapse-btn');
+        collapseButtons.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const sectionId = e.target.dataset.section;
+                this.toggleSection(sectionId);
+            });
+        });
+
+        // Restore collapsed state from localStorage
+        this.restoreCollapsedSections();
+    }
+
+    /**
+     * Toggle a section's collapsed state.
+     * @param {string} sectionId - Section identifier
+     */
+    toggleSection(sectionId) {
+        const section = document.querySelector(`[data-section="${sectionId}"]`);
+        if (!section) {
+            console.warn(`[Dashboard] Section not found: ${sectionId}`);
+            return;
+        }
+
+        section.classList.toggle('collapsed');
+
+        // Update button icon
+        const btn = section.querySelector(`.collapse-btn[data-section="${sectionId}"]`);
+        if (btn) {
+            btn.textContent = section.classList.contains('collapsed') ? '▲' : '▼';
+            btn.title = section.classList.contains('collapsed') ? 'Expand' : 'Collapse';
+        }
+
+        // Save state
+        this.saveCollapsedState(sectionId, section.classList.contains('collapsed'));
+
+        console.log(`[Dashboard] Section ${sectionId} ${section.classList.contains('collapsed') ? 'collapsed' : 'expanded'}`);
+    }
+
+    /**
+     * Save collapsed state to localStorage.
+     * @param {string} sectionId - Section identifier
+     * @param {boolean} isCollapsed - Whether section is collapsed
+     */
+    saveCollapsedState(sectionId, isCollapsed) {
+        const state = JSON.parse(localStorage.getItem('collapsedSections') || '{}');
+        state[sectionId] = isCollapsed;
+        localStorage.setItem('collapsedSections', JSON.stringify(state));
+    }
+
+    /**
+     * Restore collapsed sections from localStorage.
+     */
+    restoreCollapsedSections() {
+        const state = JSON.parse(localStorage.getItem('collapsedSections') || '{}');
+        Object.keys(state).forEach(sectionId => {
+            if (state[sectionId]) {
+                const section = document.querySelector(`[data-section="${sectionId}"]`);
+                if (section) {
+                    section.classList.add('collapsed');
+                    const btn = section.querySelector(`.collapse-btn[data-section="${sectionId}"]`);
+                    if (btn) {
+                        btn.textContent = '▲';
+                        btn.title = 'Expand';
+                    }
+                }
+            }
+        });
+        console.log('[Dashboard] Collapsed sections restored from localStorage');
     }
 
     /**
@@ -758,10 +914,17 @@ class MetricsDashboard {
      * @param {string} filterValue - Repository name or partial name to filter by
      */
     filterByRepository(filterValue) {
-        this.repositoryFilter = filterValue.trim().toLowerCase();
-        console.log(`[Dashboard] Filtering by repository: "${this.repositoryFilter}"`);
+        const newFilter = filterValue.trim().toLowerCase();
 
-        // Re-render charts and tables with filtered data
+        // Check if filter actually changed
+        if (newFilter === this.repositoryFilter) {
+            return;  // No change, skip update
+        }
+
+        this.repositoryFilter = newFilter;
+        console.log(`[Dashboard] Filtering by repository: "${this.repositoryFilter || '(showing all)'}"`);
+
+        // ALWAYS re-render charts and tables (even when filter is cleared)
         if (this.currentData) {
             this.updateCharts(this.currentData);
         }
@@ -893,26 +1056,230 @@ class MetricsDashboard {
 
     /**
      * Prepare API usage data for bar chart.
-     * Shows top 7 repositories by API usage.
+     * Shows top N repositories by API usage.
      *
      * @param {Array} repositories - Array of repository statistics
+     * @param {number} topN - Number of top repositories to show (default: 7)
+     * @param {string} sortOrder - Sort order ('asc' or 'desc', default: 'desc')
      * @returns {Object} Chart data with labels and values arrays
      */
-    prepareAPIUsageData(repositories) {
+    prepareAPIUsageData(repositories, topN = 7, sortOrder = 'desc') {
         if (!repositories || !Array.isArray(repositories)) {
             return { labels: [], values: [] };
         }
 
-        // Sort by total_api_calls and take top 7
-        const sorted = repositories
-            .filter(r => r.total_api_calls > 0)
-            .sort((a, b) => b.total_api_calls - a.total_api_calls)
-            .slice(0, 7);
+        // Filter and sort by total_api_calls
+        let sorted = repositories.filter(r => r.total_api_calls > 0);
+
+        if (sortOrder === 'asc') {
+            sorted.sort((a, b) => a.total_api_calls - b.total_api_calls);
+        } else {
+            sorted.sort((a, b) => b.total_api_calls - a.total_api_calls);
+        }
+
+        // Take top N
+        sorted = sorted.slice(0, topN);
 
         return {
             labels: sorted.map(r => r.repository?.split('/')[1] || r.repository || 'Unknown'),
             values: sorted.map(r => r.total_api_calls || 0)
         };
+    }
+
+    /**
+     * Open a modal dialog.
+     * @param {string} modalId - The ID of the modal to open
+     */
+    openModal(modalId) {
+        const modal = document.getElementById(modalId);
+        if (modal) {
+            modal.classList.add('show');
+            console.log(`[Dashboard] Opened modal: ${modalId}`);
+        }
+    }
+
+    /**
+     * Close a modal dialog.
+     * @param {string} modalId - The ID of the modal to close
+     */
+    closeModal(modalId) {
+        const modal = document.getElementById(modalId);
+        if (modal) {
+            modal.classList.remove('show');
+            console.log(`[Dashboard] Closed modal: ${modalId}`);
+        }
+    }
+
+    /**
+     * Update Event Trends chart dataset visibility.
+     */
+    updateTrendsVisibility() {
+        const showSuccess = document.getElementById('showSuccess')?.checked;
+        const showErrors = document.getElementById('showErrors')?.checked;
+        const showTotal = document.getElementById('showTotal')?.checked;
+
+        const chart = this.charts.eventTrends;
+        if (chart && chart.data.datasets) {
+            // Datasets: [0] Success, [1] Errors, [2] Total
+            chart.data.datasets[0].hidden = !showSuccess;
+            chart.data.datasets[1].hidden = !showErrors;
+            chart.data.datasets[2].hidden = !showTotal;
+            chart.update();
+            console.log('[Dashboard] Updated Event Trends visibility');
+        }
+    }
+
+    /**
+     * Change Event Trends chart type.
+     * @param {string} type - Chart type ('line', 'area', 'bar')
+     */
+    changeTrendsChartType(type) {
+        const chart = this.charts.eventTrends;
+        if (chart && chart.data.datasets) {
+            chart.data.datasets.forEach(dataset => {
+                if (type === 'area') {
+                    dataset.fill = true;
+                    dataset.type = 'line';
+                } else if (type === 'bar') {
+                    dataset.fill = false;
+                    dataset.type = 'bar';
+                } else {
+                    dataset.fill = false;
+                    dataset.type = 'line';
+                }
+            });
+            chart.update();
+            console.log(`[Dashboard] Changed Event Trends chart type to: ${type}`);
+        }
+    }
+
+    /**
+     * Update API Usage chart top N repositories.
+     * @param {number} n - Number of top repositories to show
+     */
+    updateApiTopN(n) {
+        if (this.currentData && this.currentData.repositories) {
+            const apiData = this.prepareAPIUsageData(this.currentData.repositories, n);
+            if (this.charts.apiUsage) {
+                window.MetricsCharts.updateAPIUsageChart(this.charts.apiUsage, apiData);
+                console.log(`[Dashboard] Updated API Usage to show top ${n} repositories`);
+            }
+        }
+    }
+
+    /**
+     * Update API Usage chart sort order.
+     * @param {string} order - Sort order ('asc' or 'desc')
+     */
+    updateApiSortOrder(order) {
+        console.log(`[Dashboard] API sort order changed to: ${order}`);
+        // Re-render with new sort order
+        if (this.currentData && this.currentData.repositories) {
+            const apiData = this.prepareAPIUsageData(this.currentData.repositories, undefined, order);
+            if (this.charts.apiUsage) {
+                window.MetricsCharts.updateAPIUsageChart(this.charts.apiUsage, apiData);
+            }
+        }
+    }
+
+    /**
+     * Change API Usage chart type.
+     * @param {string} type - Chart type ('bar', 'horizontalBar', 'line')
+     */
+    changeApiChartType(type) {
+        const chart = this.charts.apiUsage;
+        if (chart) {
+            if (type === 'horizontalBar') {
+                chart.config.options.indexAxis = 'y';
+                chart.config.type = 'bar';
+            } else if (type === 'line') {
+                chart.config.options.indexAxis = 'x';
+                chart.config.type = 'line';
+            } else {
+                chart.config.options.indexAxis = 'x';
+                chart.config.type = 'bar';
+            }
+            chart.update();
+            console.log(`[Dashboard] Changed API Usage chart type to: ${type}`);
+        }
+    }
+
+    /**
+     * Export Event Trends data.
+     * @param {string} format - Export format ('csv' or 'json')
+     */
+    exportTrendsData(format) {
+        const data = this.currentData.trends || [];
+        if (data.length === 0) {
+            console.warn('[Dashboard] No trends data to export');
+            return;
+        }
+        this.downloadData(data, `event-trends.${format}`, format);
+        console.log(`[Dashboard] Exported Event Trends data as ${format}`);
+    }
+
+    /**
+     * Export API Usage data.
+     * @param {string} format - Export format ('csv' or 'json')
+     */
+    exportApiData(format) {
+        const data = this.currentData.repositories || [];
+        if (data.length === 0) {
+            console.warn('[Dashboard] No API usage data to export');
+            return;
+        }
+        this.downloadData(data, `api-usage.${format}`, format);
+        console.log(`[Dashboard] Exported API Usage data as ${format}`);
+    }
+
+    /**
+     * Download data as CSV or JSON file.
+     * @param {Array} data - Data array to download
+     * @param {string} filename - Output filename
+     * @param {string} format - Format ('csv' or 'json')
+     */
+    downloadData(data, filename, format) {
+        let content, mimeType;
+
+        if (format === 'csv') {
+            // Convert to CSV
+            if (!data.length) return;
+            const headers = Object.keys(data[0]).join(',');
+            const rows = data.map(row => Object.values(row).join(','));
+            content = [headers, ...rows].join('\n');
+            mimeType = 'text/csv';
+        } else {
+            // JSON format
+            content = JSON.stringify(data, null, 2);
+            mimeType = 'application/json';
+        }
+
+        const blob = new Blob([content], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    /**
+     * Download chart as PNG image.
+     * @param {string} chartId - Canvas element ID
+     */
+    downloadChart(chartId) {
+        const canvas = document.getElementById(chartId);
+        if (!canvas) {
+            console.warn(`[Dashboard] Canvas not found: ${chartId}`);
+            return;
+        }
+
+        const url = canvas.toDataURL('image/png');
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${chartId}.png`;
+        a.click();
+        console.log(`[Dashboard] Downloaded chart: ${chartId}`);
     }
 
     /**
