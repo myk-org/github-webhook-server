@@ -716,6 +716,21 @@ class MetricsDashboard {
         console.log(`[Dashboard] Changing time range to: ${timeRange}`);
         this.timeRange = timeRange;
 
+        // Toggle custom range inputs
+        const customInputs = document.getElementById('customRangeInputs');
+        if (customInputs) {
+            customInputs.style.display = timeRange === 'custom' ? 'flex' : 'none';
+        }
+
+        // For custom range, don't reload immediately if inputs are empty
+        if (timeRange === 'custom') {
+            const startInput = document.getElementById('startTime');
+            const endInput = document.getElementById('endTime');
+            if (!startInput?.value || !endInput?.value) {
+                return;
+            }
+        }
+
         this.showLoading(true);
         try {
             await this.loadInitialData();
