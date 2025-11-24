@@ -642,11 +642,20 @@ class MetricsDashboard {
 
         console.log(`[Dashboard] Theme changed to: ${newTheme}`);
 
-        // Update all chart themes with new colors (without destroying/recreating)
-        if (window.MetricsCharts && Object.keys(this.charts).length > 0) {
-            const isDark = newTheme === 'dark';
-            window.MetricsCharts.updateAllChartsTheme(this.charts, isDark);
-            console.log(`[Dashboard] All charts updated to ${newTheme} theme`);
+        // Recreate charts with new theme colors
+        if (this.currentData && this.currentData.summary) {
+            // Destroy existing charts
+            Object.values(this.charts).forEach(chart => {
+                if (chart && typeof chart.destroy === 'function') {
+                    chart.destroy();
+                }
+            });
+
+            // Clear charts object
+            this.charts = {};
+
+            // Recreate charts with new theme
+            this.initializeCharts();
         }
     }
 
