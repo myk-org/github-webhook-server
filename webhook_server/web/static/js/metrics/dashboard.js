@@ -325,42 +325,64 @@ class MetricsDashboard {
         const trends = data.trends;
 
         // Apply repository filter
-        if (this.repositoryFilter) {
-            webhooks = this.filterDataByRepository(webhooks);
-            repositories = this.filterDataByRepository(repositories);
+        let filteredWebhooks = webhooks;
+        let filteredRepositories = repositories;
+        let filteredContributors = data.contributors;
+        let filteredSummary = summary;
 
-            // Filter trends data by repository (filter each trend bucket)
-            // Note: trends API data doesn't have repository field, so we skip filtering trends
-            // Instead we'll use prepareEventTrendsData from filtered webhooks
+        if (this.repositoryFilter) {
+            // Filter webhooks and repositories
+            filteredWebhooks = this.filterDataByRepository(webhooks);
+            filteredRepositories = this.filterDataByRepository(repositories);
 
             // Recalculate event type distribution from filtered webhooks
             const eventTypeCount = {};
-            webhooks.forEach(event => {
+            filteredWebhooks.forEach(event => {
                 const eventType = event.event_type || 'unknown';
                 eventTypeCount[eventType] = (eventTypeCount[eventType] || 0) + 1;
             });
             data.eventTypeDistribution = eventTypeCount;
 
-            // Filter contributors data by repository
+            // Filter contributors by repository
+            // Extract repository from webhook events to find users active in this repo
             if (data.contributors) {
-                // Contributors data structure: {pr_creators: [], pr_reviewers: [], pr_approvers: []}
-                // Each item has 'user' field but NOT 'repository', so we need to filter differently
-                // For now, skip contributor filtering as it's user-centric, not repo-centric
-                // TODO: Backend should provide repo-specific contributor data in API
+                const usersInRepo = new Set();
+                filteredWebhooks.forEach(event => {
+                    const user = event.sender || event.user || (event.payload && (event.payload.sender || event.payload.user));
+                    if (user) {
+                        usersInRepo.add(user);
+                    }
+                });
+
+                filteredContributors = {
+                    pr_creators: (data.contributors.pr_creators || []).filter(c => usersInRepo.has(c.user)),
+                    pr_reviewers: (data.contributors.pr_reviewers || []).filter(c => usersInRepo.has(c.user)),
+                    pr_approvers: (data.contributors.pr_approvers || []).filter(c => usersInRepo.has(c.user))
+                };
             }
 
             // Recalculate summary for filtered data
-            summary.total_events = webhooks.length;
-            summary.successful_events = webhooks.filter(e => e.status === 'success').length;
-            summary.failed_events = webhooks.filter(e => e.status === 'error').length;
-            summary.success_rate = summary.total_events > 0
-                ? (summary.successful_events / summary.total_events * 100)
+            filteredSummary = {
+                ...summary,  // Keep original fields
+                total_events: filteredWebhooks.length,
+                successful_events: filteredWebhooks.filter(e => e.status === 'success').length,
+                failed_events: filteredWebhooks.filter(e => e.status === 'error').length,
+            };
+            filteredSummary.success_rate = filteredSummary.total_events > 0
+                ? (filteredSummary.successful_events / filteredSummary.total_events * 100)
                 : 0;
 
-            console.log(`[Dashboard] Filtered data: ${webhooks.length} events, ${repositories.length} repos`);
+            console.log(`[Dashboard] Filtered data: ${filteredWebhooks.length} events, ${filteredRepositories.length} repos, ${filteredContributors.pr_creators.length} creators`);
+        }
 
-            // Update KPI cards with filtered summary
-            this.updateKPICards(summary);
+        // ALWAYS update KPI cards (whether filtered or not)
+        this.updateKPICards(filteredSummary);
+
+        // Use filtered data for chart updates
+        webhooks = filteredWebhooks;
+        repositories = filteredRepositories;
+        if (filteredContributors) {
+            data.contributors = filteredContributors;
         }
 
         try {
