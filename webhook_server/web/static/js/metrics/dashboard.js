@@ -1215,8 +1215,13 @@ class MetricsDashboard {
         if (this.currentData.contributors) {
             const { pr_creators, pr_reviewers, pr_approvers } = this.currentData.contributors;
 
+            // Extract data arrays from paginated responses
+            const creatorsData = pr_creators?.data || pr_creators || [];
+            const reviewersData = pr_reviewers?.data || pr_reviewers || [];
+            const approversData = pr_approvers?.data || pr_approvers || [];
+
             // Add users from all contributor types
-            [...(pr_creators || []), ...(pr_reviewers || []), ...(pr_approvers || [])]
+            [...creatorsData, ...reviewersData, ...approversData]
                 .forEach(contributor => {
                     if (contributor.user) {
                         users.add(contributor.user);
