@@ -606,7 +606,7 @@ class MetricsDashboard {
         }
 
         if (container && pagination) {
-            container.insertAdjacentHTML('beforeend', this.createPaginationControls('topRepositories'));
+            container.insertAdjacentHTML('beforeend', this.createPaginationControls('top-repositories'));
         }
     }
 
@@ -667,7 +667,7 @@ class MetricsDashboard {
         }
 
         if (container && pagination) {
-            container.insertAdjacentHTML('beforeend', this.createPaginationControls('recentEvents'));
+            container.insertAdjacentHTML('beforeend', this.createPaginationControls('recent-events'));
         }
     }
 
@@ -1579,12 +1579,27 @@ class MetricsDashboard {
     }
 
     /**
+     * Convert kebab-case to camelCase for pagination state keys
+     * @param {string} kebabCase - kebab-case identifier
+     * @returns {string} camelCase identifier
+     */
+    toCamelCase(kebabCase) {
+        return kebabCase.replace(/-([a-z])/g, (g) => g[1].toUpperCase());
+    }
+
+    /**
      * Create pagination controls HTML
-     * @param {string} section - Section identifier
+     * @param {string} section - Section identifier (kebab-case from HTML)
      * @returns {string} Pagination HTML
      */
     createPaginationControls(section) {
-        const state = this.pagination[section];
+        // Convert kebab-case to camelCase for pagination state lookup
+        const stateKey = this.toCamelCase(section);
+        const state = this.pagination[stateKey];
+        if (!state) {
+            console.warn(`[Dashboard] No pagination state for section: ${section} (${stateKey})`);
+            return '';
+        }
         const { page, pageSize, total, totalPages } = state;
 
         const hasNext = page < totalPages;
@@ -1653,19 +1668,21 @@ class MetricsDashboard {
         // Page size selectors
         document.addEventListener('change', (e) => {
             if (e.target.classList.contains('page-size-select')) {
-                const section = e.target.dataset.section;
+                const section = e.target.dataset.section; // kebab-case from HTML
+                const stateKey = this.toCamelCase(section); // Convert to camelCase
                 const newSize = parseInt(e.target.value);
-                this.changePageSize(section, newSize);
+                this.changePageSize(stateKey, newSize);
             }
         });
 
         // Navigation buttons
         document.addEventListener('click', (e) => {
             if (e.target.classList.contains('btn-pagination')) {
-                const section = e.target.dataset.section;
+                const section = e.target.dataset.section; // kebab-case from HTML
+                const stateKey = this.toCamelCase(section); // Convert to camelCase
                 const action = e.target.dataset.action;
                 if (!e.target.disabled) {
-                    this.navigatePage(section, action);
+                    this.navigatePage(stateKey, action);
                 }
             }
         });
@@ -1777,7 +1794,7 @@ class MetricsDashboard {
         }
 
         if (container && pagination) {
-            container.insertAdjacentHTML('beforeend', this.createPaginationControls('userPrs'));
+            container.insertAdjacentHTML('beforeend', this.createPaginationControls('user-prs'));
         }
     }
 
