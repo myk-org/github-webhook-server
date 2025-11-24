@@ -88,7 +88,7 @@ function createEventTrendsChart(canvasId) {
     return null;
   }
 
-  const isDark = document.body.classList.contains('dark-theme');
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
   const theme = isDark ? THEME_COLORS.dark : THEME_COLORS.light;
 
   return new Chart(ctx, {
@@ -235,7 +235,7 @@ function createEventDistributionChart(canvasId) {
     return null;
   }
 
-  const isDark = document.body.classList.contains('dark-theme');
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
   const theme = isDark ? THEME_COLORS.dark : THEME_COLORS.light;
 
   return new Chart(ctx, {
@@ -331,7 +331,7 @@ function createAPIUsageChart(canvasId) {
     return null;
   }
 
-  const isDark = document.body.classList.contains('dark-theme');
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
   const theme = isDark ? THEME_COLORS.dark : THEME_COLORS.light;
 
   return new Chart(ctx, {
