@@ -94,13 +94,6 @@ class MetricsDashboard {
             // 8. Initialize charts (calls functions from charts.js)
             this.initializeCharts();
 
-            // 9. Initialize User PRs table with default message
-            this.updateUserPRsTable({
-                data: [],
-                pagination: null,
-                message: 'Please select a user to view pull requests'
-            });
-
             console.log('[Dashboard] Dashboard initialization complete');
         } catch (error) {
             console.error('[Dashboard] Initialization error:', error);
@@ -124,7 +117,7 @@ class MetricsDashboard {
             // Use bucket='hour' for ranges <= 24h, 'day' for others
             const bucket = (this.timeRange === '1h' || this.timeRange === '24h') ? 'hour' : 'day';
 
-            const [summaryData, webhooksData, reposData, trendsData, contributorsData] = await Promise.all([
+            const [summaryData, webhooksData, reposData, trendsData, contributorsData, userPrsData] = await Promise.all([
                 this.apiClient.fetchSummary(startTime, endTime),
                 this.apiClient.fetchWebhooks({ limit: 100, start_time: startTime, end_time: endTime }),
                 this.apiClient.fetchRepositories(startTime, endTime),
@@ -132,7 +125,8 @@ class MetricsDashboard {
                     console.warn('[Dashboard] Trends endpoint not available:', err);
                     return { trends: [] }; // Return empty trends if endpoint doesn't exist
                 }),
-                this.apiClient.fetchContributors(startTime, endTime, 10)
+                this.apiClient.fetchContributors(startTime, endTime, 10),
+                this.apiClient.fetchUserPRs(startTime, endTime, { page: 1, page_size: 10 })
             ]);
 
             // Check for errors in responses
@@ -172,6 +166,11 @@ class MetricsDashboard {
             // Update UI with loaded data
             this.updateKPICards(summaryData.summary || summaryData);
             this.updateCharts(this.currentData);
+
+            // Update User PRs table
+            if (userPrsData) {
+                this.updateUserPRsTable(userPrsData);
+            }
 
             // Populate user filter dropdown
             this.populateUserFilter();
@@ -1598,15 +1597,6 @@ class MetricsDashboard {
                     this.updateContributorsTables(data);
                     break;
                 case 'userPrs':
-                    // User PRs requires a user parameter
-                    if (!this.userFilter) {
-                        this.updateUserPRsTable({
-                            data: [],
-                            pagination: null,
-                            message: 'Please select a user to view pull requests'
-                        });
-                        break;
-                    }
                     data = await this.apiClient.fetchUserPRs(startTime, endTime, params);
                     this.updateUserPRsTable(data);
                     break;
@@ -1628,7 +1618,6 @@ class MetricsDashboard {
 
         const prs = prsData.data || [];
         const pagination = prsData.pagination;
-        const message = prsData.message;
 
         if (pagination) {
             this.pagination.userPrs = {
@@ -1637,12 +1626,6 @@ class MetricsDashboard {
                 total: pagination.total,
                 totalPages: pagination.total_pages
             };
-        }
-
-        // Show custom message if provided (e.g., "Please select a user")
-        if (message) {
-            tableBody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 20px; color: #666;">${message}</td></tr>`;
-            return;
         }
 
         if (!prs || prs.length === 0) {

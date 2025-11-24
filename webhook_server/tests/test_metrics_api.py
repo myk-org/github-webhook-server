@@ -952,25 +952,44 @@ class TestUserPullRequestsEndpoint(TestMetricsAPIEndpoints):
         assert data["pagination"]["total"] == 0
         assert data["pagination"]["total_pages"] == 0
 
-    def test_get_user_prs_missing_user_parameter(self, client: TestClient, setup_db_manager: Mock) -> None:
-        """Test endpoint fails when user parameter is missing."""
+    def test_get_user_prs_no_user_parameter(self, client: TestClient, setup_db_manager: Mock) -> None:
+        """Test endpoint works without user parameter (shows all PRs)."""
+        setup_db_manager.fetchrow = AsyncMock(return_value={"total": 2})
+        setup_db_manager.fetch = AsyncMock(
+            return_value=[
+                {
+                    "pr_number": 123,
+                    "title": "Add feature X",
+                    "repository": "org/repo1",
+                    "state": "closed",
+                    "merged": True,
+                    "url": "https://github.com/org/repo1/pull/123",
+                    "created_at": "2024-11-20T10:00:00Z",
+                    "updated_at": "2024-11-21T15:30:00Z",
+                    "commits_count": 5,
+                    "head_sha": "abc123",
+                },
+                {
+                    "pr_number": 124,
+                    "title": "Fix bug Y",
+                    "repository": "org/repo2",
+                    "state": "open",
+                    "merged": False,
+                    "url": "https://github.com/org/repo2/pull/124",
+                    "created_at": "2024-11-22T09:00:00Z",
+                    "updated_at": "2024-11-22T09:00:00Z",
+                    "commits_count": 2,
+                    "head_sha": "def456",
+                },
+            ]
+        )
+
         response = client.get("/api/metrics/user-prs")
 
-        assert response.status_code == 422  # FastAPI validation error
-
-    def test_get_user_prs_empty_user_parameter(self, client: TestClient, setup_db_manager: Mock) -> None:
-        """Test endpoint fails when user parameter is empty."""
-        response = client.get("/api/metrics/user-prs?user=")
-
-        assert response.status_code == 400
-        assert "User parameter cannot be empty" in response.json()["detail"]
-
-    def test_get_user_prs_whitespace_user_parameter(self, client: TestClient, setup_db_manager: Mock) -> None:
-        """Test endpoint fails when user parameter is only whitespace."""
-        response = client.get("/api/metrics/user-prs?user=%20%20%20")
-
-        assert response.status_code == 400
-        assert "User parameter cannot be empty" in response.json()["detail"]
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["data"]) == 2
+        assert data["pagination"]["total"] == 2
 
     def test_get_user_prs_invalid_page_number(self, client: TestClient, setup_db_manager: Mock) -> None:
         """Test endpoint fails with invalid page number."""

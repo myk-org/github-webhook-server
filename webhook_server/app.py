@@ -2413,7 +2413,7 @@ async def get_metrics_contributors(
     dependencies=[Depends(require_metrics_server_enabled)],
 )
 async def get_user_pull_requests(
-    user: str = Query(..., description="GitHub username"),
+    user: str | None = Query(None, description="GitHub username (optional - shows all PRs if not specified)"),
     repository: str | None = Query(None, description="Filter by repository (org/repo)"),
     start_time: str | None = Query(
         default=None, description="Start time in ISO 8601 format (e.g., 2024-01-01T00:00:00Z)"
@@ -2422,21 +2422,21 @@ async def get_user_pull_requests(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(10, ge=1, le=100, description="Items per page"),
 ) -> dict[str, Any]:
-    """Get pull requests created by a specific user with commit details.
+    """Get pull requests with optional user filtering and commit details.
 
-    Retrieves all pull requests created by the specified user, including detailed
-    commit information for each PR. Supports filtering by repository and time range,
-    with pagination for large result sets.
+    Retrieves pull requests with pagination. Can show all PRs or filter by user.
+    Includes detailed commit information for each PR. Supports filtering by repository
+    and time range.
 
     **Primary Use Cases:**
-    - View all PRs created by a specific user
-    - Track user's contribution history
+    - View all PRs across repositories with pagination
+    - Filter PRs by specific user to track contributions
     - Analyze commit patterns per PR
     - Monitor PR lifecycle (created, merged, closed)
-    - Filter user activity by repository or time period
+    - Filter PR activity by repository or time period
 
     **Parameters:**
-    - `user` (str, required): GitHub username to query
+    - `user` (str, optional): GitHub username to filter by (shows all PRs if not specified)
     - `repository` (str, optional): Filter by specific repository (format: org/repo)
     - `start_time` (str, optional): Start of time range in ISO 8601 format
     - `end_time` (str, optional): End of time range in ISO 8601 format
@@ -2472,7 +2472,6 @@ async def get_user_pull_requests(
     ```
 
     **Errors:**
-    - 400: Invalid user parameter (empty string)
     - 500: Database connection error or metrics server disabled
     """
     if db_manager is None:
@@ -2481,23 +2480,20 @@ async def get_user_pull_requests(
             detail="Metrics database not available",
         )
 
-    # Validate user parameter
-    if not user or not user.strip():
-        raise HTTPException(
-            status_code=http_status.HTTP_400_BAD_REQUEST,
-            detail="User parameter cannot be empty",
-        )
-
-    user = user.strip()
-
     # Parse datetime strings
     start_datetime = parse_datetime_string(start_time, "start_time")
     end_datetime = parse_datetime_string(end_time, "end_time")
 
     # Build filter clauses
     filters = []
-    params: list[Any] = [user]
-    param_count = 1
+    params: list[Any] = []
+    param_count = 0
+
+    # Add user filter if provided
+    if user and user.strip():
+        param_count += 1
+        filters.append(f"(payload->'pull_request'->'user'->>'login' = ${param_count} OR sender = ${param_count})")
+        params.append(user.strip())
 
     if start_datetime:
         param_count += 1
@@ -2522,7 +2518,6 @@ async def get_user_pull_requests(
         SELECT COUNT(DISTINCT (payload->'pull_request'->>'number')::int) as total
         FROM webhooks
         WHERE event_type = 'pull_request'
-          AND (payload->'pull_request'->'user'->>'login' = $1 OR sender = $1)
           AND {where_clause}
     """
 
@@ -2549,7 +2544,6 @@ async def get_user_pull_requests(
             payload->'pull_request'->'head'->>'sha' as head_sha
         FROM webhooks
         WHERE event_type = 'pull_request'
-          AND (payload->'pull_request'->'user'->>'login' = $1 OR sender = $1)
           AND {where_clause}
         ORDER BY pr_number DESC, created_at DESC
         LIMIT ${limit_param_idx} OFFSET ${offset_param_idx}
