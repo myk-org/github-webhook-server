@@ -2128,13 +2128,13 @@ async def get_metrics_contributors(
         SELECT COUNT(DISTINCT COALESCE(payload->'pull_request'->'user'->>'login', sender)) as total
         FROM webhooks
         WHERE event_type = 'pull_request'
-          AND action IN ('opened', 'reopened')
+          AND action IN ('opened', 'reopened', 'synchronize')
           {time_filter}
           {user_filter}
           {repository_filter}
     """
 
-    # Query PR Creators (from pull_request events with action='opened' or 'reopened')
+    # Query PR Creators (from pull_request events with action='opened', 'reopened', or 'synchronize')
     # noqa: S608  # Safe: filters are parameterized, no direct user input concatenation
     pr_creators_query = f"""
         SELECT
@@ -2145,7 +2145,7 @@ async def get_metrics_contributors(
             SUM(COALESCE((payload->'pull_request'->>'commits')::int, 0)) as total_commits
         FROM webhooks
         WHERE event_type = 'pull_request'
-          AND action IN ('opened', 'reopened')
+          AND action IN ('opened', 'reopened', 'synchronize')
           {time_filter}
           {user_filter}
           {repository_filter}
@@ -2187,31 +2187,32 @@ async def get_metrics_contributors(
     # Count query for PR Approvers
     # noqa: S608  # Safe: filters are parameterized
     pr_approvers_count_query = f"""
-        SELECT COUNT(DISTINCT sender) as total
+        SELECT COUNT(DISTINCT SUBSTRING(payload->'label'->>'name' FROM 10)) as total
         FROM webhooks
-        WHERE event_type = 'pull_request_review'
-          AND action = 'submitted'
-          AND payload->'review'->>'state' = 'approved'
+        WHERE event_type = 'pull_request'
+          AND action = 'labeled'
+          AND payload->'label'->>'name' LIKE 'approved-%'
           {time_filter}
           {user_filter}
           {repository_filter}
     """
 
-    # Query PR Approvers (from pull_request_review with state='approved')
+    # Query PR Approvers (from pull_request labeled events with 'approved-' prefix)
+    # Custom approval workflow: /approve comment triggers 'approved-<username>' label
     # noqa: S608  # Safe: filters are parameterized, no direct user input concatenation
     pr_approvers_query = f"""
         SELECT
-            sender as user,
+            SUBSTRING(payload->'label'->>'name' FROM 10) as user,
             COUNT(*) as total_approvals,
             COUNT(DISTINCT pr_number) as prs_approved
         FROM webhooks
-        WHERE event_type = 'pull_request_review'
-          AND action = 'submitted'
-          AND payload->'review'->>'state' = 'approved'
+        WHERE event_type = 'pull_request'
+          AND action = 'labeled'
+          AND payload->'label'->>'name' LIKE 'approved-%'
           {time_filter}
           {user_filter}
           {repository_filter}
-        GROUP BY sender
+        GROUP BY SUBSTRING(payload->'label'->>'name' FROM 10)
         ORDER BY total_approvals DESC
         LIMIT ${page_size_param} OFFSET ${offset_param}
     """
@@ -2530,7 +2531,7 @@ async def get_metrics_trends(
         default=None, description="Start time in ISO 8601 format (e.g., 2024-01-01T00:00:00Z)"
     ),
     end_time: str | None = Query(default=None, description="End time in ISO 8601 format (e.g., 2024-01-31T23:59:59Z)"),
-    bucket: str = Query(default="hour", regex="^(hour|day)$", description="Time bucket ('hour', 'day')"),
+    bucket: str = Query(default="hour", pattern="^(hour|day)$", description="Time bucket ('hour', 'day')"),
 ) -> dict[str, Any]:
     """Get aggregated event trends over time.
 
