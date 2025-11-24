@@ -179,9 +179,10 @@ class MetricsDashboardController:
                                 if last_seen_timestamp is None or event_timestamp > last_seen_timestamp:
                                     last_seen_timestamp = event_timestamp
 
-                        except WebSocketDisconnect:
-                            self.logger.debug("WebSocket disconnected while sending event")
-                            break
+                        except (WebSocketDisconnect, RuntimeError) as e:
+                            # Connection closed - stop sending and exit monitoring loop
+                            self.logger.debug(f"WebSocket connection closed: {type(e).__name__}")
+                            raise WebSocketDisconnect() from e
 
                     # Ensure we don't repeatedly fetch historical events if no events are found
                     if last_seen_timestamp is None:
@@ -190,6 +191,9 @@ class MetricsDashboardController:
                     # Wait before next poll
                     await asyncio.sleep(self.POLL_INTERVAL_SECONDS)
 
+                except WebSocketDisconnect:
+                    # Re-raise to exit outer try block
+                    raise
                 except Exception:
                     self.logger.exception("Error during metrics monitoring iteration")
                     # Continue monitoring despite errors in individual iterations
