@@ -225,11 +225,15 @@ class MetricsDashboard {
             // Use bucket='hour' for ranges <= 24h, 'day' for others
             const bucket = (this.timeRange === '1h' || this.timeRange === '24h') ? 'hour' : 'day';
 
-            const [summaryData, webhooksData, reposData, trendsData] = await Promise.all([
+            const [summaryData, webhooksData, reposData, trendsData, contributorsData] = await Promise.all([
                 this.apiClient.fetchSummary(startTime, endTime),
                 this.apiClient.fetchWebhooks({ limit: 100, start_time: startTime, end_time: endTime }),
                 this.apiClient.fetchRepositories(startTime, endTime),
-                this.apiClient.fetchTrends(startTime, endTime, bucket)
+                this.apiClient.fetchTrends(startTime, endTime, bucket).catch(err => {
+                    console.warn('[Dashboard] Trends endpoint not available:', err);
+                    return { trends: [] }; // Return empty trends if endpoint doesn't exist
+                }),
+                this.apiClient.fetchContributors(startTime, endTime, 10)
             ]);
 
             // Check for errors in responses
@@ -252,16 +256,17 @@ class MetricsDashboard {
 
             // Store data
             this.currentData = {
-                summary: summaryData,
+                summary: summaryData.summary || summaryData,
                 webhooks: webhooksData.events || [],
                 repositories: reposData.repositories || [],
-                trends: trendsData.trends || []
+                trends: trendsData.trends || [],
+                contributors: contributorsData  // Add contributors data
             };
 
             console.log('[Dashboard] Initial data loaded:', this.currentData);
 
             // Update UI with loaded data
-            this.updateKPICards(summaryData);
+            this.updateKPICards(summaryData.summary || summaryData);
             this.updateCharts(this.currentData);
 
         } catch (error) {
@@ -379,7 +384,7 @@ class MetricsDashboard {
         // Update summary data with delta
         if (summary_delta && this.currentData.summary) {
             this.applyDeltaToSummary(summary_delta);
-            this.updateKPICards(this.currentData.summary);
+            this.updateKPICards(this.currentData.summary?.summary || this.currentData.summary);
         }
 
         // Add new event to webhooks data
@@ -457,29 +462,31 @@ class MetricsDashboard {
             return;
         }
 
-        // Total Events
+        // Total Events - use 0 as fallback, not undefined
         this.updateKPICard('total-events', {
-            value: summary.total_events || 0,
-            trend: summary.total_events_trend || 0
+            value: summary.total_events ?? 0,
+            trend: summary.total_events_trend ?? 0
         });
 
-        // Success Rate
+        // Success Rate - calculate from available data
+        const successRate = summary.success_rate ??
+            (summary.total_events > 0 ? (summary.successful_events / summary.total_events * 100) : 0);
         this.updateKPICard('success-rate', {
-            value: `${(summary.success_rate || 0).toFixed(2)}%`,
-            trend: summary.success_rate_trend || 0
+            value: `${successRate.toFixed(2)}%`,
+            trend: summary.success_rate_trend ?? 0
         });
 
         // Failed Events
         this.updateKPICard('failed-events', {
-            value: summary.failed_events || 0,
-            trend: summary.failed_events_trend || 0
+            value: summary.failed_events ?? 0,
+            trend: summary.failed_events_trend ?? 0
         });
 
         // Average Duration
-        const avgDuration = summary.avg_duration_ms || 0;
+        const avgDuration = summary.avg_duration_ms ?? summary.avg_processing_time_ms ?? 0;
         this.updateKPICard('avg-duration', {
             value: this.formatDuration(avgDuration),
-            trend: summary.avg_duration_trend || 0
+            trend: summary.avg_duration_trend ?? 0
         });
 
         console.log('[Dashboard] KPI cards updated');
@@ -589,12 +596,19 @@ class MetricsDashboard {
             }
 
             // Update Event Distribution Chart (pie chart)
-            if (this.charts.eventDistribution && summary?.event_type_distribution) {
-                const distData = {
-                    labels: Object.keys(summary.event_type_distribution),
-                    values: Object.values(summary.event_type_distribution)
-                };
-                window.MetricsCharts.updateEventDistributionChart(this.charts.eventDistribution, distData);
+            if (this.charts.eventDistribution) {
+                // Try both locations for event_type_distribution
+                const eventDist = summary?.event_type_distribution || data.summary?.event_type_distribution;
+
+                if (eventDist && Object.keys(eventDist).length > 0) {
+                    const distData = {
+                        labels: Object.keys(eventDist),
+                        values: Object.values(eventDist)
+                    };
+                    window.MetricsCharts.updateEventDistributionChart(this.charts.eventDistribution, distData);
+                } else {
+                    console.warn('[Dashboard] No event type distribution data available');
+                }
             }
 
             // Update API Usage Chart (bar chart)
@@ -606,6 +620,16 @@ class MetricsDashboard {
             // Update Repository Table
             if (repositories) {
                 this.updateRepositoryTable({ repositories });
+            }
+
+            // Update Recent Events Table
+            if (webhooks && Array.isArray(webhooks)) {
+                this.updateRecentEventsTable(webhooks);
+            }
+
+            // Update Contributors Tables
+            if (data.contributors) {
+                this.updateContributorsTables(data.contributors);
             }
 
             console.log('[Dashboard] Charts updated');
@@ -657,15 +681,133 @@ class MetricsDashboard {
             return;
         }
 
-        // Generate table rows
-        const rows = repositories.repositories.slice(0, 5).map(repo => `
-            <tr>
-                <td>${this.escapeHtml(repo.repository_name || 'Unknown')}</td>
-                <td>${repo.total_events || 0}</td>
-                <td>${(repo.percentage || 0).toFixed(1)}%</td>
-            </tr>
-        `).join('');
+        // Calculate total events for percentage
+        const totalEvents = repositories.repositories.reduce((sum, repo) => sum + (repo.total_events || 0), 0);
 
+        // Generate table rows
+        const rows = repositories.repositories.slice(0, 5).map(repo => {
+            const percentage = totalEvents > 0 ? ((repo.total_events / totalEvents) * 100).toFixed(1) : '0.0';
+            return `
+                <tr>
+                    <td>${this.escapeHtml(repo.repository || 'Unknown')}</td>
+                    <td>${repo.total_events || 0}</td>
+                    <td>${percentage}%</td>
+                </tr>
+            `;
+        }).join('');
+
+        tableBody.innerHTML = rows;
+    }
+
+    /**
+     * Update recent events table with new data.
+     *
+     * @param {Array} events - Recent webhook events
+     */
+    updateRecentEventsTable(events) {
+        const tableBody = document.querySelector('#recentEventsTable tbody');
+        if (!tableBody) {
+            console.warn('[Dashboard] Recent events table body not found');
+            return;
+        }
+
+        if (!events || !Array.isArray(events) || events.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="4" style="text-align: center;">No recent events</td></tr>';
+            return;
+        }
+
+        // Generate table rows for last 10 events
+        const rows = events.slice(0, 10).map(event => {
+            const time = new Date(event.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const status = event.status || 'unknown';
+            const statusClass = status === 'success' ? 'status-success' : status === 'error' ? 'status-error' : 'status-partial';
+
+            return `
+                <tr>
+                    <td>${time}</td>
+                    <td>${this.escapeHtml(event.repository || 'Unknown')}</td>
+                    <td>${this.escapeHtml(event.event_type || 'unknown')}</td>
+                    <td><span class="${statusClass}">${status}</span></td>
+                </tr>
+            `;
+        }).join('');
+
+        tableBody.innerHTML = rows;
+    }
+
+    /**
+     * Update PR contributors tables with new data.
+     *
+     * @param {Object} contributors - Contributors data
+     */
+    updateContributorsTables(contributors) {
+        if (!contributors) {
+            console.warn('[Dashboard] No contributors data available');
+            return;
+        }
+
+        // Update PR Creators table
+        this.updateContributorsTable(
+            'pr-creators-table-body',
+            contributors.pr_creators || [],
+            (creator) => `
+                <tr>
+                    <td>${this.escapeHtml(creator.user)}</td>
+                    <td>${creator.total_prs}</td>
+                    <td>${creator.merged_prs}</td>
+                    <td>${creator.closed_prs}</td>
+                </tr>
+            `
+        );
+
+        // Update PR Reviewers table
+        this.updateContributorsTable(
+            'pr-reviewers-table-body',
+            contributors.pr_reviewers || [],
+            (reviewer) => `
+                <tr>
+                    <td>${this.escapeHtml(reviewer.user)}</td>
+                    <td>${reviewer.total_reviews}</td>
+                    <td>${reviewer.prs_reviewed}</td>
+                    <td>${reviewer.avg_reviews_per_pr}</td>
+                </tr>
+            `
+        );
+
+        // Update PR Approvers table
+        this.updateContributorsTable(
+            'pr-approvers-table-body',
+            contributors.pr_approvers || [],
+            (approver) => `
+                <tr>
+                    <td>${this.escapeHtml(approver.user)}</td>
+                    <td>${approver.total_approvals}</td>
+                    <td>${approver.prs_approved}</td>
+                </tr>
+            `
+        );
+    }
+
+    /**
+     * Generic contributor table updater.
+     *
+     * @param {string} tableBodyId - Table body element ID
+     * @param {Array} data - Contributors data array
+     * @param {Function} rowGenerator - Function to generate table row HTML
+     */
+    updateContributorsTable(tableBodyId, data, rowGenerator) {
+        const tableBody = document.getElementById(tableBodyId);
+        if (!tableBody) {
+            console.warn(`[Dashboard] Table body not found: ${tableBodyId}`);
+            return;
+        }
+
+        if (!data || data.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="4" style="text-align: center;">No data available</td></tr>';
+            return;
+        }
+
+        const rows = data.map(rowGenerator).join('');
         tableBody.innerHTML = rows;
     }
 
@@ -820,17 +962,19 @@ class MetricsDashboard {
      * @param {boolean} connected - WebSocket connection status
      */
     updateConnectionStatus(connected) {
-        const statusIndicator = document.getElementById('connection-status');
-        if (!statusIndicator) {
+        const statusElement = document.getElementById('connection-status');
+        const statusText = document.getElementById('statusText');
+
+        if (!statusElement || !statusText) {
             return;
         }
 
         if (connected) {
-            statusIndicator.className = 'connection-status connected';
-            statusIndicator.title = 'Connected - Real-time updates active';
+            statusElement.className = 'status connected';
+            statusText.textContent = 'Connected - Real-time updates active';
         } else {
-            statusIndicator.className = 'connection-status disconnected';
-            statusIndicator.title = 'Disconnected - Attempting to reconnect...';
+            statusElement.className = 'status disconnected';
+            statusText.textContent = 'Disconnected - Attempting to reconnect...';
         }
 
         console.log(`[Dashboard] Connection status: ${connected ? 'connected' : 'disconnected'}`);

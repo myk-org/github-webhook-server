@@ -533,3 +533,39 @@ tbody td {
     flex-direction: column;
   }
 }
+
+/* PR Contributors Grid */
+.contributors-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 15px;
+  margin-top: 10px;
+}
+
+.contributor-section {
+  background: var(--input-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 10px;
+}
+
+.contributor-section h3 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 0 0 10px 0;
+  color: var(--text-color);
+  text-align: center;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 8px;
+}
+
+.contributor-section .table-wrapper {
+  height: 280px;
+  overflow-y: auto;
+}
+
+@media (max-width: 1024px) {
+  .contributors-grid {
+    grid-template-columns: 1fr;
+  }
+}

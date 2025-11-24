@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GitHub Webhook Server - Metrics Dashboard</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='45' fill='%23007bff'/%3E%3Cpath d='M30 35 L50 50 L30 65 M50 50 L70 50' stroke='white' stroke-width='8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E" />
     <link rel="stylesheet" href="/static/css/metrics_dashboard.css" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
   </head>
@@ -177,6 +178,76 @@
                 </tr>
               </tbody>
             </table>
+          </div>
+        </div>
+
+        <div class="chart-container full-width">
+          <h2>PR Contributors</h2>
+          <div class="contributors-grid">
+            <!-- PR Creators -->
+            <div class="contributor-section">
+              <h3>PR Creators</h3>
+              <div class="table-wrapper">
+                <table id="prCreatorsTable">
+                  <thead>
+                    <tr>
+                      <th>User</th>
+                      <th>Total PRs</th>
+                      <th>Merged</th>
+                      <th>Closed</th>
+                    </tr>
+                  </thead>
+                  <tbody id="pr-creators-table-body">
+                    <tr class="loading-row">
+                      <td colspan="4">Loading...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- PR Reviewers -->
+            <div class="contributor-section">
+              <h3>PR Reviewers</h3>
+              <div class="table-wrapper">
+                <table id="prReviewersTable">
+                  <thead>
+                    <tr>
+                      <th>User</th>
+                      <th>Total Reviews</th>
+                      <th>PRs Reviewed</th>
+                      <th>Avg/PR</th>
+                    </tr>
+                  </thead>
+                  <tbody id="pr-reviewers-table-body">
+                    <tr class="loading-row">
+                      <td colspan="4">Loading...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- PR Approvers -->
+            <div class="contributor-section">
+              <h3>PR Approvers</h3>
+              <div class="table-wrapper">
+                <table id="prApproversTable">
+                  <thead>
+                    <tr>
+                      <th>User</th>
+                      <th>Total Approvals</th>
+                      <th>PRs Approved</th>
+                    </tr>
+                  </thead>
+                  <tbody id="pr-approvers-table-body">
+                    <tr class="loading-row">
+                      <td colspan="3">Loading...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </div>
       </div>

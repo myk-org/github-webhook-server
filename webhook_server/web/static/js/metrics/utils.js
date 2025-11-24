@@ -517,23 +517,29 @@ if (typeof module !== 'undefined' && module.exports) {
     };
 }
 
-// Browser globals
+// Browser globals for non-module usage
 if (typeof window !== 'undefined') {
     window.MetricsUtils = {
+        // Time and Duration
         formatDuration,
         formatTimestamp,
         formatRelativeTime,
+        // Number Formatting
         formatNumber,
         formatPercentage,
         formatBytes,
+        // Data Processing
         calculateTrend,
         aggregateByTimeRange,
         calculateSuccessRate,
+        // DOM Helpers
         escapeHTML,
         debounce,
         throttle,
+        // Storage Helpers
         getLocalStorage,
         setLocalStorage,
+        // Validation
         isValidTimeRange,
         isValidRepository
     };

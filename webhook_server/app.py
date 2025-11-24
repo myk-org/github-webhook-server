@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import ipaddress
 import json
 import logging
@@ -1339,6 +1340,22 @@ if METRICS_SERVER_ENABLED:
         )
 
 
+@FASTAPI_APP.get("/favicon.ico", include_in_schema=False)
+async def favicon() -> Response:
+    """Serve favicon.ico to prevent 404 errors.
+
+    Returns a minimal 1x1 transparent PNG as favicon to eliminate browser 404 errors
+    without requiring an actual favicon file. This is a lightweight solution that
+    satisfies browser favicon requests with minimal overhead.
+    """
+    # 1x1 transparent PNG (base64 encoded)
+    transparent_png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    )
+
+    return Response(content=transparent_png, media_type="image/x-icon")
+
+
 # Metrics API Endpoints - Only functional if ENABLE_METRICS_SERVER=true (guarded by dependency)
 @FASTAPI_APP.get(
     "/api/metrics/webhooks",
@@ -1877,6 +1894,202 @@ async def get_repository_statistics(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch repository statistics",
         ) from ex
+
+
+@FASTAPI_APP.get(
+    "/api/metrics/contributors",
+    operation_id="get_metrics_contributors",
+    dependencies=[Depends(require_metrics_server_enabled)],
+)
+async def get_metrics_contributors(
+    start_time: str | None = Query(
+        default=None, description="Start time in ISO 8601 format (e.g., 2024-01-01T00:00:00Z)"
+    ),
+    end_time: str | None = Query(default=None, description="End time in ISO 8601 format (e.g., 2024-01-31T23:59:59Z)"),
+    limit: int = Query(default=10, description="Maximum number of contributors to return per category"),
+) -> dict[str, Any]:
+    """Get PR contributors statistics (owners, reviewers, approvers).
+
+    Analyzes webhook payloads to extract contributor activity including PR creation,
+    code review, and approval metrics. Essential for understanding team contributions
+    and identifying active contributors.
+
+    **Primary Use Cases:**
+    - Track who is creating PRs and how many
+    - Monitor code review participation
+    - Identify approval patterns and bottlenecks
+    - Measure team collaboration and engagement
+    - Generate contributor leaderboards
+
+    **Parameters:**
+    - `start_time` (str, optional): Start of time range in ISO 8601 format
+    - `end_time` (str, optional): End of time range in ISO 8601 format
+    - `limit` (int, optional): Max contributors to return per category (default: 10)
+
+    **Return Structure:**
+    ```json
+    {
+      "time_range": {
+        "start_time": "2024-01-01T00:00:00Z",
+        "end_time": "2024-01-31T23:59:59Z"
+      },
+      "pr_creators": [
+        {
+          "user": "john-doe",
+          "total_prs": 45,
+          "merged_prs": 42,
+          "closed_prs": 3
+        }
+      ],
+      "pr_reviewers": [
+        {
+          "user": "jane-smith",
+          "total_reviews": 78,
+          "prs_reviewed": 65,
+          "avg_reviews_per_pr": 1.2
+        }
+      ],
+      "pr_approvers": [
+        {
+          "user": "bob-wilson",
+          "total_approvals": 56,
+          "prs_approved": 54
+        }
+      ]
+    }
+    ```
+
+    **Errors:**
+    - 500: Database connection error or metrics server disabled
+    """
+    if db_manager is None:
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Metrics database not available",
+        )
+
+    start_datetime = parse_datetime_string(start_time, "start_time")
+    end_datetime = parse_datetime_string(end_time, "end_time")
+
+    # Build time filter clause
+    time_filter = ""
+    params: list[Any] = [limit]
+    param_count = 1
+
+    if start_datetime:
+        param_count += 1
+        time_filter += f" AND created_at >= ${param_count}"
+        params.append(start_datetime)
+
+    if end_datetime:
+        param_count += 1
+        time_filter += f" AND created_at <= ${param_count}"
+        params.append(end_datetime)
+
+    # Query PR Creators (from pull_request events with action='opened' or 'reopened')
+    pr_creators_query = f"""
+        SELECT
+            COALESCE(payload->'pull_request'->'user'->>'login', sender) as user,
+            COUNT(*) as total_prs,
+            COUNT(*) FILTER (WHERE payload->>'merged' = 'true') as merged_prs,
+            COUNT(*) FILTER (WHERE payload->>'state' = 'closed' AND payload->>'merged' = 'false') as closed_prs
+        FROM webhooks
+        WHERE event_type = 'pull_request'
+          AND action IN ('opened', 'reopened')
+          {time_filter}
+        GROUP BY COALESCE(payload->'pull_request'->'user'->>'login', sender)
+        ORDER BY total_prs DESC
+        LIMIT $1
+    """
+
+    # Query PR Reviewers (from pull_request_review events)
+    pr_reviewers_query = f"""
+        SELECT
+            sender as user,
+            COUNT(*) as total_reviews,
+            COUNT(DISTINCT pr_number) as prs_reviewed
+        FROM webhooks
+        WHERE event_type = 'pull_request_review'
+          AND action = 'submitted'
+          {time_filter}
+        GROUP BY sender
+        ORDER BY total_reviews DESC
+        LIMIT $1
+    """
+
+    # Query PR Approvers (from pull_request_review with state='approved')
+    pr_approvers_query = f"""
+        SELECT
+            sender as user,
+            COUNT(*) as total_approvals,
+            COUNT(DISTINCT pr_number) as prs_approved
+        FROM webhooks
+        WHERE event_type = 'pull_request_review'
+          AND action = 'submitted'
+          AND payload->'review'->>'state' = 'approved'
+          {time_filter}
+        GROUP BY sender
+        ORDER BY total_approvals DESC
+        LIMIT $1
+    """
+
+    try:
+        # Execute all queries in parallel for better performance
+        pr_creators_rows, pr_reviewers_rows, pr_approvers_rows = await asyncio.gather(
+            db_manager.fetch(pr_creators_query, *params),
+            db_manager.fetch(pr_reviewers_query, *params),
+            db_manager.fetch(pr_approvers_query, *params),
+        )
+
+        # Format PR creators
+        pr_creators = [
+            {
+                "user": row["user"],
+                "total_prs": row["total_prs"],
+                "merged_prs": row["merged_prs"] or 0,
+                "closed_prs": row["closed_prs"] or 0,
+            }
+            for row in pr_creators_rows
+        ]
+
+        # Format PR reviewers
+        pr_reviewers = [
+            {
+                "user": row["user"],
+                "total_reviews": row["total_reviews"],
+                "prs_reviewed": row["prs_reviewed"],
+                "avg_reviews_per_pr": round(row["total_reviews"] / max(row["prs_reviewed"], 1), 2),
+            }
+            for row in pr_reviewers_rows
+        ]
+
+        # Format PR approvers
+        pr_approvers = [
+            {
+                "user": row["user"],
+                "total_approvals": row["total_approvals"],
+                "prs_approved": row["prs_approved"],
+            }
+            for row in pr_approvers_rows
+        ]
+
+        return {
+            "time_range": {
+                "start_time": start_datetime.isoformat() if start_datetime else None,
+                "end_time": end_datetime.isoformat() if end_datetime else None,
+            },
+            "pr_creators": pr_creators,
+            "pr_reviewers": pr_reviewers,
+            "pr_approvers": pr_approvers,
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        LOGGER.exception("Failed to fetch contributor metrics from database")
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch contributor metrics",
+        ) from None
 
 
 @FASTAPI_APP.get(

@@ -150,16 +150,18 @@ function createEventTrendsChart(canvasId) {
       plugins: {
         legend: {
           display: true,
-          position: 'bottom',
+          position: 'top',
           labels: {
-            color: theme.textColor,
+            color: '#ffffff',  // Always white for dark theme (dashboard default)
             padding: 15,
             font: {
-              size: 12,
-              weight: '500',
+              size: 13,
+              weight: '600',
             },
             usePointStyle: true,
             pointStyle: 'circle',
+            boxWidth: 12,
+            boxHeight: 12,
           },
         },
         tooltip: {
@@ -259,11 +261,11 @@ function createEventDistributionChart(canvasId) {
           display: true,
           position: 'bottom',
           labels: {
-            color: theme.textColor,
-            padding: 15,
+            color: '#ffffff',  // Always white for dark theme (dashboard default)
+            padding: 12,
             font: {
               size: 12,
-              weight: '500',
+              weight: '600',
             },
             generateLabels: (chart) => {
               const data = chart.data;
@@ -278,6 +280,8 @@ function createEventDistributionChart(canvasId) {
                   return {
                     text: `${label} (${percentage}%)`,
                     fillStyle: dataset.backgroundColor[i],
+                    strokeStyle: isDark ? '#1f2937' : '#ffffff',
+                    lineWidth: 2,
                     hidden: false,
                     index: i,
                   };
@@ -356,16 +360,18 @@ function createAPIUsageChart(canvasId) {
       plugins: {
         legend: {
           display: true,
-          position: 'bottom',
+          position: 'top',
           labels: {
-            color: theme.textColor,
+            color: '#ffffff',  // Always white for dark theme (dashboard default)
             padding: 15,
             font: {
-              size: 12,
-              weight: '500',
+              size: 13,
+              weight: '600',
             },
             usePointStyle: true,
             pointStyle: 'rectRounded',
+            boxWidth: 12,
+            boxHeight: 12,
           },
         },
         tooltip: {

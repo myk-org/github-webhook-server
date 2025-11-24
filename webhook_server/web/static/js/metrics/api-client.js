@@ -226,6 +226,24 @@ class MetricsAPIClient {
     }
 
     /**
+     * Fetch PR contributors statistics.
+     *
+     * Returns PR creators, reviewers, and approvers with activity metrics.
+     *
+     * @param {string|null} startTime - ISO 8601 start time filter (optional)
+     * @param {string|null} endTime - ISO 8601 end time filter (optional)
+     * @param {number} limit - Maximum contributors per category (default: 10)
+     * @returns {Promise<Object>} Contributors data or error object
+     */
+    async fetchContributors(startTime = null, endTime = null, limit = 10) {
+        const params = { limit };
+        if (startTime) params.start_time = startTime;
+        if (endTime) params.end_time = endTime;
+
+        return await this._fetch('/contributors', params);
+    }
+
+    /**
      * Fetch specific webhook event by delivery ID.
      *
      * Returns complete details for a single webhook event including full payload.
