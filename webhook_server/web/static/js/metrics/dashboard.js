@@ -146,6 +146,7 @@ class MetricsDashboard {
             // Store data (preserve full paginated responses for tables)
             this.currentData = {
                 summary: summaryData.summary || summaryData,
+                topRepositories: summaryData.top_repositories || [],  // Store top-level top_repositories
                 webhooks: webhooksData,  // Store full response with pagination
                 repositories: reposData,  // Store full response with pagination
                 trends: trendsData.trends || [],
@@ -532,13 +533,15 @@ class MetricsDashboard {
                 window.MetricsCharts.updateAPIUsageChart(this.charts.apiUsage, apiData);
             }
 
-            // Update Repository Table with filtered data
-            if (data.repositories) {
-                // Preserve pagination shape if original had it, otherwise pass filtered array
-                const reposForTable = data.repositories.data
-                    ? { ...data.repositories, data: filteredRepositories }
-                    : filteredRepositories;
-                this.updateRepositoryTable(reposForTable);
+            // Update Repository Table with top repositories from summary (has percentage field)
+            if (data.topRepositories && data.topRepositories.length > 0) {
+                // Top repositories from summary endpoint (has percentage field)
+                // Apply repository filter if active
+                const topRepos = this.repositoryFilter
+                    ? data.topRepositories.filter(repo =>
+                        repo.repository && repo.repository.toLowerCase().includes(this.repositoryFilter))
+                    : data.topRepositories;
+                this.updateRepositoryTable(topRepos);
             }
 
             // Update Recent Events Table with filtered data
@@ -630,9 +633,9 @@ class MetricsDashboard {
             return;
         }
 
-        // Generate table rows - show success_rate as percentage
+        // Generate table rows - show percentage of total events
         const rows = repositories.map(repo => {
-            const percentage = repo.success_rate || 0; // Already a percentage from API
+            const percentage = repo.percentage || 0; // Percentage of total events
             return `
                 <tr>
                     <td>${this.escapeHtml(repo.repository || 'Unknown')}</td>
