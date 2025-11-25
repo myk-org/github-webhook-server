@@ -1,0 +1,115 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit AI Review Instructions
+# Based on project-specific rules from CLAUDE.md
+
+# Language for reviews
+language: en-US
+
+# Review tone and communication style (max 250 chars)
+tone_instructions: "Be direct and specific. Explain WHY rules exist. Provide code examples. Distinguish critical violations from suggestions. Use severity levels: CRITICAL (blocking/security), HIGH (types/defensive), MEDIUM (style), LOW (suggestions)."
+
+# Enable early access features
+early_access: true
+
+reviews:
+  # Review profile: assertive for strict enforcement
+  profile: assertive
+
+  # Request changes for critical violations
+  request_changes_workflow: true
+
+  # Review display settings
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+
+  # Auto-review configuration
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+      - master
+
+  # Enable relevant tools for Python/JavaScript project
+  tools:
+    # Python linting
+    ruff:
+      enabled: true
+    pylint:
+      enabled: true
+
+    # JavaScript linting
+    eslint:
+      enabled: true
+
+    # Shell script checking
+    shellcheck:
+      enabled: true
+
+    # YAML validation
+    yamllint:
+      enabled: true
+
+    # Security scanning
+    gitleaks:
+      enabled: true
+    semgrep:
+      enabled: true
+
+    # GitHub Actions workflow validation
+    actionlint:
+      enabled: true
+
+    # Dockerfile linting
+    hadolint:
+      enabled: true
+
+  # Path-specific overrides (CLAUDE.md contains main rules - only add path-specific context here)
+  path_instructions:
+    # Test files - coverage requirement
+    - path: "webhook_server/tests/**/*.py"
+      instructions: |
+        ADDITIONAL to CLAUDE.md rules:
+        - 90% coverage is mandatory for all new code
+        - All test functions must have descriptive names
+
+    # Migration files - coverage exception
+    - path: "webhook_server/migrations/**/*.py"
+      instructions: |
+        OVERRIDE CLAUDE.md coverage requirement:
+        - Low coverage acceptable for Alembic migration code
+        - This is infrastructure code with different patterns
+
+    # Frontend JavaScript - coverage exception
+    - path: "webhook_server/web/static/**/*.js"
+      instructions: |
+        OVERRIDE CLAUDE.md coverage requirement:
+        - Lower coverage acceptable for complex chart rendering code
+        - Focus remains on defensive programming for edge cases
+
+# Knowledge base configuration
+knowledge_base:
+  # Enable code guidelines enforcement from CLAUDE.md
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "CLAUDE.md"
+      - "**/CLAUDE.md"
+
+  # Enable learning from repository patterns
+  learnings:
+    scope: auto
+
+  # Enable learning from issues
+  issues:
+    scope: auto
+
+  # Enable learning from pull requests
+  pull_requests:
+    scope: auto
+
+# Chat settings
+chat:
+  auto_reply: true
