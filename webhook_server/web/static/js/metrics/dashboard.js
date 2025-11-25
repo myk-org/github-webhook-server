@@ -355,6 +355,10 @@ class MetricsDashboard {
         if (!repositories) {
             return [];
         }
+        // If already an array, return as-is
+        if (Array.isArray(repositories)) {
+            return repositories;
+        }
         // Handle paginated response format: { data: [...] }
         return repositories.data || [];
     }

@@ -171,7 +171,7 @@ class TestConfig:
 
         # Verify logger.exception was called
         mock_logger.exception.assert_called_once()
-        assert "Config file not found" in str(mock_logger.exception.call_args)
+        assert "Config file not found" in mock_logger.exception.call_args.args[0]
 
     def test_root_data_permission_error(self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test root_data property when permission is denied reading config file."""
@@ -179,22 +179,16 @@ class TestConfig:
 
         mock_logger = Mock()
         config = Config(logger=mock_logger)
-        config_file = os.path.join(temp_config_dir, "config.yaml")
 
-        # Make file unreadable to simulate permission error
-        os.chmod(config_file, 0o000)
-
-        try:
+        # Mock open to raise PermissionError for better portability
+        with patch("builtins.open", side_effect=PermissionError("Permission denied")):
             # Should raise PermissionError and log the exception
-            with pytest.raises(PermissionError):
+            with pytest.raises(PermissionError, match="Permission denied"):
                 _ = config.root_data
 
             # Verify logger.exception was called
             mock_logger.exception.assert_called_once()
-            assert "Permission denied" in str(mock_logger.exception.call_args)
-        finally:
-            # Restore permissions for cleanup
-            os.chmod(config_file, 0o644)
+            assert "Permission denied" in mock_logger.exception.call_args.args[0]
 
     def test_root_data_generic_exception(self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test root_data property with generic exception during file read."""
@@ -296,7 +290,11 @@ class TestConfig:
         result = config.repository_local_data(mock_github_api, "org/test-repo")
 
         assert result == {}
-        mock_logger.debug.assert_called()  # Verify debug log was called
+        mock_logger.debug.assert_called_once()
+        # Verify the debug log message is about getting GitHub API
+        debug_message = mock_logger.debug.call_args.args[0]
+        assert "Get GitHub API for repository" in debug_message
+        assert "org/test-repo" in debug_message
 
     def test_repository_local_data_yaml_error(self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test repository_local_data method when repository config has invalid YAML."""
@@ -319,7 +317,7 @@ class TestConfig:
 
         # Verify logger.exception was called
         mock_logger.exception.assert_called_once()
-        assert "invalid YAML syntax" in str(mock_logger.exception.call_args)
+        assert "invalid YAML syntax" in mock_logger.exception.call_args.args[0]
 
     @patch("webhook_server.utils.helpers.get_github_repo_api")
     def test_repository_local_data_exception_handling(

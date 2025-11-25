@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import os
 from logging.config import fileConfig
+from urllib.parse import quote
 
 from alembic import context
 from simple_logger.logger import get_logger
@@ -54,10 +55,13 @@ try:
             "See examples/config.yaml for reference."
         )
 
-    # Construct PostgreSQL asyncpg URL
+    # Construct PostgreSQL asyncpg URL with URL-encoded credentials
     # Format: postgresql+asyncpg://user:password@host:port/database  # pragma: allowlist secret
+    # URL-encode username and password to handle special characters (@, :, /, ?, etc.)
+    encoded_username = quote(db_config["username"], safe="")
+    encoded_password = quote(db_config["password"], safe="")
     db_url = (
-        f"postgresql+asyncpg://{db_config['username']}:{db_config['password']}"
+        f"postgresql+asyncpg://{encoded_username}:{encoded_password}"
         f"@{db_config.get('host', 'localhost')}:{db_config.get('port', 5432)}"
         f"/{db_config['database']}"
     )

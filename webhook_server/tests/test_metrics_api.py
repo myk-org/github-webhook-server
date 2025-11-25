@@ -1098,3 +1098,90 @@ class TestGetTrendsEndpoint(TestMetricsAPIEndpoints):
         response = client.get("/api/metrics/trends?bucket=invalid")
 
         assert response.status_code == 422  # Validation error
+
+    def test_get_trends_day_bucket(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test getting trends data with day bucket."""
+        now = datetime.now(UTC)
+
+        setup_db_manager.fetch.return_value = [
+            {
+                "bucket": now.replace(hour=0, minute=0, second=0, microsecond=0),
+                "total_events": 100,
+                "successful_events": 95,
+                "failed_events": 5,
+            },
+            {
+                "bucket": now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1),
+                "total_events": 80,
+                "successful_events": 78,
+                "failed_events": 2,
+            },
+        ]
+
+        response = client.get("/api/metrics/trends?bucket=day")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["trends"]) == 2
+        assert data["trends"][0]["total_events"] == 100
+        assert data["trends"][1]["total_events"] == 80
+
+    def test_get_trends_with_time_range(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test trends endpoint with time range filtering."""
+        start_time = "2024-11-01T00:00:00Z"
+        end_time = "2024-11-30T23:59:59Z"
+
+        setup_db_manager.fetch.return_value = [
+            {
+                "bucket": datetime(2024, 11, 15, 12, 0, 0, tzinfo=UTC),
+                "total_events": 50,
+                "successful_events": 48,
+                "failed_events": 2,
+            },
+        ]
+
+        response = client.get(f"/api/metrics/trends?bucket=hour&start_time={start_time}&end_time={end_time}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["trends"]) == 1
+        assert data["trends"][0]["total_events"] == 50
+        # API returns ISO format with +00:00 instead of Z
+        assert data["time_range"]["start_time"] == "2024-11-01T00:00:00+00:00"
+        assert data["time_range"]["end_time"] == "2024-11-30T23:59:59+00:00"
+
+    def test_get_trends_empty_results(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test trends endpoint returns empty list when no data matches."""
+        setup_db_manager.fetch.return_value = []
+
+        response = client.get("/api/metrics/trends?bucket=hour")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["trends"] == []
+        assert "time_range" in data
+
+    def test_get_trends_database_error(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test trends endpoint handles database errors gracefully."""
+        setup_db_manager.fetch.side_effect = Exception("Database connection failed")
+
+        response = client.get("/api/metrics/trends?bucket=hour")
+
+        assert response.status_code == 500
+        assert "Failed to fetch metrics trends" in response.json()["detail"]

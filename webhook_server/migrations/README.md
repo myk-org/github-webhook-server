@@ -294,7 +294,7 @@ Database configuration and migration paths are loaded dynamically from `config.y
 2. Reads `metrics-database` section from `config.yaml`
 3. Constructs PostgreSQL URL: `postgresql+asyncpg://user:pass@host:port/db`  # pragma: allowlist secret
 4. Sets `sqlalchemy.url` in Alembic config dynamically
-5. Sets `version_locations` dynamically based on `WEBHOOK_SERVER_DATA_DIR` environment variable
+5. Sets `version_locations` based on `WEBHOOK_SERVER_DATA_DIR` environment variable
 
 **Migration Versions Path:**
 - The path where Alembic stores migration version files is determined by `WEBHOOK_SERVER_DATA_DIR`

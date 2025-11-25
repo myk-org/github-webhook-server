@@ -202,9 +202,10 @@ function formatBytes(bytes, decimals = 2) {
     const k = 1024;
     const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB'];
     const i = Math.floor(Math.log(Math.abs(bytes)) / Math.log(k));
-    const size = bytes / Math.pow(k, i);
+    const safeIndex = Math.min(i, sizes.length - 1);
+    const size = bytes / Math.pow(k, safeIndex);
 
-    return `${size.toFixed(decimals)} ${sizes[i]}`;
+    return `${size.toFixed(decimals)} ${sizes[safeIndex]}`;
 }
 
 // ============================================================================
@@ -390,6 +391,7 @@ function throttle(func, limit = 300) {
                     func.apply(this, args);
                     lastRan = Date.now();
                 }
+                inThrottle = false;
             }, limit - (Date.now() - lastRan));
         }
     };
@@ -484,9 +486,9 @@ function isValidRepository(repo) {
     }
 
     // Repository format: org/repo
-    // - org: alphanumeric, hyphens, underscores (1-39 chars)
+    // - org: alphanumeric, hyphens (1-39 chars)
     // - repo: alphanumeric, hyphens, underscores, dots (1-100 chars)
-    const repoPattern = /^[a-zA-Z0-9_-]{1,39}\/[a-zA-Z0-9._-]{1,100}$/;
+    const repoPattern = /^[a-zA-Z0-9-]{1,39}\/[a-zA-Z0-9._-]{1,100}$/;
     return repoPattern.test(repo);
 }
 

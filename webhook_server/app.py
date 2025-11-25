@@ -1522,7 +1522,8 @@ async def get_webhook_events(
     offset = (page - 1) * page_size
 
     # Get total count for pagination
-    count_query = f"SELECT COUNT(*) FROM ({query}) AS filtered"
+    # Safe: query is built with parameterized WHERE clauses, no user input in SQL string
+    count_query = f"SELECT COUNT(*) FROM ({query}) AS filtered"  # noqa: S608
     query += f" ORDER BY created_at DESC LIMIT ${param_idx} OFFSET ${param_idx + 1}"
     params.extend([page_size, offset])
 

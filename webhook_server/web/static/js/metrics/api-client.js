@@ -477,12 +477,52 @@ class MetricsAPIClient {
      * Check if API is available by fetching summary endpoint.
      *
      * Useful for health checks and determining if metrics server is enabled.
+     * Distinguishes between "metrics disabled" and "temporary failures".
      *
-     * @returns {Promise<boolean>} True if API is available, false otherwise
+     * @returns {Promise<Object>} Object with availability status and reason
+     * @returns {boolean} available - True if API is available
+     * @returns {string} reason - Reason for unavailability ('disabled', 'network_error', 'server_error', etc.)
+     * @returns {number|null} status - HTTP status code if available
+     *
+     * @example
+     * const { available, reason, status } = await apiClient.isAvailable();
+     * if (!available) {
+     *     if (reason === 'disabled') {
+     *         console.log('Metrics feature is disabled');
+     *     } else {
+     *         console.log('Temporary failure:', reason);
+     *     }
+     * }
      */
     async isAvailable() {
         const result = await this.fetchSummary();
-        return !result.error;
+
+        if (!result.error) {
+            return { available: true, reason: 'ok', status: 200 };
+        }
+
+        // Distinguish between metrics disabled vs temporary failure
+        const status = result.status;
+        let reason = 'unknown';
+
+        if (status === 404) {
+            reason = 'disabled';  // Endpoint not found - metrics feature disabled
+        } else if (status === 503) {
+            reason = 'service_unavailable';  // Service temporarily unavailable
+        } else if (status >= 500) {
+            reason = 'server_error';  // Server-side error
+        } else if (status >= 400 && status < 500) {
+            reason = 'client_error';  // Client-side error (auth, bad request, etc.)
+        } else if (!status) {
+            reason = 'network_error';  // Network failure (no response)
+        }
+
+        return {
+            available: false,
+            reason: reason,
+            status: status,
+            detail: result.detail || result.error
+        };
     }
 }
 

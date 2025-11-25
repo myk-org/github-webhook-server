@@ -288,22 +288,16 @@ class MetricsDashboardController:
             LIMIT 100
         """  # noqa: S608 - Safe: all user inputs passed as bind parameters
 
-        try:
-            rows = await self.db_manager.fetch(query, *query_params)
+        rows = await self.db_manager.fetch(query, *query_params)
 
-            # Convert rows to dictionaries and ensure datetime objects are serializable
-            events = []
-            for row in rows:
-                event = dict(row)
-                # Ensure datetimes are datetime objects (asyncpg returns them correctly)
-                events.append(event)
+        # Convert rows to dictionaries and ensure datetime objects are serializable
+        events: list[dict[str, Any]] = []
+        for row in rows:
+            event = dict(row)
+            events.append(event)
 
-            self.logger.debug(f"Fetched {len(events)} new events (filters: {where_clause})")
-            return events
-
-        except Exception:
-            self.logger.exception("Error fetching new events from database")
-            return []
+        self.logger.debug(f"Fetched {len(events)} new events (filters: {where_clause})")
+        return events
 
     def _build_metric_update_message(self, event: dict[str, Any]) -> dict[str, Any]:
         """

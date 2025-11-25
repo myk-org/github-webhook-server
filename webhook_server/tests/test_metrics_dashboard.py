@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, Mock, mock_open, patch
+from unittest.mock import AsyncMock, Mock, mock_open, patch
 
 import pytest
 from fastapi import HTTPException, WebSocket, WebSocketDisconnect
@@ -595,44 +595,44 @@ class TestFetchNewEvents:
     async def test_fetch_new_events_database_error(
         self, controller: MetricsDashboardController, mock_db_manager: AsyncMock, mock_logger: Mock
     ) -> None:
-        """Test database error handling in _fetch_new_events."""
+        """Test database error propagates from _fetch_new_events."""
         mock_db_manager.fetch.side_effect = Exception("Database connection failed")
 
-        events = await controller._fetch_new_events(
-            last_seen_timestamp=None, repository=None, event_type=None, status=None
-        )
+        # Exception should propagate instead of returning empty list
+        with pytest.raises(Exception, match="Database connection failed"):
+            await controller._fetch_new_events(last_seen_timestamp=None, repository=None, event_type=None, status=None)
 
-        # Should return empty list on error
-        assert events == []
-
-        # Verify error was logged
-        mock_logger.exception.assert_called_once_with("Error fetching new events from database")
+        # Error should NOT be logged at this level (handled by outer handler)
+        mock_logger.exception.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_fetch_new_events_converts_rows_to_dicts(
         self, controller: MetricsDashboardController, mock_db_manager: AsyncMock
     ) -> None:
         """Test that database rows are converted to dictionaries."""
-        # Create a mock row object (asyncpg Record-like)
-        mock_row = MagicMock()
-        mock_row.__iter__ = lambda self: iter([("delivery_id", "test123"), ("status", "success")])
-        mock_row.keys = lambda: ["delivery_id", "status"]
-        mock_row.values = lambda: ["test123", "success"]
-        mock_row.__getitem__ = lambda self, key: {"delivery_id": "test123", "status": "success"}[key]
 
-        # Make dict() work on the mock
-        def mock_dict_conversion(row):
-            return {"delivery_id": "test123", "status": "success"}
+        # Create a simple dict-like mock object that behaves like asyncpg Record
+        class MockRecord(dict):
+            """Simple dict subclass that mimics asyncpg Record behavior."""
 
+            def keys(self):
+                return super().keys()
+
+            def values(self):
+                return super().values()
+
+        # Use the simple mock record
+        mock_row = MockRecord({"delivery_id": "test123", "status": "success"})
         mock_db_manager.fetch.return_value = [mock_row]
 
-        with patch("builtins.dict", side_effect=mock_dict_conversion):
-            events = await controller._fetch_new_events(
-                last_seen_timestamp=None, repository=None, event_type=None, status=None
-            )
+        events = await controller._fetch_new_events(
+            last_seen_timestamp=None, repository=None, event_type=None, status=None
+        )
 
-        # Just verify we got results - actual dict conversion is tested by integration
+        # Verify we got results with correct data
         assert len(events) == 1
+        assert events[0]["delivery_id"] == "test123"
+        assert events[0]["status"] == "success"
 
 
 class TestBuildMetricUpdateMessage:

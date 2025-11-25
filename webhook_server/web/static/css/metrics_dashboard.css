@@ -607,7 +607,20 @@ tbody td {
   }
 }
 
-/* Loading Spinner Overlay */
+/* Loading Spinner Overlay
+ *
+ * Accessibility Requirements:
+ * - MUST include role="status" for screen reader announcement
+ * - MUST include aria-live="polite" to announce loading state changes
+ * - MUST include aria-busy="true" when visible, "false" when hidden
+ * - Consider aria-hidden="true" on decorative spinner element
+ *
+ * Example HTML:
+ * <div class="loading-spinner" role="status" aria-live="polite" aria-busy="true">
+ *   <div class="spinner" aria-hidden="true"></div>
+ *   <p>Loading data...</p>
+ * </div>
+ */
 .loading-spinner {
   position: fixed;
   top: 0;
