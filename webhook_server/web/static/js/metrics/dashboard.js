@@ -1913,7 +1913,7 @@ class MetricsDashboard {
                 const mergedBadge = pr.merged ? '<span class="badge-merged">Merged</span>' : '';
 
                 // Soft fallbacks for missing fields
-                const prNumber = pr.pr_number || 'N/A';
+                const prNumber = pr.number || 'N/A';
                 const title = pr.title || 'Untitled';
                 const repository = pr.repository || 'Unknown';
                 const state = pr.state || 'unknown';
