@@ -73,15 +73,8 @@ class MetricsDashboard {
         const startInput = document.getElementById('startTime');
         const endInput = document.getElementById('endTime');
         if (startInput && endInput) {
-            // Format for datetime-local input: YYYY-MM-DDThh:mm
-            const formatForInput = (isoString) => {
-                const date = new Date(isoString);
-                // Adjust for local timezone for display
-                const localDate = new Date(date.getTime() - (date.getTimezoneOffset() * 60000));
-                return localDate.toISOString().slice(0, 16);
-            };
-            startInput.value = formatForInput(startTime);
-            endInput.value = formatForInput(endTime);
+            startInput.value = this.formatDateForInput(startTime);
+            endInput.value = this.formatDateForInput(endTime);
         }
 
         // 6. Show loading state
@@ -226,6 +219,19 @@ class MetricsDashboard {
         };
     }
 
+    /**
+     * Format ISO date string for datetime-local input.
+     * Converts ISO string to local timezone and formats for HTML5 datetime-local input.
+     *
+     * @param {string} isoString - ISO date string
+     * @returns {string} Formatted string (YYYY-MM-DDThh:mm)
+     */
+    formatDateForInput(isoString) {
+        const date = new Date(isoString);
+        // Adjust for local timezone for display
+        const localDate = new Date(date.getTime() - (date.getTimezoneOffset() * 60000));
+        return localDate.toISOString().slice(0, 16);
+    }
 
     /**
      * Update KPI cards with new data.
@@ -336,6 +342,21 @@ class MetricsDashboard {
         } catch (error) {
             console.error('[Dashboard] Error initializing charts:', error);
         }
+    }
+
+    /**
+     * Normalize repositories data from paginated response to array.
+     * Handles both paginated response objects and plain arrays.
+     *
+     * @param {Object|Array} repositories - Repositories data (paginated response or array)
+     * @returns {Array} Normalized array of repositories
+     */
+    normalizeRepositories(repositories) {
+        if (!repositories) {
+            return [];
+        }
+        // Handle paginated response format: { data: [...] } or { repositories: [...] }
+        return repositories.data || repositories.repositories || repositories || [];
     }
 
     /**
@@ -1070,15 +1091,8 @@ class MetricsDashboard {
             const endInput = document.getElementById('endTime');
 
             if (startInput && endInput) {
-                // Format for datetime-local input: YYYY-MM-DDThh:mm
-                const formatForInput = (isoString) => {
-                    const date = new Date(isoString);
-                    // Adjust for local timezone for display
-                    const localDate = new Date(date.getTime() - (date.getTimezoneOffset() * 60000));
-                    return localDate.toISOString().slice(0, 16);
-                };
-                startInput.value = formatForInput(startTime);
-                endInput.value = formatForInput(endTime);
+                startInput.value = this.formatDateForInput(startTime);
+                endInput.value = this.formatDateForInput(endTime);
             }
         }
 
@@ -1276,6 +1290,7 @@ class MetricsDashboard {
         const spinner = document.getElementById('loading-spinner');
         if (spinner) {
             spinner.style.display = show ? 'flex' : 'none';
+            spinner.setAttribute('aria-busy', show ? 'true' : 'false');
         }
     }
 
@@ -1455,7 +1470,8 @@ class MetricsDashboard {
      */
     updateApiTopN(n) {
         if (this.currentData && this.currentData.repositories) {
-            const apiData = this.prepareAPIUsageData(this.currentData.repositories, n);
+            const repositories = this.normalizeRepositories(this.currentData.repositories);
+            const apiData = this.prepareAPIUsageData(repositories, n);
             if (this.charts.apiUsage) {
                 window.MetricsCharts.updateAPIUsageChart(this.charts.apiUsage, apiData);
                 console.log(`[Dashboard] Updated API Usage to show top ${n} repositories`);
@@ -1471,7 +1487,8 @@ class MetricsDashboard {
         console.log(`[Dashboard] API sort order changed to: ${order}`);
         // Re-render with new sort order
         if (this.currentData && this.currentData.repositories) {
-            const apiData = this.prepareAPIUsageData(this.currentData.repositories, undefined, order);
+            const repositories = this.normalizeRepositories(this.currentData.repositories);
+            const apiData = this.prepareAPIUsageData(repositories, undefined, order);
             if (this.charts.apiUsage) {
                 window.MetricsCharts.updateAPIUsageChart(this.charts.apiUsage, apiData);
             }
@@ -1519,12 +1536,12 @@ class MetricsDashboard {
      * @param {string} format - Export format ('csv' or 'json')
      */
     exportApiData(format) {
-        const data = this.currentData.repositories || [];
-        if (data.length === 0) {
+        const repositories = this.normalizeRepositories(this.currentData.repositories);
+        if (repositories.length === 0) {
             console.warn('[Dashboard] No API usage data to export');
             return;
         }
-        this.downloadData(data, `api-usage.${format}`, format);
+        this.downloadData(repositories, `api-usage.${format}`, format);
         console.log(`[Dashboard] Exported API Usage data as ${format}`);
     }
 

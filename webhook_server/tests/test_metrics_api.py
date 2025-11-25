@@ -146,7 +146,7 @@ class TestGetWebhookEventsEndpoint(TestMetricsAPIEndpoints):
                 "action": "created",
                 "pr_number": None,
                 "sender": "user2",
-                "status": "failure",
+                "status": "error",
                 "created_at": now - timedelta(minutes=5),
                 "processed_at": now - timedelta(minutes=4, seconds=58),
                 "duration_ms": 2000,
@@ -179,7 +179,7 @@ class TestGetWebhookEventsEndpoint(TestMetricsAPIEndpoints):
 
         # Verify second event
         event2 = data["data"][1]
-        assert event2["status"] == "failure"
+        assert event2["status"] == "error"
         assert event2["error_message"] == "Processing failed"
 
     def test_get_webhook_events_with_repository_filter(
@@ -991,13 +991,13 @@ class TestUserPullRequestsEndpoint(TestMetricsAPIEndpoints):
         assert len(data["data"]) == 2
         assert data["pagination"]["total"] == 2
 
-    def test_get_user_prs_invalid_page_number(self, client: TestClient, setup_db_manager: Mock) -> None:
+    def test_get_user_prs_invalid_page_number(self, client: TestClient) -> None:
         """Test endpoint fails with invalid page number."""
         response = client.get("/api/metrics/user-prs?user=john-doe&page=0")
 
         assert response.status_code == 422  # FastAPI validation error
 
-    def test_get_user_prs_invalid_page_size(self, client: TestClient, setup_db_manager: Mock) -> None:
+    def test_get_user_prs_invalid_page_size(self, client: TestClient) -> None:
         """Test endpoint fails with invalid page size."""
         # Too large
         response = client.get("/api/metrics/user-prs?user=john-doe&page_size=101")
@@ -1104,11 +1104,7 @@ class TestGetTrendsEndpoint(TestMetricsAPIEndpoints):
         assert data["trends"][0]["total_events"] == 10
         assert data["trends"][1]["total_events"] == 15
 
-    def test_get_trends_invalid_bucket(
-        self,
-        client: TestClient,
-        setup_db_manager: Mock,
-    ) -> None:
+    def test_get_trends_invalid_bucket(self, client: TestClient) -> None:
         """Test trends endpoint with invalid bucket parameter."""
         response = client.get("/api/metrics/trends?bucket=invalid")
 

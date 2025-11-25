@@ -1412,7 +1412,7 @@ async def get_webhook_events(
     **Return Structure:**
     ```json
     {
-      "events": [
+      "data": [
         {
           "delivery_id": "f4b3c2d1-a9b8-4c5d-9e8f-1a2b3c4d5e6f",
           "repository": "myakove/test-repo",
@@ -1470,7 +1470,6 @@ async def get_webhook_events(
     end_datetime = parse_datetime_string(end_time, "end_time")
 
     # Build query with filters
-    # noqa: S608  # Safe: dynamic parts are parameterized, no direct user input concatenation
     query = """
         SELECT
             delivery_id,
@@ -1856,14 +1855,12 @@ async def get_repository_statistics(
     offset = (page - 1) * page_size
 
     # Count total repositories for pagination
-    # noqa: S608  # Safe: where_clause is parameterized
     count_query = f"""
         SELECT COUNT(DISTINCT repository) as total
         FROM webhooks
         {where_clause}
-    """
+    """  # noqa: S608
 
-    # noqa: S608  # Safe: where_clause is parameterized, no direct user input concatenation
     query = f"""
         SELECT
             repository,
@@ -1897,7 +1894,7 @@ async def get_repository_statistics(
         GROUP BY repository
         ORDER BY total_events DESC
         LIMIT ${param_idx} OFFSET ${param_idx + 1}
-    """
+    """  # noqa: S608
     params.extend([page_size, offset])
 
     try:
@@ -2146,7 +2143,6 @@ async def get_metrics_contributors(
     params.extend([page_size, offset])
 
     # Count query for PR Creators
-    # noqa: S608  # Safe: filters are parameterized
     pr_creators_count_query = f"""
         SELECT COUNT(DISTINCT COALESCE(payload->'pull_request'->'user'->>'login', sender)) as total
         FROM webhooks
@@ -2155,10 +2151,9 @@ async def get_metrics_contributors(
           {time_filter}
           {user_filter}
           {repository_filter}
-    """
+    """  # noqa: S608
 
     # Query PR Creators (from pull_request events with action='opened', 'reopened', or 'synchronize')
-    # noqa: S608  # Safe: filters are parameterized, no direct user input concatenation
     pr_creators_query = f"""
         SELECT
             COALESCE(payload->'pull_request'->'user'->>'login', sender) as user,
@@ -2175,10 +2170,9 @@ async def get_metrics_contributors(
         GROUP BY COALESCE(payload->'pull_request'->'user'->>'login', sender)
         ORDER BY total_prs DESC
         LIMIT ${page_size_param} OFFSET ${offset_param}
-    """
+    """  # noqa: S608
 
     # Count query for PR Reviewers
-    # noqa: S608  # Safe: filters are parameterized
     pr_reviewers_count_query = f"""
         SELECT COUNT(DISTINCT sender) as total
         FROM webhooks
@@ -2187,10 +2181,9 @@ async def get_metrics_contributors(
           {time_filter}
           {user_filter}
           {repository_filter}
-    """
+    """  # noqa: S608
 
     # Query PR Reviewers (from pull_request_review events)
-    # noqa: S608  # Safe: filters are parameterized, no direct user input concatenation
     pr_reviewers_query = f"""
         SELECT
             sender as user,
@@ -2205,10 +2198,9 @@ async def get_metrics_contributors(
         GROUP BY sender
         ORDER BY total_reviews DESC
         LIMIT ${page_size_param} OFFSET ${offset_param}
-    """
+    """  # noqa: S608
 
     # Count query for PR Approvers
-    # noqa: S608  # Safe: filters are parameterized
     pr_approvers_count_query = f"""
         SELECT COUNT(DISTINCT SUBSTRING(payload->'label'->>'name' FROM 10)) as total
         FROM webhooks
@@ -2218,12 +2210,11 @@ async def get_metrics_contributors(
           {time_filter}
           {user_filter}
           {repository_filter}
-    """
+    """  # noqa: S608
 
     # Query PR Approvers (from pull_request labeled events with 'approved-' prefix only)
     # Custom approval workflow: /approve comment triggers 'approved-<username>' label
     # Note: LGTM is separate from approval - tracked separately
-    # noqa: S608  # Safe: filters are parameterized, no direct user input concatenation
     pr_approvers_query = f"""
         SELECT
             SUBSTRING(payload->'label'->>'name' FROM 10) as user,
@@ -2239,10 +2230,9 @@ async def get_metrics_contributors(
         GROUP BY SUBSTRING(payload->'label'->>'name' FROM 10)
         ORDER BY total_approvals DESC
         LIMIT ${page_size_param} OFFSET ${offset_param}
-    """
+    """  # noqa: S608
 
     # Count query for LGTM
-    # noqa: S608  # Safe: filters are parameterized
     pr_lgtm_count_query = f"""
         SELECT COUNT(DISTINCT SUBSTRING(payload->'label'->>'name' FROM 6)) as total
         FROM webhooks
@@ -2252,11 +2242,10 @@ async def get_metrics_contributors(
           {time_filter}
           {user_filter}
           {repository_filter}
-    """
+    """  # noqa: S608
 
     # Query LGTM (from pull_request labeled events with 'lgtm-' prefix)
     # Custom LGTM workflow: /lgtm comment triggers 'lgtm-<username>' label
-    # noqa: S608  # Safe: filters are parameterized, no direct user input concatenation
     pr_lgtm_query = f"""
         SELECT
             SUBSTRING(payload->'label'->>'name' FROM 6) as user,
@@ -2272,7 +2261,7 @@ async def get_metrics_contributors(
         GROUP BY SUBSTRING(payload->'label'->>'name' FROM 6)
         ORDER BY total_lgtm DESC
         LIMIT ${page_size_param} OFFSET ${offset_param}
-    """
+    """  # noqa: S608
 
     try:
         # Execute all count queries in parallel (params without LIMIT/OFFSET)
@@ -2513,13 +2502,12 @@ async def get_user_pull_requests(
     where_clause = " AND ".join(filters) if filters else "1=1"
 
     # Count total matching PRs
-    # noqa: S608  # Safe: where_clause is parameterized, no direct user input concatenation
     count_query = f"""
         SELECT COUNT(DISTINCT (payload->'pull_request'->>'number')::int) as total
         FROM webhooks
         WHERE event_type = 'pull_request'
           AND {where_clause}
-    """
+    """  # noqa: S608
 
     # Calculate pagination
     offset = (page - 1) * page_size
@@ -2529,7 +2517,6 @@ async def get_user_pull_requests(
     offset_param_idx = param_count
 
     # Query for PR data with pagination
-    # noqa: S608  # Safe: where_clause is parameterized, no direct user input concatenation
     data_query = f"""
         SELECT DISTINCT ON (pr_number)
             (payload->'pull_request'->>'number')::int as pr_number,
@@ -2547,7 +2534,7 @@ async def get_user_pull_requests(
           AND {where_clause}
         ORDER BY pr_number DESC, created_at DESC
         LIMIT ${limit_param_idx} OFFSET ${offset_param_idx}
-    """
+    """  # noqa: S608
 
     try:
         # Execute count and data queries in parallel
@@ -2665,7 +2652,6 @@ async def get_metrics_trends(
     params.append(bucket)
     bucket_param_idx = param_idx
 
-    # noqa: S608  # Safe: where_clause is parameterized, bucket_param_idx used with $ parameter
     query = f"""
         SELECT
             date_trunc(${bucket_param_idx}, created_at) as bucket,
@@ -2676,7 +2662,7 @@ async def get_metrics_trends(
         {where_clause}
         GROUP BY bucket
         ORDER BY bucket
-    """
+    """  # noqa: S608
 
     try:
         rows = await db_manager.fetch(query, *params)
@@ -2913,7 +2899,6 @@ async def get_metrics_summary(
         prev_param_idx += 1
 
     # Main summary query
-    # noqa: S608  # Safe: where_clause is parameterized, no direct user input concatenation
     summary_query = f"""
         SELECT
             COUNT(*) as total_events,
@@ -2932,10 +2917,9 @@ async def get_metrics_summary(
             SUM(token_spend) as total_token_spend
         FROM webhooks
         {where_clause}
-    """
+    """  # noqa: S608
 
     # Top repositories query
-    # noqa: S608  # Safe: where_clause is parameterized, no direct user input concatenation
     top_repos_query = f"""
         SELECT
             repository,
@@ -2949,10 +2933,9 @@ async def get_metrics_summary(
         GROUP BY repository
         ORDER BY total_events DESC
         LIMIT 10
-    """
+    """  # noqa: S608
 
     # Event type distribution query
-    # noqa: S608  # Safe: where_clause is parameterized, no direct user input concatenation
     event_type_query = f"""
         SELECT
             event_type,
@@ -2961,20 +2944,18 @@ async def get_metrics_summary(
         {where_clause}
         GROUP BY event_type
         ORDER BY event_count DESC
-    """
+    """  # noqa: S608
 
     # Time range for rate calculations
-    # noqa: S608  # Safe: where_clause is parameterized, no direct user input concatenation
     time_range_query = f"""
         SELECT
             MIN(created_at) as first_event_time,
             MAX(created_at) as last_event_time
         FROM webhooks
         {where_clause}
-    """
+    """  # noqa: S608
 
     # Previous period summary query for trend calculation
-    # noqa: S608  # Safe: prev_where_clause is parameterized, no direct user input concatenation
     prev_summary_query = f"""
         SELECT
             COUNT(*) as total_events,
@@ -2987,7 +2968,7 @@ async def get_metrics_summary(
             ROUND(AVG(duration_ms)) as avg_processing_time_ms
         FROM webhooks
         {prev_where_clause}
-    """
+    """  # noqa: S608
 
     try:
         # Execute queries using DatabaseManager helpers

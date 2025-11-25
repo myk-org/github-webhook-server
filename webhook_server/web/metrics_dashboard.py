@@ -266,7 +266,6 @@ class MetricsDashboardController:
         where_clause = "WHERE " + " AND ".join(where_conditions) if where_conditions else ""
 
         # Query for new events (newest first, limit to 100 per poll)
-        # noqa: S608  # Safe: all user inputs passed as bind parameters
         query = f"""
             SELECT
                 delivery_id,
@@ -287,7 +286,7 @@ class MetricsDashboardController:
             {where_clause}
             ORDER BY created_at DESC
             LIMIT 100
-        """
+        """  # noqa: S608 - Safe: all user inputs passed as bind parameters
 
         try:
             rows = await self.db_manager.fetch(query, *query_params)

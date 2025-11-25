@@ -184,7 +184,11 @@ class MetricsAPIClient {
      *
      * Response format (success):
      * {
-     *     repositories: [
+     *     time_range: {
+     *         start_time: '2025-11-01T00:00:00Z',
+     *         end_time: '2025-11-25T23:59:59Z'
+     *     },
+     *     data: [
      *         {
      *             repository: 'org/repo1',
      *             total_events: 450,
@@ -196,7 +200,14 @@ class MetricsAPIClient {
      *         },
      *         ...
      *     ],
-     *     total_repositories: 25
+     *     pagination: {
+     *         total: 50,
+     *         page: 1,
+     *         page_size: 10,
+     *         total_pages: 5,
+     *         has_next: true,
+     *         has_prev: false
+     *     }
      * }
      *
      * Response format (error):
