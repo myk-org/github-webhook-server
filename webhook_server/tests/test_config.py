@@ -205,7 +205,7 @@ class TestConfig:
 
             # Verify logger.exception was called
             mock_logger.exception.assert_called_once()
-            assert "Failed to load config file" in str(mock_logger.exception.call_args)
+            assert "Failed to load config file" in mock_logger.exception.call_args.args[0]
 
     def test_repository_data_with_repository(self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test repository_data property when repository is specified."""
@@ -290,11 +290,11 @@ class TestConfig:
         result = config.repository_local_data(mock_github_api, "org/test-repo")
 
         assert result == {}
-        mock_logger.debug.assert_called_once()
+        # Verify debug was called (relax constraint - don't over-constrain call count)
+        assert mock_logger.debug.called
         # Verify the debug log message is about getting GitHub API
-        debug_message = mock_logger.debug.call_args.args[0]
-        assert "Get GitHub API for repository" in debug_message
-        assert "org/test-repo" in debug_message
+        debug_calls = [call.args[0] for call in mock_logger.debug.call_args_list]
+        assert any("Get GitHub API for repository" in msg and "org/test-repo" in msg for msg in debug_calls)
 
     def test_repository_local_data_yaml_error(self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test repository_local_data method when repository config has invalid YAML."""

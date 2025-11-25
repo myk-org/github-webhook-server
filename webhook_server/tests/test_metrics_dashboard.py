@@ -279,7 +279,7 @@ class TestHandleWebSocket:
         # Mock asyncio.sleep to control loop execution
         sleep_call_count = 0
 
-        async def mock_sleep(duration: float) -> None:
+        async def mock_sleep(_duration: float) -> None:
             nonlocal sleep_call_count
             sleep_call_count += 1
             if sleep_call_count >= 2:
@@ -365,7 +365,7 @@ class TestHandleWebSocket:
             # Mock asyncio.sleep to limit retries
             sleep_call_count = 0
 
-            async def mock_sleep(duration: float) -> None:
+            async def mock_sleep(_duration: float) -> None:
                 nonlocal sleep_call_count
                 sleep_call_count += 1
                 if sleep_call_count >= 2:
@@ -394,7 +394,7 @@ class TestHandleWebSocket:
         # Mock asyncio.sleep to control loop execution
         sleep_call_count = 0
 
-        async def mock_sleep(duration: float) -> None:
+        async def mock_sleep(_duration: float) -> None:
             nonlocal sleep_call_count
             sleep_call_count += 1
             if sleep_call_count >= 2:
@@ -851,7 +851,7 @@ class TestIntegrationScenarios:
         # Control loop execution
         sleep_count = 0
 
-        async def controlled_sleep(duration: float) -> None:
+        async def controlled_sleep(_duration: float) -> None:
             nonlocal sleep_count
             sleep_count += 1
             if sleep_count >= 2:
@@ -903,7 +903,7 @@ class TestIntegrationScenarios:
 
         sleep_count = 0
 
-        async def controlled_sleep(duration: float) -> None:
+        async def controlled_sleep(_duration: float) -> None:
             nonlocal sleep_count
             sleep_count += 1
             if sleep_count >= 2:

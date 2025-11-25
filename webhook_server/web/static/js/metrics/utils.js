@@ -195,13 +195,24 @@ function formatBytes(bytes, decimals = 2) {
         return '-';
     }
 
+    // Handle zero bytes
     if (bytes === 0) {
-        return '0 Bytes';
+        return '0 B';
+    }
+
+    // Handle negative values
+    if (bytes < 0) {
+        return 'Invalid';
+    }
+
+    // Handle sub-byte values (0 < bytes < 1)
+    if (bytes < 1) {
+        return '< 1 B';
     }
 
     const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB'];
-    const i = Math.floor(Math.log(Math.abs(bytes)) / Math.log(k));
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
     const safeIndex = Math.min(i, sizes.length - 1);
     const size = bytes / Math.pow(k, safeIndex);
 

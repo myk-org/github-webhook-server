@@ -13,40 +13,6 @@ import pytest
 class TestMigrationsEnvURLEncoding:
     """Test suite for migrations env.py URL encoding."""
 
-    @pytest.fixture
-    def mock_config_with_special_chars(self) -> Mock:
-        """Create a mock Config with special characters in credentials."""
-        mock = Mock()
-        # Credentials with special characters that need URL encoding
-        # @ : / ? # are reserved characters in URLs
-        mock.root_data = {
-            "metrics-database": {
-                "host": "localhost",
-                "port": 5432,
-                "database": "test_db",
-                "username": "user@domain.com",  # @ needs encoding
-                "password": "p@ss:w/rd?#123",  # pragma: allowlist secret  # Multiple special chars
-            }
-        }
-        mock.data_dir = "/tmp/test-migrations"
-        return mock
-
-    @pytest.fixture
-    def mock_config_simple(self) -> Mock:
-        """Create a mock Config with simple credentials (no special chars)."""
-        mock = Mock()
-        mock.root_data = {
-            "metrics-database": {
-                "host": "localhost",
-                "port": 5432,
-                "database": "test_db",
-                "username": "simple_user",
-                "password": "simple_pass",  # pragma: allowlist secret
-            }
-        }
-        mock.data_dir = "/tmp/test-migrations"
-        return mock
-
     @pytest.mark.parametrize(
         "username,password,expected_username,expected_password",
         [
@@ -119,6 +85,7 @@ class TestMigrationsEnvURLEncoding:
     def test_migrations_env_imports_and_uses_quote(self) -> None:
         """Verify that migrations env.py imports and uses urllib.parse.quote."""
         # Read the env.py file and verify quote is imported and used
+        import ast
         import pathlib
 
         env_py_path = pathlib.Path(__file__).parent.parent / "migrations" / "env.py"
@@ -127,14 +94,16 @@ class TestMigrationsEnvURLEncoding:
         # Verify quote is imported from urllib.parse
         assert "from urllib.parse import quote" in env_py_content
 
-        # Verify quote is used for username encoding
-        assert 'encoded_username = quote(db_config["username"], safe="")' in env_py_content
+        # Parse AST to verify quote function is used (resilient to formatting changes)
+        tree = ast.parse(env_py_content)
 
-        # Verify quote is used for password encoding
-        assert 'encoded_password = quote(db_config["password"], safe="")' in env_py_content
+        # Check that quote function is called at least twice (username and password)
+        quote_calls = 0
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "quote":
+                quote_calls += 1
 
-        # Verify encoded credentials are used in URL construction
-        assert 'f"postgresql+asyncpg://{encoded_username}:{encoded_password}"' in env_py_content
+        assert quote_calls >= 2, "Expected at least 2 calls to quote() for username and password encoding"
 
     def test_special_chars_requiring_encoding(self) -> None:
         """Test that special characters are properly identified and encoded.

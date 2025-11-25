@@ -347,6 +347,7 @@ class MetricsDashboard {
     /**
      * Normalize repositories data from paginated response to array.
      * Handles both paginated response objects and plain arrays.
+     * Supports both current ({ data: [...] }) and legacy ({ repositories: [...] }) shapes.
      *
      * @param {Object|Array} repositories - Repositories data (paginated response or array)
      * @returns {Array} Normalized array of repositories
@@ -359,8 +360,8 @@ class MetricsDashboard {
         if (Array.isArray(repositories)) {
             return repositories;
         }
-        // Handle paginated response format: { data: [...] }
-        return repositories.data || [];
+        // Handle paginated response format: { data: [...] } or legacy { repositories: [...] }
+        return repositories.data || repositories.repositories || [];
     }
 
     /**
@@ -994,7 +995,7 @@ class MetricsDashboard {
         const collapseButtons = document.querySelectorAll('.collapse-btn');
         collapseButtons.forEach(btn => {
             btn.addEventListener('click', (e) => {
-                const sectionId = e.target.dataset.section;
+                const sectionId = e.currentTarget.dataset.section;
                 this.toggleSection(sectionId);
             });
         });
