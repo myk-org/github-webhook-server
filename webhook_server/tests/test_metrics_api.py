@@ -1185,3 +1185,26 @@ class TestGetTrendsEndpoint(TestMetricsAPIEndpoints):
 
         assert response.status_code == 500
         assert "Failed to fetch metrics trends" in response.json()["detail"]
+
+    def test_get_trends_db_manager_none(self, client: TestClient) -> None:
+        """Test endpoint returns 500 when db_manager is None."""
+        with patch("webhook_server.app.db_manager", None):
+            response = client.get("/api/metrics/trends?bucket=hour")
+
+            assert response.status_code == 500
+            assert "Metrics database not available" in response.json()["detail"]
+
+    def test_get_trends_pool_none(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test endpoint returns 500 when database pool is not initialized."""
+        # Simulate pool not initialized - helper methods raise ValueError
+        setup_db_manager.pool = None
+        setup_db_manager.fetch.side_effect = ValueError("Database pool not initialized. Call connect() first.")
+
+        response = client.get("/api/metrics/trends?bucket=hour")
+
+        assert response.status_code == 500
+        assert "Failed to fetch metrics trends" in response.json()["detail"]
