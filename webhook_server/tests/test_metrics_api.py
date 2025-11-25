@@ -660,8 +660,8 @@ class TestGetMetricsSummaryEndpoint(TestMetricsAPIEndpoints):
         setup_db_manager.fetch.side_effect = [
             # Top repos
             [
-                {"repository": "org/repo1", "total_events": 600, "success_rate": 96.00},
-                {"repository": "org/repo2", "total_events": 400, "success_rate": 94.00},
+                {"repository": "org/repo1", "total_events": 600, "success_rate": 96.00, "percentage": 60.00},
+                {"repository": "org/repo2", "total_events": 400, "success_rate": 94.00, "percentage": 40.00},
             ],
             # Event type distribution
             [

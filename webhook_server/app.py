@@ -2020,7 +2020,6 @@ async def get_metrics_contributors(
             "total_prs": 45,
             "merged_prs": 42,
             "closed_prs": 3,
-            "total_commits": 135,
             "avg_commits_per_pr": 3.0
           }
         ],
@@ -2128,11 +2127,10 @@ async def get_metrics_contributors(
         params.append(repository)
 
     # Build category-specific user filters to align with per-category "user" semantics
-    # PR Creators: user = COALESCE(payload->'pull_request'->'user'->>'login', sender)
+    # PR Creators: user = COALESCE(CASE event_type WHEN 'pull_request'/'pull_request_review'/'issue_comment'..., sender)
     # PR Reviewers: user = sender
     # PR Approvers: user = SUBSTRING(payload->'label'->>'name' FROM 10)
     # PR LGTM: user = SUBSTRING(payload->'label'->>'name' FROM 6)
-    user_filter_creators = ""
     user_filter_reviewers = ""
     user_filter_approvers = ""
     user_filter_lgtm = ""
@@ -2142,8 +2140,6 @@ async def get_metrics_contributors(
         user_param_idx = param_count
         params.append(user)
 
-        # PR Creators: filter on the COALESCE expression
-        user_filter_creators = f" AND COALESCE(payload->'pull_request'->'user'->>'login', sender) = ${user_param_idx}"
         # PR Reviewers: filter on sender (correct as-is)
         user_filter_reviewers = f" AND sender = ${user_param_idx}"
         # PR Approvers: filter on extracted username from 'approved-<username>' label
@@ -2163,30 +2159,98 @@ async def get_metrics_contributors(
 
     # Count query for PR Creators
     pr_creators_count_query = f"""
-        SELECT COUNT(DISTINCT COALESCE(payload->'pull_request'->'user'->>'login', sender)) as total
-        FROM webhooks
-        WHERE event_type = 'pull_request'
-          AND action IN ('opened', 'reopened', 'synchronize')
-          {time_filter}
-          {user_filter_creators}
-          {repository_filter}
+        WITH pr_creators AS (
+            SELECT DISTINCT ON (pr_number)
+                pr_number,
+                CASE event_type
+                    WHEN 'pull_request' THEN payload->'pull_request'->'user'->>'login'
+                    WHEN 'pull_request_review' THEN payload->'pull_request'->'user'->>'login'
+                    WHEN 'pull_request_review_comment'
+                        THEN payload->'pull_request'->'user'->>'login'
+                    WHEN 'issue_comment' THEN COALESCE(
+                        payload->'pull_request'->'user'->>'login',
+                        payload->'issue'->'user'->>'login'
+                    )
+                END as pr_creator
+            FROM webhooks
+            WHERE pr_number IS NOT NULL
+              AND event_type IN (
+                  'pull_request',
+                  'pull_request_review',
+                  'pull_request_review_comment',
+                  'issue_comment'
+              )
+              {time_filter}
+              {repository_filter}
+            ORDER BY pr_number, created_at ASC
+        )
+        SELECT COUNT(DISTINCT pr_creator) as total
+        FROM pr_creators
+        WHERE pr_creator IS NOT NULL{f" AND pr_creator = ${user_param_idx}" if user else ""}
     """  # noqa: S608
 
-    # Query PR Creators (from pull_request events with action='opened', 'reopened', or 'synchronize')
+    # Query PR Creators (from any event with pr_number)
     pr_creators_query = f"""
+        WITH pr_creators AS (
+            SELECT DISTINCT ON (pr_number)
+                pr_number,
+                CASE event_type
+                    WHEN 'pull_request' THEN payload->'pull_request'->'user'->>'login'
+                    WHEN 'pull_request_review' THEN payload->'pull_request'->'user'->>'login'
+                    WHEN 'pull_request_review_comment'
+                        THEN payload->'pull_request'->'user'->>'login'
+                    WHEN 'issue_comment' THEN COALESCE(
+                        payload->'pull_request'->'user'->>'login',
+                        payload->'issue'->'user'->>'login'
+                    )
+                END as pr_creator
+            FROM webhooks
+            WHERE pr_number IS NOT NULL
+              AND event_type IN (
+                  'pull_request',
+                  'pull_request_review',
+                  'pull_request_review_comment',
+                  'issue_comment'
+              )
+              {time_filter}
+              {repository_filter}
+            ORDER BY pr_number, created_at ASC
+        ),
+        user_prs AS (
+            SELECT
+                pc.pr_creator,
+                w.pr_number,
+                COALESCE((w.payload->'pull_request'->>'commits')::int, 0) as commits,
+                (w.payload->'pull_request'->>'merged' = 'true') as is_merged,
+                (
+                    w.payload->'pull_request'->>'state' = 'closed'
+                    AND w.payload->'pull_request'->>'merged' = 'false'
+                ) as is_closed
+            FROM webhooks w
+            INNER JOIN pr_creators pc ON w.pr_number = pc.pr_number
+            WHERE w.pr_number IS NOT NULL
+              {time_filter}
+              {repository_filter}
+        )
         SELECT
-            COALESCE(payload->'pull_request'->'user'->>'login', sender) as user,
-            COUNT(*) as total_prs,
-            COUNT(*) FILTER (WHERE payload->>'merged' = 'true') as merged_prs,
-            COUNT(*) FILTER (WHERE payload->>'state' = 'closed' AND payload->>'merged' = 'false') as closed_prs,
-            SUM(COALESCE((payload->'pull_request'->>'commits')::int, 0)) as total_commits
-        FROM webhooks
-        WHERE event_type = 'pull_request'
-          AND action IN ('opened', 'reopened', 'synchronize')
-          {time_filter}
-          {user_filter_creators}
-          {repository_filter}
-        GROUP BY COALESCE(payload->'pull_request'->'user'->>'login', sender)
+            pr_creator as user,
+            COUNT(DISTINCT pr_number) as total_prs,
+            COUNT(DISTINCT pr_number) FILTER (WHERE is_merged) as merged_prs,
+            COUNT(DISTINCT pr_number) FILTER (WHERE is_closed) as closed_prs,
+            ROUND(AVG(max_commits), 1) as avg_commits
+        FROM (
+            SELECT
+                pr_creator,
+                pr_number,
+                MAX(commits) as max_commits,
+                BOOL_OR(is_merged) as is_merged,
+                BOOL_OR(is_closed) as is_closed
+            FROM user_prs
+            WHERE pr_creator IS NOT NULL
+            GROUP BY pr_creator, pr_number
+        ) pr_stats
+        WHERE 1=1{f" AND pr_creator = ${user_param_idx}" if user else ""}
+        GROUP BY pr_creator
         ORDER BY total_prs DESC
         LIMIT ${page_size_param} OFFSET ${offset_param}
     """  # noqa: S608
@@ -2197,6 +2261,7 @@ async def get_metrics_contributors(
         FROM webhooks
         WHERE event_type = 'pull_request_review'
           AND action = 'submitted'
+          AND sender != payload->'pull_request'->'user'->>'login'
           {time_filter}
           {user_filter_reviewers}
           {repository_filter}
@@ -2211,6 +2276,7 @@ async def get_metrics_contributors(
         FROM webhooks
         WHERE event_type = 'pull_request_review'
           AND action = 'submitted'
+          AND sender != payload->'pull_request'->'user'->>'login'
           {time_filter}
           {user_filter_reviewers}
           {repository_filter}
@@ -2312,8 +2378,7 @@ async def get_metrics_contributors(
                 "total_prs": row["total_prs"],
                 "merged_prs": row["merged_prs"] or 0,
                 "closed_prs": row["closed_prs"] or 0,
-                "total_commits": row["total_commits"] or 0,
-                "avg_commits_per_pr": round((row["total_commits"] or 0) / max(row["total_prs"], 1), 1),
+                "avg_commits_per_pr": round(row["avg_commits"] or 0, 1),
             }
             for row in pr_creators_rows
         ]
@@ -2940,13 +3005,22 @@ async def get_metrics_summary(
 
     # Top repositories query
     top_repos_query = f"""
+        WITH total AS (
+            SELECT COUNT(*) as total_count
+            FROM webhooks
+            {where_clause}
+        )
         SELECT
             repository,
             COUNT(*) as total_events,
             ROUND(
                 (COUNT(*) FILTER (WHERE status = 'success')::numeric / COUNT(*)::numeric * 100)::numeric,
                 2
-            ) as success_rate
+            ) as success_rate,
+            ROUND(
+                (COUNT(*)::numeric / (SELECT total_count FROM total) * 100)::numeric,
+                2
+            ) as percentage
         FROM webhooks
         {where_clause}
         GROUP BY repository
@@ -3058,6 +3132,7 @@ async def get_metrics_summary(
             {
                 "repository": row["repository"],
                 "total_events": row["total_events"],
+                "percentage": float(row["percentage"]) if row["percentage"] is not None else 0.0,
                 "success_rate": float(row["success_rate"]) if row["success_rate"] is not None else 0.0,
             }
             for row in top_repos_rows
