@@ -1,11 +1,13 @@
 """
 Comprehensive tests for metrics API endpoints.
 
-Tests 4 new metrics endpoints:
+Tests 6 metrics endpoints:
 - GET /api/metrics/webhooks - List webhook events with filtering
 - GET /api/metrics/webhooks/{delivery_id} - Get specific webhook details
 - GET /api/metrics/repositories - Get repository statistics
 - GET /api/metrics/summary - Get overall metrics summary
+- GET /api/metrics/user-prs - Get per-user PR metrics
+- GET /api/metrics/trends - Get metrics trends over time
 """
 
 from datetime import UTC, datetime, timedelta
@@ -40,7 +42,7 @@ def setup_db_manager(mock_db_manager: Mock, monkeypatch: pytest.MonkeyPatch) -> 
 
     # Monkeypatch DatabaseManager class to return the mock when instantiated
     # This prevents lifespan from creating a real DB connection at line 260
-    monkeypatch.setattr(DatabaseManager, "__new__", lambda cls, *args, **kwargs: mock_db_manager)
+    monkeypatch.setattr(DatabaseManager, "__new__", lambda *_args, **_kwargs: mock_db_manager)
 
     # Also set the global db_manager for request handling
     monkeypatch.setattr(webhook_server.app, "db_manager", mock_db_manager)
@@ -353,12 +355,13 @@ class TestGetWebhookEventsEndpoint(TestMetricsAPIEndpoints):
         ]
         setup_db_manager.fetch.return_value = mock_events
 
-        response = client.get("/api/metrics/webhooks?limit=50&offset=0")
+        response = client.get("/api/metrics/webhooks?page=1&page_size=50")
 
         assert response.status_code == 200
         data = response.json()
         assert len(data["data"]) == 50
         assert data["pagination"]["total"] == 150
+        assert data["pagination"]["page_size"] == 50
         assert data["pagination"]["has_next"] is True
 
     def test_get_webhook_events_db_manager_none(self, client: TestClient) -> None:

@@ -1444,9 +1444,11 @@ async def get_webhook_events(
 
     **Common Filtering Scenarios:**
     - Recent errors: `status=error&start_time=2024-01-15T00:00:00Z`
-    - Repository-specific events: `repository=owner/repo&limit=50`
-    - Event type analysis: `event_type=pull_request&start_time=2024-01-01T00:00:00Z`
-    - Failed webhooks: `status=error&event_type=pull_request`
+    - Repository-specific events: `repository=owner/repo&page=1&page_size=50`
+    - Event type analysis: `event_type=pull_request&start_time=2024-01-01T00:00:00Z&page=1&page_size=100`
+    - Failed webhooks: `status=error&event_type=pull_request&page=1&page_size=100`
+
+    **Note:** `page` is 1-indexed, and `page_size` is capped at 1000.
 
     **Error Conditions:**
     - 400: Invalid datetime format in start_time/end_time parameters
@@ -1803,11 +1805,13 @@ async def get_repository_statistics(
     - `event_type_breakdown`: Event count distribution by type
 
     **Common Analysis Scenarios:**
-    - Monthly repository metrics: `start_time=2024-01-01&end_time=2024-01-31`
+    - Monthly repository metrics: `start_time=2024-01-01&end_time=2024-01-31&page=1&page_size=10`
     - High-traffic repositories: Sort by `total_events` descending
     - Performance issues: Analyze `p95_processing_time_ms` and `max_processing_time_ms`
     - Error-prone repositories: Sort by `failed_events` descending or `success_rate` ascending
     - API usage optimization: Analyze `avg_api_calls_per_event` and `total_token_spend`
+
+    **Note:** `page` is 1-indexed, and `page_size` is capped at 100 for this endpoint.
 
     **Error Conditions:**
     - 400: Invalid datetime format in start_time/end_time parameters
