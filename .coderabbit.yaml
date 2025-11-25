@@ -30,7 +30,6 @@ reviews:
     drafts: false
     base_branches:
       - main
-      - master
 
   # Enable relevant tools for Python/JavaScript project
   tools:
@@ -66,29 +65,6 @@ reviews:
     hadolint:
       enabled: true
 
-  # Path-specific overrides (CLAUDE.md contains main rules - only add path-specific context here)
-  path_instructions:
-    # Test files - coverage requirement
-    - path: "webhook_server/tests/**/*.py"
-      instructions: |
-        ADDITIONAL to CLAUDE.md rules:
-        - 90% coverage is mandatory for all new code
-        - All test functions must have descriptive names
-
-    # Migration files - coverage exception
-    - path: "webhook_server/migrations/**/*.py"
-      instructions: |
-        OVERRIDE CLAUDE.md coverage requirement:
-        - Low coverage acceptable for Alembic migration code
-        - This is infrastructure code with different patterns
-
-    # Frontend JavaScript - coverage exception
-    - path: "webhook_server/web/static/**/*.js"
-      instructions: |
-        OVERRIDE CLAUDE.md coverage requirement:
-        - Lower coverage acceptable for complex chart rendering code
-        - Focus remains on defensive programming for edge cases
-
 # Knowledge base configuration
 knowledge_base:
   # Enable code guidelines enforcement from CLAUDE.md
@@ -96,7 +72,6 @@ knowledge_base:
     enabled: true
     filePatterns:
       - "CLAUDE.md"
-      - "**/CLAUDE.md"
 
   # Enable learning from repository patterns
   learnings:
