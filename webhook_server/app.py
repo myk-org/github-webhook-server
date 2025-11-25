@@ -531,16 +531,17 @@ async def process_webhook(request: Request) -> JSONResponse:
             try:
                 await _api.process()
 
-                # Extract API usage metrics for database tracking
+                # Extract API usage metrics for database tracking (defensive - use .get() for safety)
                 api_metrics = _api.get_api_metrics()
 
                 # Track successful webhook event with API metrics (best-effort)
+                # Use .get() with defaults since metrics tracking is best-effort and shouldn't break on partial dict
                 await track_metrics_safe(
                     status="success",
-                    api_calls_count=int(api_metrics["api_calls_count"]),
-                    token_spend=int(api_metrics["token_spend"]),
-                    token_remaining=int(api_metrics["token_remaining"]),
-                    metrics_available=bool(api_metrics["metrics_available"]),
+                    api_calls_count=int(api_metrics.get("api_calls_count", 0)),
+                    token_spend=int(api_metrics.get("token_spend", 0)),
+                    token_remaining=int(api_metrics.get("token_remaining", 0)),
+                    metrics_available=bool(api_metrics.get("metrics_available", False)),
                 )
             finally:
                 await _api.cleanup()
@@ -2118,19 +2119,36 @@ async def get_metrics_contributors(
         time_filter += f" AND created_at <= ${param_count}"
         params.append(end_datetime)
 
-    # Add user filter if provided
-    user_filter = ""
-    if user:
-        param_count += 1
-        user_filter = f" AND sender = ${param_count}"
-        params.append(user)
-
     # Add repository filter if provided
     repository_filter = ""
     if repository:
         param_count += 1
         repository_filter = f" AND repository = ${param_count}"
         params.append(repository)
+
+    # Build category-specific user filters to align with per-category "user" semantics
+    # PR Creators: user = COALESCE(payload->'pull_request'->'user'->>'login', sender)
+    # PR Reviewers: user = sender
+    # PR Approvers: user = SUBSTRING(payload->'label'->>'name' FROM 10)
+    # PR LGTM: user = SUBSTRING(payload->'label'->>'name' FROM 6)
+    user_filter_creators = ""
+    user_filter_reviewers = ""
+    user_filter_approvers = ""
+    user_filter_lgtm = ""
+
+    if user:
+        param_count += 1
+        user_param_idx = param_count
+        params.append(user)
+
+        # PR Creators: filter on the COALESCE expression
+        user_filter_creators = f" AND COALESCE(payload->'pull_request'->'user'->>'login', sender) = ${user_param_idx}"
+        # PR Reviewers: filter on sender (correct as-is)
+        user_filter_reviewers = f" AND sender = ${user_param_idx}"
+        # PR Approvers: filter on extracted username from 'approved-<username>' label
+        user_filter_approvers = f" AND SUBSTRING(payload->'label'->>'name' FROM 10) = ${user_param_idx}"
+        # PR LGTM: filter on extracted username from 'lgtm-<username>' label
+        user_filter_lgtm = f" AND SUBSTRING(payload->'label'->>'name' FROM 6) = ${user_param_idx}"
 
     # Calculate offset for pagination
     offset = (page - 1) * page_size
@@ -2149,7 +2167,7 @@ async def get_metrics_contributors(
         WHERE event_type = 'pull_request'
           AND action IN ('opened', 'reopened', 'synchronize')
           {time_filter}
-          {user_filter}
+          {user_filter_creators}
           {repository_filter}
     """  # noqa: S608
 
@@ -2165,7 +2183,7 @@ async def get_metrics_contributors(
         WHERE event_type = 'pull_request'
           AND action IN ('opened', 'reopened', 'synchronize')
           {time_filter}
-          {user_filter}
+          {user_filter_creators}
           {repository_filter}
         GROUP BY COALESCE(payload->'pull_request'->'user'->>'login', sender)
         ORDER BY total_prs DESC
@@ -2179,7 +2197,7 @@ async def get_metrics_contributors(
         WHERE event_type = 'pull_request_review'
           AND action = 'submitted'
           {time_filter}
-          {user_filter}
+          {user_filter_reviewers}
           {repository_filter}
     """  # noqa: S608
 
@@ -2193,7 +2211,7 @@ async def get_metrics_contributors(
         WHERE event_type = 'pull_request_review'
           AND action = 'submitted'
           {time_filter}
-          {user_filter}
+          {user_filter_reviewers}
           {repository_filter}
         GROUP BY sender
         ORDER BY total_reviews DESC
@@ -2208,7 +2226,7 @@ async def get_metrics_contributors(
           AND action = 'labeled'
           AND payload->'label'->>'name' LIKE 'approved-%'
           {time_filter}
-          {user_filter}
+          {user_filter_approvers}
           {repository_filter}
     """  # noqa: S608
 
@@ -2225,7 +2243,7 @@ async def get_metrics_contributors(
           AND action = 'labeled'
           AND payload->'label'->>'name' LIKE 'approved-%'
           {time_filter}
-          {user_filter}
+          {user_filter_approvers}
           {repository_filter}
         GROUP BY SUBSTRING(payload->'label'->>'name' FROM 10)
         ORDER BY total_approvals DESC
@@ -2240,7 +2258,7 @@ async def get_metrics_contributors(
           AND action = 'labeled'
           AND payload->'label'->>'name' LIKE 'lgtm-%'
           {time_filter}
-          {user_filter}
+          {user_filter_lgtm}
           {repository_filter}
     """  # noqa: S608
 
@@ -2256,7 +2274,7 @@ async def get_metrics_contributors(
           AND action = 'labeled'
           AND payload->'label'->>'name' LIKE 'lgtm-%'
           {time_filter}
-          {user_filter}
+          {user_filter_lgtm}
           {repository_filter}
         GROUP BY SUBSTRING(payload->'label'->>'name' FROM 6)
         ORDER BY total_lgtm DESC

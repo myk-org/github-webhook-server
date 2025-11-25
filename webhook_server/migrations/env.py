@@ -20,6 +20,7 @@ Architecture guarantees:
 from __future__ import annotations
 
 import asyncio
+import os
 from logging.config import fileConfig
 
 from alembic import context
@@ -64,11 +65,18 @@ try:
     # Set database URL in Alembic config (overrides alembic.ini if set)
     config.set_main_option("sqlalchemy.url", db_url)
 
+    # Set version_locations dynamically based on data directory
+    # This replaces the hardcoded path in alembic.ini to support non-container deployments
+    # version_locations is where Alembic stores migration version files
+    versions_path = os.path.join(webhook_config.data_dir, "migrations", "versions")
+    config.set_main_option("version_locations", versions_path)
+
     logger.info(
         f"Loaded database configuration: {db_config['username']}@"
         f"{db_config.get('host', 'localhost')}:{db_config.get('port', 5432)}"
         f"/{db_config['database']}"
     )
+    logger.info(f"Migration versions directory: {versions_path}")
 
 except FileNotFoundError:
     logger.exception("Config file not found. Ensure config.yaml exists in WEBHOOK_SERVER_DATA_DIR.")

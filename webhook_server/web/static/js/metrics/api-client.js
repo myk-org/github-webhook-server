@@ -7,7 +7,6 @@
  * Features:
  * - Automatic timeout handling with AbortController
  * - Consistent error response format
- * - Request cancellation support
  * - URL parameter building with proper encoding
  * - Singleton pattern for global access
  *
@@ -49,7 +48,6 @@ class MetricsAPIClient {
     constructor(baseURL = '/api/metrics', timeout = 10000) {
         this.baseURL = baseURL;
         this.timeout = timeout;
-        this.activeRequests = new Map(); // Track active requests for cancellation
     }
 
     /**
@@ -222,7 +220,16 @@ class MetricsAPIClient {
         if (startTime) params.start_time = startTime;
         if (endTime) params.end_time = endTime;
 
-        return await this._fetch('/repositories', params);
+        const response = await this._fetch('/repositories', params);
+        if (response.error) return response;
+
+        // Normalize response: extract data array while preserving pagination
+        return {
+            repositories: response.data || [],
+            data: response.data || [],
+            pagination: response.pagination,
+            time_range: response.time_range
+        };
     }
 
     /**
@@ -327,38 +334,7 @@ class MetricsAPIClient {
     }
 
     /**
-     * Cancel an active request by its request ID.
-     *
-     * NOTE: Reserved for future use - not currently used in the codebase.
-     * Useful for cancelling long-running requests when user navigates away
-     * or changes filters quickly.
-     *
-     * @param {string} requestId - Request identifier returned by fetch methods
-     */
-    cancelRequest(requestId) {
-        const controller = this.activeRequests.get(requestId);
-        if (controller) {
-            controller.abort();
-            this.activeRequests.delete(requestId);
-            console.log(`[API Client] Request ${requestId} cancelled`);
-        }
-    }
-
-    /**
-     * Cancel all active requests.
-     *
-     * Useful during page teardown or major state changes.
-     */
-    cancelAllRequests() {
-        console.log(`[API Client] Cancelling ${this.activeRequests.size} active requests`);
-        for (const controller of this.activeRequests.values()) {
-            controller.abort();
-        }
-        this.activeRequests.clear();
-    }
-
-    /**
-     * Internal fetch wrapper with timeout, error handling, and request tracking.
+     * Internal fetch wrapper with timeout and error handling.
      *
      * @private
      * @param {string} endpoint - API endpoint path (e.g., '/summary', '/webhooks')
@@ -366,9 +342,7 @@ class MetricsAPIClient {
      * @returns {Promise<Object>} Response data or standardized error object
      */
     async _fetch(endpoint, params = {}) {
-        const requestId = `${endpoint}_${Date.now()}`;
         const controller = new AbortController();
-        this.activeRequests.set(requestId, controller);
 
         // Set up timeout
         const timeoutId = setTimeout(() => {
@@ -392,7 +366,6 @@ class MetricsAPIClient {
 
             // Clear timeout on successful response
             clearTimeout(timeoutId);
-            this.activeRequests.delete(requestId);
 
             // Handle HTTP errors
             if (!response.ok) {
@@ -414,9 +387,8 @@ class MetricsAPIClient {
             }
 
         } catch (error) {
-            // Clear timeout and cleanup
+            // Clear timeout
             clearTimeout(timeoutId);
-            this.activeRequests.delete(requestId);
 
             // Handle different error types
             if (error.name === 'AbortError') {
@@ -429,7 +401,7 @@ class MetricsAPIClient {
             }
 
             // Network errors (no connection, DNS failure, etc.)
-            if (error instanceof TypeError && error.message.includes('fetch')) {
+            if (error instanceof TypeError) {
                 console.error(`[API Client] Network error for ${endpoint}:`, error);
                 return {
                     error: 'Network error',
@@ -509,13 +481,8 @@ class MetricsAPIClient {
      * @returns {Promise<boolean>} True if API is available, false otherwise
      */
     async isAvailable() {
-        try {
-            const result = await this.fetchSummary();
-            return !result.error;
-        } catch (error) {
-            console.error('[API Client] Health check failed:', error);
-            return false;
-        }
+        const result = await this.fetchSummary();
+        return !result.error;
     }
 }
 

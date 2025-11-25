@@ -327,7 +327,9 @@ class TestHandleWebSocket:
         mock_websocket.send_json.side_effect = WebSocketDisconnect
 
         # Mock database to return an event
-        with patch.object(controller, "_fetch_new_events", return_value=[{"created_at": datetime.now(UTC)}]):
+        with patch.object(
+            controller, "_fetch_new_events", new=AsyncMock(return_value=[{"created_at": datetime.now(UTC)}])
+        ):
             await controller.handle_websocket(mock_websocket)
 
         # Verify client disconnected message
@@ -345,7 +347,9 @@ class TestHandleWebSocket:
         mock_websocket.send_json.side_effect = RuntimeError("Connection closed")
 
         # Mock database to return an event
-        with patch.object(controller, "_fetch_new_events", return_value=[{"created_at": datetime.now(UTC)}]):
+        with patch.object(
+            controller, "_fetch_new_events", new=AsyncMock(return_value=[{"created_at": datetime.now(UTC)}])
+        ):
             await controller.handle_websocket(mock_websocket)
 
         # Verify disconnect was logged (RuntimeError gets converted to WebSocketDisconnect)
@@ -357,7 +361,7 @@ class TestHandleWebSocket:
     ) -> None:
         """Test general exception handling in WebSocket handler."""
         # Mock _fetch_new_events to raise an exception
-        with patch.object(controller, "_fetch_new_events", side_effect=ValueError("Database error")):
+        with patch.object(controller, "_fetch_new_events", new=AsyncMock(side_effect=ValueError("Database error"))):
             # Mock asyncio.sleep to limit retries
             sleep_call_count = 0
 
@@ -418,7 +422,7 @@ class TestHandleWebSocket:
         """Test connection cleanup in finally block when exception occurs in monitoring loop."""
         # Mock _fetch_new_events to raise an exception that's not caught
         # This will trigger the general exception handler and finally block
-        with patch.object(controller, "_fetch_new_events", side_effect=KeyError("Unexpected error")):
+        with patch.object(controller, "_fetch_new_events", new=AsyncMock(side_effect=KeyError("Unexpected error"))):
             # Mock asyncio.sleep to also raise so we don't retry
             with patch("asyncio.sleep", side_effect=KeyError("Unexpected error")):
                 # Exception should be caught and handled
@@ -433,7 +437,7 @@ class TestHandleWebSocket:
     ) -> None:
         """Test WebSocket close on general exception."""
         # Mock _fetch_new_events to raise a non-retriable exception
-        with patch.object(controller, "_fetch_new_events", side_effect=RuntimeError("Fatal error")):
+        with patch.object(controller, "_fetch_new_events", new=AsyncMock(side_effect=RuntimeError("Fatal error"))):
             # Mock asyncio.sleep to avoid retries
             with patch("asyncio.sleep", side_effect=RuntimeError("Fatal error")):
                 await controller.handle_websocket(mock_websocket)
@@ -453,7 +457,7 @@ class TestHandleWebSocket:
         mock_websocket.close.side_effect = RuntimeError("Close failed")
 
         # Mock _fetch_new_events to raise an exception
-        with patch.object(controller, "_fetch_new_events", side_effect=ValueError("Error")):
+        with patch.object(controller, "_fetch_new_events", new=AsyncMock(side_effect=ValueError("Error"))):
             with patch("asyncio.sleep", side_effect=ValueError("Error")):
                 # Should not raise, exception should be suppressed
                 await controller.handle_websocket(mock_websocket)

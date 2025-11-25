@@ -141,7 +141,9 @@ class MetricsTracker:
         """
         try:
             # Serialize payload to JSON string for JSONB storage
-            payload_json = json.dumps(payload)
+            # Use default=str for defensive handling of non-serializable types
+            # (datetime, UUID, etc.) to prevent TypeError
+            payload_json = json.dumps(payload, default=str)
 
             # Insert webhook event into database using DatabaseManager.execute()
             # This centralizes pool management and precondition checks

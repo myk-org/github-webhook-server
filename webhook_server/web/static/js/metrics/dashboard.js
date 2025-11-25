@@ -355,8 +355,8 @@ class MetricsDashboard {
         if (!repositories) {
             return [];
         }
-        // Handle paginated response format: { data: [...] } or { repositories: [...] }
-        return repositories.data || repositories.repositories || repositories || [];
+        // Handle paginated response format: { data: [...] }
+        return repositories.data || [];
     }
 
     /**
@@ -376,7 +376,7 @@ class MetricsDashboard {
         const workingData = {
             summary: { ...data.summary },
             webhooks: data.webhooks?.data || data.webhooks || [],
-            repositories: data.repositories?.data || data.repositories?.repositories || data.repositories || [],
+            repositories: data.repositories?.data || [],
             trends: data.trends,
             contributors: data.contributors ? {
                 pr_creators: data.contributors.pr_creators?.data || data.contributors.pr_creators || [],
@@ -527,19 +527,39 @@ class MetricsDashboard {
                 window.MetricsCharts.updateAPIUsageChart(this.charts.apiUsage, apiData);
             }
 
-            // Update Repository Table
+            // Update Repository Table with filtered data
             if (data.repositories) {
-                this.updateRepositoryTable(data.repositories);
+                // Preserve pagination shape if original had it, otherwise pass filtered array
+                const reposForTable = data.repositories.data
+                    ? { ...data.repositories, data: filteredRepositories }
+                    : filteredRepositories;
+                this.updateRepositoryTable(reposForTable);
             }
 
-            // Update Recent Events Table
+            // Update Recent Events Table with filtered data
             if (data.webhooks) {
-                this.updateRecentEventsTable(data.webhooks);
+                // Preserve pagination shape if original had it, otherwise pass filtered array
+                const webhooksForTable = data.webhooks.data
+                    ? { ...data.webhooks, data: filteredWebhooks }
+                    : filteredWebhooks;
+                this.updateRecentEventsTable(webhooksForTable);
             }
 
-            // Update Contributors Tables
+            // Update Contributors Tables with filtered data
             if (data.contributors) {
-                this.updateContributorsTables(data.contributors);
+                // Preserve pagination shapes for each contributor type
+                const contributorsForTable = {
+                    pr_creators: data.contributors.pr_creators?.data
+                        ? { ...data.contributors.pr_creators, data: filteredContributors.pr_creators }
+                        : filteredContributors.pr_creators,
+                    pr_reviewers: data.contributors.pr_reviewers?.data
+                        ? { ...data.contributors.pr_reviewers, data: filteredContributors.pr_reviewers }
+                        : filteredContributors.pr_reviewers,
+                    pr_approvers: data.contributors.pr_approvers?.data
+                        ? { ...data.contributors.pr_approvers, data: filteredContributors.pr_approvers }
+                        : filteredContributors.pr_approvers
+                };
+                this.updateContributorsTables(contributorsForTable);
             }
 
             console.log('[Dashboard] Charts updated');
@@ -586,8 +606,8 @@ class MetricsDashboard {
             return;
         }
 
-        // Handle both paginated response and legacy format
-        const repositories = reposData.data || reposData.repositories || reposData;
+        // Extract repositories from paginated response
+        const repositories = reposData.data || [];
         const pagination = reposData.pagination;
 
         // Update pagination state if available
@@ -1317,7 +1337,7 @@ class MetricsDashboard {
 
     /**
      * Prepare event trends data for line chart.
-     * Groups events by hour for the last 24 hours.
+     * Groups events by time buckets based on the selected time range.
      *
      * @param {Array} events - Array of webhook events
      * @returns {Object} Chart data with labels, success, errors, and total arrays
@@ -1328,15 +1348,75 @@ class MetricsDashboard {
         }
 
         const now = new Date();
-        const hours = [];
+        const labels = [];
         const successCounts = [];
         const errorCounts = [];
         const totalCounts = [];
 
-        // Create 24 hourly buckets
-        for (let i = 23; i >= 0; i--) {
-            const hour = new Date(now.getTime() - i * 3600000);
-            hours.push(hour.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }));
+        // Determine bucket configuration based on time range
+        let bucketCount;
+        let bucketSize; // in milliseconds
+        let labelFormatter;
+
+        switch (this.timeRange) {
+            case '1h':
+                // 12 buckets of 5 minutes each
+                bucketCount = 12;
+                bucketSize = 5 * 60 * 1000; // 5 minutes
+                labelFormatter = (date) => date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                break;
+            case '24h':
+                // 24 hourly buckets
+                bucketCount = 24;
+                bucketSize = 60 * 60 * 1000; // 1 hour
+                labelFormatter = (date) => date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                break;
+            case '7d':
+                // 7 daily buckets
+                bucketCount = 7;
+                bucketSize = 24 * 60 * 60 * 1000; // 1 day
+                labelFormatter = (date) => date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                break;
+            case '30d':
+                // 30 daily buckets
+                bucketCount = 30;
+                bucketSize = 24 * 60 * 60 * 1000; // 1 day
+                labelFormatter = (date) => date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                break;
+            case 'custom': {
+                // For custom ranges, derive buckets from date range
+                const { startTime, endTime } = this.getTimeRangeDates('custom');
+                const start = new Date(startTime);
+                const end = new Date(endTime);
+                const rangeDuration = end - start;
+
+                // Choose bucket size based on range duration
+                if (rangeDuration <= 2 * 60 * 60 * 1000) { // <= 2 hours
+                    bucketCount = 12;
+                    bucketSize = Math.ceil(rangeDuration / 12);
+                    labelFormatter = (date) => date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                } else if (rangeDuration <= 48 * 60 * 60 * 1000) { // <= 48 hours
+                    bucketCount = Math.ceil(rangeDuration / (60 * 60 * 1000)); // hourly buckets
+                    bucketSize = 60 * 60 * 1000;
+                    labelFormatter = (date) => date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                } else {
+                    bucketCount = Math.min(30, Math.ceil(rangeDuration / (24 * 60 * 60 * 1000))); // daily buckets, max 30
+                    bucketSize = 24 * 60 * 60 * 1000;
+                    labelFormatter = (date) => date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                }
+                break;
+            }
+            default:
+                // Fallback to 24 hourly buckets
+                bucketCount = 24;
+                bucketSize = 60 * 60 * 1000;
+                labelFormatter = (date) => date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        // Create time buckets
+        for (let i = bucketCount - 1; i >= 0; i--) {
+            const bucketTime = new Date(now.getTime() - i * bucketSize);
+            labels.push(labelFormatter(bucketTime));
             successCounts.push(0);
             errorCounts.push(0);
             totalCounts.push(0);
@@ -1345,9 +1425,11 @@ class MetricsDashboard {
         // Count events in each bucket
         events.forEach(event => {
             const eventTime = new Date(event.created_at);
-            const hoursDiff = Math.floor((now - eventTime) / 3600000);
-            if (hoursDiff >= 0 && hoursDiff < 24) {
-                const index = 23 - hoursDiff;
+            const timeDiff = now - eventTime;
+            const bucketIndex = Math.floor(timeDiff / bucketSize);
+
+            if (bucketIndex >= 0 && bucketIndex < bucketCount) {
+                const index = bucketCount - 1 - bucketIndex;
                 totalCounts[index]++;
                 if (event.status === 'success') {
                     successCounts[index]++;
@@ -1358,7 +1440,7 @@ class MetricsDashboard {
         });
 
         return {
-            labels: hours,
+            labels,
             success: successCounts,
             errors: errorCounts,
             total: totalCounts
@@ -1546,6 +1628,28 @@ class MetricsDashboard {
     }
 
     /**
+     * Escape a CSV value by wrapping in quotes if needed and escaping internal quotes.
+     * @param {*} value - Value to escape
+     * @return {string} - Escaped CSV value
+     */
+    escapeCsvValue(value) {
+        // Convert to string
+        const stringValue = String(value ?? '');
+
+        // Check if value needs escaping (contains comma, quote, or newline)
+        const needsEscaping = /[",\n\r]/.test(stringValue);
+
+        if (needsEscaping) {
+            // Escape quotes by doubling them
+            const escapedValue = stringValue.replace(/"/g, '""');
+            // Wrap in quotes
+            return `"${escapedValue}"`;
+        }
+
+        return stringValue;
+    }
+
+    /**
      * Download data as CSV or JSON file.
      * @param {Array} data - Data array to download
      * @param {string} filename - Output filename
@@ -1557,8 +1661,10 @@ class MetricsDashboard {
         if (format === 'csv') {
             // Convert to CSV
             if (!data.length) return;
-            const headers = Object.keys(data[0]).join(',');
-            const rows = data.map(row => Object.values(row).join(','));
+            const headers = Object.keys(data[0]).map(h => this.escapeCsvValue(h)).join(',');
+            const rows = data.map(row =>
+                Object.values(row).map(v => this.escapeCsvValue(v)).join(',')
+            );
             content = [headers, ...rows].join('\n');
             mimeType = 'text/csv';
         } else {
@@ -1790,7 +1896,7 @@ class MetricsDashboard {
 
                 return `
                     <tr class="pr-row" data-pr-id="${pr.pr_number}">
-                        <td>#${pr.pr_number}</td>
+                        <td><a href="https://github.com/${pr.repository}/pull/${pr.pr_number}" target="_blank" rel="noopener noreferrer">#${pr.pr_number}</a></td>
                         <td>${this.escapeHtml(pr.title)}</td>
                         <td>${this.escapeHtml(pr.repository)}</td>
                         <td><span class="${stateClass}">${pr.state}</span> ${mergedBadge}</td>

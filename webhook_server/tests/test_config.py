@@ -154,6 +154,65 @@ class TestConfig:
         with pytest.raises(yaml.YAMLError):
             _ = config.root_data
 
+    def test_root_data_file_deleted_after_init(self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test root_data property when file is deleted after initialization (race condition)."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        mock_logger = Mock()
+        config = Config(logger=mock_logger)
+        config_file = os.path.join(temp_config_dir, "config.yaml")
+
+        # Delete the config file to simulate race condition
+        os.remove(config_file)
+
+        # Should raise FileNotFoundError and log the exception
+        with pytest.raises(FileNotFoundError):
+            _ = config.root_data
+
+        # Verify logger.exception was called
+        mock_logger.exception.assert_called_once()
+        assert "Config file not found" in str(mock_logger.exception.call_args)
+
+    def test_root_data_permission_error(self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test root_data property when permission is denied reading config file."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        mock_logger = Mock()
+        config = Config(logger=mock_logger)
+        config_file = os.path.join(temp_config_dir, "config.yaml")
+
+        # Make file unreadable to simulate permission error
+        os.chmod(config_file, 0o000)
+
+        try:
+            # Should raise PermissionError and log the exception
+            with pytest.raises(PermissionError):
+                _ = config.root_data
+
+            # Verify logger.exception was called
+            mock_logger.exception.assert_called_once()
+            assert "Permission denied" in str(mock_logger.exception.call_args)
+        finally:
+            # Restore permissions for cleanup
+            os.chmod(config_file, 0o644)
+
+    def test_root_data_generic_exception(self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test root_data property with generic exception during file read."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        mock_logger = Mock()
+        config = Config(logger=mock_logger)
+
+        # Mock open to raise a generic exception
+        with patch("builtins.open", side_effect=RuntimeError("Unexpected error")):
+            # Should raise RuntimeError and log the exception
+            with pytest.raises(RuntimeError, match="Unexpected error"):
+                _ = config.root_data
+
+            # Verify logger.exception was called
+            mock_logger.exception.assert_called_once()
+            assert "Failed to load config file" in str(mock_logger.exception.call_args)
+
     def test_repository_data_with_repository(self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test repository_data property when repository is specified."""
         monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
@@ -221,24 +280,46 @@ class TestConfig:
 
         assert result == {"local-setting": "value"}
 
-    @patch("webhook_server.utils.helpers.get_github_repo_api")
-    def test_repository_local_data_file_not_found(
-        self, mock_get_repo_api: Mock, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_repository_local_data_file_not_found(self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test repository_local_data method when config file is not found."""
         monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
 
         # Mock repository that raises UnknownObjectException
         mock_repo = Mock()
         mock_repo.get_contents.side_effect = UnknownObjectException(404, "Not found")
-        mock_get_repo_api.return_value = mock_repo
 
-        config = Config(repository="test-repo")
+        mock_logger = Mock()
+        config = Config(logger=mock_logger, repository="test-repo")
         mock_github_api = Mock()
+        mock_github_api.get_repo.return_value = mock_repo
 
         result = config.repository_local_data(mock_github_api, "org/test-repo")
 
         assert result == {}
+        mock_logger.debug.assert_called()  # Verify debug log was called
+
+    def test_repository_local_data_yaml_error(self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test repository_local_data method when repository config has invalid YAML."""
+        monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
+
+        # Mock repository and config file with invalid YAML
+        mock_repo = Mock()
+        mock_config_file = Mock()
+        mock_config_file.decoded_content = b"invalid: yaml: content: ["
+        mock_repo.get_contents.return_value = mock_config_file
+
+        mock_logger = Mock()
+        config = Config(logger=mock_logger, repository="test-repo")
+        mock_github_api = Mock()
+        mock_github_api.get_repo.return_value = mock_repo
+
+        # Should raise yaml.YAMLError and log the exception
+        with pytest.raises(yaml.YAMLError):
+            config.repository_local_data(mock_github_api, "org/test-repo")
+
+        # Verify logger.exception was called
+        mock_logger.exception.assert_called_once()
+        assert "invalid YAML syntax" in str(mock_logger.exception.call_args)
 
     @patch("webhook_server.utils.helpers.get_github_repo_api")
     def test_repository_local_data_exception_handling(

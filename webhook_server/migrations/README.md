@@ -288,12 +288,20 @@ This migration setup uses **async PostgreSQL** via `asyncpg`:
 
 ### Configuration Loading
 
-Database configuration is loaded from `config.yaml` (NOT `alembic.ini`):
+Database configuration and migration paths are loaded dynamically from `config.yaml` (NOT `alembic.ini`):
 
 1. `env.py` imports `webhook_server.libs.config.Config`
 2. Reads `metrics-database` section from `config.yaml`
 3. Constructs PostgreSQL URL: `postgresql+asyncpg://user:pass@host:port/db`  # pragma: allowlist secret
 4. Sets `sqlalchemy.url` in Alembic config dynamically
+5. Sets `version_locations` dynamically based on `WEBHOOK_SERVER_DATA_DIR` environment variable
+
+**Migration Versions Path:**
+- The path where Alembic stores migration version files is determined by `WEBHOOK_SERVER_DATA_DIR`
+- Default path: `{WEBHOOK_SERVER_DATA_DIR}/migrations/versions`
+- Container default: `/home/podman/data/migrations/versions`
+- Non-container example: `/home/myakove/data/migrations/versions` (when `WEBHOOK_SERVER_DATA_DIR=/home/myakove/data`)
+- This supports both container and non-container deployments without hardcoded paths
 
 ### Model Discovery
 

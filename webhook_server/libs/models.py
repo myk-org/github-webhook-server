@@ -343,11 +343,12 @@ class PullRequest(Base):
 
     def __repr__(self) -> str:
         """String representation for debugging."""
+        title_display = f"{self.title[:50]}..." if len(self.title) > 50 else self.title
         return (
             f"<PullRequest(repository='{self.repository}', "
             f"pr_number={self.pr_number}, "
             f"state='{self.state}', "
-            f"title='{self.title[:50]}...')>"
+            f"title='{title_display}')>"
         )
 
 

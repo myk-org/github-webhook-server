@@ -82,7 +82,6 @@
 body {
   font-family: Arial, sans-serif; /* Changed to Arial to match Log Viewer */
   margin: 0;
-  padding: 20px;
   background-color: var(--bg-color);
   color: var(--text-color);
   font-size: 0.875rem;
@@ -114,11 +113,11 @@ h3 {
 
 /* Container */
 .container {
-  max-width: calc(100% - 40px); /* More flexible for mobile */
+  max-width: 100%;
   width: 100%;
   margin: 0 auto;
   background: var(--container-bg); /* Changed to container-bg to match Log Viewer container style */
-  padding: 20px; /* Added padding to match Log Viewer */
+  padding: 20px; /* Moved padding from body to container */
   border-radius: 8px; /* Added border radius */
   box-shadow: var(--card-shadow); /* Added shadow */
   transition: background-color 0.3s ease;
@@ -891,6 +890,15 @@ tbody td {
   text-decoration: none;
 }
 
+/* Dark theme - improved clickable username contrast (match PR links) */
+[data-theme="dark"] .clickable-username {
+  color: #6eb3ff; /* Same as link color */
+}
+
+[data-theme="dark"] .clickable-username:hover {
+  color: #8dc5ff; /* Same as link hover color */
+}
+
 /* User PRs badges */
 .badge-merged {
   display: inline-block;
@@ -901,4 +909,25 @@ tbody td {
   font-size: 0.75rem;
   font-weight: 600;
   margin-left: 5px;
+}
+
+/* Links - General styling with improved dark theme contrast */
+a {
+  color: var(--primary-color);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+a:hover {
+  color: var(--primary-hover);
+  text-decoration: underline;
+}
+
+/* Dark theme - improved link contrast */
+[data-theme="dark"] a {
+  color: #6eb3ff; /* Lighter blue for better contrast on dark background */
+}
+
+[data-theme="dark"] a:hover {
+  color: #8dc5ff; /* Even lighter blue on hover */
 }

@@ -172,11 +172,16 @@ function formatNumber(num) {
  * @returns {string} Formatted percentage (e.g., "96.32%")
  */
 function formatPercentage(num, decimals = 2) {
-    if (num == null || isNaN(num)) {
+    if (num == null) {
         return '-';
     }
 
-    return `${num.toFixed(decimals)}%`;
+    const value = Number(num);
+    if (!Number.isFinite(value)) {
+        return '-';
+    }
+
+    return `${value.toFixed(decimals)}%`;
 }
 
 /**
@@ -544,3 +549,29 @@ if (typeof window !== 'undefined') {
         isValidRepository
     };
 }
+
+// ESM exports (modern module syntax)
+export {
+    // Time and Duration
+    formatDuration,
+    formatTimestamp,
+    formatRelativeTime,
+    // Number Formatting
+    formatNumber,
+    formatPercentage,
+    formatBytes,
+    // Data Processing
+    calculateTrend,
+    aggregateByTimeRange,
+    calculateSuccessRate,
+    // DOM Helpers
+    escapeHTML,
+    debounce,
+    throttle,
+    // Storage Helpers
+    getLocalStorage,
+    setLocalStorage,
+    // Validation
+    isValidTimeRange,
+    isValidRepository
+};

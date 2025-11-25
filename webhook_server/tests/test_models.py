@@ -12,7 +12,10 @@ Tests all 7 models:
 """
 
 from datetime import UTC, datetime
-from uuid import UUID
+from typing import Any
+from uuid import UUID, uuid4
+
+import pytest
 
 from webhook_server.libs.models import (
     APIUsage,
@@ -596,3 +599,809 @@ class TestModelTableNames:
     def test_api_usage_table_name(self) -> None:
         """Verify APIUsage model has correct table name."""
         assert APIUsage.__tablename__ == "api_usage"
+
+
+class TestCascadeDeleteBehavior:
+    """
+    Test cascade delete behavior for all models.
+
+    Verifies that deleting parent records correctly cascades to child records
+    as defined in relationship configurations (cascade="all, delete-orphan").
+    """
+
+    @pytest.fixture
+    async def async_engine(self) -> Any:
+        """Create async SQLAlchemy engine for testing."""
+        from sqlalchemy import JSON, Column, MetaData, String, Table
+        from sqlalchemy.ext.asyncio import create_async_engine
+
+        # Create fresh metadata for testing to avoid modifying original
+        test_metadata = MetaData()
+
+        # Recreate each table with SQLite-compatible types
+        for table_name, table in Base.metadata.tables.items():
+            # Build columns with compatible types
+            new_columns = []
+            for col in table.columns:
+                # Determine compatible column type
+                col_type = col.type
+                if col_type.__class__.__name__ == "JSONB":
+                    col_type = JSON()
+                elif col_type.__class__.__name__ == "UUID":
+                    col_type = String(36)
+
+                # Create new column without server defaults
+                new_col = Column(
+                    col.name,
+                    col_type,
+                    primary_key=col.primary_key,
+                    nullable=col.nullable,
+                    unique=col.unique if hasattr(col, "unique") else False,
+                    index=col.index if hasattr(col, "index") else False,
+                )
+                new_columns.append(new_col)
+
+            # Create table (constraints will be handled by SQLAlchemy)
+            Table(table_name, test_metadata, *new_columns)
+
+        # Use in-memory SQLite for testing
+        # Note: SQLite requires PRAGMA foreign_keys=ON to enable cascade deletes
+        from sqlalchemy import event
+
+        engine = create_async_engine(
+            "sqlite+aiosqlite:///:memory:",
+            echo=False,
+        )
+
+        # Enable foreign keys for all connections (required for CASCADE DELETE in SQLite)
+        @event.listens_for(engine.sync_engine, "connect")
+        def set_sqlite_pragma(dbapi_conn, connection_record):  # type: ignore
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
+        # Create all tables
+        async with engine.begin() as conn:
+            await conn.run_sync(test_metadata.create_all)
+
+        yield engine
+
+        # Cleanup
+        await engine.dispose()
+
+    @pytest.fixture
+    async def async_session(self, async_engine: Any) -> Any:
+        """Create async SQLAlchemy session for testing."""
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+        async_session_maker = async_sessionmaker(
+            async_engine,
+            class_=AsyncSession,
+            expire_on_commit=False,
+        )
+
+        async with async_session_maker() as session:
+            yield session
+
+    @pytest.mark.asyncio
+    async def test_webhook_cascade_delete_pr_events(self, async_session: Any) -> None:
+        """Test that deleting a Webhook cascades to PREvent records."""
+        from sqlalchemy import select
+
+        # Create webhook with related PREvent
+        now = datetime.now(UTC)
+        webhook_id = uuid4()
+        pr_id = uuid4()
+        pr_event_id = uuid4()
+
+        webhook = Webhook(
+            id=webhook_id,
+            delivery_id="cascade-test-webhook-1",
+            repository="org/repo",
+            event_type="pull_request",
+            action="opened",
+            sender="test-user",
+            payload={"test": "data"},
+            created_at=now,
+            processed_at=now,
+            duration_ms=100,
+            status="success",
+        )
+
+        pr = PullRequest(
+            id=pr_id,
+            repository="org/repo",
+            pr_number=1,
+            title="Test PR",
+            author="test-user",
+            created_at=now,
+            updated_at=now,
+            state="open",
+        )
+
+        async_session.add_all([webhook, pr])
+        await async_session.commit()
+
+        # Create PREvent linked to webhook and PR
+        pr_event = PREvent(
+            id=pr_event_id,
+            pr_id=pr_id,
+            webhook_id=webhook_id,
+            event_type="opened",
+            event_data={"action": "opened"},
+            created_at=now,
+        )
+        async_session.add(pr_event)
+        await async_session.commit()
+
+        # Delete webhook
+        await async_session.delete(webhook)
+        await async_session.commit()
+
+        # Verify PREvent was cascade deleted
+        result = await async_session.execute(select(PREvent).where(PREvent.id == pr_event_id))
+        assert result.scalar_one_or_none() is None
+
+        # Verify webhook was deleted
+        result = await async_session.execute(select(Webhook).where(Webhook.id == webhook_id))
+        assert result.scalar_one_or_none() is None
+
+    @pytest.mark.asyncio
+    async def test_webhook_cascade_delete_check_runs(self, async_session: Any) -> None:
+        """Test that deleting a Webhook cascades to CheckRun records."""
+        from sqlalchemy import select
+
+        # Create webhook with related CheckRun
+        now = datetime.now(UTC)
+        webhook_id = uuid4()
+        pr_id = uuid4()
+        check_run_id = uuid4()
+
+        webhook = Webhook(
+            id=webhook_id,
+            delivery_id="cascade-test-webhook-2",
+            repository="org/repo",
+            event_type="check_run",
+            action="completed",
+            sender="test-user",
+            payload={"test": "data"},
+            created_at=now,
+            processed_at=now,
+            duration_ms=100,
+            status="success",
+        )
+
+        pr = PullRequest(
+            id=pr_id,
+            repository="org/repo",
+            pr_number=2,
+            title="Test PR",
+            author="test-user",
+            created_at=now,
+            updated_at=now,
+            state="open",
+        )
+
+        async_session.add_all([webhook, pr])
+        await async_session.commit()
+
+        # Create CheckRun linked to webhook and PR
+        check_run = CheckRun(
+            id=check_run_id,
+            pr_id=pr_id,
+            webhook_id=webhook_id,
+            check_name="tox",
+            status="completed",
+            conclusion="success",
+            started_at=now,
+        )
+        async_session.add(check_run)
+        await async_session.commit()
+
+        webhook_id = webhook.id
+        check_run_id = check_run.id
+
+        # Delete webhook
+        await async_session.delete(webhook)
+        await async_session.commit()
+
+        # Verify CheckRun was cascade deleted
+        result = await async_session.execute(select(CheckRun).where(CheckRun.id == check_run_id))
+        assert result.scalar_one_or_none() is None
+
+        # Verify webhook was deleted
+        result = await async_session.execute(select(Webhook).where(Webhook.id == webhook_id))
+        assert result.scalar_one_or_none() is None
+
+    @pytest.mark.asyncio
+    async def test_webhook_cascade_delete_api_usage(self, async_session: Any) -> None:
+        """Test that deleting a Webhook cascades to APIUsage records."""
+        from sqlalchemy import select
+
+        # Create webhook with related APIUsage
+        now = datetime.now(UTC)
+        webhook_id = uuid4()
+        api_usage_id = uuid4()
+
+        webhook = Webhook(
+            id=webhook_id,
+            delivery_id="cascade-test-webhook-3",
+            repository="org/repo",
+            event_type="pull_request",
+            action="synchronize",
+            sender="test-user",
+            payload={"test": "data"},
+            created_at=now,
+            processed_at=now,
+            duration_ms=100,
+            status="success",
+        )
+
+        async_session.add(webhook)
+        await async_session.commit()
+
+        # Create APIUsage linked to webhook
+        api_usage = APIUsage(
+            id=api_usage_id,
+            webhook_id=webhook_id,
+            repository="org/repo",
+            event_type="pull_request",
+            api_calls_count=5,
+            initial_rate_limit=5000,
+            final_rate_limit=4995,
+            token_spend=5,
+            created_at=now,
+        )
+        async_session.add(api_usage)
+        await async_session.commit()
+
+        webhook_id = webhook.id
+        api_usage_id = api_usage.id
+
+        # Delete webhook
+        await async_session.delete(webhook)
+        await async_session.commit()
+
+        # Verify APIUsage was cascade deleted
+        result = await async_session.execute(select(APIUsage).where(APIUsage.id == api_usage_id))
+        assert result.scalar_one_or_none() is None
+
+        # Verify webhook was deleted
+        result = await async_session.execute(select(Webhook).where(Webhook.id == webhook_id))
+        assert result.scalar_one_or_none() is None
+
+    @pytest.mark.asyncio
+    async def test_webhook_cascade_delete_multiple_children(self, async_session: Any) -> None:
+        """Test that deleting a Webhook cascades to all related child records."""
+        from sqlalchemy import select
+
+        # Create webhook with multiple related records
+        now = datetime.now(UTC)
+        webhook_id = uuid4()
+        pr_id = uuid4()
+        pr_event_id = uuid4()
+        check_run_id = uuid4()
+        api_usage_id = uuid4()
+
+        webhook = Webhook(
+            id=webhook_id,
+            delivery_id="cascade-test-webhook-multi",
+            repository="org/repo",
+            event_type="pull_request",
+            action="opened",
+            sender="test-user",
+            payload={"test": "data"},
+            created_at=now,
+            processed_at=now,
+            duration_ms=100,
+            status="success",
+        )
+
+        pr = PullRequest(
+            id=pr_id,
+            repository="org/repo",
+            pr_number=10,
+            title="Multi Test PR",
+            author="test-user",
+            created_at=now,
+            updated_at=now,
+            state="open",
+        )
+
+        async_session.add_all([webhook, pr])
+        await async_session.commit()
+
+        # Create multiple child records
+        pr_event = PREvent(
+            id=pr_event_id,
+            pr_id=pr_id,
+            webhook_id=webhook_id,
+            event_type="opened",
+            event_data={"action": "opened"},
+            created_at=now,
+        )
+        check_run = CheckRun(
+            id=check_run_id,
+            pr_id=pr_id,
+            webhook_id=webhook_id,
+            check_name="pre-commit",
+            status="completed",
+            started_at=now,
+        )
+        api_usage = APIUsage(
+            id=api_usage_id,
+            webhook_id=webhook_id,
+            repository="org/repo",
+            event_type="pull_request",
+            api_calls_count=3,
+            initial_rate_limit=5000,
+            final_rate_limit=4997,
+            created_at=now,
+        )
+
+        async_session.add_all([pr_event, check_run, api_usage])
+        await async_session.commit()
+
+        pr_event_id = pr_event.id
+        check_run_id = check_run.id
+        api_usage_id = api_usage.id
+        webhook_id = webhook.id
+
+        # Delete webhook
+        await async_session.delete(webhook)
+        await async_session.commit()
+
+        # Verify all child records were cascade deleted
+        result = await async_session.execute(select(PREvent).where(PREvent.id == pr_event_id))
+        assert result.scalar_one_or_none() is None
+
+        result = await async_session.execute(select(CheckRun).where(CheckRun.id == check_run_id))
+        assert result.scalar_one_or_none() is None
+
+        result = await async_session.execute(select(APIUsage).where(APIUsage.id == api_usage_id))
+        assert result.scalar_one_or_none() is None
+
+        # Verify webhook was deleted
+        result = await async_session.execute(select(Webhook).where(Webhook.id == webhook_id))
+        assert result.scalar_one_or_none() is None
+
+    @pytest.mark.asyncio
+    async def test_pull_request_cascade_delete_pr_events(self, async_session: Any) -> None:
+        """Test that deleting a PullRequest cascades to PREvent records."""
+        from sqlalchemy import select
+
+        # Create PR with related PREvent
+        now = datetime.now(UTC)
+        pr_id = uuid4()
+        webhook_id = uuid4()
+        pr_event_id = uuid4()
+
+        pr = PullRequest(
+            id=pr_id,
+            repository="org/repo",
+            pr_number=20,
+            title="Cascade Test PR",
+            author="test-user",
+            created_at=now,
+            updated_at=now,
+            state="open",
+        )
+
+        webhook = Webhook(
+            id=webhook_id,
+            delivery_id="pr-cascade-webhook-1",
+            repository="org/repo",
+            event_type="pull_request",
+            action="opened",
+            sender="test-user",
+            payload={"test": "data"},
+            created_at=now,
+            processed_at=now,
+            duration_ms=100,
+            status="success",
+        )
+
+        async_session.add_all([pr, webhook])
+        await async_session.commit()
+
+        # Create PREvent linked to PR
+        pr_event = PREvent(
+            id=pr_event_id,
+            pr_id=pr_id,
+            webhook_id=webhook_id,
+            event_type="opened",
+            event_data={"action": "opened"},
+            created_at=now,
+        )
+        async_session.add(pr_event)
+        await async_session.commit()
+
+        pr_id = pr.id
+        pr_event_id = pr_event.id
+
+        # Delete PR
+        await async_session.delete(pr)
+        await async_session.commit()
+
+        # Verify PREvent was cascade deleted
+        result = await async_session.execute(select(PREvent).where(PREvent.id == pr_event_id))
+        assert result.scalar_one_or_none() is None
+
+        # Verify PR was deleted
+        result = await async_session.execute(select(PullRequest).where(PullRequest.id == pr_id))
+        assert result.scalar_one_or_none() is None
+
+    @pytest.mark.asyncio
+    async def test_pull_request_cascade_delete_pr_reviews(self, async_session: Any) -> None:
+        """Test that deleting a PullRequest cascades to PRReview records."""
+        from sqlalchemy import select
+
+        # Create PR with related PRReview
+        now = datetime.now(UTC)
+        pr_id = uuid4()
+        pr_review_id = uuid4()
+
+        pr = PullRequest(
+            id=pr_id,
+            repository="org/repo",
+            pr_number=21,
+            title="Review Cascade PR",
+            author="test-user",
+            created_at=now,
+            updated_at=now,
+            state="open",
+        )
+
+        async_session.add(pr)
+        await async_session.commit()
+
+        # Create PRReview linked to PR
+        pr_review = PRReview(
+            id=pr_review_id,
+            pr_id=pr_id,
+            reviewer="reviewer-1",
+            review_type="approved",
+            created_at=now,
+        )
+        async_session.add(pr_review)
+        await async_session.commit()
+
+        pr_id = pr.id
+        pr_review_id = pr_review.id
+
+        # Delete PR
+        await async_session.delete(pr)
+        await async_session.commit()
+
+        # Verify PRReview was cascade deleted
+        result = await async_session.execute(select(PRReview).where(PRReview.id == pr_review_id))
+        assert result.scalar_one_or_none() is None
+
+        # Verify PR was deleted
+        result = await async_session.execute(select(PullRequest).where(PullRequest.id == pr_id))
+        assert result.scalar_one_or_none() is None
+
+    @pytest.mark.asyncio
+    async def test_pull_request_cascade_delete_pr_labels(self, async_session: Any) -> None:
+        """Test that deleting a PullRequest cascades to PRLabel records."""
+        from sqlalchemy import select
+
+        # Create PR with related PRLabel
+        now = datetime.now(UTC)
+        pr_id = uuid4()
+        pr_label_id = uuid4()
+
+        pr = PullRequest(
+            id=pr_id,
+            repository="org/repo",
+            pr_number=22,
+            title="Label Cascade PR",
+            author="test-user",
+            created_at=now,
+            updated_at=now,
+            state="open",
+        )
+
+        async_session.add(pr)
+        await async_session.commit()
+
+        # Create PRLabel linked to PR
+        pr_label = PRLabel(
+            id=pr_label_id,
+            pr_id=pr_id,
+            label="verified",
+            added_at=now,
+        )
+        async_session.add(pr_label)
+        await async_session.commit()
+
+        pr_id = pr.id
+        pr_label_id = pr_label.id
+
+        # Delete PR
+        await async_session.delete(pr)
+        await async_session.commit()
+
+        # Verify PRLabel was cascade deleted
+        result = await async_session.execute(select(PRLabel).where(PRLabel.id == pr_label_id))
+        assert result.scalar_one_or_none() is None
+
+        # Verify PR was deleted
+        result = await async_session.execute(select(PullRequest).where(PullRequest.id == pr_id))
+        assert result.scalar_one_or_none() is None
+
+    @pytest.mark.asyncio
+    async def test_pull_request_cascade_delete_check_runs(self, async_session: Any) -> None:
+        """Test that deleting a PullRequest cascades to CheckRun records."""
+        from sqlalchemy import select
+
+        # Create PR with related CheckRun
+        now = datetime.now(UTC)
+        pr_id = uuid4()
+        webhook_id = uuid4()
+        check_run_id = uuid4()
+
+        pr = PullRequest(
+            id=pr_id,
+            repository="org/repo",
+            pr_number=23,
+            title="CheckRun Cascade PR",
+            author="test-user",
+            created_at=now,
+            updated_at=now,
+            state="open",
+        )
+
+        webhook = Webhook(
+            id=webhook_id,
+            delivery_id="pr-cascade-webhook-2",
+            repository="org/repo",
+            event_type="check_run",
+            action="completed",
+            sender="test-user",
+            payload={"test": "data"},
+            created_at=now,
+            processed_at=now,
+            duration_ms=100,
+            status="success",
+        )
+
+        async_session.add_all([pr, webhook])
+        await async_session.commit()
+
+        # Create CheckRun linked to PR
+        check_run = CheckRun(
+            id=check_run_id,
+            pr_id=pr_id,
+            webhook_id=webhook_id,
+            check_name="lint",
+            status="completed",
+            started_at=now,
+        )
+        async_session.add(check_run)
+        await async_session.commit()
+
+        pr_id = pr.id
+        check_run_id = check_run.id
+
+        # Delete PR
+        await async_session.delete(pr)
+        await async_session.commit()
+
+        # Verify CheckRun was cascade deleted
+        result = await async_session.execute(select(CheckRun).where(CheckRun.id == check_run_id))
+        assert result.scalar_one_or_none() is None
+
+        # Verify PR was deleted
+        result = await async_session.execute(select(PullRequest).where(PullRequest.id == pr_id))
+        assert result.scalar_one_or_none() is None
+
+    @pytest.mark.asyncio
+    async def test_pull_request_cascade_delete_all_children(self, async_session: Any) -> None:
+        """Test that deleting a PullRequest cascades to all related child records."""
+        from sqlalchemy import select
+
+        # Create PR with multiple related records
+        now = datetime.now(UTC)
+        pr_id = uuid4()
+        webhook_id = uuid4()
+        pr_event_id = uuid4()
+        pr_review_id = uuid4()
+        pr_label_id = uuid4()
+        check_run_id = uuid4()
+
+        pr = PullRequest(
+            id=pr_id,
+            repository="org/repo",
+            pr_number=30,
+            title="Multi Child Cascade PR",
+            author="test-user",
+            created_at=now,
+            updated_at=now,
+            state="open",
+        )
+
+        webhook = Webhook(
+            id=webhook_id,
+            delivery_id="pr-cascade-webhook-multi",
+            repository="org/repo",
+            event_type="pull_request",
+            action="opened",
+            sender="test-user",
+            payload={"test": "data"},
+            created_at=now,
+            processed_at=now,
+            duration_ms=100,
+            status="success",
+        )
+
+        async_session.add_all([pr, webhook])
+        await async_session.commit()
+
+        # Create multiple child records
+        pr_event = PREvent(
+            id=pr_event_id,
+            pr_id=pr_id,
+            webhook_id=webhook_id,
+            event_type="opened",
+            event_data={"action": "opened"},
+            created_at=now,
+        )
+        pr_review = PRReview(
+            id=pr_review_id,
+            pr_id=pr_id,
+            reviewer="reviewer-1",
+            review_type="approved",
+            created_at=now,
+        )
+        pr_label = PRLabel(
+            id=pr_label_id,
+            pr_id=pr_id,
+            label="size/L",
+            added_at=now,
+        )
+        check_run = CheckRun(
+            id=check_run_id,
+            pr_id=pr_id,
+            webhook_id=webhook_id,
+            check_name="tests",
+            status="completed",
+            started_at=now,
+        )
+
+        async_session.add_all([pr_event, pr_review, pr_label, check_run])
+        await async_session.commit()
+
+        pr_event_id = pr_event.id
+        pr_review_id = pr_review.id
+        pr_label_id = pr_label.id
+        check_run_id = check_run.id
+        pr_id = pr.id
+
+        # Delete PR
+        await async_session.delete(pr)
+        await async_session.commit()
+
+        # Verify all child records were cascade deleted
+        result = await async_session.execute(select(PREvent).where(PREvent.id == pr_event_id))
+        assert result.scalar_one_or_none() is None
+
+        result = await async_session.execute(select(PRReview).where(PRReview.id == pr_review_id))
+        assert result.scalar_one_or_none() is None
+
+        result = await async_session.execute(select(PRLabel).where(PRLabel.id == pr_label_id))
+        assert result.scalar_one_or_none() is None
+
+        result = await async_session.execute(select(CheckRun).where(CheckRun.id == check_run_id))
+        assert result.scalar_one_or_none() is None
+
+        # Verify PR was deleted
+        result = await async_session.execute(select(PullRequest).where(PullRequest.id == pr_id))
+        assert result.scalar_one_or_none() is None
+
+    @pytest.mark.asyncio
+    async def test_cascade_delete_does_not_affect_unrelated_records(self, async_session: Any) -> None:
+        """Test that cascade delete only affects related records, not unrelated ones."""
+        from sqlalchemy import select
+
+        # Create two separate webhooks with their own children
+        now = datetime.now(UTC)
+        webhook1_id = uuid4()
+        webhook2_id = uuid4()
+        pr1_id = uuid4()
+        pr2_id = uuid4()
+        api_usage1_id = uuid4()
+        api_usage2_id = uuid4()
+
+        webhook1 = Webhook(
+            id=webhook1_id,
+            delivery_id="cascade-isolation-webhook-1",
+            repository="org/repo",
+            event_type="pull_request",
+            action="opened",
+            sender="test-user",
+            payload={"test": "data"},
+            created_at=now,
+            processed_at=now,
+            duration_ms=100,
+            status="success",
+        )
+
+        webhook2 = Webhook(
+            id=webhook2_id,
+            delivery_id="cascade-isolation-webhook-2",
+            repository="org/repo",
+            event_type="pull_request",
+            action="synchronize",
+            sender="test-user",
+            payload={"test": "data"},
+            created_at=now,
+            processed_at=now,
+            duration_ms=100,
+            status="success",
+        )
+
+        pr1 = PullRequest(
+            id=pr1_id,
+            repository="org/repo",
+            pr_number=40,
+            title="Isolation Test PR 1",
+            author="test-user",
+            created_at=now,
+            updated_at=now,
+            state="open",
+        )
+
+        pr2 = PullRequest(
+            id=pr2_id,
+            repository="org/repo",
+            pr_number=41,
+            title="Isolation Test PR 2",
+            author="test-user",
+            created_at=now,
+            updated_at=now,
+            state="open",
+        )
+
+        async_session.add_all([webhook1, webhook2, pr1, pr2])
+        await async_session.commit()
+
+        # Create child records for each webhook
+        api_usage1 = APIUsage(
+            id=api_usage1_id,
+            webhook_id=webhook1_id,
+            repository="org/repo",
+            event_type="pull_request",
+            api_calls_count=3,
+            initial_rate_limit=5000,
+            final_rate_limit=4997,
+            created_at=now,
+        )
+        api_usage2 = APIUsage(
+            id=api_usage2_id,
+            webhook_id=webhook2_id,
+            repository="org/repo",
+            event_type="pull_request",
+            api_calls_count=5,
+            initial_rate_limit=5000,
+            final_rate_limit=4995,
+            created_at=now,
+        )
+
+        async_session.add_all([api_usage1, api_usage2])
+        await async_session.commit()
+
+        api_usage1_id = api_usage1.id
+        api_usage2_id = api_usage2.id
+
+        # Delete webhook1
+        await async_session.delete(webhook1)
+        await async_session.commit()
+
+        # Verify webhook1's child was deleted
+        result = await async_session.execute(select(APIUsage).where(APIUsage.id == api_usage1_id))
+        assert result.scalar_one_or_none() is None
+
+        # Verify webhook2's child was NOT deleted (unrelated)
+        result = await async_session.execute(select(APIUsage).where(APIUsage.id == api_usage2_id))
+        assert result.scalar_one_or_none() is not None

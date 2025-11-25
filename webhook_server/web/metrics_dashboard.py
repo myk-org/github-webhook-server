@@ -206,7 +206,7 @@ class MetricsDashboardController:
             try:
                 await websocket.close(code=1011, reason="Internal server error")
             except Exception:
-                pass
+                self.logger.debug("Failed to close WebSocket after error")
         finally:
             self._websocket_connections.discard(websocket)
 

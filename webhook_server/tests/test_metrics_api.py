@@ -40,10 +40,7 @@ def setup_db_manager(mock_db_manager: Mock, monkeypatch: pytest.MonkeyPatch) -> 
 
     # Monkeypatch DatabaseManager class to return the mock when instantiated
     # This prevents lifespan from creating a real DB connection at line 260
-    def mock_db_manager_constructor(*args, **kwargs):  # noqa: ARG001
-        return mock_db_manager
-
-    monkeypatch.setattr(DatabaseManager, "__new__", lambda cls, *args, **kwargs: mock_db_manager_constructor())
+    monkeypatch.setattr(DatabaseManager, "__new__", lambda cls, *args, **kwargs: mock_db_manager)
 
     # Also set the global db_manager for request handling
     monkeypatch.setattr(webhook_server.app, "db_manager", mock_db_manager)
@@ -822,35 +819,33 @@ class TestUserPullRequestsEndpoint(TestMetricsAPIEndpoints):
     def test_get_user_prs_success(self, client: TestClient, setup_db_manager: Mock) -> None:
         """Test successful retrieval of user's pull requests."""
         # Mock database responses
-        setup_db_manager.fetchrow = AsyncMock(return_value={"total": 2})
-        setup_db_manager.fetch = AsyncMock(
-            return_value=[
-                {
-                    "pr_number": 123,
-                    "title": "Add feature X",
-                    "repository": "org/repo1",
-                    "state": "closed",
-                    "merged": True,
-                    "url": "https://github.com/org/repo1/pull/123",
-                    "created_at": "2024-11-20T10:00:00Z",
-                    "updated_at": "2024-11-21T15:30:00Z",
-                    "commits_count": 5,
-                    "head_sha": "abc123def456",  # pragma: allowlist secret
-                },
-                {
-                    "pr_number": 124,
-                    "title": "Fix bug Y",
-                    "repository": "org/repo1",
-                    "state": "open",
-                    "merged": False,
-                    "url": "https://github.com/org/repo1/pull/124",
-                    "created_at": "2024-11-22T09:00:00Z",
-                    "updated_at": "2024-11-22T09:00:00Z",
-                    "commits_count": 2,
-                    "head_sha": "def456abc789",  # pragma: allowlist secret
-                },
-            ]
-        )
+        setup_db_manager.fetchrow.return_value = {"total": 2}
+        setup_db_manager.fetch.return_value = [
+            {
+                "pr_number": 123,
+                "title": "Add feature X",
+                "repository": "org/repo1",
+                "state": "closed",
+                "merged": True,
+                "url": "https://github.com/org/repo1/pull/123",
+                "created_at": "2024-11-20T10:00:00Z",
+                "updated_at": "2024-11-21T15:30:00Z",
+                "commits_count": 5,
+                "head_sha": "abc123def456",  # pragma: allowlist secret
+            },
+            {
+                "pr_number": 124,
+                "title": "Fix bug Y",
+                "repository": "org/repo1",
+                "state": "open",
+                "merged": False,
+                "url": "https://github.com/org/repo1/pull/124",
+                "created_at": "2024-11-22T09:00:00Z",
+                "updated_at": "2024-11-22T09:00:00Z",
+                "commits_count": 2,
+                "head_sha": "def456abc789",  # pragma: allowlist secret
+            },
+        ]
 
         response = client.get("/api/metrics/user-prs?user=john-doe&page=1&page_size=10")
 
@@ -882,23 +877,21 @@ class TestUserPullRequestsEndpoint(TestMetricsAPIEndpoints):
 
     def test_get_user_prs_with_repository_filter(self, client: TestClient, setup_db_manager: Mock) -> None:
         """Test filtering by repository."""
-        setup_db_manager.fetchrow = AsyncMock(return_value={"total": 1})
-        setup_db_manager.fetch = AsyncMock(
-            return_value=[
-                {
-                    "pr_number": 123,
-                    "title": "Add feature X",
-                    "repository": "org/repo1",
-                    "state": "closed",
-                    "merged": True,
-                    "url": "https://github.com/org/repo1/pull/123",
-                    "created_at": "2024-11-20T10:00:00Z",
-                    "updated_at": "2024-11-21T15:30:00Z",
-                    "commits_count": 5,
-                    "head_sha": "abc123",
-                }
-            ]
-        )
+        setup_db_manager.fetchrow.return_value = {"total": 1}
+        setup_db_manager.fetch.return_value = [
+            {
+                "pr_number": 123,
+                "title": "Add feature X",
+                "repository": "org/repo1",
+                "state": "closed",
+                "merged": True,
+                "url": "https://github.com/org/repo1/pull/123",
+                "created_at": "2024-11-20T10:00:00Z",
+                "updated_at": "2024-11-21T15:30:00Z",
+                "commits_count": 5,
+                "head_sha": "abc123",
+            }
+        ]
 
         response = client.get("/api/metrics/user-prs?user=john-doe&repository=org/repo1")
 
@@ -909,8 +902,8 @@ class TestUserPullRequestsEndpoint(TestMetricsAPIEndpoints):
 
     def test_get_user_prs_with_time_range(self, client: TestClient, setup_db_manager: Mock) -> None:
         """Test filtering by time range."""
-        setup_db_manager.fetchrow = AsyncMock(return_value={"total": 1})
-        setup_db_manager.fetch = AsyncMock(return_value=[])
+        setup_db_manager.fetchrow.return_value = {"total": 1}
+        setup_db_manager.fetch.return_value = []
 
         start_time = "2024-11-01T00:00:00Z"
         end_time = "2024-11-30T23:59:59Z"
@@ -922,8 +915,8 @@ class TestUserPullRequestsEndpoint(TestMetricsAPIEndpoints):
     def test_get_user_prs_pagination(self, client: TestClient, setup_db_manager: Mock) -> None:
         """Test pagination with multiple pages."""
         # Total of 25 PRs, page size 10
-        setup_db_manager.fetchrow = AsyncMock(return_value={"total": 25})
-        setup_db_manager.fetch = AsyncMock(return_value=[])
+        setup_db_manager.fetchrow.return_value = {"total": 25}
+        setup_db_manager.fetch.return_value = []
 
         # Test page 2
         response = client.get("/api/metrics/user-prs?user=john-doe&page=2&page_size=10")
@@ -941,8 +934,8 @@ class TestUserPullRequestsEndpoint(TestMetricsAPIEndpoints):
 
     def test_get_user_prs_empty_result(self, client: TestClient, setup_db_manager: Mock) -> None:
         """Test endpoint with no matching PRs."""
-        setup_db_manager.fetchrow = AsyncMock(return_value={"total": 0})
-        setup_db_manager.fetch = AsyncMock(return_value=[])
+        setup_db_manager.fetchrow.return_value = {"total": 0}
+        setup_db_manager.fetch.return_value = []
 
         response = client.get("/api/metrics/user-prs?user=nonexistent-user")
 
@@ -954,35 +947,33 @@ class TestUserPullRequestsEndpoint(TestMetricsAPIEndpoints):
 
     def test_get_user_prs_no_user_parameter(self, client: TestClient, setup_db_manager: Mock) -> None:
         """Test endpoint works without user parameter (shows all PRs)."""
-        setup_db_manager.fetchrow = AsyncMock(return_value={"total": 2})
-        setup_db_manager.fetch = AsyncMock(
-            return_value=[
-                {
-                    "pr_number": 123,
-                    "title": "Add feature X",
-                    "repository": "org/repo1",
-                    "state": "closed",
-                    "merged": True,
-                    "url": "https://github.com/org/repo1/pull/123",
-                    "created_at": "2024-11-20T10:00:00Z",
-                    "updated_at": "2024-11-21T15:30:00Z",
-                    "commits_count": 5,
-                    "head_sha": "abc123",
-                },
-                {
-                    "pr_number": 124,
-                    "title": "Fix bug Y",
-                    "repository": "org/repo2",
-                    "state": "open",
-                    "merged": False,
-                    "url": "https://github.com/org/repo2/pull/124",
-                    "created_at": "2024-11-22T09:00:00Z",
-                    "updated_at": "2024-11-22T09:00:00Z",
-                    "commits_count": 2,
-                    "head_sha": "def456",
-                },
-            ]
-        )
+        setup_db_manager.fetchrow.return_value = {"total": 2}
+        setup_db_manager.fetch.return_value = [
+            {
+                "pr_number": 123,
+                "title": "Add feature X",
+                "repository": "org/repo1",
+                "state": "closed",
+                "merged": True,
+                "url": "https://github.com/org/repo1/pull/123",
+                "created_at": "2024-11-20T10:00:00Z",
+                "updated_at": "2024-11-21T15:30:00Z",
+                "commits_count": 5,
+                "head_sha": "abc123",
+            },
+            {
+                "pr_number": 124,
+                "title": "Fix bug Y",
+                "repository": "org/repo2",
+                "state": "open",
+                "merged": False,
+                "url": "https://github.com/org/repo2/pull/124",
+                "created_at": "2024-11-22T09:00:00Z",
+                "updated_at": "2024-11-22T09:00:00Z",
+                "commits_count": 2,
+                "head_sha": "def456",
+            },
+        ]
 
         response = client.get("/api/metrics/user-prs")
 
@@ -1009,7 +1000,7 @@ class TestUserPullRequestsEndpoint(TestMetricsAPIEndpoints):
 
     def test_get_user_prs_database_error(self, client: TestClient, setup_db_manager: Mock) -> None:
         """Test endpoint handles database errors gracefully."""
-        setup_db_manager.fetchrow = AsyncMock(side_effect=Exception("Database connection lost"))
+        setup_db_manager.fetchrow.side_effect = Exception("Database connection lost")
 
         response = client.get("/api/metrics/user-prs?user=john-doe")
 
@@ -1018,23 +1009,21 @@ class TestUserPullRequestsEndpoint(TestMetricsAPIEndpoints):
 
     def test_get_user_prs_null_commits_count(self, client: TestClient, setup_db_manager: Mock) -> None:
         """Test endpoint handles null commits_count gracefully."""
-        setup_db_manager.fetchrow = AsyncMock(return_value={"total": 1})
-        setup_db_manager.fetch = AsyncMock(
-            return_value=[
-                {
-                    "pr_number": 123,
-                    "title": "Add feature X",
-                    "repository": "org/repo1",
-                    "state": "open",
-                    "merged": False,
-                    "url": "https://github.com/org/repo1/pull/123",
-                    "created_at": "2024-11-20T10:00:00Z",
-                    "updated_at": "2024-11-21T15:30:00Z",
-                    "commits_count": None,  # NULL from database
-                    "head_sha": "abc123",
-                }
-            ]
-        )
+        setup_db_manager.fetchrow.return_value = {"total": 1}
+        setup_db_manager.fetch.return_value = [
+            {
+                "pr_number": 123,
+                "title": "Add feature X",
+                "repository": "org/repo1",
+                "state": "open",
+                "merged": False,
+                "url": "https://github.com/org/repo1/pull/123",
+                "created_at": "2024-11-20T10:00:00Z",
+                "updated_at": "2024-11-21T15:30:00Z",
+                "commits_count": None,  # NULL from database
+                "head_sha": "abc123",
+            }
+        ]
 
         response = client.get("/api/metrics/user-prs?user=john-doe")
 
@@ -1054,8 +1043,8 @@ class TestUserPullRequestsEndpoint(TestMetricsAPIEndpoints):
 
     def test_get_user_prs_combined_filters(self, client: TestClient, setup_db_manager: Mock) -> None:
         """Test endpoint with all filters combined."""
-        setup_db_manager.fetchrow = AsyncMock(return_value={"total": 1})
-        setup_db_manager.fetch = AsyncMock(return_value=[])
+        setup_db_manager.fetchrow.return_value = {"total": 1}
+        setup_db_manager.fetch.return_value = []
 
         response = client.get(
             "/api/metrics/user-prs"
