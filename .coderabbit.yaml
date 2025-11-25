@@ -1,0 +1,90 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit AI Review Instructions
+# Based on project-specific rules from CLAUDE.md
+
+# Language for reviews
+language: en-US
+
+# Review tone and communication style (max 250 chars)
+tone_instructions: "Be direct and specific. Explain WHY rules exist. Provide code examples. Distinguish critical violations from suggestions. Use severity levels: CRITICAL (blocking/security), HIGH (types/defensive), MEDIUM (style), LOW (suggestions)."
+
+# Enable early access features
+early_access: true
+
+reviews:
+  # Review profile: assertive for strict enforcement
+  profile: assertive
+
+  # Request changes for critical violations
+  request_changes_workflow: true
+
+  # Review display settings
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+
+  # Auto-review configuration
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+
+  # Enable relevant tools for Python/JavaScript project
+  tools:
+    # Python linting
+    ruff:
+      enabled: true
+    pylint:
+      enabled: true
+
+    # JavaScript linting
+    eslint:
+      enabled: true
+
+    # Shell script checking
+    shellcheck:
+      enabled: true
+
+    # YAML validation
+    yamllint:
+      enabled: true
+
+    # Security scanning
+    gitleaks:
+      enabled: true
+    semgrep:
+      enabled: true
+
+    # GitHub Actions workflow validation
+    actionlint:
+      enabled: true
+
+    # Dockerfile linting
+    hadolint:
+      enabled: true
+
+# Knowledge base configuration
+knowledge_base:
+  # Enable code guidelines enforcement from CLAUDE.md
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "CLAUDE.md"
+
+  # Enable learning from repository patterns
+  learnings:
+    scope: auto
+
+  # Enable learning from issues
+  issues:
+    scope: auto
+
+  # Enable learning from pull requests
+  pull_requests:
+    scope: auto
+
+# Chat settings
+chat:
+  auto_reply: true
