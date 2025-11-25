@@ -381,7 +381,7 @@ class MetricsDashboard {
         const workingData = {
             summary: { ...data.summary },
             webhooks: data.webhooks?.data || data.webhooks || [],
-            repositories: data.repositories?.data || [],
+            repositories: this.normalizeRepositories(data.repositories),
             trends: data.trends,
             contributors: data.contributors ? {
                 pr_creators: data.contributors.pr_creators?.data || data.contributors.pr_creators || [],
@@ -602,7 +602,7 @@ class MetricsDashboard {
     /**
      * Update repository table with new data.
      *
-     * @param {Object} reposData - Repository data with pagination ({repositories: [...], pagination: {...}})
+     * @param {Object|Array} reposData - Repository data with pagination ({data: [...], pagination: {...}}) or plain array
      */
     updateRepositoryTable(reposData) {
         const tableBody = document.getElementById('repository-table-body');
@@ -611,9 +611,9 @@ class MetricsDashboard {
             return;
         }
 
-        // Extract repositories from paginated response
-        const repositories = reposData.data || [];
-        const pagination = reposData.pagination;
+        // Handle both paginated response and plain array formats
+        const repositories = Array.isArray(reposData) ? reposData : (reposData.data || reposData.repositories || []);
+        const pagination = Array.isArray(reposData) ? null : reposData.pagination;
 
         // Update pagination state if available
         if (pagination) {
@@ -1166,14 +1166,16 @@ class MetricsDashboard {
      * @param {string} filterValue - Repository name or partial name to filter by
      */
     filterByRepository(filterValue) {
-        const newFilter = filterValue.trim().toLowerCase();
+        // Keep original input for API call (backend may be case-sensitive)
+        const trimmedFilter = filterValue.trim();
 
-        // Check if filter actually changed
-        if (newFilter === this.repositoryFilter) {
+        // Check if filter actually changed (case-insensitive comparison)
+        if (trimmedFilter.toLowerCase() === this.repositoryFilter) {
             return;  // No change, skip update
         }
 
-        this.repositoryFilter = newFilter;
+        // Store original case for API calls, lowercase for local filtering
+        this.repositoryFilter = trimmedFilter.toLowerCase();
         console.log(`[Dashboard] Filtering by repository: "${this.repositoryFilter || '(showing all)'}"`);
 
         // ALWAYS re-render charts and tables (even when filter is cleared)
@@ -1193,6 +1195,7 @@ class MetricsDashboard {
             return data;  // No filter or invalid data, return as-is
         }
 
+        // Use lowercase for local includes() check
         return data.filter(item => {
             const repo = (item.repository || '').toLowerCase();
             return repo.includes(this.repositoryFilter);
@@ -1623,6 +1626,12 @@ class MetricsDashboard {
      * @param {string} format - Export format ('csv' or 'json')
      */
     exportApiData(format) {
+        // Guard: ensure repositories data exists
+        if (!this.currentData.repositories) {
+            console.warn('[Dashboard] No repositories data available to export');
+            return;
+        }
+
         const repositories = this.normalizeRepositories(this.currentData.repositories);
         if (repositories.length === 0) {
             console.warn('[Dashboard] No API usage data to export');
@@ -1894,20 +1903,28 @@ class MetricsDashboard {
             tableBody.innerHTML = '<tr><td colspan="7" style="text-align: center;">No pull requests found</td></tr>';
         } else {
             const rows = prs.map(pr => {
-                const created = new Date(pr.created_at).toLocaleDateString();
-                const updated = new Date(pr.updated_at).toLocaleDateString();
+                // Soft fallbacks for missing/invalid date fields
+                const created = pr.created_at ? this.formatDateSafe(pr.created_at) : '-';
+                const updated = pr.updated_at ? this.formatDateSafe(pr.updated_at) : '-';
                 const stateClass = pr.state === 'open' ? 'status-success' : 'status-error';
                 const mergedBadge = pr.merged ? '<span class="badge-merged">Merged</span>' : '';
 
+                // Soft fallbacks for missing fields
+                const prNumber = pr.pr_number || 'N/A';
+                const title = pr.title || 'Untitled';
+                const repository = pr.repository || 'Unknown';
+                const state = pr.state || 'unknown';
+                const commitsCount = pr.commits_count || 0;
+
                 return `
-                    <tr class="pr-row" data-pr-id="${pr.pr_number}">
-                        <td><a href="https://github.com/${pr.repository}/pull/${pr.pr_number}" target="_blank" rel="noopener noreferrer">#${pr.pr_number}</a></td>
-                        <td>${this.escapeHtml(pr.title)}</td>
-                        <td>${this.escapeHtml(pr.repository)}</td>
-                        <td><span class="${stateClass}">${pr.state}</span> ${mergedBadge}</td>
+                    <tr class="pr-row" data-pr-id="${prNumber}">
+                        <td><a href="https://github.com/${this.escapeHtml(repository)}/pull/${prNumber}" target="_blank" rel="noopener noreferrer">#${prNumber}</a></td>
+                        <td>${this.escapeHtml(title)}</td>
+                        <td>${this.escapeHtml(repository)}</td>
+                        <td><span class="${stateClass}">${this.escapeHtml(state)}</span> ${mergedBadge}</td>
                         <td>${created}</td>
                         <td>${updated}</td>
-                        <td>${pr.commits_count || 0}</td>
+                        <td>${commitsCount}</td>
                     </tr>
                 `;
             }).join('');
@@ -1952,6 +1969,24 @@ class MetricsDashboard {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    /**
+     * Safely format a date string, handling invalid dates.
+     *
+     * @param {string} dateString - ISO date string
+     * @returns {string} Formatted date or fallback
+     */
+    formatDateSafe(dateString) {
+        try {
+            const date = new Date(dateString);
+            if (isNaN(date.getTime())) {
+                return '-';
+            }
+            return date.toLocaleDateString();
+        } catch (error) {
+            return '-';
+        }
     }
 }
 

@@ -410,10 +410,10 @@ class TestHandleWebSocket:
         assert mock_db_manager.fetch.call_count == 2
         # Second call should have last_seen_timestamp set
         second_call_args = mock_db_manager.fetch.call_args_list[1][0]
-        # First positional arg is the query, second is the timestamp (if any)
-        if len(second_call_args) > 1:
-            # Timestamp was passed
-            assert isinstance(second_call_args[1], datetime)
+        # First positional arg is the query, second is the timestamp (must be provided)
+        assert len(second_call_args) > 1, "Expected timestamp to be passed after first empty poll"
+        # Timestamp was passed and should be a datetime instance
+        assert isinstance(second_call_args[1], datetime)
 
     @pytest.mark.asyncio
     async def test_websocket_cleanup_in_finally_block(
@@ -609,20 +609,14 @@ class TestFetchNewEvents:
     async def test_fetch_new_events_converts_rows_to_dicts(
         self, controller: MetricsDashboardController, mock_db_manager: AsyncMock
     ) -> None:
-        """Test that database rows are converted to dictionaries."""
+        """Test that database rows are converted to dictionaries.
 
-        # Create a simple dict-like mock object that behaves like asyncpg Record
-        class MockRecord(dict):
-            """Simple dict subclass that mimics asyncpg Record behavior."""
-
-            def keys(self):
-                return super().keys()
-
-            def values(self):
-                return super().values()
-
-        # Use the simple mock record
-        mock_row = MockRecord({"delivery_id": "test123", "status": "success"})
+        Note: asyncpg Record objects are dict-like and support dict(row) conversion.
+        We use a plain dict here to simulate this behavior since the conversion
+        in the actual code uses dict(row) on asyncpg Record objects.
+        """
+        # Use plain dict to simulate asyncpg Record behavior (supports dict(row))
+        mock_row = {"delivery_id": "test123", "status": "success"}
         mock_db_manager.fetch.return_value = [mock_row]
 
         events = await controller._fetch_new_events(

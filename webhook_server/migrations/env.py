@@ -44,8 +44,24 @@ if config.config_file_name is not None:
 # Get simple logger for Alembic (avoid Config dependency for migration-only commands)
 logger = get_logger(name="alembic.migrations", level="INFO")
 
-# Load database configuration from config.yaml
-try:
+
+def _configure_from_config() -> None:
+    """
+    Load database configuration and set Alembic options.
+
+    This helper extracts the "load config + build URL + set Alembic options" logic
+    for easier testing and better separation of concerns.
+
+    Raises:
+        FileNotFoundError: Config file not found
+        KeyError: Missing required database configuration key
+        ValueError: Database configuration section missing
+
+    Architecture guarantees:
+    - Config is loaded from environment or default path - fail-fast if missing
+    - Required keys: username, password, database
+    - Optional keys: host (default: localhost), port (default: 5432)
+    """
     webhook_config = Config()
     db_config = webhook_config.root_data.get("metrics-database")
 
@@ -82,11 +98,17 @@ try:
     )
     logger.info(f"Migration versions directory: {versions_path}")
 
+
+# Load database configuration from config.yaml
+try:
+    _configure_from_config()
 except FileNotFoundError:
     logger.exception("Config file not found. Ensure config.yaml exists in WEBHOOK_SERVER_DATA_DIR.")
     raise
-except KeyError as e:
-    logger.exception(f"Missing required key in metrics-database config: {e}")
+except KeyError:
+    # logger.exception automatically logs the traceback and exception details
+    # No need to interpolate the exception object
+    logger.exception("Missing required key in metrics-database config")
     raise
 except Exception:
     logger.exception("Failed to load database configuration")
@@ -189,6 +211,20 @@ def run_migrations_online() -> None:
     with the context. This is the normal mode for running migrations.
 
     Uses asyncpg for async PostgreSQL connectivity.
+
+    Note on asyncio.run() usage:
+        This function is called by the Alembic CLI, which runs in a synchronous context.
+        Using asyncio.run() is safe here since no event loop is running.
+
+        IMPORTANT: If run_migrations_online() is ever reused from an async context
+        (e.g., from within a running FastAPI application), you MUST use an alternate
+        entrypoint that directly awaits run_async_migrations() instead of wrapping
+        it in asyncio.run(). Calling asyncio.run() from within an already-running
+        event loop will raise RuntimeError.
+
+        Example alternate async entrypoint:
+            async def run_migrations_online_async() -> None:
+                await run_async_migrations()
 
     Example:
         alembic upgrade head

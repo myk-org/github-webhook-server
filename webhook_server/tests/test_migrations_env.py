@@ -5,8 +5,6 @@ when constructing the connection string, preventing malformed URLs when
 credentials contain special characters.
 """
 
-from unittest.mock import Mock
-
 import pytest
 
 
@@ -50,20 +48,7 @@ class TestMigrationsEnvURLEncoding:
         assert quote(username, safe="") == expected_username
         assert quote(password, safe="") == expected_password
 
-        # Create mock config with test credentials
-        mock_config = Mock()
-        mock_config.root_data = {
-            "metrics-database": {
-                "host": "localhost",
-                "port": 5432,
-                "database": "test_db",
-                "username": username,
-                "password": password,  # pragma: allowlist secret
-            }
-        }
-        mock_config.data_dir = "/tmp/test-migrations"
-
-        # Import and verify URL encoding logic
+        # Verify URL encoding logic
         # We can't directly execute env.py (it runs on import), so we test the logic
         encoded_username = quote(username, safe="")
         encoded_password = quote(password, safe="")
@@ -83,7 +68,11 @@ class TestMigrationsEnvURLEncoding:
         assert password_part == expected_password
 
     def test_migrations_env_imports_and_uses_quote(self) -> None:
-        """Verify that migrations env.py imports and uses urllib.parse.quote."""
+        """Verify that migrations env.py imports and uses urllib.parse.quote.
+
+        Note: This check accepts both direct calls (quote(...)) and qualified calls
+        (urllib.parse.quote(...) or parse.quote(...)) to allow for different import styles.
+        """
         # Read the env.py file and verify quote is imported and used
         import ast
         import pathlib
@@ -98,10 +87,16 @@ class TestMigrationsEnvURLEncoding:
         tree = ast.parse(env_py_content)
 
         # Check that quote function is called at least twice (username and password)
+        # Accept both direct calls (quote) and qualified calls (parse.quote, urllib.parse.quote)
         quote_calls = 0
         for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "quote":
-                quote_calls += 1
+            if isinstance(node, ast.Call):
+                # Direct call: quote(...)
+                if isinstance(node.func, ast.Name) and node.func.id == "quote":
+                    quote_calls += 1
+                # Qualified call: parse.quote(...) or urllib.parse.quote(...)
+                elif isinstance(node.func, ast.Attribute) and node.func.attr == "quote":
+                    quote_calls += 1
 
         assert quote_calls >= 2, "Expected at least 2 calls to quote() for username and password encoding"
 

@@ -319,22 +319,27 @@ class TestConfig:
         mock_logger.exception.assert_called_once()
         assert "invalid YAML syntax" in mock_logger.exception.call_args.args[0]
 
-    @patch("webhook_server.utils.helpers.get_github_repo_api")
     def test_repository_local_data_exception_handling(
-        self, mock_get_repo_api: Mock, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
+        self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Test repository_local_data method with exception handling."""
+        """Test repository_local_data method with generic exception handling.
+
+        Note: Config.repository_local_data uses the passed-in github_api.get_repo
+        directly, not the global get_github_repo_api helper. We trigger the exception
+        via the github_api mock instead.
+        """
         monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_config_dir)
 
-        # Mock repository that raises an exception
-        mock_get_repo_api.side_effect = Exception("API Error")
-
         config = Config(repository="test-repo")
+
+        # Mock github_api to raise a generic exception when get_repo is called
         mock_github_api = Mock()
+        mock_github_api.get_repo.side_effect = Exception("API Error")
 
         result = config.repository_local_data(mock_github_api, "org/test-repo")
 
         assert result == {}
+        mock_github_api.get_repo.assert_called_once_with("org/test-repo")
 
     def test_repository_local_data_no_repository(self, temp_config_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test repository_local_data method when repository is not specified."""
