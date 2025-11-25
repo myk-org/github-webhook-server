@@ -1946,7 +1946,7 @@ async def get_repository_statistics(
                 "start_time": start_datetime.isoformat() if start_datetime else None,
                 "end_time": end_datetime.isoformat() if end_datetime else None,
             },
-            "data": repositories,
+            "repositories": repositories,
             "pagination": {
                 "total": total_count,
                 "page": page,
@@ -2637,7 +2637,7 @@ async def get_user_pull_requests(
         # Format PR data
         prs = [
             {
-                "pr_number": row["pr_number"],
+                "number": row["pr_number"],
                 "title": row["title"],
                 "repository": row["repository"],
                 "state": row["state"],

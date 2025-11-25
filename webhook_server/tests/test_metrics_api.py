@@ -537,17 +537,17 @@ class TestGetRepositoryStatisticsEndpoint(TestMetricsAPIEndpoints):
         assert response.status_code == 200
         data = response.json()
         assert data["pagination"]["total"] == 2
-        assert len(data["data"]) == 2
+        assert len(data["repositories"]) == 2
 
         # Verify first repository
-        repo1 = data["data"][0]
+        repo1 = data["repositories"][0]
         assert repo1["repository"] == "org/repo1"
         assert repo1["total_events"] == 100
         assert repo1["success_rate"] == 95.00
         assert repo1["event_type_breakdown"] == {"pull_request": 80, "issue_comment": 20}
 
         # Verify second repository
-        repo2 = data["data"][1]
+        repo2 = data["repositories"][1]
         assert repo2["repository"] == "org/repo2"
         assert repo2["total_events"] == 50
 
@@ -586,7 +586,7 @@ class TestGetRepositoryStatisticsEndpoint(TestMetricsAPIEndpoints):
         assert response.status_code == 200
         data = response.json()
         assert data["pagination"]["total"] == 0
-        assert data["data"] == []
+        assert data["repositories"] == []
 
     def test_get_repository_statistics_db_manager_none(self, client: TestClient) -> None:
         """Test endpoint returns 500 when db_manager is None."""
@@ -862,7 +862,7 @@ class TestUserPullRequestsEndpoint(TestMetricsAPIEndpoints):
 
         # Verify first PR
         pr1 = data["data"][0]
-        assert pr1["pr_number"] == 123
+        assert pr1["number"] == 123
         assert pr1["title"] == "Add feature X"
         assert pr1["repository"] == "org/repo1"
         assert pr1["state"] == "closed"
