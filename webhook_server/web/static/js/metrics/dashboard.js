@@ -21,7 +21,8 @@ class MetricsDashboard {
             repositories: null
         };
         this.timeRange = '24h';  // Default time range
-        this.repositoryFilter = '';  // Repository filter (empty = show all)
+        this.repositoryFilter = '';  // Repository filter lowercase for local comparisons (empty = show all)
+        this.repositoryFilterRaw = '';  // Repository filter original case for API calls
         this.userFilter = '';  // User filter (empty = show all)
 
         // Pagination state for each section
@@ -1177,7 +1178,8 @@ class MetricsDashboard {
             return;  // No change, skip update
         }
 
-        // Store original case for API calls, lowercase for local filtering
+        // Store BOTH: original case for API calls, lowercase for local filtering
+        this.repositoryFilterRaw = trimmedFilter;
         this.repositoryFilter = trimmedFilter.toLowerCase();
         console.log(`[Dashboard] Filtering by repository: "${this.repositoryFilter || '(showing all)'}"`);
 
@@ -1358,7 +1360,9 @@ class MetricsDashboard {
             return { labels: [], success: [], errors: [], total: [] };
         }
 
-        const now = new Date();
+        // Use selected range end time as anchor instead of "now"
+        const { startTime, endTime } = this.getTimeRangeDates(this.timeRange);
+        const anchor = new Date(endTime);
         const labels = [];
         const successCounts = [];
         const errorCounts = [];
@@ -1426,7 +1430,7 @@ class MetricsDashboard {
 
         // Create time buckets
         for (let i = bucketCount - 1; i >= 0; i--) {
-            const bucketTime = new Date(now.getTime() - i * bucketSize);
+            const bucketTime = new Date(anchor.getTime() - i * bucketSize);
             labels.push(labelFormatter(bucketTime));
             successCounts.push(0);
             errorCounts.push(0);
@@ -1436,7 +1440,7 @@ class MetricsDashboard {
         // Count events in each bucket
         events.forEach(event => {
             const eventTime = new Date(event.created_at);
-            const timeDiff = now - eventTime;
+            const timeDiff = anchor - eventTime;
             const bucketIndex = Math.floor(timeDiff / bucketSize);
 
             if (bucketIndex >= 0 && bucketIndex < bucketCount) {
@@ -1846,8 +1850,8 @@ class MetricsDashboard {
             };
 
             // Add filters
-            if (this.repositoryFilter) {
-                params.repository = this.repositoryFilter;
+            if (this.repositoryFilterRaw) {
+                params.repository = this.repositoryFilterRaw;
             }
             if (this.userFilter) {
                 params.user = this.userFilter;

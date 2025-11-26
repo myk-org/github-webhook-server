@@ -17,14 +17,14 @@ from urllib.parse import quote
 import pytest
 from fastapi.testclient import TestClient
 
+import webhook_server.app
 from webhook_server.app import FASTAPI_APP
+from webhook_server.libs.database import DatabaseManager
 
 
 @pytest.fixture(autouse=True)
 def enable_metrics_server(monkeypatch: pytest.MonkeyPatch) -> None:
     """Enable metrics server for all tests in this module."""
-    import webhook_server.app
-
     monkeypatch.setattr(webhook_server.app, "METRICS_SERVER_ENABLED", True)
 
 
@@ -37,9 +37,6 @@ def setup_db_manager(mock_db_manager: Mock, monkeypatch: pytest.MonkeyPatch) -> 
     any DatabaseManager() instantiation during startup uses the mock and its
     connect()/disconnect() are no-ops.
     """
-    import webhook_server.app
-    from webhook_server.libs.database import DatabaseManager
-
     # Monkeypatch DatabaseManager class to return the mock when instantiated
     # This prevents lifespan from creating a real DB connection at line 260
     monkeypatch.setattr(DatabaseManager, "__new__", lambda *_args, **_kwargs: mock_db_manager)
@@ -86,8 +83,6 @@ class TestRequireMetricsServerEnabled(TestMetricsAPIEndpoints):
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test metrics endpoints return 404 when metrics server is disabled."""
-        import webhook_server.app
-
         # Override the module-level fixture to disable metrics server
         monkeypatch.setattr(webhook_server.app, "METRICS_SERVER_ENABLED", False)
 

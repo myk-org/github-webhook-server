@@ -1571,6 +1571,8 @@ async def get_webhook_events(
                 "has_prev": has_prev,
             },
         }
+    except asyncio.CancelledError:
+        raise
     except HTTPException:
         raise
     except Exception as ex:
@@ -1697,6 +1699,8 @@ async def get_webhook_event_by_id(delivery_id: str) -> dict[str, Any]:
             "error_message": row["error_message"],
             "payload": row["payload"],
         }
+    except asyncio.CancelledError:
+        raise
     except HTTPException:
         raise
     except Exception as ex:
@@ -1758,7 +1762,7 @@ async def get_repository_statistics(
         "start_time": "2024-01-01T00:00:00Z",
         "end_time": "2024-01-31T23:59:59Z"
       },
-      "data": [
+      "repositories": [
         {
           "repository": "myakove/test-repo",
           "total_events": 1542,
@@ -1956,6 +1960,8 @@ async def get_repository_statistics(
                 "has_prev": has_prev,
             },
         }
+    except asyncio.CancelledError:
+        raise
     except HTTPException:
         raise
     except Exception as ex:
@@ -2474,6 +2480,8 @@ async def get_metrics_contributors(
                 },
             },
         }
+    except asyncio.CancelledError:
+        raise
     except HTTPException:
         raise
     except Exception:
@@ -2525,7 +2533,7 @@ async def get_user_pull_requests(
     {
       "data": [
         {
-          "pr_number": 123,
+          "number": 123,
           "title": "Add feature X",
           "repository": "org/repo1",
           "state": "closed",
@@ -2772,6 +2780,8 @@ async def get_metrics_trends(
             },
             "trends": trends,
         }
+    except asyncio.CancelledError:
+        raise
     except Exception as ex:
         LOGGER.exception("Failed to fetch metrics trends from database")
         raise HTTPException(
@@ -3166,6 +3176,8 @@ async def get_metrics_summary(
             "hourly_event_rate": hourly_event_rate,
             "daily_event_rate": daily_event_rate,
         }
+    except asyncio.CancelledError:
+        raise
     except HTTPException:
         raise
     except Exception as ex:
