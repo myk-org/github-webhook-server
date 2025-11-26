@@ -22,11 +22,12 @@ from __future__ import annotations
 import asyncio
 import os
 from logging.config import fileConfig
+from urllib.parse import quote
 
 from alembic import context
 from simple_logger.logger import get_logger
 from sqlalchemy import pool
-from sqlalchemy.engine import URL, Connection
+from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from webhook_server.libs.config import Config
@@ -70,20 +71,21 @@ def _configure_from_config() -> None:
             "See examples/config.yaml for reference."
         )
 
-    # Construct PostgreSQL asyncpg URL using SQLAlchemy URL builder
-    # This safely handles special characters in credentials and database name
-    db_url = URL.create(
-        drivername="postgresql+asyncpg",
-        username=db_config["username"],
-        password=db_config["password"],
-        host=db_config.get("host", "localhost"),
-        port=db_config.get("port", 5432),
-        database=db_config["database"],
-    )
+    # Construct PostgreSQL asyncpg URL with URL-encoded credentials
+    # URL-encode ALL components to handle special characters safely:
+    # - username/password: may contain @, :, /, etc.
+    # - database: may contain special characters
+    # Format: postgresql+asyncpg://user:password@host:port/database  # pragma: allowlist secret
+    encoded_username = quote(db_config["username"], safe="")
+    encoded_password = quote(db_config["password"], safe="")
+    encoded_database = quote(db_config["database"], safe="")
+    host = db_config.get("host", "localhost")
+    port = db_config.get("port", 5432)
+
+    db_url = f"postgresql+asyncpg://{encoded_username}:{encoded_password}@{host}:{port}/{encoded_database}"
 
     # Set database URL in Alembic config (overrides alembic.ini if set)
-    # URL.create() returns a URL object, convert to string for Alembic
-    config.set_main_option("sqlalchemy.url", str(db_url))
+    config.set_main_option("sqlalchemy.url", db_url)
 
     # Set version_locations dynamically based on data directory
     # This replaces the hardcoded path in alembic.ini to support non-container deployments
