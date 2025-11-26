@@ -22,12 +22,11 @@ from __future__ import annotations
 import asyncio
 import os
 from logging.config import fileConfig
-from urllib.parse import quote
 
 from alembic import context
 from simple_logger.logger import get_logger
 from sqlalchemy import pool
-from sqlalchemy.engine import Connection
+from sqlalchemy.engine import URL, Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from webhook_server.libs.config import Config
@@ -71,19 +70,20 @@ def _configure_from_config() -> None:
             "See examples/config.yaml for reference."
         )
 
-    # Construct PostgreSQL asyncpg URL with URL-encoded credentials
-    # Format: postgresql+asyncpg://user:password@host:port/database  # pragma: allowlist secret
-    # URL-encode username and password to handle special characters (@, :, /, ?, etc.)
-    encoded_username = quote(db_config["username"], safe="")
-    encoded_password = quote(db_config["password"], safe="")
-    db_url = (
-        f"postgresql+asyncpg://{encoded_username}:{encoded_password}"
-        f"@{db_config.get('host', 'localhost')}:{db_config.get('port', 5432)}"
-        f"/{db_config['database']}"
+    # Construct PostgreSQL asyncpg URL using SQLAlchemy URL builder
+    # This safely handles special characters in credentials and database name
+    db_url = URL.create(
+        drivername="postgresql+asyncpg",
+        username=db_config["username"],
+        password=db_config["password"],
+        host=db_config.get("host", "localhost"),
+        port=db_config.get("port", 5432),
+        database=db_config["database"],
     )
 
     # Set database URL in Alembic config (overrides alembic.ini if set)
-    config.set_main_option("sqlalchemy.url", db_url)
+    # URL.create() returns a URL object, convert to string for Alembic
+    config.set_main_option("sqlalchemy.url", str(db_url))
 
     # Set version_locations dynamically based on data directory
     # This replaces the hardcoded path in alembic.ini to support non-container deployments

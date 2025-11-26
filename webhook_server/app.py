@@ -286,6 +286,13 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
             await _metrics_dashboard_controller_singleton.shutdown()
             LOGGER.debug("MetricsDashboardController singleton shutdown complete")
 
+        # Shutdown database manager (metrics server) - must be before HTTP client close
+        # as database operations might use the HTTP client
+        if db_manager is not None:
+            await db_manager.disconnect()
+            LOGGER.debug("Database manager disconnected")
+            LOGGER.info("Metrics Server database manager shutdown complete")
+
         if _lifespan_http_client:
             await _lifespan_http_client.aclose()
             LOGGER.debug("HTTP client closed")
@@ -302,12 +309,6 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
                 # Wait briefly for cancellations to propagate
                 await asyncio.wait(pending, timeout=5.0)
             LOGGER.debug(f"Background tasks cleanup complete: {len(done)} completed, {len(pending)} cancelled")
-
-        # Disconnect database managers if they exist (after background tasks complete)
-        if db_manager is not None:
-            await db_manager.disconnect()
-            LOGGER.debug("Database manager disconnected")
-            LOGGER.info("Metrics Server database manager shutdown complete")
 
         LOGGER.info("Application shutdown complete.")
 

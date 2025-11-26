@@ -35,6 +35,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -79,6 +80,10 @@ class Webhook(Base):
     """
 
     __tablename__ = "webhooks"
+    __table_args__ = (
+        Index("ix_webhooks_repository_created_at", "repository", "created_at"),
+        Index("ix_webhooks_repository_event_type", "repository", "event_type"),
+    )
 
     id: Mapped[UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -231,7 +236,12 @@ class PullRequest(Base):
     """
 
     __tablename__ = "pull_requests"
-    __table_args__ = (UniqueConstraint("repository", "pr_number", name="uq_pull_requests_repository_pr_number"),)
+    __table_args__ = (
+        UniqueConstraint("repository", "pr_number", name="uq_pull_requests_repository_pr_number"),
+        Index("ix_pull_requests_repository_state", "repository", "state"),
+        Index("ix_pull_requests_repository_created_at", "repository", "created_at"),
+        Index("ix_pull_requests_author_created_at", "author", "created_at"),
+    )
 
     id: Mapped[UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -580,6 +590,10 @@ class CheckRun(Base):
     """
 
     __tablename__ = "check_runs"
+    __table_args__ = (
+        Index("ix_check_runs_pr_id_check_name", "pr_id", "check_name"),
+        Index("ix_check_runs_pr_id_started_at", "pr_id", "started_at"),
+    )
 
     id: Mapped[UUID] = mapped_column(
         UUID(as_uuid=True),

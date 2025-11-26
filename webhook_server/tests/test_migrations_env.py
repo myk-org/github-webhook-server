@@ -67,38 +67,35 @@ class TestMigrationsEnvURLEncoding:
         assert username_part == expected_username
         assert password_part == expected_password
 
-    def test_migrations_env_imports_and_uses_quote(self) -> None:
-        """Verify that migrations env.py imports and uses urllib.parse.quote.
+    def test_migrations_env_uses_sqlalchemy_url_create(self) -> None:
+        """Verify that migrations env.py uses SQLAlchemy URL.create() for safe URL construction.
 
-        Note: This check accepts both direct calls (quote(...)) and qualified calls
-        (urllib.parse.quote(...) or parse.quote(...)) to allow for different import styles.
+        SQLAlchemy's URL.create() properly handles special characters in credentials
+        and database names, preventing SQL injection and URL parsing issues.
         """
-        # Read the env.py file and verify quote is imported and used
         import ast
         import pathlib
 
         env_py_path = pathlib.Path(__file__).parent.parent / "migrations" / "env.py"
         env_py_content = env_py_path.read_text()
 
-        # Verify quote is imported from urllib.parse
-        assert "from urllib.parse import quote" in env_py_content
+        # Verify URL is imported from sqlalchemy.engine
+        assert "from sqlalchemy.engine import" in env_py_content
+        assert "URL" in env_py_content
 
-        # Parse AST to verify quote function is used (resilient to formatting changes)
+        # Parse AST to verify URL.create is called
         tree = ast.parse(env_py_content)
 
-        # Check that quote function is called at least twice (username and password)
-        # Accept both direct calls (quote) and qualified calls (parse.quote, urllib.parse.quote)
-        quote_calls = 0
+        # Check that URL.create() is called (method call on URL object)
+        url_create_calls = 0
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):
-                # Direct call: quote(...)
-                if isinstance(node.func, ast.Name) and node.func.id == "quote":
-                    quote_calls += 1
-                # Qualified call: parse.quote(...) or urllib.parse.quote(...)
-                elif isinstance(node.func, ast.Attribute) and node.func.attr == "quote":
-                    quote_calls += 1
+                # Check for URL.create(...) pattern
+                if isinstance(node.func, ast.Attribute) and node.func.attr == "create":
+                    if isinstance(node.func.value, ast.Name) and node.func.value.id == "URL":
+                        url_create_calls += 1
 
-        assert quote_calls >= 2, "Expected at least 2 calls to quote() for username and password encoding"
+        assert url_create_calls >= 1, "Expected at least 1 call to URL.create() for safe database URL construction"
 
     def test_special_chars_requiring_encoding(self) -> None:
         """Test that special characters are properly identified and encoded.

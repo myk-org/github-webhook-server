@@ -1,3 +1,12 @@
+# ⚠️  SECURITY WARNING - TRUSTED NETWORK ONLY ⚠️
+# The metrics dashboard and API endpoints (/api/v1/metrics/*) are UNAUTHENTICATED.
+# These endpoints expose sensitive webhook data including user activity and repository statistics.
+# REQUIREMENTS:
+#   - Deploy ONLY on trusted/private networks (VPN, internal network, localhost)
+#   - NEVER expose metrics endpoints directly to the public internet
+#   - Use a reverse proxy with authentication (OAuth, API keys) for external access
+#   - Consider using Docker network isolation to restrict access to metrics endpoints
+
 services:
   # PostgreSQL database for metrics storage
   github-webhook-server-postgres:

@@ -11,7 +11,15 @@ mask-sensitive-data: true # Mask sensitive data in logs (default: true). Set to 
 # Provides PostgreSQL-based historical analytics and AI-powered natural language queries
 # NOTE: For docker-compose deployments, use service name as hostname:
 #   - metrics-database host: github-webhook-server-postgres (defined in examples/docker-compose.yaml)
-# SECURITY: For production deployments, enable SSL/TLS connections to PostgreSQL (sslmode=require)
+#
+# ⚠️  SECURITY WARNING - TRUSTED NETWORK ONLY ⚠️
+# The metrics dashboard and API endpoints (/api/v1/metrics/*) are UNAUTHENTICATED.
+# These endpoints expose sensitive webhook data including user activity and repository statistics.
+# REQUIREMENTS:
+#   - Deploy ONLY on trusted/private networks (VPN, internal network, localhost)
+#   - NEVER expose metrics endpoints directly to the public internet
+#   - Use a reverse proxy with authentication (OAuth, API keys) for external access
+#   - Enable SSL/TLS connections to PostgreSQL (sslmode=require) in production
 metrics-database:
   host: localhost  # PostgreSQL server hostname (use 'github-webhook-server-postgres' in docker-compose)
   port: 5432  # PostgreSQL server port

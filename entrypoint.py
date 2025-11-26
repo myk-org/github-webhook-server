@@ -43,16 +43,16 @@ def run_podman_cleanup() -> None:
 
 
 def run_database_migrations() -> None:
-    """Run Alembic database migrations to create/update database tables.
+    """Run Alembic database migrations.
 
     Only runs if ENABLE_METRICS_SERVER environment variable is set to "true".
-    Intelligently handles migration generation and execution:
-    1. Checks if migrations exist in webhook_server/migrations/versions/
-    2. If no migrations exist, generates initial migration from SQLAlchemy models
-    3. Applies migrations with 'alembic upgrade head'
+    Applies pending migrations with 'alembic upgrade head'.
+
+    Note: Migrations must be generated manually by developers:
+        alembic revision --autogenerate -m "Description"
 
     Raises:
-        Does not raise exceptions - prints warnings if migration fails
+        SystemExit: If migration fails (fail-fast behavior)
     """
     metrics_enabled = os.environ.get("ENABLE_METRICS_SERVER") == "true"
 
@@ -66,41 +66,6 @@ def run_database_migrations() -> None:
 
         # Ensure versions directory exists (required for Alembic)
         versions_dir.mkdir(parents=True, exist_ok=True)
-        print(f"✅ Versions directory ready: {versions_dir}")
-
-        # Check if we need to generate initial migration
-        if not any(versions_dir.glob("*.py")):
-            print("📝 Generating initial database migration from models...")
-            result = subprocess.run(
-                [
-                    "uv",
-                    "run",
-                    "alembic",
-                    "-c",
-                    str(alembic_ini),
-                    "revision",
-                    "--autogenerate",
-                    "-m",
-                    "Create initial webhook metrics schema",
-                ],
-                cwd=str(Path(__file__).parent),
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-
-            # Check if generation succeeded
-            if result.returncode != 0:
-                print(f"⚠️  Migration generation failed: {result.stderr}", file=sys.stderr)
-                if result.stdout:
-                    print(f"stdout: {result.stdout}", file=sys.stderr)
-                print("⚠️  Server will start but metrics features may not work correctly", file=sys.stderr)
-                return
-
-            print(result.stdout)
-            if result.stderr:
-                print(f"⚠️  Migration generation warnings: {result.stderr}", file=sys.stderr)
-            print("✅ Initial migration generated successfully")
 
         print("⬆️  Applying database migrations...")
         result = subprocess.run(
@@ -116,18 +81,18 @@ def run_database_migrations() -> None:
             print(result.stderr, file=sys.stderr)
         print("✅ Database migrations completed successfully")
     except subprocess.CalledProcessError as e:
-        print(f"⚠️  Database migration failed: {e}", file=sys.stderr)
+        print(f"❌ FATAL: Database migration failed: {e}", file=sys.stderr)
         if e.stdout:
             print(f"stdout: {e.stdout}", file=sys.stderr)
         if e.stderr:
             print(f"stderr: {e.stderr}", file=sys.stderr)
-        print("⚠️  Server will start but metrics features may not work correctly", file=sys.stderr)
+        sys.exit(1)
     except subprocess.TimeoutExpired:
-        print("⚠️  Database migration timed out after 60 seconds", file=sys.stderr)
-        print("⚠️  Server will start but metrics features may not work correctly", file=sys.stderr)
+        print("❌ FATAL: Database migration timed out after 60 seconds", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
-        print(f"⚠️  Unexpected error during database migration: {e}", file=sys.stderr)
-        print("⚠️  Server will start but metrics features may not work correctly", file=sys.stderr)
+        print(f"❌ FATAL: Unexpected error during database migration: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
