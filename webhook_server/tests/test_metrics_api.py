@@ -62,6 +62,7 @@ class TestMetricsAPIEndpoints:
         Depends on setup_db_manager to ensure DatabaseManager is mocked
         before the app lifespan runs.
         """
+        _ = setup_db_manager  # Reference to satisfy linter (ARG002)
         return TestClient(FASTAPI_APP)
 
     @pytest.fixture
