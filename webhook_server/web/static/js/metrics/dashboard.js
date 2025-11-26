@@ -1991,7 +1991,7 @@ class MetricsDashboard {
                 return '-';
             }
             return date.toLocaleDateString();
-        } catch (error) {
+        } catch (_error) {
             return '-';
         }
     }

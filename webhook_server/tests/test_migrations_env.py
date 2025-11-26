@@ -5,6 +5,10 @@ when constructing the connection string, preventing malformed URLs when
 credentials contain special characters.
 """
 
+import ast
+import pathlib
+from urllib.parse import quote
+
 import pytest
 
 
@@ -42,8 +46,6 @@ class TestMigrationsEnvURLEncoding:
             expected_username: Expected URL-encoded username
             expected_password: Expected URL-encoded password
         """
-        from urllib.parse import quote
-
         # Verify our test expectations match urllib.parse.quote behavior
         assert quote(username, safe="") == expected_username
         assert quote(password, safe="") == expected_password
@@ -73,9 +75,6 @@ class TestMigrationsEnvURLEncoding:
         SQLAlchemy's URL.create() properly handles special characters in credentials
         and database names, preventing SQL injection and URL parsing issues.
         """
-        import ast
-        import pathlib
-
         env_py_path = pathlib.Path(__file__).parent.parent / "migrations" / "env.py"
         env_py_content = env_py_path.read_text()
 
@@ -111,8 +110,6 @@ class TestMigrationsEnvURLEncoding:
         - = (equals) - query parameter value separator
         - + (plus) - space in query strings
         """
-        from urllib.parse import quote
-
         special_chars = {
             "@": "%40",
             ":": "%3A",
@@ -135,8 +132,6 @@ class TestMigrationsEnvURLEncoding:
 
     def test_real_world_example(self) -> None:
         """Test a real-world example with email username and complex password."""
-        from urllib.parse import quote
-
         # Real-world scenario: email as username, complex password
         username = "webhook-server@example.com"
         password = "C0mpl3x!P@$$w0rd#2024"  # pragma: allowlist secret

@@ -54,8 +54,6 @@ class Base(DeclarativeBase):
     All models inherit from this class.
     """
 
-    pass
-
 
 class Webhook(Base):
     """

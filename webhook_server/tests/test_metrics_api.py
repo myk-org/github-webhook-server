@@ -1,11 +1,12 @@
 """
 Comprehensive tests for metrics API endpoints.
 
-Tests 6 metrics endpoints:
+Tests 7 metrics endpoints:
 - GET /api/metrics/webhooks - List webhook events with filtering
 - GET /api/metrics/webhooks/{delivery_id} - Get specific webhook details
 - GET /api/metrics/repositories - Get repository statistics
 - GET /api/metrics/summary - Get overall metrics summary
+- GET /api/metrics/contributors - Get PR contributors statistics
 - GET /api/metrics/user-prs - Get per-user PR metrics
 - GET /api/metrics/trends - Get metrics trends over time
 """
@@ -55,8 +56,12 @@ class TestMetricsAPIEndpoints:
     """Test metrics API endpoints for webhook analytics."""
 
     @pytest.fixture
-    def client(self) -> TestClient:
-        """FastAPI test client."""
+    def client(self, setup_db_manager: Mock) -> TestClient:
+        """FastAPI test client.
+
+        Depends on setup_db_manager to ensure DatabaseManager is mocked
+        before the app lifespan runs.
+        """
         return TestClient(FASTAPI_APP)
 
     @pytest.fixture
@@ -1031,8 +1036,6 @@ class TestUserPullRequestsEndpoint(TestMetricsAPIEndpoints):
 
     def test_get_user_prs_metrics_server_disabled(self, client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test endpoint returns 404 when metrics server is disabled."""
-        import webhook_server.app
-
         monkeypatch.setattr(webhook_server.app, "METRICS_SERVER_ENABLED", False)
 
         response = client.get("/api/metrics/user-prs?user=john-doe")
@@ -1055,6 +1058,542 @@ class TestUserPullRequestsEndpoint(TestMetricsAPIEndpoints):
         )
 
         assert response.status_code == 200
+
+
+class TestGetContributorsEndpoint(TestMetricsAPIEndpoints):
+    """Test GET /api/metrics/contributors endpoint."""
+
+    def test_get_contributors_success(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test getting contributors statistics with all categories."""
+        # Mock count queries (fetchval calls) - 4 categories
+        setup_db_manager.fetchval.side_effect = [
+            5,  # pr_creators_total
+            3,  # pr_reviewers_total
+            4,  # pr_approvers_total
+            2,  # pr_lgtm_total
+        ]
+
+        # Mock data queries (fetch calls) - 4 categories
+        setup_db_manager.fetch.side_effect = [
+            # pr_creators
+            [
+                {
+                    "user": "john-doe",
+                    "total_prs": 45,
+                    "merged_prs": 42,
+                    "closed_prs": 3,
+                    "avg_commits": 3.5,
+                },
+                {
+                    "user": "jane-smith",
+                    "total_prs": 30,
+                    "merged_prs": 28,
+                    "closed_prs": 2,
+                    "avg_commits": 2.8,
+                },
+            ],
+            # pr_reviewers
+            [
+                {
+                    "user": "bob-wilson",
+                    "total_reviews": 78,
+                    "prs_reviewed": 65,
+                },
+                {
+                    "user": "alice-jones",
+                    "total_reviews": 56,
+                    "prs_reviewed": 48,
+                },
+            ],
+            # pr_approvers
+            [
+                {
+                    "user": "charlie-brown",
+                    "total_approvals": 56,
+                    "prs_approved": 54,
+                },
+                {
+                    "user": "diana-prince",
+                    "total_approvals": 40,
+                    "prs_approved": 38,
+                },
+            ],
+            # pr_lgtm
+            [
+                {
+                    "user": "eve-adams",
+                    "total_lgtm": 42,
+                    "prs_lgtm": 40,
+                },
+                {
+                    "user": "frank-miller",
+                    "total_lgtm": 35,
+                    "prs_lgtm": 33,
+                },
+            ],
+        ]
+
+        response = client.get("/api/metrics/contributors")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify structure
+        assert "time_range" in data
+        assert "pr_creators" in data
+        assert "pr_reviewers" in data
+        assert "pr_approvers" in data
+        assert "pr_lgtm" in data
+
+        # Verify pr_creators
+        assert len(data["pr_creators"]["data"]) == 2
+        creator1 = data["pr_creators"]["data"][0]
+        assert creator1["user"] == "john-doe"
+        assert creator1["total_prs"] == 45
+        assert creator1["merged_prs"] == 42
+        assert creator1["closed_prs"] == 3
+        assert creator1["avg_commits_per_pr"] == 3.5
+
+        # Verify pr_creators pagination
+        assert data["pr_creators"]["pagination"]["total"] == 5
+        assert data["pr_creators"]["pagination"]["page"] == 1
+        assert data["pr_creators"]["pagination"]["page_size"] == 10
+        assert data["pr_creators"]["pagination"]["has_next"] is False
+        assert data["pr_creators"]["pagination"]["has_prev"] is False
+
+        # Verify pr_reviewers
+        assert len(data["pr_reviewers"]["data"]) == 2
+        reviewer1 = data["pr_reviewers"]["data"][0]
+        assert reviewer1["user"] == "bob-wilson"
+        assert reviewer1["total_reviews"] == 78
+        assert reviewer1["prs_reviewed"] == 65
+        assert reviewer1["avg_reviews_per_pr"] == 1.2
+
+        # Verify pr_approvers
+        assert len(data["pr_approvers"]["data"]) == 2
+        approver1 = data["pr_approvers"]["data"][0]
+        assert approver1["user"] == "charlie-brown"
+        assert approver1["total_approvals"] == 56
+        assert approver1["prs_approved"] == 54
+
+        # Verify pr_lgtm
+        assert len(data["pr_lgtm"]["data"]) == 2
+        lgtm1 = data["pr_lgtm"]["data"][0]
+        assert lgtm1["user"] == "eve-adams"
+        assert lgtm1["total_lgtm"] == 42
+        assert lgtm1["prs_lgtm"] == 40
+
+    def test_get_contributors_with_user_filter(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test filtering contributors by user."""
+        # Mock count queries
+        setup_db_manager.fetchval.side_effect = [1, 1, 1, 1]
+
+        # Mock data queries
+        setup_db_manager.fetch.side_effect = [
+            # pr_creators for john-doe
+            [
+                {
+                    "user": "john-doe",
+                    "total_prs": 45,
+                    "merged_prs": 42,
+                    "closed_prs": 3,
+                    "avg_commits": 3.5,
+                }
+            ],
+            # pr_reviewers for john-doe
+            [
+                {
+                    "user": "john-doe",
+                    "total_reviews": 20,
+                    "prs_reviewed": 18,
+                }
+            ],
+            # pr_approvers for john-doe
+            [
+                {
+                    "user": "john-doe",
+                    "total_approvals": 15,
+                    "prs_approved": 14,
+                }
+            ],
+            # pr_lgtm for john-doe
+            [
+                {
+                    "user": "john-doe",
+                    "total_lgtm": 10,
+                    "prs_lgtm": 10,
+                }
+            ],
+        ]
+
+        response = client.get("/api/metrics/contributors?user=john-doe")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify all categories filtered to john-doe
+        assert len(data["pr_creators"]["data"]) == 1
+        assert data["pr_creators"]["data"][0]["user"] == "john-doe"
+        assert len(data["pr_reviewers"]["data"]) == 1
+        assert data["pr_reviewers"]["data"][0]["user"] == "john-doe"
+        assert len(data["pr_approvers"]["data"]) == 1
+        assert data["pr_approvers"]["data"][0]["user"] == "john-doe"
+        assert len(data["pr_lgtm"]["data"]) == 1
+        assert data["pr_lgtm"]["data"][0]["user"] == "john-doe"
+
+    def test_get_contributors_with_repository_filter(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test filtering contributors by repository."""
+        # Mock count queries
+        setup_db_manager.fetchval.side_effect = [2, 1, 1, 1]
+
+        # Mock data queries
+        setup_db_manager.fetch.side_effect = [
+            # pr_creators
+            [
+                {
+                    "user": "john-doe",
+                    "total_prs": 10,
+                    "merged_prs": 9,
+                    "closed_prs": 1,
+                    "avg_commits": 2.5,
+                }
+            ],
+            # pr_reviewers
+            [
+                {
+                    "user": "jane-smith",
+                    "total_reviews": 15,
+                    "prs_reviewed": 12,
+                }
+            ],
+            # pr_approvers
+            [],
+            # pr_lgtm
+            [],
+        ]
+
+        response = client.get("/api/metrics/contributors?repository=org/repo1")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify data is filtered by repository
+        assert len(data["pr_creators"]["data"]) == 1
+        assert len(data["pr_reviewers"]["data"]) == 1
+        assert len(data["pr_approvers"]["data"]) == 0
+        assert len(data["pr_lgtm"]["data"]) == 0
+
+    def test_get_contributors_with_time_range(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test filtering contributors by time range."""
+        # Mock count queries
+        setup_db_manager.fetchval.side_effect = [1, 1, 0, 0]
+
+        # Mock data queries
+        setup_db_manager.fetch.side_effect = [
+            [
+                {
+                    "user": "john-doe",
+                    "total_prs": 5,
+                    "merged_prs": 5,
+                    "closed_prs": 0,
+                    "avg_commits": 2.0,
+                }
+            ],
+            [
+                {
+                    "user": "jane-smith",
+                    "total_reviews": 8,
+                    "prs_reviewed": 7,
+                }
+            ],
+            [],
+            [],
+        ]
+
+        start_time = "2024-11-01T00:00:00Z"
+        end_time = "2024-11-30T23:59:59Z"
+
+        response = client.get(f"/api/metrics/contributors?start_time={start_time}&end_time={end_time}")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify time range is included in response
+        assert data["time_range"]["start_time"] == "2024-11-01T00:00:00+00:00"
+        assert data["time_range"]["end_time"] == "2024-11-30T23:59:59+00:00"
+
+    def test_get_contributors_pagination(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test contributors pagination with multiple pages."""
+        # Mock count queries - 25 total in each category
+        setup_db_manager.fetchval.side_effect = [25, 25, 25, 25]
+
+        # Mock data queries - page 2 of size 10
+        setup_db_manager.fetch.side_effect = [
+            # pr_creators page 2
+            [
+                {
+                    "user": f"user-{i}",
+                    "total_prs": 10 - i,
+                    "merged_prs": 9 - i,
+                    "closed_prs": 1,
+                    "avg_commits": 2.5,
+                }
+                for i in range(10, 20)
+            ],
+            # pr_reviewers page 2
+            [
+                {
+                    "user": f"reviewer-{i}",
+                    "total_reviews": 50 - i,
+                    "prs_reviewed": 40 - i,
+                }
+                for i in range(10, 20)
+            ],
+            # pr_approvers page 2
+            [],
+            # pr_lgtm page 2
+            [],
+        ]
+
+        response = client.get("/api/metrics/contributors?page=2&page_size=10")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify pagination for pr_creators
+        pagination = data["pr_creators"]["pagination"]
+        assert pagination["total"] == 25
+        assert pagination["page"] == 2
+        assert pagination["page_size"] == 10
+        assert pagination["total_pages"] == 3
+        assert pagination["has_next"] is True
+        assert pagination["has_prev"] is True
+
+        # Verify pagination for pr_reviewers
+        pagination = data["pr_reviewers"]["pagination"]
+        assert pagination["total"] == 25
+        assert pagination["page"] == 2
+        assert pagination["total_pages"] == 3
+        assert pagination["has_next"] is True
+        assert pagination["has_prev"] is True
+
+    def test_get_contributors_empty_results(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test contributors endpoint with no data."""
+        # Mock count queries - all zeros
+        setup_db_manager.fetchval.side_effect = [0, 0, 0, 0]
+
+        # Mock data queries - all empty
+        setup_db_manager.fetch.side_effect = [[], [], [], []]
+
+        response = client.get("/api/metrics/contributors")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify all categories are empty
+        assert len(data["pr_creators"]["data"]) == 0
+        assert data["pr_creators"]["pagination"]["total"] == 0
+        assert data["pr_creators"]["pagination"]["total_pages"] == 0
+
+        assert len(data["pr_reviewers"]["data"]) == 0
+        assert data["pr_reviewers"]["pagination"]["total"] == 0
+
+        assert len(data["pr_approvers"]["data"]) == 0
+        assert data["pr_approvers"]["pagination"]["total"] == 0
+
+        assert len(data["pr_lgtm"]["data"]) == 0
+        assert data["pr_lgtm"]["pagination"]["total"] == 0
+
+    def test_get_contributors_combined_filters(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test contributors endpoint with all filters combined."""
+        # Mock count queries
+        setup_db_manager.fetchval.side_effect = [1, 1, 1, 0]
+
+        # Mock data queries
+        setup_db_manager.fetch.side_effect = [
+            [
+                {
+                    "user": "john-doe",
+                    "total_prs": 5,
+                    "merged_prs": 5,
+                    "closed_prs": 0,
+                    "avg_commits": 2.0,
+                }
+            ],
+            [
+                {
+                    "user": "john-doe",
+                    "total_reviews": 3,
+                    "prs_reviewed": 3,
+                }
+            ],
+            [
+                {
+                    "user": "john-doe",
+                    "total_approvals": 2,
+                    "prs_approved": 2,
+                }
+            ],
+            [],
+        ]
+
+        response = client.get(
+            "/api/metrics/contributors"
+            "?user=john-doe"
+            "&repository=org/repo1"
+            "&start_time=2024-11-01T00:00:00Z"
+            "&end_time=2024-11-30T23:59:59Z"
+            "&page=1"
+            "&page_size=20"
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify time range
+        assert data["time_range"]["start_time"] == "2024-11-01T00:00:00+00:00"
+        assert data["time_range"]["end_time"] == "2024-11-30T23:59:59+00:00"
+
+        # Verify pagination reflects custom page_size
+        assert data["pr_creators"]["pagination"]["page_size"] == 20
+
+    def test_get_contributors_null_values_handling(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test contributors endpoint handles null values gracefully."""
+        # Mock count queries
+        setup_db_manager.fetchval.side_effect = [1, 1, 1, 1]
+
+        # Mock data queries with null values
+        setup_db_manager.fetch.side_effect = [
+            [
+                {
+                    "user": "john-doe",
+                    "total_prs": 10,
+                    "merged_prs": None,  # NULL from database
+                    "closed_prs": None,  # NULL from database
+                    "avg_commits": None,  # NULL from database
+                }
+            ],
+            [
+                {
+                    "user": "jane-smith",
+                    "total_reviews": 5,
+                    "prs_reviewed": 1,
+                }
+            ],
+            [],
+            [],
+        ]
+
+        response = client.get("/api/metrics/contributors")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify null values are converted to 0
+        creator = data["pr_creators"]["data"][0]
+        assert creator["merged_prs"] == 0
+        assert creator["closed_prs"] == 0
+        assert creator["avg_commits_per_pr"] == 0.0
+
+        # Verify avg_reviews_per_pr calculation handles division correctly
+        reviewer = data["pr_reviewers"]["data"][0]
+        assert reviewer["avg_reviews_per_pr"] == 5.0  # 5 reviews / 1 PR
+
+    def test_get_contributors_invalid_page_number(self, client: TestClient) -> None:
+        """Test contributors endpoint with invalid page number."""
+        response = client.get("/api/metrics/contributors?page=0")
+
+        assert response.status_code == 422  # FastAPI validation error
+
+    def test_get_contributors_invalid_page_size(self, client: TestClient) -> None:
+        """Test contributors endpoint with invalid page size."""
+        # Too large
+        response = client.get("/api/metrics/contributors?page_size=101")
+        assert response.status_code == 422
+
+        # Too small
+        response = client.get("/api/metrics/contributors?page_size=0")
+        assert response.status_code == 422
+
+    def test_get_contributors_db_manager_none(self, client: TestClient) -> None:
+        """Test endpoint returns 500 when db_manager is None."""
+        with patch("webhook_server.app.db_manager", None):
+            response = client.get("/api/metrics/contributors")
+
+            assert response.status_code == 500
+            assert "Metrics database not available" in response.json()["detail"]
+
+    def test_get_contributors_pool_none(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test endpoint returns 500 when database pool is not initialized."""
+        # Simulate pool not initialized - helper methods raise ValueError
+        setup_db_manager.pool = None
+        setup_db_manager.fetchval.side_effect = ValueError("Database pool not initialized. Call connect() first.")
+
+        response = client.get("/api/metrics/contributors")
+
+        assert response.status_code == 500
+        assert "Failed to fetch contributor metrics" in response.json()["detail"]
+
+    def test_get_contributors_database_error(
+        self,
+        client: TestClient,
+        setup_db_manager: Mock,
+    ) -> None:
+        """Test endpoint handles database errors gracefully."""
+        setup_db_manager.fetchval.side_effect = Exception("Database connection lost")
+
+        response = client.get("/api/metrics/contributors")
+
+        assert response.status_code == 500
+        assert "Failed to fetch contributor metrics" in response.json()["detail"]
+
+    def test_get_contributors_metrics_server_disabled(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test endpoint returns 404 when metrics server is disabled."""
+        # Override the module-level fixture to disable metrics server
+        monkeypatch.setattr(webhook_server.app, "METRICS_SERVER_ENABLED", False)
+
+        response = client.get("/api/metrics/contributors")
+
+        assert response.status_code == 404
+        assert "Metrics server is disabled" in response.json()["detail"]
 
 
 class TestGetTrendsEndpoint(TestMetricsAPIEndpoints):

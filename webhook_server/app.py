@@ -1356,7 +1356,7 @@ async def favicon() -> Response:
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
     )
 
-    return Response(content=transparent_png, media_type="image/x-icon")
+    return Response(content=transparent_png, media_type="image/png")
 
 
 # Metrics API Endpoints - Only functional if ENABLE_METRICS_SERVER=true (guarded by dependency)
@@ -2672,6 +2672,9 @@ async def get_user_pull_requests(
             },
         }
     except HTTPException:
+        raise
+    except asyncio.CancelledError:
+        LOGGER.debug("User pull requests request was cancelled")
         raise
     except Exception:
         LOGGER.exception("Failed to fetch user pull requests from database")
