@@ -99,6 +99,20 @@ class OwnersFileHandler:
             for sig_name, members in sig_data.items():
                 if isinstance(members, list) and all(isinstance(m, str) for m in members):
                     result[sig_name] = members
+                else:
+                    if not isinstance(members, list):
+                        self.logger.warning(
+                            "%s Skipping SIG '%s': expected list of strings, got %s",
+                            self.log_prefix,
+                            sig_name,
+                            type(members).__name__,
+                        )
+                    else:
+                        self.logger.warning(
+                            "%s Skipping SIG '%s': list contains non-string members",
+                            self.log_prefix,
+                            sig_name,
+                        )
 
             self.logger.debug("%s Loaded SIG file with %s SIGs", self.log_prefix, len(result))
             return result

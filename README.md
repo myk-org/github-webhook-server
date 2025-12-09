@@ -413,7 +413,7 @@ server re-reads configuration for each incoming webhook event.
 
 The webhook server supports Special Interest Group (SIG) labels that enhance review tracking by appending SIG team affiliations to reviewer labels. This feature provides visibility into which SIG teams are reviewing and approving changes.
 
-#### Overview
+#### Overview (SIG Labels)
 
 When the `sig-labels` configuration option is set, the webhook server appends SIG team suffixes to review-related labels, making it easy to track which teams are involved in reviewing each pull request.
 
@@ -424,7 +424,7 @@ When the `sig-labels` configuration option is set, the webhook server appends SI
 - `changes-requested-<username>` - Changes requested by reviewer
 - `commented-<username>` - Reviewer left comments
 
-#### Configuration
+#### Configuration (SIG Labels)
 
 ```yaml
 repositories:
@@ -495,7 +495,7 @@ If user `bob` is not in any SIG:
 
 **Pull Request Approval:**
 
-```
+```text
 approved-alice[sig-network sig-storage]
 approved-bob
 approved-charlie[sig-compute]
@@ -503,20 +503,20 @@ approved-charlie[sig-compute]
 
 **Changes Requested:**
 
-```
+```text
 changes-requested-dave[sig-api]
 ```
 
 **LGTM (Looks Good To Me):**
 
-```
+```text
 lgtm-emma[sig-network]
 lgtm-frank[sig-storage]
 ```
 
 **Commented:**
 
-```
+```text
 commented-grace[sig-api sig-compute]
 ```
 
@@ -593,12 +593,14 @@ api:
 
 **Resulting labels for reviews:**
 
+```text
 - Alice approves: `approved-alice[sig-network sig-storage]`
 - Bob approves: `approved-bob[sig-storage]`
 - Charlie requests changes: `changes-requested-charlie[sig-network]`
 - Emma comments: `commented-emma[sig-api]`
+```
 
-#### Real-time Updates
+#### Real-time Updates (SIG Labels)
 
 Configuration and SIG file changes take effect immediately without server restart. The webhook server re-reads both the configuration and SIG file for each incoming webhook event.
 
@@ -694,7 +696,7 @@ uv run pytest webhook_server/tests/test_config_schema.py::TestConfigSchema::test
 | Category          | Options                                                                                          |
 | ----------------- | ------------------------------------------------------------------------------------------------ |
 | **Basic**         | `name`, `log-level`, `log-file`, `slack-webhook-url`, `events`                                   |
-| **Features**      | `verified-job`, `pre-commit`, `pypi`, `tox`, `container`                                         |
+| **Features**      | `verified-job`, `pre-commit`, `pypi`, `tox`, `container`, `sig-labels`                           |
 | **Pull Requests** | `minimum-lgtm`, `conventional-title`, `can-be-merged-required-labels`, `create-issue-for-new-pr` |
 | **Automation**    | `set-auto-merge-prs`, `auto-verified-and-merged-users`                                           |
 | **Protection**    | `protected-branches`, `branch-protection`                                                        |

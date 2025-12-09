@@ -1146,7 +1146,7 @@ class TestLabelsHandler:
 
     @pytest.mark.asyncio
     async def test_manage_reviewed_by_label_sig_labels_file_empty(
-        self, labels_handler: LabelsHandler, mock_pull_request: Mock, mock_owners_handler: Mock
+        self, labels_handler: LabelsHandler, mock_pull_request: Mock
     ) -> None:
         """Test manage_reviewed_by_label with sig_labels_file empty (default behavior - no SIG suffix)."""
         # Configure webhook with empty sig_labels_file (default)
@@ -1184,7 +1184,7 @@ class TestLabelsHandler:
 
     @pytest.mark.asyncio
     async def test_manage_reviewed_by_label_sig_labels_file_with_data(
-        self, labels_handler: LabelsHandler, mock_pull_request: Mock, mock_owners_handler: Mock
+        self, labels_handler: LabelsHandler, mock_pull_request: Mock
     ) -> None:
         """Test manage_reviewed_by_label with sig_labels_file set and data loaded - SIG suffix appended."""
         # Configure webhook with sig_labels_file path
@@ -1234,7 +1234,7 @@ class TestLabelsHandler:
 
     @pytest.mark.asyncio
     async def test_manage_reviewed_by_label_sig_labels_file_empty_data(
-        self, labels_handler: LabelsHandler, mock_pull_request: Mock, mock_owners_handler: Mock
+        self, labels_handler: LabelsHandler, mock_pull_request: Mock
     ) -> None:
         """Test manage_reviewed_by_label with sig_labels_file set but load_sig_file returns empty dict.
 

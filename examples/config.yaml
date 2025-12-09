@@ -86,7 +86,7 @@ repositories:
       dev: testenv1,testenv2 # Run testenv1 and testenv2 tests in tox.ini when pull request parent branch is dev
 
     pre-commit: true # Run pre-commit check
-    sig-labels: .github/sig.yaml  # Path to SIG file for review label suffixes
+    sig-labels: .github/sig.yaml  # Path to SIG file in repository (relative to repository root)
 
     protected-branches:
       dev: []

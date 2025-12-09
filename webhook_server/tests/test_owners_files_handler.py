@@ -75,7 +75,7 @@ class TestOwnersFileHandler:
     async def test_ensure_initialized_not_initialized(self, owners_file_handler: OwnersFileHandler) -> None:
         """Test _ensure_initialized raises error when not initialized."""
         with pytest.raises(
-            RuntimeError, match="OwnersFileHandler.initialize\\(\\) must be called before using this method"
+            RuntimeError, match=r"OwnersFileHandler.initialize\(\) must be called before using this method"
         ):
             owners_file_handler._ensure_initialized()
 
