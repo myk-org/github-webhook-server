@@ -179,16 +179,18 @@ class OwnersFileHandler:
                 self.logger.error("%s git diff command failed", self.log_prefix)
                 return []
 
+        except Exception:
+            # Log error and return empty list if git diff fails
+            self.logger.exception("%s Failed to get changed files via git diff", self.log_prefix)
+            return []
+
+        else:
+            # Success path: parse output and return changed files
             # Parse output: split by newlines and filter empty lines
             changed_files = [line.strip() for line in out.splitlines() if line.strip()]
 
             self.logger.debug("%s Changed files: %s", self.log_prefix, changed_files)
             return changed_files
-
-        except Exception:
-            # Log error and return empty list if git diff fails
-            self.logger.exception("%s Failed to get changed files via git diff", self.log_prefix)
-            return []
 
     def _validate_owners_content(self, content: Any, path: str) -> bool:
         """Validate OWNERS file content structure."""
@@ -206,8 +208,8 @@ class OwnersFileHandler:
 
             return True
 
-        except ValueError as e:
-            self.logger.error("%s Invalid OWNERS file %s: %s", self.log_prefix, path, e)
+        except ValueError:
+            self.logger.exception("%s Invalid OWNERS file %s", self.log_prefix, path)
             return False
 
     async def _get_file_content_from_local(

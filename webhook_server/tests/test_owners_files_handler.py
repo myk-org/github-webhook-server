@@ -280,13 +280,13 @@ class TestOwnersFileHandler:
 
         # Set clone_repo_dir to tmp_path
         owners_file_handler.github_webhook.clone_repo_dir = str(tmp_path)
-        owners_file_handler.logger.error = Mock()
+        owners_file_handler.logger.exception = Mock()
 
         # No worktree needed - read directly from clone
         result = await owners_file_handler.get_all_repository_approvers_and_reviewers()
 
         assert result == {}
-        owners_file_handler.logger.error.assert_called_once()
+        owners_file_handler.logger.exception.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_all_repository_approvers(self, owners_file_handler: OwnersFileHandler) -> None:
