@@ -76,6 +76,64 @@ class OwnersFileHandler:
         return _approvers
 
     @property
+    def teams_and_members(self) -> dict[str, list[str]]:
+        """Get teams and their members from OWNERS files.
+
+        Each OWNERS file directory represents a team. Returns mapping of
+        team names (directory paths) to their members (approvers + reviewers combined).
+
+        Returns:
+            Dict mapping team names to their members:
+            {
+                "sig-all": ["user1", "user2"],
+                "sig-storage": ["user3", "user4"],
+            }
+        """
+        self._ensure_initialized()
+
+        _teams: dict[str, list[str]] = {}
+
+        for team_path, owners_data in self.all_repository_approvers_and_reviewers.items():
+            # Transform team path to sig-* format:
+            # - "." (root) becomes "sig-all"
+            # - "tests/storage" becomes "sig-storage" (last path component)
+            if team_path == ".":
+                team_name = "sig-all"
+            else:
+                # Get last component of path (e.g., "tests/storage" -> "storage")
+                last_component = Path(team_path).name
+                team_name = f"sig-{last_component}"
+
+            # Use set for deduplication, convert to sorted list for consistent output
+            _teams[team_name] = sorted(set(owners_data.get("approvers", []) + owners_data.get("reviewers", [])))
+
+        self.logger.debug(f"{self.log_prefix} Teams and members: {_teams}")
+        return _teams
+
+    def get_user_sig_suffix(self, username: str) -> str:
+        """Get SIG label suffix for a user based on their team membership.
+
+        Args:
+            username: GitHub username to look up
+
+        Returns:
+            String like "-sig-storage-sig-network" or empty if user not in any SIG.
+        """
+        self._ensure_initialized()
+
+        sig_names: list[str] = []
+
+        for team_name, members in self.teams_and_members.items():
+            if username in members:
+                sig_names.append(team_name)
+
+        sig_names.sort()
+
+        if sig_names:
+            return "-" + "-".join(sig_names)
+        return ""
+
+    @property
     def allowed_users(self) -> list[str]:
         self._ensure_initialized()
 

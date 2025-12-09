@@ -330,6 +330,7 @@ class LabelsHandler:
         )
         label_prefix: str = ""
         label_to_remove: str = ""
+        sig_suffix = self.owners_file_handler.get_user_sig_suffix(reviewed_user)
         self.logger.debug(f"{self.log_prefix} label_prefix is {label_prefix}, label_to_remove is {label_to_remove}")
 
         if review_state == APPROVE_STR:
@@ -338,7 +339,7 @@ class LabelsHandler:
                 in self.owners_file_handler.all_pull_request_approvers + self.owners_file_handler.root_approvers
             ):
                 label_prefix = APPROVED_BY_LABEL_PREFIX
-                label_to_remove = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{reviewed_user}"
+                label_to_remove = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{reviewed_user}{sig_suffix}"
                 self.logger.debug(
                     f"{self.log_prefix} User {reviewed_user} is approver, setting label prefix to "
                     f"{label_prefix} and label to remove to {label_to_remove}"
@@ -355,7 +356,7 @@ class LabelsHandler:
                     self.logger.info(f"{self.log_prefix} PR owner {pr_owner} set /lgtm, not adding label.")
                     return
 
-            _remove_label = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{reviewed_user}"
+            _remove_label = f"{CHANGED_REQUESTED_BY_LABEL_PREFIX}{reviewed_user}{sig_suffix}"
             label_prefix = LGTM_BY_LABEL_PREFIX
             label_to_remove = _remove_label
             self.logger.debug(
@@ -375,7 +376,7 @@ class LabelsHandler:
             self.logger.debug(f"{self.log_prefix} Setting label prefix to {label_prefix}")
 
         if label_prefix:
-            reviewer_label = f"{label_prefix}{reviewed_user}"
+            reviewer_label = f"{label_prefix}{reviewed_user}{sig_suffix}"
 
             if action == ADD_STR:
                 self.logger.debug(f"{self.log_prefix} Adding reviewer label {reviewer_label}")
