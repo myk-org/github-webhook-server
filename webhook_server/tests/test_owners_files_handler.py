@@ -178,11 +178,17 @@ class TestOwnersFileHandler:
 
         assert result is None
         owners_file_handler.logger.warning.assert_called_once()
-        # Verify the warning message contains expected information
-        warning_call = owners_file_handler.logger.warning.call_args[0][0]
-        assert "Failed to read OWNERS file" in warning_call
-        assert "test/OWNERS" in warning_call
-        assert "Skipping this file" in warning_call
+        # Verify the warning message template and parameters
+        call_args = owners_file_handler.logger.warning.call_args[0]
+        template = call_args[0]
+        params = call_args[1:]
+
+        # Check template contains expected message
+        assert "Failed to read OWNERS file" in template
+        assert "Skipping this file" in template
+
+        # Check parameters contain expected values
+        assert any("test/OWNERS" in str(param) for param in params)
 
     @pytest.mark.asyncio
     async def test_get_all_repository_approvers_and_reviewers(

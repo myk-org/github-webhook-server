@@ -65,7 +65,7 @@ class OwnersFileHandler:
         self._ensure_initialized()
 
         _reviewers = self.all_repository_approvers_and_reviewers.get(".", {}).get("reviewers", [])
-        self.logger.debug(f"{self.log_prefix} ROOT Reviewers: {_reviewers}")
+        self.logger.debug("%s ROOT Reviewers: %s", self.log_prefix, _reviewers)
         return _reviewers
 
     @property
@@ -73,7 +73,7 @@ class OwnersFileHandler:
         self._ensure_initialized()
 
         _approvers = self.all_repository_approvers_and_reviewers.get(".", {}).get("approvers", [])
-        self.logger.debug(f"{self.log_prefix} ROOT Approvers: {_approvers}")
+        self.logger.debug("%s ROOT Approvers: %s", self.log_prefix, _approvers)
         return _approvers
 
     @sync_functools.cached_property
@@ -108,7 +108,7 @@ class OwnersFileHandler:
             # Use set for deduplication, convert to sorted list for consistent output
             _teams[team_name] = sorted(set(owners_data.get("approvers", []) + owners_data.get("reviewers", [])))
 
-        self.logger.debug(f"{self.log_prefix} Teams and members: {_teams}")
+        self.logger.debug("%s Teams and members: %s", self.log_prefix, _teams)
         return _teams
 
     def get_user_sig_suffix(self, username: str) -> str:
@@ -139,7 +139,7 @@ class OwnersFileHandler:
         self._ensure_initialized()
 
         _allowed_users = self.all_repository_approvers_and_reviewers.get(".", {}).get("allowed-users", [])
-        self.logger.debug(f"{self.log_prefix} ROOT allowed users: {_allowed_users}")
+        self.logger.debug("%s ROOT allowed users: %s", self.log_prefix, _allowed_users)
         return _allowed_users
 
     async def list_changed_files(self, pull_request: PullRequest) -> list[str]:
@@ -176,18 +176,18 @@ class OwnersFileHandler:
 
             # Check success flag - return empty list if git diff failed
             if not success:
-                self.logger.error(f"{self.log_prefix} git diff command failed")
+                self.logger.error("%s git diff command failed", self.log_prefix)
                 return []
 
             # Parse output: split by newlines and filter empty lines
             changed_files = [line.strip() for line in out.splitlines() if line.strip()]
 
-            self.logger.debug(f"{self.log_prefix} Changed files: {changed_files}")
+            self.logger.debug("%s Changed files: %s", self.log_prefix, changed_files)
             return changed_files
 
         except Exception:
             # Log error and return empty list if git diff fails
-            self.logger.exception(f"{self.log_prefix} Failed to get changed files via git diff")
+            self.logger.exception("%s Failed to get changed files via git diff", self.log_prefix)
             return []
 
     def _validate_owners_content(self, content: Any, path: str) -> bool:
@@ -207,7 +207,7 @@ class OwnersFileHandler:
             return True
 
         except ValueError as e:
-            self.logger.error(f"{self.log_prefix} Invalid OWNERS file {path}: {e}")
+            self.logger.error("%s Invalid OWNERS file %s: %s", self.log_prefix, path, e)
             return False
 
     async def _get_file_content_from_local(
@@ -224,7 +224,7 @@ class OwnersFileHandler:
         """
         _base_path = base_path if base_path else Path(self.github_webhook.clone_repo_dir)
         relative_path = content_path.relative_to(_base_path)
-        self.logger.debug(f"{self.log_prefix} Reading OWNERS file from local clone: {relative_path}")
+        self.logger.debug("%s Reading OWNERS file from local clone: %s", self.log_prefix, relative_path)
 
         try:
             # Read file content from local filesystem (wrap in thread pool for I/O)
@@ -234,14 +234,14 @@ class OwnersFileHandler:
         except OSError as ex:
             # File may have been deleted or become unreadable between rglob and read_text
             self.logger.warning(
-                f"{self.log_prefix} Failed to read OWNERS file {relative_path}: {ex}. Skipping this file."
+                "%s Failed to read OWNERS file %s: %s. Skipping this file.", self.log_prefix, relative_path, ex
             )
             return None
 
         except UnicodeDecodeError as ex:
             # File has invalid encoding - log and skip to allow processing to continue
             self.logger.warning(
-                f"{self.log_prefix} OWNERS file {relative_path} has invalid encoding: {ex}. Skipping this file."
+                "%s OWNERS file %s has invalid encoding: %s. Skipping this file.", self.log_prefix, relative_path, ex
             )
             return None
 
@@ -266,7 +266,7 @@ class OwnersFileHandler:
         clone_path = Path(self.github_webhook.clone_repo_dir)
 
         # Find all OWNERS files via filesystem walk
-        self.logger.debug(f"{self.log_prefix} Finding OWNERS files in local clone")
+        self.logger.debug("%s Finding OWNERS files in local clone", self.log_prefix)
 
         # Run both git commands in parallel (RULE #0)
         git_branch_cmd = f"git -C {shlex.quote(str(clone_path))} branch --show-current"
@@ -288,9 +288,9 @@ class OwnersFileHandler:
         (branch_success, current_branch, _), (log_success, log_output, _) = await asyncio.gather(branch_task, log_task)
 
         if branch_success and current_branch.strip():
-            self.logger.debug(f"{self.log_prefix} Reading OWNERS files from branch: {current_branch.strip()}")
+            self.logger.debug("%s Reading OWNERS files from branch: %s", self.log_prefix, current_branch.strip())
         if log_success and log_output.strip():
-            self.logger.debug(f"{self.log_prefix} Latest OWNERS commit: {log_output.strip()}")
+            self.logger.debug("%s Latest OWNERS commit: %s", self.log_prefix, log_output.strip())
 
         # Use rglob to recursively find all OWNERS files
         def find_owners_files() -> list[Path]:
@@ -305,11 +305,11 @@ class OwnersFileHandler:
         for owners_file_path in owners_files:
             owners_count += 1
             if owners_count > max_owners_files:
-                self.logger.error(f"{self.log_prefix} Too many OWNERS files (>{max_owners_files})")
+                self.logger.error("%s Too many OWNERS files (>%s)", self.log_prefix, max_owners_files)
                 break
 
             relative_path = owners_file_path.relative_to(clone_path)
-            self.logger.debug(f"{self.log_prefix} Found OWNERS file: {relative_path}")
+            self.logger.debug("%s Found OWNERS file: %s", self.log_prefix, relative_path)
             tasks.append(self._get_file_content_from_local(owners_file_path))
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -322,7 +322,7 @@ class OwnersFileHandler:
                     str(owners_files[idx].relative_to(clone_path)) if idx < len(owners_files) else "unknown"
                 )
                 self.logger.exception(
-                    f"{self.log_prefix} Unexpected exception reading OWNERS file {relative_path_str}: {result}"
+                    "%s Unexpected exception reading OWNERS file %s: %s", self.log_prefix, relative_path_str, result
                 )
                 continue
 
@@ -334,17 +334,23 @@ class OwnersFileHandler:
             file_content, relative_path_str = result
 
             self.logger.debug(
-                f"{self.log_prefix} Raw OWNERS file for {relative_path_str}: "
-                f"{len(file_content)} bytes, {len(file_content.splitlines())} lines"
+                "%s Raw OWNERS file for %s: %s bytes, %s lines",
+                self.log_prefix,
+                relative_path_str,
+                len(file_content),
+                len(file_content.splitlines()),
             )
 
             try:
                 content = yaml.safe_load(file_content)
 
                 self.logger.debug(
-                    f"{self.log_prefix} Parsed OWNERS structure for {relative_path_str} - "
-                    f"type: {type(content)}, keys: {list(content.keys()) if isinstance(content, dict) else 'N/A'}, "
-                    f"content: {content}"
+                    "%s Parsed OWNERS structure for %s - type: %s, keys: %s, content: %s",
+                    self.log_prefix,
+                    relative_path_str,
+                    type(content),
+                    list(content.keys()) if isinstance(content, dict) else "N/A",
+                    content,
                 )
                 if self._validate_owners_content(content, relative_path_str):
                     parent_path = str(Path(relative_path_str).parent)
@@ -353,7 +359,7 @@ class OwnersFileHandler:
                     _owners[parent_path] = content
 
             except yaml.YAMLError:
-                self.logger.exception(f"{self.log_prefix} Invalid OWNERS file {relative_path_str}")
+                self.logger.exception("%s Invalid OWNERS file %s", self.log_prefix, relative_path_str)
                 continue
 
         return _owners
@@ -368,7 +374,7 @@ class OwnersFileHandler:
                 if key == "approvers":
                     _approvers.extend(val)
 
-        self.logger.debug(f"{self.log_prefix} All repository approvers: {_approvers}")
+        self.logger.debug("%s All repository approvers: %s", self.log_prefix, _approvers)
         return _approvers
 
     async def get_all_repository_reviewers(self) -> list[str]:
@@ -381,7 +387,7 @@ class OwnersFileHandler:
                 if key == "reviewers":
                     _reviewers.extend(val)
 
-        self.logger.debug(f"{self.log_prefix} All repository reviewers: {_reviewers}")
+        self.logger.debug("%s All repository reviewers: %s", self.log_prefix, _reviewers)
         return _reviewers
 
     async def get_all_pull_request_approvers(self) -> list[str]:
@@ -394,7 +400,7 @@ class OwnersFileHandler:
 
         _approvers = list(set(_approvers))
         _approvers.sort()
-        self.logger.debug(f"{self.log_prefix} All pull request approvers: {_approvers}")
+        self.logger.debug("%s All pull request approvers: %s", self.log_prefix, _approvers)
         return _approvers
 
     async def get_all_pull_request_reviewers(self) -> list[str]:
@@ -407,7 +413,7 @@ class OwnersFileHandler:
 
         _reviewers = list(set(_reviewers))
         _reviewers.sort()
-        self.logger.debug(f"{self.log_prefix} Pull request reviewers are: {_reviewers}")
+        self.logger.debug("%s Pull request reviewers are: %s", self.log_prefix, _reviewers)
         return _reviewers
 
     @functools.cached_property
@@ -422,7 +428,7 @@ class OwnersFileHandler:
         data: dict[str, dict[str, Any]] = {}
 
         changed_folders = {Path(cf).parent for cf in self.changed_files}
-        self.logger.debug(f"{self.log_prefix} Changed folders: {changed_folders}")
+        self.logger.debug("%s Changed folders: %s", self.log_prefix, changed_folders)
 
         changed_folder_match: list[Path] = []
 
@@ -439,13 +445,16 @@ class OwnersFileHandler:
                     data[owners_dir] = owners_data
                     changed_folder_match.append(_owners_dir)
                     self.logger.debug(
-                        f"{self.log_prefix} Matched changed folder: {changed_folder} with owners dir: {_owners_dir}"
+                        "%s Matched changed folder: %s with owners dir: %s",
+                        self.log_prefix,
+                        changed_folder,
+                        _owners_dir,
                     )
                     if require_root_approvers is None:
                         require_root_approvers = owners_data.get(ROOT_APPROVERS_KEY, True)
 
         if require_root_approvers or require_root_approvers is None:
-            self.logger.debug(f"{self.log_prefix} require root_approvers")
+            self.logger.debug("%s require root_approvers", self.log_prefix)
             data["."] = self.all_repository_approvers_and_reviewers.get(".", {})
 
         else:
@@ -454,11 +463,11 @@ class OwnersFileHandler:
                     if _folder == _changed_path or _changed_path in _folder.parents:
                         continue
                     else:
-                        self.logger.debug(f"{self.log_prefix} Adding root approvers for {_folder}")
+                        self.logger.debug("%s Adding root approvers for %s", self.log_prefix, _folder)
                         data["."] = self.all_repository_approvers_and_reviewers.get(".", {})
                         break
 
-        self.logger.debug(f"{self.log_prefix} Final owners data for changed files: {data}")
+        self.logger.debug("%s Final owners data for changed files: %s", self.log_prefix, data)
 
         return data
 
@@ -469,10 +478,10 @@ class OwnersFileHandler:
             f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'started')} "
             f"Starting reviewer assignment based on OWNERS files",
         )
-        self.logger.info(f"{self.log_prefix} Assign reviewers")
+        self.logger.info("%s Assign reviewers", self.log_prefix)
 
         _to_add: list[str] = list(set(self.all_pull_request_reviewers))
-        self.logger.debug(f"{self.log_prefix} Reviewers to add: {', '.join(_to_add)}")
+        self.logger.debug("%s Reviewers to add: %s", self.log_prefix, ", ".join(_to_add))
 
         if _to_add:
             self.logger.step(  # type: ignore[attr-defined]
@@ -495,7 +504,7 @@ class OwnersFileHandler:
         failed_count = 0
         for reviewer in _to_add:
             if reviewer != pull_request.user.login:
-                self.logger.debug(f"{self.log_prefix} Adding reviewer {reviewer}")
+                self.logger.debug("%s Adding reviewer %s", self.log_prefix, reviewer)
                 try:
                     await asyncio.to_thread(pull_request.create_review_request, [reviewer])
                     self.logger.step(  # type: ignore[attr-defined]
@@ -509,7 +518,7 @@ class OwnersFileHandler:
                         f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'failed')} "
                         f"Failed to assign reviewer {reviewer}",
                     )
-                    self.logger.debug(f"{self.log_prefix} Failed to add reviewer {reviewer}. {ex}")
+                    self.logger.debug("%s Failed to add reviewer %s. %s", self.log_prefix, reviewer, ex)
                     await asyncio.to_thread(
                         pull_request.create_issue_comment, f"{reviewer} can not be added as reviewer. {ex}"
                     )
@@ -541,7 +550,7 @@ Maintainers:
  - {"\n - ".join(allowed_user_to_approve)}
 """
         valid_users = await self.valid_users_to_run_commands
-        self.logger.debug(f"{self.log_prefix} Valid users to run commands: {valid_users}")
+        self.logger.debug("%s Valid users to run commands: %s", self.log_prefix, valid_users)
 
         if reviewed_user not in valid_users:
             for comment in [
@@ -551,11 +560,11 @@ Maintainers:
             ]:
                 if allow_user_comment in comment.body:
                     self.logger.debug(
-                        f"{self.log_prefix} {reviewed_user} is approved by {comment.user.login} to run commands"
+                        "%s %s is approved by %s to run commands", self.log_prefix, reviewed_user, comment.user.login
                     )
                     return True
 
-            self.logger.debug(f"{self.log_prefix} {reviewed_user} is not in {valid_users}")
+            self.logger.debug("%s %s is not in %s", self.log_prefix, reviewed_user, valid_users)
             await asyncio.to_thread(pull_request.create_issue_comment, comment_msg)
             return False
 
@@ -596,12 +605,12 @@ Maintainers:
                 return u.permissions
 
             permissions = await asyncio.to_thread(get_user_permissions)
-            self.logger.debug(f"{self.log_prefix} User {user.login} permissions: {permissions}")
+            self.logger.debug("%s User %s permissions: %s", self.log_prefix, user.login, permissions)
 
             if permissions.admin or permissions.maintain:
                 maintainers.append(user.login)
 
-        self.logger.debug(f"{self.log_prefix} Maintainers: {maintainers}")
+        self.logger.debug("%s Maintainers: %s", self.log_prefix, maintainers)
         return maintainers
 
     @functools.cached_property
