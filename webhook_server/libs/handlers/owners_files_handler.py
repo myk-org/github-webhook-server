@@ -1,4 +1,5 @@
 import asyncio
+import functools as sync_functools
 import shlex
 from collections.abc import Coroutine
 from pathlib import Path
@@ -75,7 +76,7 @@ class OwnersFileHandler:
         self.logger.debug(f"{self.log_prefix} ROOT Approvers: {_approvers}")
         return _approvers
 
-    @property
+    @sync_functools.cached_property
     def teams_and_members(self) -> dict[str, list[str]]:
         """Get teams and their members from OWNERS files.
 

@@ -830,7 +830,7 @@ class TestOwnersFileHandler:
         """Test teams_and_members property raises error when not initialized."""
         # Don't initialize (no changed_files attribute)
         with pytest.raises(
-            RuntimeError, match="OwnersFileHandler.initialize\\(\\) must be called before using this method"
+            RuntimeError, match=r"OwnersFileHandler.initialize\(\) must be called before using this method"
         ):
             _ = owners_file_handler.teams_and_members
 
@@ -892,7 +892,7 @@ class TestOwnersFileHandler:
         """Test get_user_sig_suffix raises error when handler is not initialized."""
         # Don't initialize (no changed_files attribute)
         with pytest.raises(
-            RuntimeError, match="OwnersFileHandler.initialize\\(\\) must be called before using this method"
+            RuntimeError, match=r"OwnersFileHandler.initialize\(\) must be called before using this method"
         ):
             owners_file_handler.get_user_sig_suffix("any_user")
 
