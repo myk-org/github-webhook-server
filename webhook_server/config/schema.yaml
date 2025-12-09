@@ -176,6 +176,9 @@ properties:
           type: boolean
           default: true
           description: Enable pre-commit checks
+        sig-labels:
+          type: string
+          description: Path to SIG YAML file in repository (e.g., .github/sig.yaml). If set, appends SIG suffixes to review labels.
         protected-branches:
           type: object
           additionalProperties:

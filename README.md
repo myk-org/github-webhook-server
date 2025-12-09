@@ -409,6 +409,199 @@ Invalid color names automatically fall back to `lightgray`.
 Configuration changes take effect immediately without server restart. The webhook
 server re-reads configuration for each incoming webhook event.
 
+### SIG Labels for Review Tracking
+
+The webhook server supports Special Interest Group (SIG) labels that enhance review tracking by appending SIG team affiliations to reviewer labels. This feature provides visibility into which SIG teams are reviewing and approving changes.
+
+#### Overview
+
+When the `sig-labels` configuration option is set, the webhook server appends SIG team suffixes to review-related labels, making it easy to track which teams are involved in reviewing each pull request.
+
+**Review labels that support SIG suffixes:**
+
+- `approved-<username>` - PR approval
+- `lgtm-<username>` - Looks good to me (reviewer approval)
+- `changes-requested-<username>` - Changes requested by reviewer
+- `commented-<username>` - Reviewer left comments
+
+#### Configuration
+
+```yaml
+repositories:
+  my-project:
+    name: my-org/my-project
+    sig-labels: .github/sig.yaml  # Path to SIG file in repository
+```
+
+**Configuration Options:**
+
+- **sig-labels**: Path to SIG YAML file in the repository (relative to repository root)
+- If not set or empty: SIG suffixes are not added to labels (default behavior)
+- If file not found: Warning logged, no SIG suffix added
+
+#### SIG File Format
+
+Create a YAML file at the configured path (e.g., `.github/sig.yaml`) with SIG team definitions:
+
+```yaml
+# .github/sig.yaml
+# Define SIG teams and their members
+storage:
+  - user1
+  - user2
+  - user3
+
+network:
+  - user4
+  - user5
+
+compute:
+  - user2  # Users can belong to multiple SIGs
+  - user6
+
+api:
+  - user7
+```
+
+**Format Rules:**
+
+- Top-level keys are SIG team names (e.g., `storage`, `network`, `compute`)
+- Each SIG contains a list of GitHub usernames
+- Users can belong to multiple SIG teams
+- SIG names are case-sensitive and should use lowercase
+
+#### Label Examples
+
+**Single SIG Membership:**
+
+If user `john` is in the `storage` SIG and approves a PR:
+
+- Label created: `approved-john[sig-storage]`
+
+**Multiple SIG Membership:**
+
+If user `alice` is in both `network` and `storage` SIGs:
+
+- Label created: `lgtm-alice[sig-network sig-storage]`
+- SIG names are sorted alphabetically in the suffix
+
+**No SIG Membership:**
+
+If user `bob` is not in any SIG:
+
+- Label created: `approved-bob` (no suffix added)
+
+#### Review State Examples
+
+**Pull Request Approval:**
+
+```
+approved-alice[sig-network sig-storage]
+approved-bob
+approved-charlie[sig-compute]
+```
+
+**Changes Requested:**
+
+```
+changes-requested-dave[sig-api]
+```
+
+**LGTM (Looks Good To Me):**
+
+```
+lgtm-emma[sig-network]
+lgtm-frank[sig-storage]
+```
+
+**Commented:**
+
+```
+commented-grace[sig-api sig-compute]
+```
+
+#### Behavior Details
+
+**Enabling SIG Labels:**
+
+1. Set `sig-labels` configuration to point to your SIG YAML file
+2. Create the SIG YAML file in your repository at the specified path
+3. Define SIG teams and members in the YAML file
+4. SIG suffixes will be automatically added to review labels
+
+**Disabling SIG Labels:**
+
+1. Remove or comment out the `sig-labels` configuration
+2. Review labels will be created without SIG suffixes
+
+**Error Handling:**
+
+- **File not found**: Warning logged, labels created without SIG suffix
+- **Invalid YAML**: Warning logged, labels created without SIG suffix
+- **Empty SIG data**: Labels created without SIG suffix
+- **User not in any SIG**: Label created without SIG suffix
+
+#### Use Cases
+
+**Multi-Team Repositories:**
+
+- Track which SIG teams are reviewing specific changes
+- Identify coverage gaps (which SIGs haven't reviewed yet)
+- Ensure appropriate domain experts review changes
+
+**Organizational Visibility:**
+
+- See at a glance which teams are actively reviewing
+- Track SIG participation in the review process
+- Identify cross-SIG collaboration patterns
+
+**Compliance and Audit:**
+
+- Demonstrate domain expert review for compliance requirements
+- Track which teams approved critical changes
+- Maintain audit trail of SIG-level approvals
+
+#### Complete Configuration Example
+
+```yaml
+repositories:
+  platform-core:
+    name: my-org/platform-core
+    sig-labels: .github/sig.yaml
+    minimum-lgtm: 2
+    can-be-merged-required-labels:
+      - "approved"
+    protected-branches:
+      main: []
+```
+
+With SIG file at `.github/sig.yaml`:
+
+```yaml
+storage:
+  - alice
+  - bob
+network:
+  - alice
+  - charlie
+compute:
+  - dave
+api:
+  - emma
+  - frank
+```
+
+**Resulting labels for reviews:**
+
+- Alice approves: `approved-alice[sig-network sig-storage]`
+- Bob approves: `approved-bob[sig-storage]`
+- Charlie requests changes: `changes-requested-charlie[sig-network]`
+- Emma comments: `commented-emma[sig-api]`
+
+#### Real-time Updates
+
+Configuration and SIG file changes take effect immediately without server restart. The webhook server re-reads both the configuration and SIG file for each incoming webhook event.
+
 ### Repository-Level Overrides
 
 Create `.github-webhook-server.yaml` in your repository root to override or extend the global configuration for that specific repository. This file supports all repository-level configuration options.

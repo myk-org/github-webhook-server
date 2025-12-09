@@ -50,6 +50,8 @@ class TestLabelsHandler:
         # Configure config.get_value to return None for pr-size-thresholds by default
         # This ensures existing tests use static defaults
         webhook.config.get_value.return_value = None
+        # Set sig_labels_file to empty string by default (no SIG labels)
+        webhook.sig_labels_file = ""
         return webhook
 
     @pytest.fixture
@@ -1141,3 +1143,135 @@ class TestLabelsHandler:
         assert labels_handler._get_label_color("size/S") == "008000"  # green hex
         assert labels_handler._get_label_color("size/M") == "ffa500"  # orange hex
         assert labels_handler._get_label_color("size/XXL") == "ff0000"  # red hex (infinity category)
+
+    @pytest.mark.asyncio
+    async def test_manage_reviewed_by_label_sig_labels_file_empty(
+        self, labels_handler: LabelsHandler, mock_pull_request: Mock, mock_owners_handler: Mock
+    ) -> None:
+        """Test manage_reviewed_by_label with sig_labels_file empty (default behavior - no SIG suffix)."""
+        # Configure webhook with empty sig_labels_file (default)
+        labels_handler.github_webhook.sig_labels_file = ""
+
+        # Mock owners handler
+        with patch.object(labels_handler.owners_file_handler, "all_pull_request_approvers", ["approver1", "approver2"]):
+            with patch.object(labels_handler.owners_file_handler, "root_approvers", []):
+                with patch.object(
+                    labels_handler.owners_file_handler, "load_sig_file", new_callable=AsyncMock
+                ) as mock_load_sig:
+                    with patch.object(labels_handler.owners_file_handler, "get_user_sig_suffix") as mock_sig_suffix:
+                        with patch.object(labels_handler, "_add_label", new_callable=AsyncMock) as mock_add:
+                            with patch.object(labels_handler, "_remove_label", new_callable=AsyncMock) as mock_remove:
+                                await labels_handler.manage_reviewed_by_label(
+                                    pull_request=mock_pull_request,
+                                    review_state=APPROVE_STR,
+                                    action=ADD_STR,
+                                    reviewed_user="approver1",
+                                )
+
+                                # Verify load_sig_file() and get_user_sig_suffix() were NOT called
+                                mock_load_sig.assert_not_called()
+                                mock_sig_suffix.assert_not_called()
+
+                                # Verify label was added WITHOUT SIG suffix
+                                mock_add.assert_called_once()
+                                added_label = mock_add.call_args[1]["label"]
+                                assert added_label == "approved-approver1"  # No SIG suffix
+
+                                # Verify label to remove also has no SIG suffix
+                                mock_remove.assert_called_once()
+                                removed_label = mock_remove.call_args[1]["label"]
+                                assert removed_label == "changes-requested-approver1"  # No SIG suffix
+
+    @pytest.mark.asyncio
+    async def test_manage_reviewed_by_label_sig_labels_file_with_data(
+        self, labels_handler: LabelsHandler, mock_pull_request: Mock, mock_owners_handler: Mock
+    ) -> None:
+        """Test manage_reviewed_by_label with sig_labels_file set and data loaded - SIG suffix appended."""
+        # Configure webhook with sig_labels_file path
+        labels_handler.github_webhook.sig_labels_file = "/path/to/sig.yaml"
+
+        # Mock SIG data
+        sig_data = {
+            "network": ["approver1"],
+            "storage": ["approver1"],
+        }
+
+        # Mock owners handler
+        with patch.object(labels_handler.owners_file_handler, "all_pull_request_approvers", ["approver1", "approver2"]):
+            with patch.object(labels_handler.owners_file_handler, "root_approvers", []):
+                with patch.object(
+                    labels_handler.owners_file_handler, "load_sig_file", new_callable=AsyncMock, return_value=sig_data
+                ) as mock_load_sig:
+                    with patch.object(
+                        labels_handler.owners_file_handler,
+                        "get_user_sig_suffix",
+                        return_value="[sig-network sig-storage]",
+                    ) as mock_sig_suffix:
+                        with patch.object(labels_handler, "_add_label", new_callable=AsyncMock) as mock_add:
+                            with patch.object(labels_handler, "_remove_label", new_callable=AsyncMock) as mock_remove:
+                                await labels_handler.manage_reviewed_by_label(
+                                    pull_request=mock_pull_request,
+                                    review_state=APPROVE_STR,
+                                    action=ADD_STR,
+                                    reviewed_user="approver1",
+                                )
+
+                                # Verify load_sig_file() WAS called with correct path
+                                mock_load_sig.assert_called_once_with("/path/to/sig.yaml")
+
+                                # Verify get_user_sig_suffix() WAS called with sig_data
+                                mock_sig_suffix.assert_called_once_with("approver1", sig_data=sig_data)
+
+                                # Verify label was added WITH SIG suffix (new format with brackets)
+                                mock_add.assert_called_once()
+                                added_label = mock_add.call_args[1]["label"]
+                                assert added_label == "approved-approver1[sig-network sig-storage]"
+
+                                # Verify label to remove also has SIG suffix
+                                mock_remove.assert_called_once()
+                                removed_label = mock_remove.call_args[1]["label"]
+                                assert removed_label == "changes-requested-approver1[sig-network sig-storage]"
+
+    @pytest.mark.asyncio
+    async def test_manage_reviewed_by_label_sig_labels_file_empty_data(
+        self, labels_handler: LabelsHandler, mock_pull_request: Mock, mock_owners_handler: Mock
+    ) -> None:
+        """Test manage_reviewed_by_label with sig_labels_file set but load_sig_file returns empty dict.
+
+        No SIG suffix should be added when the SIG file data is empty.
+        """
+        # Configure webhook with sig_labels_file path
+        labels_handler.github_webhook.sig_labels_file = "/path/to/sig.yaml"
+
+        # Mock owners handler
+        with patch.object(labels_handler.owners_file_handler, "all_pull_request_approvers", ["approver1", "approver2"]):
+            with patch.object(labels_handler.owners_file_handler, "root_approvers", []):
+                # load_sig_file returns empty dict - implementation checks "if sig_data:" which is False for {}
+                with patch.object(
+                    labels_handler.owners_file_handler, "load_sig_file", new_callable=AsyncMock, return_value={}
+                ) as mock_load_sig:
+                    with patch.object(labels_handler.owners_file_handler, "get_user_sig_suffix") as mock_sig_suffix:
+                        with patch.object(labels_handler, "_add_label", new_callable=AsyncMock) as mock_add:
+                            with patch.object(labels_handler, "_remove_label", new_callable=AsyncMock) as mock_remove:
+                                await labels_handler.manage_reviewed_by_label(
+                                    pull_request=mock_pull_request,
+                                    review_state=APPROVE_STR,
+                                    action=ADD_STR,
+                                    reviewed_user="approver1",
+                                )
+
+                                # Verify load_sig_file() WAS called
+                                mock_load_sig.assert_called_once_with("/path/to/sig.yaml")
+
+                                # Verify get_user_sig_suffix() was NOT called (empty dict is falsy)
+                                mock_sig_suffix.assert_not_called()
+
+                                # Verify label was added WITHOUT SIG suffix (empty data = no suffix)
+                                mock_add.assert_called_once()
+                                added_label = mock_add.call_args[1]["label"]
+                                assert added_label == "approved-approver1"  # No SIG suffix (empty dict)
+
+                                # Verify label to remove also has no SIG suffix
+                                mock_remove.assert_called_once()
+                                removed_label = mock_remove.call_args[1]["label"]
+                                assert removed_label == "changes-requested-approver1"  # No SIG suffix

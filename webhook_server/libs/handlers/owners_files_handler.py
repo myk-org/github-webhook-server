@@ -1,5 +1,4 @@
 import asyncio
-import functools as sync_functools
 import shlex
 from collections.abc import Coroutine
 from pathlib import Path
@@ -76,63 +75,47 @@ class OwnersFileHandler:
         self.logger.debug("%s ROOT Approvers: %s", self.log_prefix, _approvers)
         return _approvers
 
-    @sync_functools.cached_property
-    def teams_and_members(self) -> dict[str, list[str]]:
-        """Get teams and their members from OWNERS files.
+    async def load_sig_file(self, sig_file_path: str) -> dict[str, list[str]]:
+        """Load SIG membership from YAML file in repository."""
+        if not sig_file_path:
+            return {}
 
-        Each OWNERS file directory represents a team. Returns mapping of
-        team names (directory paths) to their members (approvers + reviewers combined).
+        full_path = Path(self.github_webhook.clone_repo_dir) / sig_file_path
 
-        Returns:
-            Dict mapping team names to their members:
-            {
-                "sig-all": ["user1", "user2"],
-                "sig-storage": ["user3", "user4"],
-            }
+        if not await asyncio.to_thread(full_path.exists):
+            self.logger.warning("%s SIG file not found: %s", self.log_prefix, sig_file_path)
+            return {}
+
+        try:
+            file_content = await asyncio.to_thread(full_path.read_text, encoding="utf-8")
+            sig_data = yaml.safe_load(file_content)
+
+            if not isinstance(sig_data, dict):
+                self.logger.error("%s Invalid SIG file format: %s", self.log_prefix, sig_file_path)
+                return {}
+
+            # Validate: each key should map to list of strings
+            result: dict[str, list[str]] = {}
+            for sig_name, members in sig_data.items():
+                if isinstance(members, list) and all(isinstance(m, str) for m in members):
+                    result[sig_name] = members
+
+            self.logger.debug("%s Loaded SIG file with %s SIGs", self.log_prefix, len(result))
+            return result
+
+        except (OSError, yaml.YAMLError):
+            self.logger.exception("%s Failed to load SIG file: %s", self.log_prefix, sig_file_path)
+            return {}
+
+    def get_user_sig_suffix(self, username: str, sig_data: dict[str, list[str]]) -> str:
+        """Get SIG label suffix for a user from SIG data.
+
+        Format: [sig-name1 sig-name2] (sorted alphabetically, space-separated)
+        Example: approved-john[sig-network sig-storage]
         """
-        self._ensure_initialized()
-
-        _teams: dict[str, list[str]] = {}
-
-        for team_path, owners_data in self.all_repository_approvers_and_reviewers.items():
-            # Transform team path to sig-* format:
-            # - "." (root) becomes "sig-all"
-            # - "tests/storage" becomes "sig-storage" (last path component)
-            if team_path == ".":
-                team_name = "sig-all"
-            else:
-                # Get last component of path (e.g., "tests/storage" -> "storage")
-                last_component = Path(team_path).name
-                team_name = f"sig-{last_component}"
-
-            # Use set for deduplication, convert to sorted list for consistent output
-            _teams[team_name] = sorted(set(owners_data.get("approvers", []) + owners_data.get("reviewers", [])))
-
-        self.logger.debug("%s Teams and members: %s", self.log_prefix, _teams)
-        return _teams
-
-    def get_user_sig_suffix(self, username: str) -> str:
-        """Get SIG label suffix for a user based on their team membership.
-
-        Args:
-            username: GitHub username to look up
-
-        Returns:
-            String like "-sig-storage-sig-network" or empty if user not in any SIG.
-        """
-        self._ensure_initialized()
-
-        sig_names: list[str] = []
-
-        for team_name, members in self.teams_and_members.items():
-            if username in members:
-                sig_names.append(team_name)
-
+        sig_names = [f"sig-{sig_name}" for sig_name, members in sig_data.items() if username in members]
         sig_names.sort()
-
-        if sig_names:
-            return "-" + "-".join(sig_names)
-        return ""
+        return f"[{' '.join(sig_names)}]" if sig_names else ""
 
     @property
     def allowed_users(self) -> list[str]:

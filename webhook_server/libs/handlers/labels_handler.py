@@ -330,7 +330,11 @@ class LabelsHandler:
         )
         label_prefix: str = ""
         label_to_remove: str = ""
-        sig_suffix = self.owners_file_handler.get_user_sig_suffix(reviewed_user)
+        sig_suffix = ""
+        if self.github_webhook.sig_labels_file:
+            sig_data = await self.owners_file_handler.load_sig_file(self.github_webhook.sig_labels_file)
+            if sig_data:
+                sig_suffix = self.owners_file_handler.get_user_sig_suffix(reviewed_user, sig_data=sig_data)
         self.logger.debug(f"{self.log_prefix} label_prefix is {label_prefix}, label_to_remove is {label_to_remove}")
 
         if review_state == APPROVE_STR:
@@ -365,7 +369,7 @@ class LabelsHandler:
 
         elif review_state == "changes_requested":
             label_prefix = CHANGED_REQUESTED_BY_LABEL_PREFIX
-            _remove_label = LGTM_BY_LABEL_PREFIX
+            _remove_label = f"{LGTM_BY_LABEL_PREFIX}{reviewed_user}{sig_suffix}"
             label_to_remove = _remove_label
             self.logger.debug(
                 f"{self.log_prefix} Setting label prefix to {label_prefix} and label to remove to {label_to_remove}"

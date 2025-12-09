@@ -682,6 +682,9 @@ class GithubWebhook:
         self.pre_commit: bool = self.config.get_value(
             value="pre-commit", return_on_none=False, extra_dict=repository_config
         )
+        self.sig_labels_file: str = self.config.get_value(
+            value="sig-labels", return_on_none="", extra_dict=repository_config
+        )
 
         self.auto_verified_and_merged_users: list[str] = self.config.get_value(
             value="auto-verified-and-merged-users", return_on_none=[], extra_dict=repository_config

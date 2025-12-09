@@ -745,205 +745,162 @@ class TestOwnersFileHandler:
 
         assert result == []
 
-    def test_teams_and_members_property(self, owners_file_handler: OwnersFileHandler) -> None:
-        """Test teams_and_members property returns correct structure."""
-        # Initialize handler (required for _ensure_initialized check)
-        owners_file_handler.changed_files = ["file1.py"]
-        owners_file_handler.all_repository_approvers_and_reviewers = {
-            ".": {"approvers": ["root_user1", "root_user2"], "reviewers": ["root_reviewer1"]},
-            "tests/storage": {
-                "approvers": ["storage_expert1"],
-                "reviewers": ["storage_reviewer1", "storage_reviewer2"],
-            },
-            "docs": {"approvers": ["doc_writer1"], "reviewers": []},
-            "api/v1": {"approvers": [], "reviewers": ["api_reviewer1"]},
-        }
-
-        result = owners_file_handler.teams_and_members
-
-        # Returns sorted lists (approvers + reviewers combined, deduplicated, alphabetically sorted)
-        # Keys are transformed to sig-* format: "." -> "sig-all", other paths -> "sig-{last_component}"
-        expected = {
-            "sig-all": ["root_reviewer1", "root_user1", "root_user2"],
-            "sig-storage": ["storage_expert1", "storage_reviewer1", "storage_reviewer2"],
-            "sig-docs": ["doc_writer1"],
-            "sig-v1": ["api_reviewer1"],
-        }
-
-        assert result == expected
-
-    def test_teams_and_members_property_missing_approvers(self, owners_file_handler: OwnersFileHandler) -> None:
-        """Test teams_and_members property when approvers key is missing."""
-        # Initialize handler (required for _ensure_initialized check)
-        owners_file_handler.changed_files = ["file1.py"]
-        owners_file_handler.all_repository_approvers_and_reviewers = {
-            ".": {"reviewers": ["reviewer1", "reviewer2"]},  # No approvers key
-            "team1": {"approvers": ["user1"]},  # No reviewers key
-        }
-
-        result = owners_file_handler.teams_and_members
-
-        # Returns sorted lists (approvers + reviewers combined, deduplicated, alphabetically sorted)
-        # Keys are transformed to sig-* format: "." -> "sig-all", other paths -> "sig-{last_component}"
-        expected = {
-            "sig-all": ["reviewer1", "reviewer2"],
-            "sig-team1": ["user1"],
-        }
-
-        assert result == expected
-
-    def test_teams_and_members_property_empty_owners_data(self, owners_file_handler: OwnersFileHandler) -> None:
-        """Test teams_and_members property with empty OWNERS data."""
-        # Initialize handler (required for _ensure_initialized check)
-        owners_file_handler.changed_files = ["file1.py"]
-        owners_file_handler.all_repository_approvers_and_reviewers = {
-            ".": {},  # Empty OWNERS file
-            "folder1": {},
-        }
-
-        result = owners_file_handler.teams_and_members
-
-        # Returns sorted lists - empty OWNERS files result in empty lists
-        # Keys are transformed to sig-* format: "." -> "sig-all", other paths -> "sig-{last_component}"
-        expected = {
-            "sig-all": [],
-            "sig-folder1": [],
-        }
-
-        assert result == expected
-
-    def test_teams_and_members_property_deduplication(self, owners_file_handler: OwnersFileHandler) -> None:
-        """Test teams_and_members property deduplicates users who are both approvers and reviewers."""
-        # Initialize handler (required for _ensure_initialized check)
-        owners_file_handler.changed_files = ["file1.py"]
-        owners_file_handler.all_repository_approvers_and_reviewers = {
-            ".": {"approvers": ["user1", "user2", "user3"], "reviewers": ["user2", "user3", "user4"]},
-            "team1": {"approvers": ["alice", "bob"], "reviewers": ["bob", "charlie"]},
-        }
-
-        result = owners_file_handler.teams_and_members
-
-        # Returns sorted lists - members are automatically deduplicated and sorted alphabetically
-        # Keys are transformed to sig-* format: "." -> "sig-all", other paths -> "sig-{last_component}"
-        expected = {
-            "sig-all": ["user1", "user2", "user3", "user4"],
-            "sig-team1": ["alice", "bob", "charlie"],
-        }
-
-        assert result == expected
-
-    def test_teams_and_members_property_not_initialized(self, owners_file_handler: OwnersFileHandler) -> None:
-        """Test teams_and_members property raises error when not initialized."""
-        # Don't initialize (no changed_files attribute)
-        with pytest.raises(
-            RuntimeError, match=r"OwnersFileHandler.initialize\(\) must be called before using this method"
-        ):
-            _ = owners_file_handler.teams_and_members
-
     def test_get_user_sig_suffix_user_in_one_sig_team(self, owners_file_handler: OwnersFileHandler) -> None:
         """Test get_user_sig_suffix when user is in one SIG team."""
-        # Initialize handler (required for _ensure_initialized check)
-        owners_file_handler.changed_files = ["file1.py"]
-        owners_file_handler.all_repository_approvers_and_reviewers = {
-            ".": {"approvers": ["root_user1", "root_user2"], "reviewers": []},
-            "storage": {"approvers": ["storage_user1", "storage_user2"], "reviewers": []},
-            "network": {"approvers": ["network_user1"], "reviewers": []},
+        sig_data = {
+            "storage": ["storage_user1", "storage_user2"],
+            "network": ["network_user1"],
         }
 
-        result = owners_file_handler.get_user_sig_suffix("storage_user1")
+        result = owners_file_handler.get_user_sig_suffix("storage_user1", sig_data=sig_data)
 
-        assert result == "-sig-storage"
+        assert result == "[sig-storage]"
 
     def test_get_user_sig_suffix_user_in_multiple_sig_teams(self, owners_file_handler: OwnersFileHandler) -> None:
         """Test get_user_sig_suffix when user is in multiple SIG teams (sorted alphabetically)."""
-        # Initialize handler (required for _ensure_initialized check)
-        owners_file_handler.changed_files = ["file1.py"]
-        owners_file_handler.all_repository_approvers_and_reviewers = {
-            ".": {"approvers": ["multi_user"], "reviewers": []},
-            "storage": {"approvers": ["multi_user", "storage_user1"], "reviewers": []},
-            "network": {"approvers": ["multi_user"], "reviewers": []},
-            "api": {"approvers": ["api_user1"], "reviewers": []},
+        sig_data = {
+            "storage": ["multi_user", "storage_user1"],
+            "network": ["multi_user"],
+            "api": ["api_user1"],
         }
 
-        result = owners_file_handler.get_user_sig_suffix("multi_user")
+        result = owners_file_handler.get_user_sig_suffix("multi_user", sig_data=sig_data)
 
         # Should return sig teams in alphabetical order
-        assert result == "-sig-all-sig-network-sig-storage"
+        assert result == "[sig-network sig-storage]"
 
     def test_get_user_sig_suffix_user_not_in_any_team(self, owners_file_handler: OwnersFileHandler) -> None:
         """Test get_user_sig_suffix when user is not in any team."""
-        # Initialize handler (required for _ensure_initialized check)
-        owners_file_handler.changed_files = ["file1.py"]
-        owners_file_handler.all_repository_approvers_and_reviewers = {
-            ".": {"approvers": ["root_user1", "root_user2"], "reviewers": []},
-            "storage": {"approvers": ["storage_user1"], "reviewers": []},
-            "network": {"approvers": ["network_user1"], "reviewers": []},
+        sig_data = {
+            "storage": ["storage_user1"],
+            "network": ["network_user1"],
         }
 
-        result = owners_file_handler.get_user_sig_suffix("unknown_user")
+        result = owners_file_handler.get_user_sig_suffix("unknown_user", sig_data=sig_data)
 
         assert result == ""
 
-    def test_get_user_sig_suffix_empty_teams_and_members(self, owners_file_handler: OwnersFileHandler) -> None:
-        """Test get_user_sig_suffix when teams_and_members is empty."""
-        # Initialize handler (required for _ensure_initialized check)
-        owners_file_handler.changed_files = ["file1.py"]
-        owners_file_handler.all_repository_approvers_and_reviewers = {}
+    def test_get_user_sig_suffix_empty_sig_data(self, owners_file_handler: OwnersFileHandler) -> None:
+        """Test get_user_sig_suffix when sig_data is empty."""
+        sig_data: dict[str, list[str]] = {}
 
-        result = owners_file_handler.get_user_sig_suffix("any_user")
+        result = owners_file_handler.get_user_sig_suffix("any_user", sig_data=sig_data)
 
         assert result == ""
-
-    def test_get_user_sig_suffix_handler_not_initialized(self, owners_file_handler: OwnersFileHandler) -> None:
-        """Test get_user_sig_suffix raises error when handler is not initialized."""
-        # Don't initialize (no changed_files attribute)
-        with pytest.raises(
-            RuntimeError, match=r"OwnersFileHandler.initialize\(\) must be called before using this method"
-        ):
-            owners_file_handler.get_user_sig_suffix("any_user")
-
-    def test_get_user_sig_suffix_user_in_reviewers_list(self, owners_file_handler: OwnersFileHandler) -> None:
-        """Test get_user_sig_suffix when user is in reviewers list (not just approvers)."""
-        # Initialize handler (required for _ensure_initialized check)
-        owners_file_handler.changed_files = ["file1.py"]
-        owners_file_handler.all_repository_approvers_and_reviewers = {
-            ".": {"approvers": ["root_approver"], "reviewers": ["root_reviewer"]},
-            "storage": {"approvers": [], "reviewers": ["storage_reviewer"]},
-            "network": {"approvers": [], "reviewers": ["network_reviewer"]},
-        }
-
-        result = owners_file_handler.get_user_sig_suffix("storage_reviewer")
-
-        assert result == "-sig-storage"
-
-    def test_get_user_sig_suffix_user_in_both_approvers_and_reviewers(
-        self, owners_file_handler: OwnersFileHandler
-    ) -> None:
-        """Test get_user_sig_suffix when user is both approver and reviewer in same team."""
-        # Initialize handler (required for _ensure_initialized check)
-        owners_file_handler.changed_files = ["file1.py"]
-        owners_file_handler.all_repository_approvers_and_reviewers = {
-            ".": {"approvers": ["dual_user"], "reviewers": ["dual_user"]},
-            "storage": {"approvers": ["other_user"], "reviewers": []},
-        }
-
-        result = owners_file_handler.get_user_sig_suffix("dual_user")
-
-        # Should appear only once in sig-all (deduplication via teams_and_members)
-        assert result == "-sig-all"
 
     def test_get_user_sig_suffix_alphabetical_sorting(self, owners_file_handler: OwnersFileHandler) -> None:
         """Test get_user_sig_suffix sorts sig teams alphabetically."""
-        # Initialize handler (required for _ensure_initialized check)
-        owners_file_handler.changed_files = ["file1.py"]
-        owners_file_handler.all_repository_approvers_and_reviewers = {
-            "zebra": {"approvers": ["multi_sig_user"], "reviewers": []},
-            "alpha": {"approvers": ["multi_sig_user"], "reviewers": []},
-            "beta": {"approvers": ["multi_sig_user"], "reviewers": []},
-            "gamma": {"approvers": ["multi_sig_user"], "reviewers": []},
+        sig_data = {
+            "zebra": ["multi_sig_user"],
+            "alpha": ["multi_sig_user"],
+            "beta": ["multi_sig_user"],
+            "gamma": ["multi_sig_user"],
         }
 
-        result = owners_file_handler.get_user_sig_suffix("multi_sig_user")
+        result = owners_file_handler.get_user_sig_suffix("multi_sig_user", sig_data=sig_data)
 
         # Should be alphabetically sorted: alpha, beta, gamma, zebra
-        assert result == "-sig-alpha-sig-beta-sig-gamma-sig-zebra"
+        assert result == "[sig-alpha sig-beta sig-gamma sig-zebra]"
+
+    @pytest.mark.asyncio
+    async def test_load_sig_file_success(self, owners_file_handler: OwnersFileHandler, tmp_path: Path) -> None:
+        """Test load_sig_file successfully loads a valid SIG YAML file."""
+        owners_file_handler.github_webhook.clone_repo_dir = str(tmp_path)
+
+        sig_file = tmp_path / ".github" / "sig.yaml"
+        sig_file.parent.mkdir(parents=True, exist_ok=True)
+        sig_file.write_text(
+            """
+storage:
+  - user1
+  - user2
+network:
+  - user3
+  - user4
+api:
+  - user5
+"""
+        )
+
+        result = await owners_file_handler.load_sig_file(".github/sig.yaml")
+
+        expected = {
+            "storage": ["user1", "user2"],
+            "network": ["user3", "user4"],
+            "api": ["user5"],
+        }
+        assert result == expected
+
+    @pytest.mark.asyncio
+    async def test_load_sig_file_not_found(self, owners_file_handler: OwnersFileHandler, tmp_path: Path) -> None:
+        """Test load_sig_file returns empty dict when file doesn't exist."""
+        owners_file_handler.github_webhook.clone_repo_dir = str(tmp_path)
+
+        result = await owners_file_handler.load_sig_file(".github/sig.yaml")
+
+        assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_load_sig_file_empty_path(self, owners_file_handler: OwnersFileHandler) -> None:
+        """Test load_sig_file returns empty dict when path is empty."""
+        result = await owners_file_handler.load_sig_file("")
+
+        assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_load_sig_file_invalid_yaml(self, owners_file_handler: OwnersFileHandler, tmp_path: Path) -> None:
+        """Test load_sig_file returns empty dict for invalid YAML."""
+        owners_file_handler.github_webhook.clone_repo_dir = str(tmp_path)
+
+        sig_file = tmp_path / ".github" / "sig.yaml"
+        sig_file.parent.mkdir(parents=True, exist_ok=True)
+        sig_file.write_text("invalid: [unclosed bracket")
+
+        result = await owners_file_handler.load_sig_file(".github/sig.yaml")
+
+        assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_load_sig_file_invalid_format(self, owners_file_handler: OwnersFileHandler, tmp_path: Path) -> None:
+        """Test load_sig_file returns empty dict for non-dict YAML."""
+        owners_file_handler.github_webhook.clone_repo_dir = str(tmp_path)
+
+        sig_file = tmp_path / ".github" / "sig.yaml"
+        sig_file.parent.mkdir(parents=True, exist_ok=True)
+        sig_file.write_text("- item1\n- item2")  # YAML list instead of dict
+
+        result = await owners_file_handler.load_sig_file(".github/sig.yaml")
+
+        assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_load_sig_file_mixed_valid_invalid(
+        self, owners_file_handler: OwnersFileHandler, tmp_path: Path
+    ) -> None:
+        """Test load_sig_file filters out invalid entries."""
+        owners_file_handler.github_webhook.clone_repo_dir = str(tmp_path)
+
+        sig_file = tmp_path / ".github" / "sig.yaml"
+        sig_file.parent.mkdir(parents=True, exist_ok=True)
+        sig_file.write_text(
+            """
+storage:
+  - user1
+  - user2
+invalid_string: "not a list"
+invalid_mixed:
+  - user3
+  - 123
+valid_network:
+  - user4
+"""
+        )
+
+        result = await owners_file_handler.load_sig_file(".github/sig.yaml")
+
+        # Only valid entries (list of strings) should be included
+        expected = {
+            "storage": ["user1", "user2"],
+            "valid_network": ["user4"],
+        }
+        assert result == expected
