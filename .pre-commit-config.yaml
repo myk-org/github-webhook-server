@@ -40,7 +40,7 @@ repos:
       - id: detect-secrets
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.8
+    rev: v0.14.9
     hooks:
       - id: ruff
       - id: ruff-format
@@ -51,14 +51,14 @@ repos:
       - id: gitleaks
 
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.19.0
+    rev: v1.19.1
     hooks:
       - id: mypy
         exclude: (tests/)
         additional_dependencies: [types-requests, types-PyYAML, types-colorama]
 
   - repo: https://github.com/pre-commit/mirrors-eslint
-    rev: v10.0.0-alpha.1
+    rev: v10.0.0-beta.0
     hooks:
       - id: eslint
         files: \.js$
