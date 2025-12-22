@@ -100,8 +100,8 @@ def test_log_viewer_controller_logging_separation():
 
         # Setup config
         mock_config_instance = MockConfig.return_value
-        mock_config_instance.get_value.side_effect = (
-            lambda value, return_on_none=None: "logs_server.log" if value == "logs-server-log-file" else return_on_none
+        mock_config_instance.get_value.side_effect = lambda value, return_on_none=None: (
+            "logs_server.log" if value == "logs-server-log-file" else return_on_none
         )
 
         # Setup logger
