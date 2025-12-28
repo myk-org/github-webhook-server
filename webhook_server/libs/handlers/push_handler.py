@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from github.Repository import Repository
 
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
+from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
 from webhook_server.libs.handlers.runner_handler import RunnerHandler
 from webhook_server.utils.helpers import format_task_fields, run_command
 from webhook_server.utils.notification_utils import send_slack_message
@@ -69,10 +70,28 @@ class PushHandler:
                     )
                     self.logger.exception(f"{self.log_prefix} Container build and push failed: {ex}")
         else:
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'processing')} "
-                f"Non-tag push detected, skipping processing",
-            )
+            # Branch push - check for out-of-date PRs
+            branch_match = re.search(r"^refs/heads/(.+)$", self.hook_data["ref"])
+            if branch_match:
+                branch_name = branch_match.group(1)
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'processing')} "
+                    f"Branch push detected: {branch_name}",
+                )
+                # Create PullRequestHandler to reuse existing logic
+                pr_handler = PullRequestHandler(github_webhook=self.github_webhook, owners_file_handler=None)
+                await pr_handler.retrigger_checks_for_out_of_date_prs_on_push(branch_name)
+
+                # Log completion
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'completed')} "
+                    f"Branch push processing completed for {branch_name}",
+                )
+            else:
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'processing')} "
+                    f"Non-branch/non-tag push detected, skipping processing",
+                )
 
     async def upload_to_pypi(self, tag_name: str) -> None:
         async def _issue_on_error(_error: str) -> None:

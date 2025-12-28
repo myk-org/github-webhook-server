@@ -83,6 +83,10 @@ properties:
     type: boolean
     description: Create a tracking issue for new pull requests (global default)
     default: true
+  retrigger-checks-on-base-push:
+    type: boolean
+    description: Re-trigger CI checks for out-of-date PRs when a push occurs to their base branch (global default)
+    default: true
 
   pr-size-thresholds:
     type: object
@@ -298,6 +302,10 @@ properties:
         create-issue-for-new-pr:
           type: boolean
           description: Create a tracking issue for new pull requests
+          default: true
+        retrigger-checks-on-base-push:
+          type: boolean
+          description: Re-trigger CI checks for out-of-date PRs when a push occurs to their base branch
           default: true
         pr-size-thresholds:
           type: object

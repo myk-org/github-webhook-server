@@ -423,6 +423,48 @@ For more information, please refer to the project documentation or contact the m
             self.logger.info(f"{self.log_prefix} check label pull request after merge")
             await self.label_pull_request_by_merge_state(pull_request=pull_request)
 
+    async def retrigger_checks_for_out_of_date_prs_on_push(self, base_branch: str) -> None:
+        """Re-trigger checks for PRs that are out-of-date after a push to base branch."""
+        if not self.github_webhook.retrigger_checks_on_base_push:
+            self.logger.debug(f"{self.log_prefix} Retrigger checks on base push is disabled")
+            return
+
+        # Check rate limit before proceeding
+        rate_limit = await asyncio.to_thread(self.github_webhook.github_api.get_rate_limit)
+        remaining = rate_limit.core.remaining
+        if remaining < 100:
+            self.logger.warning(f"{self.log_prefix} Rate limit too low ({remaining}), skipping")
+            return
+
+        # Get PRs targeting this branch
+        pulls = await asyncio.to_thread(lambda: list(self.repository.get_pulls(state="open", base=base_branch)))
+
+        if not pulls:
+            self.logger.info(f"{self.log_prefix} No open PRs targeting {base_branch}")
+            return
+
+        self.logger.info(f"{self.log_prefix} Found {len(pulls)} open PR(s) targeting {base_branch}")
+
+        # Process each PR: label and retrigger if behind
+        for pr in pulls:
+            try:
+                # Label PR based on merge state
+                await self.label_pull_request_by_merge_state(pull_request=pr)
+
+                # Check if PR is behind and retrigger checks
+                merge_state = await asyncio.to_thread(lambda p=pr: p.mergeable_state)
+                if merge_state == "behind":
+                    await self._retrigger_check_suites_for_pr(pull_request=pr)
+
+            except Exception:
+                pr_number = await asyncio.to_thread(lambda p=pr: p.number)
+                self.logger.exception(f"{self.log_prefix} Failed to process PR #{pr_number} for retrigger")
+
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('retrigger_checks', 'push_processing', 'completed')} "
+            f"Completed retrigger checks for {len(pulls)} PR(s) targeting {base_branch}",
+        )
+
     async def delete_remote_tag_for_merged_or_closed_pr(self, pull_request: PullRequest) -> None:
         self.logger.step(  # type: ignore[attr-defined]
             f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'processing')} "
@@ -865,7 +907,9 @@ For more information, please refer to the project documentation or contact the m
                 self.logger.error(f"{self.log_prefix} Async task failed: {result}")
 
     async def label_pull_request_by_merge_state(self, pull_request: PullRequest) -> None:
+        """Label PR based on merge state (needs-rebase, has-conflicts)."""
         merge_state = await asyncio.to_thread(lambda: pull_request.mergeable_state)
+
         self.logger.debug(f"{self.log_prefix} Mergeable state is {merge_state}")
         if merge_state == "unknown":
             return
@@ -879,6 +923,48 @@ For more information, please refer to the project documentation or contact the m
             await self.labels_handler._add_label(pull_request=pull_request, label=HAS_CONFLICTS_LABEL_STR)
         else:
             await self.labels_handler._remove_label(pull_request=pull_request, label=HAS_CONFLICTS_LABEL_STR)
+
+    async def _retrigger_check_suites_for_pr(self, pull_request: PullRequest) -> None:
+        """Re-trigger check suites for a single PR."""
+        try:
+            pr_number = await asyncio.to_thread(lambda: pull_request.number)
+            head_sha = await asyncio.to_thread(lambda: pull_request.head.sha)
+
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('retrigger_checks', 'push_processing', 'processing')} "
+                f"Re-triggering checks for out-of-date PR #{pr_number}",
+            )
+
+            # Get check suites
+            commit = await asyncio.to_thread(self.repository.get_commit, head_sha)
+            check_suites = await asyncio.to_thread(lambda c=commit: list(c.get_check_suites()))
+
+            if not check_suites:
+                self.logger.debug(f"{self.log_prefix} No check suites found for PR #{pr_number}")
+                return
+
+            owner = self.github_webhook.hook_data["repository"]["owner"]["login"]
+            repo = self.repository.name
+
+            for suite in check_suites:
+                try:
+                    suite_id = await asyncio.to_thread(lambda s=suite: s.id)
+                    url = f"/repos/{owner}/{repo}/check-suites/{suite_id}/rerequest"
+
+                    await asyncio.to_thread(
+                        self.github_webhook.github_api.requester.requestJsonAndCheck,
+                        "POST",
+                        url,
+                    )
+
+                    self.logger.info(
+                        f"{self.log_prefix} Successfully re-requested check suite {suite_id} for PR #{pr_number}"
+                    )
+                except Exception:
+                    self.logger.exception(f"{self.log_prefix} Failed to re-request check suite for PR #{pr_number}")
+
+        except Exception:
+            self.logger.exception(f"{self.log_prefix} Failed to retrigger checks for PR")
 
     async def _process_verified_for_update_or_new_pull_request(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.verified_job:

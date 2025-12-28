@@ -1782,3 +1782,196 @@ class TestPullRequestHandler:
         pull_request_handler.logger.error.assert_called_with(
             "[TEST] Failed to delete tag: tag. OUT:Delete failed. ERR:Error"
         )
+
+    @pytest.mark.asyncio
+    async def test_label_pull_request_by_merge_state_only_labels(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test label_pull_request_by_merge_state only handles labeling, not check triggering."""
+        mock_pull_request.mergeable_state = "behind"
+
+        with (
+            patch.object(pull_request_handler.labels_handler, "_add_label", new_callable=AsyncMock) as mock_add_label,
+            patch.object(
+                pull_request_handler, "_retrigger_check_suites_for_pr", new_callable=AsyncMock
+            ) as mock_retrigger,
+        ):
+            await pull_request_handler.label_pull_request_by_merge_state(pull_request=mock_pull_request)
+
+            # Verify labeling happened
+            mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=NEEDS_REBASE_LABEL_STR)
+            # Verify check triggering did NOT happen (separation of concerns)
+            mock_retrigger.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_retrigger_check_suites_for_pr_success(
+        self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock, mock_pull_request: Mock
+    ) -> None:
+        """Test _retrigger_check_suites_for_pr successfully re-requests check suites."""
+        mock_pull_request.number = 123
+        mock_pull_request.head.sha = "abc123"
+        mock_github_webhook.hook_data = {"repository": {"owner": {"login": "test-owner"}}}
+
+        mock_commit = Mock()
+        mock_suite = Mock()
+        mock_suite.id = 456
+
+        call_count = 0
+
+        async def mock_to_thread_side_effect(func, *args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+
+            # First call: pr.number
+            if call_count == 1:
+                return func()
+            # Second call: pr.head.sha
+            if call_count == 2:
+                return func()
+            # Third call: repository.get_commit
+            if call_count == 3:
+                return mock_commit
+            # Fourth call: commit.get_check_suites
+            if call_count == 4:
+                return func()
+            # Fifth call: suite.id
+            if call_count == 5:
+                return func()
+            # Sixth call: requester.requestJsonAndCheck
+            if call_count == 6:
+                return None
+
+            return None
+
+        mock_commit.get_check_suites.return_value = [mock_suite]
+
+        with patch("asyncio.to_thread", side_effect=mock_to_thread_side_effect):
+            await pull_request_handler._retrigger_check_suites_for_pr(mock_pull_request)
+
+            assert call_count == 6
+            pull_request_handler.logger.info.assert_called_with(
+                "[TEST] Successfully re-requested check suite 456 for PR #123"
+            )
+
+    @pytest.mark.asyncio
+    async def test_retrigger_check_suites_for_pr_no_check_suites(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test _retrigger_check_suites_for_pr when PR has no check suites."""
+        mock_pull_request.number = 123
+        mock_pull_request.head.sha = "abc123"
+
+        mock_commit = Mock()
+        mock_commit.get_check_suites.return_value = []
+
+        with patch("asyncio.to_thread", side_effect=lambda f, *a, **k: f(*a, **k) if callable(f) else None):
+            with patch.object(pull_request_handler.repository, "get_commit", return_value=mock_commit):
+                await pull_request_handler._retrigger_check_suites_for_pr(mock_pull_request)
+
+                pull_request_handler.logger.debug.assert_called_with("[TEST] No check suites found for PR #123")
+
+    @pytest.mark.asyncio
+    async def test_retrigger_check_suites_for_pr_exception(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test _retrigger_check_suites_for_pr handles exceptions gracefully."""
+
+        async def mock_to_thread_side_effect(func, *args, **kwargs):
+            raise Exception("API Error")
+
+        with patch("asyncio.to_thread", side_effect=mock_to_thread_side_effect):
+            await pull_request_handler._retrigger_check_suites_for_pr(mock_pull_request)
+
+            pull_request_handler.logger.exception.assert_called_with("[TEST] Failed to retrigger checks for PR")
+
+    @pytest.mark.asyncio
+    async def test_retrigger_checks_for_out_of_date_prs_on_push_disabled(
+        self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock
+    ) -> None:
+        """Test retrigger_checks_for_out_of_date_prs_on_push when feature is disabled."""
+        mock_github_webhook.retrigger_checks_on_base_push = False
+
+        await pull_request_handler.retrigger_checks_for_out_of_date_prs_on_push("main")
+
+        pull_request_handler.logger.debug.assert_called_with("[TEST] Retrigger checks on base push is disabled")
+
+    @pytest.mark.asyncio
+    async def test_retrigger_checks_for_out_of_date_prs_on_push_no_prs(
+        self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock
+    ) -> None:
+        """Test retrigger_checks_for_out_of_date_prs_on_push with no open PRs."""
+        mock_github_webhook.retrigger_checks_on_base_push = True
+        mock_github_webhook.github_api = Mock()
+
+        mock_rate_limit = Mock()
+        mock_rate_limit.core.remaining = 5000
+        mock_github_webhook.github_api.get_rate_limit.return_value = mock_rate_limit
+
+        with patch("asyncio.to_thread", side_effect=lambda f, *a, **k: f(*a, **k) if callable(f) else None):
+            with patch.object(pull_request_handler.repository, "get_pulls", return_value=[]):
+                await pull_request_handler.retrigger_checks_for_out_of_date_prs_on_push("main")
+
+                pull_request_handler.logger.info.assert_called_with("[TEST] No open PRs targeting main")
+
+    @pytest.mark.asyncio
+    async def test_retrigger_checks_for_out_of_date_prs_on_push_success(
+        self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock, mock_pull_request: Mock
+    ) -> None:
+        """Test retrigger_checks_for_out_of_date_prs_on_push successfully processes PRs.
+
+        Verifies:
+        1. Labels each PR based on merge state
+        2. Re-triggers checks only for PRs with merge_state="behind"
+        3. Processes PRs sequentially (simple loop)
+        """
+        mock_github_webhook.retrigger_checks_on_base_push = True
+        mock_github_webhook.github_api = Mock()
+
+        mock_rate_limit = Mock()
+        mock_rate_limit.core.remaining = 5000
+        mock_github_webhook.github_api.get_rate_limit.return_value = mock_rate_limit
+
+        # Create PRs with different merge states
+        mock_pr1 = Mock()
+        mock_pr1.number = 1
+        mock_pr1.mergeable_state = "behind"  # Should trigger checks
+        mock_pr2 = Mock()
+        mock_pr2.number = 2
+        mock_pr2.mergeable_state = "clean"  # Should NOT trigger checks
+
+        with (
+            patch("asyncio.to_thread", side_effect=lambda f, *a, **k: f(*a, **k) if callable(f) else None),
+            patch.object(pull_request_handler.repository, "get_pulls", return_value=[mock_pr1, mock_pr2]),
+            patch.object(
+                pull_request_handler, "label_pull_request_by_merge_state", new_callable=AsyncMock
+            ) as mock_label,
+            patch.object(
+                pull_request_handler, "_retrigger_check_suites_for_pr", new_callable=AsyncMock
+            ) as mock_retrigger,
+        ):
+            await pull_request_handler.retrigger_checks_for_out_of_date_prs_on_push("main")
+
+            # Verify labeling was called for BOTH PRs
+            assert mock_label.call_count == 2
+            mock_label.assert_any_call(pull_request=mock_pr1)
+            mock_label.assert_any_call(pull_request=mock_pr2)
+
+            # Verify check triggering only called for PR with merge_state="behind"
+            mock_retrigger.assert_called_once_with(pull_request=mock_pr1)
+
+    @pytest.mark.asyncio
+    async def test_retrigger_checks_for_out_of_date_prs_on_push_low_rate_limit(
+        self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock
+    ) -> None:
+        """Test retrigger_checks_for_out_of_date_prs_on_push with low rate limit."""
+        mock_github_webhook.retrigger_checks_on_base_push = True
+        mock_github_webhook.github_api = Mock()
+
+        mock_rate_limit = Mock()
+        mock_rate_limit.core.remaining = 50  # Below 100 threshold
+        mock_github_webhook.github_api.get_rate_limit.return_value = mock_rate_limit
+
+        with patch("asyncio.to_thread", side_effect=lambda f, *a, **k: f(*a, **k) if callable(f) else None):
+            await pull_request_handler.retrigger_checks_for_out_of_date_prs_on_push("main")
+
+            pull_request_handler.logger.warning.assert_called_with("[TEST] Rate limit too low (50), skipping")
