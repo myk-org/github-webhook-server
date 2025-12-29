@@ -25,6 +25,13 @@ from webhook_server.utils.constants import (
 )
 
 
+# Async shim for mocking asyncio.to_thread in tests
+# This allows us to run sync functions in tests while preserving async/await semantics
+async def _sync_to_thread(func, *args, **kwargs):
+    """Mock implementation of asyncio.to_thread that runs synchronously but returns awaitable."""
+    return func(*args, **kwargs)
+
+
 class _AwaitableValue:
     def __init__(self, return_value: dict | None = None) -> None:
         self._value = return_value or {}
@@ -438,7 +445,7 @@ class TestPullRequestHandler:
 
         pull_request_handler.github_webhook.retrigger_checks_on_base_push = True
 
-        async def mock_label_side_effect(pull_request=None):
+        async def mock_label_side_effect(pull_request: Mock | PullRequest) -> str:
             return pull_request.mergeable_state
 
         with (
@@ -450,7 +457,7 @@ class TestPullRequestHandler:
             ) as mock_label,
             patch.object(pull_request_handler, "_retrigger_check_suites_for_pr", new=AsyncMock()) as mock_retrigger,
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("asyncio.to_thread", side_effect=lambda f, *a, **k: f(*a, **k) if callable(f) else None),
+            patch("asyncio.to_thread", new=_sync_to_thread),
         ):
             await pull_request_handler.label_and_rerun_checks_all_opened_pull_requests_merge_state_after_merged()
             # Verify labeling called for both PRs
@@ -486,7 +493,7 @@ class TestPullRequestHandler:
 
         with (
             patch("asyncio.sleep", new_callable=AsyncMock),
-            patch("asyncio.to_thread", side_effect=lambda f, *a, **k: f(*a, **k) if callable(f) else None),
+            patch("asyncio.to_thread", new=_sync_to_thread),
             patch.object(pull_request_handler.repository, "get_pulls", return_value=[mock_pr]),
             patch.object(
                 pull_request_handler,
@@ -1636,7 +1643,7 @@ class TestPullRequestHandler:
         mock_pull_request.labels = [mock_label]
 
         with patch.object(pull_request_handler, "check_if_can_be_merged", new=AsyncMock()) as mock_check_merge:
-            with patch("asyncio.to_thread", side_effect=lambda f, *args: f(*args) if callable(f) else None):
+            with patch("asyncio.to_thread", new=_sync_to_thread):
                 await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
             mock_check_merge.assert_awaited_once()
 
@@ -1682,9 +1689,7 @@ class TestPullRequestHandler:
             side_effect=GithubException(404, "Not Found")
         )
 
-        with patch(
-            "asyncio.to_thread", side_effect=lambda f, *args, **kwargs: f(*args, **kwargs) if callable(f) else None
-        ):
+        with patch("asyncio.to_thread", new=_sync_to_thread):
             await pull_request_handler._delete_ghcr_tag_via_github_api(mock_pull_request, "ghcr.io/org/pkg:123", "123")
 
         pull_request_handler.logger.warning.assert_called_with("[TEST] Package pkg not found for owner org on GHCR")
@@ -1701,9 +1706,7 @@ class TestPullRequestHandler:
 
         pull_request_handler.owners_file_handler.root_approvers = ["approver1"]
 
-        with patch(
-            "asyncio.to_thread", side_effect=lambda f, *args, **kwargs: f(*args, **kwargs) if callable(f) else None
-        ):
+        with patch("asyncio.to_thread", new=_sync_to_thread):
             await pull_request_handler.add_pull_request_owner_as_assingee(mock_pull_request)
 
         pull_request_handler.logger.debug.assert_any_call("[TEST] Exception while adding PR owner as assignee: Failed")
@@ -1814,9 +1817,7 @@ class TestPullRequestHandler:
         pull_request_handler.github_webhook.set_auto_merge_prs = ["main"]
         mock_pull_request.base.ref = "main"
 
-        with patch(
-            "asyncio.to_thread", side_effect=lambda f, *args, **kwargs: f(*args, **kwargs) if callable(f) else None
-        ):
+        with patch("asyncio.to_thread", new=_sync_to_thread):
             await pull_request_handler.set_pull_request_automerge(mock_pull_request)
 
         pull_request_handler.logger.error.assert_called_with(
@@ -1830,9 +1831,7 @@ class TestPullRequestHandler:
         """Test label_pull_request_by_merge_state when unknown."""
         mock_pull_request.mergeable_state = "unknown"
 
-        with patch(
-            "asyncio.to_thread", side_effect=lambda f, *args, **kwargs: f(*args, **kwargs) if callable(f) else None
-        ):
+        with patch("asyncio.to_thread", new=_sync_to_thread):
             await pull_request_handler.label_pull_request_by_merge_state(mock_pull_request)
 
         # Should return early
@@ -1904,7 +1903,7 @@ class TestPullRequestHandler:
         mock_run_retests = AsyncMock()
         pull_request_handler.runner_handler.run_retests = mock_run_retests
 
-        with patch("asyncio.to_thread", side_effect=lambda f, *a, **k: f(*a, **k) if callable(f) else f):
+        with patch("asyncio.to_thread", new=_sync_to_thread):
             await pull_request_handler._retrigger_check_suites_for_pr(mock_pull_request)
 
             # Verify run_retests was called with the correct arguments
@@ -1920,7 +1919,7 @@ class TestPullRequestHandler:
         mock_pull_request.number = 123
         mock_github_webhook.current_pull_request_supported_retest = []
 
-        with patch("asyncio.to_thread", side_effect=lambda f, *a, **k: f(*a, **k) if callable(f) else None):
+        with patch("asyncio.to_thread", new=_sync_to_thread):
             await pull_request_handler._retrigger_check_suites_for_pr(mock_pull_request)
 
             pull_request_handler.logger.debug.assert_called_with("[TEST] No checks configured for this repository")
@@ -1937,7 +1936,7 @@ class TestPullRequestHandler:
         mock_run_retests = AsyncMock(side_effect=Exception("Runner failed"))
         pull_request_handler.runner_handler.run_retests = mock_run_retests
 
-        with patch("asyncio.to_thread", side_effect=lambda f, *a, **k: f(*a, **k) if callable(f) else f):
+        with patch("asyncio.to_thread", new=_sync_to_thread):
             # The exception should propagate since we're not catching it in _retrigger_check_suites_for_pr
             with pytest.raises(Exception, match="Runner failed"):
                 await pull_request_handler._retrigger_check_suites_for_pr(mock_pull_request)

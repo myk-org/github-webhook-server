@@ -85,7 +85,7 @@ properties:
     default: true
   retrigger-checks-on-base-push:
     type: boolean
-    description: Re-trigger CI checks for out-of-date PRs when a push occurs to their base branch (global default)
+    description: Re-trigger CI checks for out-of-date PRs when a pull request is merged into their base branch (global default)
     default: false
 
   pr-size-thresholds:
@@ -305,7 +305,7 @@ properties:
           default: true
         retrigger-checks-on-base-push:
           type: boolean
-          description: Re-trigger CI checks for out-of-date PRs when a push occurs to their base branch
+          description: Re-trigger CI checks for out-of-date PRs when a pull request is merged into their base branch
           default: false
         pr-size-thresholds:
           type: object
