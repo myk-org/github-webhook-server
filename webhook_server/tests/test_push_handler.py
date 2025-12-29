@@ -410,4 +410,3 @@ class TestPushHandler:
                     assert "published to PYPI" in call_args[1]["message"]
                     assert call_args[1]["logger"] == push_handler.logger
                     assert call_args[1]["log_prefix"] == push_handler.log_prefix
-

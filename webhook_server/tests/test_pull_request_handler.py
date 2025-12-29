@@ -280,7 +280,8 @@ class TestPullRequestHandler:
                         pull_request_handler.runner_handler, "run_build_container", new_callable=AsyncMock
                     ) as mock_build:
                         with patch.object(
-                            pull_request_handler, "label_and_rerun_checks_all_opened_pull_requests_merge_state_after_merged"
+                            pull_request_handler,
+                            "label_and_rerun_checks_all_opened_pull_requests_merge_state_after_merged",
                         ) as mock_label_all:
                             await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
                             mock_close_issue.assert_called_once_with(
@@ -417,7 +418,9 @@ class TestPullRequestHandler:
         with patch.object(pull_request_handler.repository, "get_pulls", return_value=[mock_pr1, mock_pr2]):
             with patch.object(pull_request_handler, "label_pull_request_by_merge_state", new=AsyncMock()) as mock_label:
                 with patch("asyncio.sleep", new=AsyncMock()):
-                    await pull_request_handler.label_and_rerun_checks_all_opened_pull_requests_merge_state_after_merged()
+                    await (
+                        pull_request_handler.label_and_rerun_checks_all_opened_pull_requests_merge_state_after_merged()
+                    )
                     assert mock_label.await_count == 2
 
     @pytest.mark.asyncio

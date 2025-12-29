@@ -912,7 +912,7 @@ For more information, please refer to the project documentation or contact the m
 
             # Get check suites
             commit = await asyncio.to_thread(self.repository.get_commit, head_sha)
-            check_suites = await asyncio.to_thread(lambda c=commit: list(c.get_check_suites()))
+            check_suites = await asyncio.to_thread(lambda: list(commit.get_check_suites()))
 
             if not check_suites:
                 self.logger.debug(f"{self.log_prefix} No check suites found for PR #{pr_number}")
@@ -923,9 +923,12 @@ For more information, please refer to the project documentation or contact the m
 
             for suite in check_suites:
                 try:
-                    suite_id = await asyncio.to_thread(lambda s=suite: s.id)
+                    # Extract suite.id outside the loop to avoid B023 (lambda in loop)
+                    # suite.id is a cached property, safe to access directly
+                    suite_id = await asyncio.to_thread(getattr, suite, "id")
                     url = f"/repos/{owner}/{repo}/check-suites/{suite_id}/rerequest"
 
+                    assert self.github_webhook.github_api is not None
                     await asyncio.to_thread(
                         self.github_webhook.github_api.requester.requestJsonAndCheck,
                         "POST",
