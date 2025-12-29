@@ -901,11 +901,7 @@ For more information, please refer to the project documentation or contact the m
         return merge_state
 
     async def _retrigger_check_suites_for_pr(self, pull_request: PullRequest) -> None:
-        """Re-trigger configured checks for a PR when base branch is updated.
-
-        Uses the same runner approach as process_retest_command - only runs checks
-        that are configured for this repository.
-        """
+        """Re-trigger configured checks for a PR when base branch is updated."""
         pr_number = await asyncio.to_thread(lambda: pull_request.number)
 
         self.logger.step(  # type: ignore[attr-defined]
