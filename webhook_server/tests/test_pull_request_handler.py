@@ -1,4 +1,6 @@
 import asyncio
+from collections.abc import Callable
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
@@ -27,7 +29,7 @@ from webhook_server.utils.constants import (
 
 # Async shim for mocking asyncio.to_thread in tests
 # This allows us to run sync functions in tests while preserving async/await semantics
-async def _sync_to_thread(func, *args, **kwargs):
+async def _sync_to_thread[T](func: Callable[..., T], *args: Any, **kwargs: Any) -> T:
     """Mock implementation of asyncio.to_thread that runs synchronously but returns awaitable."""
     return func(*args, **kwargs)
 
@@ -1879,6 +1881,7 @@ class TestPullRequestHandler:
         mock_pull_request.mergeable_state = "behind"
 
         with (
+            patch("asyncio.to_thread", new=_sync_to_thread),
             patch.object(pull_request_handler.labels_handler, "_add_label", new_callable=AsyncMock) as mock_add_label,
             patch.object(
                 pull_request_handler, "_retrigger_check_suites_for_pr", new_callable=AsyncMock
@@ -1928,7 +1931,7 @@ class TestPullRequestHandler:
     async def test_retrigger_check_suites_for_pr_exception(
         self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock, mock_pull_request: Mock
     ) -> None:
-        """Test _retrigger_check_suites_for_pr handles exceptions from runners gracefully."""
+        """Test _retrigger_check_suites_for_pr propagates exceptions from runners."""
         mock_pull_request.number = 123
         mock_github_webhook.current_pull_request_supported_retest = [TOX_STR]
 
