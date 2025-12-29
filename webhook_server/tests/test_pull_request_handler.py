@@ -280,7 +280,7 @@ class TestPullRequestHandler:
                         pull_request_handler.runner_handler, "run_build_container", new_callable=AsyncMock
                     ) as mock_build:
                         with patch.object(
-                            pull_request_handler, "label_all_opened_pull_requests_merge_state_after_merged"
+                            pull_request_handler, "label_and_rerun_checks_all_opened_pull_requests_merge_state_after_merged"
                         ) as mock_label_all:
                             await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
                             mock_close_issue.assert_called_once_with(
@@ -401,7 +401,7 @@ class TestPullRequestHandler:
         assert "pre-commit" in result
 
     @pytest.mark.asyncio
-    async def test_label_all_opened_pull_requests_merge_state_after_merged(
+    async def test_label_and_rerun_checks_all_opened_pull_requests_merge_state_after_merged(
         self, pull_request_handler: PullRequestHandler
     ) -> None:
         """Test labeling all opened pull requests merge state after merged."""
@@ -409,12 +409,97 @@ class TestPullRequestHandler:
         mock_pr2 = Mock()
         mock_pr1.number = 1
         mock_pr2.number = 2
+        mock_pr1.mergeable_state = "clean"
+        mock_pr2.mergeable_state = "clean"
+
+        pull_request_handler.github_webhook.retrigger_checks_on_base_push = False
 
         with patch.object(pull_request_handler.repository, "get_pulls", return_value=[mock_pr1, mock_pr2]):
             with patch.object(pull_request_handler, "label_pull_request_by_merge_state", new=AsyncMock()) as mock_label:
                 with patch("asyncio.sleep", new=AsyncMock()):
-                    await pull_request_handler.label_all_opened_pull_requests_merge_state_after_merged()
+                    await pull_request_handler.label_and_rerun_checks_all_opened_pull_requests_merge_state_after_merged()
                     assert mock_label.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_label_and_rerun_checks_all_opened_pull_requests_merge_state_after_merged_with_retrigger(
+        self, pull_request_handler: PullRequestHandler
+    ) -> None:
+        """Test labeling all opened pull requests with retrigger enabled."""
+        mock_pr1 = Mock()
+        mock_pr2 = Mock()
+        mock_pr1.number = 1
+        mock_pr2.number = 2
+        mock_pr1.mergeable_state = "behind"
+        mock_pr2.mergeable_state = "clean"
+
+        pull_request_handler.github_webhook.retrigger_checks_on_base_push = True
+
+        async def mock_label_side_effect(pull_request=None):
+            return pull_request.mergeable_state
+
+        with (
+            patch.object(pull_request_handler.repository, "get_pulls", return_value=[mock_pr1, mock_pr2]),
+            patch.object(
+                pull_request_handler,
+                "label_pull_request_by_merge_state",
+                new=AsyncMock(side_effect=mock_label_side_effect),
+            ) as mock_label,
+            patch.object(pull_request_handler, "_retrigger_check_suites_for_pr", new=AsyncMock()) as mock_retrigger,
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("asyncio.to_thread", side_effect=lambda f, *a, **k: f(*a, **k) if callable(f) else None),
+        ):
+            await pull_request_handler.label_and_rerun_checks_all_opened_pull_requests_merge_state_after_merged()
+            # Verify labeling called for both PRs
+            assert mock_label.await_count == 2
+            # Verify retrigger only called for PR with merge_state="behind"
+            mock_retrigger.assert_called_once_with(pull_request=mock_pr1)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "merge_state,should_retrigger",
+        [
+            ("behind", True),  # Out-of-date - should retrigger
+            ("blocked", True),  # Blocked by reviews/checks - currently triggers (per implementation)
+            ("clean", False),  # Up-to-date - no retrigger needed
+            ("dirty", False),  # Has conflicts - retrigger won't help
+            ("unstable", False),  # Failing checks - no retrigger
+            ("unknown", False),  # Unknown state - skip processing
+        ],
+    )
+    async def test_label_all_opened_prs_retrigger_for_different_merge_states(
+        self,
+        pull_request_handler: PullRequestHandler,
+        mock_github_webhook: Mock,
+        merge_state: str,
+        should_retrigger: bool,
+    ) -> None:
+        """Test retrigger behavior for different merge states."""
+        mock_github_webhook.retrigger_checks_on_base_push = True
+
+        mock_pr = Mock()
+        mock_pr.number = 1
+        mock_pr.mergeable_state = merge_state
+
+        with (
+            patch("asyncio.sleep", new_callable=AsyncMock),
+            patch("asyncio.to_thread", side_effect=lambda f, *a, **k: f(*a, **k) if callable(f) else None),
+            patch.object(pull_request_handler.repository, "get_pulls", return_value=[mock_pr]),
+            patch.object(
+                pull_request_handler,
+                "label_pull_request_by_merge_state",
+                new_callable=AsyncMock,
+                return_value=merge_state,
+            ),
+            patch.object(
+                pull_request_handler, "_retrigger_check_suites_for_pr", new_callable=AsyncMock
+            ) as mock_retrigger,
+        ):
+            await pull_request_handler.label_and_rerun_checks_all_opened_pull_requests_merge_state_after_merged()
+
+            if should_retrigger:
+                mock_retrigger.assert_called_once_with(pull_request=mock_pr)
+            else:
+                mock_retrigger.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_delete_remote_tag_for_merged_or_closed_pr_with_tag(
@@ -1883,95 +1968,3 @@ class TestPullRequestHandler:
             await pull_request_handler._retrigger_check_suites_for_pr(mock_pull_request)
 
             pull_request_handler.logger.exception.assert_called_with("[TEST] Failed to retrigger checks for PR")
-
-    @pytest.mark.asyncio
-    async def test_retrigger_checks_for_out_of_date_prs_on_push_disabled(
-        self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock
-    ) -> None:
-        """Test retrigger_checks_for_out_of_date_prs_on_push when feature is disabled."""
-        mock_github_webhook.retrigger_checks_on_base_push = False
-
-        await pull_request_handler.retrigger_checks_for_out_of_date_prs_on_push("main")
-
-        pull_request_handler.logger.debug.assert_called_with("[TEST] Retrigger checks on base push is disabled")
-
-    @pytest.mark.asyncio
-    async def test_retrigger_checks_for_out_of_date_prs_on_push_no_prs(
-        self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock
-    ) -> None:
-        """Test retrigger_checks_for_out_of_date_prs_on_push with no open PRs."""
-        mock_github_webhook.retrigger_checks_on_base_push = True
-        mock_github_webhook.github_api = Mock()
-
-        mock_rate_limit = Mock()
-        mock_rate_limit.core.remaining = 5000
-        mock_github_webhook.github_api.get_rate_limit.return_value = mock_rate_limit
-
-        with patch("asyncio.to_thread", side_effect=lambda f, *a, **k: f(*a, **k) if callable(f) else None):
-            with patch.object(pull_request_handler.repository, "get_pulls", return_value=[]):
-                await pull_request_handler.retrigger_checks_for_out_of_date_prs_on_push("main")
-
-                pull_request_handler.logger.info.assert_called_with("[TEST] No open PRs targeting main")
-
-    @pytest.mark.asyncio
-    async def test_retrigger_checks_for_out_of_date_prs_on_push_success(
-        self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock, mock_pull_request: Mock
-    ) -> None:
-        """Test retrigger_checks_for_out_of_date_prs_on_push successfully processes PRs.
-
-        Verifies:
-        1. Labels each PR based on merge state
-        2. Re-triggers checks only for PRs with merge_state="behind"
-        3. Processes PRs sequentially (simple loop)
-        """
-        mock_github_webhook.retrigger_checks_on_base_push = True
-        mock_github_webhook.github_api = Mock()
-
-        mock_rate_limit = Mock()
-        mock_rate_limit.core.remaining = 5000
-        mock_github_webhook.github_api.get_rate_limit.return_value = mock_rate_limit
-
-        # Create PRs with different merge states
-        mock_pr1 = Mock()
-        mock_pr1.number = 1
-        mock_pr1.mergeable_state = "behind"  # Should trigger checks
-        mock_pr2 = Mock()
-        mock_pr2.number = 2
-        mock_pr2.mergeable_state = "clean"  # Should NOT trigger checks
-
-        with (
-            patch("asyncio.to_thread", side_effect=lambda f, *a, **k: f(*a, **k) if callable(f) else None),
-            patch.object(pull_request_handler.repository, "get_pulls", return_value=[mock_pr1, mock_pr2]),
-            patch.object(
-                pull_request_handler, "label_pull_request_by_merge_state", new_callable=AsyncMock
-            ) as mock_label,
-            patch.object(
-                pull_request_handler, "_retrigger_check_suites_for_pr", new_callable=AsyncMock
-            ) as mock_retrigger,
-        ):
-            await pull_request_handler.retrigger_checks_for_out_of_date_prs_on_push("main")
-
-            # Verify labeling was called for BOTH PRs
-            assert mock_label.call_count == 2
-            mock_label.assert_any_call(pull_request=mock_pr1)
-            mock_label.assert_any_call(pull_request=mock_pr2)
-
-            # Verify check triggering only called for PR with merge_state="behind"
-            mock_retrigger.assert_called_once_with(pull_request=mock_pr1)
-
-    @pytest.mark.asyncio
-    async def test_retrigger_checks_for_out_of_date_prs_on_push_low_rate_limit(
-        self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock
-    ) -> None:
-        """Test retrigger_checks_for_out_of_date_prs_on_push with low rate limit."""
-        mock_github_webhook.retrigger_checks_on_base_push = True
-        mock_github_webhook.github_api = Mock()
-
-        mock_rate_limit = Mock()
-        mock_rate_limit.core.remaining = 50  # Below 100 threshold
-        mock_github_webhook.github_api.get_rate_limit.return_value = mock_rate_limit
-
-        with patch("asyncio.to_thread", side_effect=lambda f, *a, **k: f(*a, **k) if callable(f) else None):
-            await pull_request_handler.retrigger_checks_for_out_of_date_prs_on_push("main")
-
-            pull_request_handler.logger.warning.assert_called_with("[TEST] Rate limit too low (50), skipping")

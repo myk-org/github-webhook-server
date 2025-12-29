@@ -103,19 +103,10 @@ class TestPushHandler:
 
         with patch.object(push_handler, "upload_to_pypi", new_callable=AsyncMock) as mock_upload:
             with patch.object(push_handler.runner_handler, "run_build_container", new_callable=AsyncMock) as mock_build:
-                with patch("webhook_server.libs.handlers.push_handler.PullRequestHandler") as mock_pr_handler_class:
-                    mock_pr_handler = Mock()
-                    mock_pr_handler.retrigger_checks_for_out_of_date_prs_on_push = AsyncMock()
-                    mock_pr_handler_class.return_value = mock_pr_handler
+                await push_handler.process_push_webhook_data()
 
-                    await push_handler.process_push_webhook_data()
-
-                    mock_upload.assert_not_called()
-                    mock_build.assert_not_called()
-                    mock_pr_handler_class.assert_called_once_with(
-                        github_webhook=push_handler.github_webhook, owners_file_handler=None
-                    )
-                    mock_pr_handler.retrigger_checks_for_out_of_date_prs_on_push.assert_called_once_with("main")
+                mock_upload.assert_not_called()
+                mock_build.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_process_push_webhook_data_tag_with_slash(self, push_handler: PushHandler) -> None:
@@ -419,3 +410,4 @@ class TestPushHandler:
                     assert "published to PYPI" in call_args[1]["message"]
                     assert call_args[1]["logger"] == push_handler.logger
                     assert call_args[1]["log_prefix"] == push_handler.log_prefix
+

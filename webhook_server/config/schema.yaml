@@ -86,7 +86,7 @@ properties:
   retrigger-checks-on-base-push:
     type: boolean
     description: Re-trigger CI checks for out-of-date PRs when a push occurs to their base branch (global default)
-    default: true
+    default: false
 
   pr-size-thresholds:
     type: object
@@ -306,7 +306,7 @@ properties:
         retrigger-checks-on-base-push:
           type: boolean
           description: Re-trigger CI checks for out-of-date PRs when a push occurs to their base branch
-          default: true
+          default: false
         pr-size-thresholds:
           type: object
           description: Custom PR size thresholds with label names and colors (repository-specific override)
