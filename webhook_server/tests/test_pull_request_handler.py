@@ -18,6 +18,7 @@ from webhook_server.utils.constants import (
     HAS_CONFLICTS_LABEL_STR,
     LGTM_BY_LABEL_PREFIX,
     NEEDS_REBASE_LABEL_STR,
+    PRE_COMMIT_STR,
     TOX_STR,
     VERIFIED_LABEL_STR,
     WIP_STR,
@@ -1895,79 +1896,48 @@ class TestPullRequestHandler:
     async def test_retrigger_check_suites_for_pr_success(
         self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock, mock_pull_request: Mock
     ) -> None:
-        """Test _retrigger_check_suites_for_pr successfully re-requests check suites."""
+        """Test _retrigger_check_suites_for_pr successfully runs configured checks."""
         mock_pull_request.number = 123
-        mock_pull_request.head.sha = "abc123"
-        mock_github_webhook.hook_data = {"repository": {"owner": {"login": "test-owner"}}}
+        mock_github_webhook.current_pull_request_supported_retest = [TOX_STR, PRE_COMMIT_STR]
 
-        mock_commit = Mock()
-        mock_suite = Mock()
-        mock_suite.id = 456
+        # Mock the shared run_retests method
+        mock_run_retests = AsyncMock()
+        pull_request_handler.runner_handler.run_retests = mock_run_retests
 
-        call_count = 0
-
-        async def mock_to_thread_side_effect(func, *args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-
-            # First call: pr.number
-            if call_count == 1:
-                return func()
-            # Second call: pr.head.sha
-            if call_count == 2:
-                return func()
-            # Third call: repository.get_commit
-            if call_count == 3:
-                return mock_commit
-            # Fourth call: commit.get_check_suites
-            if call_count == 4:
-                return func()
-            # Fifth call: suite.id
-            if call_count == 5:
-                return func()
-            # Sixth call: requester.requestJsonAndCheck
-            if call_count == 6:
-                return None
-
-            return None
-
-        mock_commit.get_check_suites.return_value = [mock_suite]
-
-        with patch("asyncio.to_thread", side_effect=mock_to_thread_side_effect):
+        with patch("asyncio.to_thread", side_effect=lambda f, *a, **k: f(*a, **k) if callable(f) else f):
             await pull_request_handler._retrigger_check_suites_for_pr(mock_pull_request)
 
-            assert call_count == 6
-            pull_request_handler.logger.info.assert_called_with(
-                "[TEST] Successfully re-requested check suite 456 for PR #123"
+            # Verify run_retests was called with the correct arguments
+            mock_run_retests.assert_called_once_with(
+                supported_retests=[TOX_STR, PRE_COMMIT_STR], pull_request=mock_pull_request
             )
 
     @pytest.mark.asyncio
     async def test_retrigger_check_suites_for_pr_no_check_suites(
-        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+        self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock, mock_pull_request: Mock
     ) -> None:
-        """Test _retrigger_check_suites_for_pr when PR has no check suites."""
+        """Test _retrigger_check_suites_for_pr when repository has no configured checks."""
         mock_pull_request.number = 123
-        mock_pull_request.head.sha = "abc123"
-
-        mock_commit = Mock()
-        mock_commit.get_check_suites.return_value = []
+        mock_github_webhook.current_pull_request_supported_retest = []
 
         with patch("asyncio.to_thread", side_effect=lambda f, *a, **k: f(*a, **k) if callable(f) else None):
-            with patch.object(pull_request_handler.repository, "get_commit", return_value=mock_commit):
-                await pull_request_handler._retrigger_check_suites_for_pr(mock_pull_request)
+            await pull_request_handler._retrigger_check_suites_for_pr(mock_pull_request)
 
-                pull_request_handler.logger.debug.assert_called_with("[TEST] No check suites found for PR #123")
+            pull_request_handler.logger.debug.assert_called_with("[TEST] No checks configured for this repository")
 
     @pytest.mark.asyncio
     async def test_retrigger_check_suites_for_pr_exception(
-        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+        self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock, mock_pull_request: Mock
     ) -> None:
-        """Test _retrigger_check_suites_for_pr handles exceptions gracefully."""
+        """Test _retrigger_check_suites_for_pr handles exceptions from runners gracefully."""
+        mock_pull_request.number = 123
+        mock_github_webhook.current_pull_request_supported_retest = [TOX_STR]
 
-        async def mock_to_thread_side_effect(func, *args, **kwargs):
-            raise Exception("API Error")
+        # Mock run_retests to raise exception
+        mock_run_retests = AsyncMock(side_effect=Exception("Runner failed"))
+        pull_request_handler.runner_handler.run_retests = mock_run_retests
 
-        with patch("asyncio.to_thread", side_effect=mock_to_thread_side_effect):
-            await pull_request_handler._retrigger_check_suites_for_pr(mock_pull_request)
-
-            pull_request_handler.logger.exception.assert_called_with("[TEST] Failed to retrigger checks for PR")
+        with patch("asyncio.to_thread", side_effect=lambda f, *a, **k: f(*a, **k) if callable(f) else f):
+            # The exception should propagate since we're not catching it in _retrigger_check_suites_for_pr
+            with pytest.raises(Exception, match="Runner failed"):
+                await pull_request_handler._retrigger_check_suites_for_pr(mock_pull_request)

@@ -901,48 +901,28 @@ For more information, please refer to the project documentation or contact the m
         return merge_state
 
     async def _retrigger_check_suites_for_pr(self, pull_request: PullRequest) -> None:
-        try:
-            pr_number = await asyncio.to_thread(lambda: pull_request.number)
-            head_sha = await asyncio.to_thread(lambda: pull_request.head.sha)
+        """Re-trigger configured checks for a PR when base branch is updated.
 
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('retrigger_checks', 'push_processing', 'processing')} "
-                f"Re-triggering checks for out-of-date PR #{pr_number}",
-            )
+        Uses the same runner approach as process_retest_command - only runs checks
+        that are configured for this repository.
+        """
+        pr_number = await asyncio.to_thread(lambda: pull_request.number)
 
-            # Get check suites
-            commit = await asyncio.to_thread(self.repository.get_commit, head_sha)
-            check_suites = await asyncio.to_thread(lambda: list(commit.get_check_suites()))
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('retrigger_checks', 'push_processing', 'processing')} "
+            f"Re-triggering checks for out-of-date PR #{pr_number}",
+        )
 
-            if not check_suites:
-                self.logger.debug(f"{self.log_prefix} No check suites found for PR #{pr_number}")
-                return
+        available_checks = self.github_webhook.current_pull_request_supported_retest
 
-            owner = self.github_webhook.hook_data["repository"]["owner"]["login"]
-            repo = self.repository.name
+        if not available_checks:
+            self.logger.debug(f"{self.log_prefix} No checks configured for this repository")
+            return
 
-            for suite in check_suites:
-                try:
-                    # Extract suite.id outside the loop to avoid B023 (lambda in loop)
-                    # suite.id is a cached property, safe to access directly
-                    suite_id = await asyncio.to_thread(getattr, suite, "id")
-                    url = f"/repos/{owner}/{repo}/check-suites/{suite_id}/rerequest"
+        self.logger.info(f"{self.log_prefix} Available checks to retrigger: {available_checks}")
 
-                    assert self.github_webhook.github_api is not None
-                    await asyncio.to_thread(
-                        self.github_webhook.github_api.requester.requestJsonAndCheck,
-                        "POST",
-                        url,
-                    )
-
-                    self.logger.info(
-                        f"{self.log_prefix} Successfully re-requested check suite {suite_id} for PR #{pr_number}"
-                    )
-                except Exception:
-                    self.logger.exception(f"{self.log_prefix} Failed to re-request check suite for PR #{pr_number}")
-
-        except Exception:
-            self.logger.exception(f"{self.log_prefix} Failed to retrigger checks for PR")
+        # Run all available checks using the shared runner handler method
+        await self.runner_handler.run_retests(supported_retests=available_checks, pull_request=pull_request)
 
     async def _process_verified_for_update_or_new_pull_request(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.verified_job:

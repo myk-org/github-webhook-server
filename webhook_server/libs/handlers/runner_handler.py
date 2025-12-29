@@ -2,7 +2,8 @@ import asyncio
 import contextlib
 import re
 import shutil
-from collections.abc import AsyncGenerator
+from asyncio import Task
+from collections.abc import AsyncGenerator, Callable, Coroutine
 from typing import TYPE_CHECKING, Any
 
 import shortuuid
@@ -742,3 +743,34 @@ Your team can configure additional types in the repository settings.
             await asyncio.to_thread(
                 pull_request.create_issue_comment, f"Cherry-picked PR {pull_request.title} into {target_branch}"
             )
+
+    async def run_retests(self, supported_retests: list[str], pull_request: PullRequest) -> None:
+        """Run the specified retests for a pull request.
+
+        Args:
+            supported_retests: List of test names to run (e.g., ['tox', 'pre-commit'])
+            pull_request: The PullRequest object to run tests for
+        """
+        if not supported_retests:
+            self.logger.debug(f"{self.log_prefix} No retests to run")
+            return
+
+        # Map check names to runner functions
+        _retests_to_func_map: dict[str, Callable] = {
+            TOX_STR: self.run_tox,
+            PRE_COMMIT_STR: self.run_pre_commit,
+            BUILD_CONTAINER_STR: self.run_build_container,
+            PYTHON_MODULE_INSTALL_STR: self.run_install_python_module,
+            CONVENTIONAL_TITLE_STR: self.run_conventional_title_check,
+        }
+
+        tasks: list[Coroutine[Any, Any, Any] | Task[Any]] = []
+        for _test in supported_retests:
+            self.logger.debug(f"{self.log_prefix} running retest {_test}")
+            task = asyncio.create_task(_retests_to_func_map[_test](pull_request=pull_request))
+            tasks.append(task)
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for result in results:
+            if isinstance(result, Exception):
+                self.logger.error(f"{self.log_prefix} Async task failed: {result}")
