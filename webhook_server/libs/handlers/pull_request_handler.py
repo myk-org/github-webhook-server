@@ -906,7 +906,7 @@ For more information, please refer to the project documentation or contact the m
 
     async def _retrigger_check_suites_for_pr(self, pull_request: PullRequest) -> None:
         """Re-trigger configured checks for a PR when base branch is updated."""
-        pr_number = await asyncio.to_thread(lambda: pull_request.number)
+        pr_number = pull_request.number
 
         self.logger.step(  # type: ignore[attr-defined]
             f"{self.log_prefix} {format_task_fields('retrigger_checks', 'push_processing', 'processing')} "

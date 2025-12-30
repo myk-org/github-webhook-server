@@ -443,7 +443,7 @@ class TestPushHandler:
     async def test_process_push_webhook_data_branch_push_feature_branch(self, push_handler: PushHandler) -> None:
         """Test processing push to feature branch."""
         push_handler.hook_data["ref"] = "refs/heads/feature/my-feature"
-        push_handler.github_webhook.retrigger_checks_on_base_push = True
+        push_handler.github_webhook.retrigger_checks_on_base_push = "all"
 
         with patch.object(
             push_handler, "_retrigger_checks_for_prs_targeting_branch", new_callable=AsyncMock
