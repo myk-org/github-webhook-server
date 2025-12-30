@@ -431,10 +431,14 @@ For more information, please refer to the project documentation or contact the m
             self.logger.info(f"{self.log_prefix} check label pull request after merge")
             merge_state = await self.label_pull_request_by_merge_state(pull_request=pull_request)
 
-            # If retrigger is enabled and PR is behind, retrigger checks
-            if self.github_webhook.retrigger_checks_on_base_push:
-                if merge_state in ("behind", "blocked"):
-                    await self._retrigger_check_suites_for_pr(pull_request=pull_request)
+            # Check if retrigger is enabled (not False or empty list)
+            retrigger_config = self.github_webhook.retrigger_checks_on_base_push
+            if retrigger_config is False or retrigger_config == []:
+                continue
+
+            # If retrigger is enabled and PR is behind or blocked, retrigger checks
+            if merge_state in ("behind", "blocked"):
+                await self._retrigger_check_suites_for_pr(pull_request=pull_request)
 
     async def delete_remote_tag_for_merged_or_closed_pr(self, pull_request: PullRequest) -> None:
         self.logger.step(  # type: ignore[attr-defined]
@@ -915,10 +919,29 @@ For more information, please refer to the project documentation or contact the m
             self.logger.debug(f"{self.log_prefix} No checks configured for this repository")
             return
 
-        self.logger.info(f"{self.log_prefix} Available checks to retrigger: {available_checks}")
+        # Determine which checks to run based on config
+        retrigger_config = self.github_webhook.retrigger_checks_on_base_push
 
-        # Run all available checks using the shared runner handler method
-        await self.runner_handler.run_retests(supported_retests=available_checks, pull_request=pull_request)
+        if retrigger_config == "all":
+            checks_to_run = available_checks
+        elif isinstance(retrigger_config, list):
+            # Filter to only configured checks that are available
+            checks_to_run = [check for check in retrigger_config if check in available_checks]
+            if not checks_to_run:
+                self.logger.warning(
+                    f"{self.log_prefix} None of the configured retrigger checks {retrigger_config} "
+                    f"are available. Available: {available_checks}"
+                )
+                return
+        else:
+            # Shouldn't happen with schema validation, but handle gracefully
+            self.logger.warning(f"{self.log_prefix} Invalid retrigger config: {retrigger_config}")
+            return
+
+        self.logger.info(f"{self.log_prefix} Re-triggering checks for PR #{pr_number}: {checks_to_run}")
+
+        # Run configured checks using the shared runner handler method
+        await self.runner_handler.run_retests(supported_retests=checks_to_run, pull_request=pull_request)
 
     async def _process_verified_for_update_or_new_pull_request(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.verified_job:

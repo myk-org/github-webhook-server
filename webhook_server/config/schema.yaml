@@ -84,7 +84,17 @@ properties:
     description: Create a tracking issue for new pull requests (global default)
     default: true
   retrigger-checks-on-base-push:
-    type: boolean
+    oneOf:
+      - type: boolean
+        enum: [false]
+        description: Disable re-triggering of CI checks (default)
+      - type: string
+        enum: ["all"]
+        description: Re-trigger all available CI checks for out-of-date PRs
+      - type: array
+        items:
+          type: string
+        description: Re-trigger specific CI checks (e.g., ["tox", "pre-commit"])
     description: Re-trigger CI checks for out-of-date PRs when a pull request is merged into their base branch (global default)
     default: false
 
@@ -304,7 +314,17 @@ properties:
           description: Create a tracking issue for new pull requests
           default: true
         retrigger-checks-on-base-push:
-          type: boolean
+          oneOf:
+            - type: boolean
+              enum: [false]
+              description: Disable re-triggering of CI checks (default)
+            - type: string
+              enum: ["all"]
+              description: Re-trigger all available CI checks for out-of-date PRs
+            - type: array
+              items:
+                type: string
+              description: Re-trigger specific CI checks (e.g., ["tox", "pre-commit"])
           description: Re-trigger CI checks for out-of-date PRs when a pull request is merged into their base branch
           default: false
         pr-size-thresholds:

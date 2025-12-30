@@ -1901,6 +1901,7 @@ class TestPullRequestHandler:
         """Test _retrigger_check_suites_for_pr successfully runs configured checks."""
         mock_pull_request.number = 123
         mock_github_webhook.current_pull_request_supported_retest = [TOX_STR, PRE_COMMIT_STR]
+        mock_github_webhook.retrigger_checks_on_base_push = "all"
 
         # Mock the shared run_retests method
         mock_run_retests = AsyncMock()
@@ -1934,6 +1935,7 @@ class TestPullRequestHandler:
         """Test _retrigger_check_suites_for_pr propagates exceptions from runners."""
         mock_pull_request.number = 123
         mock_github_webhook.current_pull_request_supported_retest = [TOX_STR]
+        mock_github_webhook.retrigger_checks_on_base_push = "all"
 
         # Mock run_retests to raise exception
         mock_run_retests = AsyncMock(side_effect=Exception("Runner failed"))
@@ -1943,3 +1945,62 @@ class TestPullRequestHandler:
             # The exception should propagate since we're not catching it in _retrigger_check_suites_for_pr
             with pytest.raises(Exception, match="Runner failed"):
                 await pull_request_handler._retrigger_check_suites_for_pr(mock_pull_request)
+
+    @pytest.mark.asyncio
+    async def test_retrigger_check_suites_for_pr_with_specific_checks_list(
+        self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock, mock_pull_request: Mock
+    ) -> None:
+        """Test _retrigger_check_suites_for_pr with specific checks list."""
+        mock_pull_request.number = 123
+        mock_github_webhook.current_pull_request_supported_retest = [TOX_STR, PRE_COMMIT_STR, "build-container"]
+        mock_github_webhook.retrigger_checks_on_base_push = [TOX_STR, PRE_COMMIT_STR]
+
+        # Mock the shared run_retests method
+        mock_run_retests = AsyncMock()
+        pull_request_handler.runner_handler.run_retests = mock_run_retests
+
+        with patch("asyncio.to_thread", new=_sync_to_thread):
+            await pull_request_handler._retrigger_check_suites_for_pr(mock_pull_request)
+
+            # Verify run_retests was called with only configured checks
+            mock_run_retests.assert_called_once_with(
+                supported_retests=[TOX_STR, PRE_COMMIT_STR], pull_request=mock_pull_request
+            )
+
+    @pytest.mark.asyncio
+    async def test_retrigger_check_suites_for_pr_with_nonexistent_checks(
+        self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock, mock_pull_request: Mock
+    ) -> None:
+        """Test _retrigger_check_suites_for_pr when configured checks don't exist."""
+        mock_pull_request.number = 123
+        mock_github_webhook.current_pull_request_supported_retest = [TOX_STR, PRE_COMMIT_STR]
+        mock_github_webhook.retrigger_checks_on_base_push = ["nonexistent-check"]
+
+        # Mock the shared run_retests method
+        mock_run_retests = AsyncMock()
+        pull_request_handler.runner_handler.run_retests = mock_run_retests
+
+        with patch("asyncio.to_thread", new=_sync_to_thread):
+            await pull_request_handler._retrigger_check_suites_for_pr(mock_pull_request)
+
+            # Should not run any checks since none match
+            mock_run_retests.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_retrigger_check_suites_for_pr_with_partial_match(
+        self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock, mock_pull_request: Mock
+    ) -> None:
+        """Test _retrigger_check_suites_for_pr with partial match."""
+        mock_pull_request.number = 123
+        mock_github_webhook.current_pull_request_supported_retest = [TOX_STR, PRE_COMMIT_STR]
+        mock_github_webhook.retrigger_checks_on_base_push = [TOX_STR, "nonexistent-check"]
+
+        # Mock the shared run_retests method
+        mock_run_retests = AsyncMock()
+        pull_request_handler.runner_handler.run_retests = mock_run_retests
+
+        with patch("asyncio.to_thread", new=_sync_to_thread):
+            await pull_request_handler._retrigger_check_suites_for_pr(mock_pull_request)
+
+            # Should only run checks that match
+            mock_run_retests.assert_called_once_with(supported_retests=[TOX_STR], pull_request=mock_pull_request)

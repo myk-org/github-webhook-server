@@ -76,8 +76,11 @@ class PushHandler:
                 f"Processing branch push event",
             )
 
-            # Only process if retrigger is enabled
-            if self.github_webhook.retrigger_checks_on_base_push:
+            # Check if retrigger is enabled (not False or empty list)
+            retrigger_config = self.github_webhook.retrigger_checks_on_base_push
+            if retrigger_config is False or retrigger_config == []:
+                self.logger.debug(f"{self.log_prefix} retrigger-checks-on-base-push not enabled, skipping")
+            else:
                 # Extract branch name from ref (refs/heads/main -> main)
                 branch_match = re.search(r"^refs/heads/(.+)$", self.hook_data["ref"])
                 if branch_match:
@@ -88,8 +91,6 @@ class PushHandler:
                     self.logger.debug(
                         f"{self.log_prefix} Could not extract branch name from ref: {self.hook_data['ref']}"
                     )
-            else:
-                self.logger.debug(f"{self.log_prefix} retrigger-checks-on-base-push not enabled, skipping")
 
             self.logger.step(  # type: ignore[attr-defined]
                 f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'completed')} "
@@ -151,9 +152,28 @@ class PushHandler:
                     self.logger.debug(f"{self.log_prefix} No checks configured for this repository")
                     continue
 
-                self.logger.info(f"{self.log_prefix} Re-triggering checks for PR #{pr_number}: {available_checks}")
+                # Determine which checks to run based on config
+                retrigger_config = self.github_webhook.retrigger_checks_on_base_push
+
+                if retrigger_config == "all":
+                    checks_to_run = available_checks
+                elif isinstance(retrigger_config, list):
+                    # Filter to only configured checks that are available
+                    checks_to_run = [check for check in retrigger_config if check in available_checks]
+                    if not checks_to_run:
+                        self.logger.warning(
+                            f"{self.log_prefix} None of the configured retrigger checks {retrigger_config} "
+                            f"are available. Available: {available_checks}"
+                        )
+                        continue
+                else:
+                    # Shouldn't happen with schema validation, but handle gracefully
+                    self.logger.warning(f"{self.log_prefix} Invalid retrigger config: {retrigger_config}")
+                    continue
+
+                self.logger.info(f"{self.log_prefix} Re-triggering checks for PR #{pr_number}: {checks_to_run}")
                 try:
-                    await self.runner_handler.run_retests(supported_retests=available_checks, pull_request=pull_request)
+                    await self.runner_handler.run_retests(supported_retests=checks_to_run, pull_request=pull_request)
                     self.logger.info(f"{self.log_prefix} Successfully re-triggered checks for PR #{pr_number}")
                 except Exception:
                     self.logger.exception(f"{self.log_prefix} Failed to re-trigger checks for PR #{pr_number}")
