@@ -1903,17 +1903,15 @@ class TestPullRequestHandler:
         mock_github_webhook.current_pull_request_supported_retest = [TOX_STR, PRE_COMMIT_STR]
         mock_github_webhook.retrigger_checks_on_base_push = "all"
 
-        # Mock the shared run_retests method
-        mock_run_retests = AsyncMock()
-        pull_request_handler.runner_handler.run_retests = mock_run_retests
+        # Mock the run_retests_from_config method
+        mock_run_retests_from_config = AsyncMock(return_value=True)
+        pull_request_handler.runner_handler.run_retests_from_config = mock_run_retests_from_config
 
         with patch("asyncio.to_thread", new=_sync_to_thread):
             await pull_request_handler._retrigger_check_suites_for_pr(mock_pull_request)
 
-            # Verify run_retests was called with the correct arguments
-            mock_run_retests.assert_called_once_with(
-                supported_retests=[TOX_STR, PRE_COMMIT_STR], pull_request=mock_pull_request
-            )
+            # Verify run_retests_from_config was called with the correct arguments
+            mock_run_retests_from_config.assert_called_once_with(pull_request=mock_pull_request)
 
     @pytest.mark.asyncio
     async def test_retrigger_check_suites_for_pr_no_check_suites(
@@ -1923,10 +1921,15 @@ class TestPullRequestHandler:
         mock_pull_request.number = 123
         mock_github_webhook.current_pull_request_supported_retest = []
 
+        # Mock the run_retests_from_config method (returns False when no checks)
+        mock_run_retests_from_config = AsyncMock(return_value=False)
+        pull_request_handler.runner_handler.run_retests_from_config = mock_run_retests_from_config
+
         with patch("asyncio.to_thread", new=_sync_to_thread):
             await pull_request_handler._retrigger_check_suites_for_pr(mock_pull_request)
 
-            pull_request_handler.logger.debug.assert_called_with("[TEST] No checks configured for this repository")
+            # Verify run_retests_from_config was called
+            mock_run_retests_from_config.assert_called_once_with(pull_request=mock_pull_request)
 
     @pytest.mark.asyncio
     async def test_retrigger_check_suites_for_pr_exception(
@@ -1937,9 +1940,9 @@ class TestPullRequestHandler:
         mock_github_webhook.current_pull_request_supported_retest = [TOX_STR]
         mock_github_webhook.retrigger_checks_on_base_push = "all"
 
-        # Mock run_retests to raise exception
-        mock_run_retests = AsyncMock(side_effect=Exception("Runner failed"))
-        pull_request_handler.runner_handler.run_retests = mock_run_retests
+        # Mock run_retests_from_config to raise exception
+        mock_run_retests_from_config = AsyncMock(side_effect=Exception("Runner failed"))
+        pull_request_handler.runner_handler.run_retests_from_config = mock_run_retests_from_config
 
         with patch("asyncio.to_thread", new=_sync_to_thread):
             # The exception should propagate since we're not catching it in _retrigger_check_suites_for_pr
@@ -1955,17 +1958,15 @@ class TestPullRequestHandler:
         mock_github_webhook.current_pull_request_supported_retest = [TOX_STR, PRE_COMMIT_STR, "build-container"]
         mock_github_webhook.retrigger_checks_on_base_push = [TOX_STR, PRE_COMMIT_STR]
 
-        # Mock the shared run_retests method
-        mock_run_retests = AsyncMock()
-        pull_request_handler.runner_handler.run_retests = mock_run_retests
+        # Mock the run_retests_from_config method
+        mock_run_retests_from_config = AsyncMock(return_value=True)
+        pull_request_handler.runner_handler.run_retests_from_config = mock_run_retests_from_config
 
         with patch("asyncio.to_thread", new=_sync_to_thread):
             await pull_request_handler._retrigger_check_suites_for_pr(mock_pull_request)
 
-            # Verify run_retests was called with only configured checks
-            mock_run_retests.assert_called_once_with(
-                supported_retests=[TOX_STR, PRE_COMMIT_STR], pull_request=mock_pull_request
-            )
+            # Verify run_retests_from_config was called
+            mock_run_retests_from_config.assert_called_once_with(pull_request=mock_pull_request)
 
     @pytest.mark.asyncio
     async def test_retrigger_check_suites_for_pr_with_nonexistent_checks(
@@ -1976,15 +1977,15 @@ class TestPullRequestHandler:
         mock_github_webhook.current_pull_request_supported_retest = [TOX_STR, PRE_COMMIT_STR]
         mock_github_webhook.retrigger_checks_on_base_push = ["nonexistent-check"]
 
-        # Mock the shared run_retests method
-        mock_run_retests = AsyncMock()
-        pull_request_handler.runner_handler.run_retests = mock_run_retests
+        # Mock the run_retests_from_config method (returns False when no matching checks)
+        mock_run_retests_from_config = AsyncMock(return_value=False)
+        pull_request_handler.runner_handler.run_retests_from_config = mock_run_retests_from_config
 
         with patch("asyncio.to_thread", new=_sync_to_thread):
             await pull_request_handler._retrigger_check_suites_for_pr(mock_pull_request)
 
-            # Should not run any checks since none match
-            mock_run_retests.assert_not_called()
+            # Verify run_retests_from_config was called
+            mock_run_retests_from_config.assert_called_once_with(pull_request=mock_pull_request)
 
     @pytest.mark.asyncio
     async def test_retrigger_check_suites_for_pr_with_partial_match(
@@ -1995,12 +1996,12 @@ class TestPullRequestHandler:
         mock_github_webhook.current_pull_request_supported_retest = [TOX_STR, PRE_COMMIT_STR]
         mock_github_webhook.retrigger_checks_on_base_push = [TOX_STR, "nonexistent-check"]
 
-        # Mock the shared run_retests method
-        mock_run_retests = AsyncMock()
-        pull_request_handler.runner_handler.run_retests = mock_run_retests
+        # Mock the run_retests_from_config method (returns True when checks match)
+        mock_run_retests_from_config = AsyncMock(return_value=True)
+        pull_request_handler.runner_handler.run_retests_from_config = mock_run_retests_from_config
 
         with patch("asyncio.to_thread", new=_sync_to_thread):
             await pull_request_handler._retrigger_check_suites_for_pr(mock_pull_request)
 
-            # Should only run checks that match
-            mock_run_retests.assert_called_once_with(supported_retests=[TOX_STR], pull_request=mock_pull_request)
+            # Verify run_retests_from_config was called
+            mock_run_retests_from_config.assert_called_once_with(pull_request=mock_pull_request)

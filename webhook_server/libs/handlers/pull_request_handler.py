@@ -913,35 +913,8 @@ For more information, please refer to the project documentation or contact the m
             f"Re-triggering checks for out-of-date PR #{pr_number}",
         )
 
-        available_checks = self.github_webhook.current_pull_request_supported_retest
-
-        if not available_checks:
-            self.logger.debug(f"{self.log_prefix} No checks configured for this repository")
-            return
-
-        # Determine which checks to run based on config
-        retrigger_config = self.github_webhook.retrigger_checks_on_base_push
-
-        if retrigger_config == "all":
-            checks_to_run = available_checks
-        elif isinstance(retrigger_config, list):
-            # Filter to only configured checks that are available
-            checks_to_run = [check for check in retrigger_config if check in available_checks]
-            if not checks_to_run:
-                self.logger.warning(
-                    f"{self.log_prefix} None of the configured retrigger checks {retrigger_config} "
-                    f"are available. Available: {available_checks}"
-                )
-                return
-        else:
-            # Config is None - already handled in caller, shouldn't reach here
-            self.logger.warning(f"{self.log_prefix} Invalid retrigger config: {retrigger_config}")
-            return
-
-        self.logger.info(f"{self.log_prefix} Re-triggering checks for PR #{pr_number}: {checks_to_run}")
-
         # Run configured checks using the shared runner handler method
-        await self.runner_handler.run_retests(supported_retests=checks_to_run, pull_request=pull_request)
+        await self.runner_handler.run_retests_from_config(pull_request=pull_request)
 
     async def _process_verified_for_update_or_new_pull_request(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.verified_job:

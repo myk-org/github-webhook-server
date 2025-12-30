@@ -148,35 +148,12 @@ class PushHandler:
                     f"Re-triggering checks for out-of-date PR #{pr_number} (state: {merge_state})",
                 )
 
-                available_checks = self.github_webhook.current_pull_request_supported_retest
-
-                if not available_checks:
-                    self.logger.debug(f"{self.log_prefix} No checks configured for this repository")
-                    continue
-
-                # Determine which checks to run based on config
-                retrigger_config = self.github_webhook.retrigger_checks_on_base_push
-
-                if retrigger_config == "all":
-                    checks_to_run = available_checks
-                elif isinstance(retrigger_config, list):
-                    # Filter to only configured checks that are available
-                    checks_to_run = [check for check in retrigger_config if check in available_checks]
-                    if not checks_to_run:
-                        self.logger.warning(
-                            f"{self.log_prefix} None of the configured retrigger checks {retrigger_config} "
-                            f"are available. Available: {available_checks}"
-                        )
-                        continue
-                else:
-                    # Config is None - already handled above, shouldn't reach here
-                    self.logger.warning(f"{self.log_prefix} Invalid retrigger config: {retrigger_config}")
-                    continue
-
-                self.logger.info(f"{self.log_prefix} Re-triggering checks for PR #{pr_number}: {checks_to_run}")
                 try:
-                    await self.runner_handler.run_retests(supported_retests=checks_to_run, pull_request=pull_request)
-                    self.logger.info(f"{self.log_prefix} Successfully re-triggered checks for PR #{pr_number}")
+                    checks_triggered = await self.runner_handler.run_retests_from_config(pull_request=pull_request)
+                    if checks_triggered:
+                        self.logger.info(f"{self.log_prefix} Successfully re-triggered checks for PR #{pr_number}")
+                    else:
+                        self.logger.debug(f"{self.log_prefix} No checks triggered for PR #{pr_number}")
                 except Exception:
                     self.logger.exception(f"{self.log_prefix} Failed to re-trigger checks for PR #{pr_number}")
                     # Continue processing other PRs

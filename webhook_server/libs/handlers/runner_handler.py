@@ -780,3 +780,44 @@ Your team can configure additional types in the repository settings.
             if isinstance(result, Exception):
                 test_name = supported_retests[i] if i < len(supported_retests) else "unknown"
                 self.logger.error(f"{self.log_prefix} Retest task '{test_name}' failed: {result}")
+
+    async def run_retests_from_config(self, pull_request: PullRequest) -> bool:
+        """Run retests based on retrigger-checks-on-base-push configuration.
+
+        Determines which checks to run based on the configuration and available checks,
+        then calls run_retests() to execute them.
+
+        Args:
+            pull_request: The pull request to run checks on
+
+        Returns:
+            True if checks were triggered, False if skipped (no config, no available checks, etc.)
+        """
+        available_checks = self.github_webhook.current_pull_request_supported_retest
+
+        if not available_checks:
+            self.logger.debug(f"{self.log_prefix} No checks configured for this repository")
+            return False
+
+        retrigger_config = self.github_webhook.retrigger_checks_on_base_push
+
+        if retrigger_config == "all":
+            checks_to_run = available_checks
+        elif isinstance(retrigger_config, list):
+            # Filter to only configured checks that are available
+            checks_to_run = [check for check in retrigger_config if check in available_checks]
+            if not checks_to_run:
+                self.logger.warning(
+                    f"{self.log_prefix} None of the configured retrigger checks {retrigger_config} "
+                    f"are available. Available: {available_checks}"
+                )
+                return False
+        else:
+            self.logger.warning(f"{self.log_prefix} Invalid retrigger config: {retrigger_config}")
+            return False
+
+        pr_number = await asyncio.to_thread(lambda: pull_request.number)
+        self.logger.info(f"{self.log_prefix} Re-triggering checks for PR #{pr_number}: {checks_to_run}")
+
+        await self.run_retests(supported_retests=checks_to_run, pull_request=pull_request)
+        return True
