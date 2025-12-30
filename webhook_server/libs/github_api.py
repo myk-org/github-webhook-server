@@ -709,8 +709,8 @@ class GithubWebhook:
         )
 
         self.mask_sensitive = self.config.get_value("mask-sensitive-data", return_on_none=True)
-        self.retrigger_checks_on_base_push: list[str] | str | bool = self.config.get_value(
-            value="retrigger-checks-on-base-push", return_on_none=False, extra_dict=repository_config
+        self.retrigger_checks_on_base_push: list[str] | str | None = self.config.get_value(
+            value="retrigger-checks-on-base-push", return_on_none=None, extra_dict=repository_config
         )
 
     async def get_pull_request(self, number: int | None = None) -> PullRequest | None:

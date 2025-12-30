@@ -76,10 +76,10 @@ class PushHandler:
                 f"Processing branch push event",
             )
 
-            # Check if retrigger is enabled (not False or empty list)
+            # Check if retrigger is enabled (not None or empty list)
             retrigger_config = self.github_webhook.retrigger_checks_on_base_push
-            if retrigger_config is False or retrigger_config == []:
-                self.logger.debug(f"{self.log_prefix} retrigger-checks-on-base-push not enabled, skipping")
+            if not retrigger_config:
+                self.logger.debug(f"{self.log_prefix} retrigger-checks-on-base-push not configured, skipping")
             else:
                 # Extract branch name from ref (refs/heads/main -> main)
                 branch_match = re.search(r"^refs/heads/(.+)$", self.hook_data["ref"])
@@ -167,7 +167,7 @@ class PushHandler:
                         )
                         continue
                 else:
-                    # Shouldn't happen with schema validation, but handle gracefully
+                    # Config is None - already handled above, shouldn't reach here
                     self.logger.warning(f"{self.log_prefix} Invalid retrigger config: {retrigger_config}")
                     continue
 

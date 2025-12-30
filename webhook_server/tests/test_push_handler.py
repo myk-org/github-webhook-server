@@ -100,7 +100,7 @@ class TestPushHandler:
     async def test_process_push_webhook_data_no_tag(self, push_handler: PushHandler) -> None:
         """Test processing push webhook data without tag."""
         push_handler.hook_data["ref"] = "refs/heads/main"
-        push_handler.github_webhook.retrigger_checks_on_base_push = False
+        push_handler.github_webhook.retrigger_checks_on_base_push = None
 
         with patch.object(push_handler, "upload_to_pypi", new_callable=AsyncMock) as mock_upload:
             with patch.object(push_handler.runner_handler, "run_build_container", new_callable=AsyncMock) as mock_build:
@@ -427,9 +427,9 @@ class TestPushHandler:
 
     @pytest.mark.asyncio
     async def test_process_push_webhook_data_branch_push_retrigger_disabled(self, push_handler: PushHandler) -> None:
-        """Test processing branch push with retrigger disabled."""
+        """Test processing branch push with retrigger not configured."""
         push_handler.hook_data["ref"] = "refs/heads/main"
-        push_handler.github_webhook.retrigger_checks_on_base_push = False
+        push_handler.github_webhook.retrigger_checks_on_base_push = None
 
         with patch.object(
             push_handler, "_retrigger_checks_for_prs_targeting_branch", new_callable=AsyncMock

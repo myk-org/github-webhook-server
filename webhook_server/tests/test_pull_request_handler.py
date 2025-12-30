@@ -415,7 +415,7 @@ class TestPullRequestHandler:
     async def test_label_and_rerun_checks_all_opened_pull_requests_merge_state_after_merged(
         self, pull_request_handler: PullRequestHandler
     ) -> None:
-        """Test labeling all opened pull requests merge state after merged."""
+        """Test labeling all opened pull requests merge state after merged with retrigger not configured."""
         mock_pr1 = Mock()
         mock_pr2 = Mock()
         mock_pr1.number = 1
@@ -423,7 +423,7 @@ class TestPullRequestHandler:
         mock_pr1.mergeable_state = "clean"
         mock_pr2.mergeable_state = "clean"
 
-        pull_request_handler.github_webhook.retrigger_checks_on_base_push = False
+        pull_request_handler.github_webhook.retrigger_checks_on_base_push = None
 
         with patch.object(pull_request_handler.repository, "get_pulls", return_value=[mock_pr1, mock_pr2]):
             with patch.object(pull_request_handler, "label_pull_request_by_merge_state", new=AsyncMock()) as mock_label:

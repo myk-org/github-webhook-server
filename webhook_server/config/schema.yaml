@@ -85,9 +85,6 @@ properties:
     default: true
   retrigger-checks-on-base-push:
     oneOf:
-      - type: boolean
-        enum: [false]
-        description: Disable re-triggering of CI checks (default)
       - type: string
         enum: ["all"]
         description: Re-trigger all available CI checks for out-of-date PRs
@@ -95,8 +92,7 @@ properties:
         items:
           type: string
         description: Re-trigger specific CI checks (e.g., ["tox", "pre-commit"])
-    description: Re-trigger CI checks for out-of-date PRs when a pull request is merged into their base branch (global default)
-    default: false
+    description: Re-trigger CI checks for out-of-date PRs when a pull request is merged into their base branch (global default). If not configured, defaults to disabled.
 
   pr-size-thresholds:
     type: object
@@ -315,9 +311,6 @@ properties:
           default: true
         retrigger-checks-on-base-push:
           oneOf:
-            - type: boolean
-              enum: [false]
-              description: Disable re-triggering of CI checks (default)
             - type: string
               enum: ["all"]
               description: Re-trigger all available CI checks for out-of-date PRs
@@ -325,8 +318,7 @@ properties:
               items:
                 type: string
               description: Re-trigger specific CI checks (e.g., ["tox", "pre-commit"])
-          description: Re-trigger CI checks for out-of-date PRs when a pull request is merged into their base branch
-          default: false
+          description: Re-trigger CI checks for out-of-date PRs when a pull request is merged into their base branch. If not configured, defaults to disabled.
         pr-size-thresholds:
           type: object
           description: Custom PR size thresholds with label names and colors (repository-specific override)

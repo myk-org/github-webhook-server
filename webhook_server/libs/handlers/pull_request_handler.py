@@ -431,9 +431,9 @@ For more information, please refer to the project documentation or contact the m
             self.logger.info(f"{self.log_prefix} check label pull request after merge")
             merge_state = await self.label_pull_request_by_merge_state(pull_request=pull_request)
 
-            # Check if retrigger is enabled (not False or empty list)
+            # Check if retrigger is enabled (not None or empty list)
             retrigger_config = self.github_webhook.retrigger_checks_on_base_push
-            if retrigger_config is False or retrigger_config == []:
+            if not retrigger_config:
                 continue
 
             # If retrigger is enabled and PR is behind or blocked, retrigger checks
@@ -934,7 +934,7 @@ For more information, please refer to the project documentation or contact the m
                 )
                 return
         else:
-            # Shouldn't happen with schema validation, but handle gracefully
+            # Config is None - already handled in caller, shouldn't reach here
             self.logger.warning(f"{self.log_prefix} Invalid retrigger config: {retrigger_config}")
             return
 
