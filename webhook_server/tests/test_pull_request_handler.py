@@ -1935,7 +1935,7 @@ class TestPullRequestHandler:
     async def test_retrigger_check_suites_for_pr_exception(
         self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock, mock_pull_request: Mock
     ) -> None:
-        """Test _retrigger_check_suites_for_pr propagates exceptions from runners."""
+        """Test _retrigger_check_suites_for_pr catches and logs exceptions from runners."""
         mock_pull_request.number = 123
         mock_github_webhook.current_pull_request_supported_retest = [TOX_STR]
         mock_github_webhook.retrigger_checks_on_base_push = "all"
@@ -1945,9 +1945,12 @@ class TestPullRequestHandler:
         pull_request_handler.runner_handler.run_retests_from_config = mock_run_retests_from_config
 
         with patch("asyncio.to_thread", new=_sync_to_thread):
-            # The exception should propagate since we're not catching it in _retrigger_check_suites_for_pr
-            with pytest.raises(Exception, match="Runner failed"):
-                await pull_request_handler._retrigger_check_suites_for_pr(mock_pull_request)
+            # The exception should be caught and logged, not propagated
+            await pull_request_handler._retrigger_check_suites_for_pr(mock_pull_request)
+            # Verify exception was logged
+            pull_request_handler.logger.exception.assert_called_once_with(
+                "[TEST] Failed to re-trigger checks for PR #123"
+            )
 
     @pytest.mark.asyncio
     async def test_retrigger_check_suites_for_pr_with_specific_checks_list(
