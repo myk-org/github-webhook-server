@@ -92,7 +92,7 @@ properties:
         items:
           type: string
         description: Re-trigger specific CI checks (e.g., ["tox", "pre-commit"])
-    description: Re-trigger CI checks for out-of-date PRs when a pull request is merged into their base branch (global default). If not configured, defaults to disabled.
+    description: Re-trigger CI checks for out-of-date PRs when their base branch is updated (triggered by both merged PRs and direct non-tag branch pushes). Value can be "all" (string) to re-trigger all checks, or an array of specific check names. If not configured, defaults to disabled.
 
   pr-size-thresholds:
     type: object
@@ -318,7 +318,7 @@ properties:
               items:
                 type: string
               description: Re-trigger specific CI checks (e.g., ["tox", "pre-commit"])
-          description: Re-trigger CI checks for out-of-date PRs when a pull request is merged into their base branch. If not configured, defaults to disabled.
+          description: Re-trigger CI checks for out-of-date PRs when their base branch is updated (triggered by both merged PRs and direct non-tag branch pushes). Value can be "all" (string) to re-trigger all checks, or an array of specific check names. If not configured, defaults to disabled.
         pr-size-thresholds:
           type: object
           description: Custom PR size thresholds with label names and colors (repository-specific override)

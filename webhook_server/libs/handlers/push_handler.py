@@ -154,7 +154,11 @@ class PushHandler:
                         self.logger.info(f"{self.log_prefix} Successfully re-triggered checks for PR #{pr_number}")
                     else:
                         self.logger.debug(f"{self.log_prefix} No checks triggered for PR #{pr_number}")
-                except Exception:
+                except Exception as e:
+                    # Re-raise CancelledError immediately to allow cooperative cancellation
+                    if isinstance(e, asyncio.CancelledError):
+                        raise
+                    # Log all other exceptions and continue processing other PRs
                     self.logger.exception(f"{self.log_prefix} Failed to re-trigger checks for PR #{pr_number}")
                     # Continue processing other PRs
             else:

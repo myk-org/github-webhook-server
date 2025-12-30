@@ -1,6 +1,6 @@
 import asyncio
 from collections.abc import Callable
-from typing import Any
+from typing import Any, TypeVar
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
@@ -25,6 +25,8 @@ from webhook_server.utils.constants import (
     VERIFIED_LABEL_STR,
     WIP_STR,
 )
+
+T = TypeVar("T")
 
 
 # Async shim for mocking asyncio.to_thread in tests
@@ -445,7 +447,7 @@ class TestPullRequestHandler:
         mock_pr1.mergeable_state = "behind"
         mock_pr2.mergeable_state = "clean"
 
-        pull_request_handler.github_webhook.retrigger_checks_on_base_push = True
+        pull_request_handler.github_webhook.retrigger_checks_on_base_push = "all"
 
         async def mock_label_side_effect(pull_request: Mock | PullRequest) -> str:
             return pull_request.mergeable_state
@@ -487,7 +489,7 @@ class TestPullRequestHandler:
         should_retrigger: bool,
     ) -> None:
         """Test retrigger behavior for different merge states."""
-        mock_github_webhook.retrigger_checks_on_base_push = True
+        mock_github_webhook.retrigger_checks_on_base_push = "all"
 
         mock_pr = Mock()
         mock_pr.number = 1
