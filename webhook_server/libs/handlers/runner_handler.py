@@ -750,6 +750,10 @@ Your team can configure additional types in the repository settings.
         Args:
             supported_retests: List of test names to run (e.g., ['tox', 'pre-commit'])
             pull_request: The PullRequest object to run tests for
+
+        Note:
+            Uses asyncio.gather with return_exceptions=True to continue processing
+            even if some tasks fail. Failed tasks are logged for debugging.
         """
         if not supported_retests:
             self.logger.debug(f"{self.log_prefix} No retests to run")
@@ -771,6 +775,8 @@ Your team can configure additional types in the repository settings.
             tasks.append(task)
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        for result in results:
+        # Log any task failures for debugging
+        for i, result in enumerate(results):
             if isinstance(result, Exception):
-                self.logger.error(f"{self.log_prefix} Async task failed: {result}")
+                test_name = supported_retests[i] if i < len(supported_retests) else "unknown"
+                self.logger.error(f"{self.log_prefix} Retest task '{test_name}' failed: {result}")

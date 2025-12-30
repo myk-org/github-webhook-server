@@ -124,6 +124,8 @@ class PushHandler:
             pr_number = pull_request.number
             # mergeable_state triggers API call - must wrap to avoid blocking
 
+            # Use default parameter to capture current iteration's pull_request (closure pattern)
+            # This ensures each lambda captures the correct PR object, not the loop variable
             def get_merge_state(pr: PullRequest = pull_request) -> str | None:
                 return pr.mergeable_state
 
