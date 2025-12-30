@@ -683,6 +683,10 @@ class GithubWebhook:
             value="pre-commit", return_on_none=False, extra_dict=repository_config
         )
 
+        self.custom_check_runs: list[dict[str, Any]] = self.config.get_value(
+            value="custom-check-runs", return_on_none=[], extra_dict=repository_config
+        )
+
         self.auto_verified_and_merged_users: list[str] = self.config.get_value(
             value="auto-verified-and-merged-users", return_on_none=[], extra_dict=repository_config
         )
@@ -815,6 +819,15 @@ class GithubWebhook:
 
         if self.conventional_title:
             current_pull_request_supported_retest.append(CONVENTIONAL_TITLE_STR)
+
+        # Add custom check runs
+        for custom_check in self.custom_check_runs:
+            check_name = custom_check.get("name")
+            if not check_name:
+                self.logger.warning(f"{self.log_prefix} Custom check missing required 'name' field, skipping")
+                continue
+            current_pull_request_supported_retest.append(check_name)
+
         return current_pull_request_supported_retest
 
     async def cleanup(self) -> None:

@@ -1,8 +1,10 @@
 import asyncio
 import contextlib
+import os
 import re
 import shutil
-from collections.abc import AsyncGenerator
+from asyncio import Task
+from collections.abc import AsyncGenerator, Callable, Coroutine
 from typing import TYPE_CHECKING, Any
 
 import shortuuid
@@ -13,6 +15,7 @@ from github.Repository import Repository
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.utils import helpers as helpers_module
+from webhook_server.utils.command_security import validate_command_security
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CHERRY_PICKED_LABEL_PREFIX,
@@ -620,6 +623,87 @@ Your team can configure additional types in the repository settings.
 """
             await self.check_run_handler.set_conventional_title_failure(output=output)
 
+    async def run_custom_check(
+        self,
+        pull_request: PullRequest,
+        check_config: dict[str, Any],
+    ) -> None:
+        """Run a custom check defined in repository configuration."""
+        check_name = check_config.get("name")
+        if not check_name:
+            self.logger.error(f"{self.log_prefix} Custom check missing required 'name' field")
+            return  # Cannot set check status without a name
+        timeout = check_config.get("timeout", 600)
+        command = check_config["command"]
+
+        # Comprehensive security validation FIRST (most important check)
+        security_result = validate_command_security(command)
+        if not security_result.is_safe:
+            error_msg = f"Command security check failed: {security_result.error_message}"
+            self.logger.error(f"{self.log_prefix} {error_msg}")
+            security_output: dict[str, Any] = {
+                "title": f"Custom Check: {check_config['name']}",
+                "summary": "Command security validation failed",
+                "text": error_msg,
+            }
+            return await self.check_run_handler.set_custom_check_failure(name=check_name, output=security_output)
+
+        # Collect secrets to redact from logs
+        secrets_to_redact: list[str] = []
+        secret_env_vars = check_config.get("secrets", [])
+        for env_var in secret_env_vars:
+            secret_value = os.environ.get(env_var)
+            if secret_value and secret_value.strip():
+                secrets_to_redact.append(secret_value)
+
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'started')} "
+            f"Starting custom check: {check_config['name']}"
+        )
+
+        await self.check_run_handler.set_custom_check_in_progress(name=check_name)
+
+        async with self._checkout_worktree(pull_request=pull_request) as (
+            success,
+            worktree_path,
+            out,
+            err,
+        ):
+            output: dict[str, Any] = {
+                "title": f"Custom Check: {check_config['name']}",
+                "summary": "",
+                "text": None,
+            }
+
+            if not success:
+                output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
+                return await self.check_run_handler.set_custom_check_failure(name=check_name, output=output)
+
+            # Execute command in worktree directory
+            success, out, err = await run_command(
+                command=command,
+                log_prefix=self.log_prefix,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+                timeout=timeout,
+                redact_secrets=secrets_to_redact,
+                cwd=worktree_path,
+            )
+
+            output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
+
+            if success:
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'completed')} "
+                    f"Custom check {check_config['name']} completed successfully"
+                )
+                return await self.check_run_handler.set_custom_check_success(name=check_name, output=output)
+            else:
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} "
+                    f"Custom check {check_config['name']} failed"
+                )
+                return await self.check_run_handler.set_custom_check_failure(name=check_name, output=output)
+
     async def is_branch_exists(self, branch: str) -> Branch:
         return await asyncio.to_thread(self.repository.get_branch, branch)
 
@@ -742,3 +826,50 @@ Your team can configure additional types in the repository settings.
             await asyncio.to_thread(
                 pull_request.create_issue_comment, f"Cherry-picked PR {pull_request.title} into {target_branch}"
             )
+
+    async def run_retests(self, supported_retests: list[str], pull_request: PullRequest) -> None:
+        """Run the specified retests for a pull request.
+
+        Args:
+            supported_retests: List of test names to run (e.g., ['tox', 'pre-commit'])
+            pull_request: The PullRequest object to run tests for
+        """
+        if not supported_retests:
+            self.logger.debug(f"{self.log_prefix} No retests to run")
+            return
+
+        # Map check names to runner functions
+        _retests_to_func_map: dict[str, Callable[..., Coroutine[Any, Any, None]]] = {
+            TOX_STR: self.run_tox,
+            PRE_COMMIT_STR: self.run_pre_commit,
+            BUILD_CONTAINER_STR: self.run_build_container,
+            PYTHON_MODULE_INSTALL_STR: self.run_install_python_module,
+            CONVENTIONAL_TITLE_STR: self.run_conventional_title_check,
+        }
+
+        # Add custom check runs to the retest map
+        for custom_check in self.github_webhook.custom_check_runs:
+            check_key = custom_check.get("name")
+            if not check_key:
+                self.logger.warning(f"{self.log_prefix} Custom check missing required 'name' field, skipping")
+                continue
+
+            # Create a closure to capture the check_config
+            def make_custom_runner(check_config: dict[str, Any]) -> Callable[..., Coroutine[Any, Any, None]]:
+                async def runner(pull_request: PullRequest) -> None:
+                    await self.run_custom_check(pull_request=pull_request, check_config=check_config)
+
+                return runner
+
+            _retests_to_func_map[check_key] = make_custom_runner(custom_check)
+
+        tasks: list[Coroutine[Any, Any, Any] | Task[Any]] = []
+        for _test in supported_retests:
+            self.logger.debug(f"{self.log_prefix} running retest {_test}")
+            task = asyncio.create_task(_retests_to_func_map[_test](pull_request=pull_request))
+            tasks.append(task)
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for result in results:
+            if isinstance(result, Exception):
+                self.logger.error(f"{self.log_prefix} Async task failed: {result}")

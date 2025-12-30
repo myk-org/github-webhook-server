@@ -13,6 +13,7 @@ from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
     CHERRY_PICKED_LABEL_PREFIX,
+    COMPLETED_STR,
     CONVENTIONAL_TITLE_STR,
     FAILURE_STR,
     IN_PROGRESS_STR,
@@ -241,6 +242,32 @@ class CheckRunHandler:
     async def set_cherry_pick_failure(self, output: dict[str, Any]) -> None:
         return await self.set_check_run_status(
             check_run=CHERRY_PICKED_LABEL_PREFIX, conclusion=FAILURE_STR, output=output
+        )
+
+    async def set_custom_check_queued(self, name: str) -> None:
+        """Set custom check run to queued status."""
+        await self.set_check_run_status(check_run=name, status=QUEUED_STR)
+
+    async def set_custom_check_in_progress(self, name: str) -> None:
+        """Set custom check run to in_progress status."""
+        await self.set_check_run_status(check_run=name, status=IN_PROGRESS_STR)
+
+    async def set_custom_check_success(self, name: str, output: dict[str, str] | None = None) -> None:
+        """Set custom check run to success."""
+        await self.set_check_run_status(
+            check_run=name,
+            status=COMPLETED_STR,
+            conclusion=SUCCESS_STR,
+            output=output,
+        )
+
+    async def set_custom_check_failure(self, name: str, output: dict[str, str] | None = None) -> None:
+        """Set custom check run to failure."""
+        await self.set_check_run_status(
+            check_run=name,
+            status=COMPLETED_STR,
+            conclusion=FAILURE_STR,
+            output=output,
         )
 
     async def set_check_run_status(
@@ -480,6 +507,15 @@ class CheckRunHandler:
 
         if self.github_webhook.conventional_title:
             all_required_status_checks.append(CONVENTIONAL_TITLE_STR)
+
+        # Add required custom checks
+        for custom_check in self.github_webhook.custom_check_runs:
+            if custom_check.get("required", True):
+                check_name = custom_check.get("name")
+                if not check_name:
+                    self.logger.warning(f"{self.log_prefix} Custom check missing required 'name' field, skipping")
+                    continue
+                all_required_status_checks.append(check_name)
 
         _all_required_status_checks = branch_required_status_checks + all_required_status_checks
         self.logger.debug(f"{self.log_prefix} All required status checks: {_all_required_status_checks}")

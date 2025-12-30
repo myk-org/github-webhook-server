@@ -99,6 +99,8 @@ class TestGithubWebhook:
                 return {}
             if value == "verified-job":
                 return True
+            if value == "custom-check-runs":
+                return []
             return None
 
         return _get_value_side_effect
@@ -662,6 +664,8 @@ class TestGithubWebhook:
                 return False
             if value == "github-app-id":
                 return ""
+            if value == "custom-check-runs":
+                return []
             return None
 
         mock_config.return_value.get_value.side_effect = get_value_side_effect
@@ -1397,7 +1401,13 @@ class TestGithubWebhook:
             # Setup mocks
             mock_config = Mock()
             mock_config.repository_data = {"enabled": True}
-            mock_config.get_value.return_value = None
+
+            def get_value_side_effect(value: str, *_args: Any, **_kwargs: Any) -> Any:
+                if value == "custom-check-runs":
+                    return []
+                return None
+
+            mock_config.get_value.side_effect = get_value_side_effect
             mock_config.data_dir = str(tmp_path)
             mock_config_cls.return_value = mock_config
 

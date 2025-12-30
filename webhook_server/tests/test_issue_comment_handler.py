@@ -40,6 +40,7 @@ class TestIssueCommentHandler:
         mock_webhook.issue_url_for_welcome_msg = "welcome-message-url"
         mock_webhook.build_and_push_container = True
         mock_webhook.current_pull_request_supported_retest = [TOX_STR, "pre-commit"]
+        mock_webhook.custom_check_runs = []
         return mock_webhook
 
     @pytest.fixture
