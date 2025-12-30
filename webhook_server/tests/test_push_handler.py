@@ -665,3 +665,68 @@ class TestPushHandler:
                     # But the current implementation will process the PR since the check happens at webhook level
                     # This test validates current behavior
                     mock_retests.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_retrigger_checks_for_prs_with_unknown_merge_state(self, push_handler: PushHandler) -> None:
+        """Test that PRs with unknown merge state are skipped with warning."""
+        push_handler.github_webhook.current_pull_request_supported_retest = ["tox"]
+
+        mock_pr = Mock()
+        mock_pr.number = 999
+        mock_pr.mergeable_state = "unknown"
+
+        with patch.object(push_handler.repository, "get_pulls") as mock_get_pulls:
+            mock_get_pulls.return_value = [mock_pr]
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                with patch.object(
+                    push_handler.runner_handler, "run_retests_from_config", new_callable=AsyncMock
+                ) as mock_retests:
+                    await push_handler._retrigger_checks_for_prs_targeting_branch(branch_name="main")
+                    mock_retests.assert_not_called()
+                    push_handler.logger.warning.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_retrigger_checks_for_prs_with_none_merge_state(self, push_handler: PushHandler) -> None:
+        """Test that PRs with None merge state are skipped with warning."""
+        push_handler.github_webhook.current_pull_request_supported_retest = ["tox"]
+
+        mock_pr = Mock()
+        mock_pr.number = 888
+        mock_pr.mergeable_state = None
+
+        with patch.object(push_handler.repository, "get_pulls") as mock_get_pulls:
+            mock_get_pulls.return_value = [mock_pr]
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                with patch.object(
+                    push_handler.runner_handler, "run_retests_from_config", new_callable=AsyncMock
+                ) as mock_retests:
+                    await push_handler._retrigger_checks_for_prs_targeting_branch(branch_name="main")
+                    mock_retests.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_retrigger_checks_continues_on_exception(self, push_handler: PushHandler) -> None:
+        """Test that exception in one PR doesn't stop processing others."""
+        push_handler.github_webhook.current_pull_request_supported_retest = ["tox"]
+        push_handler.github_webhook.retrigger_checks_on_base_push = "all"
+
+        mock_pr1 = Mock()
+        mock_pr1.number = 100
+        mock_pr1.mergeable_state = "behind"
+
+        mock_pr2 = Mock()
+        mock_pr2.number = 200
+        mock_pr2.mergeable_state = "behind"
+
+        with patch.object(push_handler.repository, "get_pulls") as mock_get_pulls:
+            mock_get_pulls.return_value = [mock_pr1, mock_pr2]
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                with patch.object(
+                    push_handler.runner_handler, "run_retests_from_config", new_callable=AsyncMock
+                ) as mock_retests:
+                    # First call raises exception, second succeeds
+                    mock_retests.side_effect = [Exception("Test error"), True]
+                    await push_handler._retrigger_checks_for_prs_targeting_branch(branch_name="main")
+                    # Both PRs should be attempted
+                    assert mock_retests.call_count == 2
+                    # Exception should be logged
+                    push_handler.logger.exception.assert_called()

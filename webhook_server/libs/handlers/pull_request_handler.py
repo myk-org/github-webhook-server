@@ -913,8 +913,11 @@ For more information, please refer to the project documentation or contact the m
             f"Re-triggering checks for out-of-date PR #{pr_number}",
         )
 
-        # Run configured checks using the shared runner handler method
-        await self.runner_handler.run_retests_from_config(pull_request=pull_request)
+        try:
+            # Run configured checks using the shared runner handler method
+            await self.runner_handler.run_retests_from_config(pull_request=pull_request)
+        except Exception:
+            self.logger.exception(f"{self.log_prefix} Failed to re-trigger checks for PR #{pr_number}")
 
     async def _process_verified_for_update_or_new_pull_request(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.verified_job:
