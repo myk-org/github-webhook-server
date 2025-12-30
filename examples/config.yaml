@@ -33,6 +33,10 @@ auto-verify-cherry-picked-prs: true  # Default: true - automatically verify cher
 
 create-issue-for-new-pr: true  # Global default: create tracking issues for new PRs
 
+# Delay in seconds before checking merge states after base branch updates (default: 30)
+# This allows GitHub time to calculate merge states after a PR is merged or base branch is pushed
+merge-state-check-delay: 30
+
 # Global PR size label configuration (optional)
 # Define custom categories based on total lines changed (additions + deletions)
 # threshold: positive integer or 'inf' for unbounded largest category

@@ -819,7 +819,7 @@ Your team can configure additional types in the repository settings.
             self.logger.warning(f"{self.log_prefix} Invalid retrigger config: {retrigger_config}")
             return False
 
-        pr_number = await asyncio.to_thread(lambda: pull_request.number)
+        pr_number = pull_request.number
         self.logger.info(f"{self.log_prefix} Re-triggering checks for PR #{pr_number}: {checks_to_run}")
 
         await self.run_retests(supported_retests=checks_to_run, pull_request=pull_request)

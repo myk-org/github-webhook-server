@@ -94,6 +94,12 @@ properties:
         description: Re-trigger specific CI checks (e.g., ["tox", "pre-commit"])
     description: Re-trigger CI checks for out-of-date PRs when a pull request is merged into their base branch (global default). If not configured, defaults to disabled.
 
+  merge-state-check-delay:
+    type: integer
+    description: Delay in seconds before checking merge states after base branch updates (default is 30 seconds)
+    default: 30
+    minimum: 0
+
   pr-size-thresholds:
     type: object
     description: Custom PR size thresholds with label names and colors
@@ -319,6 +325,11 @@ properties:
                 type: string
               description: Re-trigger specific CI checks (e.g., ["tox", "pre-commit"])
           description: Re-trigger CI checks for out-of-date PRs when a pull request is merged into their base branch. If not configured, defaults to disabled.
+        merge-state-check-delay:
+          type: integer
+          description: Delay in seconds before checking merge states after base branch updates (default is 30 seconds)
+          default: 30
+          minimum: 0
         pr-size-thresholds:
           type: object
           description: Custom PR size thresholds with label names and colors (repository-specific override)

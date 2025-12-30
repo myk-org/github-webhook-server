@@ -103,7 +103,7 @@ class PushHandler:
         Args:
             branch_name: The branch that was pushed to (e.g., 'main')
         """
-        time_sleep = 30
+        time_sleep = self.github_webhook.merge_state_check_delay
         self.logger.info(f"{self.log_prefix} Waiting {time_sleep}s for GitHub to update merge states")
         await asyncio.sleep(time_sleep)
 

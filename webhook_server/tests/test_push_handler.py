@@ -43,6 +43,7 @@ class TestPushHandler:
         mock_webhook.container_repository_username = "test-user"  # Always a string
         mock_webhook.container_repository_password = "test-password"  # Always a string # pragma: allowlist secret
         mock_webhook.token = "test-token"  # Always a string
+        mock_webhook.merge_state_check_delay = 30  # Default delay
         return mock_webhook
 
     @pytest.fixture
@@ -416,7 +417,7 @@ class TestPushHandler:
     async def test_process_push_webhook_data_branch_push_retrigger_enabled(self, push_handler: PushHandler) -> None:
         """Test processing branch push with retrigger enabled."""
         push_handler.hook_data["ref"] = "refs/heads/main"
-        push_handler.github_webhook.retrigger_checks_on_base_push = True
+        push_handler.github_webhook.retrigger_checks_on_base_push = "all"
 
         with patch.object(
             push_handler, "_retrigger_checks_for_prs_targeting_branch", new_callable=AsyncMock

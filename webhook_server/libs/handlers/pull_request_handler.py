@@ -420,9 +420,9 @@ For more information, please refer to the project documentation or contact the m
             This ensures CI checks run against the updated base branch.
 
         Note:
-            Waits 30 seconds before processing to allow GitHub's merge state calculation to complete.
+            Waits for configured delay before processing to allow GitHub's merge state calculation to complete.
         """
-        time_sleep = 30
+        time_sleep = self.github_webhook.merge_state_check_delay
         self.logger.info(f"{self.log_prefix} Sleep for {time_sleep} seconds before getting all opened PRs")
         await asyncio.sleep(time_sleep)
 
