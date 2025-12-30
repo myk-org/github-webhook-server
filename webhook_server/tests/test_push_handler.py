@@ -43,7 +43,6 @@ class TestPushHandler:
         mock_webhook.container_repository_username = "test-user"  # Always a string
         mock_webhook.container_repository_password = "test-password"  # Always a string # pragma: allowlist secret
         mock_webhook.token = "test-token"  # Always a string
-        mock_webhook.merge_state_check_delay = 30  # Default delay
         return mock_webhook
 
     @pytest.fixture
@@ -669,7 +668,11 @@ class TestPushHandler:
 
     @pytest.mark.asyncio
     async def test_retrigger_checks_for_prs_with_unknown_merge_state(self, push_handler: PushHandler) -> None:
-        """Test that PRs with unknown merge state are skipped with warning."""
+        """Test that PRs with unknown merge state are skipped with warning.
+
+        Note: These tests mock run_retests_from_config to exercise higher-level behavior
+        and exception propagation, while run_retests is tested directly in other tests.
+        """
         push_handler.github_webhook.current_pull_request_supported_retest = ["tox"]
 
         mock_pr = Mock()
@@ -688,7 +691,11 @@ class TestPushHandler:
 
     @pytest.mark.asyncio
     async def test_retrigger_checks_for_prs_with_none_merge_state(self, push_handler: PushHandler) -> None:
-        """Test that PRs with None merge state are skipped with warning."""
+        """Test that PRs with None merge state are skipped with warning.
+
+        Note: These tests mock run_retests_from_config to exercise higher-level behavior
+        and exception propagation, while run_retests is tested directly in other tests.
+        """
         push_handler.github_webhook.current_pull_request_supported_retest = ["tox"]
 
         mock_pr = Mock()
@@ -703,10 +710,15 @@ class TestPushHandler:
                 ) as mock_retests:
                     await push_handler._retrigger_checks_for_prs_targeting_branch(branch_name="main")
                     mock_retests.assert_not_called()
+                    push_handler.logger.warning.assert_called()
 
     @pytest.mark.asyncio
     async def test_retrigger_checks_continues_on_exception(self, push_handler: PushHandler) -> None:
-        """Test that exception in one PR doesn't stop processing others."""
+        """Test that exception in one PR doesn't stop processing others.
+
+        Note: These tests mock run_retests_from_config to exercise higher-level behavior
+        and exception propagation, while run_retests is tested directly in other tests.
+        """
         push_handler.github_webhook.current_pull_request_supported_retest = ["tox"]
         push_handler.github_webhook.retrigger_checks_on_base_push = "all"
 

@@ -420,25 +420,37 @@ For more information, please refer to the project documentation or contact the m
             This ensures CI checks run against the updated base branch.
 
         Note:
-            Waits for configured delay before processing to allow GitHub's merge state calculation to complete.
+            Waits 30 seconds before processing to allow GitHub's merge state calculation to complete.
         """
-        time_sleep = self.github_webhook.merge_state_check_delay
+        time_sleep = 30
         self.logger.info(f"{self.log_prefix} Sleep for {time_sleep} seconds before getting all opened PRs")
         await asyncio.sleep(time_sleep)
 
         pulls = await asyncio.to_thread(lambda: list(self.repository.get_pulls(state="open")))
-        for pull_request in pulls:
-            self.logger.info(f"{self.log_prefix} check label pull request after merge")
-            merge_state = await self.label_pull_request_by_merge_state(pull_request=pull_request)
 
-            # Check if retrigger is enabled (not None or empty list)
-            retrigger_config = self.github_webhook.retrigger_checks_on_base_push
-            if not retrigger_config:
-                continue
+        # Move config lookup outside the loop (static value)
+        retrigger_config = self.github_webhook.retrigger_checks_on_base_push
 
-            # If retrigger is enabled and PR is behind or blocked, retrigger checks
-            if merge_state in ("behind", "blocked"):
-                await self._retrigger_check_suites_for_pr(pull_request=pull_request)
+        # Process all PRs in parallel with error isolation
+        async def process_single_pr(pull_request: PullRequest) -> None:
+            """Process a single PR with error handling."""
+            try:
+                self.logger.info(f"{self.log_prefix} check label pull request after merge")
+                merge_state = await self.label_pull_request_by_merge_state(pull_request=pull_request)
+
+                # If retrigger is enabled and PR is behind or blocked, retrigger checks
+                if retrigger_config and merge_state in ("behind", "blocked"):
+                    await self._retrigger_check_suites_for_pr(pull_request=pull_request)
+            except Exception:
+                self.logger.exception(
+                    f"{self.log_prefix} Failed to process PR #{pull_request.number} during label/retrigger operation"
+                )
+
+        # Process all PRs concurrently
+        await asyncio.gather(
+            *[process_single_pr(pr) for pr in pulls],
+            return_exceptions=True,
+        )
 
     async def delete_remote_tag_for_merged_or_closed_pr(self, pull_request: PullRequest) -> None:
         self.logger.step(  # type: ignore[attr-defined]

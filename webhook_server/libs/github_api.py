@@ -712,9 +712,6 @@ class GithubWebhook:
         self.retrigger_checks_on_base_push: list[str] | str | None = self.config.get_value(
             value="retrigger-checks-on-base-push", return_on_none=None, extra_dict=repository_config
         )
-        self.merge_state_check_delay: int = self.config.get_value(
-            value="merge-state-check-delay", return_on_none=30, extra_dict=repository_config
-        )
 
     async def get_pull_request(self, number: int | None = None) -> PullRequest | None:
         if number:

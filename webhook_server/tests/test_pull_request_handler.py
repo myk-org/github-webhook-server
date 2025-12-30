@@ -86,7 +86,6 @@ class TestPullRequestHandler:
         mock_webhook.pre_commit = True
         mock_webhook.python_module_install = False
         mock_webhook.pypi = False
-        mock_webhook.merge_state_check_delay = 30  # Default delay
         mock_webhook.token = "test-token"  # pragma: allowlist secret
         mock_webhook.auto_verify_cherry_picked_prs = True
         mock_webhook.last_commit = Mock()
