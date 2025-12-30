@@ -31,7 +31,7 @@ T = TypeVar("T")
 
 # Async shim for mocking asyncio.to_thread in tests
 # This allows us to run sync functions in tests while preserving async/await semantics
-async def _sync_to_thread[T](func: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+async def _sync_to_thread(func: Callable[..., T], *args: Any, **kwargs: Any) -> T:  # noqa: UP047
     """Mock implementation of asyncio.to_thread that runs synchronously but returns awaitable."""
     return func(*args, **kwargs)
 
