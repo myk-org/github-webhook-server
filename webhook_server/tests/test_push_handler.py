@@ -100,6 +100,7 @@ class TestPushHandler:
     async def test_process_push_webhook_data_no_tag(self, push_handler: PushHandler) -> None:
         """Test processing push webhook data without tag."""
         push_handler.hook_data["ref"] = "refs/heads/main"
+        push_handler.github_webhook.retrigger_checks_on_base_push = False
 
         with patch.object(push_handler, "upload_to_pypi", new_callable=AsyncMock) as mock_upload:
             with patch.object(push_handler.runner_handler, "run_build_container", new_callable=AsyncMock) as mock_build:
@@ -410,3 +411,172 @@ class TestPushHandler:
                     assert "published to PYPI" in call_args[1]["message"]
                     assert call_args[1]["logger"] == push_handler.logger
                     assert call_args[1]["log_prefix"] == push_handler.log_prefix
+
+    @pytest.mark.asyncio
+    async def test_process_push_webhook_data_branch_push_retrigger_enabled(self, push_handler: PushHandler) -> None:
+        """Test processing branch push with retrigger enabled."""
+        push_handler.hook_data["ref"] = "refs/heads/main"
+        push_handler.github_webhook.retrigger_checks_on_base_push = True
+
+        with patch.object(
+            push_handler, "_retrigger_checks_for_prs_targeting_branch", new_callable=AsyncMock
+        ) as mock_retrigger:
+            await push_handler.process_push_webhook_data()
+
+            mock_retrigger.assert_called_once_with(branch_name="main")
+
+    @pytest.mark.asyncio
+    async def test_process_push_webhook_data_branch_push_retrigger_disabled(self, push_handler: PushHandler) -> None:
+        """Test processing branch push with retrigger disabled."""
+        push_handler.hook_data["ref"] = "refs/heads/main"
+        push_handler.github_webhook.retrigger_checks_on_base_push = False
+
+        with patch.object(
+            push_handler, "_retrigger_checks_for_prs_targeting_branch", new_callable=AsyncMock
+        ) as mock_retrigger:
+            await push_handler.process_push_webhook_data()
+
+            mock_retrigger.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_process_push_webhook_data_branch_push_feature_branch(self, push_handler: PushHandler) -> None:
+        """Test processing push to feature branch."""
+        push_handler.hook_data["ref"] = "refs/heads/feature/my-feature"
+        push_handler.github_webhook.retrigger_checks_on_base_push = True
+
+        with patch.object(
+            push_handler, "_retrigger_checks_for_prs_targeting_branch", new_callable=AsyncMock
+        ) as mock_retrigger:
+            await push_handler.process_push_webhook_data()
+
+            mock_retrigger.assert_called_once_with(branch_name="feature/my-feature")
+
+    @pytest.mark.asyncio
+    async def test_retrigger_checks_for_prs_targeting_branch_no_prs(self, push_handler: PushHandler) -> None:
+        """Test retrigger when no PRs target the branch."""
+        push_handler.github_webhook.current_pull_request_supported_retest = ["tox", "pre-commit"]
+
+        with patch.object(push_handler.repository, "get_pulls") as mock_get_pulls:
+            mock_get_pulls.return_value = []
+
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                await push_handler._retrigger_checks_for_prs_targeting_branch(branch_name="main")
+
+            mock_get_pulls.assert_called_once_with(state="open", base="main")
+
+    @pytest.mark.asyncio
+    async def test_retrigger_checks_for_prs_targeting_branch_pr_behind(self, push_handler: PushHandler) -> None:
+        """Test retrigger for PR with merge state 'behind'."""
+        push_handler.github_webhook.current_pull_request_supported_retest = ["tox", "pre-commit"]
+
+        mock_pr = Mock()
+        mock_pr.number = 123
+        mock_pr.mergeable_state = "behind"
+
+        with patch.object(push_handler.repository, "get_pulls") as mock_get_pulls:
+            mock_get_pulls.return_value = [mock_pr]
+
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                with patch.object(push_handler.runner_handler, "run_retests", new_callable=AsyncMock) as mock_retests:
+                    await push_handler._retrigger_checks_for_prs_targeting_branch(branch_name="main")
+
+                    mock_retests.assert_called_once_with(supported_retests=["tox", "pre-commit"], pull_request=mock_pr)
+
+    @pytest.mark.asyncio
+    async def test_retrigger_checks_for_prs_targeting_branch_pr_blocked(self, push_handler: PushHandler) -> None:
+        """Test retrigger for PR with merge state 'blocked'."""
+        push_handler.github_webhook.current_pull_request_supported_retest = ["tox"]
+
+        mock_pr = Mock()
+        mock_pr.number = 456
+        mock_pr.mergeable_state = "blocked"
+
+        with patch.object(push_handler.repository, "get_pulls") as mock_get_pulls:
+            mock_get_pulls.return_value = [mock_pr]
+
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                with patch.object(push_handler.runner_handler, "run_retests", new_callable=AsyncMock) as mock_retests:
+                    await push_handler._retrigger_checks_for_prs_targeting_branch(branch_name="main")
+
+                    mock_retests.assert_called_once_with(supported_retests=["tox"], pull_request=mock_pr)
+
+    @pytest.mark.asyncio
+    async def test_retrigger_checks_for_prs_targeting_branch_pr_clean(self, push_handler: PushHandler) -> None:
+        """Test that retrigger skips PR with merge state 'clean'."""
+        push_handler.github_webhook.current_pull_request_supported_retest = ["tox"]
+
+        mock_pr = Mock()
+        mock_pr.number = 789
+        mock_pr.mergeable_state = "clean"
+
+        with patch.object(push_handler.repository, "get_pulls") as mock_get_pulls:
+            mock_get_pulls.return_value = [mock_pr]
+
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                with patch.object(push_handler.runner_handler, "run_retests", new_callable=AsyncMock) as mock_retests:
+                    await push_handler._retrigger_checks_for_prs_targeting_branch(branch_name="main")
+
+                    mock_retests.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_retrigger_checks_for_prs_targeting_branch_multiple_prs(self, push_handler: PushHandler) -> None:
+        """Test retrigger with multiple PRs in different states."""
+        push_handler.github_webhook.current_pull_request_supported_retest = ["tox", "pre-commit"]
+
+        mock_pr1 = Mock()
+        mock_pr1.number = 100
+        mock_pr1.mergeable_state = "behind"
+
+        mock_pr2 = Mock()
+        mock_pr2.number = 200
+        mock_pr2.mergeable_state = "clean"
+
+        mock_pr3 = Mock()
+        mock_pr3.number = 300
+        mock_pr3.mergeable_state = "blocked"
+
+        with patch.object(push_handler.repository, "get_pulls") as mock_get_pulls:
+            mock_get_pulls.return_value = [mock_pr1, mock_pr2, mock_pr3]
+
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                with patch.object(push_handler.runner_handler, "run_retests", new_callable=AsyncMock) as mock_retests:
+                    await push_handler._retrigger_checks_for_prs_targeting_branch(branch_name="main")
+
+                    # Should be called twice: for PR 100 (behind) and PR 300 (blocked)
+                    assert mock_retests.call_count == 2
+                    calls = mock_retests.call_args_list
+                    assert calls[0].kwargs["pull_request"] == mock_pr1
+                    assert calls[1].kwargs["pull_request"] == mock_pr3
+
+    @pytest.mark.asyncio
+    async def test_retrigger_checks_for_prs_targeting_branch_no_checks_configured(
+        self, push_handler: PushHandler
+    ) -> None:
+        """Test retrigger when no checks are configured."""
+        push_handler.github_webhook.current_pull_request_supported_retest = []
+
+        mock_pr = Mock()
+        mock_pr.number = 123
+        mock_pr.mergeable_state = "behind"
+
+        with patch.object(push_handler.repository, "get_pulls") as mock_get_pulls:
+            mock_get_pulls.return_value = [mock_pr]
+
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                with patch.object(push_handler.runner_handler, "run_retests", new_callable=AsyncMock) as mock_retests:
+                    await push_handler._retrigger_checks_for_prs_targeting_branch(branch_name="main")
+
+                    mock_retests.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_retrigger_checks_waits_for_github(self, push_handler: PushHandler) -> None:
+        """Test that retrigger waits 30 seconds for GitHub to update merge states."""
+        push_handler.github_webhook.current_pull_request_supported_retest = ["tox"]
+
+        with patch.object(push_handler.repository, "get_pulls") as mock_get_pulls:
+            mock_get_pulls.return_value = []
+
+            with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+                await push_handler._retrigger_checks_for_prs_targeting_branch(branch_name="main")
+
+                mock_sleep.assert_called_once_with(30)

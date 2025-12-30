@@ -2,6 +2,7 @@ import asyncio
 import re
 from typing import TYPE_CHECKING
 
+from github.PullRequest import PullRequest
 from github.Repository import Repository
 
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
@@ -69,10 +70,98 @@ class PushHandler:
                     )
                     self.logger.exception(f"{self.log_prefix} Container build and push failed: {ex}")
         else:
+            # Non-tag push - check if this is a push to a branch that could be a base for PRs
             self.logger.step(  # type: ignore[attr-defined]
                 f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'processing')} "
-                f"Non-tag push detected, skipping processing",
+                f"Processing branch push event",
             )
+
+            # Only process if retrigger is enabled
+            if self.github_webhook.retrigger_checks_on_base_push:
+                # Extract branch name from ref (refs/heads/main -> main)
+                branch_match = re.search(r"^refs/heads/(.+)$", self.hook_data["ref"])
+                if branch_match:
+                    branch_name = branch_match.group(1)
+                    self.logger.info(f"{self.log_prefix} Branch push detected: {branch_name}")
+                    await self._retrigger_checks_for_prs_targeting_branch(branch_name=branch_name)
+                else:
+                    self.logger.debug(
+                        f"{self.log_prefix} Could not extract branch name from ref: {self.hook_data['ref']}"
+                    )
+            else:
+                self.logger.debug(f"{self.log_prefix} retrigger-checks-on-base-push not enabled, skipping")
+
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'completed')} "
+                f"Branch push processing completed",
+            )
+
+    async def _retrigger_checks_for_prs_targeting_branch(self, branch_name: str) -> None:
+        """Re-trigger CI checks for PRs targeting the updated branch that are behind or blocked.
+
+        Args:
+            branch_name: The branch that was pushed to (e.g., 'main')
+        """
+        time_sleep = 30
+        self.logger.info(f"{self.log_prefix} Waiting {time_sleep}s for GitHub to update merge states")
+        await asyncio.sleep(time_sleep)
+
+        # Get all open PRs targeting this branch
+        def get_pulls() -> list[PullRequest]:
+            return list(self.repository.get_pulls(state="open", base=branch_name))
+
+        pulls = await asyncio.to_thread(get_pulls)
+
+        if not pulls:
+            self.logger.info(f"{self.log_prefix} No open PRs targeting branch {branch_name}")
+            return
+
+        self.logger.info(f"{self.log_prefix} Found {len(pulls)} open PRs targeting {branch_name}")
+
+        for pull_request in pulls:
+            # pr.number is in-memory data from get_pulls() result - no wrapping needed
+            pr_number = pull_request.number
+            # mergeable_state triggers API call - must wrap to avoid blocking
+
+            def get_merge_state(pr: PullRequest = pull_request) -> str | None:
+                return pr.mergeable_state
+
+            merge_state = await asyncio.to_thread(get_merge_state)
+
+            self.logger.debug(f"{self.log_prefix} PR #{pr_number} merge state: {merge_state}")
+
+            # Handle None/unknown merge states explicitly
+            if merge_state in (None, "unknown"):
+                self.logger.warning(
+                    f"{self.log_prefix} PR #{pr_number} merge state is '{merge_state}' - "
+                    "GitHub still calculating, skipping for now"
+                )
+                continue
+
+            # Only re-trigger for PRs that are behind or blocked
+            if merge_state in ("behind", "blocked"):
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('retrigger_checks', 'push_processing', 'processing')} "
+                    f"Re-triggering checks for out-of-date PR #{pr_number} (state: {merge_state})",
+                )
+
+                available_checks = self.github_webhook.current_pull_request_supported_retest
+
+                if not available_checks:
+                    self.logger.debug(f"{self.log_prefix} No checks configured for this repository")
+                    continue
+
+                self.logger.info(f"{self.log_prefix} Re-triggering checks for PR #{pr_number}: {available_checks}")
+                try:
+                    await self.runner_handler.run_retests(supported_retests=available_checks, pull_request=pull_request)
+                    self.logger.info(f"{self.log_prefix} Successfully re-triggered checks for PR #{pr_number}")
+                except Exception:
+                    self.logger.exception(f"{self.log_prefix} Failed to re-trigger checks for PR #{pr_number}")
+                    # Continue processing other PRs
+            else:
+                self.logger.debug(
+                    f"{self.log_prefix} PR #{pr_number} merge state is '{merge_state}', not re-triggering"
+                )
 
     async def upload_to_pypi(self, tag_name: str) -> None:
         async def _issue_on_error(_error: str) -> None:
