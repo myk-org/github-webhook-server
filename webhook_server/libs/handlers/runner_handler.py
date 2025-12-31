@@ -794,6 +794,7 @@ Your team can configure additional types in the repository settings.
         }
 
         tasks: list[Coroutine[Any, Any, Any] | Task[Any]] = []
+        task_names: list[str] = []  # Track names parallel to tasks
         for _test in supported_retests:
             if _test not in _retests_to_func_map:
                 self.logger.error(f"{self.log_prefix} Unknown retest type: {_test}")
@@ -801,12 +802,13 @@ Your team can configure additional types in the repository settings.
             self.logger.debug(f"{self.log_prefix} running retest {_test}")
             task = asyncio.create_task(_retests_to_func_map[_test](pull_request=pull_request))
             tasks.append(task)
+            task_names.append(_test)  # Track name at same index as task
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
         # Log any task failures for debugging
         for i, result in enumerate(results):
             if isinstance(result, Exception):
-                test_name = supported_retests[i] if i < len(supported_retests) else "unknown"
+                test_name = task_names[i] if i < len(task_names) else "unknown"
                 self.logger.error(f"{self.log_prefix} Retest task '{test_name}' failed: {result}")
 
     async def run_retests_from_config(self, pull_request: PullRequest) -> bool:
