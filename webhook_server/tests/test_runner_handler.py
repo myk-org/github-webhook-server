@@ -60,6 +60,12 @@ class TestRunnerHandler:
         mock_pr.merge_commit_sha = "abc123"
         mock_pr.html_url = "https://github.com/test/repo/pull/123"
         mock_pr.create_issue_comment = Mock()
+
+        # Mock get_commits() to return an iterable with a commit
+        mock_commit = Mock()
+        mock_commit.sha = "test-commit-sha"
+        mock_pr.get_commits = Mock(return_value=[mock_commit])
+
         return mock_pr
 
     @pytest.fixture(autouse=True)

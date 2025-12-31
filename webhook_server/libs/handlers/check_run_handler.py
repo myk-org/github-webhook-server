@@ -139,37 +139,51 @@ class CheckRunHandler:
     async def set_verify_check_success(self) -> None:
         return await self.set_check_run_status(check_run=VERIFIED_LABEL_STR, conclusion=SUCCESS_STR)
 
-    async def set_run_tox_check_queued(self) -> None:
+    async def set_run_tox_check_queued(self, pull_request: PullRequest | None = None) -> None:
         if not self.github_webhook.tox:
             self.logger.debug(f"{self.log_prefix} tox is not configured, skipping.")
             return
 
-        return await self.set_check_run_status(check_run=TOX_STR, status=QUEUED_STR)
+        return await self.set_check_run_status(check_run=TOX_STR, status=QUEUED_STR, pull_request=pull_request)
 
-    async def set_run_tox_check_in_progress(self) -> None:
-        return await self.set_check_run_status(check_run=TOX_STR, status=IN_PROGRESS_STR)
+    async def set_run_tox_check_in_progress(self, pull_request: PullRequest | None = None) -> None:
+        return await self.set_check_run_status(check_run=TOX_STR, status=IN_PROGRESS_STR, pull_request=pull_request)
 
-    async def set_run_tox_check_failure(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(check_run=TOX_STR, conclusion=FAILURE_STR, output=output)
+    async def set_run_tox_check_failure(self, output: dict[str, Any], pull_request: PullRequest | None = None) -> None:
+        return await self.set_check_run_status(
+            check_run=TOX_STR, conclusion=FAILURE_STR, output=output, pull_request=pull_request
+        )
 
-    async def set_run_tox_check_success(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(check_run=TOX_STR, conclusion=SUCCESS_STR, output=output)
+    async def set_run_tox_check_success(self, output: dict[str, Any], pull_request: PullRequest | None = None) -> None:
+        return await self.set_check_run_status(
+            check_run=TOX_STR, conclusion=SUCCESS_STR, output=output, pull_request=pull_request
+        )
 
-    async def set_run_pre_commit_check_queued(self) -> None:
+    async def set_run_pre_commit_check_queued(self, pull_request: PullRequest | None = None) -> None:
         if not self.github_webhook.pre_commit:
             self.logger.debug(f"{self.log_prefix} pre-commit is not configured, skipping.")
             return
 
-        return await self.set_check_run_status(check_run=PRE_COMMIT_STR, status=QUEUED_STR)
+        return await self.set_check_run_status(check_run=PRE_COMMIT_STR, status=QUEUED_STR, pull_request=pull_request)
 
-    async def set_run_pre_commit_check_in_progress(self) -> None:
-        return await self.set_check_run_status(check_run=PRE_COMMIT_STR, status=IN_PROGRESS_STR)
+    async def set_run_pre_commit_check_in_progress(self, pull_request: PullRequest | None = None) -> None:
+        return await self.set_check_run_status(
+            check_run=PRE_COMMIT_STR, status=IN_PROGRESS_STR, pull_request=pull_request
+        )
 
-    async def set_run_pre_commit_check_failure(self, output: dict[str, Any] | None = None) -> None:
-        return await self.set_check_run_status(check_run=PRE_COMMIT_STR, conclusion=FAILURE_STR, output=output)
+    async def set_run_pre_commit_check_failure(
+        self, output: dict[str, Any] | None = None, pull_request: PullRequest | None = None
+    ) -> None:
+        return await self.set_check_run_status(
+            check_run=PRE_COMMIT_STR, conclusion=FAILURE_STR, output=output, pull_request=pull_request
+        )
 
-    async def set_run_pre_commit_check_success(self, output: dict[str, Any] | None = None) -> None:
-        return await self.set_check_run_status(check_run=PRE_COMMIT_STR, conclusion=SUCCESS_STR, output=output)
+    async def set_run_pre_commit_check_success(
+        self, output: dict[str, Any] | None = None, pull_request: PullRequest | None = None
+    ) -> None:
+        return await self.set_check_run_status(
+            check_run=PRE_COMMIT_STR, conclusion=SUCCESS_STR, output=output, pull_request=pull_request
+        )
 
     async def set_merge_check_queued(self, output: dict[str, Any] | None = None) -> None:
         return await self.set_check_run_status(check_run=CAN_BE_MERGED_STR, status=QUEUED_STR, output=output)
@@ -183,53 +197,85 @@ class CheckRunHandler:
     async def set_merge_check_failure(self, output: dict[str, Any]) -> None:
         return await self.set_check_run_status(check_run=CAN_BE_MERGED_STR, conclusion=FAILURE_STR, output=output)
 
-    async def set_container_build_queued(self) -> None:
+    async def set_container_build_queued(self, pull_request: PullRequest | None = None) -> None:
         if not self.github_webhook.build_and_push_container:
             self.logger.debug(f"{self.log_prefix} build_and_push_container is not configured, skipping.")
             return
 
-        return await self.set_check_run_status(check_run=BUILD_CONTAINER_STR, status=QUEUED_STR)
+        return await self.set_check_run_status(
+            check_run=BUILD_CONTAINER_STR, status=QUEUED_STR, pull_request=pull_request
+        )
 
-    async def set_container_build_in_progress(self) -> None:
-        return await self.set_check_run_status(check_run=BUILD_CONTAINER_STR, status=IN_PROGRESS_STR)
+    async def set_container_build_in_progress(self, pull_request: PullRequest | None = None) -> None:
+        return await self.set_check_run_status(
+            check_run=BUILD_CONTAINER_STR, status=IN_PROGRESS_STR, pull_request=pull_request
+        )
 
-    async def set_container_build_success(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(check_run=BUILD_CONTAINER_STR, conclusion=SUCCESS_STR, output=output)
+    async def set_container_build_success(
+        self, output: dict[str, Any], pull_request: PullRequest | None = None
+    ) -> None:
+        return await self.set_check_run_status(
+            check_run=BUILD_CONTAINER_STR, conclusion=SUCCESS_STR, output=output, pull_request=pull_request
+        )
 
-    async def set_container_build_failure(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(check_run=BUILD_CONTAINER_STR, conclusion=FAILURE_STR, output=output)
+    async def set_container_build_failure(
+        self, output: dict[str, Any], pull_request: PullRequest | None = None
+    ) -> None:
+        return await self.set_check_run_status(
+            check_run=BUILD_CONTAINER_STR, conclusion=FAILURE_STR, output=output, pull_request=pull_request
+        )
 
-    async def set_python_module_install_queued(self) -> None:
+    async def set_python_module_install_queued(self, pull_request: PullRequest | None = None) -> None:
         if not self.github_webhook.pypi:
             self.logger.debug(f"{self.log_prefix} pypi is not configured, skipping.")
             return
 
-        return await self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, status=QUEUED_STR)
-
-    async def set_python_module_install_in_progress(self) -> None:
-        return await self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, status=IN_PROGRESS_STR)
-
-    async def set_python_module_install_success(self, output: dict[str, Any]) -> None:
         return await self.set_check_run_status(
-            check_run=PYTHON_MODULE_INSTALL_STR, conclusion=SUCCESS_STR, output=output
+            check_run=PYTHON_MODULE_INSTALL_STR, status=QUEUED_STR, pull_request=pull_request
         )
 
-    async def set_python_module_install_failure(self, output: dict[str, Any]) -> None:
+    async def set_python_module_install_in_progress(self, pull_request: PullRequest | None = None) -> None:
         return await self.set_check_run_status(
-            check_run=PYTHON_MODULE_INSTALL_STR, conclusion=FAILURE_STR, output=output
+            check_run=PYTHON_MODULE_INSTALL_STR, status=IN_PROGRESS_STR, pull_request=pull_request
         )
 
-    async def set_conventional_title_queued(self) -> None:
-        return await self.set_check_run_status(check_run=CONVENTIONAL_TITLE_STR, status=QUEUED_STR)
+    async def set_python_module_install_success(
+        self, output: dict[str, Any], pull_request: PullRequest | None = None
+    ) -> None:
+        return await self.set_check_run_status(
+            check_run=PYTHON_MODULE_INSTALL_STR, conclusion=SUCCESS_STR, output=output, pull_request=pull_request
+        )
 
-    async def set_conventional_title_in_progress(self) -> None:
-        return await self.set_check_run_status(check_run=CONVENTIONAL_TITLE_STR, status=IN_PROGRESS_STR)
+    async def set_python_module_install_failure(
+        self, output: dict[str, Any], pull_request: PullRequest | None = None
+    ) -> None:
+        return await self.set_check_run_status(
+            check_run=PYTHON_MODULE_INSTALL_STR, conclusion=FAILURE_STR, output=output, pull_request=pull_request
+        )
 
-    async def set_conventional_title_success(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(check_run=CONVENTIONAL_TITLE_STR, conclusion=SUCCESS_STR, output=output)
+    async def set_conventional_title_queued(self, pull_request: PullRequest | None = None) -> None:
+        return await self.set_check_run_status(
+            check_run=CONVENTIONAL_TITLE_STR, status=QUEUED_STR, pull_request=pull_request
+        )
 
-    async def set_conventional_title_failure(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(check_run=CONVENTIONAL_TITLE_STR, conclusion=FAILURE_STR, output=output)
+    async def set_conventional_title_in_progress(self, pull_request: PullRequest | None = None) -> None:
+        return await self.set_check_run_status(
+            check_run=CONVENTIONAL_TITLE_STR, status=IN_PROGRESS_STR, pull_request=pull_request
+        )
+
+    async def set_conventional_title_success(
+        self, output: dict[str, Any], pull_request: PullRequest | None = None
+    ) -> None:
+        return await self.set_check_run_status(
+            check_run=CONVENTIONAL_TITLE_STR, conclusion=SUCCESS_STR, output=output, pull_request=pull_request
+        )
+
+    async def set_conventional_title_failure(
+        self, output: dict[str, Any], pull_request: PullRequest | None = None
+    ) -> None:
+        return await self.set_check_run_status(
+            check_run=CONVENTIONAL_TITLE_STR, conclusion=FAILURE_STR, output=output, pull_request=pull_request
+        )
 
     async def set_cherry_pick_in_progress(self) -> None:
         return await self.set_check_run_status(check_run=CHERRY_PICKED_LABEL_PREFIX, status=IN_PROGRESS_STR)
@@ -250,8 +296,28 @@ class CheckRunHandler:
         status: str = "",
         conclusion: str = "",
         output: dict[str, str] | None = None,
+        pull_request: PullRequest | None = None,
     ) -> None:
-        kwargs: dict[str, Any] = {"name": check_run, "head_sha": self.github_webhook.last_commit.sha}
+        # Get head_sha from pull_request or fall back to github_webhook.last_commit
+        if pull_request:
+            # Use single-pass iteration to find last commit
+            def get_last_commit_sha() -> str:
+                last_commit = None
+                for commit in pull_request.get_commits():
+                    last_commit = commit
+                if last_commit is None:
+                    raise ValueError("Pull request has no commits")
+                return last_commit.sha
+
+            head_sha = await asyncio.to_thread(get_last_commit_sha)
+        else:
+            # Fall back to github_webhook.last_commit for backward compatibility
+            if not hasattr(self.github_webhook, "last_commit") or self.github_webhook.last_commit is None:
+                self.logger.warning(f"{self.log_prefix} Cannot set check run status: no last_commit available")
+                return
+            head_sha = self.github_webhook.last_commit.sha
+
+        kwargs: dict[str, Any] = {"name": check_run, "head_sha": head_sha}
 
         if status:
             kwargs["status"] = status

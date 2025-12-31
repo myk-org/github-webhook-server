@@ -138,7 +138,7 @@ class TestCheckRunHandler:
         with patch.object(check_run_handler.github_webhook, "tox", True):
             with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
                 await check_run_handler.set_run_tox_check_queued()
-                mock_set_status.assert_called_once_with(check_run=TOX_STR, status=QUEUED_STR)
+                mock_set_status.assert_called_once_with(check_run=TOX_STR, status=QUEUED_STR, pull_request=None)
 
     @pytest.mark.asyncio
     async def test_set_run_tox_check_queued_disabled(self, check_run_handler: CheckRunHandler) -> None:
@@ -153,7 +153,7 @@ class TestCheckRunHandler:
         """Test setting tox check to in progress status."""
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_run_tox_check_in_progress()
-            mock_set_status.assert_called_once_with(check_run=TOX_STR, status=IN_PROGRESS_STR)
+            mock_set_status.assert_called_once_with(check_run=TOX_STR, status=IN_PROGRESS_STR, pull_request=None)
 
     @pytest.mark.asyncio
     async def test_set_run_tox_check_failure(self, check_run_handler: CheckRunHandler) -> None:
@@ -161,7 +161,9 @@ class TestCheckRunHandler:
         output = {"title": "Test failed", "summary": "Test summary"}
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_run_tox_check_failure(output)
-            mock_set_status.assert_called_once_with(check_run=TOX_STR, conclusion=FAILURE_STR, output=output)
+            mock_set_status.assert_called_once_with(
+                check_run=TOX_STR, conclusion=FAILURE_STR, output=output, pull_request=None
+            )
 
     @pytest.mark.asyncio
     async def test_set_run_tox_check_success(self, check_run_handler: CheckRunHandler) -> None:
@@ -169,7 +171,9 @@ class TestCheckRunHandler:
         output = {"title": "Test passed", "summary": "Test summary"}
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_run_tox_check_success(output)
-            mock_set_status.assert_called_once_with(check_run=TOX_STR, conclusion=SUCCESS_STR, output=output)
+            mock_set_status.assert_called_once_with(
+                check_run=TOX_STR, conclusion=SUCCESS_STR, output=output, pull_request=None
+            )
 
     @pytest.mark.asyncio
     async def test_set_run_pre_commit_check_queued_enabled(self, check_run_handler: CheckRunHandler) -> None:
@@ -177,7 +181,7 @@ class TestCheckRunHandler:
         check_run_handler.github_webhook.pre_commit = True
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_run_pre_commit_check_queued()
-            mock_set_status.assert_called_once_with(check_run=PRE_COMMIT_STR, status=QUEUED_STR)
+            mock_set_status.assert_called_once_with(check_run=PRE_COMMIT_STR, status=QUEUED_STR, pull_request=None)
 
     @pytest.mark.asyncio
     async def test_set_run_pre_commit_check_queued_disabled(self, check_run_handler: CheckRunHandler) -> None:
@@ -192,7 +196,7 @@ class TestCheckRunHandler:
         """Test setting pre-commit check to in progress status."""
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_run_pre_commit_check_in_progress()
-            mock_set_status.assert_called_once_with(check_run=PRE_COMMIT_STR, status=IN_PROGRESS_STR)
+            mock_set_status.assert_called_once_with(check_run=PRE_COMMIT_STR, status=IN_PROGRESS_STR, pull_request=None)
 
     @pytest.mark.asyncio
     async def test_set_run_pre_commit_check_failure(self, check_run_handler: CheckRunHandler) -> None:
@@ -200,14 +204,18 @@ class TestCheckRunHandler:
         output = {"title": "Pre-commit failed", "summary": "Pre-commit summary"}
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_run_pre_commit_check_failure(output)
-            mock_set_status.assert_called_once_with(check_run=PRE_COMMIT_STR, conclusion=FAILURE_STR, output=output)
+            mock_set_status.assert_called_once_with(
+                check_run=PRE_COMMIT_STR, conclusion=FAILURE_STR, output=output, pull_request=None
+            )
 
     @pytest.mark.asyncio
     async def test_set_run_pre_commit_check_failure_no_output(self, check_run_handler: CheckRunHandler) -> None:
         """Test setting pre-commit check to failure status without output."""
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_run_pre_commit_check_failure()
-            mock_set_status.assert_called_once_with(check_run=PRE_COMMIT_STR, conclusion=FAILURE_STR, output=None)
+            mock_set_status.assert_called_once_with(
+                check_run=PRE_COMMIT_STR, conclusion=FAILURE_STR, output=None, pull_request=None
+            )
 
     @pytest.mark.asyncio
     async def test_set_run_pre_commit_check_success(self, check_run_handler: CheckRunHandler) -> None:
@@ -215,14 +223,18 @@ class TestCheckRunHandler:
         output = {"title": "Pre-commit passed", "summary": "Pre-commit summary"}
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_run_pre_commit_check_success(output)
-            mock_set_status.assert_called_once_with(check_run=PRE_COMMIT_STR, conclusion=SUCCESS_STR, output=output)
+            mock_set_status.assert_called_once_with(
+                check_run=PRE_COMMIT_STR, conclusion=SUCCESS_STR, output=output, pull_request=None
+            )
 
     @pytest.mark.asyncio
     async def test_set_run_pre_commit_check_success_no_output(self, check_run_handler: CheckRunHandler) -> None:
         """Test setting pre-commit check to success status without output."""
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_run_pre_commit_check_success()
-            mock_set_status.assert_called_once_with(check_run=PRE_COMMIT_STR, conclusion=SUCCESS_STR, output=None)
+            mock_set_status.assert_called_once_with(
+                check_run=PRE_COMMIT_STR, conclusion=SUCCESS_STR, output=None, pull_request=None
+            )
 
     @pytest.mark.asyncio
     async def test_set_merge_check_queued(self, check_run_handler: CheckRunHandler) -> None:
@@ -267,7 +279,9 @@ class TestCheckRunHandler:
         with patch.object(check_run_handler.github_webhook, "build_and_push_container", True):
             with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
                 await check_run_handler.set_container_build_queued()
-                mock_set_status.assert_called_once_with(check_run=BUILD_CONTAINER_STR, status=QUEUED_STR)
+                mock_set_status.assert_called_once_with(
+                    check_run=BUILD_CONTAINER_STR, status=QUEUED_STR, pull_request=None
+                )
 
     @pytest.mark.asyncio
     async def test_set_container_build_queued_disabled(self, check_run_handler: CheckRunHandler) -> None:
@@ -282,7 +296,9 @@ class TestCheckRunHandler:
         """Test setting container build check to in progress status."""
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_container_build_in_progress()
-            mock_set_status.assert_called_once_with(check_run=BUILD_CONTAINER_STR, status=IN_PROGRESS_STR)
+            mock_set_status.assert_called_once_with(
+                check_run=BUILD_CONTAINER_STR, status=IN_PROGRESS_STR, pull_request=None
+            )
 
     @pytest.mark.asyncio
     async def test_set_container_build_success(self, check_run_handler: CheckRunHandler) -> None:
@@ -291,7 +307,7 @@ class TestCheckRunHandler:
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_container_build_success(output)
             mock_set_status.assert_called_once_with(
-                check_run=BUILD_CONTAINER_STR, conclusion=SUCCESS_STR, output=output
+                check_run=BUILD_CONTAINER_STR, conclusion=SUCCESS_STR, output=output, pull_request=None
             )
 
     @pytest.mark.asyncio
@@ -301,7 +317,7 @@ class TestCheckRunHandler:
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_container_build_failure(output)
             mock_set_status.assert_called_once_with(
-                check_run=BUILD_CONTAINER_STR, conclusion=FAILURE_STR, output=output
+                check_run=BUILD_CONTAINER_STR, conclusion=FAILURE_STR, output=output, pull_request=None
             )
 
     @pytest.mark.asyncio
@@ -310,7 +326,9 @@ class TestCheckRunHandler:
         check_run_handler.github_webhook.pypi = {"token": "test"}
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_python_module_install_queued()
-            mock_set_status.assert_called_once_with(check_run=PYTHON_MODULE_INSTALL_STR, status=QUEUED_STR)
+            mock_set_status.assert_called_once_with(
+                check_run=PYTHON_MODULE_INSTALL_STR, status=QUEUED_STR, pull_request=None
+            )
 
     @pytest.mark.asyncio
     async def test_set_python_module_install_queued_disabled(self, check_run_handler: CheckRunHandler) -> None:
@@ -325,7 +343,9 @@ class TestCheckRunHandler:
         """Test setting python module install check to in progress status."""
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_python_module_install_in_progress()
-            mock_set_status.assert_called_once_with(check_run=PYTHON_MODULE_INSTALL_STR, status=IN_PROGRESS_STR)
+            mock_set_status.assert_called_once_with(
+                check_run=PYTHON_MODULE_INSTALL_STR, status=IN_PROGRESS_STR, pull_request=None
+            )
 
     @pytest.mark.asyncio
     async def test_set_python_module_install_success(self, check_run_handler: CheckRunHandler) -> None:
@@ -334,7 +354,7 @@ class TestCheckRunHandler:
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_python_module_install_success(output)
             mock_set_status.assert_called_once_with(
-                check_run=PYTHON_MODULE_INSTALL_STR, conclusion=SUCCESS_STR, output=output
+                check_run=PYTHON_MODULE_INSTALL_STR, conclusion=SUCCESS_STR, output=output, pull_request=None
             )
 
     @pytest.mark.asyncio
@@ -344,7 +364,7 @@ class TestCheckRunHandler:
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_python_module_install_failure(output)
             mock_set_status.assert_called_once_with(
-                check_run=PYTHON_MODULE_INSTALL_STR, conclusion=FAILURE_STR, output=output
+                check_run=PYTHON_MODULE_INSTALL_STR, conclusion=FAILURE_STR, output=output, pull_request=None
             )
 
     @pytest.mark.asyncio
@@ -352,14 +372,18 @@ class TestCheckRunHandler:
         """Test setting conventional title check to queued status."""
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_conventional_title_queued()
-            mock_set_status.assert_called_once_with(check_run=CONVENTIONAL_TITLE_STR, status=QUEUED_STR)
+            mock_set_status.assert_called_once_with(
+                check_run=CONVENTIONAL_TITLE_STR, status=QUEUED_STR, pull_request=None
+            )
 
     @pytest.mark.asyncio
     async def test_set_conventional_title_in_progress(self, check_run_handler: CheckRunHandler) -> None:
         """Test setting conventional title check to in progress status."""
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_conventional_title_in_progress()
-            mock_set_status.assert_called_once_with(check_run=CONVENTIONAL_TITLE_STR, status=IN_PROGRESS_STR)
+            mock_set_status.assert_called_once_with(
+                check_run=CONVENTIONAL_TITLE_STR, status=IN_PROGRESS_STR, pull_request=None
+            )
 
     @pytest.mark.asyncio
     async def test_set_conventional_title_success(self, check_run_handler: CheckRunHandler) -> None:
@@ -368,7 +392,7 @@ class TestCheckRunHandler:
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_conventional_title_success(output)
             mock_set_status.assert_called_once_with(
-                check_run=CONVENTIONAL_TITLE_STR, conclusion=SUCCESS_STR, output=output
+                check_run=CONVENTIONAL_TITLE_STR, conclusion=SUCCESS_STR, output=output, pull_request=None
             )
 
     @pytest.mark.asyncio
@@ -378,7 +402,7 @@ class TestCheckRunHandler:
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_conventional_title_failure(output)
             mock_set_status.assert_called_once_with(
-                check_run=CONVENTIONAL_TITLE_STR, conclusion=FAILURE_STR, output=output
+                check_run=CONVENTIONAL_TITLE_STR, conclusion=FAILURE_STR, output=output, pull_request=None
             )
 
     @pytest.mark.asyncio
