@@ -808,7 +808,7 @@ Your team can configure additional types in the repository settings.
         # Log any task failures for debugging
         for i, result in enumerate(results):
             if isinstance(result, Exception):
-                test_name = task_names[i] if i < len(task_names) else "unknown"
+                test_name = task_names[i]
                 self.logger.error(f"{self.log_prefix} Retest task '{test_name}' failed: {result}")
 
     async def run_retests_from_config(self, pull_request: PullRequest) -> bool:
