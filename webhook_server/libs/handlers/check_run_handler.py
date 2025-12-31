@@ -2,6 +2,7 @@ import asyncio
 from typing import TYPE_CHECKING, Any
 
 from github.CheckRun import CheckRun
+from github.Commit import Commit
 from github.CommitStatus import CommitStatus
 from github.PullRequest import PullRequest
 from github.Repository import Repository
@@ -353,12 +354,43 @@ class CheckRunHandler:
 
         return _output
 
-    async def is_check_run_in_progress(self, check_run: str) -> bool:
-        if self.github_webhook.last_commit:
-            for run in await asyncio.to_thread(self.github_webhook.last_commit.get_check_runs):
-                if run.name == check_run and run.status == IN_PROGRESS_STR:
-                    self.logger.debug(f"{self.log_prefix} Check run {check_run} is in progress.")
-                    return True
+    async def is_check_run_in_progress(self, check_run: str, pull_request: PullRequest | None = None) -> bool:
+        """Check if a specific check run is in progress.
+
+        Args:
+            check_run: Name of the check run to check
+            pull_request: Optional pull request to get last commit from. If provided,
+                         gets last commit from PR. Otherwise, falls back to github_webhook.last_commit
+
+        Returns:
+            True if check run is in progress, False otherwise
+        """
+        last_commit = None
+        if pull_request:
+            # Use single-pass iteration to find last commit - O(1) memory instead of O(N)
+            def get_last_commit_from_pr() -> Commit | None:
+                last = None
+                for commit in pull_request.get_commits():
+                    last = commit
+                return last
+
+            last_commit = await asyncio.to_thread(get_last_commit_from_pr)
+        else:
+            # last_commit may not exist on github_webhook for push events (optional attribute)
+            last_commit = self.github_webhook.last_commit if hasattr(self.github_webhook, "last_commit") else None
+
+        if last_commit:
+            # Optimize PaginatedList iteration with early exit
+            def find_check_run_in_progress() -> bool:
+                for run in last_commit.get_check_runs():
+                    if run.name == check_run and run.status == IN_PROGRESS_STR:
+                        return True
+                return False
+
+            is_in_progress = await asyncio.to_thread(find_check_run_in_progress)
+            if is_in_progress:
+                self.logger.debug(f"{self.log_prefix} Check run {check_run} is in progress.")
+                return True
         return False
 
     async def required_check_failed_or_no_status(

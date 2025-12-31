@@ -1,5 +1,6 @@
 import asyncio
 import re
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from github.PullRequest import PullRequest
@@ -129,20 +130,47 @@ class PushHandler:
             def get_merge_state(pr: PullRequest = pull_request) -> str | None:
                 return pr.mergeable_state
 
-            merge_state = await asyncio.to_thread(get_merge_state)
+            # Handle None/unknown merge states with retry
+            max_retries = 5
+            retry_delay = 10  # seconds
+            merge_state: str | None = None
 
-            self.logger.debug(f"{self.log_prefix} PR #{pr_number} merge state: {merge_state}")
+            for attempt in range(1, max_retries + 1):
+                merge_state = await asyncio.to_thread(get_merge_state)
+                self.logger.debug(f"{self.log_prefix} PR #{pr_number} merge state: {merge_state}")
 
-            # Handle None/unknown merge states explicitly
-            if merge_state in (None, "unknown"):
+                if merge_state not in (None, "unknown"):
+                    break
+
+                if attempt < max_retries:
+                    self.logger.info(
+                        f"{self.log_prefix} PR #{pr_number} merge state is '{merge_state}' - "
+                        f"waiting {retry_delay}s for GitHub to calculate (attempt {attempt}/{max_retries})"
+                    )
+                    await asyncio.sleep(retry_delay)
+            else:
+                # Loop completed without break - merge_state is still None or "unknown"
                 self.logger.warning(
-                    f"{self.log_prefix} PR #{pr_number} merge state is '{merge_state}' - "
-                    "GitHub still calculating, skipping for now"
+                    f"{self.log_prefix} PR #{pr_number} merge state still '{merge_state}' after "
+                    f"{max_retries} attempts, skipping"
                 )
                 continue
 
             # Only re-trigger for PRs that are behind or blocked
             if merge_state in ("behind", "blocked"):
+                # Skip if PR was updated very recently (likely already has fresh checks)
+                def get_updated_at(pr: PullRequest = pull_request) -> datetime:
+                    return pr.updated_at
+
+                pr_updated_at = await asyncio.to_thread(get_updated_at)
+                time_since_update = (datetime.now(UTC) - pr_updated_at).total_seconds()
+                if time_since_update < 60:  # Skip if updated within last minute
+                    self.logger.debug(
+                        f"{self.log_prefix} PR #{pr_number} was updated {time_since_update:.0f}s ago, "
+                        "skipping retrigger to avoid duplicate work"
+                    )
+                    continue
+
                 self.logger.step(  # type: ignore[attr-defined]
                     f"{self.log_prefix} {format_task_fields('retrigger_checks', 'push_processing', 'processing')} "
                     f"Re-triggering checks for out-of-date PR #{pr_number} (state: {merge_state})",

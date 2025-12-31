@@ -1,6 +1,7 @@
 """Tests for webhook_server.libs.handlers.push_handler module."""
 
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -473,6 +474,8 @@ class TestPushHandler:
         mock_pr = Mock()
         mock_pr.number = 123
         mock_pr.mergeable_state = "behind"
+        # Set updated_at to more than 60 seconds ago
+        mock_pr.updated_at = datetime.now(UTC) - timedelta(seconds=120)
 
         with patch.object(push_handler.repository, "get_pulls") as mock_get_pulls:
             mock_get_pulls.return_value = [mock_pr]
@@ -492,6 +495,8 @@ class TestPushHandler:
         mock_pr = Mock()
         mock_pr.number = 456
         mock_pr.mergeable_state = "blocked"
+        # Set updated_at to more than 60 seconds ago
+        mock_pr.updated_at = datetime.now(UTC) - timedelta(seconds=120)
 
         with patch.object(push_handler.repository, "get_pulls") as mock_get_pulls:
             mock_get_pulls.return_value = [mock_pr]
@@ -529,6 +534,8 @@ class TestPushHandler:
         mock_pr1 = Mock()
         mock_pr1.number = 100
         mock_pr1.mergeable_state = "behind"
+        # Set updated_at to more than 60 seconds ago
+        mock_pr1.updated_at = datetime.now(UTC) - timedelta(seconds=120)
 
         mock_pr2 = Mock()
         mock_pr2.number = 200
@@ -537,6 +544,8 @@ class TestPushHandler:
         mock_pr3 = Mock()
         mock_pr3.number = 300
         mock_pr3.mergeable_state = "blocked"
+        # Set updated_at to more than 60 seconds ago
+        mock_pr3.updated_at = datetime.now(UTC) - timedelta(seconds=120)
 
         with patch.object(push_handler.repository, "get_pulls") as mock_get_pulls:
             mock_get_pulls.return_value = [mock_pr1, mock_pr2, mock_pr3]
@@ -561,6 +570,8 @@ class TestPushHandler:
         mock_pr = Mock()
         mock_pr.number = 123
         mock_pr.mergeable_state = "behind"
+        # Set updated_at to more than 60 seconds ago
+        mock_pr.updated_at = datetime.now(UTC) - timedelta(seconds=120)
 
         with patch.object(push_handler.repository, "get_pulls") as mock_get_pulls:
             mock_get_pulls.return_value = [mock_pr]
@@ -593,6 +604,8 @@ class TestPushHandler:
         mock_pr = Mock()
         mock_pr.number = 123
         mock_pr.mergeable_state = "behind"
+        # Set updated_at to more than 60 seconds ago
+        mock_pr.updated_at = datetime.now(UTC) - timedelta(seconds=120)
 
         with patch.object(push_handler.repository, "get_pulls") as mock_get_pulls:
             mock_get_pulls.return_value = [mock_pr]
@@ -613,6 +626,8 @@ class TestPushHandler:
         mock_pr = Mock()
         mock_pr.number = 123
         mock_pr.mergeable_state = "behind"
+        # Set updated_at to more than 60 seconds ago
+        mock_pr.updated_at = datetime.now(UTC) - timedelta(seconds=120)
 
         with patch.object(push_handler.repository, "get_pulls") as mock_get_pulls:
             mock_get_pulls.return_value = [mock_pr]
@@ -633,6 +648,8 @@ class TestPushHandler:
         mock_pr = Mock()
         mock_pr.number = 123
         mock_pr.mergeable_state = "behind"
+        # Set updated_at to more than 60 seconds ago
+        mock_pr.updated_at = datetime.now(UTC) - timedelta(seconds=120)
 
         with patch.object(push_handler.repository, "get_pulls") as mock_get_pulls:
             mock_get_pulls.return_value = [mock_pr]
@@ -645,6 +662,28 @@ class TestPushHandler:
                     mock_retests.assert_called_once_with(supported_retests=["tox"], pull_request=mock_pr)
 
     @pytest.mark.asyncio
+    async def test_retrigger_checks_skips_recently_updated_pr(self, push_handler: PushHandler) -> None:
+        """Test that retrigger skips PR that was updated within the last minute."""
+        push_handler.github_webhook.current_pull_request_supported_retest = ["tox", "pre-commit"]
+        push_handler.github_webhook.retrigger_checks_on_base_push = "all"
+
+        mock_pr = Mock()
+        mock_pr.number = 123
+        mock_pr.mergeable_state = "behind"
+        # Set updated_at to less than 60 seconds ago (30 seconds)
+        mock_pr.updated_at = datetime.now(UTC) - timedelta(seconds=30)
+
+        with patch.object(push_handler.repository, "get_pulls") as mock_get_pulls:
+            mock_get_pulls.return_value = [mock_pr]
+
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                with patch.object(push_handler.runner_handler, "run_retests", new_callable=AsyncMock) as mock_retests:
+                    await push_handler._retrigger_checks_for_prs_targeting_branch(branch_name="main")
+
+                    # Should not trigger since PR was recently updated
+                    mock_retests.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_retrigger_checks_with_empty_list(self, push_handler: PushHandler) -> None:
         """Test retrigger disabled with empty list."""
         push_handler.github_webhook.current_pull_request_supported_retest = ["tox", "pre-commit"]
@@ -653,6 +692,8 @@ class TestPushHandler:
         mock_pr = Mock()
         mock_pr.number = 123
         mock_pr.mergeable_state = "behind"
+        # Set updated_at to more than 60 seconds ago
+        mock_pr.updated_at = datetime.now(UTC) - timedelta(seconds=120)
 
         with patch.object(push_handler.repository, "get_pulls") as mock_get_pulls:
             mock_get_pulls.return_value = [mock_pr]
@@ -725,10 +766,14 @@ class TestPushHandler:
         mock_pr1 = Mock()
         mock_pr1.number = 100
         mock_pr1.mergeable_state = "behind"
+        # Set updated_at to more than 60 seconds ago
+        mock_pr1.updated_at = datetime.now(UTC) - timedelta(seconds=120)
 
         mock_pr2 = Mock()
         mock_pr2.number = 200
         mock_pr2.mergeable_state = "behind"
+        # Set updated_at to more than 60 seconds ago
+        mock_pr2.updated_at = datetime.now(UTC) - timedelta(seconds=120)
 
         with patch.object(push_handler.repository, "get_pulls") as mock_get_pulls:
             mock_get_pulls.return_value = [mock_pr1, mock_pr2]

@@ -178,7 +178,7 @@ class RunnerHandler:
             f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'started')} Starting tox tests execution"
         )
 
-        if await self.check_run_handler.is_check_run_in_progress(check_run=TOX_STR):
+        if await self.check_run_handler.is_check_run_in_progress(check_run=TOX_STR, pull_request=pull_request):
             self.logger.debug(f"{self.log_prefix} Check run is in progress, re-running {TOX_STR}.")
 
         python_ver = (
@@ -251,7 +251,7 @@ class RunnerHandler:
             f"Starting pre-commit checks execution",
         )
 
-        if await self.check_run_handler.is_check_run_in_progress(check_run=PRE_COMMIT_STR):
+        if await self.check_run_handler.is_check_run_in_progress(check_run=PRE_COMMIT_STR, pull_request=pull_request):
             self.logger.debug(f"{self.log_prefix} Check run is in progress, re-running {PRE_COMMIT_STR}.")
 
         self.logger.step(  # type: ignore[attr-defined]
@@ -333,7 +333,12 @@ class RunnerHandler:
             return
 
         if pull_request and set_check:
-            if await self.check_run_handler.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR) and not is_merged:
+            if (
+                await self.check_run_handler.is_check_run_in_progress(
+                    check_run=BUILD_CONTAINER_STR, pull_request=pull_request
+                )
+                and not is_merged
+            ):
                 self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {BUILD_CONTAINER_STR}.")
 
         self.logger.step(  # type: ignore[attr-defined]
@@ -489,7 +494,9 @@ class RunnerHandler:
             f"Starting Python module installation"
         )
 
-        if await self.check_run_handler.is_check_run_in_progress(check_run=PYTHON_MODULE_INSTALL_STR):
+        if await self.check_run_handler.is_check_run_in_progress(
+            check_run=PYTHON_MODULE_INSTALL_STR, pull_request=pull_request
+        ):
             self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {PYTHON_MODULE_INSTALL_STR}.")
 
         self.logger.info(f"{self.log_prefix} Installing python module")
@@ -560,7 +567,9 @@ class RunnerHandler:
             ),
         }
 
-        if await self.check_run_handler.is_check_run_in_progress(check_run=CONVENTIONAL_TITLE_STR):
+        if await self.check_run_handler.is_check_run_in_progress(
+            check_run=CONVENTIONAL_TITLE_STR, pull_request=pull_request
+        ):
             self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {CONVENTIONAL_TITLE_STR}.")
 
         self.logger.step(  # type: ignore[attr-defined]
