@@ -3,8 +3,8 @@ import contextlib
 import re
 import shutil
 from asyncio import Task
-from collections.abc import AsyncGenerator, Callable, Coroutine
-from typing import TYPE_CHECKING, Any
+from collections.abc import AsyncGenerator
+from typing import TYPE_CHECKING, Any, Protocol
 
 import shortuuid
 from github.Branch import Branch
@@ -28,6 +28,12 @@ from webhook_server.utils.notification_utils import send_slack_message
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
+
+
+class RetestFunction(Protocol):
+    """Protocol for retest runner functions."""
+
+    async def __call__(self, pull_request: PullRequest) -> None: ...
 
 
 class RunnerHandler:
@@ -785,7 +791,7 @@ Your team can configure additional types in the repository settings.
             return
 
         # Map check names to runner functions
-        _retests_to_func_map: dict[str, Callable] = {
+        _retests_to_func_map: dict[str, RetestFunction] = {
             TOX_STR: self.run_tox,
             PRE_COMMIT_STR: self.run_pre_commit,
             BUILD_CONTAINER_STR: self.run_build_container,
@@ -793,14 +799,14 @@ Your team can configure additional types in the repository settings.
             CONVENTIONAL_TITLE_STR: self.run_conventional_title_check,
         }
 
-        tasks: list[Coroutine[Any, Any, Any] | Task[Any]] = []
+        tasks: list[Task[None]] = []
         task_names: list[str] = []  # Track names parallel to tasks
         for _test in supported_retests:
             if _test not in _retests_to_func_map:
                 self.logger.error(f"{self.log_prefix} Unknown retest type: {_test}")
                 continue
             self.logger.debug(f"{self.log_prefix} running retest {_test}")
-            task = asyncio.create_task(_retests_to_func_map[_test](pull_request=pull_request))
+            task = asyncio.create_task(_retests_to_func_map[_test](pull_request))
             tasks.append(task)
             task_names.append(_test)  # Track name at same index as task
 
