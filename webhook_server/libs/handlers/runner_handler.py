@@ -807,6 +807,9 @@ Your team can configure additional types in the repository settings.
         results = await asyncio.gather(*tasks, return_exceptions=True)
         # Log any task failures for debugging
         for i, result in enumerate(results):
+            if isinstance(result, asyncio.CancelledError):
+                # Re-raise CancelledError to propagate cancellation
+                raise result
             if isinstance(result, Exception):
                 test_name = task_names[i]
                 self.logger.error(f"{self.log_prefix} Retest task '{test_name}' failed: {result}")
