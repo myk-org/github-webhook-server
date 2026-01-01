@@ -325,7 +325,12 @@ properties:
             Commands run in the repository worktree. If a command is not found,
             a warning is logged and the check is skipped.
 
-            Long command example:
+            Examples:
+              - name: lint
+                command: uv tool run --from ruff ruff check
+                env:
+                  - PYTHONPATH
+                  - DEBUG
               - name: complex-check
                 command: |
                   python -c "
@@ -343,9 +348,9 @@ properties:
                 type: string
                 description: Command to execute in the repository directory
               env:
-                type: object
-                description: Environment variables to set when running the command
-                additionalProperties:
+                type: array
+                description: Environment variable names to pass to the command (values read from server environment)
+                items:
                   type: string
             required:
               - name

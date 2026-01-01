@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import os
 import re
 import shutil
 from asyncio import Task
@@ -681,6 +682,19 @@ Your team can configure additional types in the repository settings.
                 output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
                 return await self.check_run_handler.set_custom_check_failure(name=check_name, output=output)
 
+            # Build env dict from env var names (read from server environment)
+            env_dict: dict[str, str] | None = None
+            env_var_names = check_config.get("env", [])
+            if env_var_names:
+                env_dict = {}
+                for var_name in env_var_names:
+                    if var_name in os.environ:
+                        env_dict[var_name] = os.environ[var_name]
+                    else:
+                        self.logger.warning(
+                            f"{self.log_prefix} Environment variable '{var_name}' not found in server environment"
+                        )
+
             # Execute command in worktree directory with env vars
             success, out, err = await run_command(
                 command=command,
@@ -688,6 +702,7 @@ Your team can configure additional types in the repository settings.
                 mask_sensitive=self.github_webhook.mask_sensitive,
                 timeout=timeout,
                 cwd=worktree_path,
+                env=env_dict,
             )
 
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)

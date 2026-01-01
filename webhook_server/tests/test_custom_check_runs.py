@@ -77,9 +77,9 @@ class TestCustomCheckRunsSchemaValidation:
         config = {
             "name": "my-check",
             "command": "python -m pytest",
-            "env": {"PYTHONPATH": "/app", "DEBUG": "true"},
+            "env": ["PYTHONPATH", "DEBUG"],
         }
-        assert config["env"] == {"PYTHONPATH": "/app", "DEBUG": "true"}
+        assert config["env"] == ["PYTHONPATH", "DEBUG"]
 
     def test_custom_check_with_multiline_command(self) -> None:
         """Test that custom check with multiline command is accepted."""
@@ -402,6 +402,65 @@ class TestRunnerHandlerCustomCheck:
             call_args = mock_run.call_args.kwargs
             assert call_args["command"] == "uv tool run --from build python -m build"
             assert call_args["cwd"] == "/tmp/test-worktree"
+
+    @pytest.mark.asyncio
+    async def test_run_custom_check_with_env_vars(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
+        """Test that custom check passes environment variables from server environment."""
+        check_config = {
+            "name": "env-test",
+            "command": "env | grep TEST_VAR",
+            "env": ["TEST_VAR", "MISSING_VAR"],
+        }
+
+        # Create async context manager mock
+        mock_checkout_cm = AsyncMock()
+        mock_checkout_cm.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree", "", ""))
+        mock_checkout_cm.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch.dict("os.environ", {"TEST_VAR": "test_value"}, clear=False),
+            patch.object(runner_handler, "_checkout_worktree", return_value=mock_checkout_cm),
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(return_value=(True, "TEST_VAR=test_value", "")),
+            ) as mock_run,
+        ):
+            await runner_handler.run_custom_check(pull_request=mock_pull_request, check_config=check_config)
+
+            # Verify command was called with env dict containing only existing env vars
+            mock_run.assert_called_once()
+            call_kwargs = mock_run.call_args.kwargs
+            assert call_kwargs["env"] == {"TEST_VAR": "test_value"}
+            # MISSING_VAR should not be in env dict since it's not in os.environ
+
+    @pytest.mark.asyncio
+    async def test_run_custom_check_without_env_vars(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that custom check without env config passes None to run_command."""
+        check_config = {
+            "name": "no-env",
+            "command": "echo test",
+        }
+
+        # Create async context manager mock
+        mock_checkout_cm = AsyncMock()
+        mock_checkout_cm.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree", "", ""))
+        mock_checkout_cm.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch.object(runner_handler, "_checkout_worktree", return_value=mock_checkout_cm),
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(return_value=(True, "test", "")),
+            ) as mock_run,
+        ):
+            await runner_handler.run_custom_check(pull_request=mock_pull_request, check_config=check_config)
+
+            # Verify command was called with env=None (no env config)
+            mock_run.assert_called_once()
+            call_kwargs = mock_run.call_args.kwargs
+            assert call_kwargs["env"] is None
 
     @pytest.mark.asyncio
     async def test_run_custom_check_command_not_found(
