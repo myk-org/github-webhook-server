@@ -50,7 +50,14 @@ class TestPushHandler:
     @pytest.fixture
     def push_handler(self, mock_github_webhook: Mock) -> PushHandler:
         """Create a PushHandler instance with mocked dependencies."""
-        return PushHandler(mock_github_webhook)
+        handler = PushHandler(mock_github_webhook)
+        # Mock check_run_handler methods used by run_retests_from_config
+        handler.runner_handler.check_run_handler.set_run_tox_check_queued = AsyncMock()
+        handler.runner_handler.check_run_handler.set_run_pre_commit_check_queued = AsyncMock()
+        handler.runner_handler.check_run_handler.set_container_build_queued = AsyncMock()
+        handler.runner_handler.check_run_handler.set_python_module_install_queued = AsyncMock()
+        handler.runner_handler.check_run_handler.set_conventional_title_queued = AsyncMock()
+        return handler
 
     @pytest.mark.asyncio
     async def test_process_push_webhook_data_with_tag_and_pypi(self, push_handler: PushHandler) -> None:

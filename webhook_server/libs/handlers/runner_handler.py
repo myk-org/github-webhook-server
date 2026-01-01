@@ -199,16 +199,8 @@ class RunnerHandler:
         )
         _tox_tests = self.github_webhook.tox.get(pull_request.base.ref, "")
 
-        # Set check to queued immediately so users see status while waiting for semaphore
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
-            f"Setting tox check status to queued",
-        )
-        await self.check_run_handler.set_run_tox_check_queued(pull_request=pull_request)
-
         # Acquire semaphore to limit concurrent tox runs (prevents disk exhaustion)
         async with self._tox_semaphore:
-            # Update status to in-progress once we acquire semaphore and actually start running
             self.logger.step(  # type: ignore[attr-defined]
                 f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
                 f"Setting tox check status to in-progress",
@@ -884,5 +876,20 @@ Your team can configure additional types in the repository settings.
         pr_number = pull_request.number
         self.logger.info(f"{self.log_prefix} Re-triggering checks for PR #{pr_number}: {checks_to_run}")
 
+        # Set all checks to queued before starting the batch (re-trigger flow only)
+        self.logger.debug(f"{self.log_prefix} Setting {len(checks_to_run)} checks to queued status")
+        for check in checks_to_run:
+            if check == TOX_STR:
+                await self.check_run_handler.set_run_tox_check_queued(pull_request=pull_request)
+            elif check == PRE_COMMIT_STR:
+                await self.check_run_handler.set_run_pre_commit_check_queued(pull_request=pull_request)
+            elif check == BUILD_CONTAINER_STR:
+                await self.check_run_handler.set_container_build_queued(pull_request=pull_request)
+            elif check == PYTHON_MODULE_INSTALL_STR:
+                await self.check_run_handler.set_python_module_install_queued(pull_request=pull_request)
+            elif check == CONVENTIONAL_TITLE_STR:
+                await self.check_run_handler.set_conventional_title_queued(pull_request=pull_request)
+
+        # Now run the actual checks (they will update to in-progress when they start)
         await self.run_retests(supported_retests=checks_to_run, pull_request=pull_request)
         return True
