@@ -37,6 +37,10 @@ class RetestFunction(Protocol):
 
 
 class RunnerHandler:
+    # Class-level semaphore to limit concurrent tox runs (prevents disk exhaustion)
+    # Each tox run creates ~500MB-2GB of virtual environments
+    _tox_semaphore: asyncio.Semaphore = asyncio.Semaphore(2)
+
     def __init__(self, github_webhook: "GithubWebhook", owners_file_handler: OwnersFileHandler | None = None):
         self.github_webhook = github_webhook
         self.owners_file_handler = owners_file_handler or OwnersFileHandler(github_webhook=self.github_webhook)
@@ -198,54 +202,62 @@ class RunnerHandler:
         )
         await self.check_run_handler.set_run_tox_check_in_progress(pull_request=pull_request)
 
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
-            f"Preparing repository checkout for tox execution",
-        )
-        async with self._checkout_worktree(pull_request=pull_request) as (success, worktree_path, out, err):
-            # Build tox command with worktree path
-            cmd = f"uvx {python_ver} tox --workdir {worktree_path} --root {worktree_path} -c {worktree_path}"
-            if _tox_tests and _tox_tests != "all":
-                tests = _tox_tests.replace(" ", "")
-                cmd += f" -e {tests}"
-            self.logger.debug(f"{self.log_prefix} Tox command to run: {cmd}")
-
-            output: dict[str, Any] = {
-                "title": "Tox",
-                "summary": "",
-                "text": None,
-            }
-            if not success:
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} "
-                    f"Repository preparation failed for tox",
-                )
-                self.logger.error(f"{self.log_prefix} Repository preparation failed for tox")
-                output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
-                return await self.check_run_handler.set_run_tox_check_failure(output=output, pull_request=pull_request)
-
+        # Acquire semaphore to limit concurrent tox runs (prevents disk exhaustion)
+        async with self._tox_semaphore:
             self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Executing tox command"
+                f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
+                f"Preparing repository checkout for tox execution",
             )
-            rc, out, err = await run_command(
-                command=cmd,
-                log_prefix=self.log_prefix,
-                mask_sensitive=self.github_webhook.mask_sensitive,
-            )
+            async with self._checkout_worktree(pull_request=pull_request) as (success, worktree_path, out, err):
+                # Build tox command with worktree path
+                cmd = f"uvx {python_ver} tox --workdir {worktree_path} --root {worktree_path} -c {worktree_path}"
+                if _tox_tests and _tox_tests != "all":
+                    tests = _tox_tests.replace(" ", "")
+                    cmd += f" -e {tests}"
+                self.logger.debug(f"{self.log_prefix} Tox command to run: {cmd}")
 
-            output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
+                output: dict[str, Any] = {
+                    "title": "Tox",
+                    "summary": "",
+                    "text": None,
+                }
+                if not success:
+                    self.logger.step(  # type: ignore[attr-defined]
+                        f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} "
+                        f"Repository preparation failed for tox",
+                    )
+                    self.logger.error(f"{self.log_prefix} Repository preparation failed for tox")
+                    output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
+                    return await self.check_run_handler.set_run_tox_check_failure(
+                        output=output, pull_request=pull_request
+                    )
 
-            if rc:
                 self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'completed')} "
-                    f"Tox tests completed successfully",
+                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Executing tox command"
                 )
-                return await self.check_run_handler.set_run_tox_check_success(output=output, pull_request=pull_request)
-            else:
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} Tox tests failed"
+                rc, out, err = await run_command(
+                    command=cmd,
+                    log_prefix=self.log_prefix,
+                    mask_sensitive=self.github_webhook.mask_sensitive,
                 )
-                return await self.check_run_handler.set_run_tox_check_failure(output=output, pull_request=pull_request)
+
+                output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
+
+                if rc:
+                    self.logger.step(  # type: ignore[attr-defined]
+                        f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'completed')} "
+                        f"Tox tests completed successfully",
+                    )
+                    return await self.check_run_handler.set_run_tox_check_success(
+                        output=output, pull_request=pull_request
+                    )
+                else:
+                    self.logger.step(  # type: ignore[attr-defined]
+                        f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} Tox tests failed"
+                    )
+                    return await self.check_run_handler.set_run_tox_check_failure(
+                        output=output, pull_request=pull_request
+                    )
 
     async def run_pre_commit(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.pre_commit:
