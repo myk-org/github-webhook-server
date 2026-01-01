@@ -843,6 +843,10 @@ Your team can configure additional types in the repository settings.
 
         retrigger_config = self.github_webhook.retrigger_checks_on_base_push
 
+        # None is the expected "disabled" state - return silently
+        if retrigger_config is None:
+            return False
+
         if retrigger_config == "all":
             checks_to_run = available_checks
         elif isinstance(retrigger_config, list):
