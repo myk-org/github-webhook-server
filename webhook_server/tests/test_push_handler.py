@@ -44,6 +44,7 @@ class TestPushHandler:
         mock_webhook.container_repository_username = "test-user"  # Always a string
         mock_webhook.container_repository_password = "test-password"  # Always a string # pragma: allowlist secret
         mock_webhook.token = "test-token"  # Always a string
+        mock_webhook.tox_max_concurrent = 5
         return mock_webhook
 
     @pytest.fixture
