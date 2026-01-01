@@ -199,14 +199,21 @@ class RunnerHandler:
         )
         _tox_tests = self.github_webhook.tox.get(pull_request.base.ref, "")
 
+        # Set check to queued immediately so users see status while waiting for semaphore
         self.logger.step(  # type: ignore[attr-defined]
             f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
-            f"Setting tox check status to in-progress",
+            f"Setting tox check status to queued",
         )
-        await self.check_run_handler.set_run_tox_check_in_progress(pull_request=pull_request)
+        await self.check_run_handler.set_run_tox_check_queued(pull_request=pull_request)
 
         # Acquire semaphore to limit concurrent tox runs (prevents disk exhaustion)
         async with self._tox_semaphore:
+            # Update status to in-progress once we acquire semaphore and actually start running
+            self.logger.step(  # type: ignore[attr-defined]
+                f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
+                f"Setting tox check status to in-progress",
+            )
+            await self.check_run_handler.set_run_tox_check_in_progress(pull_request=pull_request)
             self.logger.step(  # type: ignore[attr-defined]
                 f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
                 f"Preparing repository checkout for tox execution",
