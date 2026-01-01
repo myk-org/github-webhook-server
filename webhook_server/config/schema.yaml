@@ -320,49 +320,33 @@ properties:
             additionalProperties: false
         custom-check-runs:
           type: array
-          description: Custom check runs that execute user-defined commands on PR events
+          description: |
+            Custom check runs that execute user-defined commands on PR events.
+            Commands run in the repository worktree. If a command is not found,
+            a warning is logged and the check is skipped.
+
+            Long command example:
+              - name: complex-check
+                command: |
+                  python -c "
+                  import sys
+                  print('Running complex check')
+                  sys.exit(0)
+                  "
           items:
             type: object
             properties:
               name:
                 type: string
                 description: Unique name for the check run (displayed in GitHub UI)
-                pattern: "^[a-zA-Z0-9][a-zA-Z0-9_-]*$"
               command:
                 type: string
-                description: Command to execute (must use 'uv tool run --from' format for security)
-                pattern: "^uv tool run --from .+"
-              timeout:
-                type: integer
-                description: Maximum execution time in seconds
-                default: 600
-                minimum: 30
-                maximum: 3600
-              required:
-                type: boolean
-                description: Whether this check must pass for PR to be mergeable
-                default: true
-              triggers:
-                type: array
-                description: Events that trigger this check run
-                items:
+                description: Command to execute in the repository directory
+              env:
+                type: object
+                description: Environment variables to set when running the command
+                additionalProperties:
                   type: string
-                  enum:
-                    - opened
-                    - synchronize
-                    - reopened
-                    - ready_for_review
-                default:
-                  - opened
-                  - synchronize
-                  - reopened
-              secrets:
-                type: array
-                description: Environment variable names containing sensitive values to redact from logs (e.g., JIRA_TOKEN, API_KEY)
-                items:
-                  type: string
-                  pattern: "^[A-Z][A-Z0-9_]*$"
-                default: []
             required:
               - name
               - command

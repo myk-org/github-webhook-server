@@ -270,6 +270,15 @@ class CheckRunHandler:
             output=output,
         )
 
+    async def set_custom_check_skipped(self, name: str, output: dict[str, Any]) -> None:
+        """Set custom check run to skipped (neutral) status."""
+        await self.set_check_run_status(
+            check_run=name,
+            status=COMPLETED_STR,
+            conclusion="neutral",
+            output=output,
+        )
+
     async def set_check_run_status(
         self,
         check_run: str,

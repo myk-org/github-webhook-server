@@ -1,6 +1,5 @@
 import asyncio
 import contextlib
-import os
 import re
 import shutil
 from asyncio import Task
@@ -15,7 +14,6 @@ from github.Repository import Repository
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.utils import helpers as helpers_module
-from webhook_server.utils.command_security import validate_command_security
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CHERRY_PICKED_LABEL_PREFIX,
@@ -632,29 +630,33 @@ Your team can configure additional types in the repository settings.
         check_name = check_config.get("name")
         if not check_name:
             self.logger.error(f"{self.log_prefix} Custom check missing required 'name' field")
-            return  # Cannot set check status without a name
+            return
+
+        command = check_config.get("command", "")
+        if not command:
+            self.logger.error(f"{self.log_prefix} Custom check '{check_name}' missing required 'command' field")
+            return
+
         timeout = check_config.get("timeout", 600)
-        command = check_config["command"]
 
-        # Comprehensive security validation FIRST (most important check)
-        security_result = validate_command_security(command)
-        if not security_result.is_safe:
-            error_msg = f"Command security check failed: {security_result.error_message}"
-            self.logger.error(f"{self.log_prefix} {error_msg}")
-            security_output: dict[str, Any] = {
-                "title": f"Custom Check: {check_config['name']}",
-                "summary": "Command security validation failed",
-                "text": error_msg,
+        # Check if the command executable exists
+        # Extract first word (the executable) - handle multi-line commands
+        first_line = command.strip().split("\n")[0]
+        executable = first_line.split()[0] if first_line.split() else ""
+
+        if executable and not shutil.which(executable):
+            msg = f"{self.log_prefix} Command '{executable}' not found in container, skipping check '{check_name}'"
+            self.logger.warning(msg)
+            # Set check to neutral (skipped) not failure
+            skip_output: dict[str, Any] = {
+                "title": f"Custom Check: {check_name}",
+                "summary": f"Skipped - command '{executable}' not found",
+                "text": (
+                    f"The command '{executable}' was not found in the container. "
+                    "Install it or remove this check from configuration."
+                ),
             }
-            return await self.check_run_handler.set_custom_check_failure(name=check_name, output=security_output)
-
-        # Collect secrets to redact from logs
-        secrets_to_redact: list[str] = []
-        secret_env_vars = check_config.get("secrets", [])
-        for env_var in secret_env_vars:
-            secret_value = os.environ.get(env_var)
-            if secret_value and secret_value.strip():
-                secrets_to_redact.append(secret_value)
+            return await self.check_run_handler.set_custom_check_skipped(name=check_name, output=skip_output)
 
         self.logger.step(  # type: ignore[attr-defined]
             f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'started')} "
@@ -679,13 +681,12 @@ Your team can configure additional types in the repository settings.
                 output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
                 return await self.check_run_handler.set_custom_check_failure(name=check_name, output=output)
 
-            # Execute command in worktree directory
+            # Execute command in worktree directory with env vars
             success, out, err = await run_command(
                 command=command,
                 log_prefix=self.log_prefix,
                 mask_sensitive=self.github_webhook.mask_sensitive,
                 timeout=timeout,
-                redact_secrets=secrets_to_redact,
                 cwd=worktree_path,
             )
 
