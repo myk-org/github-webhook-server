@@ -24,6 +24,7 @@ class TestRunnerHandler:
         mock_webhook.clone_repo_dir = "/tmp/test-repo"
         mock_webhook.tox = {"main": "all"}
         mock_webhook.tox_python_version = "3.12"
+        mock_webhook.tox_max_concurrent = 5
         mock_webhook.pre_commit = True
         mock_webhook.build_and_push_container = True
         mock_webhook.pypi = {"token": "dummy"}

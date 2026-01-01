@@ -37,10 +37,6 @@ class RetestFunction(Protocol):
 
 
 class RunnerHandler:
-    # Class-level semaphore to limit concurrent tox runs (prevents disk exhaustion)
-    # Each tox run creates ~500MB-2GB of virtual environments
-    _tox_semaphore: asyncio.Semaphore = asyncio.Semaphore(2)
-
     def __init__(self, github_webhook: "GithubWebhook", owners_file_handler: OwnersFileHandler | None = None):
         self.github_webhook = github_webhook
         self.owners_file_handler = owners_file_handler or OwnersFileHandler(github_webhook=self.github_webhook)
@@ -52,6 +48,13 @@ class RunnerHandler:
         self.check_run_handler = CheckRunHandler(
             github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
         )
+
+        # Instance-level semaphore to limit concurrent tox runs (prevents disk exhaustion)
+        # Each tox run creates ~500MB-2GB of virtual environments
+        # Configurable via 'tox-max-concurrent' in config (default: 5)
+        tox_limit = getattr(self.github_webhook, "tox_max_concurrent", 5)
+        self._tox_semaphore: asyncio.Semaphore = asyncio.Semaphore(tox_limit)
+        self.logger.debug(f"{self.log_prefix} Tox max concurrent runs: {tox_limit}")
 
     @contextlib.asynccontextmanager
     async def _checkout_worktree(
