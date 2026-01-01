@@ -204,10 +204,7 @@ class RunnerHandler:
         )
         async with self._checkout_worktree(pull_request=pull_request) as (success, worktree_path, out, err):
             # Build tox command with worktree path
-            cmd = (
-                f"uvx --with tox-uv {python_ver} tox "
-                f"--workdir {worktree_path} --root {worktree_path} -c {worktree_path}"
-            )
+            cmd = f"uvx {python_ver} tox --workdir {worktree_path} --root {worktree_path} -c {worktree_path}"
             if _tox_tests and _tox_tests != "all":
                 tests = _tox_tests.replace(" ", "")
                 cmd += f" -e {tests}"
