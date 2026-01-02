@@ -419,6 +419,71 @@ class TestRunnerHandlerCustomCheck:
             call_kwargs = mock_run.call_args.kwargs
             assert call_kwargs["env"] is None
 
+    @pytest.mark.asyncio
+    async def test_run_custom_check_with_explicit_env_values(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that custom check with explicit env values (VAR=value format) works correctly."""
+        check_config = {
+            "name": "explicit-env-test",
+            "command": "env | grep DEBUG",
+            "env": ["DEBUG=true", "VERBOSE=1"],
+        }
+
+        # Create async context manager mock
+        mock_checkout_cm = AsyncMock()
+        mock_checkout_cm.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree", "", ""))
+        mock_checkout_cm.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch.object(runner_handler, "_checkout_worktree", return_value=mock_checkout_cm),
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(return_value=(True, "DEBUG=true\nVERBOSE=1", "")),
+            ) as mock_run,
+        ):
+            await runner_handler.run_custom_check(pull_request=mock_pull_request, check_config=check_config)
+
+            # Verify command was called with env dict containing explicit values
+            mock_run.assert_called_once()
+            call_kwargs = mock_run.call_args.kwargs
+            assert call_kwargs["env"] == {"DEBUG": "true", "VERBOSE": "1"}
+
+    @pytest.mark.asyncio
+    async def test_run_custom_check_with_mixed_env_formats(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that custom check with mixed env formats (both VAR and VAR=value) works correctly."""
+        check_config = {
+            "name": "mixed-env-test",
+            "command": "env",
+            "env": ["DEBUG=true", "SERVER_VAR", "VERBOSE=1"],
+        }
+
+        # Create async context manager mock
+        mock_checkout_cm = AsyncMock()
+        mock_checkout_cm.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree", "", ""))
+        mock_checkout_cm.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch.dict("os.environ", {"SERVER_VAR": "from_server"}, clear=False),
+            patch.object(runner_handler, "_checkout_worktree", return_value=mock_checkout_cm),
+            patch(
+                "webhook_server.libs.handlers.runner_handler.run_command",
+                new=AsyncMock(return_value=(True, "DEBUG=true\nSERVER_VAR=from_server\nVERBOSE=1", "")),
+            ) as mock_run,
+        ):
+            await runner_handler.run_custom_check(pull_request=mock_pull_request, check_config=check_config)
+
+            # Verify command was called with env dict containing mixed sources
+            mock_run.assert_called_once()
+            call_kwargs = mock_run.call_args.kwargs
+            assert call_kwargs["env"] == {
+                "DEBUG": "true",
+                "SERVER_VAR": "from_server",
+                "VERBOSE": "1",
+            }
+
 
 class TestCustomCheckRunsIntegration:
     """Integration tests for custom check runs feature."""

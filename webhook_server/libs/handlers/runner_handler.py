@@ -663,17 +663,28 @@ Your team can configure additional types in the repository settings.
                 output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
                 return await self.check_run_handler.set_custom_check_failure(name=check_name, output=output)
 
-            # Build env dict from env var names (read from server environment)
+            # Build env dict from env entries (supports both formats)
+            # Format 1: VAR_NAME - value read from server environment
+            # Format 2: VAR_NAME=value - explicit value provided
             env_dict: dict[str, str] | None = None
-            env_var_names = check_config.get("env", [])
-            if env_var_names:
+            env_entries = check_config.get("env", [])
+            if env_entries:
                 env_dict = {}
-                for var_name in env_var_names:
-                    if var_name in os.environ:
-                        env_dict[var_name] = os.environ[var_name]
+                for env_entry in env_entries:
+                    if "=" in env_entry:
+                        # Format 2: VAR_NAME=value
+                        var_name, var_value = env_entry.split("=", 1)
+                        env_dict[var_name] = var_value
+                        self.logger.debug(
+                            f"{self.log_prefix} Using explicit value for environment variable '{var_name}'"
+                        )
+                    elif env_entry in os.environ:
+                        # Format 1: VAR_NAME (read from server environment)
+                        env_dict[env_entry] = os.environ[env_entry]
+                        self.logger.debug(f"{self.log_prefix} Using server environment value for '{env_entry}'")
                     else:
                         self.logger.warning(
-                            f"{self.log_prefix} Environment variable '{var_name}' not found in server environment"
+                            f"{self.log_prefix} Environment variable '{env_entry}' not found in server environment"
                         )
 
             # Execute command in worktree directory with env vars
