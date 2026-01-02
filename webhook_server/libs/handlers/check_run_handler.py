@@ -508,14 +508,13 @@ class CheckRunHandler:
         if self.github_webhook.conventional_title:
             all_required_status_checks.append(CONVENTIONAL_TITLE_STR)
 
-        # Add required custom checks
+        # Add all custom checks (same as built-in checks - all are required)
         for custom_check in self.github_webhook.custom_check_runs:
-            if custom_check.get("required", True):
-                check_name = custom_check.get("name")
-                if not check_name:
-                    self.logger.warning(f"{self.log_prefix} Custom check missing required 'name' field, skipping")
-                    continue
-                all_required_status_checks.append(check_name)
+            check_name = custom_check.get("name")
+            if not check_name:
+                self.logger.warning(f"{self.log_prefix} Custom check missing required 'name' field, skipping")
+                continue
+            all_required_status_checks.append(check_name)
 
         _all_required_status_checks = branch_required_status_checks + all_required_status_checks
         self.logger.debug(f"{self.log_prefix} All required status checks: {_all_required_status_checks}")

@@ -740,16 +740,13 @@ For more information, please refer to the project documentation or contact the m
         if self.github_webhook.conventional_title:
             setup_tasks.append(self.check_run_handler.set_conventional_title_queued())
 
-        # Queue custom check runs (only if current action matches configured triggers)
-        current_action = self.hook_data.get("action", "")
+        # Queue custom check runs (same as built-in checks)
         for custom_check in self.github_webhook.custom_check_runs:
-            check_triggers = custom_check.get("triggers", ["opened", "synchronize", "reopened"])
-            if current_action in check_triggers:
-                check_name = custom_check.get("name")
-                if not check_name:
-                    self.logger.warning(f"{self.log_prefix} Custom check missing required 'name' field, skipping")
-                    continue
-                setup_tasks.append(self.check_run_handler.set_custom_check_queued(name=check_name))
+            check_name = custom_check.get("name")
+            if not check_name:
+                self.logger.warning(f"{self.log_prefix} Custom check missing required 'name' field, skipping")
+                continue
+            setup_tasks.append(self.check_run_handler.set_custom_check_queued(name=check_name))
 
         self.logger.step(  # type: ignore[attr-defined]
             f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} Executing setup tasks"
@@ -779,17 +776,14 @@ For more information, please refer to the project documentation or contact the m
         if self.github_webhook.conventional_title:
             ci_tasks.append(self.runner_handler.run_conventional_title_check(pull_request=pull_request))
 
-        # Launch custom check runs
-        action = self.hook_data.get("action", "")
+        # Launch custom check runs (same as built-in checks)
         for custom_check in self.github_webhook.custom_check_runs:
-            triggers = custom_check.get("triggers", ["opened", "synchronize", "reopened"])
-            if action in triggers:
-                ci_tasks.append(
-                    self.runner_handler.run_custom_check(
-                        pull_request=pull_request,
-                        check_config=custom_check,
-                    )
+            ci_tasks.append(
+                self.runner_handler.run_custom_check(
+                    pull_request=pull_request,
+                    check_config=custom_check,
                 )
+            )
 
         self.logger.step(  # type: ignore[attr-defined]
             f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} "

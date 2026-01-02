@@ -95,8 +95,8 @@ class TestCheckRunHandlerCustomCheckMethods:
         mock_webhook.last_commit = Mock()
         mock_webhook.last_commit.sha = "test-sha-123"
         mock_webhook.custom_check_runs = [
-            {"name": "lint", "command": "uv tool run --from ruff ruff check", "required": True},
-            {"name": "security-scan", "command": "uv tool run --from bandit bandit -r .", "required": False},
+            {"name": "lint", "command": "uv tool run --from ruff ruff check"},
+            {"name": "security-scan", "command": "uv tool run --from bandit bandit -r ."},
         ]
         return mock_webhook
 
@@ -183,7 +183,7 @@ class TestCheckRunHandlerCustomCheckMethods:
 
     @pytest.mark.asyncio
     async def test_all_required_status_checks_includes_custom_checks(self, check_run_handler: CheckRunHandler) -> None:
-        """Test that all_required_status_checks includes required custom checks."""
+        """Test that all_required_status_checks includes all custom checks (all are required)."""
         mock_pull_request = Mock()
         mock_pull_request.base.ref = "main"
 
@@ -191,31 +191,9 @@ class TestCheckRunHandlerCustomCheckMethods:
         with patch.object(check_run_handler, "get_branch_required_status_checks", return_value=[]):
             result = await check_run_handler.all_required_status_checks(pull_request=mock_pull_request)
 
-            # Should include required custom check but not non-required one
+            # Should include all custom checks (same as built-in checks - all are required)
             assert "lint" in result
-            assert "security-scan" not in result
-
-    @pytest.mark.asyncio
-    async def test_all_required_status_checks_excludes_non_required_custom_checks(
-        self, check_run_handler: CheckRunHandler, mock_github_webhook: Mock
-    ) -> None:
-        """Test that non-required custom checks are excluded from required status checks."""
-        # Override custom checks to have only non-required checks
-        mock_github_webhook.custom_check_runs = [
-            {"name": "optional-check", "command": "uv tool run --from pytest pytest", "required": False},
-        ]
-
-        mock_pull_request = Mock()
-        mock_pull_request.base.ref = "main"
-
-        # Reset cache to force recalculation
-        check_run_handler._all_required_status_checks = None
-
-        with patch.object(check_run_handler, "get_branch_required_status_checks", return_value=[]):
-            result = await check_run_handler.all_required_status_checks(pull_request=mock_pull_request)
-
-            # Should not include non-required custom check
-            assert "optional-check" not in result
+            assert "security-scan" in result
 
 
 class TestRunnerHandlerCustomCheck:
@@ -505,17 +483,10 @@ class TestCustomCheckRunsIntegration:
             {
                 "name": "lint",
                 "command": "uv tool run --from ruff ruff check",
-                "required": True,
             },
             {
                 "name": "security",
                 "command": "uv tool run --from bandit bandit -r .",
-                "required": True,
-            },
-            {
-                "name": "optional-check",
-                "command": "uv tool run --from pytest pytest",
-                "required": False,
             },
         ]
         return mock_webhook
@@ -570,8 +541,8 @@ class TestCustomCheckRunsRetestCommand:
         mock_webhook.logger = Mock()
         mock_webhook.log_prefix = "[TEST]"
         mock_webhook.custom_check_runs = [
-            {"name": "lint", "command": "uv tool run --from ruff ruff check", "required": True},
-            {"name": "security", "command": "uv tool run --from bandit bandit -r .", "required": True},
+            {"name": "lint", "command": "uv tool run --from ruff ruff check"},
+            {"name": "security", "command": "uv tool run --from bandit bandit -r ."},
         ]
         return mock_webhook
 
