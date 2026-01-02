@@ -257,10 +257,8 @@ class TestRunnerHandlerCustomCheck:
             runner_handler.check_run_handler.set_custom_check_in_progress.assert_called_once_with(name="lint")
             runner_handler.check_run_handler.set_custom_check_success.assert_called_once()
 
-            # Verify command was executed with default timeout
+            # Verify command was executed
             mock_run.assert_called_once()
-            call_kwargs = mock_run.call_args.kwargs
-            assert call_kwargs["timeout"] == 600  # Default timeout
 
     @pytest.mark.asyncio
     async def test_run_custom_check_failure(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:

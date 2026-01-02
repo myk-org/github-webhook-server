@@ -627,18 +627,14 @@ Your team can configure additional types in the repository settings.
         pull_request: PullRequest,
         check_config: dict[str, Any],
     ) -> None:
-        """Run a custom check defined in repository configuration."""
-        check_name = check_config.get("name")
-        if not check_name:
-            self.logger.error(f"{self.log_prefix} Custom check missing required 'name' field")
-            return
+        """Run a custom check defined in repository configuration.
 
-        command = check_config.get("command", "")
-        if not command:
-            self.logger.error(f"{self.log_prefix} Custom check '{check_name}' missing required 'command' field")
-            return
-
-        timeout = check_config.get("timeout", 600)
+        Note: name and command validation happens in GithubWebhook._validate_custom_check_runs()
+        when custom checks are first loaded. Invalid checks are filtered out at that stage.
+        """
+        # name and command are guaranteed to exist (validated at load time)
+        check_name = check_config["name"]
+        command = check_config["command"]
 
         self.logger.step(  # type: ignore[attr-defined]
             f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'started')} "
@@ -692,7 +688,6 @@ Your team can configure additional types in the repository settings.
                 command=command,
                 log_prefix=self.log_prefix,
                 mask_sensitive=self.github_webhook.mask_sensitive,
-                timeout=timeout,
                 cwd=worktree_path,
                 env=env_dict,
             )
@@ -856,11 +851,10 @@ Your team can configure additional types in the repository settings.
         }
 
         # Add custom check runs to the retest map
+        # Note: custom checks are validated in GithubWebhook._validate_custom_check_runs()
+        # so name is guaranteed to exist
         for custom_check in self.github_webhook.custom_check_runs:
-            check_key = custom_check.get("name")
-            if not check_key:
-                self.logger.warning(f"{self.log_prefix} Custom check missing required 'name' field, skipping")
-                continue
+            check_key = custom_check["name"]
 
             # Create a closure to capture the check_config
             def make_custom_runner(check_config: dict[str, Any]) -> Callable[..., Coroutine[Any, Any, None]]:
