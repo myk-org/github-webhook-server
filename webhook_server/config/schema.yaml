@@ -325,7 +325,21 @@ properties:
             Commands run in the repository worktree. If a command is not found,
             a warning is logged and the check is skipped.
 
-            Examples:
+            Environment Variables:
+            The 'env' field lists variable NAMES to pass through from the server environment.
+            Variable VALUES are read from os.environ on the server at runtime.
+
+            Example:
+              # Server environment has: PYTHONPATH=/app/lib, DEBUG=true
+              # Config lists variable names to pass through:
+              - name: lint
+                command: uv tool run --from ruff ruff check
+                env:
+                  - PYTHONPATH
+                  - DEBUG
+              # At runtime, command receives: PYTHONPATH=/app/lib, DEBUG=true
+
+            Other Examples:
               - name: lint
                 command: uv tool run --from ruff ruff check
                 env:
