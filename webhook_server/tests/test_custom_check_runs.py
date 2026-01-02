@@ -9,9 +9,7 @@ This test suite covers:
 
 The custom check runs feature allows users to define custom checks via YAML configuration:
 - Custom check names match exactly what's configured in YAML (no prefix added)
-- Checks can have triggers: opened, synchronize, reopened, ready_for_review
-- Checks have configurable timeout (default 600, min 30, max 3600)
-- Checks can be marked as required (default true)
+- Checks behave like built-in checks (fail if command not found)
 - Custom checks are included in all_required_status_checks when required=true
 - Custom checks are added to supported retest list
 """
@@ -42,9 +40,6 @@ class TestCustomCheckRunsSchemaValidation:
         return {
             "name": "my-custom-check",
             "command": "uv tool run --from ruff ruff check",
-            "timeout": 300,
-            "required": True,
-            "triggers": ["opened", "synchronize"],
         }
 
     @pytest.fixture
@@ -60,17 +55,11 @@ class TestCustomCheckRunsSchemaValidation:
         # This test verifies the structure matches schema expectations
         assert valid_custom_check_config["name"] == "my-custom-check"
         assert valid_custom_check_config["command"] == "uv tool run --from ruff ruff check"
-        assert valid_custom_check_config.get("timeout", 600) == 300
-        assert valid_custom_check_config.get("required", True) is True
-        assert valid_custom_check_config.get("triggers", []) == ["opened", "synchronize"]
 
     def test_minimal_custom_check_config(self, minimal_custom_check_config: dict[str, Any]) -> None:
         """Test that minimal custom check configuration is accepted."""
         assert minimal_custom_check_config["name"] == "minimal-check"
         assert minimal_custom_check_config["command"] == "uv tool run --from pytest pytest"
-        # Default values would be applied by schema
-        assert "timeout" not in minimal_custom_check_config  # Uses default 600
-        assert "required" not in minimal_custom_check_config  # Uses default true
 
     def test_custom_check_with_env_vars(self) -> None:
         """Test that custom check with environment variables is accepted."""
@@ -270,7 +259,6 @@ class TestRunnerHandlerCustomCheck:
         check_config = {
             "name": "lint",
             "command": "uv tool run --from ruff ruff check",
-            "timeout": 300,
         }
 
         # Create async context manager mock
@@ -291,10 +279,10 @@ class TestRunnerHandlerCustomCheck:
             runner_handler.check_run_handler.set_custom_check_in_progress.assert_called_once_with(name="lint")
             runner_handler.check_run_handler.set_custom_check_success.assert_called_once()
 
-            # Verify command was executed with correct timeout
+            # Verify command was executed with default timeout
             mock_run.assert_called_once()
             call_kwargs = mock_run.call_args.kwargs
-            assert call_kwargs["timeout"] == 300
+            assert call_kwargs["timeout"] == 600  # Default timeout
 
     @pytest.mark.asyncio
     async def test_run_custom_check_failure(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
@@ -302,7 +290,6 @@ class TestRunnerHandlerCustomCheck:
         check_config = {
             "name": "security-scan",
             "command": "uv tool run --from bandit bandit -r .",
-            "timeout": 600,
         }
 
         # Create async context manager mock
@@ -342,36 +329,6 @@ class TestRunnerHandlerCustomCheck:
 
             # Verify failure status was set due to checkout failure
             runner_handler.check_run_handler.set_custom_check_failure.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_run_custom_check_default_timeout(
-        self, runner_handler: RunnerHandler, mock_pull_request: Mock
-    ) -> None:
-        """Test that custom check uses default timeout when not specified."""
-        check_config = {
-            "name": "test",
-            "command": "uv tool run --from pytest pytest",
-            # No timeout specified - should use default 600
-        }
-
-        # Create async context manager mock
-        mock_checkout_cm = AsyncMock()
-        mock_checkout_cm.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree", "", ""))
-        mock_checkout_cm.__aexit__ = AsyncMock(return_value=None)
-
-        with (
-            patch.object(runner_handler, "_checkout_worktree", return_value=mock_checkout_cm),
-            patch(
-                "webhook_server.libs.handlers.runner_handler.run_command",
-                new=AsyncMock(return_value=(True, "output", "")),
-            ) as mock_run,
-        ):
-            await runner_handler.run_custom_check(pull_request=mock_pull_request, check_config=check_config)
-
-            # Verify default timeout (600) was used
-            mock_run.assert_called_once()
-            call_kwargs = mock_run.call_args.kwargs
-            assert call_kwargs["timeout"] == 600  # Default from schema
 
     @pytest.mark.asyncio
     async def test_run_custom_check_command_execution_in_worktree(
@@ -462,68 +419,6 @@ class TestRunnerHandlerCustomCheck:
             call_kwargs = mock_run.call_args.kwargs
             assert call_kwargs["env"] is None
 
-    @pytest.mark.asyncio
-    async def test_run_custom_check_command_not_found(
-        self,
-        runner_handler: RunnerHandler,
-        mock_pull_request: Mock,
-    ) -> None:
-        """Test that custom check is skipped when command executable is not found."""
-        check_config = {
-            "name": "missing-command",
-            "command": "nonexistent-command --arg",
-        }
-
-        with (
-            patch("shutil.which", return_value=None),  # Command not found
-            patch.object(
-                runner_handler.check_run_handler,
-                "set_custom_check_skipped",
-                new=AsyncMock(),
-            ) as mock_skipped,
-        ):
-            await runner_handler.run_custom_check(
-                pull_request=mock_pull_request,
-                check_config=check_config,
-            )
-
-            # Should skip with neutral status
-            mock_skipped.assert_called_once()
-            call_kwargs = mock_skipped.call_args.kwargs
-            assert call_kwargs["name"] == "missing-command"
-            assert "output" in call_kwargs
-            assert "not found" in call_kwargs["output"]["summary"]
-
-    @pytest.mark.asyncio
-    async def test_run_custom_check_multiline_command_not_found(
-        self,
-        runner_handler: RunnerHandler,
-        mock_pull_request: Mock,
-    ) -> None:
-        """Test that multiline command executable check works correctly."""
-        check_config = {
-            "name": "multiline-missing",
-            "command": "nonexistent-python -c \"\nimport sys\nprint('test')\n\"",
-        }
-
-        with (
-            patch("shutil.which", return_value=None),  # Command not found
-            patch.object(
-                runner_handler.check_run_handler,
-                "set_custom_check_skipped",
-                new=AsyncMock(),
-            ) as mock_skipped,
-        ):
-            await runner_handler.run_custom_check(
-                pull_request=mock_pull_request,
-                check_config=check_config,
-            )
-
-            # Should extract first line and check for executable
-            mock_skipped.assert_called_once()
-            call_kwargs = mock_skipped.call_args.kwargs
-            assert "nonexistent-python" in call_kwargs["output"]["text"]
-
 
 class TestCustomCheckRunsIntegration:
     """Integration tests for custom check runs feature."""
@@ -545,22 +440,17 @@ class TestCustomCheckRunsIntegration:
             {
                 "name": "lint",
                 "command": "uv tool run --from ruff ruff check",
-                "timeout": 300,
                 "required": True,
-                "triggers": ["opened", "synchronize"],
             },
             {
                 "name": "security",
                 "command": "uv tool run --from bandit bandit -r .",
-                "timeout": 600,
                 "required": True,
-                "triggers": ["opened", "ready_for_review"],
             },
             {
                 "name": "optional-check",
                 "command": "uv tool run --from pytest pytest",
                 "required": False,
-                "triggers": ["synchronize"],
             },
         ]
         return mock_webhook
@@ -574,78 +464,6 @@ class TestCustomCheckRunsIntegration:
         mock_pr.base.ref = "main"
         mock_pr.draft = False
         return mock_pr
-
-    @pytest.mark.asyncio
-    async def test_custom_checks_queued_on_opened_event(
-        self, mock_github_webhook: Mock, mock_pull_request: Mock
-    ) -> None:
-        """Test that custom checks are queued when PR is opened."""
-        check_run_handler = CheckRunHandler(mock_github_webhook)
-        check_run_handler.set_custom_check_queued = AsyncMock()
-
-        # Simulate PR opened event - should queue lint and security checks
-        triggered_checks = [
-            check for check in mock_github_webhook.custom_check_runs if "opened" in check.get("triggers", [])
-        ]
-
-        for check in triggered_checks:
-            check_name = check["name"]
-            await check_run_handler.set_custom_check_queued(name=check_name)
-
-        # Verify both checks were queued
-        assert check_run_handler.set_custom_check_queued.call_count == 2
-        call_args_list = [call.kwargs["name"] for call in check_run_handler.set_custom_check_queued.call_args_list]
-        assert "lint" in call_args_list
-        assert "security" in call_args_list
-
-    @pytest.mark.asyncio
-    async def test_custom_checks_queued_on_synchronize_event(
-        self, mock_github_webhook: Mock, mock_pull_request: Mock
-    ) -> None:
-        """Test that custom checks are queued when PR is synchronized."""
-        mock_github_webhook.hook_data["action"] = "synchronize"
-
-        check_run_handler = CheckRunHandler(mock_github_webhook)
-        check_run_handler.set_custom_check_queued = AsyncMock()
-
-        # Simulate PR synchronize event - should queue lint and optional-check
-        triggered_checks = [
-            check for check in mock_github_webhook.custom_check_runs if "synchronize" in check.get("triggers", [])
-        ]
-
-        for check in triggered_checks:
-            check_name = check["name"]
-            await check_run_handler.set_custom_check_queued(name=check_name)
-
-        # Verify correct checks were queued
-        assert check_run_handler.set_custom_check_queued.call_count == 2
-        call_args_list = [call.kwargs["name"] for call in check_run_handler.set_custom_check_queued.call_args_list]
-        assert "lint" in call_args_list
-        assert "optional-check" in call_args_list
-
-    @pytest.mark.asyncio
-    async def test_custom_checks_queued_on_ready_for_review_event(
-        self, mock_github_webhook: Mock, mock_pull_request: Mock
-    ) -> None:
-        """Test that custom checks are queued when PR is marked ready for review."""
-        mock_github_webhook.hook_data["action"] = "ready_for_review"
-
-        check_run_handler = CheckRunHandler(mock_github_webhook)
-        check_run_handler.set_custom_check_queued = AsyncMock()
-
-        # Simulate PR ready_for_review event - should queue security check
-        triggered_checks = [
-            check for check in mock_github_webhook.custom_check_runs if "ready_for_review" in check.get("triggers", [])
-        ]
-
-        for check in triggered_checks:
-            check_name = check["name"]
-            await check_run_handler.set_custom_check_queued(name=check_name)
-
-        # Verify security check was queued
-        assert check_run_handler.set_custom_check_queued.call_count == 1
-        call_args = check_run_handler.set_custom_check_queued.call_args.kwargs["name"]
-        assert call_args == "security"
 
     @pytest.mark.asyncio
     async def test_custom_checks_execution_workflow(self, mock_github_webhook: Mock, mock_pull_request: Mock) -> None:
@@ -812,7 +630,6 @@ class TestCustomCheckRunsEdgeCases:
         check_config = {
             "name": "slow-check",
             "command": "uv tool run --from some-package slow-command",
-            "timeout": 30,  # 30 second timeout
         }
 
         # Create async context manager mock
@@ -855,7 +672,6 @@ class TestCustomCheckRunsEdgeCases:
         mock_checkout_cm.__aexit__ = AsyncMock(return_value=None)
 
         with (
-            patch("shutil.which", return_value="/usr/bin/python"),  # Command exists
             patch.object(runner_handler, "_checkout_worktree", return_value=mock_checkout_cm),
             patch(
                 "webhook_server.libs.handlers.runner_handler.run_command",

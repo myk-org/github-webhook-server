@@ -640,25 +640,6 @@ Your team can configure additional types in the repository settings.
 
         timeout = check_config.get("timeout", 600)
 
-        # Check if the command executable exists
-        # Extract first word (the executable) - handle multi-line commands
-        first_line = command.strip().split("\n")[0]
-        executable = first_line.split()[0] if first_line.split() else ""
-
-        if executable and not shutil.which(executable):
-            msg = f"{self.log_prefix} Command '{executable}' not found in container, skipping check '{check_name}'"
-            self.logger.warning(msg)
-            # Set check to neutral (skipped) not failure
-            skip_output: dict[str, Any] = {
-                "title": f"Custom Check: {check_name}",
-                "summary": f"Skipped - command '{executable}' not found",
-                "text": (
-                    f"The command '{executable}' was not found in the container. "
-                    "Install it or remove this check from configuration."
-                ),
-            }
-            return await self.check_run_handler.set_custom_check_skipped(name=check_name, output=skip_output)
-
         self.logger.step(  # type: ignore[attr-defined]
             f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'started')} "
             f"Starting custom check: {check_config['name']}"
