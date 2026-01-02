@@ -5,6 +5,7 @@ import re
 import shutil
 from asyncio import Task
 from collections.abc import AsyncGenerator, Callable, Coroutine
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 import shortuuid
@@ -855,15 +856,7 @@ Your team can configure additional types in the repository settings.
         # so name is guaranteed to exist
         for custom_check in self.github_webhook.custom_check_runs:
             check_key = custom_check["name"]
-
-            # Create a closure to capture the check_config
-            def make_custom_runner(check_config: dict[str, Any]) -> Callable[..., Coroutine[Any, Any, None]]:
-                async def runner(pull_request: PullRequest) -> None:
-                    await self.run_custom_check(pull_request=pull_request, check_config=check_config)
-
-                return runner
-
-            _retests_to_func_map[check_key] = make_custom_runner(custom_check)
+            _retests_to_func_map[check_key] = partial(self.run_custom_check, check_config=custom_check)
 
         tasks: list[Coroutine[Any, Any, Any] | Task[Any]] = []
         for _test in supported_retests:
