@@ -1,4 +1,5 @@
 import asyncio
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
@@ -525,8 +526,16 @@ class TestPullRequestHandler:
     async def test_label_pull_request_by_merge_state_mergeable(
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
+        """Test labeling pull request when mergeable and up-to-date."""
         mock_pull_request.mergeable = True
-        mock_pull_request.mergeable_state = "clean"
+        mock_pull_request.base.ref = "main"
+        mock_pull_request.head.user.login = "test-user"
+        mock_pull_request.head.ref = "feature-branch"
+
+        # Mock Compare API response - up-to-date
+        mock_compare_data = {"behind_by": 0, "status": "ahead"}
+        pull_request_handler.repository._requester.requestJsonAndCheck = Mock(return_value=({}, mock_compare_data))
+
         with patch.object(pull_request_handler.labels_handler, "_remove_label", new=AsyncMock()) as mock_remove_label:
             await pull_request_handler.label_pull_request_by_merge_state(pull_request=mock_pull_request)
             assert mock_remove_label.await_count == 2
@@ -537,7 +546,13 @@ class TestPullRequestHandler:
     ) -> None:
         """Test labeling pull request by merge state when needs rebase."""
         mock_pull_request.mergeable = True
-        mock_pull_request.mergeable_state = "behind"
+        mock_pull_request.base.ref = "main"
+        mock_pull_request.head.user.login = "test-user"
+        mock_pull_request.head.ref = "feature-branch"
+
+        # Mock Compare API response - behind
+        mock_compare_data = {"behind_by": 5, "status": "behind"}
+        pull_request_handler.repository._requester.requestJsonAndCheck = Mock(return_value=({}, mock_compare_data))
 
         with patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label:
             await pull_request_handler.label_pull_request_by_merge_state(pull_request=mock_pull_request)
@@ -549,7 +564,13 @@ class TestPullRequestHandler:
     ) -> None:
         """Test labeling pull request by merge state when has conflicts."""
         mock_pull_request.mergeable = False
-        mock_pull_request.mergeable_state = "dirty"
+        mock_pull_request.base.ref = "main"
+        mock_pull_request.head.user.login = "test-user"
+        mock_pull_request.head.ref = "feature-branch"
+
+        # Mock Compare API response - up-to-date but has conflicts
+        mock_compare_data = {"behind_by": 0, "status": "ahead"}
+        pull_request_handler.repository._requester.requestJsonAndCheck = Mock(return_value=({}, mock_compare_data))
 
         with patch.object(pull_request_handler.labels_handler, "_add_label", new_callable=AsyncMock) as mock_add_label:
             await pull_request_handler.label_pull_request_by_merge_state(pull_request=mock_pull_request)
@@ -1738,16 +1759,65 @@ class TestPullRequestHandler:
     async def test_label_pull_request_by_merge_state_unknown(
         self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
     ) -> None:
-        """Test label_pull_request_by_merge_state when unknown."""
-        mock_pull_request.mergeable_state = "unknown"
+        """Test label_pull_request_by_merge_state when mergeable is None."""
+        mock_pull_request.mergeable = None  # Not yet computed by GitHub
 
-        with patch(
-            "asyncio.to_thread", side_effect=lambda f, *args, **kwargs: f(*args, **kwargs) if callable(f) else None
-        ):
-            await pull_request_handler.label_pull_request_by_merge_state(mock_pull_request)
+        await pull_request_handler.label_pull_request_by_merge_state(mock_pull_request)
 
-        # Should return early
+        # Should return early, no label operations
         pull_request_handler.labels_handler._add_label.assert_not_called()
+        pull_request_handler.labels_handler._remove_label.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_label_pull_request_by_merge_state_diverged(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test labeling pull request when diverged from base."""
+        mock_pull_request.mergeable = True
+        mock_pull_request.base.ref = "main"
+        mock_pull_request.head.user.login = "test-user"
+        mock_pull_request.head.ref = "feature-branch"
+
+        # Mock Compare API response - diverged
+        mock_compare_data = {"behind_by": 3, "status": "diverged"}
+        pull_request_handler.repository._requester.requestJsonAndCheck = Mock(return_value=({}, mock_compare_data))
+
+        with patch.object(pull_request_handler.labels_handler, "_add_label", new_callable=AsyncMock) as mock_add_label:
+            await pull_request_handler.label_pull_request_by_merge_state(pull_request=mock_pull_request)
+            mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=NEEDS_REBASE_LABEL_STR)
+
+    @pytest.mark.asyncio
+    async def test_label_pull_request_by_merge_state_behind_and_conflicts(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test labeling pull request when behind and has conflicts.
+
+        When a PR has conflicts, only the conflict label should be added.
+        The needs-rebase label is removed if present, since conflict is the primary blocker.
+        Once the conflict is resolved, the webhook fires again and rebase status is re-evaluated.
+        """
+        mock_pull_request.mergeable = False
+        mock_pull_request.base.ref = "main"
+        mock_pull_request.head.user.login = "test-user"
+        mock_pull_request.head.ref = "feature-branch"
+
+        # Mock Compare API response - behind
+        mock_compare_data = {"behind_by": 2, "status": "behind"}
+        pull_request_handler.repository._requester.requestJsonAndCheck = Mock(return_value=({}, mock_compare_data))
+
+        with (
+            patch.object(pull_request_handler.labels_handler, "_add_label", new_callable=AsyncMock) as mock_add_label,
+            patch.object(
+                pull_request_handler.labels_handler, "_remove_label", new_callable=AsyncMock
+            ) as mock_remove_label,
+        ):
+            await pull_request_handler.label_pull_request_by_merge_state(pull_request=mock_pull_request)
+            # Should add only conflict label (conflict is the primary blocker)
+            assert mock_add_label.call_count == 1
+            assert mock_add_label.call_args.kwargs["label"] == HAS_CONFLICTS_LABEL_STR
+            # Should remove needs-rebase label (conflict takes priority)
+            assert mock_remove_label.call_count == 1
+            assert mock_remove_label.call_args.kwargs["label"] == NEEDS_REBASE_LABEL_STR
 
     @pytest.mark.asyncio
     async def test_delete_registry_tag_via_regctl_failure(
@@ -1781,4 +1851,56 @@ class TestPullRequestHandler:
         await pull_request_handler._delete_registry_tag_via_regctl(mock_pull_request, "tag", "pr-123", "registry.io")
         pull_request_handler.logger.error.assert_called_with(
             "[TEST] Failed to delete tag: tag. OUT:Delete failed. ERR:Error"
+        )
+
+    @pytest.mark.asyncio
+    async def test_label_pull_request_by_merge_state_compare_api_failure(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test handling of Compare API failure - should still update conflict label."""
+        mock_pull_request.mergeable = True  # No conflicts
+        mock_pull_request.base.ref = "main"
+        mock_pull_request.head.user.login = "test-user"
+        mock_pull_request.head.ref = "feature-branch"
+
+        # Mock Compare API to raise GithubException
+        pull_request_handler.repository._requester.requestJsonAndCheck = Mock(
+            side_effect=GithubException(500, {"message": "API error"}, None)
+        )
+
+        # Reset mocks
+        pull_request_handler.labels_handler._add_label.reset_mock()
+        pull_request_handler.labels_handler._remove_label.reset_mock()
+
+        await pull_request_handler.label_pull_request_by_merge_state(mock_pull_request)
+
+        # Should still remove has-conflicts label even if Compare API fails (mergeable=True)
+        pull_request_handler.labels_handler._remove_label.assert_called_once_with(
+            pull_request=mock_pull_request, label=HAS_CONFLICTS_LABEL_STR
+        )
+        pull_request_handler.labels_handler._add_label.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_label_pull_request_by_merge_state_incomplete_compare_data(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test handling of incomplete Compare API response - should still handle conflict label."""
+        mock_pull_request.mergeable = False  # Has conflicts
+        mock_pull_request.base.ref = "main"
+        mock_pull_request.head.user.login = "test-user"
+        mock_pull_request.head.ref = "feature-branch"
+
+        # Mock Compare API with missing behind_by key
+        mock_compare_data: dict[str, Any] = {"status": "behind"}  # Missing behind_by
+        pull_request_handler.repository._requester.requestJsonAndCheck = Mock(return_value=({}, mock_compare_data))
+
+        # Reset mocks
+        pull_request_handler.labels_handler._add_label.reset_mock()
+        pull_request_handler.labels_handler._remove_label.reset_mock()
+
+        await pull_request_handler.label_pull_request_by_merge_state(mock_pull_request)
+
+        # Should still add has-conflicts label even if compare data incomplete
+        pull_request_handler.labels_handler._add_label.assert_called_once_with(
+            pull_request=mock_pull_request, label=HAS_CONFLICTS_LABEL_STR
         )
