@@ -318,3 +318,54 @@ properties:
             required:
               - threshold
             additionalProperties: false
+        custom-check-runs:
+          type: array
+          description: |
+            Custom check runs that execute user-defined commands on PR events.
+            Commands run in the repository worktree and behave like built-in checks
+            (tox, pre-commit, etc.) - if a command is not found, the check will fail.
+
+            Environment Variables:
+            The 'env' field supports two formats for passing environment variables:
+            1. Variable name only (e.g., 'PYTHONPATH') - value read from server's os.environ
+            2. Variable with value (e.g., 'DEBUG=true') - explicit value provided
+
+            Examples:
+              - name: lint
+                command: uv tool run --from ruff ruff check
+                env:
+                  - PYTHONPATH              # Read from server environment
+                  - DEBUG=true              # Explicit value
+              - name: security-scan
+                command: uv tool run --from bandit bandit -r .
+                env:
+                  - CUSTOM_VAR              # Read from server environment
+                  - ENABLE_SCAN=1           # Explicit value
+              - name: complex-check
+                command: |
+                  python -c "
+                  import sys
+                  print('Running complex check')
+                  sys.exit(0)
+                  "
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                description: Unique name for the check run (displayed in GitHub UI)
+              command:
+                type: string
+                description: Command to execute in the repository directory
+              env:
+                type: array
+                description: |
+                  Environment variables to pass to the command. Each entry can be:
+                  - Variable name only (e.g., 'PYTHONPATH') - value read from server's os.environ
+                  - Variable with value (e.g., 'DEBUG=true') - explicit value provided
+                items:
+                  type: string
+            required:
+              - name
+              - command
+            additionalProperties: false

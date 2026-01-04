@@ -46,6 +46,7 @@ class TestCheckRunHandler:
         mock_webhook.token = "test-token"
         mock_webhook.container_repository_username = "test-user"
         mock_webhook.container_repository_password = "test-pass"  # pragma: allowlist secret
+        mock_webhook.custom_check_runs = []
         return mock_webhook
 
     @pytest.fixture

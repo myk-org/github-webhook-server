@@ -1,8 +1,11 @@
 import asyncio
 import contextlib
+import os
 import re
 import shutil
-from collections.abc import AsyncGenerator
+from asyncio import Task
+from collections.abc import AsyncGenerator, Callable, Coroutine
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 import shortuuid
@@ -620,6 +623,91 @@ Your team can configure additional types in the repository settings.
 """
             await self.check_run_handler.set_conventional_title_failure(output=output)
 
+    async def run_custom_check(
+        self,
+        pull_request: PullRequest,
+        check_config: dict[str, Any],
+    ) -> None:
+        """Run a custom check defined in repository configuration.
+
+        Note: name and command validation happens in GithubWebhook._validate_custom_check_runs()
+        when custom checks are first loaded. Invalid checks are filtered out at that stage.
+        """
+        # name and command are guaranteed to exist (validated at load time)
+        check_name = check_config["name"]
+        command = check_config["command"]
+
+        self.logger.step(  # type: ignore[attr-defined]
+            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'started')} "
+            f"Starting custom check: {check_config['name']}"
+        )
+
+        await self.check_run_handler.set_custom_check_in_progress(name=check_name)
+
+        async with self._checkout_worktree(pull_request=pull_request) as (
+            success,
+            worktree_path,
+            out,
+            err,
+        ):
+            output: dict[str, Any] = {
+                "title": f"Custom Check: {check_config['name']}",
+                "summary": "",
+                "text": None,
+            }
+
+            if not success:
+                output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
+                return await self.check_run_handler.set_custom_check_failure(name=check_name, output=output)
+
+            # Build env dict from env entries (supports both formats)
+            # Format 1: VAR_NAME - value read from server environment
+            # Format 2: VAR_NAME=value - explicit value provided
+            env_dict: dict[str, str] | None = None
+            env_entries = check_config.get("env", [])
+            if env_entries:
+                env_dict = {}
+                for env_entry in env_entries:
+                    if "=" in env_entry:
+                        # Format 2: VAR_NAME=value
+                        var_name, var_value = env_entry.split("=", 1)
+                        env_dict[var_name] = var_value
+                        self.logger.debug(
+                            f"{self.log_prefix} Using explicit value for environment variable '{var_name}'"
+                        )
+                    elif env_entry in os.environ:
+                        # Format 1: VAR_NAME (read from server environment)
+                        env_dict[env_entry] = os.environ[env_entry]
+                        self.logger.debug(f"{self.log_prefix} Using server environment value for '{env_entry}'")
+                    else:
+                        self.logger.warning(
+                            f"{self.log_prefix} Environment variable '{env_entry}' not found in server environment"
+                        )
+
+            # Execute command in worktree directory with env vars
+            success, out, err = await run_command(
+                command=command,
+                log_prefix=self.log_prefix,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+                cwd=worktree_path,
+                env=env_dict,
+            )
+
+            output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
+
+            if success:
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'completed')} "
+                    f"Custom check {check_config['name']} completed successfully"
+                )
+                return await self.check_run_handler.set_custom_check_success(name=check_name, output=output)
+            else:
+                self.logger.step(  # type: ignore[attr-defined]
+                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} "
+                    f"Custom check {check_config['name']} failed"
+                )
+                return await self.check_run_handler.set_custom_check_failure(name=check_name, output=output)
+
     async def is_branch_exists(self, branch: str) -> Branch:
         return await asyncio.to_thread(self.repository.get_branch, branch)
 
@@ -742,3 +830,41 @@ Your team can configure additional types in the repository settings.
             await asyncio.to_thread(
                 pull_request.create_issue_comment, f"Cherry-picked PR {pull_request.title} into {target_branch}"
             )
+
+    async def run_retests(self, supported_retests: list[str], pull_request: PullRequest) -> None:
+        """Run the specified retests for a pull request.
+
+        Args:
+            supported_retests: List of test names to run (e.g., ['tox', 'pre-commit'])
+            pull_request: The PullRequest object to run tests for
+        """
+        if not supported_retests:
+            self.logger.debug(f"{self.log_prefix} No retests to run")
+            return
+
+        # Map check names to runner functions
+        _retests_to_func_map: dict[str, Callable[..., Coroutine[Any, Any, None]]] = {
+            TOX_STR: self.run_tox,
+            PRE_COMMIT_STR: self.run_pre_commit,
+            BUILD_CONTAINER_STR: self.run_build_container,
+            PYTHON_MODULE_INSTALL_STR: self.run_install_python_module,
+            CONVENTIONAL_TITLE_STR: self.run_conventional_title_check,
+        }
+
+        # Add custom check runs to the retest map
+        # Note: custom checks are validated in GithubWebhook._validate_custom_check_runs()
+        # so name is guaranteed to exist
+        for custom_check in self.github_webhook.custom_check_runs:
+            check_key = custom_check["name"]
+            _retests_to_func_map[check_key] = partial(self.run_custom_check, check_config=custom_check)
+
+        tasks: list[Coroutine[Any, Any, Any] | Task[Any]] = []
+        for _test in supported_retests:
+            self.logger.debug(f"{self.log_prefix} running retest {_test}")
+            task = asyncio.create_task(_retests_to_func_map[_test](pull_request=pull_request))
+            tasks.append(task)
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for result in results:
+            if isinstance(result, Exception):
+                self.logger.error(f"{self.log_prefix} Async task failed: {result}")
