@@ -248,11 +248,14 @@ class TestLogParser:
             # Give the tail a moment to start
             await asyncio.sleep(0.1)
 
-            # Add new content to the file
-            with open(f.name, "a") as append_f:
-                append_f.write("\n2025-07-31T10:01:00.000000 main DEBUG New entry 1")
-                append_f.write("\n2025-07-31T10:02:00.000000 main ERROR New entry 2")
-                append_f.flush()
+            # Add new content to the file - non-blocking
+            def _append_entries() -> None:
+                with open(f.name, "a") as append_f:
+                    append_f.write("\n2025-07-31T10:01:00.000000 main DEBUG New entry 1")
+                    append_f.write("\n2025-07-31T10:02:00.000000 main ERROR New entry 2")
+                    append_f.flush()
+
+            await asyncio.to_thread(_append_entries)
 
             # Wait for the tail to collect entries with timeout
             try:
@@ -268,7 +271,12 @@ class TestLogParser:
         assert entries[0].level == "DEBUG"
         assert entries[1].level == "ERROR"
 
-    async def _collect_entries(self, async_gen, entries_list, max_entries=10):
+    async def _collect_entries(
+        self,
+        async_gen: AsyncIterator[LogEntry],
+        entries_list: list[LogEntry],
+        max_entries: int = 10,
+    ) -> None:
         """Helper to collect entries from async generator with a limit."""
         count = 0
         async for entry in async_gen:

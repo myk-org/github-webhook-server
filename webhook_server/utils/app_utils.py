@@ -183,9 +183,9 @@ def log_webhook_summary(ctx: WebhookContext, logger: logging.Logger, log_prefix:
             raise ValueError(
                 f"Workflow step '{step_name}' missing 'status' field - ensure complete_step() or fail_step() was called"
             )
-        if "duration_ms" not in step_data:
+        if "duration_ms" not in step_data or step_data["duration_ms"] is None:
             raise ValueError(
-                f"Workflow step '{step_name}' missing 'duration_ms' field - "
+                f"Workflow step '{step_name}' missing or None 'duration_ms' field - "
                 "ensure complete_step() or fail_step() was called"
             )
         status = step_data["status"]

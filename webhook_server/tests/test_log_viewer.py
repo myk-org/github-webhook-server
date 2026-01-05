@@ -1039,7 +1039,7 @@ class TestLogViewerShutdown:
         ws2 = Mock()
 
         # Make close() async
-        async def mock_close(code, reason):
+        async def mock_close(code: int, reason: str) -> None:
             pass
 
         ws1.close = mock_close
@@ -1060,7 +1060,7 @@ class TestLogViewerShutdown:
         # Create mock WebSocket that raises error on close
         ws = Mock()
 
-        async def mock_close_error(code, reason):
+        async def mock_close_error(code: int, reason: str) -> None:
             raise Exception("Close error")
 
         ws.close = mock_close_error
@@ -1095,7 +1095,7 @@ class TestLogViewerGetLogPage:
     async def test_get_log_page_returns_html(self, controller):
         """Test get_log_page returns HTML content."""
 
-        async def mock_get_html():
+        async def mock_get_html() -> str:
             return "<html><body>Test Log Viewer</body></html>"
 
         with patch.object(controller, "_get_log_viewer_html", side_effect=mock_get_html):
@@ -1107,7 +1107,7 @@ class TestLogViewerGetLogPage:
         """Test get_log_page returns fallback HTML when template is missing."""
 
         # Mock the method to return fallback HTML (simulating missing template)
-        async def mock_get_html():
+        async def mock_get_html() -> str:
             return controller._get_fallback_html()
 
         with patch.object(controller, "_get_log_viewer_html", side_effect=mock_get_html):

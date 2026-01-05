@@ -8,6 +8,7 @@ import tempfile
 import time
 from collections.abc import AsyncIterator, Generator
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -879,7 +880,7 @@ class TestConcurrentUserScenarios:
             users.append(controller)
 
         # Different filter scenarios for each user
-        user_filters = [
+        user_filters: list[dict[str, Any]] = [
             {"repository": "repo-1", "level": "INFO"},
             {"hook_id": "hook-25", "pr_number": 25},
             {"search": "Message", "limit": 100},
@@ -887,7 +888,7 @@ class TestConcurrentUserScenarios:
             {"repository": "repo-2", "search": "500"},
         ]
 
-        async def user_request(controller: LogViewerController, filters: dict) -> dict:
+        async def user_request(controller: LogViewerController, filters: dict[str, Any]) -> dict[str, Any]:
             """Simulate a user making a request."""
 
             async def async_iter_wrapper(items: list[LogEntry]) -> AsyncIterator[LogEntry]:
