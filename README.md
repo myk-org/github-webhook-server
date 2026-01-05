@@ -1371,6 +1371,148 @@ mask-sensitive-data: true # Mask sensitive data (tokens, passwords) in logs (def
 
 **Security Note**: Set `mask-sensitive-data: false` only for debugging purposes in development. In production environments, always keep it `true` to prevent exposure of sensitive credentials in logs.
 
+### Structured Webhook Logs
+
+The webhook server automatically generates structured JSON logs for every webhook execution, providing comprehensive visibility into webhook processing, performance metrics, and error tracking.
+
+**Log Location**: `{data_dir}/logs/webhooks_YYYY-MM-DD.json`
+
+**Rotation**: New log files are automatically created daily, with all times in UTC timezone.
+
+#### Log Format
+
+Each webhook execution is logged as a single, pretty-printed JSON object containing:
+
+**Webhook Metadata:**
+- `hook_id`: GitHub webhook delivery ID for correlation across systems
+- `event_type`: GitHub event type (pull_request, issue_comment, etc.)
+- `action`: Specific action within the event type (opened, synchronize, etc.)
+- `sender`: GitHub username who triggered the webhook
+- `repository`: Full repository name (org/repo)
+
+**Pull Request Details** (when applicable):
+- `pr_number`: Pull request number
+- `pr_title`: Pull request title
+- `pr_author`: Pull request author username
+
+**Execution Timing:**
+- `started_at`: Webhook processing start timestamp (ISO 8601 format)
+- `completed_at`: Webhook processing completion timestamp
+- `duration_ms`: Total processing duration in milliseconds
+
+**Workflow Tracking:**
+- `workflow_steps`: Array of workflow steps with individual timing and status
+  - Each step includes: `step_name`, `started_at`, `completed_at`, `duration_ms`, `status`
+- Enables detailed performance analysis and bottleneck identification
+
+**Resource Usage:**
+- `token_spend`: Number of GitHub API tokens consumed during processing
+- `rate_limit_remaining`: GitHub API rate limit remaining after processing
+- Tracks API quota consumption per webhook
+
+**Status and Error Handling:**
+- `success`: Boolean indicating overall webhook processing success
+- `error`: Error message if processing failed
+- `traceback`: Full Python traceback for failed webhooks (enables rapid debugging)
+
+#### Example Log Entry
+
+```json
+{
+  "hook_id": "abc123-def456-ghi789",
+  "event_type": "pull_request",
+  "action": "opened",
+  "sender": "contributor-username",
+  "repository": "my-org/my-repo",
+  "pr_number": 123,
+  "pr_title": "Add new feature",
+  "pr_author": "contributor-username",
+  "started_at": "2025-01-30T10:30:00.123456",
+  "completed_at": "2025-01-30T10:30:05.789012",
+  "duration_ms": 5665,
+  "workflow_steps": [
+    {
+      "step_name": "Validate webhook signature",
+      "started_at": "2025-01-30T10:30:00.234567",
+      "completed_at": "2025-01-30T10:30:00.345678",
+      "duration_ms": 111,
+      "status": "completed"
+    },
+    {
+      "step_name": "Assign reviewers",
+      "started_at": "2025-01-30T10:30:01.456789",
+      "completed_at": "2025-01-30T10:30:02.567890",
+      "duration_ms": 1111,
+      "status": "completed"
+    }
+  ],
+  "token_spend": 3,
+  "rate_limit_remaining": 4997,
+  "success": true
+}
+```
+
+#### Use Cases
+
+**Performance Monitoring:**
+- Track webhook processing duration over time
+- Identify slow workflow steps requiring optimization
+- Monitor GitHub API rate limit consumption patterns
+
+**Error Analysis:**
+- Full traceback for failed webhooks enables rapid debugging
+- Correlate errors across multiple webhook deliveries using `hook_id`
+- Track error patterns by repository, user, or event type
+
+**Compliance and Auditing:**
+- Complete audit trail of all webhook processing
+- Track who triggered webhooks and when
+- Monitor API token consumption for cost tracking
+
+**Integration with Monitoring Tools:**
+- Import JSON logs into log aggregation systems (ELK, Splunk, Datadog)
+- Build custom dashboards and alerts based on structured data
+- Correlate webhook logs with external systems using `hook_id`
+
+#### Accessing Structured Logs
+
+**Web-based Log Viewer:**
+
+The structured JSON logs are automatically indexed and searchable via the web-based log viewer at `/logs/` endpoint. See the [Log Viewer](#log-viewer) section for detailed documentation on filtering, searching, and analyzing webhook logs through the web interface.
+
+**Direct File Access:**
+
+```bash
+# View today's webhook logs
+cat {data_dir}/logs/webhooks_$(date +%Y-%m-%d).json
+
+# Search for failed webhooks
+jq 'select(.success == false)' {data_dir}/logs/webhooks_*.json
+
+# Analyze processing duration
+jq '.duration_ms' {data_dir}/logs/webhooks_*.json | sort -n
+
+# Find webhooks for specific PR
+jq 'select(.pr_number == 123)' {data_dir}/logs/webhooks_*.json
+```
+
+**Programmatic Access:**
+
+```python
+import json
+from pathlib import Path
+from datetime import date
+
+# Load today's webhook logs
+log_file = Path(f"{data_dir}/logs/webhooks_{date.today()}.json")
+with log_file.open() as f:
+    for line in f:
+        webhook_log = json.loads(line)
+        if not webhook_log["success"]:
+            print(f"Failed webhook: {webhook_log['hook_id']}")
+            print(f"Error: {webhook_log['error']}")
+```
+
 ### Metrics and Observability
 
 - **Request/Response logging** with delivery IDs

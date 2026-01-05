@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import traceback
 from collections.abc import Coroutine
 from typing import TYPE_CHECKING, Any
 
@@ -36,10 +37,10 @@ from webhook_server.utils.constants import (
     VERIFIED_LABEL_STR,
     WIP_STR,
 )
-from webhook_server.utils.helpers import format_task_fields
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
+    from webhook_server.utils.context import WebhookContext
 
 
 class PullRequestHandler:
@@ -51,6 +52,7 @@ class PullRequestHandler:
         self.logger = self.github_webhook.logger
         self.log_prefix: str = self.github_webhook.log_prefix
         self.repository: Repository = self.github_webhook.repository
+        self.ctx: WebhookContext | None = github_webhook.ctx
         self.labels_handler = LabelsHandler(
             github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
         )
@@ -63,10 +65,9 @@ class PullRequestHandler:
 
     async def process_pull_request_webhook_data(self, pull_request: PullRequest) -> None:
         hook_action: str = self.hook_data["action"]
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'started')} "
-            f"Starting pull request processing: action={hook_action}",
-        )
+        if self.ctx:
+            self.ctx.start_step("pr_handler", action=hook_action)
+
         self.logger.info(f"{self.log_prefix} hook_action is: {hook_action}")
         self.logger.debug(f"{self.log_prefix} pull_request: {pull_request.title} ({pull_request.number})")
 
@@ -77,18 +78,11 @@ class PullRequestHandler:
             if self.github_webhook.conventional_title and self.hook_data["changes"].get("title"):
                 self.logger.info(f"{self.log_prefix} PR title changed, running conventional title check")
                 await self.runner_handler.run_conventional_title_check(pull_request=pull_request)
-            # Log completion - task_status reflects the result of our action
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'completed')} "
-                f"Starting pull request processing: action={hook_action} (completed)",
-            )
+            if self.ctx:
+                self.ctx.complete_step("pr_handler", action=hook_action)
             return
 
         if hook_action in ("opened", "reopened", "ready_for_review"):
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} "
-                f"Processing PR {hook_action} event: initializing new pull request",
-            )
             tasks: list[Coroutine[Any, Any, Any]] = []
 
             if hook_action in ("opened", "ready_for_review"):
@@ -106,18 +100,11 @@ class PullRequestHandler:
 
             # Set auto merge only after all initialization of a new PR is done.
             await self.set_pull_request_automerge(pull_request=pull_request)
-            # Log completion - task_status reflects the result of our action
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'completed')} "
-                f"Starting pull request processing: action={hook_action} (completed)",
-            )
+            if self.ctx:
+                self.ctx.complete_step("pr_handler", action=hook_action)
             return
 
         if hook_action == "synchronize":
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} "
-                f"Processing PR synchronize event: handling new commits",
-            )
             sync_tasks: list[Coroutine[Any, Any, Any]] = []
 
             sync_tasks.append(self.process_opened_or_synchronize_pull_request(pull_request=pull_request))
@@ -128,25 +115,14 @@ class PullRequestHandler:
             for result in results:
                 if isinstance(result, Exception):
                     self.logger.error(f"{self.log_prefix} Async task failed: {result}")
-            # Log completion - task_status reflects the result of our action
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'completed')} "
-                f"Starting pull request processing: action={hook_action} (completed)",
-            )
+            if self.ctx:
+                self.ctx.complete_step("pr_handler", action=hook_action)
             return
 
         if hook_action == "closed":
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} "
-                f"Processing PR closed event: cleaning up resources",
-            )
             await self.close_issue_for_merged_or_closed_pr(pull_request=pull_request, hook_action=hook_action)
             await self.delete_remote_tag_for_merged_or_closed_pr(pull_request=pull_request)
             if is_merged := pull_request_data.get("merged", False):
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} "
-                    f"PR was merged: processing post-merge tasks",
-                )
                 self.logger.info(f"{self.log_prefix} PR is merged")
 
                 labels = await asyncio.to_thread(lambda: list(pull_request.labels))
@@ -165,11 +141,8 @@ class PullRequestHandler:
                 )
 
                 await self.label_all_opened_pull_requests_merge_state_after_merged()
-            # Log completion - task_status reflects the result of our action
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'completed')} "
-                f"Starting pull request processing: action={hook_action} (completed)",
-            )
+            if self.ctx:
+                self.ctx.complete_step("pr_handler", action=hook_action)
             return
 
         if hook_action in ("labeled", "unlabeled"):
@@ -179,17 +152,9 @@ class PullRequestHandler:
             labeled = self.hook_data["label"]["name"]
             labeled_lower = labeled.lower()
 
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} "
-                f"Processing label {hook_action} event: {labeled}",
-            )
-
             if labeled_lower == CAN_BE_MERGED_STR:
-                # Log completion - task_status reflects the result of our action (skipping is acceptable)
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'completed')} "
-                    f"Starting pull request processing: action={hook_action} (skipped - can-be-merged label)",
-                )
+                if self.ctx:
+                    self.ctx.complete_step("pr_handler", action=hook_action)
                 return
 
             self.logger.info(f"{self.log_prefix} PR {pull_request.number} {hook_action} with {labeled}")
@@ -234,18 +199,12 @@ class PullRequestHandler:
 
             if _check_for_merge:
                 await self.check_if_can_be_merged(pull_request=pull_request)
-            # Log completion - task_status reflects the result of our action
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'completed')} "
-                f"Starting pull request processing: action={hook_action} (completed)",
-            )
+            if self.ctx:
+                self.ctx.complete_step("pr_handler", action=hook_action)
             return
 
-        # Log completion for any unhandled actions - task_status reflects the result of our action
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'completed')} "
-            f"Starting pull request processing: action={hook_action} (no action handler - completed)",
-        )
+        if self.ctx:
+            self.ctx.complete_step("pr_handler", action=hook_action)
 
     async def set_wip_label_based_on_title(self, pull_request: PullRequest) -> None:
         if pull_request.title.lower().startswith(f"{WIP_STR}:"):
@@ -424,27 +383,13 @@ For more information, please refer to the project documentation or contact the m
             await self.label_pull_request_by_merge_state(pull_request=pull_request)
 
     async def delete_remote_tag_for_merged_or_closed_pr(self, pull_request: PullRequest) -> None:
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'processing')} "
-            f"Deleting remote tag for PR #{pull_request.number}",
-        )
         self.logger.debug(f"{self.log_prefix} Checking if need to delete remote tag for {pull_request.number}")
         if not self.github_webhook.build_and_push_container:
             self.logger.info(f"{self.log_prefix} repository do not have container configured")
-            # Log completion - task_status reflects the result of our action (skipping is acceptable)
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'completed')} "
-                f"Deleting remote tag for PR #{pull_request.number} (skipped - container not configured)",
-            )
             return
 
         repository_full_tag = self.github_webhook.container_repository_and_tag(pull_request=pull_request)
         if not repository_full_tag:
-            # Log completion - task_status reflects the result of our action (no tag to delete)
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'completed')} "
-                f"Deleting remote tag for PR #{pull_request.number} (no tag configured)",
-            )
             return
 
         pr_tag = repository_full_tag.split(":")[-1]
@@ -455,11 +400,6 @@ For more information, please refer to the project documentation or contact the m
             self.logger.debug(
                 f"{self.log_prefix} No registry host found in "
                 f"{self.github_webhook.container_repository}; skipping tag deletion"
-            )
-            # Log completion - task_status reflects the result of our action (skipping is acceptable)
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'completed')} "
-                f"Deleting remote tag for PR #{pull_request.number} (skipped - no registry host)",
             )
             return
 
@@ -485,11 +425,6 @@ For more information, please refer to the project documentation or contact the m
     ) -> None:
         """Delete GHCR tag using GitHub Packages REST API."""
         if not self.github_webhook.github_api or not self.github_webhook.token:
-            # Log failure - task_status reflects the result of our action
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'failed')} "
-                f"Failed to delete tag: {repository_full_tag} (GitHub API not available)",
-            )
             self.logger.error(f"{self.log_prefix} GitHub API or token not available for tag deletion")
             return
 
@@ -498,11 +433,6 @@ For more information, please refer to the project documentation or contact the m
         # Format: ghcr.io/org/services/api-server -> org, services/api-server
         registry_info = self.github_webhook.container_repository.split("/")
         if len(registry_info) < 3:
-            # Log failure - task_status reflects the result of our action
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'failed')} "
-                f"Failed to delete tag: {repository_full_tag} (invalid repository format)",
-            )
             self.logger.error(
                 f"{self.log_prefix} Invalid container repository format: {self.github_webhook.container_repository}"
             )
@@ -533,11 +463,6 @@ For more information, please refer to the project documentation or contact the m
                     raise
 
             if not versions or not package_api_base:
-                # Log completion - task_status reflects the result of our action (package not found is acceptable)
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'completed')} "
-                    f"Deleting remote tag for PR #{pull_request.number} (package not found)",
-                )
                 self.logger.warning(
                     f"{self.log_prefix} Package {package_name} not found for owner {owner_name} on GHCR"
                 )
@@ -555,11 +480,6 @@ For more information, please refer to the project documentation or contact the m
                     break
 
             if not version_to_delete_id:
-                # Log completion - task_status reflects the result of our action (tag not found is acceptable)
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'completed')} "
-                    f"Deleting remote tag for PR #{pull_request.number} (tag not found in package)",
-                )
                 self.logger.warning(f"{self.log_prefix} Tag {pr_tag} not found in package {package_name} versions")
                 return
 
@@ -583,25 +503,10 @@ For more information, please refer to the project documentation or contact the m
             await asyncio.to_thread(
                 pull_request.create_issue_comment, f"Successfully removed PR tag: {repository_full_tag}."
             )
-            # Log completion - task_status reflects the result of our action
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'completed')} "
-                f"Deleted remote tag: {repository_full_tag}",
-            )
 
         except GithubException:
-            # Log failure - task_status reflects the result of our action
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'failed')} "
-                f"Failed to delete tag: {repository_full_tag}",
-            )
             self.logger.exception(f"{self.log_prefix} Failed to delete GHCR tag: {repository_full_tag}")
         except Exception:
-            # Log failure - task_status reflects the result of our action
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'failed')} "
-                f"Failed to delete tag: {repository_full_tag}",
-            )
             self.logger.exception(f"{self.log_prefix} Failed to delete GHCR tag: {repository_full_tag}")
 
     async def _delete_registry_tag_via_regctl(
@@ -643,27 +548,12 @@ For more information, please refer to the project documentation or contact the m
                         await asyncio.to_thread(
                             pull_request.create_issue_comment, f"Successfully removed PR tag: {repository_full_tag}."
                         )
-                        # Log completion - task_status reflects the result of our action
-                        self.logger.step(  # type: ignore[attr-defined]
-                            f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'completed')} "
-                            f"Deleted remote tag: {repository_full_tag}",
-                        )
                     else:
-                        # Log failure - task_status reflects the result of our action
-                        self.logger.step(  # type: ignore[attr-defined]
-                            f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'failed')} "
-                            f"Failed to delete tag: {repository_full_tag}",
-                        )
                         self.logger.error(
                             f"{self.log_prefix} Failed to delete tag: {repository_full_tag}. "
                             f"OUT:{del_out}. ERR:{del_err}"
                         )
                 else:
-                    # Log completion - task_status reflects the result of our action (tag not found is acceptable)
-                    self.logger.step(  # type: ignore[attr-defined]
-                        f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'completed')} "
-                        f"Deleting remote tag for PR #{pull_request.number} (tag not found in registry)",
-                    )
                     self.logger.warning(
                         f"{self.log_prefix} {pr_tag} tag not found in registry "
                         f"{self.github_webhook.container_repository}. "
@@ -673,11 +563,6 @@ For more information, please refer to the project documentation or contact the m
                 await self.runner_handler.run_podman_command(command="regctl registry logout")
 
         else:
-            # Log failure - task_status reflects the result of our action
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('tag_deletion', 'pr_management', 'failed')} "
-                f"Failed to delete tag: {repository_full_tag} (registry login failed)",
-            )
             await asyncio.to_thread(
                 pull_request.create_issue_comment,
                 f"Failed to delete tag: {repository_full_tag}. Please delete it manually.",
@@ -708,16 +593,10 @@ For more information, please refer to the project documentation or contact the m
         await asyncio.to_thread(matching_issue.edit, state="closed")
 
     async def process_opened_or_synchronize_pull_request(self, pull_request: PullRequest) -> None:
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'started')} "
-            f"Starting PR processing workflow",
-        )
+        if self.ctx:
+            self.ctx.start_step("pr_workflow_setup")
 
         # Stage 1: Initial setup and check queue tasks
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} "
-            f"Stage: Initial setup and check queuing",
-        )
         setup_tasks: list[Coroutine[Any, Any, Any]] = []
 
         setup_tasks.append(self.owners_file_handler.assign_reviewers(pull_request=pull_request))
@@ -740,24 +619,19 @@ For more information, please refer to the project documentation or contact the m
         if self.github_webhook.conventional_title:
             setup_tasks.append(self.check_run_handler.set_conventional_title_queued())
 
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} Executing setup tasks"
-        )
         setup_results = await asyncio.gather(*setup_tasks, return_exceptions=True)
 
         for result in setup_results:
             if isinstance(result, Exception):
                 self.logger.error(f"{self.log_prefix} Setup task failed: {result}")
 
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'completed')} Setup tasks completed"
-        )
+        if self.ctx:
+            self.ctx.complete_step("pr_workflow_setup")
 
         # Stage 2: CI/CD execution tasks
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} "
-            f"Stage: CI/CD execution",
-        )
+        if self.ctx:
+            self.ctx.start_step("pr_cicd_execution")
+
         ci_tasks: list[Coroutine[Any, Any, Any]] = []
 
         ci_tasks.append(self.runner_handler.run_tox(pull_request=pull_request))
@@ -768,20 +642,14 @@ For more information, please refer to the project documentation or contact the m
         if self.github_webhook.conventional_title:
             ci_tasks.append(self.runner_handler.run_conventional_title_check(pull_request=pull_request))
 
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} "
-            f"Executing CI/CD tasks",
-        )
         ci_results = await asyncio.gather(*ci_tasks, return_exceptions=True)
 
         for result in ci_results:
             if isinstance(result, Exception):
                 self.logger.error(f"{self.log_prefix} CI/CD task failed: {result}")
 
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'completed')} "
-            f"PR processing workflow completed",
-        )
+        if self.ctx:
+            self.ctx.complete_step("pr_cicd_execution")
 
     async def create_issue_for_new_pull_request(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.create_issue_for_new_pr:
@@ -934,13 +802,13 @@ For more information, please refer to the project documentation or contact the m
             PR status is not 'dirty'.
             PR has no changed requests from approvers.
         """
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} "
-            f"{format_task_fields('pr_handler', 'pr_management', 'started')} "
-            f"Starting merge eligibility check"
-        )
+        if self.ctx:
+            self.ctx.start_step("check_merge_eligibility")
+
         if await self.skip_if_pull_request_already_merged(pull_request=pull_request):
             self.logger.debug(f"{self.log_prefix} Pull request already merged")
+            if self.ctx:
+                self.ctx.complete_step("check_merge_eligibility", can_merge=False, reason="already_merged")
             return
 
         output = {
@@ -1014,34 +882,29 @@ For more information, please refer to the project documentation or contact the m
             if not failure_output:
                 await self.labels_handler._add_label(pull_request=pull_request, label=CAN_BE_MERGED_STR)
                 await self.check_run_handler.set_merge_check_success()
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'completed')} "
-                    f"Merge eligibility check completed successfully",
-                )
                 self.logger.info(f"{self.log_prefix} Pull request can be merged")
+                if self.ctx:
+                    self.ctx.complete_step("check_merge_eligibility", can_merge=True)
                 return
 
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'failed')} "
-                f"Merge eligibility check failed",
-            )
             self.logger.debug(f"{self.log_prefix} cannot be merged: {failure_output}")
             output["text"] = failure_output
             await self.labels_handler._remove_label(pull_request=pull_request, label=CAN_BE_MERGED_STR)
             await self.check_run_handler.set_merge_check_failure(output=output)
+            if self.ctx:
+                self.ctx.complete_step("check_merge_eligibility", can_merge=False, reason=failure_output)
 
+        except asyncio.CancelledError:
+            self.logger.debug(f"{self.log_prefix} Merge check cancelled")
+            raise
         except Exception as ex:
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'failed')} "
-                f"Merge eligibility check failed with exception",
-            )
-            self.logger.error(
-                f"{self.log_prefix} Failed to check if can be merged, set check run to {FAILURE_STR} {ex}"
-            )
+            self.logger.exception(f"{self.log_prefix} Failed to check if can be merged, set check run to {FAILURE_STR}")
             _err = "Failed to check if can be merged, check logs"
             output["text"] = _err
             await self.labels_handler._remove_label(pull_request=pull_request, label=CAN_BE_MERGED_STR)
             await self.check_run_handler.set_merge_check_failure(output=output)
+            if self.ctx:
+                self.ctx.fail_step("check_merge_eligibility", ex, traceback.format_exc())
 
     async def _check_if_pr_approved(self, labels: list[str]) -> str:
         self.logger.info(f"{self.log_prefix} Check if pull request is approved by pull request labels.")
@@ -1181,11 +1044,6 @@ For more information, please refer to the project documentation or contact the m
         This method extracts the core logic from the "opened" event handler to make it reusable
         for both new PRs and the /reprocess command. It includes duplicate prevention checks.
         """
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('pr_initialization', 'pr_management', 'started')} "
-            f"Starting PR initialization workflow",
-        )
-
         tasks: list[Coroutine[Any, Any, Any]] = []
 
         # Add welcome message if it doesn't exist yet
@@ -1207,49 +1065,22 @@ For more information, please refer to the project documentation or contact the m
         tasks.append(self.set_wip_label_based_on_title(pull_request=pull_request))
         tasks.append(self.process_opened_or_synchronize_pull_request(pull_request=pull_request))
 
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('pr_initialization', 'pr_management', 'processing')} "
-            f"Executing initialization tasks",
-        )
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for result in results:
             if isinstance(result, Exception):
                 self.logger.error(f"{self.log_prefix} Async task failed: {result}")
 
         # Set auto merge only after all initialization is done
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('pr_initialization', 'pr_management', 'processing')} "
-            f"Setting auto-merge configuration",
-        )
         await self.set_pull_request_automerge(pull_request=pull_request)
-
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('pr_initialization', 'pr_management', 'completed')} "
-            f"PR initialization workflow completed",
-        )
 
     async def process_command_reprocess(self, pull_request: PullRequest) -> None:
         """Handle /reprocess command - triggers full PR workflow from scratch."""
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('reprocess_command', 'pr_management', 'started')} "
-            f"Starting /reprocess command execution for PR #{pull_request.number}",
-        )
-
         # Check if PR is already merged - skip if merged
         if await asyncio.to_thread(lambda: pull_request.is_merged()):
             self.logger.info(f"{self.log_prefix} PR is already merged, skipping reprocess")
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('reprocess_command', 'pr_management', 'completed')} "
-                f"/reprocess command completed (PR already merged - skipped)",
-            )
             return
 
         self.logger.info(f"{self.log_prefix} Executing full PR reprocessing workflow")
 
         # Call the extracted reusable method
         await self.process_new_or_reprocess_pull_request(pull_request=pull_request)
-
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('reprocess_command', 'pr_management', 'completed')} "
-            f"/reprocess command completed successfully",
-        )

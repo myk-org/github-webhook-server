@@ -6,8 +6,9 @@ import datetime
 import os
 import tempfile
 import time
-from collections.abc import Generator
+from collections.abc import AsyncIterator, Generator
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -708,13 +709,17 @@ class TestWebSocketEdgeCases:
 class TestAPIEndpointEdgeCases:
     """Test edge cases in API endpoint functionality."""
 
-    def test_api_with_malformed_parameters(self):
+    async def test_api_with_malformed_parameters(self):
         """Test API behavior with malformed parameters."""
+
+        async def async_iter_empty() -> AsyncIterator[LogEntry]:
+            if False:
+                yield  # Make this a generator function
 
         mock_logger = Mock()
         controller = LogViewerController(logger=mock_logger)
 
-        with patch.object(controller, "_stream_log_entries", return_value=iter([])):
+        with patch.object(controller, "_stream_log_entries", side_effect=lambda *_, **__: async_iter_empty()):
             with patch.object(controller, "_estimate_total_log_count", return_value=0):
                 # Test truly malformed parameters that should raise exceptions
                 invalid_params = [
@@ -725,7 +730,7 @@ class TestAPIEndpointEdgeCases:
 
                 for params in invalid_params:
                     with pytest.raises((ValueError, HTTPException)):
-                        controller.get_log_entries(**params)
+                        await controller.get_log_entries(**params)
 
                 # Test valid edge cases that should succeed
                 valid_edge_cases = [
@@ -737,11 +742,11 @@ class TestAPIEndpointEdgeCases:
                 ]
 
                 for params in valid_edge_cases:
-                    result = controller.get_log_entries(**params)
+                    result = await controller.get_log_entries(**params)
                     assert isinstance(result, dict)
                     assert "entries" in result
 
-    def test_api_with_extremely_large_responses(self):
+    async def test_api_with_extremely_large_responses(self):
         """Test API behavior with extremely large response datasets."""
 
         mock_logger = Mock()
@@ -759,20 +764,28 @@ class TestAPIEndpointEdgeCases:
             )
             large_entries.append(entry)
 
-        with patch.object(controller, "_stream_log_entries", return_value=iter(large_entries[:1000])):
+        async def async_iter_wrapper(items: list[LogEntry]) -> AsyncIterator[LogEntry]:
+            if False:
+                yield  # Make this a generator function
+            for item in items:
+                yield item
+
+        with patch.object(
+            controller, "_stream_log_entries", side_effect=lambda *_, **__: async_iter_wrapper(large_entries[:1000])
+        ):
             # Test with default limit - the controller will process available entries and apply pagination
-            result = controller.get_log_entries()
+            result = await controller.get_log_entries()
             assert "entries" in result
             assert "entries_processed" in result
             assert len(result["entries"]) <= 100  # Default limit applied
 
             # Test with large limit to get more entries
-            result_large = controller.get_log_entries(limit=1000)
+            result_large = await controller.get_log_entries(limit=1000)
             assert len(result_large["entries"]) <= 1000  # Should not exceed available data
 
             # Test export with large dataset (should handle size limits)
             try:
-                export_result = controller.export_logs(format_type="json")
+                export_result = await controller.export_logs(format_type="json")
                 # Should either succeed or raise appropriate error for large datasets
                 assert hasattr(export_result, "status_code") or isinstance(export_result, str)
             except HTTPException as e:
@@ -867,7 +880,7 @@ class TestConcurrentUserScenarios:
             users.append(controller)
 
         # Different filter scenarios for each user
-        user_filters = [
+        user_filters: list[dict[str, Any]] = [
             {"repository": "repo-1", "level": "INFO"},
             {"hook_id": "hook-25", "pr_number": 25},
             {"search": "Message", "limit": 100},
@@ -875,15 +888,24 @@ class TestConcurrentUserScenarios:
             {"repository": "repo-2", "search": "500"},
         ]
 
-        def user_request(controller, filters):
+        async def user_request(controller: LogViewerController, filters: dict[str, Any]) -> dict[str, Any]:
             """Simulate a user making a request."""
-            with patch.object(controller, "_stream_log_entries", return_value=iter(entries)):
-                return controller.get_log_entries(**filters)
+
+            async def async_iter_wrapper(items: list[LogEntry]) -> AsyncIterator[LogEntry]:
+                if False:
+                    yield  # Make this a generator function
+                for item in items:
+                    yield item
+
+            with patch.object(
+                controller, "_stream_log_entries", side_effect=lambda *_, **__: async_iter_wrapper(entries)
+            ):
+                return await controller.get_log_entries(**filters)
 
         # Execute concurrent requests
         tasks = []
         for controller, filters in zip(users, user_filters, strict=True):
-            task = asyncio.create_task(asyncio.to_thread(user_request, controller, filters))
+            task = asyncio.create_task(user_request(controller, filters))
             tasks.append(task)
 
         results = await asyncio.gather(*tasks)

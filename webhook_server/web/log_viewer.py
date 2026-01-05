@@ -1,15 +1,17 @@
 """Log viewer controller for serving log viewer web interface and API endpoints."""
 
+import asyncio
 import datetime
 import json
 import logging
 import os
 import re
 from collections import deque
-from collections.abc import Generator, Iterator
+from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
 from typing import Any
 
+import aiofiles
 from fastapi import HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, StreamingResponse
 
@@ -70,7 +72,7 @@ class LogViewerController:
         self._websocket_connections.clear()
         self.logger.info("LogViewerController shutdown completed")
 
-    def get_log_page(self) -> HTMLResponse:
+    async def get_log_page(self) -> HTMLResponse:
         """Serve the main log viewer HTML page.
 
         Returns:
@@ -80,13 +82,13 @@ class LogViewerController:
             HTTPException: 500 for other errors
         """
         try:
-            html_content = self._get_log_viewer_html()
+            html_content = await self._get_log_viewer_html()
             return HTMLResponse(content=html_content)
         except Exception as e:
             self.logger.exception("Error serving log viewer page")
             raise HTTPException(status_code=500, detail="Internal server error") from e
 
-    def get_log_entries(
+    async def get_log_entries(
         self,
         hook_id: str | None = None,
         pr_number: int | None = None,
@@ -169,7 +171,7 @@ class LogViewerController:
             ])
             max_entries_to_process = 50000 if has_filters else 20000
 
-            for entry in self._stream_log_entries(max_files=25, max_entries=max_entries_to_process):
+            async for entry in self._stream_log_entries(max_files=25, max_entries=max_entries_to_process):
                 total_processed += 1
 
                 # Apply filters early to reduce memory usage
@@ -208,6 +210,9 @@ class LogViewerController:
                 "is_partial_scan": total_processed >= max_entries_to_process,  # Indicates not all logs were scanned
             }
 
+        except asyncio.CancelledError:
+            self.logger.debug("Operation cancelled")
+            raise  # Always re-raise CancelledError
         except ValueError as e:
             self.logger.warning(f"Invalid parameters for log entries request: {e}")
             raise HTTPException(status_code=400, detail=str(e)) from e
@@ -263,7 +268,7 @@ class LogViewerController:
 
         return True
 
-    def export_logs(
+    async def export_logs(
         self,
         format_type: str,
         hook_id: str | None = None,
@@ -323,7 +328,7 @@ class LogViewerController:
             ])
             max_entries_to_process = min(limit + 20000, 100000) if has_filters else limit + 1000
 
-            for entry in self._stream_log_entries(max_files=25, max_entries=max_entries_to_process):
+            async for entry in self._stream_log_entries(max_files=25, max_entries=max_entries_to_process):
                 if not self._entry_matches_filters(
                     entry, hook_id, pr_number, repository, event_type, github_user, level, start_time, end_time, search
                 ):
@@ -365,6 +370,9 @@ class LogViewerController:
                 headers={"Content-Disposition": f"attachment; filename={filename}"},
             )
 
+        except asyncio.CancelledError:
+            self.logger.debug("Operation cancelled")
+            raise  # Always re-raise CancelledError
         except ValueError as e:
             if "Result set too large" in str(e):
                 self.logger.warning(f"Export request too large: {e}")
@@ -446,7 +454,7 @@ class LogViewerController:
         finally:
             self._websocket_connections.discard(websocket)
 
-    def get_pr_flow_data(self, hook_id: str) -> dict[str, Any]:
+    async def get_pr_flow_data(self, hook_id: str) -> dict[str, Any]:
         """Get PR flow visualization data for a specific hook ID or PR number.
 
         Args:
@@ -479,7 +487,7 @@ class LogViewerController:
             filtered_entries: list[LogEntry] = []
 
             # Stream entries and filter by hook_id/pr_number
-            for entry in self._stream_log_entries(max_files=15, max_entries=10000):
+            async for entry in self._stream_log_entries(max_files=15, max_entries=10000):
                 if not self._entry_matches_filters(entry, hook_id=actual_hook_id, pr_number=pr_number):
                     continue
                 filtered_entries.append(entry)
@@ -491,6 +499,9 @@ class LogViewerController:
             flow_data = self._analyze_pr_flow(filtered_entries, hook_id)
             return flow_data
 
+        except asyncio.CancelledError:
+            self.logger.debug("Operation cancelled")
+            raise  # Always re-raise CancelledError
         except ValueError as e:
             if "No data found" in str(e):
                 self.logger.warning(f"PR flow data not found: {e}")
@@ -533,7 +544,46 @@ class LogViewerController:
             log_prefix_parts.append(f"[PR {pr_number}]")
         return " ".join(log_prefix_parts) + ": " if log_prefix_parts else ""
 
-    def get_workflow_steps(self, hook_id: str) -> dict[str, Any]:
+    async def get_workflow_steps_json(self, hook_id: str) -> dict[str, Any]:
+        """Get workflow steps directly from JSON logs for a specific hook ID.
+
+        This is more efficient than parsing text logs since JSON logs contain
+        the full structured workflow data.
+
+        Args:
+            hook_id: The hook ID to get workflow steps for
+
+        Returns:
+            Dictionary with workflow steps from JSON log
+
+        Raises:
+            HTTPException: 404 if hook ID not found
+        """
+        try:
+            # Search JSON logs for this hook_id
+            async for entry in self._stream_json_log_entries(max_files=25, max_entries=50000):
+                if entry.get("hook_id") == hook_id:
+                    # Found the entry - return structured workflow data
+                    return {
+                        "hook_id": hook_id,
+                        "event_type": entry.get("event_type"),
+                        "action": entry.get("action"),
+                        "repository": entry.get("repository"),
+                        "sender": entry.get("sender"),
+                        "pr": entry.get("pr"),
+                        "timing": entry.get("timing"),
+                        "steps": entry.get("workflow_steps") or {},
+                        "token_spend": entry.get("token_spend"),
+                        "success": entry.get("success"),
+                        "error": entry.get("error"),
+                    }
+
+            raise ValueError(f"No JSON log entry found for hook ID: {hook_id}")
+
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from e
+
+    async def get_workflow_steps(self, hook_id: str) -> dict[str, Any]:
         """Get workflow step timeline data for a specific hook ID.
 
         Args:
@@ -546,13 +596,19 @@ class LogViewerController:
             HTTPException: 404 if no steps found for hook ID
         """
         try:
+            # First try JSON logs (more efficient and complete)
+            try:
+                return await self.get_workflow_steps_json(hook_id)
+            except HTTPException:
+                # Fall back to text log parsing for backward compatibility
+                pass
             # Use streaming approach for memory efficiency
             filtered_entries: list[LogEntry] = []
 
             # Stream entries and filter by hook ID
             # Increase max_files and max_entries to ensure we capture token spend logs
             # Token spend is logged at the end of webhook processing, so we need to read enough entries
-            for entry in self._stream_log_entries(max_files=25, max_entries=50000):
+            async for entry in self._stream_log_entries(max_files=25, max_entries=50000):
                 if not self._entry_matches_filters(entry, hook_id=hook_id):
                     continue
                 filtered_entries.append(entry)
@@ -626,6 +682,9 @@ class LogViewerController:
                 timeline_data["token_spend"] = token_spend
             return timeline_data
 
+        except asyncio.CancelledError:
+            self.logger.debug("Operation cancelled")
+            raise  # Always re-raise CancelledError
         except ValueError as e:
             if "No data found" in str(e) or "No workflow steps found" in str(e):
                 self.logger.warning(f"Workflow steps not found: {e}")
@@ -686,13 +745,15 @@ class LogViewerController:
             "steps": timeline_steps,
         }
 
-    def _stream_log_entries(
+    async def _stream_log_entries(
         self, max_files: int = 10, _chunk_size: int = 1000, max_entries: int = 50000
-    ) -> Iterator[LogEntry]:
+    ) -> AsyncGenerator[LogEntry]:
         """Stream log entries from configured log files in chunks to reduce memory usage.
 
         This replaces _load_log_entries() to prevent memory exhaustion from loading
         all log files simultaneously. Uses lazy evaluation and chunked processing.
+
+        Supports both text log files (*.log) and JSONL log files (webhooks_*.json).
 
         Args:
             max_files: Maximum number of log files to process (newest first)
@@ -708,20 +769,20 @@ class LogViewerController:
             self.logger.warning(f"Log directory not found: {log_dir}")
             return
 
-        # Find all log files including rotated ones (*.log, *.log.1, *.log.2, etc.)
+        # Find all log files including rotated ones and JSON files
         log_files: list[Path] = []
         log_files.extend(log_dir.glob("*.log"))
         log_files.extend(log_dir.glob("*.log.*"))
+        log_files.extend(log_dir.glob("webhooks_*.json"))
 
-        # Sort log files to process in correct order (current log first, then rotated by number)
+        # Sort log files to prioritize JSON webhook files first (primary data source),
+        # then other files by modification time (newest first)
+        # This ensures webhook data is displayed before internal log files
         def sort_key(f: Path) -> tuple:
-            name_parts = f.name.split(".")
-            if len(name_parts) > 2 and name_parts[-1].isdigit():
-                # Rotated file: extract rotation number
-                return (1, int(name_parts[-1]))
-            else:
-                # Current log file
-                return (0, 0)
+            is_json_webhook = f.suffix == ".json" and f.name.startswith("webhooks_")
+            # JSON webhook files: (0, -mtime) - highest priority, newest first
+            # Other files: (1, -mtime) - lower priority, newest first
+            return (0 if is_json_webhook else 1, -f.stat().st_mtime)
 
         log_files.sort(key=sort_key)
         log_files = log_files[:max_files]
@@ -742,11 +803,20 @@ class LogViewerController:
 
                 buffer: deque[LogEntry] = deque(maxlen=remaining_capacity)
 
-                with open(log_file, encoding="utf-8") as f:
-                    for line in f:
-                        entry = self.log_parser.parse_log_entry(line)
-                        if entry:
-                            buffer.append(entry)
+                async with aiofiles.open(log_file, encoding="utf-8") as f:
+                    # Use appropriate parser based on file type
+                    if log_file.suffix == ".json":
+                        # JSONL files: one compact JSON object per line
+                        async for line in f:
+                            entry = self.log_parser.parse_json_log_entry(line)
+                            if entry:
+                                buffer.append(entry)
+                    else:
+                        # Text log files: parse line by line
+                        async for line in f:
+                            entry = self.log_parser.parse_log_entry(line)
+                            if entry:
+                                buffer.append(entry)
 
                 for entry in reversed(buffer):
                     if total_yielded >= max_entries:
@@ -756,10 +826,70 @@ class LogViewerController:
 
                 self.logger.debug(f"Streamed entries from {log_file.name}, total so far: {total_yielded}")
 
+            except asyncio.CancelledError:
+                self.logger.debug("Operation cancelled")
+                raise  # Always re-raise CancelledError
             except Exception as e:
                 self.logger.warning(f"Error streaming log file {log_file}: {e}")
 
-    def _load_log_entries(self) -> list[LogEntry]:
+    async def _stream_json_log_entries(
+        self, max_files: int = 10, max_entries: int = 50000
+    ) -> AsyncGenerator[dict[str, Any]]:
+        """Stream raw JSON log entries from webhooks_*.json files.
+
+        Returns raw JSON dicts instead of LogEntry objects for access to full structured data.
+        Reads JSONL format (one JSON object per line).
+
+        Args:
+            max_files: Maximum number of log files to process (newest first)
+            max_entries: Maximum total entries to yield (safety limit)
+
+        Yields:
+            Raw JSON dictionaries from log files (newest first)
+        """
+        log_dir = self._get_log_directory()
+
+        if not log_dir.exists():
+            return
+
+        # Find JSON log files
+        json_files = list(log_dir.glob("webhooks_*.json"))
+        # Sort by modification time (newest first)
+        json_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+        json_files = json_files[:max_files]
+
+        total_yielded = 0
+
+        for log_file in json_files:
+            if total_yielded >= max_entries:
+                break
+
+            try:
+                # Stream JSONL entries incrementally without loading entire file
+                remaining = max_entries - total_yielded
+                line_buffer: deque[str] = deque(maxlen=remaining)
+
+                async with aiofiles.open(log_file, encoding="utf-8") as f:
+                    # JSONL format: one JSON object per line
+                    async for line in f:
+                        line_buffer.append(line.rstrip("\n"))
+
+                # Process lines in reverse order (newest first)
+                for line in reversed(line_buffer):
+                    if total_yielded >= max_entries:
+                        break
+
+                    data = self.log_parser.get_raw_json_entry(line)
+                    if data:
+                        yield data
+                        total_yielded += 1
+            except asyncio.CancelledError:
+                self.logger.debug("Operation cancelled")
+                raise  # Always re-raise CancelledError
+            except Exception as e:
+                self.logger.warning(f"Error streaming JSON log file {log_file}: {e}")
+
+    async def _load_log_entries(self) -> list[LogEntry]:
         """Load log entries using streaming approach for memory efficiency.
 
         This method now uses the streaming approach internally but returns a list
@@ -769,7 +899,7 @@ class LogViewerController:
             List of parsed log entries (limited to prevent memory exhaustion)
         """
         # Use streaming with reasonable limits to prevent memory issues
-        entries = list(self._stream_log_entries(max_files=10, max_entries=10000))
+        entries = [entry async for entry in self._stream_log_entries(max_files=10, max_entries=10000)]
         self.logger.info(f"Loaded {len(entries)} entries using streaming approach")
         return entries
 
@@ -783,7 +913,7 @@ class LogViewerController:
         log_dir_path = os.path.join(self.config.data_dir, "logs")
         return Path(log_dir_path)
 
-    def _get_log_viewer_html(self) -> str:
+    async def _get_log_viewer_html(self) -> str:
         """Load and return the log viewer HTML template.
 
         Returns:
@@ -796,8 +926,8 @@ class LogViewerController:
         template_path = Path(__file__).parent / "templates" / "log_viewer.html"
 
         try:
-            with open(template_path, encoding="utf-8") as f:
-                return f.read()
+            async with aiofiles.open(template_path, encoding="utf-8") as f:
+                return await f.read()
         except FileNotFoundError:
             self.logger.exception(f"Log viewer template not found at {template_path}")
             return self._get_fallback_html()
@@ -969,23 +1099,18 @@ class LogViewerController:
             if not log_files:
                 return "0"
 
-            # Quick estimation based on file sizes and line counts from a sample
+            # Quick estimation based on file sizes
             total_estimate = 0
             for log_file in log_files[:10]:  # Sample first 10 files to avoid performance impact
                 try:
-                    # Quick line count estimation
-                    with open(log_file, "rb") as f:
-                        line_count = sum(1 for _ in f)
-                    total_estimate += line_count
-                except Exception:
-                    # If we can't read a file, estimate based on file size
-                    try:
-                        file_size = log_file.stat().st_size
-                        # Rough estimate: average log line is ~200 bytes
-                        estimated_lines = file_size // 200
-                        total_estimate += estimated_lines
-                    except Exception:
-                        continue
+                    # Estimate based on file size (faster than counting lines)
+                    file_size = log_file.stat().st_size
+                    # Rough estimate: average log line is ~200 bytes
+                    estimated_lines = file_size // 200
+                    total_estimate += estimated_lines
+                except (OSError, PermissionError) as ex:
+                    self.logger.debug(f"Failed to stat log file {log_file}: {ex}")
+                    continue
 
             # If we processed fewer than all files, extrapolate
             if len(log_files) > 10:

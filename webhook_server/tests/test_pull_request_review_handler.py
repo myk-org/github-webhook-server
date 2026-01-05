@@ -22,6 +22,7 @@ class TestPullRequestReviewHandler:
         }
         mock_webhook.logger = Mock()
         mock_webhook.log_prefix = "[TEST]"
+        mock_webhook.ctx = None
         return mock_webhook
 
     @pytest.fixture

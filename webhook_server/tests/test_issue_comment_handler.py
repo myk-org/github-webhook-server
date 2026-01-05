@@ -40,6 +40,7 @@ class TestIssueCommentHandler:
         mock_webhook.issue_url_for_welcome_msg = "welcome-message-url"
         mock_webhook.build_and_push_container = True
         mock_webhook.current_pull_request_supported_retest = [TOX_STR, "pre-commit"]
+        mock_webhook.ctx = None
         return mock_webhook
 
     @pytest.fixture
@@ -63,10 +64,6 @@ class TestIssueCommentHandler:
         with patch.object(issue_comment_handler, "user_commands") as mock_user_commands:
             await issue_comment_handler.process_comment_webhook_data(Mock())
             mock_user_commands.assert_not_called()
-            # Verify completion log was emitted with task_status='completed'
-            assert any(
-                "task_status=completed" in call.args[0] for call in issue_comment_handler.logger.step.call_args_list
-            ), "Expected a completion log with task_status='completed'"
 
     @pytest.mark.asyncio
     async def test_process_comment_webhook_data_deleted_action(
@@ -78,10 +75,6 @@ class TestIssueCommentHandler:
         with patch.object(issue_comment_handler, "user_commands") as mock_user_commands:
             await issue_comment_handler.process_comment_webhook_data(Mock())
             mock_user_commands.assert_not_called()
-            # Verify completion log was emitted with task_status='completed'
-            assert any(
-                "task_status=completed" in call.args[0] for call in issue_comment_handler.logger.step.call_args_list
-            ), "Expected a completion log with task_status='completed'"
 
     @pytest.mark.asyncio
     async def test_process_comment_webhook_data_welcome_message(
@@ -93,10 +86,6 @@ class TestIssueCommentHandler:
         with patch.object(issue_comment_handler, "user_commands") as mock_user_commands:
             await issue_comment_handler.process_comment_webhook_data(Mock())
             mock_user_commands.assert_not_called()
-            # Verify completion log was emitted with task_status='completed'
-            assert any(
-                "task_status=completed" in call.args[0] for call in issue_comment_handler.logger.step.call_args_list
-            ), "Expected a completion log with task_status='completed'"
 
     @pytest.mark.asyncio
     async def test_process_comment_webhook_data_normal_comment(
@@ -108,10 +97,6 @@ class TestIssueCommentHandler:
         with patch.object(issue_comment_handler, "user_commands") as mock_user_commands:
             await issue_comment_handler.process_comment_webhook_data(Mock())
             mock_user_commands.assert_called_once()
-            # Verify completion log was emitted with task_status='completed'
-            assert any(
-                "task_status=completed" in call.args[0] for call in issue_comment_handler.logger.step.call_args_list
-            ), "Expected a completion log with task_status='completed'"
 
     @pytest.mark.asyncio
     async def test_process_comment_webhook_data_no_commands(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -121,10 +106,6 @@ class TestIssueCommentHandler:
         with patch.object(issue_comment_handler, "user_commands") as mock_user_commands:
             await issue_comment_handler.process_comment_webhook_data(Mock())
             mock_user_commands.assert_not_called()
-            # Verify completion log was emitted with task_status='completed'
-            assert any(
-                "task_status=completed" in call.args[0] for call in issue_comment_handler.logger.step.call_args_list
-            ), "Expected a completion log with task_status='completed'"
 
     @pytest.mark.asyncio
     async def test_process_comment_webhook_data_multiple_commands(
@@ -170,9 +151,10 @@ class TestIssueCommentHandler:
             execution_events.append((command, "end", time.time()))
 
         with patch.object(issue_comment_handler, "user_commands", side_effect=mock_command):
-            # Execute commands
+            # Execute commands - expect exception due to failed command
             start = time.time()
-            await issue_comment_handler.process_comment_webhook_data(Mock())
+            with pytest.raises(RuntimeError, match="Command /approved failed"):
+                await issue_comment_handler.process_comment_webhook_data(Mock())
             total_duration = time.time() - start
 
             # VERIFICATION 1: All three commands should have started
