@@ -915,7 +915,7 @@ For more information, please refer to the project documentation or contact the m
             pull_request: The GitHub pull request object to label.
         """
         # Get current labels (single API call for optimization)
-        current_labels = await asyncio.to_thread(lambda: {label.name for label in pull_request.labels})
+        current_labels = await self.labels_handler.pull_request_labels_names(pull_request=pull_request)
         has_conflicts_label_exists = HAS_CONFLICTS_LABEL_STR in current_labels
         needs_rebase_label_exists = NEEDS_REBASE_LABEL_STR in current_labels
 
@@ -925,7 +925,7 @@ For more information, please refer to the project documentation or contact the m
 
         if has_conflicts:
             # Has conflicts - add has-conflicts label, remove needs-rebase, and exit
-            self.logger.debug(f"{self.log_prefix} PR has conflicts (mergeable=False)")
+            self.logger.debug(f"{self.log_prefix} PR has conflicts. `mergeable` =  {mergeable})")
 
             if not has_conflicts_label_exists:
                 self.logger.debug(f"{self.log_prefix} Adding {HAS_CONFLICTS_LABEL_STR} label")
@@ -957,14 +957,8 @@ For more information, please refer to the project documentation or contact the m
             self.logger.warning(f"{self.log_prefix} Compare API failed, skipping rebase label update")
             return
 
-        behind_by = compare_data.get("behind_by")
-        status = compare_data.get("status")
-
-        # Type safety
-        if not isinstance(behind_by, int):
-            behind_by = 0
-        if not isinstance(status, str):
-            status = ""
+        behind_by = compare_data.get("behind_by", 0)
+        status = compare_data.get("status", "")
 
         needs_rebase = behind_by > 0 or status == "diverged"
 

@@ -543,7 +543,14 @@ class TestPullRequestHandler:
         mock_compare_data = {"behind_by": 0, "status": "ahead"}
         pull_request_handler.repository._requester.requestJsonAndCheck = Mock(return_value=({}, mock_compare_data))
 
-        with patch.object(pull_request_handler.labels_handler, "_remove_label", new=AsyncMock()) as mock_remove_label:
+        with (
+            patch.object(
+                pull_request_handler.labels_handler,
+                "pull_request_labels_names",
+                new=AsyncMock(return_value=[HAS_CONFLICTS_LABEL_STR, NEEDS_REBASE_LABEL_STR]),
+            ),
+            patch.object(pull_request_handler.labels_handler, "_remove_label", new=AsyncMock()) as mock_remove_label,
+        ):
             await pull_request_handler.label_pull_request_by_merge_state(pull_request=mock_pull_request)
             assert mock_remove_label.await_count == 2
 
@@ -564,7 +571,14 @@ class TestPullRequestHandler:
         mock_compare_data = {"behind_by": 5, "status": "behind"}
         pull_request_handler.repository._requester.requestJsonAndCheck = Mock(return_value=({}, mock_compare_data))
 
-        with patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label:
+        with (
+            patch.object(
+                pull_request_handler.labels_handler,
+                "pull_request_labels_names",
+                new=AsyncMock(return_value=[]),
+            ),
+            patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label,
+        ):
             await pull_request_handler.label_pull_request_by_merge_state(pull_request=mock_pull_request)
             mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=NEEDS_REBASE_LABEL_STR)
 
@@ -589,7 +603,14 @@ class TestPullRequestHandler:
         mock_compare_data = {"behind_by": 0, "status": "ahead"}
         pull_request_handler.repository._requester.requestJsonAndCheck = Mock(return_value=({}, mock_compare_data))
 
-        with patch.object(pull_request_handler.labels_handler, "_add_label", new_callable=AsyncMock) as mock_add_label:
+        with (
+            patch.object(
+                pull_request_handler.labels_handler,
+                "pull_request_labels_names",
+                new=AsyncMock(return_value=[]),
+            ),
+            patch.object(pull_request_handler.labels_handler, "_add_label", new_callable=AsyncMock) as mock_add_label,
+        ):
             await pull_request_handler.label_pull_request_by_merge_state(pull_request=mock_pull_request)
             # When mergeable is False, only has-conflicts label is set (conflicts take precedence)
             mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=HAS_CONFLICTS_LABEL_STR)
@@ -1794,7 +1815,14 @@ class TestPullRequestHandler:
         mock_compare_data = {"behind_by": 5, "status": "behind"}
         pull_request_handler.repository._requester.requestJsonAndCheck = Mock(return_value=({}, mock_compare_data))
 
-        with patch.object(pull_request_handler.labels_handler, "_add_label", new_callable=AsyncMock) as mock_add_label:
+        with (
+            patch.object(
+                pull_request_handler.labels_handler,
+                "pull_request_labels_names",
+                new=AsyncMock(return_value=[]),
+            ),
+            patch.object(pull_request_handler.labels_handler, "_add_label", new_callable=AsyncMock) as mock_add_label,
+        ):
             await pull_request_handler.label_pull_request_by_merge_state(mock_pull_request)
             # Should add needs-rebase label since behind_by > 0 and no conflicts (mergeable=None means no conflict)
             mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=NEEDS_REBASE_LABEL_STR)
@@ -1820,7 +1848,14 @@ class TestPullRequestHandler:
         mock_compare_data = {"behind_by": 3, "status": "diverged"}
         pull_request_handler.repository._requester.requestJsonAndCheck = Mock(return_value=({}, mock_compare_data))
 
-        with patch.object(pull_request_handler.labels_handler, "_add_label", new_callable=AsyncMock) as mock_add_label:
+        with (
+            patch.object(
+                pull_request_handler.labels_handler,
+                "pull_request_labels_names",
+                new=AsyncMock(return_value=[]),
+            ),
+            patch.object(pull_request_handler.labels_handler, "_add_label", new_callable=AsyncMock) as mock_add_label,
+        ):
             await pull_request_handler.label_pull_request_by_merge_state(pull_request=mock_pull_request)
             # When diverged and no conflicts, only needs-rebase label is set
             mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=NEEDS_REBASE_LABEL_STR)
@@ -1845,7 +1880,14 @@ class TestPullRequestHandler:
         mock_compare_data = {"behind_by": 0, "status": "diverged"}
         pull_request_handler.repository._requester.requestJsonAndCheck = Mock(return_value=({}, mock_compare_data))
 
-        with patch.object(pull_request_handler.labels_handler, "_add_label", new_callable=AsyncMock) as mock_add_label:
+        with (
+            patch.object(
+                pull_request_handler.labels_handler,
+                "pull_request_labels_names",
+                new=AsyncMock(return_value=[]),
+            ),
+            patch.object(pull_request_handler.labels_handler, "_add_label", new_callable=AsyncMock) as mock_add_label,
+        ):
             await pull_request_handler.label_pull_request_by_merge_state(pull_request=mock_pull_request)
 
             # Should add needs-rebase because status="diverged" (even with behind_by=0)
@@ -1873,7 +1915,14 @@ class TestPullRequestHandler:
         mock_compare_data = {"behind_by": 2, "status": "diverged"}
         pull_request_handler.repository._requester.requestJsonAndCheck = Mock(return_value=({}, mock_compare_data))
 
-        with patch.object(pull_request_handler.labels_handler, "_add_label", new_callable=AsyncMock) as mock_add_label:
+        with (
+            patch.object(
+                pull_request_handler.labels_handler,
+                "pull_request_labels_names",
+                new=AsyncMock(return_value=[]),
+            ),
+            patch.object(pull_request_handler.labels_handler, "_add_label", new_callable=AsyncMock) as mock_add_label,
+        ):
             await pull_request_handler.label_pull_request_by_merge_state(pull_request=mock_pull_request)
             # When mergeable is False (conflicts), only has-conflicts label is set (conflicts take precedence)
             mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=HAS_CONFLICTS_LABEL_STR)
@@ -1934,7 +1983,12 @@ class TestPullRequestHandler:
         pull_request_handler.labels_handler._add_label.reset_mock()
         pull_request_handler.labels_handler._remove_label.reset_mock()
 
-        await pull_request_handler.label_pull_request_by_merge_state(mock_pull_request)
+        with patch.object(
+            pull_request_handler.labels_handler,
+            "pull_request_labels_names",
+            new=AsyncMock(return_value=[]),
+        ):
+            await pull_request_handler.label_pull_request_by_merge_state(mock_pull_request)
 
         # With new simplified logic: if Compare API fails, no label updates at all
         pull_request_handler.labels_handler._remove_label.assert_not_called()
@@ -1965,7 +2019,12 @@ class TestPullRequestHandler:
         pull_request_handler.labels_handler._add_label.reset_mock()
         pull_request_handler.labels_handler._remove_label.reset_mock()
 
-        await pull_request_handler.label_pull_request_by_merge_state(mock_pull_request)
+        with patch.object(
+            pull_request_handler.labels_handler,
+            "pull_request_labels_names",
+            new=AsyncMock(return_value=[]),
+        ):
+            await pull_request_handler.label_pull_request_by_merge_state(mock_pull_request)
 
         # mergeable is False, so conflict label should be added
         pull_request_handler.labels_handler._add_label.assert_called_once_with(
