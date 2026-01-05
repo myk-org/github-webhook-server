@@ -1,16 +1,18 @@
 import asyncio
 import re
+import traceback
 from typing import TYPE_CHECKING
 
 from github.Repository import Repository
 
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.libs.handlers.runner_handler import RunnerHandler
-from webhook_server.utils.helpers import format_task_fields, run_command
+from webhook_server.utils.helpers import run_command
 from webhook_server.utils.notification_utils import send_slack_message
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
+    from webhook_server.utils.context import WebhookContext
 
 
 class PushHandler:
@@ -21,58 +23,42 @@ class PushHandler:
         self.logger = self.github_webhook.logger
         self.log_prefix: str = self.github_webhook.log_prefix
         self.repository: Repository = self.github_webhook.repository
+        self.ctx: WebhookContext | None = github_webhook.ctx
         self.check_run_handler = CheckRunHandler(github_webhook=self.github_webhook)
         self.runner_handler = RunnerHandler(github_webhook=self.github_webhook)
 
     async def process_push_webhook_data(self) -> None:
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'started')} "
-            f"Starting push webhook processing",  # pragma: allowlist secret
-        )
+        if self.ctx:
+            self.ctx.start_step("push_handler")
+
         tag = re.search(r"^refs/tags/(.+)$", self.hook_data["ref"])
         if tag:
             tag_name = tag.group(1)
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'processing')} "
-                f"Processing tag push: {tag_name}",
-            )
             self.logger.info(f"{self.log_prefix} Processing push for tag: {tag.group(1)}")
             self.logger.debug(f"{self.log_prefix} Tag: {tag_name}")
             if self.github_webhook.pypi:
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'started')} "
-                    f"Starting PyPI upload for tag: {tag_name}",
-                )
                 self.logger.info(f"{self.log_prefix} Processing upload to pypi for tag: {tag_name}")
                 try:
                     await self.upload_to_pypi(tag_name=tag_name)
-                except Exception:
-                    self.logger.step(  # type: ignore[attr-defined]
-                        f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'failed')} "
-                        f"PyPI upload failed with exception",
-                    )
+                except Exception as ex:
                     self.logger.exception(f"{self.log_prefix} PyPI upload failed")
+                    if self.ctx:
+                        self.ctx.fail_step("push_handler", ex, traceback.format_exc())
+                    return
 
             if self.github_webhook.build_and_push_container and self.github_webhook.container_release:
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'started')} "
-                    f"Starting container build and push for tag: {tag_name}",
-                )
                 self.logger.info(f"{self.log_prefix} Processing build and push container for tag: {tag_name}")
                 try:
                     await self.runner_handler.run_build_container(push=True, set_check=False, tag=tag_name)
                     # Note: run_build_container logs completion/failure internally
                 except Exception as ex:
-                    self.logger.step(  # type: ignore[attr-defined]
-                        f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'failed')} "
-                        f"Container build and push failed with exception",
-                    )
                     self.logger.exception(f"{self.log_prefix} Container build and push failed: {ex}")
-        else:
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'processing')} "
-                f"Non-tag push detected, skipping processing",
-            )
+                    if self.ctx:
+                        self.ctx.fail_step("push_handler", ex, traceback.format_exc())
+                    return
+
+        if self.ctx:
+            self.ctx.complete_step("push_handler")
 
     async def upload_to_pypi(self, tag_name: str) -> None:
         async def _issue_on_error(_error: str) -> None:
@@ -89,10 +75,6 @@ Publish to PYPI failed: `{_error}`
 """,
             )
 
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'started')} "
-            f"Starting PyPI upload process for tag: {tag_name}",
-        )
         self.logger.info(f"{self.log_prefix} Start uploading to pypi")
 
         async with self.runner_handler._checkout_worktree(checkout=tag_name) as (success, worktree_path, out, err):
@@ -101,10 +83,6 @@ Publish to PYPI failed: `{_error}`
             self.logger.debug(f"{self.log_prefix} Worktree path: {worktree_path}")
 
             if not success:
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'failed')} "
-                    f"PyPI upload failed: repository preparation failed",
-                )
                 _error = self.check_run_handler.get_check_run_text(out=out, err=err)
                 await _issue_on_error(_error=_error)
                 return
@@ -113,20 +91,12 @@ Publish to PYPI failed: `{_error}`
                 command=f"uv {uv_cmd_dir} build --sdist --out-dir {_dist_dir}", log_prefix=self.log_prefix
             )
             if not rc:
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'failed')} "
-                    f"PyPI upload failed: build command failed",
-                )
                 _error = self.check_run_handler.get_check_run_text(out=out, err=err)
                 await _issue_on_error(_error=_error)
                 return
 
             rc, tar_gz_file, err = await run_command(command=f"ls {_dist_dir}", log_prefix=self.log_prefix)
             if not rc:
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'failed')} "
-                    f"PyPI upload failed: listing dist directory failed",
-                )
                 _error = self.check_run_handler.get_check_run_text(out=tar_gz_file, err=err)
                 await _issue_on_error(_error=_error)
                 return
@@ -144,18 +114,10 @@ Publish to PYPI failed: `{_error}`
             for cmd in commands:
                 rc, out, err = await run_command(command=cmd, log_prefix=self.log_prefix, redact_secrets=[pypi_token])
                 if not rc:
-                    self.logger.step(  # type: ignore[attr-defined]
-                        f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'failed')} "
-                        f"PyPI upload failed: command execution failed",
-                    )
                     _error = self.check_run_handler.get_check_run_text(out=out, err=err)
                     await _issue_on_error(_error=_error)
                     return
 
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('push_processing', 'webhook_event', 'completed')} "
-                f"PyPI upload completed successfully for tag: {tag_name}",
-            )
             self.logger.info(f"{self.log_prefix} Publish to pypi finished")
             if self.github_webhook.slack_webhook_url:
                 message: str = f"""

@@ -2,6 +2,7 @@
 
 import asyncio
 import datetime
+import json
 import re
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
@@ -308,6 +309,165 @@ class LogParser:
             self.logger.error(f"Failed to decode log file {file_path}: {e}")
 
         return entries
+
+    def parse_json_log_entry(self, json_line: str) -> LogEntry | None:
+        """Parse a JSONL log entry into a LogEntry object.
+
+        Parses JSONL format (one compact JSON object per line).
+
+        Args:
+            json_line: Raw JSON string from webhooks_*.json files (single line)
+
+        Returns:
+            LogEntry object if parsing successful, None otherwise
+        """
+        if not json_line.strip():
+            return None
+
+        try:
+            data = json.loads(json_line)
+        except json.JSONDecodeError:
+            return None
+
+        # Parse timestamp from timing.started_at
+        try:
+            timing = data.get("timing", {})
+            timestamp_str = timing.get("started_at", "")
+            if not timestamp_str:
+                return None
+            timestamp = datetime.datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=datetime.UTC)
+        except (ValueError, TypeError):
+            return None
+
+        # Extract PR number from pr object
+        pr_data = data.get("pr") or {}
+        pr_number = pr_data.get("number") if pr_data else None
+
+        # Create summary message
+        message = self._create_json_summary_message(data)
+
+        # Derive task_status from success field
+        success = data.get("success")
+        if success is True:
+            task_status = "completed"
+        elif success is False:
+            task_status = "failed"
+        else:
+            task_status = None
+
+        return LogEntry(
+            timestamp=timestamp,
+            level="INFO",  # JSON logs don't have levels, default to INFO
+            logger_name="GithubWebhook",
+            message=message,
+            hook_id=data.get("hook_id"),
+            event_type=data.get("event_type"),
+            repository=data.get("repository"),
+            pr_number=pr_number,
+            github_user=data.get("api_user"),
+            task_id=None,  # Not used in JSON format
+            task_type=None,  # Not used in JSON format
+            task_status=task_status,
+            token_spend=data.get("token_spend"),
+        )
+
+    def _create_json_summary_message(self, data: dict[str, Any]) -> str:
+        """Create a summary message from JSON log data.
+
+        Args:
+            data: Parsed JSON log data
+
+        Returns:
+            Human-readable summary message
+        """
+        parts = []
+
+        event_type = data.get("event_type", "unknown")
+        action = data.get("action", "")
+        repo = data.get("repository", "unknown")
+
+        if action:
+            parts.append(f"{event_type}/{action}")
+        else:
+            parts.append(event_type)
+
+        parts.append(f"for {repo}")
+
+        pr_data = data.get("pr")
+        if pr_data and pr_data.get("number"):
+            parts.append(f"PR #{pr_data['number']}")
+
+        if data.get("success"):
+            parts.append("- completed successfully")
+        else:
+            parts.append("- failed")
+            error = data.get("error")
+            error_type = error.get("type") if isinstance(error, dict) else None
+            if error_type:
+                parts.append(f"({error_type})")
+
+        return " ".join(parts)
+
+    def parse_json_log_file(self, file_path: Path) -> list[LogEntry]:
+        """Parse a JSON log file and return list of LogEntry objects.
+
+        Handles two formats:
+        1. Pretty-printed multi-line JSON entries separated by blank lines (current format)
+        2. Single-line JSON entries separated by newlines (legacy format)
+
+        Args:
+            file_path: Path to the webhooks_*.json file
+
+        Returns:
+            List of successfully parsed LogEntry objects
+        """
+        entries: list[LogEntry] = []
+
+        try:
+            with open(file_path, encoding="utf-8") as f:
+                content = f.read()
+
+                # Detect format: check if file contains blank line separators
+                if "\n\n" in content:
+                    # Format 1: Pretty-printed JSON with blank line separators
+                    json_blocks = content.split("\n\n")
+                    for block in json_blocks:
+                        entry = self.parse_json_log_entry(block)
+                        if entry:
+                            entries.append(entry)
+                else:
+                    # Format 2: Single-line JSON entries (one per line)
+                    for line in content.splitlines():
+                        entry = self.parse_json_log_entry(line)
+                        if entry:
+                            entries.append(entry)
+        except OSError as e:
+            self.logger.exception(f"Failed to read JSON log file {file_path}: {e}")
+        except UnicodeDecodeError as e:
+            self.logger.exception(f"Failed to decode JSON log file {file_path}: {e}")
+
+        return entries
+
+    def get_raw_json_entry(self, json_line: str) -> dict[str, Any] | None:
+        """Parse a JSONL log entry and return the raw dictionary.
+
+        Parses JSONL format (one compact JSON object per line).
+
+        Args:
+            json_line: Raw JSON string (single line)
+
+        Returns:
+            Parsed JSON dictionary, or None if parsing fails
+        """
+        if not json_line.strip():
+            return None
+
+        try:
+            return json.loads(json_line)
+        except json.JSONDecodeError:
+            return None
 
     async def tail_log_file(self, file_path: Path, follow: bool = True) -> AsyncGenerator[LogEntry]:
         """

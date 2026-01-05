@@ -80,6 +80,7 @@ class TestPullRequestHandler:
         mock_webhook.token = "test-token"  # pragma: allowlist secret
         mock_webhook.auto_verify_cherry_picked_prs = True
         mock_webhook.last_commit = Mock()
+        mock_webhook.ctx = None
         return mock_webhook
 
     @pytest.fixture
@@ -441,8 +442,6 @@ class TestPullRequestHandler:
             patch.object(mock_pull_request, "create_issue_comment", new=Mock()),
         ):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
-            # Verify step logging was called
-            assert pull_request_handler.logger.step.called
             # The method uses runner_handler.run_podman_command, not repository.delete_tag
 
     @pytest.mark.asyncio
@@ -910,8 +909,6 @@ class TestPullRequestHandler:
 
         with patch.object(pull_request_handler.github_webhook, "build_and_push_container", False):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
-            # Verify step logging was called (processing + completed)
-            assert pull_request_handler.logger.step.call_count >= 2
             # Should return early when build_and_push_container is False
 
     @pytest.mark.asyncio
@@ -940,8 +937,6 @@ class TestPullRequestHandler:
             ),
         ):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
-            # Verify step logging was called (processing + failed)
-            assert pull_request_handler.logger.step.called
             # Verify error was logged
             assert pull_request_handler.logger.error.called
 
@@ -970,8 +965,6 @@ class TestPullRequestHandler:
             patch.object(mock_pull_request, "create_issue_comment", new=Mock()),
         ):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
-            # Verify step logging was called (processing + failed)
-            assert pull_request_handler.logger.step.called
             # Verify error was logged
             assert pull_request_handler.logger.error.called
 
@@ -1002,7 +995,6 @@ class TestPullRequestHandler:
             patch.object(mock_pull_request, "create_issue_comment", new=Mock()),
         ):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
-            assert pull_request_handler.logger.step.called
             assert mock_pull_request.create_issue_comment.called
 
     @pytest.mark.asyncio
@@ -1038,7 +1030,6 @@ class TestPullRequestHandler:
         ):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
             # Verify the deletion was successful
-            assert pull_request_handler.logger.step.called
             assert mock_pull_request.create_issue_comment.called
             # Verify requestJsonAndCheck was called 3 times (orgs GET, users GET, DELETE)
             assert mock_requester.requestJsonAndCheck.call_count == 3
@@ -1065,7 +1056,6 @@ class TestPullRequestHandler:
             patch.object(pull_request_handler.github_webhook, "token", "test-token"),  # pragma: allowlist secret
         ):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
-            assert pull_request_handler.logger.step.called
             assert pull_request_handler.logger.warning.called
 
     @pytest.mark.asyncio
@@ -1091,7 +1081,6 @@ class TestPullRequestHandler:
             patch.object(pull_request_handler.github_webhook, "token", "test-token"),  # pragma: allowlist secret
         ):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
-            assert pull_request_handler.logger.step.called
             assert pull_request_handler.logger.warning.called
 
     @pytest.mark.asyncio
@@ -1116,7 +1105,6 @@ class TestPullRequestHandler:
             patch.object(pull_request_handler.github_webhook, "token", "test-token"),  # pragma: allowlist secret
         ):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
-            assert pull_request_handler.logger.step.called
             assert pull_request_handler.logger.exception.called
 
     @pytest.mark.asyncio
@@ -1138,7 +1126,6 @@ class TestPullRequestHandler:
             patch.object(pull_request_handler.github_webhook, "token", "test-token"),  # pragma: allowlist secret
         ):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
-            assert pull_request_handler.logger.step.called
             assert pull_request_handler.logger.error.called
 
     @pytest.mark.asyncio
@@ -1166,7 +1153,6 @@ class TestPullRequestHandler:
                 repository_full_tag="ghcr.io/invalid:pr-123",
                 pr_tag="pr-123",
             )
-            assert pull_request_handler.logger.step.called
             assert pull_request_handler.logger.error.called
 
     @pytest.mark.asyncio
@@ -1197,7 +1183,6 @@ class TestPullRequestHandler:
             patch.object(mock_pull_request, "create_issue_comment", new=Mock()),
         ):
             await pull_request_handler.delete_remote_tag_for_merged_or_closed_pr(pull_request=mock_pull_request)
-            assert pull_request_handler.logger.step.called
             assert pull_request_handler.logger.warning.called
 
     @pytest.mark.asyncio
@@ -1584,14 +1569,6 @@ class TestPullRequestHandler:
 
         await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
 
-        # Verify step call with substring
-        found = False
-        for call in pull_request_handler.logger.step.call_args_list:
-            if "skipped - can-be-merged label" in str(call):
-                found = True
-                break
-        assert found, "Log step for can-be-merged label skip not found"
-
     @pytest.mark.asyncio
     async def test_process_labeled_wip(
         self, pull_request_handler: PullRequestHandler, mock_github_webhook: Mock, mock_pull_request: Mock
@@ -1619,13 +1596,6 @@ class TestPullRequestHandler:
         mock_github_webhook.hook_data["action"] = "unknown_action"
 
         await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
-
-        found = False
-        for call in pull_request_handler.logger.step.call_args_list:
-            if "no action handler - completed" in str(call):
-                found = True
-                break
-        assert found
 
     @pytest.mark.asyncio
     async def test_delete_ghcr_tag_exceptions(
