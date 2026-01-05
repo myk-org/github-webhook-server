@@ -1495,9 +1495,9 @@ class TestGithubWebhook:
             )
 
             # Verify completion log with "deletion event (skipped)" message
-            success_calls = [str(call) for call in mock_logger.success.call_args_list]
-            assert any("deletion event (skipped)" in call.lower() for call in success_calls), (
-                f"Expected 'deletion event (skipped)' in success logs. Got: {success_calls}"
+            info_completion_calls = [str(call) for call in mock_logger.info.call_args_list]
+            assert any("deletion event (skipped)" in call.lower() for call in info_completion_calls), (
+                f"Expected 'deletion event (skipped)' in info logs. Got: {info_completion_calls}"
             )
 
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})

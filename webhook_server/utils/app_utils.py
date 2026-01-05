@@ -4,11 +4,15 @@ import datetime
 import hashlib
 import hmac
 import ipaddress
+import logging
+from typing import Any
 
 import httpx
 from fastapi import HTTPException, Request, status
 
+from webhook_server.utils.context import WebhookContext
 from webhook_server.utils.helpers import get_logger_with_params
+from webhook_server.web.log_viewer import LogViewerController
 
 # Constants
 HTTP_TIMEOUT_SECONDS: float = 10.0
@@ -117,3 +121,92 @@ def parse_datetime_string(datetime_str: str | None, field_name: str) -> datetime
             status_code=400,
             detail=f"Invalid {field_name} format: {datetime_str}. Expected ISO 8601 format. Error: {e!s}",
         ) from e
+
+
+def format_duration(ms: int) -> str:
+    """Format milliseconds to human-readable duration string.
+
+    Args:
+        ms: Duration in milliseconds
+
+    Returns:
+        Human-readable duration (e.g., "3m12s", "1h5m", "500ms")
+    """
+    if ms < 1000:
+        return f"{ms}ms"
+
+    seconds = ms // 1000
+    if seconds < 60:
+        remaining_ms = ms % 1000
+        if remaining_ms > 0:
+            return f"{seconds}s{remaining_ms}ms"
+        return f"{seconds}s"
+
+    minutes = seconds // 60
+    remaining_seconds = seconds % 60
+    if minutes < 60:
+        if remaining_seconds > 0:
+            return f"{minutes}m{remaining_seconds}s"
+        return f"{minutes}m"
+
+    hours = minutes // 60
+    remaining_minutes = minutes % 60
+    if remaining_minutes > 0:
+        return f"{hours}h{remaining_minutes}m"
+    return f"{hours}h"
+
+
+def log_webhook_summary(ctx: WebhookContext, logger: logging.Logger, log_prefix: str) -> None:
+    """Log a summary of webhook processing from the structured context.
+
+    Generates a single-line summary showing:
+    - Success/failure status
+    - PR number (if applicable)
+    - Total duration
+    - Token spend
+    - All workflow steps with their status and duration
+
+    Args:
+        ctx: WebhookContext containing execution metadata and workflow steps
+        logger: Logger instance to write the summary
+        log_prefix: Log prefix for consistent formatting
+    """
+    # Calculate duration - completed_at is always set before this is called
+    if ctx.completed_at is None:
+        raise ValueError("Context completed_at is None - context not completed")
+    duration_ms = int((ctx.completed_at - ctx.started_at).total_seconds() * 1000)
+
+    # Build summary of workflow steps - all steps have duration_ms
+    steps_summary = []
+    for step_name, step_data in ctx.workflow_steps.items():
+        status = step_data["status"]
+        step_duration_ms = step_data["duration_ms"]
+        steps_summary.append(f"{step_name}:{status}({format_duration(step_duration_ms)})")
+
+    steps_str = ", ".join(steps_summary) if steps_summary else "no steps recorded"
+
+    # Build final summary message
+    status_text = "SUCCESS" if ctx.success else "FAILED"
+    pr_info = f" PR#{ctx.pr_number}" if ctx.pr_number else ""
+    token_info = f", tokens:{ctx.token_spend}" if ctx.token_spend else ""
+
+    logger.info(
+        f"{log_prefix} [{status_text}] Webhook completed{pr_info} "
+        f"[{format_duration(duration_ms)}{token_info}] steps=[{steps_str}]"
+    )
+
+
+def get_workflow_steps_core(
+    controller: LogViewerController,
+    hook_id: str,
+) -> dict[str, Any]:
+    """Core logic for getting workflow step timeline data for a specific hook ID.
+
+    Args:
+        controller: LogViewerController instance
+        hook_id: GitHub webhook delivery ID
+
+    Returns:
+        dict containing workflow step timeline data
+    """
+    return controller.get_workflow_steps(hook_id)

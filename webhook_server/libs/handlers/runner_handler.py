@@ -22,7 +22,7 @@ from webhook_server.utils.constants import (
     PYTHON_MODULE_INSTALL_STR,
     TOX_STR,
 )
-from webhook_server.utils.helpers import _redact_secrets, format_task_fields, run_command
+from webhook_server.utils.helpers import _redact_secrets, run_command
 from webhook_server.utils.notification_utils import send_slack_message
 
 if TYPE_CHECKING:
@@ -173,10 +173,6 @@ class RunnerHandler:
             self.logger.debug(f"{self.log_prefix} Tox not configured for this repository")
             return
 
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'started')} Starting tox tests execution"
-        )
-
         if await self.check_run_handler.is_check_run_in_progress(check_run=TOX_STR):
             self.logger.debug(f"{self.log_prefix} Check run is in progress, re-running {TOX_STR}.")
 
@@ -185,16 +181,8 @@ class RunnerHandler:
         )
         _tox_tests = self.github_webhook.tox.get(pull_request.base.ref, "")
 
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
-            f"Setting tox check status to in-progress",
-        )
         await self.check_run_handler.set_run_tox_check_in_progress()
 
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
-            f"Preparing repository checkout for tox execution",
-        )
         async with self._checkout_worktree(pull_request=pull_request) as (success, worktree_path, out, err):
             # Build tox command with worktree path
             cmd = f"uvx {python_ver} {TOX_STR} --workdir {worktree_path} --root {worktree_path} -c {worktree_path}"
@@ -209,17 +197,10 @@ class RunnerHandler:
                 "text": None,
             }
             if not success:
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} "
-                    f"Repository preparation failed for tox",
-                )
                 self.logger.error(f"{self.log_prefix} Repository preparation failed for tox")
                 output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
                 return await self.check_run_handler.set_run_tox_check_failure(output=output)
 
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} Executing tox command"
-            )
             rc, out, err = await run_command(
                 command=cmd,
                 log_prefix=self.log_prefix,
@@ -229,15 +210,8 @@ class RunnerHandler:
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
 
             if rc:
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'completed')} "
-                    f"Tox tests completed successfully",
-                )
                 return await self.check_run_handler.set_run_tox_check_success(output=output)
             else:
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} Tox tests failed"
-                )
                 return await self.check_run_handler.set_run_tox_check_failure(output=output)
 
     async def run_pre_commit(self, pull_request: PullRequest) -> None:
@@ -245,24 +219,11 @@ class RunnerHandler:
             self.logger.debug(f"{self.log_prefix} Pre-commit not configured for this repository")
             return
 
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'started')} "
-            f"Starting pre-commit checks execution",
-        )
-
         if await self.check_run_handler.is_check_run_in_progress(check_run=PRE_COMMIT_STR):
             self.logger.debug(f"{self.log_prefix} Check run is in progress, re-running {PRE_COMMIT_STR}.")
 
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
-            f"Setting pre-commit check status to in-progress",
-        )
         await self.check_run_handler.set_run_pre_commit_check_in_progress()
 
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
-            f"Preparing repository checkout for pre-commit execution",
-        )
         async with self._checkout_worktree(pull_request=pull_request) as (success, worktree_path, out, err):
             cmd = f" uvx --directory {worktree_path} {PREK_STR} run --all-files"
 
@@ -272,18 +233,10 @@ class RunnerHandler:
                 "text": None,
             }
             if not success:
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} "
-                    f"Repository preparation failed for pre-commit",
-                )
                 self.logger.error(f"{self.log_prefix} Repository preparation failed for pre-commit")
                 output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
                 return await self.check_run_handler.set_run_pre_commit_check_failure(output=output)
 
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
-                f"Executing pre-commit command",
-            )
             rc, out, err = await run_command(
                 command=cmd,
                 log_prefix=self.log_prefix,
@@ -293,15 +246,8 @@ class RunnerHandler:
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
 
             if rc:
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'completed')} "
-                    f"Pre-commit checks completed successfully",
-                )
                 return await self.check_run_handler.set_run_pre_commit_check_success(output=output)
             else:
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} Pre-commit checks failed"
-                )
                 return await self.check_run_handler.set_run_pre_commit_check_failure(output=output)
 
     async def run_build_container(
@@ -317,10 +263,6 @@ class RunnerHandler:
         if not self.github_webhook.build_and_push_container:
             return
 
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'started')} Starting container build process",
-        )
-
         if (
             self.owners_file_handler
             and reviewed_user
@@ -335,10 +277,6 @@ class RunnerHandler:
             if await self.check_run_handler.is_check_run_in_progress(check_run=BUILD_CONTAINER_STR) and not is_merged:
                 self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {BUILD_CONTAINER_STR}.")
 
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
-            f"Setting container build check status to in-progress",
-        )
         if set_check:
             await self.check_run_handler.set_container_build_in_progress()
 
@@ -347,10 +285,6 @@ class RunnerHandler:
         )
         no_cache: str = " --no-cache" if is_merged else ""
 
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
-            f"Preparing repository checkout for container build",
-        )
         async with self._checkout_worktree(
             pull_request=pull_request,
             is_merged=is_merged,
@@ -382,45 +316,26 @@ class RunnerHandler:
                 "text": None,
             }
             if not success:
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} "
-                    f"Repository preparation failed for container build",
-                )
                 output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
                 if pull_request and set_check:
                     await self.check_run_handler.set_container_build_failure(output=output)
                 return
 
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
-                f"Executing container build command",
-            )
             build_rc, build_out, build_err = await self.run_podman_command(
                 command=podman_build_cmd,
             )
             output["text"] = self.check_run_handler.get_check_run_text(err=build_err, out=build_out)
 
             if build_rc:
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'completed')} "
-                    f"Container build completed successfully",
-                )
                 self.logger.info(f"{self.log_prefix} Done building {_container_repository_and_tag}")
                 if pull_request and set_check:
                     return await self.check_run_handler.set_container_build_success(output=output)
             else:
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} Container build failed"
-                )
                 self.logger.error(f"{self.log_prefix} Failed to build {_container_repository_and_tag}")
                 if pull_request and set_check:
                     return await self.check_run_handler.set_container_build_failure(output=output)
 
             if push and build_rc:
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'started')} "
-                    f"Starting container push to registry",
-                )
                 cmd = (
                     f"podman push --creds "
                     f"{self.github_webhook.container_repository_username}:"
@@ -435,10 +350,6 @@ class RunnerHandler:
                     ],
                 )
                 if push_rc:
-                    self.logger.step(  # type: ignore[attr-defined]
-                        f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'completed')} "
-                        f"Container push completed successfully",
-                    )
                     push_msg: str = f"New container for {_container_repository_and_tag} published"
                     if pull_request:
                         await asyncio.to_thread(pull_request.create_issue_comment, push_msg)
@@ -459,9 +370,6 @@ class RunnerHandler:
                     self.logger.info(f"{self.log_prefix} Done push {_container_repository_and_tag}")
                 else:
                     err_msg: str = f"Failed to build and push {_container_repository_and_tag}"
-                    self.logger.step(  # type: ignore[attr-defined]
-                        f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} Container push failed",
-                    )
                     if pull_request:
                         await asyncio.to_thread(pull_request.create_issue_comment, err_msg)
 
@@ -482,25 +390,11 @@ class RunnerHandler:
         if not self.github_webhook.pypi:
             return
 
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} "
-            f"{format_task_fields('runner', 'ci_check', 'started')} "
-            f"Starting Python module installation"
-        )
-
         if await self.check_run_handler.is_check_run_in_progress(check_run=PYTHON_MODULE_INSTALL_STR):
             self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {PYTHON_MODULE_INSTALL_STR}.")
 
         self.logger.info(f"{self.log_prefix} Installing python module")
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
-            f"Setting Python module install check status to in-progress",
-        )
         await self.check_run_handler.set_python_module_install_in_progress()
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
-            f"Preparing repository checkout for Python module installation",
-        )
         async with self._checkout_worktree(pull_request=pull_request) as (success, worktree_path, out, err):
             output: dict[str, Any] = {
                 "title": "Python module installation",
@@ -508,17 +402,9 @@ class RunnerHandler:
                 "text": None,
             }
             if not success:
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} "
-                    f"Repository preparation failed for Python module installation",
-                )
                 output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
                 return await self.check_run_handler.set_python_module_install_failure(output=output)
 
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
-                f"Executing Python module installation command",
-            )
             rc, out, err = await run_command(
                 command=f"uvx pip wheel --no-cache-dir -w {worktree_path}/dist {worktree_path}",
                 log_prefix=self.log_prefix,
@@ -528,26 +414,13 @@ class RunnerHandler:
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
 
             if rc:
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'completed')} "
-                    f"Python module installation completed successfully",
-                )
                 return await self.check_run_handler.set_python_module_install_success(output=output)
 
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} "
-                f"{format_task_fields('runner', 'ci_check', 'failed')} "
-                f"Python module installation failed"
-            )
             return await self.check_run_handler.set_python_module_install_failure(output=output)
 
     async def run_conventional_title_check(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.conventional_title:
             return
-
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'started')} Starting conventional title check"
-        )
 
         output: dict[str, str] = {
             "title": "Conventional Title",
@@ -562,27 +435,14 @@ class RunnerHandler:
         if await self.check_run_handler.is_check_run_in_progress(check_run=CONVENTIONAL_TITLE_STR):
             self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {CONVENTIONAL_TITLE_STR}.")
 
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'processing')} "
-            f"Setting conventional title check status to in-progress",
-        )
         await self.check_run_handler.set_conventional_title_in_progress()
         allowed_names = [name.strip() for name in self.github_webhook.conventional_title.split(",") if name.strip()]
         title = pull_request.title
 
         self.logger.debug(f"{self.log_prefix} Conventional title check for title: {title}, allowed: {allowed_names}")
         if any([re.match(rf"^{re.escape(_name)}(\([^)]+\))?!?: .+", title) for _name in allowed_names]):
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'completed')} "
-                f"Conventional title check completed successfully",
-            )
             await self.check_run_handler.set_conventional_title_success(output=output)
         else:
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} "
-                f"{format_task_fields('runner', 'ci_check', 'failed')} "
-                f"Conventional title check failed"
-            )
             output["title"] = "❌ Conventional Title"
             output["summary"] = "Conventional Commit Format Violation"
             output["text"] = f"""## Conventional Commits Validation Failed
@@ -625,30 +485,15 @@ Your team can configure additional types in the repository settings.
 
     async def cherry_pick(self, pull_request: PullRequest, target_branch: str, reviewed_user: str = "") -> None:
         requested_by = reviewed_user or "by target-branch label"
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} "
-            f"{format_task_fields('runner', 'ci_check', 'started')} "
-            f"Starting cherry-pick process to {target_branch}"
-        )
         self.logger.info(f"{self.log_prefix} Cherry-pick requested by user: {requested_by}")
 
         new_branch_name = f"{CHERRY_PICKED_LABEL_PREFIX}-{pull_request.head.ref}-{shortuuid.uuid()[:5]}"
         if not await self.is_branch_exists(branch=target_branch):
             err_msg = f"cherry-pick failed: {target_branch} does not exists"
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} "
-                f"{format_task_fields('runner', 'ci_check', 'failed')} "
-                f"Cherry-pick failed: target branch does not exist"
-            )
             self.logger.error(err_msg)
             await asyncio.to_thread(pull_request.create_issue_comment, err_msg)
 
         else:
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} "
-                f"{format_task_fields('runner', 'ci_check', 'processing')} "
-                f"Setting cherry-pick check status to in-progress"
-            )
             await self.check_run_handler.set_cherry_pick_in_progress()
             commit_hash = pull_request.merge_commit_sha
             commit_msg_striped = pull_request.title.replace("'", "")
@@ -677,18 +522,9 @@ Your team can configure additional types in the repository settings.
                     "text": None,
                 }
                 if not success:
-                    self.logger.step(  # type: ignore[attr-defined]
-                        f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} "
-                        f"Repository preparation failed for cherry-pick",
-                    )
                     output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
                     await self.check_run_handler.set_cherry_pick_failure(output=output)
 
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} "
-                    f"{format_task_fields('runner', 'ci_check', 'processing')} "
-                    f"Executing cherry-pick commands"
-                )
                 for cmd in commands:
                     rc, out, err = await run_command(
                         command=cmd,
@@ -697,11 +533,6 @@ Your team can configure additional types in the repository settings.
                         mask_sensitive=self.github_webhook.mask_sensitive,
                     )
                     if not rc:
-                        self.logger.step(  # type: ignore[attr-defined]
-                            f"{self.log_prefix} "
-                            f"{format_task_fields('runner', 'ci_check', 'failed')} "
-                            f"Cherry-pick command failed"
-                        )
                         output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
                         await self.check_run_handler.set_cherry_pick_failure(output=output)
                         redacted_out = _redact_secrets(
@@ -734,10 +565,6 @@ Your team can configure additional types in the repository settings.
 
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
 
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'completed')} "
-                f"Cherry-pick completed successfully",
-            )
             await self.check_run_handler.set_cherry_pick_success(output=output)
             await asyncio.to_thread(
                 pull_request.create_issue_comment, f"Cherry-picked PR {pull_request.title} into {target_branch}"

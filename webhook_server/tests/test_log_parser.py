@@ -758,3 +758,610 @@ class TestWorkflowSteps:
         assert entry is not None
         assert entry.token_spend == 23
         assert entry.hook_id == "6143a030-bbd7-11f0-95bd-b07354b8711c"
+
+
+class TestJSONLogParsing:
+    """Test cases for JSON log parsing functionality."""
+
+    def test_parse_json_log_entry_valid_json(self) -> None:
+        """Test parsing valid JSON log entry returns LogEntry."""
+        parser = LogParser()
+        json_line = """{
+            "hook_id": "abc123-def456",
+            "event_type": "pull_request",
+            "action": "opened",
+            "repository": "org/test-repo",
+            "api_user": "test-user",
+            "success": true,
+            "token_spend": 35,
+            "timing": {
+                "started_at": "2025-07-31T10:30:00.123000Z"
+            },
+            "pr": {
+                "number": 123,
+                "title": "Test PR"
+            }
+        }"""
+
+        entry = parser.parse_json_log_entry(json_line)
+
+        assert entry is not None
+        assert entry.timestamp == datetime.datetime(2025, 7, 31, 10, 30, 0, 123000, tzinfo=datetime.UTC)
+        assert entry.level == "INFO"
+        assert entry.logger_name == "GithubWebhook"
+        assert entry.hook_id == "abc123-def456"
+        assert entry.event_type == "pull_request"
+        assert entry.repository == "org/test-repo"
+        assert entry.pr_number == 123
+        assert entry.github_user == "test-user"
+        assert entry.task_status == "completed"
+        assert entry.token_spend == 35
+        assert "pull_request/opened" in entry.message
+        assert "org/test-repo" in entry.message
+        assert "PR #123" in entry.message
+        assert "completed successfully" in entry.message
+
+    def test_parse_json_log_entry_failed_webhook(self) -> None:
+        """Test parsing JSON log entry for failed webhook."""
+        parser = LogParser()
+        json_line = """{
+            "hook_id": "failed-hook",
+            "event_type": "issue_comment",
+            "action": "created",
+            "repository": "org/repo",
+            "api_user": "user1",
+            "success": false,
+            "token_spend": 10,
+            "timing": {
+                "started_at": "2025-07-31T11:00:00Z"
+            },
+            "error": {
+                "type": "ValidationError"
+            },
+            "pr": {
+                "number": 456
+            }
+        }"""
+
+        entry = parser.parse_json_log_entry(json_line)
+
+        assert entry is not None
+        assert entry.hook_id == "failed-hook"
+        assert entry.task_status == "failed"
+        assert entry.pr_number == 456
+        assert "failed" in entry.message
+        assert "ValidationError" in entry.message
+
+    def test_parse_json_log_entry_without_pr(self) -> None:
+        """Test parsing JSON log entry without PR information."""
+        parser = LogParser()
+        json_line = """{
+            "hook_id": "push-hook",
+            "event_type": "push",
+            "repository": "org/repo",
+            "api_user": "user2",
+            "success": true,
+            "timing": {
+                "started_at": "2025-07-31T12:00:00Z"
+            }
+        }"""
+
+        entry = parser.parse_json_log_entry(json_line)
+
+        assert entry is not None
+        assert entry.hook_id == "push-hook"
+        assert entry.event_type == "push"
+        assert entry.pr_number is None
+        assert "push" in entry.message
+        assert "org/repo" in entry.message
+
+    def test_parse_json_log_entry_invalid_json(self) -> None:
+        """Test parsing invalid JSON returns None."""
+        parser = LogParser()
+        invalid_lines = [
+            "not json at all",
+            "{incomplete json",
+            '{"key": invalid}',
+            "",
+            "   ",
+        ]
+
+        for line in invalid_lines:
+            entry = parser.parse_json_log_entry(line)
+            assert entry is None
+
+    def test_parse_json_log_entry_missing_timestamp(self) -> None:
+        """Test parsing JSON without timing.started_at returns None."""
+        parser = LogParser()
+        json_line = """{
+            "hook_id": "no-timestamp",
+            "event_type": "push",
+            "repository": "org/repo",
+            "api_user": "user1",
+            "success": true
+        }"""
+
+        entry = parser.parse_json_log_entry(json_line)
+        assert entry is None
+
+    def test_parse_json_log_entry_invalid_timestamp(self) -> None:
+        """Test parsing JSON with invalid timestamp returns None."""
+        parser = LogParser()
+        json_line = """{
+            "hook_id": "bad-timestamp",
+            "event_type": "push",
+            "repository": "org/repo",
+            "success": true,
+            "timing": {
+                "started_at": "not-a-timestamp"
+            }
+        }"""
+
+        entry = parser.parse_json_log_entry(json_line)
+        assert entry is None
+
+    def test_parse_json_log_entry_timezone_handling(self) -> None:
+        """Test parsing JSON with different timezone formats."""
+        parser = LogParser()
+
+        # Test with Z suffix
+        json_z = """{
+            "hook_id": "z-time",
+            "event_type": "push",
+            "repository": "org/repo",
+            "success": true,
+            "timing": {"started_at": "2025-07-31T10:00:00Z"}
+        }"""
+        entry = parser.parse_json_log_entry(json_z)
+        assert entry is not None
+        assert entry.timestamp.tzinfo is not None
+
+        # Test with +00:00 suffix
+        json_plus = """{
+            "hook_id": "plus-time",
+            "event_type": "push",
+            "repository": "org/repo",
+            "success": true,
+            "timing": {"started_at": "2025-07-31T10:00:00+00:00"}
+        }"""
+        entry = parser.parse_json_log_entry(json_plus)
+        assert entry is not None
+        assert entry.timestamp.tzinfo is not None
+
+    def test_parse_json_log_entry_extracts_all_fields(self) -> None:
+        """Test that parse_json_log_entry extracts all fields correctly."""
+        parser = LogParser()
+        json_line = """{
+            "hook_id": "complete-hook",
+            "event_type": "pull_request",
+            "action": "synchronize",
+            "repository": "owner/repo-name",
+            "api_user": "github-user",
+            "success": true,
+            "token_spend": 42,
+            "timing": {
+                "started_at": "2025-08-01T14:30:45.678000Z"
+            },
+            "pr": {
+                "number": 999
+            },
+            "error": {
+                "type": "SomeError"
+            }
+        }"""
+
+        entry = parser.parse_json_log_entry(json_line)
+
+        assert entry is not None
+        assert entry.timestamp == datetime.datetime(2025, 8, 1, 14, 30, 45, 678000, tzinfo=datetime.UTC)
+        assert entry.level == "INFO"
+        assert entry.logger_name == "GithubWebhook"
+        assert entry.message is not None
+        assert entry.hook_id == "complete-hook"
+        assert entry.event_type == "pull_request"
+        assert entry.repository == "owner/repo-name"
+        assert entry.pr_number == 999
+        assert entry.github_user == "github-user"
+        assert entry.task_id is None
+        assert entry.task_type is None
+        assert entry.task_status == "completed"
+        assert entry.token_spend == 42
+
+    def test_parse_json_log_file_multiple_entries(self, tmp_path: Path) -> None:
+        """Test parsing JSON log file with multiple entries."""
+        parser = LogParser()
+        # Each JSON object must be on a single line (JSON lines format)
+        json_content = (
+            '{"hook_id": "hook1", "event_type": "push", "repository": "org/repo1", '
+            '"api_user": "user1", "success": true, "timing": {"started_at": "2025-07-31T10:00:00Z"}}\n'
+            '{"hook_id": "hook2", "event_type": "pull_request", "action": "opened", '
+            '"repository": "org/repo2", "api_user": "user2", "success": true, '
+            '"timing": {"started_at": "2025-07-31T10:01:00Z"}, "pr": {"number": 123}}\n'
+            '{"hook_id": "hook3", "event_type": "issue_comment", "repository": "org/repo3", '
+            '"api_user": "user3", "success": false, "timing": {"started_at": "2025-07-31T10:02:00Z"}}\n'
+        )
+        log_file = tmp_path / "webhooks_test.json"
+        log_file.write_text(json_content)
+
+        entries = parser.parse_json_log_file(log_file)
+
+        assert len(entries) == 3
+        assert entries[0].hook_id == "hook1"
+        assert entries[0].event_type == "push"
+        assert entries[0].repository == "org/repo1"
+        assert entries[1].hook_id == "hook2"
+        assert entries[1].pr_number == 123
+        assert entries[1].task_status == "completed"
+        assert entries[2].hook_id == "hook3"
+        assert entries[2].task_status == "failed"
+
+    def test_parse_json_log_file_empty_file(self, tmp_path: Path) -> None:
+        """Test parsing empty JSON log file."""
+        parser = LogParser()
+        log_file = tmp_path / "empty.json"
+        log_file.write_text("")
+
+        entries = parser.parse_json_log_file(log_file)
+
+        assert len(entries) == 0
+
+    def test_parse_json_log_file_skips_invalid_lines(self, tmp_path: Path) -> None:
+        """Test that parse_json_log_file skips invalid JSON lines."""
+        parser = LogParser()
+        # Each JSON object must be on a single line (JSON lines format)
+        json_content = (
+            '{"hook_id": "valid1", "event_type": "push", "repository": "org/repo", '
+            '"success": true, "timing": {"started_at": "2025-07-31T10:00:00Z"}}\n'
+            "this is not valid json\n"
+            "{incomplete json\n"
+            '{"hook_id": "valid2", "event_type": "pull_request", "repository": "org/repo", '
+            '"success": true, "timing": {"started_at": "2025-07-31T10:01:00Z"}}\n'
+            '{"missing_timestamp": true}\n'
+        )
+        log_file = tmp_path / "mixed.json"
+        log_file.write_text(json_content)
+
+        entries = parser.parse_json_log_file(log_file)
+
+        assert len(entries) == 2
+        assert entries[0].hook_id == "valid1"
+        assert entries[1].hook_id == "valid2"
+
+    def test_parse_json_log_file_handles_oserror(self, tmp_path: Path, caplog) -> None:
+        """Test that parse_json_log_file handles OSError gracefully."""
+        parser = LogParser()
+        caplog.set_level(logging.ERROR)
+        nonexistent_file = tmp_path / "nonexistent.json"
+
+        entries = parser.parse_json_log_file(nonexistent_file)
+
+        assert entries == []
+
+    def test_parse_json_log_file_handles_unicode_error(self, tmp_path: Path, caplog) -> None:
+        """Test that parse_json_log_file handles UnicodeDecodeError gracefully."""
+        parser = LogParser()
+        caplog.set_level(logging.ERROR)
+
+        # Create a file with invalid UTF-8 bytes
+        log_file = tmp_path / "invalid_utf8.json"
+        log_file.write_bytes(b"\x80\x81\x82\x83")
+
+        entries = parser.parse_json_log_file(log_file)
+
+        assert entries == []
+
+    def test_get_raw_json_entry_valid_json(self) -> None:
+        """Test get_raw_json_entry with valid JSON returns dictionary."""
+        parser = LogParser()
+        json_line = """{
+            "hook_id": "test-hook",
+            "event_type": "push",
+            "repository": "org/repo",
+            "nested": {
+                "data": "value"
+            }
+        }"""
+
+        result = parser.get_raw_json_entry(json_line)
+
+        assert result is not None
+        assert isinstance(result, dict)
+        assert result["hook_id"] == "test-hook"
+        assert result["event_type"] == "push"
+        assert result["repository"] == "org/repo"
+        assert result["nested"]["data"] == "value"
+
+    def test_get_raw_json_entry_invalid_json(self) -> None:
+        """Test get_raw_json_entry with invalid JSON returns None."""
+        parser = LogParser()
+        invalid_lines = [
+            "not json",
+            "{incomplete",
+            '{"bad": value}',
+            "",
+            "   ",
+        ]
+
+        for line in invalid_lines:
+            result = parser.get_raw_json_entry(line)
+            assert result is None
+
+    def test_get_raw_json_entry_preserves_structure(self) -> None:
+        """Test that get_raw_json_entry preserves complete JSON structure."""
+        parser = LogParser()
+        json_line = """{
+            "hook_id": "complex-hook",
+            "timing": {
+                "started_at": "2025-07-31T10:00:00Z",
+                "ended_at": "2025-07-31T10:00:05Z",
+                "duration_seconds": 5.123
+            },
+            "pr": {
+                "number": 123,
+                "title": "Test PR",
+                "labels": ["bug", "enhancement"]
+            },
+            "error": null,
+            "success": true,
+            "token_spend": 42
+        }"""
+
+        result = parser.get_raw_json_entry(json_line)
+
+        assert result is not None
+        assert result["hook_id"] == "complex-hook"
+        assert result["timing"]["duration_seconds"] == 5.123
+        assert result["pr"]["labels"] == ["bug", "enhancement"]
+        assert result["error"] is None
+        assert result["success"] is True
+        assert result["token_spend"] == 42
+
+    def test_json_summary_message_format_with_action(self) -> None:
+        """Test that JSON summary message includes action when present."""
+        parser = LogParser()
+        json_line = """{
+            "hook_id": "hook1",
+            "event_type": "pull_request",
+            "action": "synchronize",
+            "repository": "org/repo",
+            "success": true,
+            "timing": {"started_at": "2025-07-31T10:00:00Z"}
+        }"""
+
+        entry = parser.parse_json_log_entry(json_line)
+
+        assert entry is not None
+        assert "pull_request/synchronize" in entry.message
+
+    def test_json_summary_message_format_without_action(self) -> None:
+        """Test that JSON summary message works without action."""
+        parser = LogParser()
+        json_line = """{
+            "hook_id": "hook1",
+            "event_type": "push",
+            "repository": "org/repo",
+            "success": true,
+            "timing": {"started_at": "2025-07-31T10:00:00Z"}
+        }"""
+
+        entry = parser.parse_json_log_entry(json_line)
+
+        assert entry is not None
+        assert "push for org/repo" in entry.message
+        assert "/" not in entry.message.split("for")[0]  # No action before "for"
+
+    def test_parse_json_log_entry_null_pr_field(self) -> None:
+        """Test parsing JSON with null pr field."""
+        parser = LogParser()
+        json_line = """{
+            "hook_id": "null-pr",
+            "event_type": "push",
+            "repository": "org/repo",
+            "success": true,
+            "timing": {"started_at": "2025-07-31T10:00:00Z"},
+            "pr": null
+        }"""
+
+        entry = parser.parse_json_log_entry(json_line)
+
+        assert entry is not None
+        assert entry.pr_number is None
+
+    def test_parse_json_log_entry_empty_timing_object(self) -> None:
+        """Test parsing JSON with empty timing object returns None."""
+        parser = LogParser()
+        json_line = """{
+            "hook_id": "no-time",
+            "event_type": "push",
+            "repository": "org/repo",
+            "success": true,
+            "timing": {}
+        }"""
+
+        entry = parser.parse_json_log_entry(json_line)
+        assert entry is None
+
+
+class TestAdditionalCoverageTests:
+    """Additional tests for edge cases to reach 90%+ coverage."""
+
+    def test_parse_log_entry_invalid_pr_number(self) -> None:
+        """Test parsing log entry with invalid PR number string."""
+        parser = LogParser()
+        log_line = (
+            "2025-07-31T10:00:00.000000 GithubWebhook INFO "
+            "test-repo [pull_request][hook1][user][PR abc]: Invalid PR number"
+        )
+
+        entry = parser.parse_log_entry(log_line)
+
+        assert entry is not None
+        assert entry.pr_number is None  # Invalid PR number should be None
+
+    def test_extract_task_fields_with_escaped_brackets(self) -> None:
+        """Test extracting task fields with escaped brackets in values."""
+        parser = LogParser()
+        log_line = (
+            "2025-07-31T10:00:00.000000 GithubWebhook INFO "
+            "test-repo [pull_request][hook1][user]: "
+            "[task_id=test\\[id\\]] [task_type=ci\\]check] [task_status=started] Message"
+        )
+
+        entry = parser.parse_log_entry(log_line)
+
+        assert entry is not None
+        assert entry.task_id == "test[id]"  # Escaped brackets should be unescaped
+        assert entry.task_type == "ci]check"
+        assert entry.task_status == "started"
+        assert entry.message == "Message"
+
+    def test_extract_token_spend_with_invalid_number_in_pattern(self) -> None:
+        """Test token spend extraction when number conversion fails."""
+        parser = LogParser()
+        # This tests the ValueError exception handler in extract_token_spend
+        # Even though the pattern matches, if int() fails, it should return None
+        message = "Some message without valid token spend"
+
+        result = parser.extract_token_spend(message)
+
+        assert result is None
+
+    def test_parse_json_log_entry_type_error_timestamp(self) -> None:
+        """Test parsing JSON with non-string timestamp value (triggers AttributeError/TypeError)."""
+        parser = LogParser()
+        json_line = """{
+            "hook_id": "type-error",
+            "event_type": "push",
+            "repository": "org/repo",
+            "success": true,
+            "timing": {
+                "started_at": null
+            }
+        }"""
+
+        entry = parser.parse_json_log_entry(json_line)
+        assert entry is None
+
+    def test_parse_log_entry_naive_timestamp(self) -> None:
+        """Test parsing log entry with naive timestamp (no timezone)."""
+        parser = LogParser()
+        log_line = "2025-07-31T10:00:00.000000 GithubWebhook INFO test-repo [push][hook1][user]: Test"
+
+        entry = parser.parse_log_entry(log_line)
+
+        assert entry is not None
+        assert entry.timestamp.tzinfo is not None  # Should be timezone-aware
+
+    def test_filter_get_unique_values(self) -> None:
+        """Test LogFilter.get_unique_values method."""
+        log_filter = LogFilter()
+        entries = [
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 0, 0),
+                level="INFO",
+                logger_name="main",
+                message="msg1",
+                repository="org/repo1",
+            ),
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 1, 0),
+                level="DEBUG",
+                logger_name="main",
+                message="msg2",
+                repository="org/repo2",
+            ),
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 2, 0),
+                level="INFO",
+                logger_name="main",
+                message="msg3",
+                repository="org/repo1",
+            ),
+        ]
+
+        unique_repos = log_filter.get_unique_values(entries, "repository")
+        unique_levels = log_filter.get_unique_values(entries, "level")
+
+        assert sorted(unique_repos) == ["org/repo1", "org/repo2"]
+        assert sorted(unique_levels) == ["DEBUG", "INFO"]
+
+    def test_filter_get_entry_count_by_field(self) -> None:
+        """Test LogFilter.get_entry_count_by_field method."""
+        log_filter = LogFilter()
+        entries = [
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 0, 0),
+                level="INFO",
+                logger_name="main",
+                message="msg1",
+                event_type="push",
+            ),
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 1, 0),
+                level="DEBUG",
+                logger_name="main",
+                message="msg2",
+                event_type="pull_request",
+            ),
+            LogEntry(
+                timestamp=datetime.datetime(2025, 7, 31, 10, 2, 0),
+                level="INFO",
+                logger_name="main",
+                message="msg3",
+                event_type="push",
+            ),
+        ]
+
+        counts_by_event = log_filter.get_entry_count_by_field(entries, "event_type")
+        counts_by_level = log_filter.get_entry_count_by_field(entries, "level")
+
+        assert counts_by_event == {"push": 2, "pull_request": 1}
+        assert counts_by_level == {"INFO": 2, "DEBUG": 1}
+
+    @pytest.mark.asyncio
+    async def test_monitor_log_directory_with_rotated_files(self, tmp_path: Path) -> None:
+        """Test that monitor_log_directory ignores rotated log files."""
+        parser = LogParser()
+
+        # Create multiple log files including rotated ones
+        current_log = tmp_path / "app.log"
+        current_log.write_text("2025-07-31T10:00:00.000000 main INFO Initial entry\n")
+        (tmp_path / "app.log.1").write_text("2025-07-31T09:00:00.000000 main INFO Old entry\n")
+        (tmp_path / "app.log.2").write_text("2025-07-31T08:00:00.000000 main INFO Older entry\n")
+
+        entries = []
+
+        # Helper to collect entries from async generator
+        async def collect_entries(async_gen, max_entries=1):
+            count = 0
+            async for entry in async_gen:
+                entries.append(entry)
+                count += 1
+                if count >= max_entries:
+                    break
+
+        # Start monitoring task
+        monitor_task = asyncio.create_task(
+            collect_entries(parser.monitor_log_directory(tmp_path, pattern="*.log"), max_entries=1)
+        )
+
+        # Give the monitor a moment to start and seek to end of file
+        await asyncio.sleep(0.1)
+
+        # Append new content to the current log file (not rotated ones)
+        with open(current_log, "a") as f:
+            f.write("2025-07-31T10:01:00.000000 main INFO New entry after monitoring started\n")
+            f.flush()
+
+        # Wait for the monitor to collect the new entry with timeout
+        try:
+            await asyncio.wait_for(monitor_task, timeout=2.0)
+        except TimeoutError:
+            # Cancel the task and wait for it to complete
+            monitor_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await monitor_task
+
+        # Should have collected exactly 1 entry from the new content (not from rotated files)
+        assert len(entries) == 1
+        assert entries[0].message == "New entry after monitoring started"

@@ -10,7 +10,6 @@ from webhook_server.utils.helpers import (
     _redact_secrets,
     _sanitize_log_value,
     _truncate_output,
-    format_task_fields,
     run_command,
     strip_ansi_codes,
 )
@@ -85,82 +84,6 @@ class TestSanitizeLogValue:
         value = "clean_task_id_123"
         result = _sanitize_log_value(value)
         assert result == value  # No brackets, newlines, or returns to sanitize
-
-
-class TestFormatTaskFields:
-    """Test the format_task_fields function with sanitization."""
-
-    def test_format_task_fields_normal(self) -> None:
-        """Test normal task field formatting."""
-        result = format_task_fields(
-            task_id="check_tox",
-            task_type="ci_check",
-            task_status="started",
-        )
-        assert result == "[task_id=check_tox] [task_type=ci_check] [task_status=started]"
-
-    def test_format_task_fields_with_injection(self) -> None:
-        """Test task field formatting with injection attempt."""
-        # Try to inject additional fields via bracket manipulation
-        result = format_task_fields(
-            task_id="normal] [task_id=injected",
-            task_type="ci_check",
-            task_status="started",
-        )
-        # Brackets should be escaped to prevent injection
-        assert result == "[task_id=normal\\] \\[task_id=injected] [task_type=ci_check] [task_status=started]"
-
-    def test_format_task_fields_with_newlines(self) -> None:
-        """Test task field formatting with newline injection attempt."""
-        result = format_task_fields(
-            task_id="check_tox\nFAKE_LOG_ENTRY",
-            task_type="ci_check",
-            task_status="started",
-        )
-        # Newlines should be replaced with spaces
-        assert "\n" not in result
-        assert result == "[task_id=check_tox FAKE_LOG_ENTRY] [task_type=ci_check] [task_status=started]"
-
-    def test_format_task_fields_with_tabs_and_control_chars(self) -> None:
-        """Test task field formatting with tabs and control characters."""
-        result = format_task_fields(
-            task_id="check\ttox\x00test",
-            task_type="ci_check",
-            task_status="started",
-        )
-        # Note: Current implementation preserves tabs and control chars (only sanitizes \n, \r, and brackets)
-        # This test documents current behavior
-        assert isinstance(result, str)
-        assert "task_id=" in result
-        assert "task_type=ci_check" in result
-        assert "task_status=started" in result
-
-    def test_format_task_fields_partial(self) -> None:
-        """Test formatting with only some fields provided."""
-        result = format_task_fields(task_id="check_tox")
-        assert result == "[task_id=check_tox]"
-
-        result = format_task_fields(task_type="ci_check", task_status="started")
-        assert result == "[task_type=ci_check] [task_status=started]"
-
-    def test_format_task_fields_empty(self) -> None:
-        """Test formatting with no fields provided."""
-        result = format_task_fields()
-        assert result == ""
-
-    def test_format_task_fields_all_injections(self) -> None:
-        """Test formatting with injection attempts in all fields."""
-        result = format_task_fields(
-            task_id="id]\n[fake=field",
-            task_type="type]\r\n[fake=log",
-            task_status="status[bracket]test",
-        )
-        # All dangerous characters should be sanitized
-        assert "\n" not in result
-        assert "\r" not in result
-        # Brackets should be escaped
-        assert "\\[" in result
-        assert "\\]" in result
 
 
 class TestRedactSecrets:

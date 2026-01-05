@@ -8,11 +8,13 @@ from webhook_server.utils.constants import ADD_STR, APPROVE_STR
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
+    from webhook_server.utils.context import WebhookContext
 
 
 class PullRequestReviewHandler:
     def __init__(self, github_webhook: "GithubWebhook", owners_file_handler: OwnersFileHandler):
         self.github_webhook = github_webhook
+        self.ctx: WebhookContext | None = github_webhook.ctx
         self.owners_file_handler = owners_file_handler
 
         self.hook_data = self.github_webhook.hook_data
@@ -22,6 +24,9 @@ class PullRequestReviewHandler:
         self.github_webhook.logger.debug(f"{self.github_webhook.log_prefix} Initialized PullRequestReviewHandler")
 
     async def process_pull_request_review_webhook_data(self, pull_request: PullRequest) -> None:
+        if self.ctx:
+            self.ctx.start_step("pr_review_handler")
+
         if self.hook_data["action"] == "submitted":
             """
             Available actions:
@@ -52,3 +57,6 @@ class PullRequestReviewHandler:
                         remove=False,
                         reviewed_user=reviewed_user,
                     )
+
+        if self.ctx:
+            self.ctx.complete_step("pr_review_handler")

@@ -14,7 +14,7 @@ from github.PullRequest import PullRequest
 from github.Repository import Repository
 
 from webhook_server.utils.constants import COMMAND_ADD_ALLOWED_USER_STR, ROOT_APPROVERS_KEY
-from webhook_server.utils.helpers import format_task_fields, run_command
+from webhook_server.utils.helpers import run_command
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
@@ -406,30 +406,12 @@ class OwnersFileHandler:
     async def assign_reviewers(self, pull_request: PullRequest) -> None:
         self._ensure_initialized()
 
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'started')} "
-            f"Starting reviewer assignment based on OWNERS files",
-        )
         self.logger.info(f"{self.log_prefix} Assign reviewers")
 
         _to_add: list[str] = list(set(self.all_pull_request_reviewers))
         self.logger.debug(f"{self.log_prefix} Reviewers to add: {', '.join(_to_add)}")
 
-        if _to_add:
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'processing')} "
-                f"Assigning {len(_to_add)} reviewers to PR",
-            )
-        else:
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'processing')} "
-                f"No reviewers to assign",
-            )
-            # Log completion - task_status reflects the result of our action (no reviewers to assign is acceptable)
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'completed')} "
-                f"No reviewers to assign (completed)",
-            )
+        if not _to_add:
             return
 
         assigned_count = 0
@@ -439,34 +421,14 @@ class OwnersFileHandler:
                 self.logger.debug(f"{self.log_prefix} Adding reviewer {reviewer}")
                 try:
                     await asyncio.to_thread(pull_request.create_review_request, [reviewer])
-                    self.logger.step(  # type: ignore[attr-defined]
-                        f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'processing')} "
-                        f"Successfully assigned reviewer {reviewer}",
-                    )
                     assigned_count += 1
 
                 except GithubException as ex:
-                    self.logger.step(  # type: ignore[attr-defined]
-                        f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'failed')} "
-                        f"Failed to assign reviewer {reviewer}",
-                    )
                     self.logger.debug(f"{self.log_prefix} Failed to add reviewer {reviewer}. {ex}")
                     await asyncio.to_thread(
                         pull_request.create_issue_comment, f"{reviewer} can not be added as reviewer. {ex}"
                     )
                     failed_count += 1
-
-        # Log completion - task_status reflects the result of our action
-        if failed_count > 0:
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'failed')} "
-                f"Assigned {assigned_count} reviewers to PR ({failed_count} failed)",
-            )
-        else:
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'completed')} "
-                f"Assigned {assigned_count} reviewers to PR",
-            )
 
     async def is_user_valid_to_run_commands(self, pull_request: PullRequest, reviewed_user: str) -> bool:
         self._ensure_initialized()

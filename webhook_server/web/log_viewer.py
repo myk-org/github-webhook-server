@@ -533,6 +533,45 @@ class LogViewerController:
             log_prefix_parts.append(f"[PR {pr_number}]")
         return " ".join(log_prefix_parts) + ": " if log_prefix_parts else ""
 
+    def get_workflow_steps_json(self, hook_id: str) -> dict[str, Any]:
+        """Get workflow steps directly from JSON logs for a specific hook ID.
+
+        This is more efficient than parsing text logs since JSON logs contain
+        the full structured workflow data.
+
+        Args:
+            hook_id: The hook ID to get workflow steps for
+
+        Returns:
+            Dictionary with workflow steps from JSON log
+
+        Raises:
+            HTTPException: 404 if hook ID not found
+        """
+        try:
+            # Search JSON logs for this hook_id
+            for entry in self._stream_json_log_entries(max_files=25, max_entries=50000):
+                if entry.get("hook_id") == hook_id:
+                    # Found the entry - return structured workflow data
+                    return {
+                        "hook_id": hook_id,
+                        "event_type": entry.get("event_type"),
+                        "action": entry.get("action"),
+                        "repository": entry.get("repository"),
+                        "sender": entry.get("sender"),
+                        "pr": entry.get("pr"),
+                        "timing": entry.get("timing"),
+                        "steps": entry.get("workflow_steps", {}),
+                        "token_spend": entry.get("token_spend"),
+                        "success": entry.get("success"),
+                        "error": entry.get("error"),
+                    }
+
+            raise ValueError(f"No JSON log entry found for hook ID: {hook_id}")
+
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from e
+
     def get_workflow_steps(self, hook_id: str) -> dict[str, Any]:
         """Get workflow step timeline data for a specific hook ID.
 
@@ -546,6 +585,12 @@ class LogViewerController:
             HTTPException: 404 if no steps found for hook ID
         """
         try:
+            # First try JSON logs (more efficient and complete)
+            try:
+                return self.get_workflow_steps_json(hook_id)
+            except HTTPException:
+                # Fall back to text log parsing for backward compatibility
+                pass
             # Use streaming approach for memory efficiency
             filtered_entries: list[LogEntry] = []
 
@@ -694,6 +739,8 @@ class LogViewerController:
         This replaces _load_log_entries() to prevent memory exhaustion from loading
         all log files simultaneously. Uses lazy evaluation and chunked processing.
 
+        Supports both text log files (*.log) and JSON log files (webhooks_*.json).
+
         Args:
             max_files: Maximum number of log files to process (newest first)
             _chunk_size: Number of entries to yield per chunk from each file (unused, reserved for future)
@@ -708,10 +755,11 @@ class LogViewerController:
             self.logger.warning(f"Log directory not found: {log_dir}")
             return
 
-        # Find all log files including rotated ones (*.log, *.log.1, *.log.2, etc.)
+        # Find all log files including rotated ones and JSON files
         log_files: list[Path] = []
         log_files.extend(log_dir.glob("*.log"))
         log_files.extend(log_dir.glob("*.log.*"))
+        log_files.extend(log_dir.glob("webhooks_*.json"))
 
         # Sort log files to process in correct order (current log first, then rotated by number)
         def sort_key(f: Path) -> tuple:
@@ -744,7 +792,11 @@ class LogViewerController:
 
                 with open(log_file, encoding="utf-8") as f:
                     for line in f:
-                        entry = self.log_parser.parse_log_entry(line)
+                        # Use appropriate parser based on file type
+                        if log_file.suffix == ".json":
+                            entry = self.log_parser.parse_json_log_entry(line)
+                        else:
+                            entry = self.log_parser.parse_log_entry(line)
                         if entry:
                             buffer.append(entry)
 
@@ -758,6 +810,50 @@ class LogViewerController:
 
             except Exception as e:
                 self.logger.warning(f"Error streaming log file {log_file}: {e}")
+
+    def _stream_json_log_entries(self, max_files: int = 10, max_entries: int = 50000) -> Iterator[dict[str, Any]]:
+        """Stream raw JSON log entries from webhooks_*.json files.
+
+        Returns raw JSON dicts instead of LogEntry objects for access to full structured data.
+
+        Args:
+            max_files: Maximum number of log files to process (newest first)
+            max_entries: Maximum total entries to yield (safety limit)
+
+        Yields:
+            Raw JSON dictionaries from log files (newest first)
+        """
+        log_dir = self._get_log_directory()
+
+        if not log_dir.exists():
+            return
+
+        # Find JSON log files
+        json_files = list(log_dir.glob("webhooks_*.json"))
+        # Sort by modification time (newest first)
+        json_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+        json_files = json_files[:max_files]
+
+        total_yielded = 0
+
+        for log_file in json_files:
+            if total_yielded >= max_entries:
+                break
+
+            try:
+                with open(log_file, encoding="utf-8") as f:
+                    # Read lines in reverse for newest-first ordering
+                    lines = f.readlines()
+                    for line in reversed(lines):
+                        if total_yielded >= max_entries:
+                            break
+
+                        data = self.log_parser.get_raw_json_entry(line)
+                        if data:
+                            yield data
+                            total_yielded += 1
+            except Exception as e:
+                self.logger.warning(f"Error streaming JSON log file {log_file}: {e}")
 
     def _load_log_entries(self) -> list[LogEntry]:
         """Load log entries using streaming approach for memory efficiency.

@@ -3,8 +3,10 @@ import ipaddress
 import json
 import logging
 import os
+import traceback
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -37,13 +39,17 @@ from webhook_server.utils.app_utils import (
     gate_by_allowlist_ips,
     get_cloudflare_allowlist,
     get_github_allowlist,
+    get_workflow_steps_core,
+    log_webhook_summary,
     parse_datetime_string,
     verify_signature,
 )
+from webhook_server.utils.context import clear_context, create_context
 from webhook_server.utils.helpers import (
     get_logger_with_params,
     prepare_log_prefix,
 )
+from webhook_server.utils.structured_logger import write_webhook_log
 from webhook_server.web.log_viewer import LogViewerController
 
 # Constants
@@ -384,8 +390,19 @@ async def process_webhook(request: Request) -> JSONResponse:
             _delivery_id: GitHub delivery ID for logging
             _event_type: GitHub event type for logging
         """
-        # Create repository-specific logger in background
+        # Create structured logging context at the VERY START
         repository_name = _hook_data.get("repository", {}).get("name", "unknown")
+        repository_full_name = _hook_data.get("repository", {}).get("full_name", "unknown")
+        ctx = create_context(
+            hook_id=_delivery_id,
+            event_type=_event_type,
+            repository=repository_name,
+            repository_full_name=repository_full_name,
+            action=_hook_data.get("action"),
+            sender=_hook_data.get("sender", {}).get("login"),
+        )
+
+        # Create repository-specific logger
         _logger = get_logger_with_params(repository_name=repository_name)
         _log_context = prepare_log_prefix(
             event_type=_event_type, delivery_id=_delivery_id, repository_name=repository_name
@@ -402,12 +419,39 @@ async def process_webhook(request: Request) -> JSONResponse:
         except RepositoryNotFoundInConfigError:
             # Repository-specific error - not exceptional, log as error not exception
             _logger.error(f"{_log_context} Repository not found in configuration")
-        except (httpx.ConnectError, httpx.RequestError, requests.exceptions.ConnectionError):
+            ctx.success = False
+            ctx.error = {
+                "type": "RepositoryNotFoundInConfigError",
+                "message": "Repository not found in configuration",
+                "traceback": "",
+            }
+        except (httpx.ConnectError, httpx.RequestError, requests.exceptions.ConnectionError) as ex:
             # Network/connection errors - can be transient
             _logger.exception(f"{_log_context} API connection error - check network connectivity")
-        except Exception:
+            ctx.success = False
+            ctx.error = {
+                "type": type(ex).__name__,
+                "message": str(ex),
+                "traceback": traceback.format_exc(),
+            }
+        except Exception as ex:
             # Catch-all for unexpected errors
             _logger.exception(f"{_log_context} Unexpected error in background webhook processing")
+            ctx.success = False
+            ctx.error = {
+                "type": type(ex).__name__,
+                "message": str(ex),
+                "traceback": traceback.format_exc(),
+            }
+        finally:
+            # Set completion time and log summary from structured context
+            if ctx:
+                ctx.completed_at = datetime.now(UTC)
+                log_webhook_summary(ctx, _logger, _log_context)
+
+            # ALWAYS write the structured log, even on error
+            write_webhook_log(ctx)
+            clear_context()
 
     # Start background task immediately using asyncio.create_task
     # This ensures the HTTP response is sent immediately without waiting
@@ -853,14 +897,6 @@ async def get_pr_flow_data(hook_id: str, controller: LogViewerController = contr
     return await _get_pr_flow_data_core(controller=controller, hook_id=hook_id)
 
 
-async def _get_workflow_steps_core(
-    controller: LogViewerController,
-    hook_id: str,
-) -> dict[str, Any]:
-    """Core logic for getting workflow step timeline data for a specific hook ID."""
-    return controller.get_workflow_steps(hook_id)
-
-
 @FASTAPI_APP.get(
     "/logs/api/workflow-steps/{hook_id}",
     operation_id="get_workflow_steps",
@@ -1096,7 +1132,7 @@ async def get_workflow_steps(hook_id: str, controller: LogViewerController = con
     - Historical analysis is available for completed workflows
     - Real-time step data for in-progress workflows
     """
-    return await _get_workflow_steps_core(controller=controller, hook_id=hook_id)
+    return get_workflow_steps_core(controller=controller, hook_id=hook_id)
 
 
 @FASTAPI_APP.websocket("/logs/ws")
