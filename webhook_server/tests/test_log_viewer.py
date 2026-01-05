@@ -49,10 +49,11 @@ Remaining Uncovered Areas (158 lines):
 - Some error handling paths - edge cases in workflow step extraction
 """
 
+import asyncio
 import copy
 import datetime
 import json
-import time
+from collections.abc import AsyncIterator
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -246,7 +247,7 @@ class TestLogViewerJSONMethods:
         entry1["hook_id"] = "old-hook"
         self.create_json_log_file(log_dir, "webhooks_2025-01-01.json", [entry1])
 
-        time.sleep(0.01)  # Ensure different mtime
+        await asyncio.sleep(0.01)  # Ensure different mtime
 
         # Newer file
         entry2 = sample_json_webhook_data.copy()
@@ -496,7 +497,7 @@ class TestLogViewerJSONMethods:
         assert result["hook_id"] == "target-hook"
         assert result["pr"]["number"] == 200
 
-    async def test_stream_json_log_entries_pretty_printed_format(self, controller, tmp_path, sample_json_webhook_data):
+    async def test_stream_json_log_entries_pretty_printed_format(self, controller, tmp_path):
         """Test _stream_json_log_entries with JSONL format (one JSON object per line)."""
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
@@ -539,7 +540,12 @@ class TestLogViewerJSONMethods:
         assert entries[2]["hook_id"] == "hook-1"
 
     async def test_stream_log_entries_with_pretty_printed_json(self, controller, tmp_path):
-        """Test _stream_log_entries with pretty-printed JSON files."""
+        """Test _stream_log_entries with pretty-printed JSON files.
+
+        Note: Pretty-printed JSON with blank lines is NOT parseable by parse_json_log_entry
+        which expects JSONL format (one JSON object per line). Each line is parsed independently,
+        and multi-line JSON objects cause parsing failures. This test verifies graceful handling.
+        """
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
@@ -563,28 +569,33 @@ class TestLogViewerJSONMethods:
             }
             f.write(json.dumps(entry2, indent=2))
 
-        # Stream entries - just verify no errors and entries are produced
+        # Stream entries - pretty-printed JSON cannot be parsed line-by-line
         entries = [entry async for entry in controller._stream_log_entries(max_files=10, max_entries=100)]
 
-        # Should yield entries (exact count may vary based on parsing logic)
-        assert len(entries) >= 0  # At minimum, no crash
+        # No entries expected - pretty-printed JSON (multi-line) is not parseable by JSONL parser
+        assert len(entries) == 0, "Pretty-printed JSON should not parse (JSONL expects one JSON per line)"
 
     async def test_stream_log_entries_with_single_line_json(self, controller, tmp_path):
-        """Test _stream_log_entries with single-line JSON format."""
+        """Test _stream_log_entries with single-line JSON format.
+
+        Note: JSON entries without timing.started_at field will not parse
+        (parse_json_log_entry requires timestamp for LogEntry creation).
+        This test verifies graceful handling of incomplete JSON entries.
+        """
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
-        # Create single-line JSON log file
+        # Create single-line JSON log file without timing fields
         log_file = log_dir / "webhooks_2025-01-05.json"
         with open(log_file, "w", encoding="utf-8") as f:
             f.write('{"hook_id": "hook-1", "event_type": "pull_request", "repository": "org/repo"}\n')
             f.write('{"hook_id": "hook-2", "event_type": "check_run", "repository": "org/repo2"}\n')
 
-        # Stream entries - just verify no errors and entries are produced
+        # Stream entries - JSON without timing.started_at cannot be parsed
         entries = [entry async for entry in controller._stream_log_entries(max_files=10, max_entries=100)]
 
-        # Should yield entries (exact count may vary based on parsing logic)
-        assert len(entries) >= 0  # At minimum, no crash
+        # No entries expected - parse_json_log_entry requires timing.started_at field
+        assert len(entries) == 0, "JSON entries without timing.started_at should not parse"
 
     async def test_stream_log_entries_handles_file_read_errors(self, controller, tmp_path):
         """Test _stream_log_entries gracefully handles file read errors."""
@@ -678,27 +689,32 @@ class TestLogViewerJSONMethods:
         assert len(entries) == 3
 
     async def test_stream_log_entries_format_detection_early_exit(self, controller, tmp_path):
-        """Test that format detection exits early when blank line is found."""
+        """Test that format detection exits early when blank line is found.
+
+        Note: This test uses pretty-printed JSON without timing.started_at field,
+        which cannot be parsed into LogEntry objects. The test verifies that the
+        parser handles this gracefully without crashing.
+        """
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
         # Create JSON file with blank line in first 5 lines
         log_file = log_dir / "webhooks_2025-01-05.json"
         with open(log_file, "w", encoding="utf-8") as f:
-            # First entry (pretty-printed)
+            # First entry (pretty-printed, missing timing field)
             entry1 = {"hook_id": "hook-1"}
             f.write(json.dumps(entry1, indent=2))
             f.write("\n")
             f.write("\n")  # Blank line at line 4 - should trigger early exit
-            # Second entry
+            # Second entry (pretty-printed, missing timing field)
             entry2 = {"hook_id": "hook-2"}
             f.write(json.dumps(entry2, indent=2))
 
-        # Stream entries - just verify no errors
+        # Stream entries - pretty-printed JSON without timing cannot be parsed
         entries = [entry async for entry in controller._stream_log_entries(max_files=10, max_entries=100)]
 
-        # Should detect pretty-printed format without crashing
-        assert len(entries) >= 0  # At minimum, no crash
+        # No entries expected - JSON lacks timing.started_at and is pretty-printed (multi-line)
+        assert len(entries) == 0, "Pretty-printed JSON without timing.started_at should not parse"
 
     async def test_stream_log_entries_empty_json_file(self, controller, tmp_path):
         """Test _stream_log_entries with empty JSON file."""
@@ -857,8 +873,9 @@ class TestLogViewerGetLogEntries:
         # Return more entries than max_entries to trigger partial scan
         original_stream = controller._stream_log_entries
 
-        async def mock_stream(*args, **kwargs):
-            max_entries = kwargs.get("max_entries", 20000)
+        async def mock_stream(*args: object, **kwargs: object) -> AsyncIterator[LogEntry]:
+            max_entries_value = kwargs.get("max_entries", 20000)
+            max_entries = int(max_entries_value) if not isinstance(max_entries_value, int) else max_entries_value
             # Simulate hitting max by yielding exactly max_entries
             count = 0
             async for entry in original_stream(*args, **kwargs):
@@ -913,7 +930,7 @@ class TestLogViewerGetLogEntries:
         log_file.write_text("test")
 
         # Mock _stream_log_entries to raise OSError
-        async def mock_stream_error(*args, **kwargs):
+        async def mock_stream_error(*args: object, **kwargs: object) -> AsyncIterator[LogEntry]:
             raise OSError("Simulated file access error")
             yield  # Make it an async generator
 

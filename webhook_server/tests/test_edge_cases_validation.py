@@ -6,7 +6,7 @@ import datetime
 import os
 import tempfile
 import time
-from collections.abc import Generator
+from collections.abc import AsyncIterator, Generator
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -711,14 +711,14 @@ class TestAPIEndpointEdgeCases:
     async def test_api_with_malformed_parameters(self):
         """Test API behavior with malformed parameters."""
 
-        async def async_iter_empty():
-            return
-            yield  # Make this a generator function
+        async def async_iter_empty() -> AsyncIterator[LogEntry]:
+            if False:
+                yield  # Make this a generator function
 
         mock_logger = Mock()
         controller = LogViewerController(logger=mock_logger)
 
-        with patch.object(controller, "_stream_log_entries", return_value=async_iter_empty()):
+        with patch.object(controller, "_stream_log_entries", side_effect=lambda *a, **k: async_iter_empty()):
             with patch.object(controller, "_estimate_total_log_count", return_value=0):
                 # Test truly malformed parameters that should raise exceptions
                 invalid_params = [
@@ -763,11 +763,15 @@ class TestAPIEndpointEdgeCases:
             )
             large_entries.append(entry)
 
-        async def async_iter_wrapper(items):
+        async def async_iter_wrapper(items: list[LogEntry]) -> AsyncIterator[LogEntry]:
+            if False:
+                yield  # Make this a generator function
             for item in items:
                 yield item
 
-        with patch.object(controller, "_stream_log_entries", return_value=async_iter_wrapper(large_entries[:1000])):
+        with patch.object(
+            controller, "_stream_log_entries", side_effect=lambda *a, **k: async_iter_wrapper(large_entries[:1000])
+        ):
             # Test with default limit - the controller will process available entries and apply pagination
             result = await controller.get_log_entries()
             assert "entries" in result
@@ -883,14 +887,18 @@ class TestConcurrentUserScenarios:
             {"repository": "repo-2", "search": "500"},
         ]
 
-        async def user_request(controller, filters):
+        async def user_request(controller: LogViewerController, filters: dict) -> dict:
             """Simulate a user making a request."""
 
-            async def async_iter_wrapper(items):
+            async def async_iter_wrapper(items: list[LogEntry]) -> AsyncIterator[LogEntry]:
+                if False:
+                    yield  # Make this a generator function
                 for item in items:
                     yield item
 
-            with patch.object(controller, "_stream_log_entries", return_value=async_iter_wrapper(entries)):
+            with patch.object(
+                controller, "_stream_log_entries", side_effect=lambda *a, **k: async_iter_wrapper(entries)
+            ):
                 return await controller.get_log_entries(**filters)
 
         # Execute concurrent requests

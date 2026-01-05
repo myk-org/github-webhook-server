@@ -466,7 +466,7 @@ provides-extras = ["tests"]
 dev = [
     { name = "ipdb", specifier = ">=0.13.13" },
     { name = "ipython", specifier = ">=8.12.3" },
-    { name = "types-aiofiles", specifier = ">=24.1.0.20241221" },
+    { name = "types-aiofiles", specifier = ">=25.1.0.20251011" },
     { name = "types-colorama", specifier = ">=0.4.15.20240311" },
     { name = "types-pyyaml", specifier = ">=6.0.12.20250516" },
     { name = "types-requests", specifier = ">=2.32.4.20250611" },

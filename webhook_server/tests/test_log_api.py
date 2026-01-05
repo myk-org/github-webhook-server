@@ -188,7 +188,7 @@ class TestLogViewerController:
                     await controller.export_logs(format_type="json", limit=51000)
                 assert exc.value.status_code == 413
 
-    async def test_get_pr_flow_data_success(self, controller, sample_log_entries):
+    async def test_get_pr_flow_data_success(self, controller):
         """Test PR flow data retrieval."""
         # Create entries with matching hook_id
         matching_entries = [
@@ -213,7 +213,7 @@ class TestLogViewerController:
                 await controller.get_pr_flow_data("nonexistent")
             assert exc.value.status_code == 404
 
-    async def test_get_pr_flow_data_hook_prefix(self, controller, sample_log_entries):
+    async def test_get_pr_flow_data_hook_prefix(self, controller):
         """Test PR flow data with hook- prefix."""
         matching_entries = [
             LogEntry(
@@ -230,7 +230,7 @@ class TestLogViewerController:
                 result = await controller.get_pr_flow_data("hook-123")
                 assert result == {"test": "data"}
 
-    async def test_get_pr_flow_data_pr_prefix(self, controller, sample_log_entries):
+    async def test_get_pr_flow_data_pr_prefix(self, controller):
         """Test PR flow data with pr- prefix."""
         matching_entries = [
             LogEntry(
@@ -248,7 +248,7 @@ class TestLogViewerController:
                 result = await controller.get_pr_flow_data("pr-123")
                 assert result == {"test": "data"}
 
-    async def test_get_pr_flow_data_direct_number(self, controller, sample_log_entries):
+    async def test_get_pr_flow_data_direct_number(self, controller):
         """Test PR flow data with direct PR number."""
         matching_entries = [
             LogEntry(
@@ -266,7 +266,7 @@ class TestLogViewerController:
                 result = await controller.get_pr_flow_data("123")
                 assert result == {"test": "data"}
 
-    async def test_get_pr_flow_data_direct_hook_id(self, controller, sample_log_entries):
+    async def test_get_pr_flow_data_direct_hook_id(self, controller):
         """Test PR flow data with direct hook ID."""
         matching_entries = [
             LogEntry(

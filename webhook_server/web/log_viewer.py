@@ -1,5 +1,6 @@
 """Log viewer controller for serving log viewer web interface and API endpoints."""
 
+import asyncio
 import datetime
 import json
 import logging
@@ -209,6 +210,9 @@ class LogViewerController:
                 "is_partial_scan": total_processed >= max_entries_to_process,  # Indicates not all logs were scanned
             }
 
+        except asyncio.CancelledError:
+            self.logger.debug("Operation cancelled")
+            raise  # Always re-raise CancelledError
         except ValueError as e:
             self.logger.warning(f"Invalid parameters for log entries request: {e}")
             raise HTTPException(status_code=400, detail=str(e)) from e
@@ -366,6 +370,9 @@ class LogViewerController:
                 headers={"Content-Disposition": f"attachment; filename={filename}"},
             )
 
+        except asyncio.CancelledError:
+            self.logger.debug("Operation cancelled")
+            raise  # Always re-raise CancelledError
         except ValueError as e:
             if "Result set too large" in str(e):
                 self.logger.warning(f"Export request too large: {e}")
@@ -492,6 +499,9 @@ class LogViewerController:
             flow_data = self._analyze_pr_flow(filtered_entries, hook_id)
             return flow_data
 
+        except asyncio.CancelledError:
+            self.logger.debug("Operation cancelled")
+            raise  # Always re-raise CancelledError
         except ValueError as e:
             if "No data found" in str(e):
                 self.logger.warning(f"PR flow data not found: {e}")
@@ -562,7 +572,7 @@ class LogViewerController:
                         "sender": entry.get("sender"),
                         "pr": entry.get("pr"),
                         "timing": entry.get("timing"),
-                        "steps": entry.get("workflow_steps", {}),
+                        "steps": entry.get("workflow_steps") or {},
                         "token_spend": entry.get("token_spend"),
                         "success": entry.get("success"),
                         "error": entry.get("error"),
@@ -672,6 +682,9 @@ class LogViewerController:
                 timeline_data["token_spend"] = token_spend
             return timeline_data
 
+        except asyncio.CancelledError:
+            self.logger.debug("Operation cancelled")
+            raise  # Always re-raise CancelledError
         except ValueError as e:
             if "No data found" in str(e) or "No workflow steps found" in str(e):
                 self.logger.warning(f"Workflow steps not found: {e}")
@@ -813,6 +826,9 @@ class LogViewerController:
 
                 self.logger.debug(f"Streamed entries from {log_file.name}, total so far: {total_yielded}")
 
+            except asyncio.CancelledError:
+                self.logger.debug("Operation cancelled")
+                raise  # Always re-raise CancelledError
             except Exception as e:
                 self.logger.warning(f"Error streaming log file {log_file}: {e}")
 
@@ -867,6 +883,9 @@ class LogViewerController:
                     if data:
                         yield data
                         total_yielded += 1
+            except asyncio.CancelledError:
+                self.logger.debug("Operation cancelled")
+                raise  # Always re-raise CancelledError
             except Exception as e:
                 self.logger.warning(f"Error streaming JSON log file {log_file}: {e}")
 

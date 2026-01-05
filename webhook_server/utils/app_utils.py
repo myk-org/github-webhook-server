@@ -176,11 +176,11 @@ def log_webhook_summary(ctx: WebhookContext, logger: logging.Logger, log_prefix:
         raise ValueError("Context completed_at is None - context not completed")
     duration_ms = int((ctx.completed_at - ctx.started_at).total_seconds() * 1000)
 
-    # Build summary of workflow steps - all steps have duration_ms
+    # Build summary of workflow steps - handle incomplete steps gracefully
     steps_summary = []
     for step_name, step_data in ctx.workflow_steps.items():
-        status = step_data["status"]
-        step_duration_ms = step_data["duration_ms"]
+        status = step_data.get("status", "unknown")
+        step_duration_ms = step_data.get("duration_ms", 0)
         steps_summary.append(f"{step_name}:{status}({format_duration(step_duration_ms)})")
 
     steps_str = ", ".join(steps_summary) if steps_summary else "no steps recorded"
