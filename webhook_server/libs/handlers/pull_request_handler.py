@@ -782,6 +782,9 @@ For more information, please refer to the project documentation or contact the m
         Args:
             pull_request: The GitHub pull request object to label.
         """
+        if self.ctx:
+            self.ctx.start_step("label_merge_state")
+
         # Get current labels (single API call for optimization)
         current_labels = await self.labels_handler.pull_request_labels_names(pull_request=pull_request)
         has_conflicts_label_exists = HAS_CONFLICTS_LABEL_STR in current_labels
@@ -805,6 +808,8 @@ For more information, please refer to the project documentation or contact the m
                 )
                 await self.labels_handler._remove_label(pull_request=pull_request, label=NEEDS_REBASE_LABEL_STR)
 
+            if self.ctx:
+                self.ctx.complete_step("label_merge_state", has_conflicts=True, needs_rebase=False)
             return  # Exit early - conflicts take precedence
 
         # Step 2: No conflicts - remove has-conflicts label if present
@@ -823,6 +828,8 @@ For more information, please refer to the project documentation or contact the m
         compare_data = await self._compare_branches(base_ref=base_ref, head_ref_full=head_ref_full)
         if compare_data is None:
             self.logger.warning(f"{self.log_prefix} Compare API failed, skipping rebase label update")
+            if self.ctx:
+                self.ctx.complete_step("label_merge_state", compare_api_failed=True)
             return
 
         behind_by = compare_data.get("behind_by", 0)
@@ -841,6 +848,9 @@ For more information, please refer to the project documentation or contact the m
         elif not needs_rebase and needs_rebase_label_exists:
             self.logger.debug(f"{self.log_prefix} Removing {NEEDS_REBASE_LABEL_STR} label")
             await self.labels_handler._remove_label(pull_request=pull_request, label=NEEDS_REBASE_LABEL_STR)
+
+        if self.ctx:
+            self.ctx.complete_step("label_merge_state", has_conflicts=False, needs_rebase=needs_rebase)
 
     async def _process_verified_for_update_or_new_pull_request(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.verified_job:
