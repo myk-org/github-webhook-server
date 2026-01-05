@@ -434,7 +434,7 @@ class TestStructuredLogWriter:
         assert log_entry["error"]["type"] == "ExistingError"
         assert log_entry["error"]["message"] == "Original error"
 
-    @patch("webhook_server.utils.structured_logger.HAS_FCNTL", True)
+    @patch("webhook_server.utils.structured_logger.HAS_FCNTL", new=True)
     @patch("fcntl.flock")
     def test_write_error_log_uses_file_locking(self, mock_flock: Mock, log_writer: StructuredLogWriter) -> None:
         """Test write_error_log uses file locking when fcntl is available."""

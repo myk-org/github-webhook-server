@@ -397,9 +397,11 @@ class TestLogViewerJSONMethods:
             # Stream entries - should skip bad file and continue
             entries = list(controller._stream_json_log_entries(max_files=10, max_entries=100))
 
-            # Should still get the valid entry (or none if permission error blocks all)
-            # Depending on OS, this may yield 0 or 1 entry
-            assert len(entries) >= 0
+            # Validate that the generator returned a list without raising
+            assert isinstance(entries, list)
+            # Verify that the valid entry from sample_json_webhook_data is present
+            # Controller should skip the unreadable bad_file and still yield the expected JSON entry
+            assert any(e.get("hook_id") == "test-hook-123" for e in entries)
         finally:
             # Restore permissions for cleanup
             bad_file.chmod(0o644)

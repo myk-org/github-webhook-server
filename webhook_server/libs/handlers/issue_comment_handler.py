@@ -114,6 +114,9 @@ class IssueCommentHandler:
                 for idx, result in enumerate(results):
                     user_command = _user_commands[idx]
                     if isinstance(result, Exception):
+                        # Re-raise CancelledError immediately to allow cancellation to propagate
+                        if isinstance(result, asyncio.CancelledError):
+                            raise result
                         self.logger.error(f"{self.log_prefix} Command execution failed: /{user_command} - {result}")
                         failed_commands.append((user_command, result))
 
@@ -123,12 +126,20 @@ class IssueCommentHandler:
                     first_failed_command, first_exception = failed_commands[0]
                     error_msg = f"Command /{first_failed_command} failed: {first_exception}"
                     if self.ctx:
-                        self.ctx.fail_step("issue_comment_handler", first_exception, traceback.format_exc())
+                        # Format traceback from the actual exception object
+                        tb_lines = traceback.format_exception(
+                            type(first_exception), first_exception, first_exception.__traceback__
+                        )
+                        tb_str = "".join(tb_lines)
+                        self.ctx.fail_step("issue_comment_handler", first_exception, tb_str)
                     raise RuntimeError(error_msg) from first_exception
 
             if self.ctx:
                 self.ctx.complete_step("issue_comment_handler")
 
+        except asyncio.CancelledError:
+            # Always let cancellation propagate
+            raise
         except Exception as ex:
             # If step not already failed, mark it as failed
             if self.ctx and not self.ctx.workflow_steps.get("issue_comment_handler", {}).get("status") == "failed":

@@ -790,14 +790,30 @@ class LogViewerController:
                 buffer: deque[LogEntry] = deque(maxlen=remaining_capacity)
 
                 with open(log_file, encoding="utf-8") as f:
-                    for line in f:
-                        # Use appropriate parser based on file type
-                        if log_file.suffix == ".json":
-                            entry = self.log_parser.parse_json_log_entry(line)
+                    # Use appropriate parser based on file type
+                    if log_file.suffix == ".json":
+                        # JSON files: read content and detect format
+                        content = f.read()
+                        # Detect format: check if file contains blank line separators
+                        if "\n\n" in content:
+                            # Format 1: Pretty-printed JSON with blank line separators
+                            json_blocks = content.split("\n\n")
+                            for block in json_blocks:
+                                entry = self.log_parser.parse_json_log_entry(block)
+                                if entry:
+                                    buffer.append(entry)
                         else:
+                            # Format 2: Single-line JSON entries (one per line)
+                            for line in content.splitlines():
+                                entry = self.log_parser.parse_json_log_entry(line)
+                                if entry:
+                                    buffer.append(entry)
+                    else:
+                        # Text log files: parse line by line
+                        for line in f:
                             entry = self.log_parser.parse_log_entry(line)
-                        if entry:
-                            buffer.append(entry)
+                            if entry:
+                                buffer.append(entry)
 
                 for entry in reversed(buffer):
                     if total_yielded >= max_entries:
@@ -814,6 +830,7 @@ class LogViewerController:
         """Stream raw JSON log entries from webhooks_*.json files.
 
         Returns raw JSON dicts instead of LogEntry objects for access to full structured data.
+        Handles both single-line and multi-line JSON entries separated by blank lines.
 
         Args:
             max_files: Maximum number of log files to process (newest first)
@@ -841,17 +858,27 @@ class LogViewerController:
 
             try:
                 with open(log_file, encoding="utf-8") as f:
-                    # Stream lines into a bounded deque for memory efficiency
-                    remaining = max_entries - total_yielded
-                    # Use deque with maxlen to automatically discard oldest entries
-                    line_buffer = deque(f, maxlen=remaining)
+                    # Read file content
+                    content = f.read()
 
-                    # Process lines in reverse order (newest first)
-                    for line in reversed(line_buffer):
+                    # Detect format: check if file contains blank line separators
+                    if "\n\n" in content:
+                        # Format 1: Pretty-printed JSON with blank line separators
+                        json_blocks = content.split("\n\n")
+                    else:
+                        # Format 2: Single-line JSON entries (one per line)
+                        json_blocks = content.splitlines()
+
+                    # Use deque to limit entries for memory efficiency
+                    remaining = max_entries - total_yielded
+                    block_buffer = deque(json_blocks, maxlen=remaining)
+
+                    # Process blocks in reverse order (newest first)
+                    for block in reversed(block_buffer):
                         if total_yielded >= max_entries:
                             break
 
-                        data = self.log_parser.get_raw_json_entry(line)
+                        data = self.log_parser.get_raw_json_entry(block)
                         if data:
                             yield data
                             total_yielded += 1

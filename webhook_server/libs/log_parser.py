@@ -311,10 +311,14 @@ class LogParser:
         return entries
 
     def parse_json_log_entry(self, json_line: str) -> LogEntry | None:
-        """Parse a single JSON log line into a LogEntry object.
+        """Parse a JSON log entry (single-line or multi-line) into a LogEntry object.
+
+        Handles both formats:
+        - Single-line compact JSON: {"hook_id": "abc", ...}
+        - Multi-line pretty-printed JSON with indentation
 
         Args:
-            json_line: Raw JSON line string from webhooks_*.json files
+            json_line: Raw JSON string from webhooks_*.json files (may be multi-line)
 
         Returns:
             LogEntry object if parsing successful, None otherwise
@@ -400,6 +404,10 @@ class LogParser:
     def parse_json_log_file(self, file_path: Path) -> list[LogEntry]:
         """Parse a JSON log file and return list of LogEntry objects.
 
+        Handles two formats:
+        1. Pretty-printed multi-line JSON entries separated by blank lines (current format)
+        2. Single-line JSON entries separated by newlines (legacy format)
+
         Args:
             file_path: Path to the webhooks_*.json file
 
@@ -410,10 +418,22 @@ class LogParser:
 
         try:
             with open(file_path, encoding="utf-8") as f:
-                for line in f:
-                    entry = self.parse_json_log_entry(line)
-                    if entry:
-                        entries.append(entry)
+                content = f.read()
+
+                # Detect format: check if file contains blank line separators
+                if "\n\n" in content:
+                    # Format 1: Pretty-printed JSON with blank line separators
+                    json_blocks = content.split("\n\n")
+                    for block in json_blocks:
+                        entry = self.parse_json_log_entry(block)
+                        if entry:
+                            entries.append(entry)
+                else:
+                    # Format 2: Single-line JSON entries (one per line)
+                    for line in content.splitlines():
+                        entry = self.parse_json_log_entry(line)
+                        if entry:
+                            entries.append(entry)
         except OSError as e:
             self.logger.exception(f"Failed to read JSON log file {file_path}: {e}")
         except UnicodeDecodeError as e:
@@ -422,10 +442,14 @@ class LogParser:
         return entries
 
     def get_raw_json_entry(self, json_line: str) -> dict[str, Any] | None:
-        """Parse a JSON log line and return the raw dictionary.
+        """Parse a JSON log entry (single-line or multi-line) and return the raw dictionary.
+
+        Handles both formats:
+        - Single-line compact JSON: {"hook_id": "abc", ...}
+        - Multi-line pretty-printed JSON with indentation
 
         Args:
-            json_line: Raw JSON line string
+            json_line: Raw JSON string (may be multi-line)
 
         Returns:
             Parsed JSON dictionary, or None if parsing fails

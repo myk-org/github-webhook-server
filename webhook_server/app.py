@@ -454,8 +454,12 @@ async def process_webhook(request: Request) -> JSONResponse:
                 log_webhook_summary(ctx, _logger, _log_context)
 
             # ALWAYS write the structured log, even on error
-            write_webhook_log(ctx)
-            clear_context()
+            try:
+                write_webhook_log(ctx)
+            except Exception:
+                _logger.exception(f"{_log_context} Failed to write webhook log")
+            finally:
+                clear_context()
 
     # Start background task immediately using asyncio.create_task
     # This ensures the HTTP response is sent immediately without waiting
