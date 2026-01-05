@@ -30,6 +30,7 @@ RUN  dnf --nodocs --setopt=install_weak_deps=False --disable-repo=fedora-cisco-o
   npm \
   which \
   tini \
+  libffi-devel \
   && dnf clean all \
   && rm -rf /var/cache /var/log/dnf* /var/log/yum.* /var/lib/dnf /var/log/dnf.* /var/log/hawkey.log
 
