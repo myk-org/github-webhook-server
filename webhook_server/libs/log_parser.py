@@ -350,6 +350,15 @@ class LogParser:
         # Create summary message
         message = self._create_json_summary_message(data)
 
+        # Derive task_status from success field
+        success = data.get("success")
+        if success is True:
+            task_status = "completed"
+        elif success is False:
+            task_status = "failed"
+        else:
+            task_status = None
+
         return LogEntry(
             timestamp=timestamp,
             level="INFO",  # JSON logs don't have levels, default to INFO
@@ -362,7 +371,7 @@ class LogParser:
             github_user=data.get("api_user"),
             task_id=None,  # Not used in JSON format
             task_type=None,  # Not used in JSON format
-            task_status="completed" if data.get("success") else "failed",
+            task_status=task_status,
             token_spend=data.get("token_spend"),
         )
 
@@ -396,8 +405,10 @@ class LogParser:
             parts.append("- completed successfully")
         else:
             parts.append("- failed")
-            if data.get("error", {}).get("type"):
-                parts.append(f"({data['error']['type']})")
+            error = data.get("error")
+            error_type = error.get("type") if isinstance(error, dict) else None
+            if error_type:
+                parts.append(f"({error_type})")
 
         return " ".join(parts)
 

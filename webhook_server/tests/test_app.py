@@ -861,7 +861,8 @@ class TestWebhookApp:
     def test_get_log_viewer_page(self, client: TestClient) -> None:
         """Test get_log_viewer_page endpoint."""
         mock_instance = MagicMock()
-        mock_instance.get_log_page.return_value = "<html></html>"
+        # get_log_page is async, so use AsyncMock
+        mock_instance.get_log_page = AsyncMock(return_value="<html></html>")
 
         # Patch the singleton directly as controller_dependency captures reference to get_log_viewer_controller
         with patch("webhook_server.app._log_viewer_controller_singleton", mock_instance):
@@ -872,8 +873,8 @@ class TestWebhookApp:
     def test_get_log_entries(self, client: TestClient) -> None:
         """Test get_log_entries endpoint."""
         mock_instance = MagicMock()
-        # The controller returns a dict
-        mock_instance.get_log_entries.return_value = {"entries": []}
+        # get_log_entries is async, so use AsyncMock
+        mock_instance.get_log_entries = AsyncMock(return_value={"entries": []})
 
         with patch("webhook_server.app._log_viewer_controller_singleton", mock_instance):
             response = client.get("/logs/api/entries")
@@ -888,7 +889,8 @@ class TestWebhookApp:
         def iter_content():
             yield b"data"
 
-        mock_instance.export_logs.return_value = StreamingResponse(iter_content())
+        # export_logs is async, so use AsyncMock
+        mock_instance.export_logs = AsyncMock(return_value=StreamingResponse(iter_content()))
 
         with patch("webhook_server.app._log_viewer_controller_singleton", mock_instance):
             response = client.get("/logs/api/export?format_type=json")

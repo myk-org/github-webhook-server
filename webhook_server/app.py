@@ -520,9 +520,9 @@ controller_dependency = Depends(get_log_viewer_controller)
 if LOG_SERVER_ENABLED:
 
     @FASTAPI_APP.get("/logs", operation_id="get_log_viewer_page", response_class=HTMLResponse)
-    def get_log_viewer_page(controller: LogViewerController = controller_dependency) -> HTMLResponse:
+    async def get_log_viewer_page(controller: LogViewerController = controller_dependency) -> HTMLResponse:
         """Serve the main log viewer HTML page."""
-        return controller.get_log_page()
+        return await controller.get_log_page()
 
 
 async def _get_log_entries_core(
@@ -544,7 +544,7 @@ async def _get_log_entries_core(
     start_datetime = parse_datetime_string(start_time, "start_time")
     end_datetime = parse_datetime_string(end_time, "end_time")
 
-    return controller.get_log_entries(
+    return await controller.get_log_entries(
         hook_id=hook_id,
         pr_number=pr_number,
         repository=repository,
@@ -699,7 +699,7 @@ async def _export_logs_core(
     start_datetime = parse_datetime_string(start_time, "start_time")
     end_datetime = parse_datetime_string(end_time, "end_time")
 
-    return controller.export_logs(
+    return await controller.export_logs(
         format_type=format_type,
         hook_id=hook_id,
         pr_number=pr_number,
@@ -865,7 +865,7 @@ async def _get_pr_flow_data_core(
     hook_id: str,
 ) -> dict[str, Any]:
     """Core logic for getting PR flow visualization data for a specific hook ID."""
-    return controller.get_pr_flow_data(hook_id)
+    return await controller.get_pr_flow_data(hook_id)
 
 
 @FASTAPI_APP.get(
@@ -1140,7 +1140,7 @@ async def get_workflow_steps(hook_id: str, controller: LogViewerController = con
     - Historical analysis is available for completed workflows
     - Real-time step data for in-progress workflows
     """
-    return get_workflow_steps_core(controller=controller, hook_id=hook_id)
+    return await get_workflow_steps_core(controller=controller, hook_id=hook_id)
 
 
 @FASTAPI_APP.websocket("/logs/ws")

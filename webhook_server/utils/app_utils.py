@@ -196,7 +196,7 @@ def log_webhook_summary(ctx: WebhookContext, logger: logging.Logger, log_prefix:
     )
 
 
-def get_workflow_steps_core(
+async def get_workflow_steps_core(
     controller: LogViewerController,
     hook_id: str,
 ) -> dict[str, Any]:
@@ -209,4 +209,4 @@ def get_workflow_steps_core(
     Returns:
         dict containing workflow step timeline data
     """
-    return controller.get_workflow_steps(hook_id)
+    return await controller.get_workflow_steps(hook_id)

@@ -19,6 +19,12 @@ from webhook_server.libs.log_parser import LogEntry
 from webhook_server.web.log_viewer import LogViewerController
 
 
+async def async_generator_from_list(items: list):
+    """Helper to convert a list to an async generator for testing."""
+    for item in items:
+        yield item
+
+
 class TestLogViewerController:
     """Test cases for LogViewerController class methods."""
 
@@ -73,85 +79,93 @@ class TestLogViewerController:
             ),
         ]
 
-    def test_get_log_page_success(self, controller):
+    async def test_get_log_page_success(self, controller):
         """Test successful log page generation."""
         with patch.object(controller, "_get_log_viewer_html", return_value="<html>Test</html>"):
-            response = controller.get_log_page()
+            response = await controller.get_log_page()
             assert response.status_code == 200
             assert "Test" in response.body.decode()
 
-    def test_get_log_page_file_not_found(self, controller):
+    async def test_get_log_page_file_not_found(self, controller):
         """Test log page when template file not found - should return fallback HTML."""
         # _get_log_viewer_html now returns fallback HTML instead of raising FileNotFoundError
         with patch.object(controller, "_get_log_viewer_html", return_value="<html>fallback</html>"):
-            result = controller.get_log_page()
+            result = await controller.get_log_page()
             assert isinstance(result, HTMLResponse)
             assert result.body.decode() == "<html>fallback</html>"
 
-    def test_get_log_page_error(self, controller):
+    async def test_get_log_page_error(self, controller):
         """Test log page with generic error."""
         with patch.object(controller, "_get_log_viewer_html", side_effect=Exception("Test error")):
             with pytest.raises(HTTPException) as exc:
-                controller.get_log_page()
+                await controller.get_log_page()
             assert exc.value.status_code == 500
 
-    def test_get_log_entries_success(self, controller, sample_log_entries):
+    async def test_get_log_entries_success(self, controller, sample_log_entries):
         """Test successful log entries retrieval."""
-        with patch.object(controller, "_stream_log_entries", return_value=sample_log_entries):
-            result = controller.get_log_entries()
+        with patch.object(
+            controller, "_stream_log_entries", return_value=async_generator_from_list(sample_log_entries)
+        ):
+            result = await controller.get_log_entries()
             assert "entries" in result
             assert result["entries_processed"] == 3
             assert len(result["entries"]) == 3
 
-    def test_get_log_entries_with_filters(self, controller, sample_log_entries):
+    async def test_get_log_entries_with_filters(self, controller, sample_log_entries):
         """Test log entries with filters applied."""
-        with patch.object(controller, "_stream_log_entries", return_value=sample_log_entries):
-            result = controller.get_log_entries(hook_id="hook1", level="INFO")
+        with patch.object(
+            controller, "_stream_log_entries", return_value=async_generator_from_list(sample_log_entries)
+        ):
+            result = await controller.get_log_entries(hook_id="hook1", level="INFO")
             assert "entries" in result
 
-    def test_get_log_entries_with_pagination(self, controller, sample_log_entries):
+    async def test_get_log_entries_with_pagination(self, controller, sample_log_entries):
         """Test log entries with pagination."""
-        with patch.object(controller, "_stream_log_entries", return_value=sample_log_entries):
-            result = controller.get_log_entries(limit=2, offset=1)
+        with patch.object(
+            controller, "_stream_log_entries", return_value=async_generator_from_list(sample_log_entries)
+        ):
+            result = await controller.get_log_entries(limit=2, offset=1)
             assert result["limit"] == 2
             assert result["offset"] == 1
 
-    def test_get_log_entries_invalid_limit(self, controller):
+    async def test_get_log_entries_invalid_limit(self, controller):
         """Test log entries with invalid limit."""
         with pytest.raises(HTTPException) as exc:
-            controller.get_log_entries(limit=0)
+            await controller.get_log_entries(limit=0)
         assert exc.value.status_code == 400
 
-    def test_get_log_entries_file_error(self, controller):
+    async def test_get_log_entries_file_error(self, controller):
         """Test log entries with file access error."""
         with patch.object(controller, "_stream_log_entries", side_effect=OSError("Permission denied")):
             with pytest.raises(HTTPException) as exc:
-                controller.get_log_entries()
+                await controller.get_log_entries()
             assert exc.value.status_code == 500
 
-    def test_export_logs_json(self, controller, sample_log_entries):
+    async def test_export_logs_json(self, controller, sample_log_entries):
         """Test JSON export functionality."""
-        with patch.object(controller, "_stream_log_entries", return_value=sample_log_entries):
-            result = controller.export_logs(format_type="json")
+        with patch.object(
+            controller, "_stream_log_entries", return_value=async_generator_from_list(sample_log_entries)
+        ):
+            result = await controller.export_logs(format_type="json")
             # This should return a StreamingResponse, not a JSON string
             assert hasattr(result, "status_code")
             assert result.status_code == 200
 
-    def test_export_logs_invalid_format(self, controller):
+    async def test_export_logs_invalid_format(self, controller):
         """Test export with invalid format."""
-        with patch.object(controller, "_stream_log_entries", return_value=[]):
+        with patch.object(controller, "_stream_log_entries", return_value=async_generator_from_list([])):
             with pytest.raises(HTTPException) as exc:
-                controller.export_logs(format_type="xml")
+                await controller.export_logs(format_type="xml")
             assert exc.value.status_code == 400
 
-    def test_export_logs_result_too_large(self, controller):
+    async def test_export_logs_result_too_large(self, controller):
         """Test export with result set too large."""
-        with patch.object(controller, "_stream_log_entries", return_value=[]):
+        with patch.object(controller, "_stream_log_entries", return_value=async_generator_from_list([])):
             with pytest.raises(HTTPException) as exc:
-                controller.export_logs(format_type="json", limit=60000)
+                await controller.export_logs(format_type="json", limit=60000)
             assert exc.value.status_code == 413
 
-    def test_export_logs_filtered_entries_too_large(self, controller):
+    async def test_export_logs_filtered_entries_too_large(self, controller):
         """Test export when filtered entries exceed limit."""
         # Create a large list of entries that will all match filters
         large_entries = [
@@ -166,15 +180,15 @@ class TestLogViewerController:
         ]
 
         # Mock stream_log_entries to return many entries
-        with patch.object(controller, "_stream_log_entries", return_value=large_entries):
+        with patch.object(controller, "_stream_log_entries", return_value=async_generator_from_list(large_entries)):
             # Mock _entry_matches_filters to always return True so all entries are included
             with patch.object(controller, "_entry_matches_filters", return_value=True):
                 with pytest.raises(HTTPException) as exc:
                     # Call with a limit that would exceed 50000 to trigger the error
-                    controller.export_logs(format_type="json", limit=51000)
+                    await controller.export_logs(format_type="json", limit=51000)
                 assert exc.value.status_code == 413
 
-    def test_get_pr_flow_data_success(self, controller, sample_log_entries):
+    async def test_get_pr_flow_data_success(self, controller, sample_log_entries):
         """Test PR flow data retrieval."""
         # Create entries with matching hook_id
         matching_entries = [
@@ -187,19 +201,19 @@ class TestLogViewerController:
             )
         ]
 
-        with patch.object(controller, "_stream_log_entries", return_value=matching_entries):
+        with patch.object(controller, "_stream_log_entries", return_value=async_generator_from_list(matching_entries)):
             with patch.object(controller, "_analyze_pr_flow", return_value={"test": "data"}):
-                result = controller.get_pr_flow_data("test-hook-id")
+                result = await controller.get_pr_flow_data("test-hook-id")
                 assert result == {"test": "data"}
 
-    def test_get_pr_flow_data_not_found(self, controller):
+    async def test_get_pr_flow_data_not_found(self, controller):
         """Test PR flow data when not found."""
-        with patch.object(controller, "_stream_log_entries", return_value=[]):
+        with patch.object(controller, "_stream_log_entries", return_value=async_generator_from_list([])):
             with pytest.raises(HTTPException) as exc:
-                controller.get_pr_flow_data("nonexistent")
+                await controller.get_pr_flow_data("nonexistent")
             assert exc.value.status_code == 404
 
-    def test_get_pr_flow_data_hook_prefix(self, controller, sample_log_entries):
+    async def test_get_pr_flow_data_hook_prefix(self, controller, sample_log_entries):
         """Test PR flow data with hook- prefix."""
         matching_entries = [
             LogEntry(
@@ -211,12 +225,12 @@ class TestLogViewerController:
             )
         ]
 
-        with patch.object(controller, "_stream_log_entries", return_value=matching_entries):
+        with patch.object(controller, "_stream_log_entries", return_value=async_generator_from_list(matching_entries)):
             with patch.object(controller, "_analyze_pr_flow", return_value={"test": "data"}):
-                result = controller.get_pr_flow_data("hook-123")
+                result = await controller.get_pr_flow_data("hook-123")
                 assert result == {"test": "data"}
 
-    def test_get_pr_flow_data_pr_prefix(self, controller, sample_log_entries):
+    async def test_get_pr_flow_data_pr_prefix(self, controller, sample_log_entries):
         """Test PR flow data with pr- prefix."""
         matching_entries = [
             LogEntry(
@@ -229,12 +243,12 @@ class TestLogViewerController:
             )
         ]
 
-        with patch.object(controller, "_stream_log_entries", return_value=matching_entries):
+        with patch.object(controller, "_stream_log_entries", return_value=async_generator_from_list(matching_entries)):
             with patch.object(controller, "_analyze_pr_flow", return_value={"test": "data"}):
-                result = controller.get_pr_flow_data("pr-123")
+                result = await controller.get_pr_flow_data("pr-123")
                 assert result == {"test": "data"}
 
-    def test_get_pr_flow_data_direct_number(self, controller, sample_log_entries):
+    async def test_get_pr_flow_data_direct_number(self, controller, sample_log_entries):
         """Test PR flow data with direct PR number."""
         matching_entries = [
             LogEntry(
@@ -247,12 +261,12 @@ class TestLogViewerController:
             )
         ]
 
-        with patch.object(controller, "_stream_log_entries", return_value=matching_entries):
+        with patch.object(controller, "_stream_log_entries", return_value=async_generator_from_list(matching_entries)):
             with patch.object(controller, "_analyze_pr_flow", return_value={"test": "data"}):
-                result = controller.get_pr_flow_data("123")
+                result = await controller.get_pr_flow_data("123")
                 assert result == {"test": "data"}
 
-    def test_get_pr_flow_data_direct_hook_id(self, controller, sample_log_entries):
+    async def test_get_pr_flow_data_direct_hook_id(self, controller, sample_log_entries):
         """Test PR flow data with direct hook ID."""
         matching_entries = [
             LogEntry(
@@ -264,12 +278,12 @@ class TestLogViewerController:
             )
         ]
 
-        with patch.object(controller, "_stream_log_entries", return_value=matching_entries):
+        with patch.object(controller, "_stream_log_entries", return_value=async_generator_from_list(matching_entries)):
             with patch.object(controller, "_analyze_pr_flow", return_value={"test": "data"}):
-                result = controller.get_pr_flow_data("abc123-def456")
+                result = await controller.get_pr_flow_data("abc123-def456")
                 assert result == {"test": "data"}
 
-    def test_get_workflow_steps_success(self, controller, sample_log_entries):
+    async def test_get_workflow_steps_success(self, controller, sample_log_entries):
         """Test workflow steps retrieval."""
         workflow_steps = [
             LogEntry(
@@ -281,13 +295,18 @@ class TestLogViewerController:
             )
         ]
 
-        with patch.object(controller, "_stream_log_entries", return_value=sample_log_entries):
+        with patch.object(
+            controller, "_stream_log_entries", return_value=async_generator_from_list(sample_log_entries)
+        ):
             with patch.object(controller.log_parser, "extract_workflow_steps", return_value=workflow_steps):
                 with patch.object(controller, "_build_workflow_timeline", return_value={"test": "data"}):
-                    result = controller.get_workflow_steps("hook1")
-                    assert result == {"test": "data"}
+                    with patch.object(
+                        controller, "get_workflow_steps_json", side_effect=HTTPException(status_code=404)
+                    ):
+                        result = await controller.get_workflow_steps("hook1")
+                        assert result == {"test": "data"}
 
-    def test_get_workflow_steps_with_token_spend(self, controller):
+    async def test_get_workflow_steps_with_token_spend(self, controller):
         """Test workflow steps with token spend logging."""
         hook_id = "test-hook-123"
         entries_with_context = [
@@ -317,18 +336,23 @@ class TestLogViewerController:
         ]
         workflow_steps = [entries_with_context[0]]
 
-        with patch.object(controller, "_stream_log_entries", return_value=entries_with_context):
+        with patch.object(
+            controller, "_stream_log_entries", return_value=async_generator_from_list(entries_with_context)
+        ):
             with patch.object(controller.log_parser, "extract_workflow_steps", return_value=workflow_steps):
                 with patch.object(controller, "_build_workflow_timeline", return_value={"test": "data"}):
-                    result = controller.get_workflow_steps(hook_id)
-                    assert result == {"test": "data", "token_spend": 25}
-                    # Verify logger.info was called with structured format
-                    assert controller.logger.info.called
-                    call_args = controller.logger.info.call_args[0][0]
-                    assert hook_id in call_args
-                    assert "test-repo" in call_args or "[pull_request]" in call_args
+                    with patch.object(
+                        controller, "get_workflow_steps_json", side_effect=HTTPException(status_code=404)
+                    ):
+                        result = await controller.get_workflow_steps(hook_id)
+                        assert result == {"test": "data", "token_spend": 25}
+                        # Verify logger.info was called with structured format
+                        assert controller.logger.info.called
+                        call_args = controller.logger.info.call_args[0][0]
+                        assert hook_id in call_args
+                        assert "test-repo" in call_args or "[pull_request]" in call_args
 
-    def test_get_workflow_steps_token_spend_extraction_fallback(self, controller):
+    async def test_get_workflow_steps_token_spend_extraction_fallback(self, controller):
         """Test token spend extraction fallback when token_spend is None."""
         hook_id = "test-hook-456"
         entries_with_keywords = [
@@ -358,17 +382,22 @@ class TestLogViewerController:
         ]
         workflow_steps = [entries_with_keywords[0]]
 
-        with patch.object(controller, "_stream_log_entries", return_value=entries_with_keywords):
+        with patch.object(
+            controller, "_stream_log_entries", return_value=async_generator_from_list(entries_with_keywords)
+        ):
             with patch.object(controller.log_parser, "extract_workflow_steps", return_value=workflow_steps):
                 with patch.object(controller.log_parser, "extract_token_spend", return_value=30):
                     with patch.object(controller, "_build_workflow_timeline", return_value={"test": "data"}):
-                        result = controller.get_workflow_steps(hook_id)
-                        assert result == {"test": "data", "token_spend": 30}
-                        # Verify logger.warning and logger.info were called
-                        assert controller.logger.warning.called
-                        assert controller.logger.info.called
+                        with patch.object(
+                            controller, "get_workflow_steps_json", side_effect=HTTPException(status_code=404)
+                        ):
+                            result = await controller.get_workflow_steps(hook_id)
+                            assert result == {"test": "data", "token_spend": 30}
+                            # Verify logger.warning and logger.info were called
+                            assert controller.logger.warning.called
+                            assert controller.logger.info.called
 
-    def test_get_workflow_steps_token_spend_no_context(self, controller):
+    async def test_get_workflow_steps_token_spend_no_context(self, controller):
         """Test token spend logging when context is missing."""
         hook_id = "test-hook-789"
         entries_minimal = [
@@ -387,22 +416,26 @@ class TestLogViewerController:
         ]
         workflow_steps = [entries_minimal[0]]
 
-        with patch.object(controller, "_stream_log_entries", return_value=entries_minimal):
+        with patch.object(controller, "_stream_log_entries", return_value=async_generator_from_list(entries_minimal)):
             with patch.object(controller.log_parser, "extract_workflow_steps", return_value=workflow_steps):
                 with patch.object(controller, "_build_workflow_timeline", return_value={"test": "data"}):
-                    result = controller.get_workflow_steps(hook_id)
-                    assert result == {"test": "data", "token_spend": 15}
-                    # Should still log even without full context
-                    assert controller.logger.info.called
+                    with patch.object(
+                        controller, "get_workflow_steps_json", side_effect=HTTPException(status_code=404)
+                    ):
+                        result = await controller.get_workflow_steps(hook_id)
+                        assert result == {"test": "data", "token_spend": 15}
+                        # Should still log even without full context
+                        assert controller.logger.info.called
 
-    def test_get_workflow_steps_not_found(self, controller):
+    async def test_get_workflow_steps_not_found(self, controller):
         """Test workflow steps when not found."""
-        with patch.object(controller, "_stream_log_entries", return_value=[]):
-            with pytest.raises(HTTPException) as exc:
-                controller.get_workflow_steps("nonexistent")
-            assert exc.value.status_code == 404
+        with patch.object(controller, "_stream_log_entries", return_value=async_generator_from_list([])):
+            with patch.object(controller, "get_workflow_steps_json", side_effect=HTTPException(status_code=404)):
+                with pytest.raises(HTTPException) as exc:
+                    await controller.get_workflow_steps("nonexistent")
+                assert exc.value.status_code == 404
 
-    def test_stream_log_entries_success(self, controller):
+    async def test_stream_log_entries_success(self, controller):
         """Test log entries loading."""
         mock_config = Mock()
         mock_config.data_dir = "/test"
@@ -423,10 +456,10 @@ class TestLogViewerController:
             mock_path.return_value = mock_path_instance
 
             with patch.object(controller.log_parser, "parse_log_file", return_value=[]):
-                result = list(controller._stream_log_entries())
+                result = [entry async for entry in controller._stream_log_entries()]
                 assert isinstance(result, list)
 
-    def test_stream_log_entries_no_directory(self, controller):
+    async def test_stream_log_entries_no_directory(self, controller):
         """Test log entries loading when directory doesn't exist."""
         mock_config = Mock()
         mock_config.data_dir = "/test"
@@ -437,10 +470,10 @@ class TestLogViewerController:
             mock_path_instance.exists.return_value = False
             mock_path.return_value = mock_path_instance
 
-            result = list(controller._stream_log_entries())
+            result = [entry async for entry in controller._stream_log_entries()]
             assert result == []
 
-    def test_stream_log_entries_file_read_error(self, controller):
+    async def test_stream_log_entries_file_read_error(self, controller):
         """Test log entries loading with file read error."""
         mock_config = Mock()
         mock_config.data_dir = "/test"
@@ -463,7 +496,7 @@ class TestLogViewerController:
 
             # Mock open() to raise file read error when reading file
             with patch("builtins.open", side_effect=Exception("File read error")):
-                result = list(controller._stream_log_entries())
+                result = [entry async for entry in controller._stream_log_entries()]
                 # Should return empty list due to exception handling
                 assert isinstance(result, list)
                 # Verify logger.warning was called for the error
@@ -641,11 +674,15 @@ class TestLogAPI:
 
     def test_get_logs_page(self) -> None:
         """Test serving the main log viewer HTML page."""
-        with patch("webhook_server.web.log_viewer.LogViewerController") as mock_controller:
+        # Patch the singleton getter function instead of the class
+        with patch("webhook_server.app.get_log_viewer_controller") as mock_get_controller:
             mock_instance = Mock()
-            mock_controller.return_value = mock_instance
+            mock_get_controller.return_value = mock_instance
 
-            mock_instance.get_log_page.return_value = HTMLResponse(content="<html><body>Log Viewer</body></html>")
+            # get_log_page is now async, so use AsyncMock
+            mock_instance.get_log_page = AsyncMock(
+                return_value=HTMLResponse(content="<html><body>Log Viewer</body></html>")
+            )
             mock_instance.shutdown = AsyncMock()  # Add async shutdown method
 
             # Mock httpx.AsyncClient to prevent SSL errors during lifespan startup
@@ -1299,7 +1336,7 @@ class TestWorkflowStepsAPI:
 
         # Create a mock instance and configure its return value
         mock_instance = Mock()
-        mock_instance.get_workflow_steps.return_value = mock_workflow_data
+        mock_instance.get_workflow_steps = AsyncMock(return_value=mock_workflow_data)
         mock_instance.shutdown = AsyncMock()  # Add async shutdown method
 
         # Mock httpx.AsyncClient to prevent SSL errors during lifespan startup
@@ -1342,7 +1379,7 @@ class TestWorkflowStepsAPI:
 
         # Create a mock instance and configure its return value
         mock_instance = Mock()
-        mock_instance.get_workflow_steps.return_value = mock_workflow_data
+        mock_instance.get_workflow_steps = AsyncMock(return_value=mock_workflow_data)
         mock_instance.shutdown = AsyncMock()  # Add async shutdown method
 
         # Mock httpx.AsyncClient to prevent SSL errors during lifespan startup
