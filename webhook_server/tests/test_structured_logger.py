@@ -189,7 +189,7 @@ class TestStructuredLogWriter:
     def test_write_log_multiple_entries_append(
         self, log_writer: StructuredLogWriter, sample_context: WebhookContext, tmp_path: Path
     ) -> None:
-        """Test multiple writes append to same file (pretty-printed format)."""
+        """Test multiple writes append to same file (JSONL format)."""
         # Arrange
         context2 = WebhookContext(
             hook_id="test-hook-456",
@@ -207,12 +207,12 @@ class TestStructuredLogWriter:
         with open(log_file) as f:
             content = f.read().strip()
 
-        # Split by double newline to separate pretty-printed JSON entries
-        json_blocks = content.split("\n\n")
-        assert len(json_blocks) == 2
+        # Split by single newline to separate JSONL entries
+        json_lines = content.split("\n")
+        assert len(json_lines) == 2
 
-        entry1 = json.loads(json_blocks[0])
-        entry2 = json.loads(json_blocks[1])
+        entry1 = json.loads(json_lines[0])
+        entry2 = json.loads(json_lines[1])
 
         assert entry1["hook_id"] == "test-hook-123"
         assert entry2["hook_id"] == "test-hook-456"

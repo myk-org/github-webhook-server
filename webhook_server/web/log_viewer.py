@@ -740,7 +740,7 @@ class LogViewerController:
         This replaces _load_log_entries() to prevent memory exhaustion from loading
         all log files simultaneously. Uses lazy evaluation and chunked processing.
 
-        Supports both text log files (*.log) and JSON log files (webhooks_*.json).
+        Supports both text log files (*.log) and JSONL log files (webhooks_*.json).
 
         Args:
             max_files: Maximum number of log files to process (newest first)
@@ -793,51 +793,11 @@ class LogViewerController:
                 async with aiofiles.open(log_file, encoding="utf-8") as f:
                     # Use appropriate parser based on file type
                     if log_file.suffix == ".json":
-                        # JSON files: stream incrementally without loading entire file
-                        # Detect format by reading first few lines
-                        first_lines = []
-                        for _ in range(20):
-                            line = await f.readline()
-                            if not line:
-                                break
-                            first_lines.append(line)
-                            # Early exit if we find a blank line
-                            if not line.strip():
-                                break
-
-                        # Check if format uses blank line separators (pretty-printed JSON)
-                        has_blank_lines = any(line.strip() == "" for line in first_lines)
-
-                        # Reset file pointer to beginning
-                        await f.seek(0)
-
-                        if has_blank_lines:
-                            # Format 1: Pretty-printed JSON with blank line separators
-                            # Stream blocks incrementally
-                            current_block_lines: list[str] = []
-                            async for line in f:
-                                line_content = line.rstrip("\n")  # Preserve original for JSON content
-                                if not line.strip():  # Check if line is blank/whitespace-only
-                                    if current_block_lines:
-                                        block = "\n".join(current_block_lines)
-                                        entry = self.log_parser.parse_json_log_entry(block)
-                                        if entry:
-                                            buffer.append(entry)
-                                        current_block_lines = []
-                                else:
-                                    current_block_lines.append(line_content)
-                            # Handle last block (no trailing blank line)
-                            if current_block_lines:
-                                block = "\n".join(current_block_lines)
-                                entry = self.log_parser.parse_json_log_entry(block)
-                                if entry:
-                                    buffer.append(entry)
-                        else:
-                            # Format 2: Single-line JSON entries (one per line)
-                            async for line in f:
-                                entry = self.log_parser.parse_json_log_entry(line)
-                                if entry:
-                                    buffer.append(entry)
+                        # JSONL files: one compact JSON object per line
+                        async for line in f:
+                            entry = self.log_parser.parse_json_log_entry(line)
+                            if entry:
+                                buffer.append(entry)
                     else:
                         # Text log files: parse line by line
                         async for line in f:
@@ -862,7 +822,7 @@ class LogViewerController:
         """Stream raw JSON log entries from webhooks_*.json files.
 
         Returns raw JSON dicts instead of LogEntry objects for access to full structured data.
-        Handles both single-line and multi-line JSON entries separated by blank lines.
+        Reads JSONL format (one JSON object per line).
 
         Args:
             max_files: Maximum number of log files to process (newest first)
@@ -889,56 +849,21 @@ class LogViewerController:
                 break
 
             try:
-                # Stream JSON entries incrementally without loading entire file
+                # Stream JSONL entries incrementally without loading entire file
                 remaining = max_entries - total_yielded
-                block_buffer: deque[str] = deque(maxlen=remaining)
+                line_buffer: deque[str] = deque(maxlen=remaining)
 
                 async with aiofiles.open(log_file, encoding="utf-8") as f:
-                    # Detect format by reading first few lines
-                    first_lines = []
-                    for _ in range(20):
-                        line = await f.readline()
-                        if not line:
-                            break
-                        first_lines.append(line)
-                        # Early exit if we find a blank line
-                        if not line.strip():
-                            break
+                    # JSONL format: one JSON object per line
+                    async for line in f:
+                        line_buffer.append(line.rstrip("\n"))
 
-                    # Check if format uses blank line separators (pretty-printed JSON)
-                    has_blank_lines = any(line.strip() == "" for line in first_lines)
-
-                    # Reset file pointer to beginning
-                    await f.seek(0)
-
-                    if has_blank_lines:
-                        # Format 1: Pretty-printed JSON with blank line separators
-                        # Stream blocks incrementally
-                        current_block_lines: list[str] = []
-                        async for line in f:
-                            line_content = line.rstrip("\n")  # Preserve original for JSON content
-                            if not line.strip():  # Check if line is blank/whitespace-only
-                                if current_block_lines:
-                                    block = "\n".join(current_block_lines)
-                                    block_buffer.append(block)
-                                    current_block_lines = []
-                            else:
-                                current_block_lines.append(line_content)
-                        # Handle last block (no trailing blank line)
-                        if current_block_lines:
-                            block = "\n".join(current_block_lines)
-                            block_buffer.append(block)
-                    else:
-                        # Format 2: Single-line JSON entries (one per line)
-                        async for line in f:
-                            block_buffer.append(line.rstrip("\n"))
-
-                # Process blocks in reverse order (newest first)
-                for block in reversed(block_buffer):
+                # Process lines in reverse order (newest first)
+                for line in reversed(line_buffer):
                     if total_yielded >= max_entries:
                         break
 
-                    data = self.log_parser.get_raw_json_entry(block)
+                    data = self.log_parser.get_raw_json_entry(line)
                     if data:
                         yield data
                         total_yielded += 1

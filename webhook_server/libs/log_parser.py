@@ -311,14 +311,12 @@ class LogParser:
         return entries
 
     def parse_json_log_entry(self, json_line: str) -> LogEntry | None:
-        """Parse a JSON log entry (single-line or multi-line) into a LogEntry object.
+        """Parse a JSONL log entry into a LogEntry object.
 
-        Handles both formats:
-        - Single-line compact JSON: {"hook_id": "abc", ...}
-        - Multi-line pretty-printed JSON with indentation
+        Parses JSONL format (one compact JSON object per line).
 
         Args:
-            json_line: Raw JSON string from webhooks_*.json files (may be multi-line)
+            json_line: Raw JSON string from webhooks_*.json files (single line)
 
         Returns:
             LogEntry object if parsing successful, None otherwise
@@ -453,14 +451,12 @@ class LogParser:
         return entries
 
     def get_raw_json_entry(self, json_line: str) -> dict[str, Any] | None:
-        """Parse a JSON log entry (single-line or multi-line) and return the raw dictionary.
+        """Parse a JSONL log entry and return the raw dictionary.
 
-        Handles both formats:
-        - Single-line compact JSON: {"hook_id": "abc", ...}
-        - Multi-line pretty-printed JSON with indentation
+        Parses JSONL format (one compact JSON object per line).
 
         Args:
-            json_line: Raw JSON string (may be multi-line)
+            json_line: Raw JSON string (single line)
 
         Returns:
             Parsed JSON dictionary, or None if parsing fails

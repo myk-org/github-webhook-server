@@ -497,25 +497,17 @@ class TestLogViewerJSONMethods:
         assert result["pr"]["number"] == 200
 
     async def test_stream_json_log_entries_pretty_printed_format(self, controller, tmp_path, sample_json_webhook_data):
-        """Test _stream_json_log_entries with pretty-printed JSON (blank line separators)."""
+        """Test _stream_json_log_entries with JSONL format (one JSON object per line)."""
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
-        # Create pretty-printed JSON log file (with blank line separators)
+        # Create JSONL format log file (one JSON object per line)
         log_file = log_dir / "webhooks_2025-01-05.json"
         with open(log_file, "w", encoding="utf-8") as f:
-            # Entry 1
-            f.write("{\n")
-            f.write('  "hook_id": "hook-1",\n')
-            f.write('  "event_type": "pull_request"\n')
-            f.write("}\n")
-            f.write("\n")  # Blank line separator
-            # Entry 2
-            f.write("{\n")
-            f.write('  "hook_id": "hook-2",\n')
-            f.write('  "event_type": "check_run"\n')
-            f.write("}\n")
-            # No trailing blank line to test last block handling
+            # Entry 1 - single line JSON
+            f.write('{"hook_id": "hook-1", "event_type": "pull_request"}\n')
+            # Entry 2 - single line JSON
+            f.write('{"hook_id": "hook-2", "event_type": "check_run"}\n')
 
         # Stream entries
         entries = [entry async for entry in controller._stream_json_log_entries(max_files=10, max_entries=100)]
