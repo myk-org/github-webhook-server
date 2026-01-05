@@ -1,18 +1,19 @@
 """Structured JSON logging for webhook execution tracking.
 
-This module provides JSON-based logging for webhook executions in JSONL (JSON Lines) format.
-Each webhook execution generates a single-line JSON entry containing all workflow steps,
+This module provides JSON-based logging for webhook executions with pretty-printed formatting.
+Each webhook execution generates a formatted JSON entry containing all workflow steps,
 timing, errors, and API metrics.
 
 Architecture:
-- JSONL format: One JSON object per line for efficient streaming and parsing
+- Pretty-printed JSON: Multi-line JSON objects with 2-space indentation for human readability
+- Entry separation: Blank lines between entries for visual clarity
 - Date-based files: webhooks_YYYY-MM-DD.json for easy log rotation
 - Atomic writes: Temporary file + rename for crash safety
 - Concurrent writes: File locking to handle multiple webhook processes
 
 Log File Format:
 - Location: {config.data_dir}/logs/webhooks_YYYY-MM-DD.json
-- Format: JSONL (newline-delimited JSON)
+- Format: Pretty-printed JSON with blank line separators
 - Rotation: Daily based on date
 - Size: Unbounded (external rotation recommended)
 
@@ -52,7 +53,7 @@ except ImportError:
 class StructuredLogWriter:
     """JSON log writer for webhook execution tracking.
 
-    Writes webhook execution contexts as JSONL (JSON Lines) format to date-based log files.
+    Writes webhook execution contexts as pretty-printed JSON to date-based log files.
     Provides atomic writes with file locking for safe concurrent access.
 
     Attributes:
@@ -90,9 +91,10 @@ class StructuredLogWriter:
         return self.log_dir / f"webhooks_{date_str}.json"
 
     def write_log(self, context: WebhookContext) -> None:
-        """Write webhook context as JSONL entry to date-based log file.
+        """Write webhook context as pretty-printed JSON to date-based log file.
 
-        Writes a single-line JSON entry containing complete webhook execution context.
+        Writes a formatted JSON entry (2-space indentation) containing complete webhook execution context.
+        Each entry is followed by a blank line for visual separation.
         Uses atomic write pattern (temp file + rename) with file locking for safety.
 
         Args:
@@ -115,8 +117,8 @@ class StructuredLogWriter:
         # Get log file path
         log_file = self._get_log_file_path(completed_at)
 
-        # Serialize context to JSON (single line, no pretty printing)
-        log_entry = json.dumps(context_dict, ensure_ascii=False)
+        # Serialize context to JSON (pretty-printed with indentation)
+        log_entry = json.dumps(context_dict, ensure_ascii=False, indent=2)
 
         # Atomic write with file locking
         try:
@@ -133,8 +135,8 @@ class StructuredLogWriter:
                     fcntl.flock(temp_fd, fcntl.LOCK_EX)
 
                 try:
-                    # Write JSON line with newline
-                    os.write(temp_fd, f"{log_entry}\n".encode())
+                    # Write JSON entry with newline and blank line separator
+                    os.write(temp_fd, f"{log_entry}\n\n".encode())
                     os.fsync(temp_fd)  # Ensure data is written to disk
 
                     # Append to target log file (atomic on POSIX)
@@ -238,13 +240,13 @@ class StructuredLogWriter:
 
                 # Write to log file
                 log_file = self._get_log_file_path()
-                log_entry = json.dumps(error_entry, ensure_ascii=False)
+                log_entry = json.dumps(error_entry, ensure_ascii=False, indent=2)
 
                 with open(log_file, "a") as log_fd:
                     if HAS_FCNTL:
                         fcntl.flock(log_fd.fileno(), fcntl.LOCK_EX)
                     try:
-                        log_fd.write(f"{log_entry}\n")
+                        log_fd.write(f"{log_entry}\n\n")
                         log_fd.flush()
                         os.fsync(log_fd.fileno())
                     finally:

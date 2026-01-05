@@ -761,15 +761,14 @@ class LogViewerController:
         log_files.extend(log_dir.glob("*.log.*"))
         log_files.extend(log_dir.glob("webhooks_*.json"))
 
-        # Sort log files to process in correct order (current log first, then rotated by number)
+        # Sort log files to prioritize JSON webhook files first (primary data source),
+        # then other files by modification time (newest first)
+        # This ensures webhook data is displayed before internal log files
         def sort_key(f: Path) -> tuple:
-            name_parts = f.name.split(".")
-            if len(name_parts) > 2 and name_parts[-1].isdigit():
-                # Rotated file: extract rotation number
-                return (1, int(name_parts[-1]))
-            else:
-                # Current log file
-                return (0, 0)
+            is_json_webhook = f.suffix == ".json" and f.name.startswith("webhooks_")
+            # JSON webhook files: (0, -mtime) - highest priority, newest first
+            # Other files: (1, -mtime) - lower priority, newest first
+            return (0 if is_json_webhook else 1, -f.stat().st_mtime)
 
         log_files.sort(key=sort_key)
         log_files = log_files[:max_files]
