@@ -97,8 +97,8 @@ class TestLogViewerJSONMethods:
             },
             "timing": {
                 "started_at": "2025-01-05T10:00:00.000000Z",
-                "ended_at": "2025-01-05T10:00:05.000000Z",
-                "duration_seconds": 5.0,
+                "completed_at": "2025-01-05T10:00:05.000000Z",
+                "duration_ms": 5000,
             },
             "workflow_steps": {
                 "step1": {"status": "completed", "duration_ms": 1000},
@@ -284,7 +284,7 @@ class TestLogViewerJSONMethods:
         assert result["repository"] == "org/test-repo"
         assert result["sender"] == "test-user"
         assert result["pr"]["number"] == 456
-        assert result["timing"]["duration_seconds"] == 5.0
+        assert result["timing"]["duration_ms"] == 5000
         assert result["steps"] == sample_json_webhook_data["workflow_steps"]
         assert result["token_spend"] == 35
         assert result["success"] is True

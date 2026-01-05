@@ -718,7 +718,7 @@ class TestAPIEndpointEdgeCases:
         mock_logger = Mock()
         controller = LogViewerController(logger=mock_logger)
 
-        with patch.object(controller, "_stream_log_entries", side_effect=lambda *a, **k: async_iter_empty()):
+        with patch.object(controller, "_stream_log_entries", side_effect=lambda *_, **__: async_iter_empty()):
             with patch.object(controller, "_estimate_total_log_count", return_value=0):
                 # Test truly malformed parameters that should raise exceptions
                 invalid_params = [
@@ -770,7 +770,7 @@ class TestAPIEndpointEdgeCases:
                 yield item
 
         with patch.object(
-            controller, "_stream_log_entries", side_effect=lambda *a, **k: async_iter_wrapper(large_entries[:1000])
+            controller, "_stream_log_entries", side_effect=lambda *_, **__: async_iter_wrapper(large_entries[:1000])
         ):
             # Test with default limit - the controller will process available entries and apply pagination
             result = await controller.get_log_entries()
@@ -897,7 +897,7 @@ class TestConcurrentUserScenarios:
                     yield item
 
             with patch.object(
-                controller, "_stream_log_entries", side_effect=lambda *a, **k: async_iter_wrapper(entries)
+                controller, "_stream_log_entries", side_effect=lambda *_, **__: async_iter_wrapper(entries)
             ):
                 return await controller.get_log_entries(**filters)
 

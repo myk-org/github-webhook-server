@@ -1108,7 +1108,8 @@ class LogViewerController:
                     # Rough estimate: average log line is ~200 bytes
                     estimated_lines = file_size // 200
                     total_estimate += estimated_lines
-                except Exception:
+                except (OSError, PermissionError) as ex:
+                    self.logger.debug(f"Failed to stat log file {log_file}: {ex}")
                     continue
 
             # If we processed fewer than all files, extrapolate

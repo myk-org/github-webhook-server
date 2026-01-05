@@ -1094,8 +1094,8 @@ class TestJSONLogParsing:
             "hook_id": "complex-hook",
             "timing": {
                 "started_at": "2025-07-31T10:00:00Z",
-                "ended_at": "2025-07-31T10:00:05Z",
-                "duration_seconds": 5.123
+                "completed_at": "2025-07-31T10:00:05Z",
+                "duration_ms": 5123
             },
             "pr": {
                 "number": 123,
@@ -1111,7 +1111,7 @@ class TestJSONLogParsing:
 
         assert result is not None
         assert result["hook_id"] == "complex-hook"
-        assert result["timing"]["duration_seconds"] == 5.123
+        assert result["timing"]["duration_ms"] == 5123
         assert result["pr"]["labels"] == ["bug", "enhancement"]
         assert result["error"] is None
         assert result["success"] is True
