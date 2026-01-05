@@ -864,63 +864,87 @@ For more information, please refer to the project documentation or contact the m
             if isinstance(result, Exception):
                 self.logger.error(f"{self.log_prefix} Async task failed: {result}")
 
-    async def _update_conflict_label(self, pull_request: PullRequest, has_conflicts: bool) -> None:
-        """Update has-conflicts label based on mergeable status.
+    async def _compare_branches(self, base_ref: str, head_ref_full: str) -> dict[str, Any] | None:
+        """Call GitHub Compare API to get branch comparison data for rebase detection.
 
-        When there's a conflict, we also remove the needs-rebase label since conflict is the primary blocker.
-        Once the conflict is resolved, the webhook fires again and rebase status is re-evaluated.
-        """
-        if has_conflicts:
-            await self.labels_handler._add_label(pull_request=pull_request, label=HAS_CONFLICTS_LABEL_STR)
-            # Remove needs-rebase label if present - conflict is the primary blocker
-            await self.labels_handler._remove_label(pull_request=pull_request, label=NEEDS_REBASE_LABEL_STR)
-        else:
-            await self.labels_handler._remove_label(pull_request=pull_request, label=HAS_CONFLICTS_LABEL_STR)
-
-    async def label_pull_request_by_merge_state(self, pull_request: PullRequest) -> None:
-        """Label pull request based on merge state using Compare API.
-
-        Uses GitHub's Compare API for accurate behind/diverged detection instead of
-        the limited `mergeable_state` property.
-
-        Detection Logic:
-            - Conflicts: `pull_request.mergeable == False`
-            - Needs rebase: Compare API `behind_by > 0` OR `status == "diverged"`
-
-        Label Priority:
-            Conflict is the primary blocker. When present, only the `has-conflicts` label is shown.
-
-        Decision Flow:
-            1. mergeable is None → skip (not yet computed by GitHub)
-            2. has_conflicts → add has-conflicts, remove needs-rebase, exit
-            3. no conflicts → remove has-conflicts, check rebase:
-               - needs_rebase → add needs-rebase
-               - no rebase → remove needs-rebase
-
-        API Fallback:
-            If Compare API fails or returns incomplete data, conflict label is
-            still updated based on available `mergeable` data.
+        This API is used ONLY for detecting if a PR is behind/diverged from base branch.
+        It does NOT provide conflict information - use pull_request.mergeable for conflicts.
 
         Args:
-            pull_request: The GitHub pull request object to label.
+            base_ref: Base branch reference (e.g., "main").
+            head_ref_full: Full head reference including owner (e.g., "user:branch").
+
+        Returns:
+            Compare API response data or None if API call fails.
 
         Compare API Reference:
             GET /repos/{owner}/{repo}/compare/{base}...{head}
             Response fields used:
                 - behind_by: int - commits behind base branch
                 - status: str - "ahead", "behind", "diverged", "identical"
+
+            NOTE: This API does NOT return conflict information (mergeable/mergeable_state).
         """
-        # Get mergeable status - may be None if not yet computed by GitHub
+        try:
+            _headers, data = await asyncio.to_thread(
+                self.repository._requester.requestJsonAndCheck,
+                "GET",
+                f"{self.repository.url}/compare/{base_ref}...{head_ref_full}",
+            )
+            return data
+        except GithubException:
+            self.logger.exception(f"{self.log_prefix} Failed to call Compare API for {base_ref}...{head_ref_full}")
+            return None
+        except Exception:
+            self.logger.exception(f"{self.log_prefix} Unexpected error calling Compare API")
+            return None
+
+    async def label_pull_request_by_merge_state(self, pull_request: PullRequest) -> None:
+        """Label pull request based on merge state.
+
+        Simple flow:
+            1. Check pull_request.mergeable for conflicts
+            2. If has conflicts → add has-conflicts, remove needs-rebase, exit
+            3. Else → remove has-conflicts, check Compare API for rebase status
+
+        Uses both GitHub APIs for accurate labeling:
+        - has-conflicts: pull_request.mergeable == False (true merge conflict detection)
+        - needs-rebase: Compare API behind_by > 0 or status == "diverged"
+
+        Args:
+            pull_request: The GitHub pull request object to label.
+        """
+        # Get current labels (single API call for optimization)
+        current_labels = await asyncio.to_thread(lambda: {label.name for label in pull_request.labels})
+        has_conflicts_label_exists = HAS_CONFLICTS_LABEL_STR in current_labels
+        needs_rebase_label_exists = NEEDS_REBASE_LABEL_STR in current_labels
+
+        # Step 1: Check for conflicts first
         mergeable = await asyncio.to_thread(lambda: pull_request.mergeable)
-        if mergeable is None:
-            self.logger.debug(f"{self.log_prefix} Mergeable status is None (not yet computed), skipping")
-            return
-
-        # Check for conflicts
         has_conflicts = mergeable is False
-        self.logger.debug(f"{self.log_prefix} Has conflicts: {has_conflicts}")
 
-        # Use Compare API to check if PR is behind or diverged
+        if has_conflicts:
+            # Has conflicts - add has-conflicts label, remove needs-rebase, and exit
+            self.logger.debug(f"{self.log_prefix} PR has conflicts (mergeable=False)")
+
+            if not has_conflicts_label_exists:
+                self.logger.debug(f"{self.log_prefix} Adding {HAS_CONFLICTS_LABEL_STR} label")
+                await self.labels_handler._add_label(pull_request=pull_request, label=HAS_CONFLICTS_LABEL_STR)
+
+            if needs_rebase_label_exists:
+                self.logger.debug(
+                    f"{self.log_prefix} Removing {NEEDS_REBASE_LABEL_STR} label (conflict takes precedence)"
+                )
+                await self.labels_handler._remove_label(pull_request=pull_request, label=NEEDS_REBASE_LABEL_STR)
+
+            return  # Exit early - conflicts take precedence
+
+        # Step 2: No conflicts - remove has-conflicts label if present
+        if has_conflicts_label_exists:
+            self.logger.debug(f"{self.log_prefix} Removing {HAS_CONFLICTS_LABEL_STR} label")
+            await self.labels_handler._remove_label(pull_request=pull_request, label=HAS_CONFLICTS_LABEL_STR)
+
+        # Step 3: Check if needs rebase via Compare API
         base_ref, head_user_login, head_ref = await asyncio.gather(
             asyncio.to_thread(lambda: pull_request.base.ref),
             asyncio.to_thread(lambda: pull_request.head.user.login),
@@ -928,65 +952,32 @@ For more information, please refer to the project documentation or contact the m
         )
         head_ref_full = f"{head_user_login}:{head_ref}"
 
-        # Call Compare API to get accurate behind/diverged status
-        def _compare_branches() -> dict[str, Any] | None:
-            try:
-                _headers, data = self.repository._requester.requestJsonAndCheck(
-                    "GET",
-                    f"{self.repository.url}/compare/{base_ref}...{head_ref_full}",
-                )
-                return data
-            except GithubException:
-                self.logger.exception(f"{self.log_prefix} Failed to call Compare API for {base_ref}...{head_ref_full}")
-                return None
-            except Exception:
-                self.logger.exception(f"{self.log_prefix} Unexpected error calling Compare API")
-                return None
-
-        compare_data = await asyncio.to_thread(_compare_branches)
+        compare_data = await self._compare_branches(base_ref=base_ref, head_ref_full=head_ref_full)
         if compare_data is None:
-            self.logger.warning(
-                f"{self.log_prefix} Compare API failed, updating conflict label only (rebase status unknown)"
-            )
-            # Still process conflict label since we have mergeable data
-            await self._update_conflict_label(pull_request=pull_request, has_conflicts=has_conflicts)
+            self.logger.warning(f"{self.log_prefix} Compare API failed, skipping rebase label update")
             return
 
-        # Validate Compare API response structure
         behind_by = compare_data.get("behind_by")
         status = compare_data.get("status")
 
-        if behind_by is None or status is None:
-            self.logger.warning(
-                f"{self.log_prefix} Compare API returned incomplete data (behind_by={behind_by}, status={status}), "
-                "skipping rebase label updates"
-            )
-            # Still process conflict label since we have mergeable data
-            await self._update_conflict_label(pull_request=pull_request, has_conflicts=has_conflicts)
-            return
+        # Type safety
+        if not isinstance(behind_by, int):
+            behind_by = 0
+        if not isinstance(status, str):
+            status = ""
 
-        is_behind = behind_by > 0
-        is_diverged = status == "diverged"
-        needs_rebase = is_behind or is_diverged
+        needs_rebase = behind_by > 0 or status == "diverged"
 
         self.logger.debug(
-            f"{self.log_prefix} Compare API results - behind_by: {behind_by}, "
-            f"status: {status}, needs_rebase: {needs_rebase}"
+            f"{self.log_prefix} Compare API - behind_by: {behind_by}, status: {status}, needs_rebase: {needs_rebase}"
         )
 
-        # Apply labels with priority: conflict is the primary blocker
-        # If there's a conflict, that's the blocker - user needs to resolve it first
-        # Once conflict is resolved, the webhook fires again and checks rebase status
-        await self._update_conflict_label(pull_request=pull_request, has_conflicts=has_conflicts)
-
-        # If there's a conflict, we're done (conflict is the primary blocker)
-        if has_conflicts:
-            return
-
-        # No conflicts - check rebase status
-        if needs_rebase:
+        # Step 4: Update needs-rebase label
+        if needs_rebase and not needs_rebase_label_exists:
+            self.logger.debug(f"{self.log_prefix} Adding {NEEDS_REBASE_LABEL_STR} label")
             await self.labels_handler._add_label(pull_request=pull_request, label=NEEDS_REBASE_LABEL_STR)
-        else:
+        elif not needs_rebase and needs_rebase_label_exists:
+            self.logger.debug(f"{self.log_prefix} Removing {NEEDS_REBASE_LABEL_STR} label")
             await self.labels_handler._remove_label(pull_request=pull_request, label=NEEDS_REBASE_LABEL_STR)
 
     async def _process_verified_for_update_or_new_pull_request(self, pull_request: PullRequest) -> None:
