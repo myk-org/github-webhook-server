@@ -161,6 +161,7 @@ class TestLogViewerJSONMethods:
     def test_stream_json_log_entries_no_log_directory(self, controller, tmp_path):
         """Test _stream_json_log_entries when log directory doesn't exist."""
         # Don't create logs directory
+        assert tmp_path is not None
         entries = list(controller._stream_json_log_entries(max_files=10, max_entries=100))
 
         # Should yield nothing

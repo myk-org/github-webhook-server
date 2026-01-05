@@ -300,7 +300,7 @@ class TestStructuredLogWriter:
 
         assert log_entry["pr"] is None
 
-    @patch("webhook_server.utils.structured_logger.HAS_FCNTL", False)
+    @patch("webhook_server.utils.structured_logger.HAS_FCNTL", new=False)
     def test_write_log_without_fcntl(
         self, log_writer: StructuredLogWriter, sample_context: WebhookContext, tmp_path: Path
     ) -> None:
@@ -317,7 +317,7 @@ class TestStructuredLogWriter:
 
         assert log_entry["hook_id"] == "test-hook-123"
 
-    @patch("webhook_server.utils.structured_logger.HAS_FCNTL", True)
+    @patch("webhook_server.utils.structured_logger.HAS_FCNTL", new=True)
     @patch("fcntl.flock")
     def test_write_log_uses_file_locking(
         self, mock_flock: Mock, log_writer: StructuredLogWriter, sample_context: WebhookContext
@@ -621,6 +621,7 @@ class TestEdgeCases:
         context.event_type = "push"
         context.repository = "org/repo"
         context.started_at = None
+        context.completed_at = None
         context.to_dict = Mock(return_value={"hook_id": "test", "event_type": "push"})
 
         # Act
@@ -633,6 +634,7 @@ class TestEdgeCases:
     def test_different_dates_create_different_files(self, mock_config: Mock, tmp_path: Path) -> None:
         """Test that logs for different dates go to different files."""
         # Arrange
+        _ = tmp_path  # Intentionally unused, provided by pytest fixture
         writer = StructuredLogWriter(config=mock_config)
         date1 = datetime(2026, 1, 5, tzinfo=UTC)
         date2 = datetime(2026, 1, 6, tzinfo=UTC)

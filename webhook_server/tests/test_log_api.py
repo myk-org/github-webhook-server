@@ -440,8 +440,8 @@ class TestLogViewerController:
             result = list(controller._stream_log_entries())
             assert result == []
 
-    def test_stream_log_entries_parse_error(self, controller):
-        """Test log entries loading with parse error."""
+    def test_stream_log_entries_file_read_error(self, controller):
+        """Test log entries loading with file read error."""
         mock_config = Mock()
         mock_config.data_dir = "/test"
         controller.config = mock_config
@@ -461,8 +461,8 @@ class TestLogViewerController:
             mock_path_instance.glob.return_value = [mock_log_file]
             mock_path.return_value = mock_path_instance
 
-            # Mock open() to raise parse error when reading file
-            with patch("builtins.open", side_effect=Exception("Parse error")):
+            # Mock open() to raise file read error when reading file
+            with patch("builtins.open", side_effect=Exception("File read error")):
                 result = list(controller._stream_log_entries())
                 # Should return empty list due to exception handling
                 assert isinstance(result, list)

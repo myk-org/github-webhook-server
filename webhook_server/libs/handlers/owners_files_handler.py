@@ -94,31 +94,40 @@ class OwnersFileHandler:
 
         Returns:
             List of changed file paths relative to repository root
+
+        Raises:
+            RuntimeError: If git diff command fails
+            asyncio.CancelledError: Propagates cancellation (never caught)
         """
+        # Get base and head SHAs (wrap property accesses in asyncio.to_thread)
+        base_sha, head_sha = await asyncio.gather(
+            asyncio.to_thread(lambda: pull_request.base.sha),
+            asyncio.to_thread(lambda: pull_request.head.sha),
+        )
+
+        # Run git diff command on cloned repository
+        # Quote clone_repo_dir to handle paths with spaces or special characters
+        git_diff_command = (
+            f"git -C {shlex.quote(self.github_webhook.clone_repo_dir)} diff --name-only {base_sha}...{head_sha}"
+        )
+
         try:
-            # Get base and head SHAs (wrap property accesses in asyncio.to_thread)
-            base_sha, head_sha = await asyncio.gather(
-                asyncio.to_thread(lambda: pull_request.base.sha),
-                asyncio.to_thread(lambda: pull_request.head.sha),
-            )
-
-            # Run git diff command on cloned repository
-            # Quote clone_repo_dir to handle paths with spaces or special characters
-            git_diff_command = (
-                f"git -C {shlex.quote(self.github_webhook.clone_repo_dir)} diff --name-only {base_sha}...{head_sha}"
-            )
-
-            success, out, _ = await run_command(
+            success, out, err = await run_command(
                 command=git_diff_command,
                 log_prefix=self.log_prefix,
                 verify_stderr=False,
                 mask_sensitive=self.github_webhook.mask_sensitive,
             )
 
-            # Check success flag - return empty list if git diff failed
+            # Check success flag - raise if git diff failed
             if not success:
-                self.logger.error(f"{self.log_prefix} git diff command failed")
-                return []
+                error_msg = (
+                    f"git diff command failed for {base_sha}...{head_sha}. "
+                    f"stdout: {out.strip() if out else '(empty)'}, "
+                    f"stderr: {err.strip() if err else '(empty)'}"
+                )
+                self.logger.error(f"{self.log_prefix} {error_msg}")
+                raise RuntimeError(error_msg)
 
             # Parse output: split by newlines and filter empty lines
             changed_files = [line.strip() for line in out.splitlines() if line.strip()]
@@ -126,10 +135,19 @@ class OwnersFileHandler:
             self.logger.debug(f"{self.log_prefix} Changed files: {changed_files}")
             return changed_files
 
-        except Exception:
-            # Log error and return empty list if git diff fails
-            self.logger.exception(f"{self.log_prefix} Failed to get changed files via git diff")
-            return []
+        except asyncio.CancelledError:
+            # Never catch CancelledError - let it propagate
+            raise
+
+        except RuntimeError:
+            # Re-raise RuntimeError from git diff failure check
+            raise
+
+        except Exception as ex:
+            # Wrap unexpected exceptions with context
+            error_msg = f"Unexpected error getting changed files via git diff for {base_sha}...{head_sha}: {ex}"
+            self.logger.exception(f"{self.log_prefix} {error_msg}")
+            raise RuntimeError(error_msg) from ex
 
     def _validate_owners_content(self, content: Any, path: str) -> bool:
         """Validate OWNERS file content structure."""

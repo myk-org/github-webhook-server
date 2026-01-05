@@ -151,9 +151,10 @@ class TestIssueCommentHandler:
             execution_events.append((command, "end", time.time()))
 
         with patch.object(issue_comment_handler, "user_commands", side_effect=mock_command):
-            # Execute commands
+            # Execute commands - expect exception due to failed command
             start = time.time()
-            await issue_comment_handler.process_comment_webhook_data(Mock())
+            with pytest.raises(RuntimeError, match="Command /approved failed"):
+                await issue_comment_handler.process_comment_webhook_data(Mock())
             total_duration = time.time() - start
 
             # VERIFICATION 1: All three commands should have started

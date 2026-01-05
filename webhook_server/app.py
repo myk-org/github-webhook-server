@@ -434,6 +434,10 @@ async def process_webhook(request: Request) -> JSONResponse:
                 "message": str(ex),
                 "traceback": traceback.format_exc(),
             }
+        except asyncio.CancelledError:
+            # Task cancellation - propagate without logging as error
+            _logger.debug(f"{_log_context} Webhook processing cancelled")
+            raise
         except Exception as ex:
             # Catch-all for unexpected errors
             _logger.exception(f"{_log_context} Unexpected error in background webhook processing")

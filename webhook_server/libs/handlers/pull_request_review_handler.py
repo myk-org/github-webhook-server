@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from github.PullRequest import PullRequest
@@ -12,7 +14,7 @@ if TYPE_CHECKING:
 
 
 class PullRequestReviewHandler:
-    def __init__(self, github_webhook: "GithubWebhook", owners_file_handler: OwnersFileHandler):
+    def __init__(self, github_webhook: GithubWebhook, owners_file_handler: OwnersFileHandler) -> None:
         self.github_webhook = github_webhook
         self.ctx: WebhookContext | None = github_webhook.ctx
         self.owners_file_handler = owners_file_handler
@@ -27,36 +29,37 @@ class PullRequestReviewHandler:
         if self.ctx:
             self.ctx.start_step("pr_review_handler")
 
-        if self.hook_data["action"] == "submitted":
-            """
-            Available actions:
-                commented
-                approved
-                changes_requested
-            """
-            reviewed_user = self.hook_data["review"]["user"]["login"]
-            review_state = self.hook_data["review"]["state"]
-            self.github_webhook.logger.debug(
-                f"{self.github_webhook.log_prefix} "
-                f"Processing pull request review for user {reviewed_user} with state {review_state}"
-            )
+        try:
+            if self.hook_data["action"] == "submitted":
+                """
+                Available actions:
+                    commented
+                    approved
+                    changes_requested
+                """
+                reviewed_user = self.hook_data["review"]["user"]["login"]
+                review_state = self.hook_data["review"]["state"]
+                self.github_webhook.logger.debug(
+                    f"{self.github_webhook.log_prefix} "
+                    f"Processing pull request review for user {reviewed_user} with state {review_state}"
+                )
 
-            await self.labels_handler.manage_reviewed_by_label(
-                pull_request=pull_request,
-                review_state=review_state,
-                action=ADD_STR,
-                reviewed_user=reviewed_user,
-            )
+                await self.labels_handler.manage_reviewed_by_label(
+                    pull_request=pull_request,
+                    review_state=review_state,
+                    action=ADD_STR,
+                    reviewed_user=reviewed_user,
+                )
 
-            if body := self.hook_data["review"]["body"]:
-                self.github_webhook.logger.debug(f"{self.github_webhook.log_prefix} Found review body: {body}")
-                if f"/{APPROVE_STR}" in body:
-                    await self.labels_handler.label_by_user_comment(
-                        pull_request=pull_request,
-                        user_requested_label=APPROVE_STR,
-                        remove=False,
-                        reviewed_user=reviewed_user,
-                    )
-
-        if self.ctx:
-            self.ctx.complete_step("pr_review_handler")
+                if body := self.hook_data["review"]["body"]:
+                    self.github_webhook.logger.debug(f"{self.github_webhook.log_prefix} Found review body: {body}")
+                    if f"/{APPROVE_STR}" in body:
+                        await self.labels_handler.label_by_user_comment(
+                            pull_request=pull_request,
+                            user_requested_label=APPROVE_STR,
+                            remove=False,
+                            reviewed_user=reviewed_user,
+                        )
+        finally:
+            if self.ctx:
+                self.ctx.complete_step("pr_review_handler")

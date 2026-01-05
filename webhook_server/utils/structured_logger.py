@@ -101,12 +101,12 @@ class StructuredLogWriter:
             context: WebhookContext to serialize and write
 
         Note:
-            Calculates completion time locally without mutating the context
+            Uses context.completed_at as source of truth, falls back to datetime.now(UTC)
         """
-        # Calculate completion time locally (don't mutate context)
-        completed_at = datetime.now(UTC)
+        # Prefer context.completed_at as source of truth, fall back to current time
+        completed_at = context.completed_at if context.completed_at else datetime.now(UTC)
 
-        # Get context dict and update timing locally
+        # Get context dict and update timing locally (without mutating context)
         context_dict = context.to_dict()
         if "timing" in context_dict:
             context_dict["timing"]["completed_at"] = completed_at.isoformat()

@@ -841,9 +841,13 @@ class LogViewerController:
 
             try:
                 with open(log_file, encoding="utf-8") as f:
-                    # Read lines in reverse for newest-first ordering
-                    lines = f.readlines()
-                    for line in reversed(lines):
+                    # Stream lines into a bounded deque for memory efficiency
+                    remaining = max_entries - total_yielded
+                    # Use deque with maxlen to automatically discard oldest entries
+                    line_buffer = deque(f, maxlen=remaining)
+
+                    # Process lines in reverse order (newest first)
+                    for line in reversed(line_buffer):
                         if total_yielded >= max_entries:
                             break
 

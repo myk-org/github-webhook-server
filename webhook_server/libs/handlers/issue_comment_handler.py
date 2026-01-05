@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import traceback
 from asyncio import Task
 from collections.abc import Callable, Coroutine
 from typing import TYPE_CHECKING, Any
@@ -66,53 +67,73 @@ class IssueCommentHandler:
         if self.ctx:
             self.ctx.start_step("issue_comment_handler")
 
-        comment_action = self.hook_data["action"]
+        try:
+            comment_action = self.hook_data["action"]
 
-        if comment_action in ("edited", "deleted"):
-            self.logger.debug(f"{self.log_prefix} Not processing comment. action is {comment_action}")
-            if self.ctx:
-                self.ctx.complete_step("issue_comment_handler")
-            return
+            if comment_action in ("edited", "deleted"):
+                self.logger.debug(f"{self.log_prefix} Not processing comment. action is {comment_action}")
+                if self.ctx:
+                    self.ctx.complete_step("issue_comment_handler")
+                return
 
-        self.logger.info(f"{self.log_prefix} Processing issue {self.hook_data['issue']['number']}")
+            self.logger.info(f"{self.log_prefix} Processing issue {self.hook_data['issue']['number']}")
 
-        body: str = self.hook_data["comment"]["body"]
+            body: str = self.hook_data["comment"]["body"]
 
-        if self.github_webhook.issue_url_for_welcome_msg in body:
-            self.logger.debug(f"{self.log_prefix} Welcome message found in issue {pull_request.title}. Not processing")
-            if self.ctx:
-                self.ctx.complete_step("issue_comment_handler")
-            return
-
-        _user_commands: list[str] = [_cmd.strip("/") for _cmd in body.strip().splitlines() if _cmd.startswith("/")]
-
-        user_login: str = self.hook_data["sender"]["login"]
-
-        # Execute all commands in parallel
-        if _user_commands:
-            tasks: list[Coroutine[Any, Any, Any] | Task[Any]] = []
-            for user_command in _user_commands:
-                task = asyncio.create_task(
-                    self.user_commands(
-                        pull_request=pull_request,
-                        command=user_command,
-                        reviewed_user=user_login,
-                        issue_comment_id=self.hook_data["comment"]["id"],
-                    )
+            if self.github_webhook.issue_url_for_welcome_msg in body:
+                self.logger.debug(
+                    f"{self.log_prefix} Welcome message found in issue {pull_request.title}. Not processing"
                 )
-                tasks.append(task)
+                if self.ctx:
+                    self.ctx.complete_step("issue_comment_handler")
+                return
 
-            # Execute all commands concurrently
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+            _user_commands: list[str] = [_cmd.strip("/") for _cmd in body.strip().splitlines() if _cmd.startswith("/")]
 
-            # Log results and handle exceptions
-            for idx, result in enumerate(results):
-                user_command = _user_commands[idx]
-                if isinstance(result, Exception):
-                    self.logger.error(f"{self.log_prefix} Command execution failed: /{user_command} - {result}")
+            user_login: str = self.hook_data["sender"]["login"]
 
-        if self.ctx:
-            self.ctx.complete_step("issue_comment_handler")
+            # Execute all commands in parallel
+            if _user_commands:
+                tasks: list[Coroutine[Any, Any, Any] | Task[Any]] = []
+                for user_command in _user_commands:
+                    task = asyncio.create_task(
+                        self.user_commands(
+                            pull_request=pull_request,
+                            command=user_command,
+                            reviewed_user=user_login,
+                            issue_comment_id=self.hook_data["comment"]["id"],
+                        )
+                    )
+                    tasks.append(task)
+
+                # Execute all commands concurrently
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                # Check if any command failed
+                failed_commands: list[tuple[str, Exception]] = []
+                for idx, result in enumerate(results):
+                    user_command = _user_commands[idx]
+                    if isinstance(result, Exception):
+                        self.logger.error(f"{self.log_prefix} Command execution failed: /{user_command} - {result}")
+                        failed_commands.append((user_command, result))
+
+                # If any command failed, mark step as failed
+                if failed_commands:
+                    # Use first exception for context failure
+                    first_failed_command, first_exception = failed_commands[0]
+                    error_msg = f"Command /{first_failed_command} failed: {first_exception}"
+                    if self.ctx:
+                        self.ctx.fail_step("issue_comment_handler", first_exception, traceback.format_exc())
+                    raise RuntimeError(error_msg) from first_exception
+
+            if self.ctx:
+                self.ctx.complete_step("issue_comment_handler")
+
+        except Exception as ex:
+            # If step not already failed, mark it as failed
+            if self.ctx and not self.ctx.workflow_steps.get("issue_comment_handler", {}).get("status") == "failed":
+                self.ctx.fail_step("issue_comment_handler", ex, traceback.format_exc())
+            raise
 
     async def user_commands(
         self, pull_request: PullRequest, command: str, reviewed_user: str, issue_comment_id: int

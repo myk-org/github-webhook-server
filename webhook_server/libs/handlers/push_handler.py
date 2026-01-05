@@ -1,5 +1,6 @@
 import asyncio
 import re
+import traceback
 from typing import TYPE_CHECKING
 
 from github.Repository import Repository
@@ -39,8 +40,11 @@ class PushHandler:
                 self.logger.info(f"{self.log_prefix} Processing upload to pypi for tag: {tag_name}")
                 try:
                     await self.upload_to_pypi(tag_name=tag_name)
-                except Exception:
+                except Exception as ex:
                     self.logger.exception(f"{self.log_prefix} PyPI upload failed")
+                    if self.ctx:
+                        self.ctx.fail_step("push_handler", ex, traceback.format_exc())
+                    return
 
             if self.github_webhook.build_and_push_container and self.github_webhook.container_release:
                 self.logger.info(f"{self.log_prefix} Processing build and push container for tag: {tag_name}")
@@ -49,6 +53,9 @@ class PushHandler:
                     # Note: run_build_container logs completion/failure internally
                 except Exception as ex:
                     self.logger.exception(f"{self.log_prefix} Container build and push failed: {ex}")
+                    if self.ctx:
+                        self.ctx.fail_step("push_handler", ex, traceback.format_exc())
+                    return
 
         if self.ctx:
             self.ctx.complete_step("push_handler")

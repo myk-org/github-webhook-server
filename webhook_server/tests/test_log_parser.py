@@ -6,6 +6,7 @@ import datetime
 import logging
 import tempfile
 import unittest.mock
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
@@ -1257,21 +1258,21 @@ class TestAdditionalCoverageTests:
         log_filter = LogFilter()
         entries = [
             LogEntry(
-                timestamp=datetime.datetime(2025, 7, 31, 10, 0, 0),
+                timestamp=datetime.datetime(2025, 7, 31, 10, 0, 0, tzinfo=datetime.UTC),
                 level="INFO",
                 logger_name="main",
                 message="msg1",
                 repository="org/repo1",
             ),
             LogEntry(
-                timestamp=datetime.datetime(2025, 7, 31, 10, 1, 0),
+                timestamp=datetime.datetime(2025, 7, 31, 10, 1, 0, tzinfo=datetime.UTC),
                 level="DEBUG",
                 logger_name="main",
                 message="msg2",
                 repository="org/repo2",
             ),
             LogEntry(
-                timestamp=datetime.datetime(2025, 7, 31, 10, 2, 0),
+                timestamp=datetime.datetime(2025, 7, 31, 10, 2, 0, tzinfo=datetime.UTC),
                 level="INFO",
                 logger_name="main",
                 message="msg3",
@@ -1290,21 +1291,21 @@ class TestAdditionalCoverageTests:
         log_filter = LogFilter()
         entries = [
             LogEntry(
-                timestamp=datetime.datetime(2025, 7, 31, 10, 0, 0),
+                timestamp=datetime.datetime(2025, 7, 31, 10, 0, 0, tzinfo=datetime.UTC),
                 level="INFO",
                 logger_name="main",
                 message="msg1",
                 event_type="push",
             ),
             LogEntry(
-                timestamp=datetime.datetime(2025, 7, 31, 10, 1, 0),
+                timestamp=datetime.datetime(2025, 7, 31, 10, 1, 0, tzinfo=datetime.UTC),
                 level="DEBUG",
                 logger_name="main",
                 message="msg2",
                 event_type="pull_request",
             ),
             LogEntry(
-                timestamp=datetime.datetime(2025, 7, 31, 10, 2, 0),
+                timestamp=datetime.datetime(2025, 7, 31, 10, 2, 0, tzinfo=datetime.UTC),
                 level="INFO",
                 logger_name="main",
                 message="msg3",
@@ -1332,7 +1333,7 @@ class TestAdditionalCoverageTests:
         entries = []
 
         # Helper to collect entries from async generator
-        async def collect_entries(async_gen, max_entries=1):
+        async def collect_entries(async_gen: AsyncIterator[LogEntry], max_entries: int = 1) -> None:
             count = 0
             async for entry in async_gen:
                 entries.append(entry)
@@ -1348,10 +1349,13 @@ class TestAdditionalCoverageTests:
         # Give the monitor a moment to start and seek to end of file
         await asyncio.sleep(0.1)
 
-        # Append new content to the current log file (not rotated ones)
-        with open(current_log, "a") as f:
-            f.write("2025-07-31T10:01:00.000000 main INFO New entry after monitoring started\n")
-            f.flush()
+        # Append new content to the current log file (not rotated ones) - non-blocking
+        def _append_log() -> None:
+            with open(current_log, "a") as f:
+                f.write("2025-07-31T10:01:00.000000 main INFO New entry after monitoring started\n")
+                f.flush()
+
+        await asyncio.to_thread(_append_log)
 
         # Wait for the monitor to collect the new entry with timeout
         try:

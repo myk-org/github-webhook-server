@@ -415,9 +415,9 @@ class LogParser:
                     if entry:
                         entries.append(entry)
         except OSError as e:
-            self.logger.error(f"Failed to read JSON log file {file_path}: {e}")
+            self.logger.exception(f"Failed to read JSON log file {file_path}: {e}")
         except UnicodeDecodeError as e:
-            self.logger.error(f"Failed to decode JSON log file {file_path}: {e}")
+            self.logger.exception(f"Failed to decode JSON log file {file_path}: {e}")
 
         return entries
 

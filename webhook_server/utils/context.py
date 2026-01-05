@@ -45,6 +45,39 @@ from typing import Any
 _webhook_context: ContextVar["WebhookContext | None"] = ContextVar("webhook_context", default=None)
 
 
+def _format_duration(ms: int) -> str:
+    """Format milliseconds to human-readable duration string.
+
+    Args:
+        ms: Duration in milliseconds
+
+    Returns:
+        Human-readable duration (e.g., "3m12s", "1h5m", "500ms")
+    """
+    if ms < 1000:
+        return f"{ms}ms"
+
+    seconds = ms // 1000
+    if seconds < 60:
+        remaining_ms = ms % 1000
+        if remaining_ms > 0:
+            return f"{seconds}s{remaining_ms}ms"
+        return f"{seconds}s"
+
+    minutes = seconds // 60
+    remaining_seconds = seconds % 60
+    if minutes < 60:
+        if remaining_seconds > 0:
+            return f"{minutes}m{remaining_seconds}s"
+        return f"{minutes}m"
+
+    hours = minutes // 60
+    remaining_minutes = minutes % 60
+    if remaining_minutes > 0:
+        return f"{hours}h{remaining_minutes}m"
+    return f"{hours}h"
+
+
 @dataclass
 class WebhookContext:
     """Webhook execution context with workflow tracking and metrics.
@@ -132,15 +165,34 @@ class WebhookContext:
             **data,
         }
 
-    def complete_step(self, step_name: str, **data: Any) -> None:
+    def complete_step(
+        self,
+        step_name: str,
+        verbose_fields: list[str] | None = None,
+        **data: Any,
+    ) -> None:
         """Complete a workflow step successfully.
 
         Marks the step as completed, calculates duration, and updates step metadata.
         Additional result data can be passed as keyword arguments.
 
+        Automatically filters verbose output fields when the step succeeds. By default,
+        if data contains common success indicators (can_merge=True, success=True, etc.),
+        verbose fields are excluded to keep logs clean.
+
         Args:
             step_name: Unique identifier for this workflow step
+            verbose_fields: Optional list of field names to exclude on success (default: ["reason"])
             **data: Additional step result data (e.g., reviewers_assigned=3, labels_added=["verified"])
+
+        Example:
+            # Success case - "reason" field automatically excluded
+            ctx.complete_step("check_merge_eligibility", can_merge=True, reason="All checks passed")
+            # Result: {"can_merge": True} - "reason" excluded
+
+            # Failure case - "reason" field included for debugging
+            ctx.complete_step("check_merge_eligibility", can_merge=False, reason="Missing approver")
+            # Result: {"can_merge": False, "reason": "Missing approver"} - "reason" included
         """
         now = datetime.now(UTC)
         start_time = self._step_start_times.get(step_name)
@@ -149,12 +201,62 @@ class WebhookContext:
         if step_name not in self.workflow_steps:
             self.workflow_steps[step_name] = {"timestamp": now.isoformat()}
 
+        # Default verbose fields to exclude on success
+        if verbose_fields is None:
+            verbose_fields = ["reason"]
+
+        # Detect success based on common indicators
+        is_success = self._detect_success(data)
+
+        # Filter out verbose fields on success
+        filtered_data = data.copy()
+        if is_success:
+            for field in verbose_fields:
+                filtered_data.pop(field, None)
+
         self.workflow_steps[step_name].update({
             "status": "completed",
             "duration_ms": duration_ms,
             "error": None,
-            **data,
+            **filtered_data,
         })
+
+    def _detect_success(self, data: dict[str, Any]) -> bool:
+        """Detect if step data indicates success.
+
+        Checks for common success indicators in step data:
+        - error field present and not None → FAILURE (highest priority)
+        - can_merge=True → SUCCESS
+        - success=True → SUCCESS
+        - Any boolean field ending in "_success" = True → SUCCESS
+        - Any field ending in "_failed" = False → SUCCESS
+        - No indicators → SUCCESS (default)
+
+        Args:
+            data: Step data dictionary
+
+        Returns:
+            True if data indicates success, False otherwise
+        """
+        # Check for error indicators FIRST (highest priority)
+        if "error" in data and data["error"] is not None:
+            return False
+
+        # Check explicit success indicators
+        if "can_merge" in data:
+            return bool(data["can_merge"])
+        if "success" in data:
+            return bool(data["success"])
+
+        # Check for _success/_failed suffixes
+        for key, value in data.items():
+            if key.endswith("_success") and isinstance(value, bool):
+                return value
+            if key.endswith("_failed") and isinstance(value, bool):
+                return not value
+
+        # Default to success if no failure indicators found
+        return True
 
     def fail_step(self, step_name: str, exception: Exception, traceback_str: str, **data: Any) -> None:
         """Mark a workflow step as failed with error details.
@@ -191,6 +293,43 @@ class WebhookContext:
         # Also set top-level error
         self.success = False
         self.error = error_data
+
+    def _build_summary(self) -> str | None:
+        """Build a one-line summary of webhook processing.
+
+        Generates a summary matching the format of log_webhook_summary():
+        [SUCCESS] Webhook completed PR#968 [7s712ms, tokens:4] steps=[webhook_routing:completed(2s547ms), ...]
+
+        Returns:
+            Summary string if completed_at is set, None otherwise
+        """
+        if self.completed_at is None:
+            return None
+
+        # Calculate total duration
+        duration_ms = int((self.completed_at - self.started_at).total_seconds() * 1000)
+
+        # Build workflow steps summary
+        steps_summary = []
+        for step_name, step_data in self.workflow_steps.items():
+            status = step_data["status"]
+            step_duration_ms = step_data.get("duration_ms")
+            if step_duration_ms is not None:
+                steps_summary.append(f"{step_name}:{status}({_format_duration(step_duration_ms)})")
+            else:
+                steps_summary.append(f"{step_name}:{status}")
+
+        steps_str = ", ".join(steps_summary) if steps_summary else "no steps recorded"
+
+        # Build final summary
+        status_text = "SUCCESS" if self.success else "FAILED"
+        pr_info = f" PR#{self.pr_number}" if self.pr_number else ""
+        token_info = f", tokens:{self.token_spend}" if self.token_spend else ""
+
+        return (
+            f"[{status_text}] Webhook completed{pr_info} "
+            f"[{_format_duration(duration_ms)}{token_info}] steps=[{steps_str}]"
+        )
 
     def to_dict(self) -> dict[str, Any]:
         """Convert context to dictionary for JSON serialization.
@@ -229,6 +368,7 @@ class WebhookContext:
             "final_rate_limit": self.final_rate_limit,
             "success": self.success,
             "error": self.error,
+            "summary": self._build_summary(),
         }
 
 

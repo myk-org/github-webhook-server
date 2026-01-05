@@ -158,7 +158,6 @@ find_unused_code.py
 
 # AI
 .cursor/
-CLAUDE.md
 .agent-os/
 .cursorrules
 .claude/

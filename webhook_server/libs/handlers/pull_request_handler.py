@@ -894,10 +894,11 @@ For more information, please refer to the project documentation or contact the m
             if self.ctx:
                 self.ctx.complete_step("check_merge_eligibility", can_merge=False, reason=failure_output)
 
+        except asyncio.CancelledError:
+            self.logger.debug(f"{self.log_prefix} Merge check cancelled")
+            raise
         except Exception as ex:
-            self.logger.error(
-                f"{self.log_prefix} Failed to check if can be merged, set check run to {FAILURE_STR} {ex}"
-            )
+            self.logger.exception(f"{self.log_prefix} Failed to check if can be merged, set check run to {FAILURE_STR}")
             _err = "Failed to check if can be merged, check logs"
             output["text"] = _err
             await self.labels_handler._remove_label(pull_request=pull_request, label=CAN_BE_MERGED_STR)
