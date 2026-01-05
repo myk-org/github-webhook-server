@@ -772,12 +772,14 @@ For more information, please refer to the project documentation or contact the m
 
         Simple flow:
             1. Check pull_request.mergeable for conflicts
-            2. If has conflicts → add has-conflicts, remove needs-rebase, exit
+            2. If has conflicts → add has-conflicts, exit
             3. Else → remove has-conflicts, check Compare API for rebase status
 
         Uses both GitHub APIs for accurate labeling:
         - has-conflicts: pull_request.mergeable == False (true merge conflict detection)
         - needs-rebase: Compare API behind_by > 0 or status == "diverged"
+
+        Both labels can coexist - they both reflect the actual PR state.
 
         Args:
             pull_request: The GitHub pull request object to label.
@@ -795,18 +797,12 @@ For more information, please refer to the project documentation or contact the m
         has_conflicts = mergeable is False
 
         if has_conflicts:
-            # Has conflicts - add has-conflicts label, remove needs-rebase, and exit
+            # Has conflicts - add has-conflicts label and exit
             self.logger.debug(f"{self.log_prefix} PR has conflicts. `mergeable` =  {mergeable})")
 
             if not has_conflicts_label_exists:
                 self.logger.debug(f"{self.log_prefix} Adding {HAS_CONFLICTS_LABEL_STR} label")
                 await self.labels_handler._add_label(pull_request=pull_request, label=HAS_CONFLICTS_LABEL_STR)
-
-            if needs_rebase_label_exists:
-                self.logger.debug(
-                    f"{self.log_prefix} Removing {NEEDS_REBASE_LABEL_STR} label (conflict takes precedence)"
-                )
-                await self.labels_handler._remove_label(pull_request=pull_request, label=NEEDS_REBASE_LABEL_STR)
 
             if self.ctx:
                 self.ctx.complete_step("label_merge_state", has_conflicts=True, needs_rebase=False)
