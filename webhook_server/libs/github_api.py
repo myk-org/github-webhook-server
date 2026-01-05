@@ -8,6 +8,7 @@ import shlex
 import shutil
 import tempfile
 import threading
+import traceback
 from typing import Any
 
 import github
@@ -35,12 +36,12 @@ from webhook_server.utils.constants import (
     SUCCESS_STR,
     TOX_STR,
 )
+from webhook_server.utils.context import WebhookContext, get_context
 from webhook_server.utils.github_repository_settings import (
     get_repository_github_app_api,
 )
 from webhook_server.utils.helpers import (
     _redact_secrets,
-    format_task_fields,
     get_api_with_highest_rate_limit,
     get_apis_and_tokes_from_config,
     get_github_repo_api,
@@ -86,6 +87,9 @@ class GithubWebhook:
         self.x_github_delivery: str = headers.get("X-GitHub-Delivery", "")
         self.github_event: str = headers["X-GitHub-Event"]
         self.config = Config(repository=self.repository_name, logger=self.logger)
+
+        # Get structured logging context (created in app.py before this)
+        self.ctx: WebhookContext | None = get_context()
 
         # Type annotations for conditionally assigned attributes
         self.repository: Repository
@@ -178,6 +182,27 @@ class GithubWebhook:
             "Report bugs in [Issues](https://github.com/myakove/github-webhook-server/issues)"
         )
 
+    async def _update_context_metrics(self) -> None:
+        """Update context with token metrics at end of processing."""
+        if not self.ctx:
+            return
+
+        if self.requester_wrapper:
+            self.ctx.token_spend = self.requester_wrapper.count - self.initial_wrapper_count
+
+        if self.initial_rate_limit_remaining is not None:
+            self.ctx.initial_rate_limit = self.initial_rate_limit_remaining
+            if self.requester_wrapper:
+                self.ctx.final_rate_limit = max(
+                    0, self.initial_rate_limit_remaining - (self.requester_wrapper.count - self.initial_wrapper_count)
+                )
+
+        # Update api_user
+        self.ctx.api_user = self.api_user
+
+        # Mark webhook routing as completed
+        self.ctx.complete_step("webhook_routing")
+
     async def _get_token_metrics(self) -> str:
         """Get token metrics (API rate limit consumption) for this webhook.
 
@@ -245,11 +270,9 @@ class GithubWebhook:
         Raises:
             RuntimeError: If clone fails (aborts webhook processing)
         """
-        # Log start FIRST - even before early returns
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'started')} "
-            "Cloning repository for handler worktrees"
-        )
+        # Start context step
+        if self.ctx:
+            self.ctx.start_step("repo_clone")
 
         if self._repo_cloned:
             self.logger.debug(f"{self.log_prefix} Repository already cloned")
@@ -258,8 +281,7 @@ class GithubWebhook:
         # Validate that at least one argument is provided
         if pull_request is None and not checkout_ref:
             self.logger.error(
-                f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'failed')} "
-                "Invalid arguments: either pull_request or checkout_ref must be provided"
+                f"{self.log_prefix} Invalid arguments: either pull_request or checkout_ref must be provided"
             )
             raise ValueError(
                 f"{self.log_prefix} _clone_repository() requires either pull_request or checkout_ref to be provided"
@@ -281,10 +303,7 @@ class GithubWebhook:
 
             if not rc:
                 redacted_err = redact_output(err)
-                self.logger.error(
-                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'failed')} "
-                    f"Failed to clone repository: {redacted_err}"
-                )
+                self.logger.error(f"{self.log_prefix} Failed to clone repository: {redacted_err}")
                 raise RuntimeError(f"Failed to clone repository: {redacted_err}")
 
             # Configure git user
@@ -343,66 +362,56 @@ class GithubWebhook:
             )
             if not rc:
                 redacted_err = redact_output(err)
-                self.logger.error(
-                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'failed')} "
-                    f"Failed to checkout {checkout_target}: {redacted_err}"
-                )
+                self.logger.error(f"{self.log_prefix} Failed to checkout {checkout_target}: {redacted_err}")
                 raise RuntimeError(f"Failed to checkout {checkout_target}: {redacted_err}")
 
             self._repo_cloned = True
-            self.logger.success(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'completed')} "
-                f"Repository cloned to {self.clone_repo_dir} (ref: {checkout_target})"
-            )
+            self.logger.info(f"{self.log_prefix} Repository cloned to {self.clone_repo_dir} (ref: {checkout_target})")
+
+            # Complete context step on success
+            if self.ctx:
+                self.ctx.complete_step("repo_clone", checkout_ref=checkout_target)
 
         except RuntimeError:
+            # Fail context step on RuntimeError
+            if self.ctx:
+                self.ctx.fail_step("repo_clone", RuntimeError("Clone failed"), traceback.format_exc())
             # Re-raise RuntimeError unchanged to avoid double-wrapping
             raise
         except Exception as ex:
-            self.logger.exception(
-                f"{self.log_prefix} {format_task_fields('webhook_processing', 'repo_clone', 'failed')} "
-                f"Exception during repository clone: {ex}"
-            )
+            self.logger.exception(f"{self.log_prefix} Exception during repository clone: {ex}")
+            # Fail context step on exception
+            if self.ctx:
+                self.ctx.fail_step("repo_clone", ex, traceback.format_exc())
             raise RuntimeError(f"Repository clone failed: {ex}") from ex
 
     async def process(self) -> Any:
         event_log: str = f"Event type: {self.github_event}. event ID: {self.x_github_delivery}"
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'started')} "
-            f"Starting webhook processing: {event_log}",
-        )
+
+        # Start webhook routing context step
+        if self.ctx:
+            self.ctx.start_step("webhook_routing", event_type=self.github_event)
 
         if self.github_event == "ping":
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
-                f"Processing ping event",
-            )
             self.logger.debug(f"{self.log_prefix} {event_log}")
             token_metrics = await self._get_token_metrics()
-            self.logger.success(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
-                f"Webhook processing completed successfully: ping - {token_metrics}",
+            self.logger.info(
+                f"{self.log_prefix} Webhook processing completed successfully: ping - {token_metrics}",
             )
+            await self._update_context_metrics()
             return None
 
         if self.github_event == "push":
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
-                f"Processing push event",
-            )
             self.logger.debug(f"{self.log_prefix} {event_log}")
 
             # Skip branch/tag deletions - no processing needed
             if self.hook_data.get("deleted"):
-                self.logger.info(
-                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'skipped')} "
-                    f"Branch/tag deletion detected, skipping processing"
-                )
+                self.logger.info(f"{self.log_prefix} Branch/tag deletion detected, skipping processing")
                 token_metrics = await self._get_token_metrics()
-                self.logger.success(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
-                    f"Webhook processing completed: deletion event (skipped) - {token_metrics}"
+                self.logger.info(
+                    f"{self.log_prefix} Webhook processing completed: deletion event (skipped) - {token_metrics}"
                 )
+                await self._update_context_metrics()
                 return None
 
             # Clone repository for push operations (PyPI uploads, container builds)
@@ -410,50 +419,36 @@ class GithubWebhook:
 
             await PushHandler(github_webhook=self).process_push_webhook_data()
             token_metrics = await self._get_token_metrics()
-            self.logger.success(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
-                f"Webhook processing completed successfully: push - {token_metrics}",
+            self.logger.info(
+                f"{self.log_prefix} Webhook processing completed successfully: push - {token_metrics}",
             )
+            await self._update_context_metrics()
             return None
 
         pull_request = await self.get_pull_request()
         if pull_request:
-            # Log how we got the pull request (for workflow tracking)
-            if self.github_event == "pull_request":
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
-                    f"Initializing pull request from webhook payload",
-                )
-            else:
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
-                    f"Fetched pull request data via API (event: {self.github_event})",
-                )
+            # Update context with PR info
+            if self.ctx:
+                pr_number = await asyncio.to_thread(lambda: pull_request.number)
+                pr_title = await asyncio.to_thread(lambda: pull_request.title)
+                pr_author = await asyncio.to_thread(lambda: pull_request.user.login)
+                self.ctx.pr_number = pr_number
+                self.ctx.pr_title = pr_title
+                self.ctx.pr_author = pr_author
 
             self.log_prefix = self.prepare_log_prefix(pull_request=pull_request)
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
-                f"Processing pull request event: {event_log}",
-            )
             self.logger.debug(f"{self.log_prefix} {event_log}")
 
             if await asyncio.to_thread(lambda: pull_request.draft):
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
-                    f"Pull request is draft, skipping processing",
-                )
                 self.logger.debug(f"{self.log_prefix} Pull request is draft, doing nothing")
                 token_metrics = await self._get_token_metrics()
-                self.logger.success(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
-                    f"Webhook processing completed successfully: draft PR (skipped) - {token_metrics}",
+                self.logger.info(
+                    f"{self.log_prefix} Webhook processing completed successfully: "
+                    f"draft PR (skipped) - {token_metrics}",
                 )
+                await self._update_context_metrics()
                 return None
 
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
-                f"Initializing pull request data",
-            )
             self.last_commit = await self._get_last_commit(pull_request=pull_request)
             self.parent_committer = pull_request.user.login
             self.last_committer = getattr(self.last_commit.committer, "login", self.parent_committer)
@@ -464,88 +459,61 @@ class GithubWebhook:
                 await self._clone_repository(pull_request=pull_request)
 
             if self.github_event == "issue_comment":
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
-                    f"Initializing OWNERS file handler for issue comment",
-                )
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
                 owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
 
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
-                    f"Processing issue comment with IssueCommentHandler",
-                )
                 await IssueCommentHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
                 ).process_comment_webhook_data(pull_request=pull_request)
                 token_metrics = await self._get_token_metrics()
-                self.logger.success(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
-                    f"Webhook processing completed successfully: issue_comment - {token_metrics}",
+                self.logger.info(
+                    f"{self.log_prefix} Webhook processing completed successfully: issue_comment - {token_metrics}",
                 )
+                await self._update_context_metrics()
                 return None
 
             elif self.github_event == "pull_request":
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
-                    f"Initializing OWNERS file handler for pull request",
-                )
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
                 owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
 
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
-                    f"Processing pull request with PullRequestHandler",
-                )
                 await PullRequestHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
                 ).process_pull_request_webhook_data(pull_request=pull_request)
                 token_metrics = await self._get_token_metrics()
-                self.logger.success(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
-                    f"Webhook processing completed successfully: pull_request - {token_metrics}",
+                self.logger.info(
+                    f"{self.log_prefix} Webhook processing completed successfully: pull_request - {token_metrics}",
                 )
+                await self._update_context_metrics()
                 return None
 
             elif self.github_event == "pull_request_review":
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
-                    f"Initializing OWNERS file handler for pull request review",
-                )
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
                 owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
 
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
-                    f"Processing pull request review with PullRequestReviewHandler",
-                )
                 await PullRequestReviewHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
                 ).process_pull_request_review_webhook_data(
                     pull_request=pull_request,
                 )
                 token_metrics = await self._get_token_metrics()
-                self.logger.success(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
-                    f"Webhook processing completed successfully: pull_request_review - {token_metrics}",
+                self.logger.info(
+                    f"{self.log_prefix} Webhook processing completed successfully: "
+                    f"pull_request_review - {token_metrics}",
                 )
+                await self._update_context_metrics()
                 return None
 
             elif self.github_event == "check_run":
                 # Check if we need to process this check_run
                 action = self.hook_data.get("action", "")
                 if action != "completed":
-                    self.logger.step(  # type: ignore[attr-defined]
-                        f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'skipped')} "
-                        f"Check run action is '{action}' (not 'completed'), skipping processing",
-                    )
                     token_metrics = await self._get_token_metrics()
-                    self.logger.success(  # type: ignore[attr-defined]
+                    self.logger.info(
                         f"{self.log_prefix} "
-                        f"{format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
                         f"Webhook processing completed successfully: check_run (action={action}, skipped) - "
                         f"{token_metrics}",
                     )
+                    await self._update_context_metrics()
                     return None
 
                 # Check if this is can-be-merged with non-success conclusion
@@ -553,73 +521,44 @@ class GithubWebhook:
                 check_run_conclusion = self.hook_data.get("check_run", {}).get("conclusion", "")
 
                 if check_run_name == CAN_BE_MERGED_STR and check_run_conclusion != SUCCESS_STR:
-                    self.logger.step(  # type: ignore[attr-defined]
-                        f"{self.log_prefix} "
-                        f"{format_task_fields('webhook_processing', 'webhook_routing', 'skipped')} "
-                        f"Can-be-merged check has conclusion '{check_run_conclusion}' (not 'success'), "
-                        f"skipping processing",
-                    )
                     token_metrics = await self._get_token_metrics()
-                    self.logger.success(  # type: ignore[attr-defined]
+                    self.logger.info(
                         f"{self.log_prefix} "
-                        f"{format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
                         f"Webhook processing completed successfully: check_run "
                         f"(can-be-merged, conclusion={check_run_conclusion}, skipped) - {token_metrics}",
                     )
+                    await self._update_context_metrics()
                     return None
 
                 # Only clone repository when we actually need it (action is completed and processing is needed)
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
-                    f"Cloning repository for check run processing",
-                )
                 await self._clone_repository(pull_request=pull_request)
 
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
-                    f"Initializing OWNERS file handler for check run",
-                )
                 owners_file_handler = OwnersFileHandler(github_webhook=self)
                 owners_file_handler = await owners_file_handler.initialize(pull_request=pull_request)
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
-                    f"Processing check run with CheckRunHandler",
-                )
                 handled = await CheckRunHandler(
                     github_webhook=self, owners_file_handler=owners_file_handler
                 ).process_pull_request_check_run_webhook_data(pull_request=pull_request)
                 if handled:
                     if self.hook_data["check_run"]["name"] != CAN_BE_MERGED_STR:
-                        self.logger.step(  # type: ignore[attr-defined]
-                            f"{self.log_prefix} "
-                            f"{format_task_fields('webhook_processing', 'webhook_routing', 'processing')} "
-                            f"Checking if pull request can be merged after check run",
-                        )
                         await PullRequestHandler(
                             github_webhook=self, owners_file_handler=owners_file_handler
                         ).check_if_can_be_merged(pull_request=pull_request)
                 # Log completion regardless of whether check run was processed or skipped
                 token_metrics = await self._get_token_metrics()
-                self.logger.success(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} "
-                    f"{format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
-                    f"Webhook processing completed successfully: check_run - {token_metrics}",
+                self.logger.info(
+                    f"{self.log_prefix} Webhook processing completed successfully: check_run - {token_metrics}",
                 )
+                await self._update_context_metrics()
                 return None
 
         else:
             # Log warning when no PR found
             self.logger.warning(
-                f"{self.log_prefix} "
-                f"{format_task_fields('webhook_processing', 'webhook_routing', 'skipped')} "
-                f"No pull request found for {self.github_event} event - skipping processing"
+                f"{self.log_prefix} No pull request found for {self.github_event} event - skipping processing"
             )
             token_metrics = await self._get_token_metrics()
-            self.logger.success(  # type: ignore[attr-defined]
-                f"{self.log_prefix} "
-                f"{format_task_fields('webhook_processing', 'webhook_routing', 'completed')} "
-                f"Webhook processing completed: no PR found - {token_metrics}"
-            )
+            self.logger.info(f"{self.log_prefix} Webhook processing completed: no PR found - {token_metrics}")
+            await self._update_context_metrics()
             return None
 
     def add_api_users_to_auto_verified_and_merged_users(self) -> None:

@@ -12,6 +12,7 @@ from starlette.datastructures import Headers
 
 from webhook_server.libs.exceptions import RepositoryNotFoundInConfigError
 from webhook_server.libs.github_api import GithubWebhook
+from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 
 
 class TestGithubWebhook:
@@ -293,6 +294,11 @@ class TestGithubWebhook:
                 return_value=Mock(decoded_content=b"approvers:\n  - user1\nreviewers:\n  - user2"),
             ),
             patch.object(webhook, "_clone_repository", new=AsyncMock(return_value=None)),
+            patch.object(
+                OwnersFileHandler,
+                "initialize",
+                new=AsyncMock(return_value=None),
+            ),
         ):
             await webhook.process()
             mock_process_pr.assert_called_once()
@@ -403,6 +409,11 @@ class TestGithubWebhook:
                 return_value=Mock(decoded_content=b"approvers:\n  - user1\nreviewers:\n  - user2"),
             ),
             patch.object(webhook, "_clone_repository", new=AsyncMock(return_value=None)),
+            patch.object(
+                OwnersFileHandler,
+                "initialize",
+                new=AsyncMock(return_value=None),
+            ),
         ):
             await webhook.process()
             mock_process_comment.assert_called_once()
@@ -790,7 +801,14 @@ class TestGithubWebhook:
                                     mock_pr_handler.return_value.check_if_can_be_merged = AsyncMock(return_value=None)
 
                                     webhook = GithubWebhook(check_run_data, headers, logger)
-                                    with patch.object(webhook, "_clone_repository", new=AsyncMock(return_value=None)):
+                                    with (
+                                        patch.object(webhook, "_clone_repository", new=AsyncMock(return_value=None)),
+                                        patch.object(
+                                            OwnersFileHandler,
+                                            "initialize",
+                                            new=AsyncMock(return_value=None),
+                                        ),
+                                    ):
                                         await webhook.process()
 
                                     mock_check_handler.return_value.process_pull_request_check_run_webhook_data.assert_awaited_once()
@@ -1505,9 +1523,8 @@ class TestGithubWebhook:
             )
 
             # Verify completion log with "deletion event (skipped)" message
-            success_calls = [str(call) for call in mock_logger.success.call_args_list]
-            assert any("deletion event (skipped)" in call.lower() for call in success_calls), (
-                f"Expected 'deletion event (skipped)' in success logs. Got: {success_calls}"
+            assert any("deletion event (skipped)" in call.lower() for call in info_calls), (
+                f"Expected 'deletion event (skipped)' in info logs. Got: {info_calls}"
             )
 
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})

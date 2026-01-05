@@ -46,6 +46,7 @@ class TestCheckRunHandler:
         mock_webhook.token = "test-token"
         mock_webhook.container_repository_username = "test-user"
         mock_webhook.container_repository_password = "test-pass"  # pragma: allowlist secret
+        mock_webhook.ctx = None
         mock_webhook.custom_check_runs = []
         return mock_webhook
 
@@ -86,8 +87,6 @@ class TestCheckRunHandler:
 
         result = await check_run_handler.process_pull_request_check_run_webhook_data()
         assert result is False
-        # Verify completion log was called (skipping is acceptable)
-        assert check_run_handler.logger.step.called  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio
     async def test_process_pull_request_check_run_webhook_data_can_be_merged(
@@ -101,8 +100,6 @@ class TestCheckRunHandler:
 
         result = await check_run_handler.process_pull_request_check_run_webhook_data()
         assert result is False
-        # Verify completion log was called
-        assert check_run_handler.logger.step.called  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio
     async def test_process_pull_request_check_run_webhook_data_completed_normal(
@@ -116,8 +113,6 @@ class TestCheckRunHandler:
 
         result = await check_run_handler.process_pull_request_check_run_webhook_data()
         assert result is True
-        # Verify completion log was called
-        assert check_run_handler.logger.step.called  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio
     async def test_set_verify_check_queued(self, check_run_handler: CheckRunHandler) -> None:
@@ -415,11 +410,11 @@ class TestCheckRunHandler:
         with patch.object(
             check_run_handler.github_webhook.repository_by_github_app, "create_check_run", return_value=None
         ):
-            with patch.object(check_run_handler.github_webhook.logger, "success") as mock_success:
+            with patch.object(check_run_handler.github_webhook.logger, "info") as mock_info:
                 await check_run_handler.set_check_run_status(
                     check_run="test-check", status="queued", conclusion="", output=None
                 )
-                mock_success.assert_not_called()  # Only called for certain conclusions
+                mock_info.assert_not_called()  # Only called for certain conclusions
 
     @pytest.mark.asyncio
     async def test_set_check_run_status_with_conclusion(self, check_run_handler: CheckRunHandler) -> None:
@@ -427,11 +422,11 @@ class TestCheckRunHandler:
         with patch.object(
             check_run_handler.github_webhook.repository_by_github_app, "create_check_run", return_value=None
         ):
-            with patch.object(check_run_handler.github_webhook.logger, "success") as mock_success:
+            with patch.object(check_run_handler.github_webhook.logger, "info") as mock_info:
                 await check_run_handler.set_check_run_status(
                     check_run="test-check", status="", conclusion="success", output=None
                 )
-                mock_success.assert_called_once()
+                mock_info.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_set_check_run_status_with_output(self, check_run_handler: CheckRunHandler) -> None:
@@ -439,12 +434,12 @@ class TestCheckRunHandler:
         with patch.object(
             check_run_handler.github_webhook.repository_by_github_app, "create_check_run", return_value=None
         ):
-            with patch.object(check_run_handler.github_webhook.logger, "success") as mock_success:
+            with patch.object(check_run_handler.github_webhook.logger, "info") as mock_info:
                 output = {"title": "Test", "summary": "Summary"}
                 await check_run_handler.set_check_run_status(
                     check_run="test-check", status="queued", conclusion="", output=output
                 )
-                mock_success.assert_not_called()
+                mock_info.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_set_check_run_status_exception_handling(self, check_run_handler: CheckRunHandler) -> None:
@@ -1079,9 +1074,6 @@ class TestCheckRunRepositoryCloning:
                             # Verify: Result is None (skipped processing)
                             assert result is None
 
-                            # Verify: Logger step was called with skipped status
-                            assert github_webhook.logger.step.called
-
     @pytest.mark.asyncio
     @patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix")
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
@@ -1150,9 +1142,6 @@ class TestCheckRunRepositoryCloning:
 
                             # Verify: Result is None (skipped processing)
                             assert result is None
-
-                            # Verify: Logger step was called with skipped status
-                            assert github_webhook.logger.step.called
 
     @pytest.mark.asyncio
     @patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix")
@@ -1238,9 +1227,6 @@ class TestCheckRunRepositoryCloning:
                                     # Verify: Result is None (successful processing)
                                     assert result is None
 
-                                    # Verify: Logger step was called
-                                    assert github_webhook.logger.step.called
-
     @pytest.mark.asyncio
     @patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix")
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
@@ -1318,6 +1304,3 @@ class TestCheckRunRepositoryCloning:
 
                                 # Verify: Result is None (successful processing)
                                 assert result is None
-
-                                # Verify: Logger step was called
-                                assert github_webhook.logger.step.called

@@ -132,28 +132,6 @@ def _sanitize_log_value(value: str) -> str:
     return sanitized
 
 
-def format_task_fields(task_id: str | None = None, task_type: str | None = None, task_status: str | None = None) -> str:
-    """Format task correlation fields for log messages.
-
-    Args:
-        task_id: Task identifier (e.g., "check_tox", "webhook_processing")
-        task_type: Task type category (e.g., "ci_check", "webhook_routing")
-        task_status: Task status (e.g., "started", "completed", "failed")
-
-    Returns:
-        Formatted string with task fields in brackets, or empty string if no fields provided.
-        Example: "[task_id=check_tox] [task_type=ci_check] [task_status=started]"
-    """
-    parts = []
-    if task_id:
-        parts.append(f"[task_id={_sanitize_log_value(task_id)}]")
-    if task_type:
-        parts.append(f"[task_type={_sanitize_log_value(task_type)}]")
-    if task_status:
-        parts.append(f"[task_status={_sanitize_log_value(task_status)}]")
-    return " ".join(parts)
-
-
 # Global cache for compiled regex patterns
 # Cache key: (tuple of secrets, case_insensitive flag)
 _REDACT_REGEX_CACHE: dict[tuple[tuple[str, ...], bool], re.Pattern[str]] = {}

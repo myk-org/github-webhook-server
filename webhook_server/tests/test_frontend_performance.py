@@ -58,9 +58,9 @@ class TestFrontendPerformanceOptimizations:
 
         return entries
 
-    def test_html_template_contains_optimized_rendering(self, controller, static_files):
+    async def test_html_template_contains_optimized_rendering(self, controller, static_files):
         """Test that the JavaScript file includes optimized rendering capabilities."""
-        html_content = controller._get_log_viewer_html()
+        html_content = await controller._get_log_viewer_html()
         js_content = self._read_static_file(static_files["js"])
 
         # Check that HTML template includes the JS file
@@ -80,9 +80,9 @@ class TestFrontendPerformanceOptimizations:
             "disabled" in js_content.lower() or "removed" in js_content.lower()
         ), "Virtual scrolling should be explicitly disabled"
 
-    def test_html_template_contains_progressive_loading(self, controller, static_files):
+    async def test_html_template_contains_progressive_loading(self, controller, static_files):
         """Test that the JavaScript and CSS files include progressive loading capabilities."""
-        html_content = controller._get_log_viewer_html()
+        html_content = await controller._get_log_viewer_html()
         js_content = self._read_static_file(static_files["js"])
         css_content = self._read_static_file(static_files["css"])
 
@@ -110,9 +110,9 @@ class TestFrontendPerformanceOptimizations:
         assert "error" in js_content.lower(), "Should include error handling"
         assert "retry" in css_content.lower() or "retry" in js_content.lower(), "Should support retry functionality"
 
-    def test_html_template_contains_optimized_filtering(self, controller, static_files):
+    async def test_html_template_contains_optimized_filtering(self, controller, static_files):
         """Test that the JavaScript file includes optimized filtering capabilities."""
-        html_content = controller._get_log_viewer_html()
+        html_content = await controller._get_log_viewer_html()
         js_content = self._read_static_file(static_files["js"])
 
         # Check that HTML template includes the JS file
@@ -134,9 +134,9 @@ class TestFrontendPerformanceOptimizations:
         # Test for early exit optimizations
         assert "return false" in js_content, "Should use early exits for filter performance"
 
-    def test_html_template_contains_performance_css(self, controller, static_files):
+    async def test_html_template_contains_performance_css(self, controller, static_files):
         """Test that the CSS file includes performance optimizations."""
-        html_content = controller._get_log_viewer_html()
+        html_content = await controller._get_log_viewer_html()
         css_content = self._read_static_file(static_files["css"])
 
         # Check that HTML template includes the CSS file
@@ -154,9 +154,9 @@ class TestFrontendPerformanceOptimizations:
         assert "skeleton" in css_content.lower(), "Should include skeleton loading styles"
         assert "loading" in css_content.lower(), "Should include loading state styles"
 
-    def test_escaping_function_included(self, controller, static_files):
+    async def test_escaping_function_included(self, controller, static_files):
         """Test that HTML escaping functionality is included for security."""
-        html_content = controller._get_log_viewer_html()
+        html_content = await controller._get_log_viewer_html()
         js_content = self._read_static_file(static_files["js"])
 
         # Check that HTML template includes the JS file
@@ -176,9 +176,9 @@ class TestFrontendPerformanceOptimizations:
         )
         assert "escape" in js_lower and "hook" in js_lower, "Should escape hook IDs"
 
-    def test_progressive_loading_threshold(self, controller, static_files):
+    async def test_progressive_loading_threshold(self, controller, static_files):
         """Test that progressive loading activates for large datasets."""
-        html_content = controller._get_log_viewer_html()
+        html_content = await controller._get_log_viewer_html()
         js_content = self._read_static_file(static_files["js"])
 
         # Check that HTML template includes the JS file
@@ -189,9 +189,9 @@ class TestFrontendPerformanceOptimizations:
         assert "200" in js_content or "100" in js_content, "Should have a reasonable threshold for progressive loading"
         assert "progressiv" in js_content.lower(), "Should activate progressive loading for large datasets"
 
-    def test_chunked_loading_configuration(self, controller, static_files):
+    async def test_chunked_loading_configuration(self, controller, static_files):
         """Test that chunked loading is properly configured."""
-        html_content = controller._get_log_viewer_html()
+        html_content = await controller._get_log_viewer_html()
         js_content = self._read_static_file(static_files["js"])
 
         # Check that HTML template includes the JS file
@@ -207,9 +207,9 @@ class TestFrontendPerformanceOptimizations:
         assert "setTimeout" in js_content, "Should use setTimeout for non-blocking chunked loading"
         assert any(str(i) in js_content for i in [5, 10, 15, 20]), "Should have reasonable delay between chunks"
 
-    def test_debounced_filtering_optimization(self, controller, static_files):
+    async def test_debounced_filtering_optimization(self, controller, static_files):
         """Test that debounced filtering is optimized."""
-        html_content = controller._get_log_viewer_html()
+        html_content = await controller._get_log_viewer_html()
         js_content = self._read_static_file(static_files["js"])
 
         # Check that HTML template includes the JS file
@@ -229,16 +229,20 @@ class TestFrontendPerformanceOptimizations:
 
     @patch("pathlib.Path.exists")
     @patch("pathlib.Path.iterdir")
-    def test_controller_works_with_large_datasets(self, mock_iterdir, mock_exists, controller, large_log_entries):
+    async def test_controller_works_with_large_datasets(self, mock_iterdir, mock_exists, controller, large_log_entries):
         """Test that the controller can handle large datasets efficiently."""
         # Mock file system for log parsing
         mock_exists.return_value = True
         mock_iterdir.return_value = []
 
-        # Mock the stream_log_entries method to return our large dataset
-        with patch.object(controller, "_stream_log_entries", return_value=iter(large_log_entries)):
+        # Mock the stream_log_entries method to return an async generator
+        async def async_gen():
+            for entry in large_log_entries:
+                yield entry
+
+        with patch.object(controller, "_stream_log_entries", return_value=async_gen()):
             # Test getting log entries with a large dataset
-            result = controller.get_log_entries(limit=1000)
+            result = await controller.get_log_entries(limit=1000)
 
             # Test that essential API structure is maintained
             expected_keys = ["entries", "entries_processed", "filtered_count_min", "limit", "offset"]
@@ -252,12 +256,17 @@ class TestFrontendPerformanceOptimizations:
             assert result["entries_processed"] >= 0, "Should track number of entries processed"
             assert result["limit"] == 1000, "Should respect requested limit"
 
-    def test_memory_efficient_export(self, controller, large_log_entries):
+    async def test_memory_efficient_export(self, controller, large_log_entries):
         """Test that export functionality works efficiently with large datasets."""
-        # Mock the stream_log_entries method
-        with patch.object(controller, "_stream_log_entries", return_value=iter(large_log_entries)):
+
+        # Mock the stream_log_entries method to return an async generator
+        async def async_gen():
+            for entry in large_log_entries:
+                yield entry
+
+        with patch.object(controller, "_stream_log_entries", return_value=async_gen()):
             # Test JSON export with large dataset
-            result = controller.export_logs(format_type="json")
+            result = await controller.export_logs(format_type="json")
 
             # Test that export uses streaming approach for memory efficiency
             assert hasattr(result, "body_iterator"), "Export should use streaming response for large datasets"
@@ -265,9 +274,9 @@ class TestFrontendPerformanceOptimizations:
             # Test that the response is properly configured for streaming
             assert result is not None, "Export should return a valid response object"
 
-    def test_filter_performance_with_search_terms(self, controller, static_files):
+    async def test_filter_performance_with_search_terms(self, controller, static_files):
         """Test that search term optimization is implemented."""
-        html_content = controller._get_log_viewer_html()
+        html_content = await controller._get_log_viewer_html()
         js_content = self._read_static_file(static_files["js"])
 
         # Check that HTML template includes the JS file
@@ -281,9 +290,9 @@ class TestFrontendPerformanceOptimizations:
         # Test for case-insensitive search capability
         assert "toLowerCase" in js_content or "toUpperCase" in js_content, "Should support case-insensitive search"
 
-    def test_error_handling_and_retry_mechanism(self, controller, static_files):
+    async def test_error_handling_and_retry_mechanism(self, controller, static_files):
         """Test that error handling and retry mechanisms are in place."""
-        html_content = controller._get_log_viewer_html()
+        html_content = await controller._get_log_viewer_html()
         js_content = self._read_static_file(static_files["js"])
 
         # Check that HTML template includes the JS file

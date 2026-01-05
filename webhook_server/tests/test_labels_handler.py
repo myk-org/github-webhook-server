@@ -50,6 +50,7 @@ class TestLabelsHandler:
         # Configure config.get_value to return None for pr-size-thresholds by default
         # This ensures existing tests use static defaults
         webhook.config.get_value.return_value = None
+        webhook.ctx = None
         return webhook
 
     @pytest.fixture
@@ -134,8 +135,6 @@ class TestLabelsHandler:
                 ):
                     await labels_handler._add_label(mock_pull_request, "test-label")
                     mock_pull_request.add_to_labels.assert_called_once_with("test-label")
-                    # Verify completion log was called
-                    assert labels_handler.logger.step.called  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio
     async def test_add_label_too_long(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
@@ -144,8 +143,6 @@ class TestLabelsHandler:
         await labels_handler._add_label(mock_pull_request, long_label)
         # Verify label was not added
         mock_pull_request.add_to_labels.assert_not_called()
-        # Verify completion log was called (label too long is acceptable)
-        assert labels_handler.logger.step.called  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio
     async def test_add_label_already_exists(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
@@ -154,8 +151,6 @@ class TestLabelsHandler:
             await labels_handler._add_label(mock_pull_request, "existing-label")
             # Verify label was not added (already exists)
             mock_pull_request.add_to_labels.assert_not_called()
-            # Verify completion log was called (label already exists is acceptable)
-            assert labels_handler.logger.step.called  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio
     async def test_add_label_static_label(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
@@ -165,8 +160,6 @@ class TestLabelsHandler:
             await labels_handler._add_label(mock_pull_request, static_label)
             # Verify label was added
             mock_pull_request.add_to_labels.assert_called_once_with(static_label)
-            # Verify completion log was called
-            assert labels_handler.logger.step.called  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio
     async def test_add_label_exception_handling(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
@@ -255,8 +248,6 @@ class TestLabelsHandler:
             assert result is False
             # Verify that remove_from_labels was not called (we don't check first to save API calls)
             mock_pull_request.remove_from_labels.assert_not_called()
-            # Verify completion log was called (label doesn't exist is acceptable)
-            assert labels_handler.logger.step.called  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio
     async def test_remove_label_wait_timeout(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
@@ -272,8 +263,6 @@ class TestLabelsHandler:
                         result = await labels_handler._remove_label(mock_pull_request, "test-label")
                         assert result is False
                         mock_pull_request.remove_from_labels.assert_called_once_with("test-label")
-                        # Verify failure log was called (timeout waiting for removal)
-                        assert labels_handler.logger.step.called  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio
     async def test_add_label_dynamic_label_wait_exception(

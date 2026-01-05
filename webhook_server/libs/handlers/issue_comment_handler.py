@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import traceback
 from asyncio import Task
 from collections.abc import Coroutine
 from typing import TYPE_CHECKING, Any
@@ -30,10 +31,10 @@ from webhook_server.utils.constants import (
     VERIFIED_LABEL_STR,
     WIP_STR,
 )
-from webhook_server.utils.helpers import format_task_fields
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
+    from webhook_server.utils.context import WebhookContext
 
 
 class IssueCommentHandler:
@@ -45,6 +46,7 @@ class IssueCommentHandler:
         self.logger = self.github_webhook.logger
         self.log_prefix: str = self.github_webhook.log_prefix
         self.repository: Repository = self.github_webhook.repository
+        self.ctx: WebhookContext | None = github_webhook.ctx
         self.labels_handler = LabelsHandler(
             github_webhook=self.github_webhook, owners_file_handler=self.owners_file_handler
         )
@@ -57,99 +59,87 @@ class IssueCommentHandler:
         )
 
     async def process_comment_webhook_data(self, pull_request: PullRequest) -> None:
-        comment_action = self.hook_data["action"]
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('issue_comment', 'pr_management', 'started')} "
-            f"Starting issue comment processing: action={comment_action}",
-        )
+        if self.ctx:
+            self.ctx.start_step("issue_comment_handler")
 
-        if comment_action in ("edited", "deleted"):
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('issue_comment', 'pr_management', 'processing')} "
-                f"Skipping comment processing: action is {comment_action}",
-            )
-            self.logger.debug(f"{self.log_prefix} Not processing comment. action is {comment_action}")
-            # Log completion - task_status reflects the result of our action (skipping is acceptable)
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('issue_comment', 'pr_management', 'completed')} "
-                f"Skipping comment processing: action is {comment_action} (completed)",
-            )
-            return
+        try:
+            comment_action = self.hook_data["action"]
 
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('issue_comment', 'pr_management', 'processing')} "
-            f"Processing issue comment for issue {self.hook_data['issue']['number']}",
-        )
-        self.logger.info(f"{self.log_prefix} Processing issue {self.hook_data['issue']['number']}")
+            if comment_action in ("edited", "deleted"):
+                self.logger.debug(f"{self.log_prefix} Not processing comment. action is {comment_action}")
+                if self.ctx:
+                    self.ctx.complete_step("issue_comment_handler")
+                return
 
-        body: str = self.hook_data["comment"]["body"]
+            self.logger.info(f"{self.log_prefix} Processing issue {self.hook_data['issue']['number']}")
 
-        if self.github_webhook.issue_url_for_welcome_msg in body:
-            self.logger.debug(f"{self.log_prefix} Welcome message found in issue {pull_request.title}. Not processing")
-            # Log completion - task_status reflects the result of our action (skipping welcome message is acceptable)
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('issue_comment', 'pr_management', 'completed')} "
-                f"Processing issue comment for issue {self.hook_data['issue']['number']} (welcome message - skipped)",
-            )
-            return
+            body: str = self.hook_data["comment"]["body"]
 
-        _user_commands: list[str] = [_cmd.strip("/") for _cmd in body.strip().splitlines() if _cmd.startswith("/")]
-
-        if _user_commands:
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('issue_comment', 'pr_management', 'processing')} "
-                f"Found {len(_user_commands)} user commands: {_user_commands}",
-            )
-
-        user_login: str = self.hook_data["sender"]["login"]
-
-        # Execute all commands in parallel
-        if _user_commands:
-            tasks: list[Coroutine[Any, Any, Any] | Task[Any]] = []
-            for user_command in _user_commands:
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} "
-                    f"{format_task_fields('issue_comment', 'pr_management', 'processing')} "
-                    f"Executing user command: /{user_command} by {user_login}",
+            if self.github_webhook.issue_url_for_welcome_msg in body:
+                self.logger.debug(
+                    f"{self.log_prefix} Welcome message found in issue {pull_request.title}. Not processing"
                 )
-                task = asyncio.create_task(
-                    self.user_commands(
-                        pull_request=pull_request,
-                        command=user_command,
-                        reviewed_user=user_login,
-                        issue_comment_id=self.hook_data["comment"]["id"],
+                if self.ctx:
+                    self.ctx.complete_step("issue_comment_handler")
+                return
+
+            _user_commands: list[str] = [_cmd.strip("/") for _cmd in body.strip().splitlines() if _cmd.startswith("/")]
+
+            user_login: str = self.hook_data["sender"]["login"]
+
+            # Execute all commands in parallel
+            if _user_commands:
+                tasks: list[Coroutine[Any, Any, Any] | Task[Any]] = []
+                for user_command in _user_commands:
+                    task = asyncio.create_task(
+                        self.user_commands(
+                            pull_request=pull_request,
+                            command=user_command,
+                            reviewed_user=user_login,
+                            issue_comment_id=self.hook_data["comment"]["id"],
+                        )
                     )
-                )
-                tasks.append(task)
+                    tasks.append(task)
 
-            # Execute all commands concurrently
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+                # Execute all commands concurrently
+                results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            # Log results and handle exceptions
-            for idx, result in enumerate(results):
-                user_command = _user_commands[idx]
-                if isinstance(result, Exception):
-                    self.logger.error(f"{self.log_prefix} Command execution failed: /{user_command} - {result}")
-                else:
-                    self.logger.step(  # type: ignore[attr-defined]
-                        f"{self.log_prefix} {format_task_fields('issue_comment', 'pr_management', 'completed')} "
-                        f"Executed user command: /{user_command} by {user_login}",
-                    )
+                # Check if any command failed
+                failed_commands: list[tuple[str, Exception]] = []
+                for idx, result in enumerate(results):
+                    user_command = _user_commands[idx]
+                    if isinstance(result, Exception):
+                        # Re-raise CancelledError immediately to allow cancellation to propagate
+                        if isinstance(result, asyncio.CancelledError):
+                            raise result
+                        self.logger.error(f"{self.log_prefix} Command execution failed: /{user_command} - {result}")
+                        failed_commands.append((user_command, result))
 
-        # Log completion for main processing - task_status reflects the result of our action
-        if not _user_commands:
-            # No commands found, log completion
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('issue_comment', 'pr_management', 'completed')} "
-                f"Processing issue comment for issue {self.hook_data['issue']['number']} (no commands found)",
-            )
-        else:
-            # Commands were processed, log completion
-            issue_num = self.hook_data["issue"]["number"]
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('issue_comment', 'pr_management', 'completed')} "
-                f"Processing issue comment for issue {issue_num} (processed {len(_user_commands)} commands)",
-            )
+                # If any command failed, mark step as failed
+                if failed_commands:
+                    # Use first exception for context failure
+                    first_failed_command, first_exception = failed_commands[0]
+                    error_msg = f"Command /{first_failed_command} failed: {first_exception}"
+                    if self.ctx:
+                        # Format traceback from the actual exception object
+                        tb_lines = traceback.format_exception(
+                            type(first_exception), first_exception, first_exception.__traceback__
+                        )
+                        tb_str = "".join(tb_lines)
+                        self.ctx.fail_step("issue_comment_handler", first_exception, tb_str)
+                    raise RuntimeError(error_msg) from first_exception
+
+            if self.ctx:
+                self.ctx.complete_step("issue_comment_handler")
+
+        except asyncio.CancelledError:
+            # Always let cancellation propagate
+            raise
+        except Exception as ex:
+            # If step not already failed, mark it as failed
+            if self.ctx and not self.ctx.workflow_steps.get("issue_comment_handler", {}).get("status") == "failed":
+                self.ctx.fail_step("issue_comment_handler", ex, traceback.format_exc())
+            raise
 
     async def user_commands(
         self, pull_request: PullRequest, command: str, reviewed_user: str, issue_comment_id: int

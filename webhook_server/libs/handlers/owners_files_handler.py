@@ -14,7 +14,7 @@ from github.PullRequest import PullRequest
 from github.Repository import Repository
 
 from webhook_server.utils.constants import COMMAND_ADD_ALLOWED_USER_STR, ROOT_APPROVERS_KEY
-from webhook_server.utils.helpers import format_task_fields, run_command
+from webhook_server.utils.helpers import run_command
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
@@ -94,31 +94,40 @@ class OwnersFileHandler:
 
         Returns:
             List of changed file paths relative to repository root
+
+        Raises:
+            RuntimeError: If git diff command fails
+            asyncio.CancelledError: Propagates cancellation (never caught)
         """
+        # Get base and head SHAs (wrap property accesses in asyncio.to_thread)
+        base_sha, head_sha = await asyncio.gather(
+            asyncio.to_thread(lambda: pull_request.base.sha),
+            asyncio.to_thread(lambda: pull_request.head.sha),
+        )
+
+        # Run git diff command on cloned repository
+        # Quote clone_repo_dir to handle paths with spaces or special characters
+        git_diff_command = (
+            f"git -C {shlex.quote(self.github_webhook.clone_repo_dir)} diff --name-only {base_sha}...{head_sha}"
+        )
+
         try:
-            # Get base and head SHAs (wrap property accesses in asyncio.to_thread)
-            base_sha, head_sha = await asyncio.gather(
-                asyncio.to_thread(lambda: pull_request.base.sha),
-                asyncio.to_thread(lambda: pull_request.head.sha),
-            )
-
-            # Run git diff command on cloned repository
-            # Quote clone_repo_dir to handle paths with spaces or special characters
-            git_diff_command = (
-                f"git -C {shlex.quote(self.github_webhook.clone_repo_dir)} diff --name-only {base_sha}...{head_sha}"
-            )
-
-            success, out, _ = await run_command(
+            success, out, err = await run_command(
                 command=git_diff_command,
                 log_prefix=self.log_prefix,
                 verify_stderr=False,
                 mask_sensitive=self.github_webhook.mask_sensitive,
             )
 
-            # Check success flag - return empty list if git diff failed
+            # Check success flag - raise if git diff failed
             if not success:
-                self.logger.error(f"{self.log_prefix} git diff command failed")
-                return []
+                error_msg = (
+                    f"git diff command failed for {base_sha}...{head_sha}. "
+                    f"stdout: {out.strip() if out else '(empty)'}, "
+                    f"stderr: {err.strip() if err else '(empty)'}"
+                )
+                self.logger.error(f"{self.log_prefix} {error_msg}")
+                raise RuntimeError(error_msg)
 
             # Parse output: split by newlines and filter empty lines
             changed_files = [line.strip() for line in out.splitlines() if line.strip()]
@@ -126,10 +135,19 @@ class OwnersFileHandler:
             self.logger.debug(f"{self.log_prefix} Changed files: {changed_files}")
             return changed_files
 
-        except Exception:
-            # Log error and return empty list if git diff fails
-            self.logger.exception(f"{self.log_prefix} Failed to get changed files via git diff")
-            return []
+        except asyncio.CancelledError:
+            # Never catch CancelledError - let it propagate
+            raise
+
+        except RuntimeError:
+            # Re-raise RuntimeError from git diff failure check
+            raise
+
+        except Exception as ex:
+            # Wrap unexpected exceptions with context
+            error_msg = f"Unexpected error getting changed files via git diff for {base_sha}...{head_sha}: {ex}"
+            self.logger.exception(f"{self.log_prefix} {error_msg}")
+            raise RuntimeError(error_msg) from ex
 
     def _validate_owners_content(self, content: Any, path: str) -> bool:
         """Validate OWNERS file content structure."""
@@ -406,30 +424,12 @@ class OwnersFileHandler:
     async def assign_reviewers(self, pull_request: PullRequest) -> None:
         self._ensure_initialized()
 
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'started')} "
-            f"Starting reviewer assignment based on OWNERS files",
-        )
         self.logger.info(f"{self.log_prefix} Assign reviewers")
 
         _to_add: list[str] = list(set(self.all_pull_request_reviewers))
         self.logger.debug(f"{self.log_prefix} Reviewers to add: {', '.join(_to_add)}")
 
-        if _to_add:
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'processing')} "
-                f"Assigning {len(_to_add)} reviewers to PR",
-            )
-        else:
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'processing')} "
-                f"No reviewers to assign",
-            )
-            # Log completion - task_status reflects the result of our action (no reviewers to assign is acceptable)
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'completed')} "
-                f"No reviewers to assign (completed)",
-            )
+        if not _to_add:
             return
 
         assigned_count = 0
@@ -439,34 +439,14 @@ class OwnersFileHandler:
                 self.logger.debug(f"{self.log_prefix} Adding reviewer {reviewer}")
                 try:
                     await asyncio.to_thread(pull_request.create_review_request, [reviewer])
-                    self.logger.step(  # type: ignore[attr-defined]
-                        f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'processing')} "
-                        f"Successfully assigned reviewer {reviewer}",
-                    )
                     assigned_count += 1
 
                 except GithubException as ex:
-                    self.logger.step(  # type: ignore[attr-defined]
-                        f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'failed')} "
-                        f"Failed to assign reviewer {reviewer}",
-                    )
                     self.logger.debug(f"{self.log_prefix} Failed to add reviewer {reviewer}. {ex}")
                     await asyncio.to_thread(
                         pull_request.create_issue_comment, f"{reviewer} can not be added as reviewer. {ex}"
                     )
                     failed_count += 1
-
-        # Log completion - task_status reflects the result of our action
-        if failed_count > 0:
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'failed')} "
-                f"Assigned {assigned_count} reviewers to PR ({failed_count} failed)",
-            )
-        else:
-            self.logger.step(  # type: ignore[attr-defined]
-                f"{self.log_prefix} {format_task_fields('owners', 'pr_management', 'completed')} "
-                f"Assigned {assigned_count} reviewers to PR",
-            )
 
     async def is_user_valid_to_run_commands(self, pull_request: PullRequest, reviewed_user: str) -> bool:
         self._ensure_initialized()

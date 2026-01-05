@@ -43,6 +43,7 @@ class TestPushHandler:
         mock_webhook.container_repository_username = "test-user"  # Always a string
         mock_webhook.container_repository_password = "test-password"  # Always a string # pragma: allowlist secret
         mock_webhook.token = "test-token"  # Always a string
+        mock_webhook.ctx = None
         mock_webhook.custom_check_runs = []
         return mock_webhook
 
