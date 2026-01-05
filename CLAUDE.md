@@ -23,6 +23,7 @@
 **CRITICAL: Eliminate unnecessary defensive programming overhead.**
 
 **Philosophy:**
+
 - Server fails-fast on startup if critical dependencies are missing
 - Required parameters in `__init__()` are ALWAYS provided
 - Checking for None on required parameters is pure overhead
@@ -34,27 +35,32 @@
 ## WHEN Defensive Checks Are ACCEPTABLE
 
 1. **Destructors (`__del__`)** - Can be called during failed initialization
+
    ```python
    def __del__(self):
        if hasattr(self, "logger"): self.logger.debug("Cleanup")
    ```
 
 2. **Optional Parameters** - Parameter explicitly allows None
+
    ```python
    def get_data(self, owner: str | None = None): ...
    ```
 
 3. **Lazy Initialization** - Attribute explicitly starts as None
+
    ```python
    self.client: SomeClient | None = None
    ```
 
 4. **Platform Constants** - Constant may not exist on all platforms
+
    ```python
    if hasattr(os, "O_NOFOLLOW"): flags |= os.O_NOFOLLOW
    ```
 
 5. **External Libraries We DON'T Control Version Of** - Library version truly unknown
+
    - **NOTE:** Does NOT apply to dependencies in `pyproject.toml` - we control those versions
 
 ---
@@ -62,6 +68,7 @@
 ## WHEN Defensive Checks Are VIOLATIONS
 
 ### 1. Required Parameters in `__init__()`
+
 ```python
 # ❌ WRONG - config is required, ALWAYS provided
 def some_method(self):
@@ -73,7 +80,9 @@ def some_method(self):
 ```
 
 ### 2. Known Library Versions
+
 We control these versions in `pyproject.toml`: PyGithub >=2.4.0, gql >=3.5.0
+
 ```python
 # ❌ WRONG - PyGithub >=2.4.0 guaranteed
 if hasattr(self.rest_client, "close"): self.rest_client.close()
@@ -83,7 +92,9 @@ self.rest_client.close()
 ```
 
 ### 3. Architecture Guarantees
+
 `repository_data` is ALWAYS set before handlers instantiate (fail-fast in `GithubWebhook.process()`)
+
 ```python
 # ❌ WRONG - repository_data guaranteed by architecture
 if hasattr(self.github_webhook, "repository_data"): ...
@@ -93,7 +104,9 @@ collaborators = self.github_webhook.repository_data["collaborators"]
 ```
 
 ### 4. Webhook Payload Fields
+
 GitHub webhook format is stable: `user.node_id`, `user.type`, `sender` always exist
+
 ```python
 # ❌ WRONG
 if "node_id" in user_data: return user_data["node_id"]
@@ -103,6 +116,7 @@ return user_data["node_id"]  # KeyError = legitimate bug
 ```
 
 ### 5. Type Discrimination
+
 ```python
 # ❌ WRONG - Use isinstance for type checking
 if hasattr(pr, "some_attr"): ...
@@ -116,6 +130,7 @@ pr_id = pr.node_id  # Direct attribute access
 ## Fail-Fast Principle
 
 **NEVER return fake defaults to hide missing data:**
+
 ```python
 # ❌ WRONG - Fake data hiding bugs
 return "", 0, False, None, UserWrapper(None), [], {}
@@ -126,6 +141,7 @@ raise KeyError("Required field missing")
 ```
 
 **Example:**
+
 ```python
 # ❌ WRONG
 @property
@@ -157,6 +173,7 @@ def user(self):
 ## Summary: Quick Reference
 
 ### ✅ ACCEPTABLE Defensive Checks
+
 - Destructors (`__del__`)
 - Optional parameters (`param: Type | None = None`)
 - Lazy initialization (starts as None)
@@ -164,6 +181,7 @@ def user(self):
 - External libraries we don't control
 
 ### ❌ VIOLATIONS (NO defensive checks)
+
 - Required parameters in `__init__()`
 - Known library versions (PyGithub >=2.4.0)
 - Architecture guarantees (`repository_data`)
@@ -171,6 +189,7 @@ def user(self):
 - Type discrimination (use `isinstance()`)
 
 ### Enforcement
+
 - Code reviews catch violations
 - Type hints match reality
 - Prek hooks automate checks
@@ -185,23 +204,27 @@ FastAPI-based GitHub webhook server that automates repository management and pul
 ### Core Architecture Components
 
 **Event-Driven Handler Architecture:**
+
 - `webhook_server/libs/handlers/` contains specialized handlers
 - Handlers instantiated by main FastAPI app (`app.py`)
 - Pattern: `__init__(github_webhook, ...)` → `process_event(event_data)`
 
 **Configuration System:**
+
 - `webhook_server/libs/config.py` manages YAML-based configuration with schema validation
 - Global config at `/home/podman/data/config.yaml` with per-repository overrides via `.github-webhook-server.yaml`
 - Schema validation in `webhook_server/config/schema.yaml`
 - Configuration reloaded per webhook event (no server restart needed)
 
 **GitHub API Integration:**
+
 - `webhook_server/libs/github_api.py` provides core `GithubWebhook` class
 - Uses PyGithub (REST API v3) for all GitHub operations
 - **🔴 CRITICAL:** PyGithub is synchronous/blocking - **MUST** wrap with `asyncio.to_thread()`
 - Supports multiple GitHub tokens with automatic failover
 
 **Log Viewer System:**
+
 - `webhook_server/web/log_viewer.py` contains `LogViewerController`
 - **Memory-optimized**: Streaming/chunked processing (90% memory reduction)
 - Real-time log streaming via WebSocket
@@ -209,12 +232,14 @@ FastAPI-based GitHub webhook server that automates repository management and pul
 ## Development Commands
 
 ### Environment Setup
+
 ```bash
 uv sync
 source .venv/bin/activate
 ```
 
 ### Running the Server
+
 ```bash
 # Development
 uv run entrypoint.py
@@ -224,6 +249,7 @@ WEBHOOK_SERVER_DATA_DIR=/path/to/data uv run entrypoint.py
 ```
 
 ### Testing
+
 ```bash
 # Run all tests
 uv run --group tests pytest -n auto
@@ -233,6 +259,7 @@ uv run --group tests pytest -n auto --cov=webhook_server
 ```
 
 ### Code Quality
+
 ```bash
 uv run ruff format
 uv run ruff check
@@ -242,6 +269,7 @@ uv run ruff check && uv run ruff format && uv run mypy webhook_server/
 ```
 
 ### Configuration Validation
+
 ```bash
 uv run webhook_server/tests/test_schema_validator.py config.yaml
 uv run pytest webhook_server/tests/test_config_schema.py -v
@@ -269,15 +297,18 @@ class SomeHandler:
 #### What Blocks the Event Loop
 
 1. **Method calls** - ALL trigger API calls:
+
    - `.get_*()`, `.create_*()`, `.edit()`, `.update()`, `.add_to_*()`, `.remove_from_*()`
 
 2. **Property accesses** - MANY trigger API calls:
+
    - `.draft`, `.mergeable`, `.state`, `.committer`, `.author`, `.permissions`, `.labels`, `.assignees`
    - **ANY property not in webhook payload**
 
 3. **PaginatedList iteration** - BLOCKS during iteration
 
 4. **Safe operations** (don't block):
+
    - Properties from webhook payload (`.number`, `.title`, `.body`)
    - Already-fetched cached data (rare)
 
@@ -318,6 +349,7 @@ for commit in pull_request.get_commits(): ...  # BLOCKS!
 #### Decision Tree
 
 Before accessing ANY PyGithub object:
+
 1. Is this a PyGithub object? → YES, it may block
 2. Calling a method? → **DEFINITELY BLOCKS** - wrap in `asyncio.to_thread()`
 3. Accessing a property? → **MAY BLOCK** - wrap in `asyncio.to_thread(lambda: obj.property)`
@@ -326,12 +358,14 @@ Before accessing ANY PyGithub object:
 6. **Unsure? ALWAYS wrap in `asyncio.to_thread()`**
 
 **Why this is critical:**
+
 - PyGithub is synchronous - each operation blocks 100ms-2 seconds
 - Blocking = frozen server (no other webhooks processed)
 - `asyncio.to_thread()` runs code in thread pool, keeps event loop responsive
 - **NOT OPTIONAL** - required for correct async operation
 
 **Impact of blocking:**
+
 - Single blocking call freezes entire server
 - Incoming webhooks must wait
 - Server appears unresponsive
@@ -363,6 +397,7 @@ collaborators = self.github_webhook.repository_data['collaborators']['edges']
 ```
 
 **Key principles:**
+
 - Fetch once per webhook, never per handler
 - Fail-fast: Exception propagates → webhook aborts
 - Type is `dict[str, Any]`, never `| None` (fail-fast guarantees)
@@ -372,6 +407,7 @@ collaborators = self.github_webhook.repository_data['collaborators']['edges']
 **Location:** `webhook_server/libs/github_api.py` lines 534-570
 
 **Early exit conditions (no clone needed):**
+
 1. **Action != "completed"** - Skip `created` action
 2. **Can-be-merged with non-success conclusion** - Primary optimization
 
@@ -391,6 +427,7 @@ elif self.github_event == "check_run":
 ```
 
 **Benefits:**
+
 - 90-95% reduction in unnecessary cloning
 - Saves 5-30 seconds per skipped clone
 - Reduced resource usage
@@ -430,6 +467,7 @@ logger.exception("Error with full traceback")  # Preferred over logger.error(...
 JSON-based logging for webhook execution tracking with thread-safe context using ContextVar.
 
 **Context Creation (app.py):**
+
 ```python
 from webhook_server.utils.context import create_context
 
@@ -444,6 +482,7 @@ ctx = create_context(
 ```
 
 **Step Tracking:**
+
 ```python
 from webhook_server.utils.context import get_context
 
@@ -459,6 +498,7 @@ except Exception as ex:
 ```
 
 **Handler Usage:**
+
 ```python
 class PullRequestHandler:
     async def process_event(self, event_data: dict) -> None:
@@ -472,11 +512,13 @@ class PullRequestHandler:
 ```
 
 **Log File Format:**
+
 - Location: `{config.data_dir}/logs/webhooks_YYYY-MM-DD.json`
 - Format: Pretty-printed JSON (2-space indentation)
 - Rotation: Daily based on UTC date
 
 **Log entry structure:**
+
 ```json
 {
   "hook_id": "github-delivery-id",
@@ -515,13 +557,17 @@ except asyncio.CancelledError:
 ## Critical Architectural Rules
 
 ### Import Organization
+
 **MANDATORY:** All imports at top of files
+
 - No imports in functions or try/except blocks
 - Exception: TYPE_CHECKING imports can be conditional
 - Prek hooks enforce this
 
 ### Type Hints
+
 **MANDATORY:** Complete type hints (mypy strict mode)
+
 ```python
 # ✅ CORRECT
 async def process_pr(self, pull_request: PullRequest, reviewers: list[str]) -> None: ...
@@ -531,7 +577,9 @@ async def process_pr(self, pull_request, reviewers): ...
 ```
 
 ### Test Coverage
+
 **MANDATORY:** 90% code coverage required
+
 - Check: `uv run --group tests pytest --cov=webhook_server`
 - New code without tests fails CI
 - Tests in `webhook_server/tests/`
@@ -539,6 +587,7 @@ async def process_pr(self, pull_request, reviewers): ...
 ## Testing Patterns
 
 ### Test File Organization
+
 ```bash
 webhook_server/tests/
 ├── test_*.py                    # Unit and integration tests
@@ -548,6 +597,7 @@ webhook_server/tests/
 ```
 
 ### Mock Testing Pattern
+
 ```python
 from unittest.mock import AsyncMock, Mock
 
@@ -559,6 +609,7 @@ with patch("asyncio.to_thread", side_effect=mock_to_thread):
 ```
 
 ### Test Token Pattern
+
 ```python
 TEST_GITHUB_TOKEN = "ghp_test1234..."  # pragma: allowlist secret
 
@@ -572,13 +623,16 @@ def mock_github_api():
 ## Security Considerations
 
 ### Log Viewer Security
+
 ⚠️ **CRITICAL:** Log viewer endpoints (`/logs/*`) are unauthenticated
+
 - Deploy only on trusted networks (VPN, internal network)
 - Never expose to public internet
 - Use reverse proxy with authentication for external access
 - Logs contain sensitive data: tokens, webhook payloads, user information
 
 ### Token Handling
+
 - Store tokens in environment variables or secret management systems
 - Use multiple tokens for rate limit distribution
 - Never commit tokens to repository
@@ -587,6 +641,7 @@ def mock_github_api():
 ## Common Development Tasks
 
 ### Adding a New Handler
+
 1. Create handler file in `webhook_server/libs/handlers/`
 2. Implement `__init__(self, github_webhook, ...)` and `process_event(event_data)`
 3. Use `self.github_webhook.unified_api` for GitHub operations
@@ -594,6 +649,7 @@ def mock_github_api():
 5. Update `app.py` to instantiate handler
 
 ### Updating Configuration Schema
+
 1. Edit `webhook_server/config/schema.yaml`
 2. Run `uv run pytest webhook_server/tests/test_config_schema.py -v`
 3. Update examples in `examples/config.yaml`
