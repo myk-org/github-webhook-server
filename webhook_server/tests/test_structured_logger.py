@@ -121,13 +121,11 @@ class TestStructuredLogWriter:
         log_file = tmp_path / "logs" / f"webhooks_{datetime.now(UTC).strftime('%Y-%m-%d')}.json"
         assert log_file.exists()
 
-        # Read and validate JSON
+        # Read and validate JSON (pretty-printed format with blank line separator)
         with open(log_file) as f:
-            content = f.read()
-            lines = content.strip().split("\n")
-            assert len(lines) == 1  # Single log entry
-
-            log_entry = json.loads(lines[0])
+            content = f.read().strip()
+            # Pretty-printed JSON is multi-line, parse the entire content as one JSON object
+            log_entry = json.loads(content)
             assert log_entry["hook_id"] == "test-hook-123"
             assert log_entry["event_type"] == "pull_request"
             assert log_entry["repository"] == "org/repo"
@@ -191,7 +189,7 @@ class TestStructuredLogWriter:
     def test_write_log_multiple_entries_append(
         self, log_writer: StructuredLogWriter, sample_context: WebhookContext, tmp_path: Path
     ) -> None:
-        """Test multiple writes append to same file (JSONL format)."""
+        """Test multiple writes append to same file (pretty-printed format)."""
         # Arrange
         context2 = WebhookContext(
             hook_id="test-hook-456",
@@ -207,12 +205,14 @@ class TestStructuredLogWriter:
         # Assert
         log_file = tmp_path / "logs" / f"webhooks_{datetime.now(UTC).strftime('%Y-%m-%d')}.json"
         with open(log_file) as f:
-            lines = f.read().strip().split("\n")
+            content = f.read().strip()
 
-        assert len(lines) == 2
+        # Split by double newline to separate pretty-printed JSON entries
+        json_blocks = content.split("\n\n")
+        assert len(json_blocks) == 2
 
-        entry1 = json.loads(lines[0])
-        entry2 = json.loads(lines[1])
+        entry1 = json.loads(json_blocks[0])
+        entry2 = json.loads(json_blocks[1])
 
         assert entry1["hook_id"] == "test-hook-123"
         assert entry2["hook_id"] == "test-hook-456"

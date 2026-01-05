@@ -449,14 +449,25 @@ class TestLogViewerController:
         with patch("webhook_server.web.log_viewer.Path") as mock_path:
             mock_path_instance = Mock()
             mock_path_instance.exists.return_value = True
+
+            # Create proper mock log file with stat() method
             mock_log_file = Mock()
             mock_log_file.name = "test.log"
+            mock_log_file.suffix = ".log"
+            mock_stat = Mock()
+            mock_stat.st_mtime = 123456789
+            mock_log_file.stat.return_value = mock_stat
+
             mock_path_instance.glob.return_value = [mock_log_file]
             mock_path.return_value = mock_path_instance
 
-            with patch.object(controller.log_parser, "parse_log_file", side_effect=Exception("Parse error")):
+            # Mock open() to raise parse error when reading file
+            with patch("builtins.open", side_effect=Exception("Parse error")):
                 result = list(controller._stream_log_entries())
+                # Should return empty list due to exception handling
                 assert isinstance(result, list)
+                # Verify logger.warning was called for the error
+                assert controller.logger.warning.called
 
     def test_get_log_directory(self, controller):
         """Test log directory path generation."""
