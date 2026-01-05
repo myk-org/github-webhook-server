@@ -908,6 +908,147 @@ logger.error("Error requiring investigation")
 logger.exception("Error with full traceback")  # Preferred over logger.error(..., exc_info=True)
 ```
 
+### Structured Webhook Logging
+
+The server implements comprehensive JSON-based logging for webhook execution tracking. Each webhook generates a structured log entry containing all workflow steps, timing, errors, and API metrics.
+
+**Overview:**
+
+- Thread-safe context tracking using ContextVar for async isolation
+- Each webhook execution gets an isolated WebhookContext instance
+- Context persists through async operations and handler chains
+- Automatic workflow step tracking with timing and error capture
+- Pretty-printed JSON output with date-based log rotation
+
+**Context Creation:**
+
+Context is created in `app.py` at the start of webhook processing:
+
+```python
+from webhook_server.utils.context import create_context
+
+# In process_with_error_handling() - before GithubWebhook instantiation
+ctx = create_context(
+    hook_id=hook_id,  # X-GitHub-Delivery header
+    event_type="pull_request",
+    repository="org/repo",
+    repository_full_name="org/repo",
+    action="opened",
+    sender="username",
+    api_user="github-api-user",
+)
+```
+
+**Step Tracking Methods:**
+
+Handlers and processing code use these methods to track workflow progress:
+
+```python
+from webhook_server.utils.context import get_context
+
+# Get context anywhere in the call stack
+ctx = get_context()
+
+# Start a workflow step
+ctx.start_step("clone_repository", branch="main")
+
+# Complete step successfully
+try:
+    await clone_repo()
+    ctx.complete_step("clone_repository", commit_sha="abc123")
+except Exception as ex:
+    # Mark step as failed with error details
+    import traceback
+    ctx.fail_step(
+        "clone_repository",
+        exception=ex,
+        traceback_str=traceback.format_exc()
+    )
+```
+
+**Handler Usage Pattern:**
+
+Handlers access context via `github_webhook.ctx`:
+
+```python
+class PullRequestHandler:
+    def __init__(self, github_webhook: GithubWebhook):
+        self.github_webhook = github_webhook
+
+    async def process_event(self, event_data: dict) -> None:
+        # Access context
+        ctx = self.github_webhook.ctx
+
+        # Track workflow steps
+        ctx.start_step("assign_reviewers", pr_number=123)
+        try:
+            await self.assign_reviewers(pr)
+            ctx.complete_step(
+                "assign_reviewers",
+                reviewers_assigned=3,
+                labels_added=["needs-review"]
+            )
+        except Exception as ex:
+            ctx.fail_step(
+                "assign_reviewers",
+                exception=ex,
+                traceback_str=traceback.format_exc(),
+                pr_number=123
+            )
+```
+
+**Log File Format:**
+
+Logs are written to date-based JSON files:
+
+- Location: `{config.data_dir}/logs/webhooks_YYYY-MM-DD.json`
+- Format: Pretty-printed JSON (2-space indentation)
+- Entry separator: Blank line between webhook executions
+- Rotation: Daily based on UTC date
+- Concurrency: File locking for safe multi-process writes
+
+Each log entry contains:
+
+```json
+{
+  "hook_id": "github-delivery-id",
+  "event_type": "pull_request",
+  "action": "opened",
+  "sender": "username",
+  "repository": "org/repo",
+  "pr": {
+    "number": 968,
+    "title": "Add new feature",
+    "author": "contributor"
+  },
+  "api_user": "github-api-user",
+  "timing": {
+    "started_at": "2026-01-05T10:30:00.123Z",
+    "completed_at": "2026-01-05T10:30:07.835Z",
+    "duration_ms": 7712
+  },
+  "workflow_steps": {
+    "webhook_routing": {
+      "timestamp": "2026-01-05T10:30:00.200Z",
+      "status": "completed",
+      "duration_ms": 2547
+    },
+    "clone_repository": {
+      "timestamp": "2026-01-05T10:30:02.750Z",
+      "status": "completed",
+      "duration_ms": 4823,
+      "commit_sha": "abc123"
+    }
+  },
+  "token_spend": 4,
+  "initial_rate_limit": 5000,
+  "final_rate_limit": 4996,
+  "success": true,
+  "error": null,
+  "summary": "[SUCCESS] Webhook completed PR#968 [7s712ms, tokens:4] steps=[webhook_routing:completed(2s547ms), clone_repository:completed(4s823ms)]"
+}
+```
+
 ### Exception Handling Pattern
 
 ```python
