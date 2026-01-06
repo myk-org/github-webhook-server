@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import os
 import re
 import shutil
 from asyncio import Task
@@ -517,10 +518,14 @@ Your team can configure additional types in the repository settings.
                 return await self.check_run_handler.set_custom_check_failure(name=check_name, output=output)
 
             # Build env dict from env entries (VAR_NAME=value format only)
+            # IMPORTANT: We must start with os.environ.copy() because passing env to
+            # asyncio.create_subprocess_exec() REPLACES the entire environment, not extends it.
+            # Without this, the subprocess wouldn't have PATH, HOME, or other essential variables,
+            # causing commands like 'uv', 'python', etc. to fail with "command not found".
             env_dict: dict[str, str] | None = None
             env_entries = check_config.get("env", [])
             if env_entries:
-                env_dict = {}
+                env_dict = os.environ.copy()
                 for env_entry in env_entries:
                     if "=" in env_entry:
                         var_name, var_value = env_entry.split("=", 1)

@@ -356,9 +356,15 @@ class TestRunnerHandlerCustomCheck:
             await runner_handler.run_custom_check(pull_request=mock_pull_request, check_config=check_config)
 
             # Verify command was called with env dict containing explicit values
+            # Note: env dict contains os.environ.copy() PLUS custom vars
             mock_run.assert_called_once()
             call_kwargs = mock_run.call_args.kwargs
-            assert call_kwargs["env"] == {"TEST_VAR": "test_value", "ANOTHER_VAR": "another_value"}
+            env_dict = call_kwargs["env"]
+            assert env_dict is not None
+            assert env_dict["TEST_VAR"] == "test_value"
+            assert env_dict["ANOTHER_VAR"] == "another_value"
+            # Verify parent environment is inherited (e.g., PATH should exist)
+            assert "PATH" in env_dict
 
     @pytest.mark.asyncio
     async def test_run_custom_check_without_env_vars(
@@ -415,9 +421,15 @@ class TestRunnerHandlerCustomCheck:
             await runner_handler.run_custom_check(pull_request=mock_pull_request, check_config=check_config)
 
             # Verify command was called with env dict containing explicit values
+            # Note: env dict contains os.environ.copy() PLUS custom vars
             mock_run.assert_called_once()
             call_kwargs = mock_run.call_args.kwargs
-            assert call_kwargs["env"] == {"DEBUG": "true", "VERBOSE": "1"}
+            env_dict = call_kwargs["env"]
+            assert env_dict is not None
+            assert env_dict["DEBUG"] == "true"
+            assert env_dict["VERBOSE"] == "1"
+            # Verify parent environment is inherited
+            assert "PATH" in env_dict
 
     @pytest.mark.asyncio
     async def test_run_custom_check_with_invalid_env_format(
@@ -445,12 +457,17 @@ class TestRunnerHandlerCustomCheck:
             await runner_handler.run_custom_check(pull_request=mock_pull_request, check_config=check_config)
 
             # Verify command was called with env dict containing only valid format entries
+            # Note: env dict contains os.environ.copy() PLUS custom vars
             mock_run.assert_called_once()
             call_kwargs = mock_run.call_args.kwargs
-            assert call_kwargs["env"] == {
-                "DEBUG": "true",
-                "VERBOSE": "1",
-            }
+            env_dict = call_kwargs["env"]
+            assert env_dict is not None
+            assert env_dict["DEBUG"] == "true"
+            assert env_dict["VERBOSE"] == "1"
+            # Verify parent environment is inherited
+            assert "PATH" in env_dict
+            # INVALID_VAR should not be in env_dict (skipped)
+            assert "INVALID_VAR" not in env_dict
             # INVALID_VAR should be skipped and a warning logged
             runner_handler.logger.warning.assert_called()
 
