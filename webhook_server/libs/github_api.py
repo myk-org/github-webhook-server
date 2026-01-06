@@ -800,6 +800,7 @@ class GithubWebhook:
             List of validated custom check configurations
         """
         validated_checks: list[dict[str, Any]] = []
+        seen_names: set[str] = set()
 
         # Built-in check names that custom checks cannot override
         BUILTIN_CHECK_NAMES = {
@@ -821,6 +822,12 @@ class GithubWebhook:
             if check_name in BUILTIN_CHECK_NAMES:
                 self.logger.warning(f"Custom check '{check_name}' conflicts with built-in check, skipping")
                 continue
+
+            # Check for duplicate custom check names
+            if check_name in seen_names:
+                self.logger.warning(f"Duplicate custom check name '{check_name}', skipping")
+                continue
+            seen_names.add(check_name)
 
             # Validate command field
             command = check.get("command")

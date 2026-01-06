@@ -1651,16 +1651,14 @@ class TestGithubWebhook:
 
                                         mock_logger.warning.assert_called()
 
-    def test_validate_custom_check_runs_builtin_collision(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
-    ) -> None:
+    def test_validate_custom_check_runs_builtin_collision(self, minimal_hook_data: dict, minimal_headers: dict) -> None:
         """Test that custom checks with names colliding with built-in checks are rejected."""
         with patch("webhook_server.libs.github_api.Config") as mock_config:
             mock_config.return_value.repository = True
             mock_config.return_value.repository_local_data.return_value = {}
 
             # Mock get_value to return custom checks with colliding names
-            def get_value_side_effect(value: str, *_args: Any, **_kwargs: Any) -> Any:
+            def get_value_side_effect(value: str, *_args: object, **_kwargs: object) -> Any:
                 if value == "custom-check-runs":
                     return [
                         {"name": "tox", "command": "tox -e py39"},  # Collision with TOX_STR
@@ -1710,3 +1708,46 @@ class TestGithubWebhook:
                                     "'conventional-title' conflicts with built-in check" in call
                                     for call in warning_calls
                                 )
+
+    def test_validate_custom_check_runs_duplicate_names(self, minimal_hook_data: dict, minimal_headers: dict) -> None:
+        """Test that duplicate custom check names are rejected."""
+        with patch("webhook_server.libs.github_api.Config") as mock_config:
+            mock_config.return_value.repository = True
+            mock_config.return_value.repository_local_data.return_value = {}
+
+            # Mock get_value to return custom checks with duplicate names
+            def get_value_side_effect(value: str, *_args: object, **_kwargs: object) -> Any:
+                if value == "custom-check-runs":
+                    return [
+                        {"name": "my-check", "command": "pytest"},
+                        {"name": "my-check", "command": "ruff check"},  # Duplicate name
+                        {"name": "another-check", "command": "mypy"},
+                    ]
+                if value == "container":
+                    return {}
+                if value == "pypi":
+                    return {}
+                return None
+
+            mock_config.return_value.get_value.side_effect = get_value_side_effect
+
+            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+                mock_get_api.return_value = (Mock(), "token", "apiuser")
+
+                with patch("webhook_server.libs.github_api.get_github_repo_api"):
+                    with patch("webhook_server.libs.github_api.get_repository_github_app_api"):
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix"):
+                            # Mock shutil.which to return True for all executables
+                            with patch("shutil.which", return_value="/usr/bin/command"):
+                                mock_logger = Mock()
+                                gh = GithubWebhook(minimal_hook_data, minimal_headers, mock_logger)
+
+                                # Verify that only unique names are kept (first occurrence wins)
+                                assert len(gh.custom_check_runs) == 2
+                                check_names = [c["name"] for c in gh.custom_check_runs]
+                                assert "my-check" in check_names
+                                assert "another-check" in check_names
+
+                                # Verify that warning was logged for duplicate
+                                warning_calls = [str(call) for call in mock_logger.warning.call_args_list]
+                                assert any("Duplicate custom check name 'my-check'" in call for call in warning_calls)
