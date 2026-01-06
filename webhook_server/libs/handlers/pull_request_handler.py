@@ -626,9 +626,7 @@ For more information, please refer to the project documentation or contact the m
             check_name = custom_check["name"]
             setup_tasks.append(self.check_run_handler.set_custom_check_queued(name=check_name))
 
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} Executing setup tasks"
-        )
+        self.logger.info(f"{self.log_prefix} Executing setup tasks")
         setup_results = await asyncio.gather(*setup_tasks, return_exceptions=True)
 
         for result in setup_results:
@@ -662,10 +660,7 @@ For more information, please refer to the project documentation or contact the m
                 )
             )
 
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('pr_handler', 'pr_management', 'processing')} "
-            f"Executing CI/CD tasks",
-        )
+        self.logger.info(f"{self.log_prefix} Executing CI/CD tasks")
         ci_results = await asyncio.gather(*ci_tasks, return_exceptions=True)
 
         for result in ci_results:

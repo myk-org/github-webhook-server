@@ -497,10 +497,7 @@ Your team can configure additional types in the repository settings.
         check_name = check_config["name"]
         command = check_config["command"]
 
-        self.logger.step(  # type: ignore[attr-defined]
-            f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'started')} "
-            f"Starting custom check: {check_config['name']}"
-        )
+        self.logger.info(f"{self.log_prefix} Starting custom check: {check_config['name']}")
 
         await self.check_run_handler.set_custom_check_in_progress(name=check_name)
 
@@ -556,16 +553,10 @@ Your team can configure additional types in the repository settings.
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
 
             if success:
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'completed')} "
-                    f"Custom check {check_config['name']} completed successfully"
-                )
+                self.logger.info(f"{self.log_prefix} Custom check {check_config['name']} completed successfully")
                 return await self.check_run_handler.set_custom_check_success(name=check_name, output=output)
             else:
-                self.logger.step(  # type: ignore[attr-defined]
-                    f"{self.log_prefix} {format_task_fields('runner', 'ci_check', 'failed')} "
-                    f"Custom check {check_config['name']} failed"
-                )
+                self.logger.info(f"{self.log_prefix} Custom check {check_config['name']} failed")
                 return await self.check_run_handler.set_custom_check_failure(name=check_name, output=output)
 
     async def is_branch_exists(self, branch: str) -> Branch:
