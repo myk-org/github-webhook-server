@@ -78,6 +78,14 @@ class TestConfigSchema:
                     "can-be-merged-required-labels": ["ready"],
                     "conventional-title": "feat,fix,docs",
                     "minimum-lgtm": 2,
+                    "custom-check-runs": [
+                        {"name": "lint", "command": "uv tool run ruff check"},
+                        {
+                            "name": "security-scan",
+                            "command": "uv tool run bandit -r .",
+                            "env": ["DEBUG=true", "SCAN_LEVEL=high"],
+                        },
+                    ],
                 }
             },
         }

@@ -789,6 +789,7 @@ class GithubWebhook:
 
         Validates each custom check and returns only valid ones:
         - Checks that 'name' and 'command' fields exist
+        - Verifies name doesn't collide with built-in check names
         - Verifies command executable exists on server using shutil.which()
         - Logs warnings for invalid checks and skips them
 
@@ -800,11 +801,25 @@ class GithubWebhook:
         """
         validated_checks: list[dict[str, Any]] = []
 
+        # Built-in check names that custom checks cannot override
+        BUILTIN_CHECK_NAMES = {
+            TOX_STR,
+            PRE_COMMIT_STR,
+            BUILD_CONTAINER_STR,
+            PYTHON_MODULE_INSTALL_STR,
+            CONVENTIONAL_TITLE_STR,
+        }
+
         for check in raw_checks:
             # Validate name field
             check_name = check.get("name")
             if not check_name:
                 self.logger.warning("Custom check missing required 'name' field, skipping")
+                continue
+
+            # Check for collision with built-in check names
+            if check_name in BUILTIN_CHECK_NAMES:
+                self.logger.warning(f"Custom check '{check_name}' conflicts with built-in check, skipping")
                 continue
 
             # Validate command field

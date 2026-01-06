@@ -523,6 +523,7 @@ Your team can configure additional types in the repository settings.
             # Without this, the subprocess wouldn't have PATH, HOME, or other essential variables,
             # causing commands like 'uv', 'python', etc. to fail with "command not found".
             env_dict: dict[str, str] | None = None
+            redact_secrets: list[str] = []
             env_entries = check_config.get("env", [])
             if env_entries:
                 env_dict = os.environ.copy()
@@ -530,6 +531,9 @@ Your team can configure additional types in the repository settings.
                     if "=" in env_entry:
                         var_name, var_value = env_entry.split("=", 1)
                         env_dict[var_name] = var_value
+                        # Extract secret values for redaction (only non-empty values)
+                        if var_value:
+                            redact_secrets.append(var_value)
                         self.logger.debug(f"{self.log_prefix} Using environment variable '{var_name}'")
                     else:
                         self.logger.warning(
@@ -544,6 +548,7 @@ Your team can configure additional types in the repository settings.
                 mask_sensitive=self.github_webhook.mask_sensitive,
                 cwd=worktree_path,
                 env=env_dict,
+                redact_secrets=redact_secrets if redact_secrets else None,
             )
 
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
