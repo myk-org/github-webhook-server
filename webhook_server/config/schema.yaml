@@ -326,21 +326,20 @@ properties:
             (tox, pre-commit, etc.) - if a command is not found, the check will fail.
 
             Environment Variables:
-            The 'env' field supports two formats for passing environment variables:
-            1. Variable name only (e.g., 'PYTHONPATH') - value read from server's os.environ
-            2. Variable with value (e.g., 'DEBUG=true') - explicit value provided
+            The 'env' field supports explicit variable assignment using 'VAR_NAME=value' format.
+            Each entry must include both the variable name and value separated by '='.
 
             Examples:
               - name: lint
                 command: uv tool run --from ruff ruff check
                 env:
-                  - PYTHONPATH              # Read from server environment
-                  - DEBUG=true              # Explicit value
+                  - TOKEN=xyz
+                  - DEBUG=true
               - name: security-scan
                 command: uv tool run --from bandit bandit -r .
                 env:
-                  - CUSTOM_VAR              # Read from server environment
-                  - ENABLE_SCAN=1           # Explicit value
+                  - CUSTOM_VAR=custom_value
+                  - ENABLE_SCAN=1
               - name: complex-check
                 command: |
                   python -c "
@@ -360,9 +359,8 @@ properties:
               env:
                 type: array
                 description: |
-                  Environment variables to pass to the command. Each entry can be:
-                  - Variable name only (e.g., 'PYTHONPATH') - value read from server's os.environ
-                  - Variable with value (e.g., 'DEBUG=true') - explicit value provided
+                  Environment variables to pass to the command.
+                  Each entry must be in 'VAR_NAME=value' format.
                 items:
                   type: string
             required:

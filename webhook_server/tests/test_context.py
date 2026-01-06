@@ -12,6 +12,7 @@ import pytest
 
 from webhook_server.utils.context import (
     WebhookContext,
+    _format_duration,
     clear_context,
     create_context,
     get_context,
@@ -1066,3 +1067,48 @@ class TestBuildSummary:
         # Verify summary field is None
         assert "summary" in result
         assert result["summary"] is None
+
+    def test_build_summary_step_without_duration(self):
+        """Test summary with step that has no duration_ms (covers line 320)."""
+        ctx = WebhookContext(
+            hook_id="test-hook",
+            event_type="pull_request",
+            repository="test/repo",
+            repository_full_name="test/repo",
+        )
+        ctx.workflow_steps["test_step"] = {"status": "completed", "duration_ms": None}
+
+        # Set completed_at to enable summary generation
+        start_time = datetime(2024, 1, 15, 10, 0, 0, tzinfo=UTC)
+        completed_time = datetime(2024, 1, 15, 10, 0, 1, tzinfo=UTC)
+        ctx.started_at = start_time
+        ctx.completed_at = completed_time
+
+        summary = ctx._build_summary()
+        assert "test_step:completed" in summary
+        # Verify duration is NOT included for step (no parentheses with duration)
+        assert "test_step:completed(" not in summary
+
+
+class TestFormatDuration:
+    """Tests for _format_duration() helper function."""
+
+    def test_format_duration_minutes_with_seconds(self):
+        """Test minutes with remaining seconds (covers lines 67-71)."""
+        assert _format_duration(75000) == "1m15s"  # 1 minute 15 seconds
+        assert _format_duration(135000) == "2m15s"  # 2 minutes 15 seconds
+
+    def test_format_duration_minutes_exact(self):
+        """Test exact minutes (covers line 72)."""
+        assert _format_duration(120000) == "2m"  # 2 minutes exactly
+        assert _format_duration(180000) == "3m"  # 3 minutes exactly
+
+    def test_format_duration_hours_with_minutes(self):
+        """Test hours with remaining minutes (covers lines 74-77)."""
+        assert _format_duration(3900000) == "1h5m"  # 1 hour 5 minutes
+        assert _format_duration(7500000) == "2h5m"  # 2 hours 5 minutes
+
+    def test_format_duration_hours_exact(self):
+        """Test exact hours (covers line 78)."""
+        assert _format_duration(7200000) == "2h"  # 2 hours exactly
+        assert _format_duration(10800000) == "3h"  # 3 hours exactly

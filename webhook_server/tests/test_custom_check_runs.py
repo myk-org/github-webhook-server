@@ -20,10 +20,10 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from webhook_server.libs.github_api import GithubWebhook
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.libs.handlers.runner_handler import RunnerHandler
 from webhook_server.utils.constants import (
-    COMPLETED_STR,
     FAILURE_STR,
     IN_PROGRESS_STR,
     QUEUED_STR,
@@ -66,9 +66,9 @@ class TestCustomCheckRunsSchemaValidation:
         config = {
             "name": "my-check",
             "command": "python -m pytest",
-            "env": ["PYTHONPATH", "DEBUG"],
+            "env": ["PYTHONPATH=/custom/path", "DEBUG=true"],
         }
-        assert config["env"] == ["PYTHONPATH", "DEBUG"]
+        assert config["env"] == ["PYTHONPATH=/custom/path", "DEBUG=true"]
 
     def test_custom_check_with_multiline_command(self) -> None:
         """Test that custom check with multiline command is accepted."""
@@ -133,7 +133,6 @@ class TestCheckRunHandlerCustomCheckMethods:
             await check_run_handler.set_custom_check_success(name=check_name, output=output)
             mock_set_status.assert_called_once_with(
                 check_run=check_name,
-                status=COMPLETED_STR,
                 conclusion=SUCCESS_STR,
                 output=output,
             )
@@ -147,7 +146,6 @@ class TestCheckRunHandlerCustomCheckMethods:
             await check_run_handler.set_custom_check_success(name=check_name, output=None)
             mock_set_status.assert_called_once_with(
                 check_run=check_name,
-                status=COMPLETED_STR,
                 conclusion=SUCCESS_STR,
                 output=None,
             )
@@ -162,7 +160,6 @@ class TestCheckRunHandlerCustomCheckMethods:
             await check_run_handler.set_custom_check_failure(name=check_name, output=output)
             mock_set_status.assert_called_once_with(
                 check_run=check_name,
-                status=COMPLETED_STR,
                 conclusion=FAILURE_STR,
                 output=output,
             )
@@ -176,7 +173,6 @@ class TestCheckRunHandlerCustomCheckMethods:
             await check_run_handler.set_custom_check_failure(name=check_name, output=None)
             mock_set_status.assert_called_once_with(
                 check_run=check_name,
-                status=COMPLETED_STR,
                 conclusion=FAILURE_STR,
                 output=None,
             )
@@ -338,11 +334,11 @@ class TestRunnerHandlerCustomCheck:
 
     @pytest.mark.asyncio
     async def test_run_custom_check_with_env_vars(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
-        """Test that custom check passes environment variables from server environment."""
+        """Test that custom check passes environment variables with explicit values."""
         check_config = {
             "name": "env-test",
             "command": "env | grep TEST_VAR",
-            "env": ["TEST_VAR", "MISSING_VAR"],
+            "env": ["TEST_VAR=test_value", "ANOTHER_VAR=another_value"],
         }
 
         # Create async context manager mock
@@ -351,7 +347,6 @@ class TestRunnerHandlerCustomCheck:
         mock_checkout_cm.__aexit__ = AsyncMock(return_value=None)
 
         with (
-            patch.dict("os.environ", {"TEST_VAR": "test_value"}, clear=False),
             patch.object(runner_handler, "_checkout_worktree", return_value=mock_checkout_cm),
             patch(
                 "webhook_server.libs.handlers.runner_handler.run_command",
@@ -360,11 +355,10 @@ class TestRunnerHandlerCustomCheck:
         ):
             await runner_handler.run_custom_check(pull_request=mock_pull_request, check_config=check_config)
 
-            # Verify command was called with env dict containing only existing env vars
+            # Verify command was called with env dict containing explicit values
             mock_run.assert_called_once()
             call_kwargs = mock_run.call_args.kwargs
-            assert call_kwargs["env"] == {"TEST_VAR": "test_value"}
-            # MISSING_VAR should not be in env dict since it's not in os.environ
+            assert call_kwargs["env"] == {"TEST_VAR": "test_value", "ANOTHER_VAR": "another_value"}
 
     @pytest.mark.asyncio
     async def test_run_custom_check_without_env_vars(
@@ -426,14 +420,14 @@ class TestRunnerHandlerCustomCheck:
             assert call_kwargs["env"] == {"DEBUG": "true", "VERBOSE": "1"}
 
     @pytest.mark.asyncio
-    async def test_run_custom_check_with_mixed_env_formats(
+    async def test_run_custom_check_with_invalid_env_format(
         self, runner_handler: RunnerHandler, mock_pull_request: Mock
     ) -> None:
-        """Test that custom check with mixed env formats (both VAR and VAR=value) works correctly."""
+        """Test that custom check with invalid env format (VAR without =value) logs warning and skips."""
         check_config = {
-            "name": "mixed-env-test",
+            "name": "invalid-env-test",
             "command": "env",
-            "env": ["DEBUG=true", "SERVER_VAR", "VERBOSE=1"],
+            "env": ["DEBUG=true", "INVALID_VAR", "VERBOSE=1"],
         }
 
         # Create async context manager mock
@@ -442,23 +436,23 @@ class TestRunnerHandlerCustomCheck:
         mock_checkout_cm.__aexit__ = AsyncMock(return_value=None)
 
         with (
-            patch.dict("os.environ", {"SERVER_VAR": "from_server"}, clear=False),
             patch.object(runner_handler, "_checkout_worktree", return_value=mock_checkout_cm),
             patch(
                 "webhook_server.libs.handlers.runner_handler.run_command",
-                new=AsyncMock(return_value=(True, "DEBUG=true\nSERVER_VAR=from_server\nVERBOSE=1", "")),
+                new=AsyncMock(return_value=(True, "DEBUG=true\nVERBOSE=1", "")),
             ) as mock_run,
         ):
             await runner_handler.run_custom_check(pull_request=mock_pull_request, check_config=check_config)
 
-            # Verify command was called with env dict containing mixed sources
+            # Verify command was called with env dict containing only valid format entries
             mock_run.assert_called_once()
             call_kwargs = mock_run.call_args.kwargs
             assert call_kwargs["env"] == {
                 "DEBUG": "true",
-                "SERVER_VAR": "from_server",
                 "VERBOSE": "1",
             }
+            # INVALID_VAR should be skipped and a warning logged
+            runner_handler.logger.warning.assert_called()
 
 
 class TestCustomCheckRunsIntegration:
@@ -610,6 +604,213 @@ class TestCustomCheckRunsRetestCommand:
         # Custom check names should now match exactly what's in YAML config
         assert check_name == "lint"
         assert not check_name.startswith("custom:")
+
+
+class TestValidateCustomCheckRuns:
+    """Tests for _validate_custom_check_runs validation logic."""
+
+    @pytest.fixture
+    def mock_github_webhook(self) -> Mock:
+        """Create a mock GithubWebhook instance for validation testing."""
+        mock_webhook = Mock()
+        mock_webhook.logger = Mock()
+        mock_webhook.log_prefix = "[TEST]"
+        return mock_webhook
+
+    def test_missing_name_field(self, mock_github_webhook: Mock) -> None:
+        """Test that checks without 'name' field are skipped with warning."""
+        raw_checks = [
+            {"command": "uv tool run --from ruff ruff check"},  # Missing 'name'
+            {"name": "valid-check", "command": "echo test"},  # Valid
+        ]
+
+        # Patch shutil.which to always return True (executable exists)
+        with patch("shutil.which", return_value="/usr/bin/echo"):
+            validated = GithubWebhook._validate_custom_check_runs(mock_github_webhook, raw_checks)
+
+        # Only the valid check should pass
+        assert len(validated) == 1
+        assert validated[0]["name"] == "valid-check"
+
+        # Warning should be logged for missing name
+        mock_github_webhook.logger.warning.assert_any_call("Custom check missing required 'name' field, skipping")
+
+    def test_missing_command_field(self, mock_github_webhook: Mock) -> None:
+        """Test that checks without 'command' field are skipped with warning."""
+        raw_checks = [
+            {"name": "no-command"},  # Missing 'command'
+            {"name": "valid-check", "command": "echo test"},  # Valid
+        ]
+
+        # Patch shutil.which to always return True
+        with patch("shutil.which", return_value="/usr/bin/echo"):
+            validated = GithubWebhook._validate_custom_check_runs(mock_github_webhook, raw_checks)
+
+        # Only the valid check should pass
+        assert len(validated) == 1
+        assert validated[0]["name"] == "valid-check"
+
+        # Warning should be logged for missing command
+        mock_github_webhook.logger.warning.assert_any_call(
+            "Custom check 'no-command' missing required 'command' field, skipping"
+        )
+
+    def test_empty_command_field(self, mock_github_webhook: Mock) -> None:
+        """Test that checks with empty command field are skipped with warning."""
+        raw_checks = [
+            {"name": "empty-command", "command": ""},  # Empty command
+            {"name": "valid-check", "command": "echo test"},  # Valid
+        ]
+
+        # Patch shutil.which to always return True
+        with patch("shutil.which", return_value="/usr/bin/echo"):
+            validated = GithubWebhook._validate_custom_check_runs(mock_github_webhook, raw_checks)
+
+        # Only the valid check should pass
+        assert len(validated) == 1
+        assert validated[0]["name"] == "valid-check"
+
+        # Warning should be logged for empty command
+        mock_github_webhook.logger.warning.assert_any_call(
+            "Custom check 'empty-command' missing required 'command' field, skipping"
+        )
+
+    def test_whitespace_only_command(self, mock_github_webhook: Mock) -> None:
+        """Test that checks with whitespace-only command are skipped."""
+        raw_checks = [
+            {"name": "whitespace-command", "command": "   "},  # Whitespace only
+            {"name": "tab-command", "command": "\t\t"},  # Tabs only
+            {"name": "newline-command", "command": "\n\n"},  # Newlines only
+            {"name": "valid-check", "command": "echo test"},  # Valid
+        ]
+
+        # Patch shutil.which to always return True
+        with patch("shutil.which", return_value="/usr/bin/echo"):
+            validated = GithubWebhook._validate_custom_check_runs(mock_github_webhook, raw_checks)
+
+        # Only the valid check should pass
+        assert len(validated) == 1
+        assert validated[0]["name"] == "valid-check"
+
+        # Warnings should be logged for whitespace-only commands
+        assert mock_github_webhook.logger.warning.call_count >= 3
+        mock_github_webhook.logger.warning.assert_any_call(
+            "Custom check 'whitespace-command' missing required 'command' field, skipping"
+        )
+
+    def test_executable_not_found(self, mock_github_webhook: Mock) -> None:
+        """Test that checks with non-existent executable are skipped."""
+        raw_checks = [
+            {"name": "missing-exec", "command": "nonexistent_command --arg"},  # Executable doesn't exist
+            {"name": "valid-check", "command": "echo test"},  # Valid
+        ]
+
+        # Mock shutil.which to return None for nonexistent_command, path for echo
+        def mock_which(cmd: str) -> str | None:
+            return "/usr/bin/echo" if cmd == "echo" else None
+
+        with patch("shutil.which", side_effect=mock_which):
+            validated = GithubWebhook._validate_custom_check_runs(mock_github_webhook, raw_checks)
+
+        # Only the valid check should pass
+        assert len(validated) == 1
+        assert validated[0]["name"] == "valid-check"
+
+        # Warning should be logged for missing executable
+        mock_github_webhook.logger.warning.assert_any_call(
+            "Custom check 'missing-exec' command executable 'nonexistent_command' not found on server, skipping"
+        )
+
+    def test_multiple_validation_failures(self, mock_github_webhook: Mock) -> None:
+        """Test handling of multiple validation failures at once."""
+        raw_checks = [
+            {"command": "echo test"},  # Missing name
+            {"name": "no-cmd"},  # Missing command
+            {"name": "whitespace", "command": "  "},  # Whitespace command
+            {"name": "bad-exec", "command": "fake_tool --option"},  # Non-existent executable
+            {"name": "good-check", "command": "echo valid"},  # Valid
+        ]
+
+        # Mock shutil.which to only find 'echo'
+        def mock_which(cmd: str) -> str | None:
+            return "/usr/bin/echo" if cmd == "echo" else None
+
+        with patch("shutil.which", side_effect=mock_which):
+            validated = GithubWebhook._validate_custom_check_runs(mock_github_webhook, raw_checks)
+
+        # Only the valid check should pass
+        assert len(validated) == 1
+        assert validated[0]["name"] == "good-check"
+
+        # Should have logged 4 warnings (one for each invalid check)
+        assert mock_github_webhook.logger.warning.call_count == 4
+
+    def test_all_checks_valid(self, mock_github_webhook: Mock) -> None:
+        """Test that all checks pass when validation is successful."""
+        raw_checks = [
+            {"name": "check1", "command": "echo test1"},
+            {"name": "check2", "command": "echo test2"},
+            {"name": "check3", "command": "python -c 'print(1)'"},
+        ]
+
+        # Mock shutil.which to find all executables
+        def mock_which(cmd: str) -> str | None:
+            if cmd in ["echo", "python"]:
+                return f"/usr/bin/{cmd}"
+            return None
+
+        with patch("shutil.which", side_effect=mock_which):
+            validated = GithubWebhook._validate_custom_check_runs(mock_github_webhook, raw_checks)
+
+        # All checks should pass
+        assert len(validated) == 3
+        assert validated[0]["name"] == "check1"
+        assert validated[1]["name"] == "check2"
+        assert validated[2]["name"] == "check3"
+
+        # Debug logs should be called for each validated check
+        assert mock_github_webhook.logger.debug.call_count == 3
+
+    def test_empty_check_list(self, mock_github_webhook: Mock) -> None:
+        """Test that empty check list returns empty validated list."""
+        raw_checks: list[dict[str, Any]] = []
+
+        validated = GithubWebhook._validate_custom_check_runs(mock_github_webhook, raw_checks)
+
+        # Should return empty list
+        assert len(validated) == 0
+        assert validated == []
+
+    def test_complex_multiline_command_validation(self, mock_github_webhook: Mock) -> None:
+        """Test validation of complex multiline commands."""
+        raw_checks = [
+            {
+                "name": "complex-check",
+                "command": "python -c \"\nimport sys\nprint('test')\nsys.exit(0)\n\"",
+            },
+        ]
+
+        # Mock shutil.which to find python
+        with patch("shutil.which", return_value="/usr/bin/python"):
+            validated = GithubWebhook._validate_custom_check_runs(mock_github_webhook, raw_checks)
+
+        # Should validate successfully (extracts 'python' as executable)
+        assert len(validated) == 1
+        assert validated[0]["name"] == "complex-check"
+
+    def test_command_with_path_executable(self, mock_github_webhook: Mock) -> None:
+        """Test validation when command uses full path to executable."""
+        raw_checks = [
+            {"name": "full-path", "command": "/usr/local/bin/custom_tool --arg"},
+        ]
+
+        # Mock shutil.which to find the full path executable
+        with patch("shutil.which", return_value="/usr/local/bin/custom_tool"):
+            validated = GithubWebhook._validate_custom_check_runs(mock_github_webhook, raw_checks)
+
+        # Should validate successfully
+        assert len(validated) == 1
+        assert validated[0]["name"] == "full-path"
 
 
 class TestCustomCheckRunsEdgeCases:

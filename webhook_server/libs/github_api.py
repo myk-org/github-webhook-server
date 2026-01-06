@@ -809,17 +809,12 @@ class GithubWebhook:
 
             # Validate command field
             command = check.get("command")
-            if not command:
+            if not command or not command.strip():
                 self.logger.warning(f"Custom check '{check_name}' missing required 'command' field, skipping")
                 continue
 
             # Extract the first word as the executable (handle multiline/complex commands)
-            command_parts = command.strip().split()
-            if not command_parts:
-                self.logger.warning(f"Custom check '{check_name}' has empty command, skipping")
-                continue
-
-            executable = command_parts[0]
+            executable = command.strip().split()[0]
 
             # Check if executable exists on server
             if not shutil.which(executable):
