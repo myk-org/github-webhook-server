@@ -1420,7 +1420,7 @@ class TestGithubWebhook:
             mock_config = Mock()
             mock_config.repository_data = {"enabled": True}
 
-            def get_value_side_effect(value: str, *_args: Any, **_kwargs: Any) -> Any:
+            def get_value_side_effect(value: str, *_args: object, **_kwargs: object) -> list[object] | None:
                 if value == "custom-check-runs":
                     return []
                 return None

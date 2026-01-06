@@ -674,8 +674,12 @@ Your team can configure additional types in the repository settings.
 
         tasks: list[Coroutine[Any, Any, Any] | Task[Any]] = []
         for _test in supported_retests:
+            runner = _retests_to_func_map.get(_test)
+            if runner is None:
+                self.logger.error(f"{self.log_prefix} Unknown retest '{_test}' requested, skipping")
+                continue
             self.logger.debug(f"{self.log_prefix} running retest {_test}")
-            task = asyncio.create_task(_retests_to_func_map[_test](pull_request=pull_request))
+            task = asyncio.create_task(runner(pull_request=pull_request))
             tasks.append(task)
 
         results = await asyncio.gather(*tasks, return_exceptions=True)

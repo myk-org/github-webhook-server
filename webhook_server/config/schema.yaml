@@ -363,6 +363,7 @@ properties:
                   Each entry must be in 'VAR_NAME=value' format.
                 items:
                   type: string
+                  pattern: "^[^=]+=.+$"
             required:
               - name
               - command

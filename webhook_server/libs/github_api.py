@@ -827,6 +827,12 @@ class GithubWebhook:
             validated_checks.append(check)
             self.logger.debug(f"Validated custom check '{check_name}' with command '{command}'")
 
+        # Summary logging for user visibility
+        if validated_checks:
+            self.logger.info(f"Loaded {len(validated_checks)} custom check(s): {[c['name'] for c in validated_checks]}")
+        if len(validated_checks) < len(raw_checks):
+            self.logger.warning(f"Skipped {len(raw_checks) - len(validated_checks)} invalid custom check(s)")
+
         return validated_checks
 
     def __del__(self) -> None:

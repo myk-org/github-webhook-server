@@ -759,8 +759,8 @@ class TestValidateCustomCheckRuns:
         assert len(validated) == 1
         assert validated[0]["name"] == "good-check"
 
-        # Should have logged 4 warnings (one for each invalid check)
-        assert mock_github_webhook.logger.warning.call_count == 4
+        # Should have logged 5 warnings (4 individual + 1 summary)
+        assert mock_github_webhook.logger.warning.call_count == 5
 
     def test_all_checks_valid(self, mock_github_webhook: Mock) -> None:
         """Test that all checks pass when validation is successful."""
