@@ -1660,7 +1660,7 @@ class TestGithubWebhook:
             # Mock get_value to return custom checks with colliding names
             def get_value_side_effect(
                 value: str, *_args: object, **_kwargs: object
-            ) -> list[dict[str, Any]] | dict[str, Any] | None:
+            ) -> list[dict[str, str]] | dict[str, object] | None:
                 if value == "custom-check-runs":
                     return [
                         {"name": "tox", "command": "tox -e py39"},  # Collision with TOX_STR
@@ -1720,7 +1720,7 @@ class TestGithubWebhook:
             # Mock get_value to return custom checks with duplicate names
             def get_value_side_effect(
                 value: str, *_args: object, **_kwargs: object
-            ) -> list[dict[str, str]] | dict[str, Any] | None:
+            ) -> list[dict[str, str]] | dict[str, object] | None:
                 if value == "custom-check-runs":
                     return [
                         {"name": "my-check", "command": "pytest"},
