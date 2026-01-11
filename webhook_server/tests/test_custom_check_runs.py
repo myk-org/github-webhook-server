@@ -22,6 +22,7 @@ import pytest
 
 from webhook_server.libs.github_api import GithubWebhook
 from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
+from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
 from webhook_server.libs.handlers.runner_handler import RunnerHandler
 from webhook_server.utils.constants import (
     FAILURE_STR,
@@ -178,8 +179,10 @@ class TestCheckRunHandlerCustomCheckMethods:
             )
 
     @pytest.mark.asyncio
-    async def test_all_required_status_checks_includes_custom_checks(self, check_run_handler: CheckRunHandler) -> None:
-        """Test that all_required_status_checks includes all custom checks (all are required)."""
+    async def test_all_required_status_checks_includes_mandatory_custom_checks_only(
+        self, check_run_handler: CheckRunHandler
+    ) -> None:
+        """Test that all_required_status_checks includes only mandatory custom checks (default is true)."""
         mock_pull_request = Mock()
         mock_pull_request.base.ref = "main"
 
@@ -187,9 +190,122 @@ class TestCheckRunHandlerCustomCheckMethods:
         with patch.object(check_run_handler, "get_branch_required_status_checks", return_value=[]):
             result = await check_run_handler.all_required_status_checks(pull_request=mock_pull_request)
 
-            # Should include all custom checks (same as built-in checks - all are required)
+            # Should include all custom checks (both are mandatory by default)
             assert "lint" in result
             assert "security-scan" in result
+
+
+class TestCustomCheckMandatoryOption:
+    """Test suite for custom check mandatory option."""
+
+    @pytest.fixture
+    def mock_github_webhook_with_mixed_mandatory(self) -> Mock:
+        """Create a mock GithubWebhook instance with both mandatory and optional checks."""
+        mock_webhook = Mock()
+        mock_webhook.hook_data = {}
+        mock_webhook.logger = Mock()
+        mock_webhook.log_prefix = "[TEST]"
+        mock_webhook.repository = Mock()
+        mock_webhook.repository_by_github_app = Mock()
+        mock_webhook.last_commit = Mock()
+        mock_webhook.last_commit.sha = "test-sha-123"
+        mock_webhook.custom_check_runs = [
+            {"name": "mandatory-check-1", "command": "echo test1", "mandatory": True},
+            {"name": "optional-check", "command": "echo test2", "mandatory": False},
+            {"name": "mandatory-check-2", "command": "echo test3", "mandatory": True},
+            {"name": "default-mandatory-check", "command": "echo test4"},  # No mandatory field = default to true
+        ]
+        return mock_webhook
+
+    @pytest.mark.asyncio
+    async def test_mandatory_true_checks_included_in_required(
+        self, mock_github_webhook_with_mixed_mandatory: Mock
+    ) -> None:
+        """Test that checks with mandatory=true are included in required status checks."""
+        check_run_handler = CheckRunHandler(mock_github_webhook_with_mixed_mandatory)
+        mock_pull_request = Mock()
+        mock_pull_request.base.ref = "main"
+
+        with patch.object(check_run_handler, "get_branch_required_status_checks", return_value=[]):
+            result = await check_run_handler.all_required_status_checks(pull_request=mock_pull_request)
+
+            # Mandatory checks should be included
+            assert "mandatory-check-1" in result
+            assert "mandatory-check-2" in result
+
+    @pytest.mark.asyncio
+    async def test_mandatory_false_checks_excluded_from_required(
+        self, mock_github_webhook_with_mixed_mandatory: Mock
+    ) -> None:
+        """Test that checks with mandatory=false are NOT included in required status checks."""
+        check_run_handler = CheckRunHandler(mock_github_webhook_with_mixed_mandatory)
+        mock_pull_request = Mock()
+        mock_pull_request.base.ref = "main"
+
+        with patch.object(check_run_handler, "get_branch_required_status_checks", return_value=[]):
+            result = await check_run_handler.all_required_status_checks(pull_request=mock_pull_request)
+
+            # Optional check should NOT be included
+            assert "optional-check" not in result
+
+    @pytest.mark.asyncio
+    async def test_default_mandatory_is_true(self, mock_github_webhook_with_mixed_mandatory: Mock) -> None:
+        """Test that checks without mandatory field default to mandatory=true (backward compatibility)."""
+        check_run_handler = CheckRunHandler(mock_github_webhook_with_mixed_mandatory)
+        mock_pull_request = Mock()
+        mock_pull_request.base.ref = "main"
+
+        with patch.object(check_run_handler, "get_branch_required_status_checks", return_value=[]):
+            result = await check_run_handler.all_required_status_checks(pull_request=mock_pull_request)
+
+            # Check without mandatory field should default to true and be included
+            assert "default-mandatory-check" in result
+
+    @pytest.mark.asyncio
+    async def test_both_mandatory_and_optional_checks_are_queued(
+        self, mock_github_webhook_with_mixed_mandatory: Mock
+    ) -> None:
+        """Test that both mandatory and optional checks are queued and executed.
+
+        The mandatory flag ONLY affects whether the check is required for merging,
+        NOT whether the check is executed. All checks should still be queued and executed.
+        """
+
+        mock_owners_handler = Mock()
+        pull_request_handler = PullRequestHandler(mock_github_webhook_with_mixed_mandatory, mock_owners_handler)
+        pull_request_handler.check_run_handler.set_check_queued = AsyncMock()
+
+        mock_pull_request = Mock()
+        mock_pull_request.number = 123
+        mock_pull_request.base = Mock()
+        mock_pull_request.base.ref = "main"
+
+        # Mock all the methods called in process_opened_or_synchronize_pull_request
+        with (
+            patch.object(pull_request_handler.owners_file_handler, "assign_reviewers", new=AsyncMock()),
+            patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()),
+            patch.object(pull_request_handler, "label_pull_request_by_merge_state", new=AsyncMock()),
+            patch.object(pull_request_handler.check_run_handler, "set_merge_check_queued", new=AsyncMock()),
+            patch.object(pull_request_handler, "_process_verified_for_update_or_new_pull_request", new=AsyncMock()),
+            patch.object(pull_request_handler.labels_handler, "add_size_label", new=AsyncMock()),
+            patch.object(pull_request_handler, "add_pull_request_owner_as_assingee", new=AsyncMock()),
+            patch.object(pull_request_handler.runner_handler, "run_tox", new=AsyncMock()),
+            patch.object(pull_request_handler.runner_handler, "run_pre_commit", new=AsyncMock()),
+            patch.object(pull_request_handler.runner_handler, "run_install_python_module", new=AsyncMock()),
+            patch.object(pull_request_handler.runner_handler, "run_build_container", new=AsyncMock()),
+            patch.object(pull_request_handler.runner_handler, "run_custom_check", new=AsyncMock()),
+        ):
+            await pull_request_handler.process_opened_or_synchronize_pull_request(pull_request=mock_pull_request)
+
+            # Verify set_check_queued was called for ALL custom checks (mandatory and optional)
+            queued_check_names = [
+                call.kwargs["name"] for call in pull_request_handler.check_run_handler.set_check_queued.call_args_list
+            ]
+
+            assert "mandatory-check-1" in queued_check_names
+            assert "optional-check" in queued_check_names
+            assert "mandatory-check-2" in queued_check_names
+            assert "default-mandatory-check" in queued_check_names
 
 
 class TestRunnerHandlerCustomCheck:

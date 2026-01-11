@@ -332,11 +332,13 @@ properties:
             Examples:
               - name: lint
                 command: uv tool run --from ruff ruff check
+                mandatory: true
                 env:
                   - TOKEN=xyz
                   - DEBUG=true
               - name: security-scan
                 command: uv tool run --from bandit bandit -r .
+                mandatory: false
                 env:
                   - CUSTOM_VAR=custom_value
                   - ENABLE_SCAN=1
@@ -356,6 +358,10 @@ properties:
               command:
                 type: string
                 description: Command to execute in the repository directory
+              mandatory:
+                type: boolean
+                description: Whether this check must pass for PR to be mergeable. Defaults to true for backward compatibility.
+                default: true
               env:
                 type: array
                 description: |

@@ -357,6 +357,13 @@ For more information, please refer to the project documentation or contact the m
         if self.github_webhook.conventional_title:
             retest_msg += f" * `/retest {CONVENTIONAL_TITLE_STR}` - Validate commit message format\n"
 
+        # Add custom check runs (both mandatory and optional)
+        for custom_check in self.github_webhook.custom_check_runs:
+            check_name = custom_check["name"]
+            is_mandatory = custom_check.get("mandatory", True)
+            status_indicator = "" if is_mandatory else " (optional)"
+            retest_msg += f" * `/retest {check_name}` - {check_name}{status_indicator}\n"
+
         if retest_msg:
             retest_msg += " * `/retest all` - Run all available tests\n"
 
