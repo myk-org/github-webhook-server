@@ -1,15 +1,33 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, TypedDict, Unpack
 
 import pytest
 
 from webhook_server.libs.handlers.pull_request_handler import PullRequestHandler
 
 if TYPE_CHECKING:
+    from github.PullRequest import PullRequest
+
     from webhook_server.libs.github_api import GithubWebhook
     from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
+
+
+class HandlerConfig(TypedDict, total=False):
+    """Configuration options for _create_handler."""
+
+    tox: bool
+    build_and_push_container: bool
+    pypi: bool
+    pre_commit: bool
+    conventional_title: bool
+    parent_committer: str
+    auto_verified_and_merged_users: list[str]
+    create_issue_for_new_pr: bool
+    issue_url_for_welcome_msg: str
+    minimum_lgtm: int
+    pull_request: PullRequest | None
 
 
 class TestPrepareRetestWelcomeMsg:
@@ -115,11 +133,14 @@ class TestWelcomeMessageNewlineStructure:
     """
 
     def _create_handler(
-        self, process_github_webhook: GithubWebhook, owners_file_handler: OwnersFileHandler, **config: Any
+        self,
+        process_github_webhook: GithubWebhook,
+        owners_file_handler: OwnersFileHandler,
+        **config: Unpack[HandlerConfig],
     ) -> PullRequestHandler:
         """Create a PullRequestHandler with the specified configuration."""
         # Set default values for all config options
-        defaults: dict[str, Any] = {
+        defaults: HandlerConfig = {
             "tox": False,
             "build_and_push_container": False,
             "pypi": False,
@@ -244,11 +265,11 @@ class TestWelcomeMessageNewlineStructure:
                 char_before = welcome_msg[pos - 1]
                 assert char_before == "\n", (
                     f"Header '{match.group()}' at position {pos} is not on its own line. "
-                    f"Preceded by: '{repr(welcome_msg[max(0, pos - 20) : pos])}'"
+                    f"Preceded by: {welcome_msg[max(0, pos - 20) : pos]!r}"
                 )
 
     @pytest.mark.parametrize(
-        "build_and_push_container,tox,expected_container_section",
+        ("build_and_push_container", "tox", "expected_container_section"),
         [
             pytest.param(True, True, True, id="container_enabled"),
             pytest.param(False, True, False, id="container_disabled"),
