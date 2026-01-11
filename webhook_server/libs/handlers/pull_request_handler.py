@@ -252,7 +252,7 @@ This pull request will be automatically processed with the following features:{a
 * **Reviewer Assignment**: Reviewers are automatically assigned based on the OWNERS file in the repository root
 * **Size Labeling**: PR size labels (XS, S, M, L, XL, XXL) are automatically applied based on changes
 {issue_creation_note}
-* **Pre-commit Checks**: [pre-commit](https://pre-commit.ci/) runs automatically if `.pre-commit-config.yaml` exists
+{self._prepare_pre_commit_welcome_line}\
 * **Branch Labeling**: Branch-specific labels are applied to track the target branch
 * **Auto-verification**: Auto-verified users have their PRs automatically marked as verified
 
@@ -277,11 +277,7 @@ This pull request will be automatically processed with the following features:{a
 
 #### Testing & Validation
 {self._prepare_retest_welcome_comment}
-
-#### Container Operations
-* `/build-and-push-container` - Build and push container image (tagged with PR number)
-  * Supports additional build arguments: `/build-and-push-container --build-arg KEY=value`
-
+{self._prepare_container_operations_welcome_section}\
 #### Cherry-pick Operations
 * `/cherry-pick <branch>` - Schedule cherry-pick to target branch when PR is merged
   * Multiple branches: `/cherry-pick branch1 branch2 branch3`
@@ -365,6 +361,26 @@ For more information, please refer to the project documentation or contact the m
             retest_msg += " * `/retest all` - Run all available tests\n"
 
         return " * No retest actions are configured for this repository" if not retest_msg else retest_msg
+
+    @property
+    def _prepare_pre_commit_welcome_line(self) -> str:
+        if self.github_webhook.pre_commit:
+            return (
+                "* **Pre-commit Checks**: [pre-commit](https://pre-commit.ci/) runs automatically "
+                "if `.pre-commit-config.yaml` exists\n"
+            )
+        return ""
+
+    @property
+    def _prepare_container_operations_welcome_section(self) -> str:
+        if self.github_webhook.build_and_push_container:
+            return """
+#### Container Operations
+* `/build-and-push-container` - Build and push container image (tagged with PR number)
+  * Supports additional build arguments: `/build-and-push-container --build-arg KEY=value`
+
+"""
+        return "\n"
 
     async def label_all_opened_pull_requests_merge_state_after_merged(self) -> None:
         """
@@ -754,7 +770,7 @@ For more information, please refer to the project documentation or contact the m
             NOTE: This API does NOT return conflict information (mergeable/mergeable_state).
         """
         try:
-            _headers, data = await asyncio.to_thread(
+            _, data = await asyncio.to_thread(
                 self.repository._requester.requestJsonAndCheck,
                 "GET",
                 f"{self.repository.url}/compare/{base_ref}...{head_ref_full}",
