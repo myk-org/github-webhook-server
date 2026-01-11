@@ -7,7 +7,7 @@ import hmac
 import pytest
 from fastapi import HTTPException
 
-from webhook_server.utils.app_utils import parse_datetime_string, verify_signature
+from webhook_server.utils.app_utils import format_duration, parse_datetime_string, verify_signature
 
 
 class TestVerifySignature:
@@ -90,3 +90,45 @@ class TestParseDatetimeString:
         result = parse_datetime_string(datetime_str, "test_field")
         # Empty string is falsy, so it returns None (same as None input)
         assert result is None
+
+
+class TestFormatDuration:
+    """Test suite for format_duration function."""
+
+    def test_format_duration_milliseconds_only(self) -> None:
+        """Test format_duration with less than 1 second."""
+        assert format_duration(500) == "500ms"
+        assert format_duration(0) == "0ms"
+        assert format_duration(999) == "999ms"
+
+    def test_format_duration_seconds_only(self) -> None:
+        """Test format_duration with exact seconds (no remaining ms)."""
+        assert format_duration(1000) == "1s"
+        assert format_duration(5000) == "5s"
+        assert format_duration(59000) == "59s"
+
+    def test_format_duration_seconds_with_milliseconds(self) -> None:
+        """Test format_duration with seconds and remaining milliseconds."""
+        assert format_duration(1500) == "1s500ms"
+        assert format_duration(5123) == "5s123ms"
+
+    def test_format_duration_minutes_only(self) -> None:
+        """Test format_duration with exact minutes (no remaining seconds)."""
+        assert format_duration(60000) == "1m"
+        assert format_duration(120000) == "2m"
+        assert format_duration(3540000) == "59m"
+
+    def test_format_duration_minutes_with_seconds(self) -> None:
+        """Test format_duration with minutes and remaining seconds."""
+        assert format_duration(65000) == "1m5s"
+        assert format_duration(125000) == "2m5s"
+
+    def test_format_duration_hours_only(self) -> None:
+        """Test format_duration with exact hours (no remaining minutes)."""
+        assert format_duration(3600000) == "1h"
+        assert format_duration(7200000) == "2h"
+
+    def test_format_duration_hours_with_minutes(self) -> None:
+        """Test format_duration with hours and remaining minutes."""
+        assert format_duration(3660000) == "1h1m"
+        assert format_duration(5700000) == "1h35m"

@@ -277,7 +277,8 @@ This pull request will be automatically processed with the following features:{a
 
 #### Testing & Validation
 {self._prepare_retest_welcome_comment}
-{self._prepare_container_operations_welcome_section}#### Cherry-pick Operations
+{self._prepare_container_operations_welcome_section}\
+#### Cherry-pick Operations
 * `/cherry-pick <branch>` - Schedule cherry-pick to target branch when PR is merged
   * Multiple branches: `/cherry-pick branch1 branch2 branch3`
 
@@ -379,7 +380,7 @@ For more information, please refer to the project documentation or contact the m
   * Supports additional build arguments: `/build-and-push-container --build-arg KEY=value`
 
 """
-        return ""
+        return "\n"
 
     async def label_all_opened_pull_requests_merge_state_after_merged(self) -> None:
         """
@@ -769,7 +770,7 @@ For more information, please refer to the project documentation or contact the m
             NOTE: This API does NOT return conflict information (mergeable/mergeable_state).
         """
         try:
-            _headers, data = await asyncio.to_thread(
+            _, data = await asyncio.to_thread(
                 self.repository._requester.requestJsonAndCheck,
                 "GET",
                 f"{self.repository.url}/compare/{base_ref}...{head_ref_full}",
