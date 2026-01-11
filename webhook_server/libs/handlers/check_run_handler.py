@@ -16,7 +16,6 @@ from webhook_server.utils.constants import (
     CONVENTIONAL_TITLE_STR,
     FAILURE_STR,
     IN_PROGRESS_STR,
-    PRE_COMMIT_STR,
     PYTHON_MODULE_INSTALL_STR,
     QUEUED_STR,
     SUCCESS_STR,
@@ -108,38 +107,6 @@ class CheckRunHandler:
     async def set_verify_check_success(self) -> None:
         return await self.set_check_run_status(check_run=VERIFIED_LABEL_STR, conclusion=SUCCESS_STR)
 
-    async def set_run_tox_check_queued(self) -> None:
-        if not self.github_webhook.tox:
-            self.logger.debug(f"{self.log_prefix} tox is not configured, skipping.")
-            return
-
-        return await self.set_check_run_status(check_run=TOX_STR, status=QUEUED_STR)
-
-    async def set_run_tox_check_in_progress(self) -> None:
-        return await self.set_check_run_status(check_run=TOX_STR, status=IN_PROGRESS_STR)
-
-    async def set_run_tox_check_failure(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(check_run=TOX_STR, conclusion=FAILURE_STR, output=output)
-
-    async def set_run_tox_check_success(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(check_run=TOX_STR, conclusion=SUCCESS_STR, output=output)
-
-    async def set_run_pre_commit_check_queued(self) -> None:
-        if not self.github_webhook.pre_commit:
-            self.logger.debug(f"{self.log_prefix} pre-commit is not configured, skipping.")
-            return
-
-        return await self.set_check_run_status(check_run=PRE_COMMIT_STR, status=QUEUED_STR)
-
-    async def set_run_pre_commit_check_in_progress(self) -> None:
-        return await self.set_check_run_status(check_run=PRE_COMMIT_STR, status=IN_PROGRESS_STR)
-
-    async def set_run_pre_commit_check_failure(self, output: dict[str, Any] | None = None) -> None:
-        return await self.set_check_run_status(check_run=PRE_COMMIT_STR, conclusion=FAILURE_STR, output=output)
-
-    async def set_run_pre_commit_check_success(self, output: dict[str, Any] | None = None) -> None:
-        return await self.set_check_run_status(check_run=PRE_COMMIT_STR, conclusion=SUCCESS_STR, output=output)
-
     async def set_merge_check_queued(self, output: dict[str, Any] | None = None) -> None:
         return await self.set_check_run_status(check_run=CAN_BE_MERGED_STR, status=QUEUED_STR, output=output)
 
@@ -151,54 +118,6 @@ class CheckRunHandler:
 
     async def set_merge_check_failure(self, output: dict[str, Any]) -> None:
         return await self.set_check_run_status(check_run=CAN_BE_MERGED_STR, conclusion=FAILURE_STR, output=output)
-
-    async def set_container_build_queued(self) -> None:
-        if not self.github_webhook.build_and_push_container:
-            self.logger.debug(f"{self.log_prefix} build_and_push_container is not configured, skipping.")
-            return
-
-        return await self.set_check_run_status(check_run=BUILD_CONTAINER_STR, status=QUEUED_STR)
-
-    async def set_container_build_in_progress(self) -> None:
-        return await self.set_check_run_status(check_run=BUILD_CONTAINER_STR, status=IN_PROGRESS_STR)
-
-    async def set_container_build_success(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(check_run=BUILD_CONTAINER_STR, conclusion=SUCCESS_STR, output=output)
-
-    async def set_container_build_failure(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(check_run=BUILD_CONTAINER_STR, conclusion=FAILURE_STR, output=output)
-
-    async def set_python_module_install_queued(self) -> None:
-        if not self.github_webhook.pypi:
-            self.logger.debug(f"{self.log_prefix} pypi is not configured, skipping.")
-            return
-
-        return await self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, status=QUEUED_STR)
-
-    async def set_python_module_install_in_progress(self) -> None:
-        return await self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, status=IN_PROGRESS_STR)
-
-    async def set_python_module_install_success(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(
-            check_run=PYTHON_MODULE_INSTALL_STR, conclusion=SUCCESS_STR, output=output
-        )
-
-    async def set_python_module_install_failure(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(
-            check_run=PYTHON_MODULE_INSTALL_STR, conclusion=FAILURE_STR, output=output
-        )
-
-    async def set_conventional_title_queued(self) -> None:
-        return await self.set_check_run_status(check_run=CONVENTIONAL_TITLE_STR, status=QUEUED_STR)
-
-    async def set_conventional_title_in_progress(self) -> None:
-        return await self.set_check_run_status(check_run=CONVENTIONAL_TITLE_STR, status=IN_PROGRESS_STR)
-
-    async def set_conventional_title_success(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(check_run=CONVENTIONAL_TITLE_STR, conclusion=SUCCESS_STR, output=output)
-
-    async def set_conventional_title_failure(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(check_run=CONVENTIONAL_TITLE_STR, conclusion=FAILURE_STR, output=output)
 
     async def set_cherry_pick_in_progress(self) -> None:
         return await self.set_check_run_status(check_run=CHERRY_PICKED_LABEL_PREFIX, status=IN_PROGRESS_STR)
@@ -213,20 +132,46 @@ class CheckRunHandler:
             check_run=CHERRY_PICKED_LABEL_PREFIX, conclusion=FAILURE_STR, output=output
         )
 
-    async def set_custom_check_queued(self, name: str) -> None:
-        """Set custom check run to queued status."""
+    async def set_check_queued(self, name: str) -> None:
+        """Set check run to queued status.
+
+        Generic method for setting any check run (built-in or custom) to queued status.
+
+        Args:
+            name: The name of the check run (e.g., TOX_STR, PRE_COMMIT_STR, or custom check name)
+        """
         await self.set_check_run_status(check_run=name, status=QUEUED_STR)
 
-    async def set_custom_check_in_progress(self, name: str) -> None:
-        """Set custom check run to in_progress status."""
+    async def set_check_in_progress(self, name: str) -> None:
+        """Set check run to in_progress status.
+
+        Generic method for setting any check run (built-in or custom) to in_progress status.
+
+        Args:
+            name: The name of the check run (e.g., TOX_STR, PRE_COMMIT_STR, or custom check name)
+        """
         await self.set_check_run_status(check_run=name, status=IN_PROGRESS_STR)
 
-    async def set_custom_check_success(self, name: str, output: dict[str, str] | None = None) -> None:
-        """Set custom check run to success."""
+    async def set_check_success(self, name: str, output: dict[str, Any] | None = None) -> None:
+        """Set check run to success.
+
+        Generic method for setting any check run (built-in or custom) to success status.
+
+        Args:
+            name: The name of the check run (e.g., TOX_STR, PRE_COMMIT_STR, or custom check name)
+            output: Optional output dictionary with title, summary, and text fields
+        """
         await self.set_check_run_status(check_run=name, conclusion=SUCCESS_STR, output=output)
 
-    async def set_custom_check_failure(self, name: str, output: dict[str, str] | None = None) -> None:
-        """Set custom check run to failure."""
+    async def set_check_failure(self, name: str, output: dict[str, Any] | None = None) -> None:
+        """Set check run to failure.
+
+        Generic method for setting any check run (built-in or custom) to failure status.
+
+        Args:
+            name: The name of the check run (e.g., TOX_STR, PRE_COMMIT_STR, or custom check name)
+            output: Optional output dictionary with title, summary, and text fields
+        """
         await self.set_check_run_status(check_run=name, conclusion=FAILURE_STR, output=output)
 
     async def set_check_run_status(
@@ -234,7 +179,7 @@ class CheckRunHandler:
         check_run: str,
         status: str = "",
         conclusion: str = "",
-        output: dict[str, str] | None = None,
+        output: dict[str, Any] | None = None,
     ) -> None:
         kwargs: dict[str, Any] = {"name": check_run, "head_sha": self.github_webhook.last_commit.sha}
 

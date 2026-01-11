@@ -184,7 +184,7 @@ class RunnerHandler:
         )
         _tox_tests = self.github_webhook.tox.get(pull_request.base.ref, "")
 
-        await self.check_run_handler.set_run_tox_check_in_progress()
+        await self.check_run_handler.set_check_in_progress(name=TOX_STR)
 
         async with self._checkout_worktree(pull_request=pull_request) as (success, worktree_path, out, err):
             # Build tox command with worktree path
@@ -202,7 +202,7 @@ class RunnerHandler:
             if not success:
                 self.logger.error(f"{self.log_prefix} Repository preparation failed for tox")
                 output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
-                return await self.check_run_handler.set_run_tox_check_failure(output=output)
+                return await self.check_run_handler.set_check_failure(name=TOX_STR, output=output)
 
             rc, out, err = await run_command(
                 command=cmd,
@@ -213,9 +213,9 @@ class RunnerHandler:
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
 
             if rc:
-                return await self.check_run_handler.set_run_tox_check_success(output=output)
+                return await self.check_run_handler.set_check_success(name=TOX_STR, output=output)
             else:
-                return await self.check_run_handler.set_run_tox_check_failure(output=output)
+                return await self.check_run_handler.set_check_failure(name=TOX_STR, output=output)
 
     async def run_pre_commit(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.pre_commit:
@@ -225,7 +225,7 @@ class RunnerHandler:
         if await self.check_run_handler.is_check_run_in_progress(check_run=PRE_COMMIT_STR):
             self.logger.debug(f"{self.log_prefix} Check run is in progress, re-running {PRE_COMMIT_STR}.")
 
-        await self.check_run_handler.set_run_pre_commit_check_in_progress()
+        await self.check_run_handler.set_check_in_progress(name=PRE_COMMIT_STR)
 
         async with self._checkout_worktree(pull_request=pull_request) as (success, worktree_path, out, err):
             cmd = f" uvx --directory {worktree_path} {PREK_STR} run --all-files"
@@ -238,7 +238,7 @@ class RunnerHandler:
             if not success:
                 self.logger.error(f"{self.log_prefix} Repository preparation failed for pre-commit")
                 output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
-                return await self.check_run_handler.set_run_pre_commit_check_failure(output=output)
+                return await self.check_run_handler.set_check_failure(name=PRE_COMMIT_STR, output=output)
 
             rc, out, err = await run_command(
                 command=cmd,
@@ -249,9 +249,9 @@ class RunnerHandler:
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
 
             if rc:
-                return await self.check_run_handler.set_run_pre_commit_check_success(output=output)
+                return await self.check_run_handler.set_check_success(name=PRE_COMMIT_STR, output=output)
             else:
-                return await self.check_run_handler.set_run_pre_commit_check_failure(output=output)
+                return await self.check_run_handler.set_check_failure(name=PRE_COMMIT_STR, output=output)
 
     async def run_build_container(
         self,
@@ -281,7 +281,7 @@ class RunnerHandler:
                 self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {BUILD_CONTAINER_STR}.")
 
         if set_check:
-            await self.check_run_handler.set_container_build_in_progress()
+            await self.check_run_handler.set_check_in_progress(name=BUILD_CONTAINER_STR)
 
         _container_repository_and_tag = self.github_webhook.container_repository_and_tag(
             pull_request=pull_request, is_merged=is_merged, tag=tag
@@ -321,7 +321,7 @@ class RunnerHandler:
             if not success:
                 output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
                 if pull_request and set_check:
-                    await self.check_run_handler.set_container_build_failure(output=output)
+                    await self.check_run_handler.set_check_failure(name=BUILD_CONTAINER_STR, output=output)
                 return
 
             build_rc, build_out, build_err = await self.run_podman_command(
@@ -332,11 +332,11 @@ class RunnerHandler:
             if build_rc:
                 self.logger.info(f"{self.log_prefix} Done building {_container_repository_and_tag}")
                 if pull_request and set_check:
-                    return await self.check_run_handler.set_container_build_success(output=output)
+                    return await self.check_run_handler.set_check_success(name=BUILD_CONTAINER_STR, output=output)
             else:
                 self.logger.error(f"{self.log_prefix} Failed to build {_container_repository_and_tag}")
                 if pull_request and set_check:
-                    return await self.check_run_handler.set_container_build_failure(output=output)
+                    return await self.check_run_handler.set_check_failure(name=BUILD_CONTAINER_STR, output=output)
 
             if push and build_rc:
                 cmd = (
@@ -397,7 +397,7 @@ class RunnerHandler:
             self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {PYTHON_MODULE_INSTALL_STR}.")
 
         self.logger.info(f"{self.log_prefix} Installing python module")
-        await self.check_run_handler.set_python_module_install_in_progress()
+        await self.check_run_handler.set_check_in_progress(name=PYTHON_MODULE_INSTALL_STR)
         async with self._checkout_worktree(pull_request=pull_request) as (success, worktree_path, out, err):
             output: dict[str, Any] = {
                 "title": "Python module installation",
@@ -406,7 +406,7 @@ class RunnerHandler:
             }
             if not success:
                 output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
-                return await self.check_run_handler.set_python_module_install_failure(output=output)
+                return await self.check_run_handler.set_check_failure(name=PYTHON_MODULE_INSTALL_STR, output=output)
 
             rc, out, err = await run_command(
                 command=f"uvx pip wheel --no-cache-dir -w {worktree_path}/dist {worktree_path}",
@@ -417,9 +417,9 @@ class RunnerHandler:
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
 
             if rc:
-                return await self.check_run_handler.set_python_module_install_success(output=output)
+                return await self.check_run_handler.set_check_success(name=PYTHON_MODULE_INSTALL_STR, output=output)
 
-            return await self.check_run_handler.set_python_module_install_failure(output=output)
+            return await self.check_run_handler.set_check_failure(name=PYTHON_MODULE_INSTALL_STR, output=output)
 
     async def run_conventional_title_check(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.conventional_title:
@@ -438,13 +438,13 @@ class RunnerHandler:
         if await self.check_run_handler.is_check_run_in_progress(check_run=CONVENTIONAL_TITLE_STR):
             self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {CONVENTIONAL_TITLE_STR}.")
 
-        await self.check_run_handler.set_conventional_title_in_progress()
+        await self.check_run_handler.set_check_in_progress(name=CONVENTIONAL_TITLE_STR)
         allowed_names = [name.strip() for name in self.github_webhook.conventional_title.split(",") if name.strip()]
         title = pull_request.title
 
         self.logger.debug(f"{self.log_prefix} Conventional title check for title: {title}, allowed: {allowed_names}")
         if any([re.match(rf"^{re.escape(_name)}(\([^)]+\))?!?: .+", title) for _name in allowed_names]):
-            await self.check_run_handler.set_conventional_title_success(output=output)
+            await self.check_run_handler.set_check_success(name=CONVENTIONAL_TITLE_STR, output=output)
         else:
             output["title"] = "❌ Conventional Title"
             output["summary"] = "Conventional Commit Format Violation"
@@ -481,7 +481,7 @@ Your team can configure additional types in the repository settings.
 **Resources:**
 - [Conventional Commits v1.0.0 Specification](https://www.conventionalcommits.org/en/v1.0.0/)
 """
-            await self.check_run_handler.set_conventional_title_failure(output=output)
+            await self.check_run_handler.set_check_failure(name=CONVENTIONAL_TITLE_STR, output=output)
 
     async def run_custom_check(
         self,
@@ -499,7 +499,7 @@ Your team can configure additional types in the repository settings.
 
         self.logger.info(f"{self.log_prefix} Starting custom check: {check_config['name']}")
 
-        await self.check_run_handler.set_custom_check_in_progress(name=check_name)
+        await self.check_run_handler.set_check_in_progress(name=check_name)
 
         async with self._checkout_worktree(pull_request=pull_request) as (
             success,
@@ -515,7 +515,7 @@ Your team can configure additional types in the repository settings.
 
             if not success:
                 output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
-                return await self.check_run_handler.set_custom_check_failure(name=check_name, output=output)
+                return await self.check_run_handler.set_check_failure(name=check_name, output=output)
 
             # Build env dict from env entries (VAR_NAME=value format only)
             # IMPORTANT: We must start with os.environ.copy() because passing env to
@@ -555,10 +555,10 @@ Your team can configure additional types in the repository settings.
 
             if success:
                 self.logger.info(f"{self.log_prefix} Custom check {check_config['name']} completed successfully")
-                return await self.check_run_handler.set_custom_check_success(name=check_name, output=output)
+                return await self.check_run_handler.set_check_success(name=check_name, output=output)
             else:
                 self.logger.info(f"{self.log_prefix} Custom check {check_config['name']} failed")
-                return await self.check_run_handler.set_custom_check_failure(name=check_name, output=output)
+                return await self.check_run_handler.set_check_failure(name=check_name, output=output)
 
     async def is_branch_exists(self, branch: str) -> Branch:
         return await asyncio.to_thread(self.repository.get_branch, branch)

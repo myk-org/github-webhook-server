@@ -116,10 +116,8 @@ class TestPullRequestHandler:
         handler.check_run_handler.set_merge_check_success = AsyncMock()
         handler.check_run_handler.set_merge_check_failure = AsyncMock()
         handler.check_run_handler.set_merge_check_queued = AsyncMock()
-        handler.check_run_handler.set_run_tox_check_queued = AsyncMock()
+        handler.check_run_handler.set_check_queued = AsyncMock()
         handler.check_run_handler.set_run_pre_commit_check_queued = AsyncMock()
-        handler.check_run_handler.set_python_module_install_queued = AsyncMock()
-        handler.check_run_handler.set_container_build_queued = AsyncMock()
         handler.check_run_handler.set_conventional_title_queued = AsyncMock()
 
         handler.runner_handler = Mock()
@@ -1666,10 +1664,8 @@ class TestPullRequestHandler:
             patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()),
             patch.object(pull_request_handler, "label_pull_request_by_merge_state", new=AsyncMock()),
             patch.object(pull_request_handler.check_run_handler, "set_merge_check_queued", new=AsyncMock()),
-            patch.object(pull_request_handler.check_run_handler, "set_run_tox_check_queued", new=AsyncMock()),
+            patch.object(pull_request_handler.check_run_handler, "set_check_queued", new=AsyncMock()),
             patch.object(pull_request_handler.check_run_handler, "set_run_pre_commit_check_queued", new=AsyncMock()),
-            patch.object(pull_request_handler.check_run_handler, "set_python_module_install_queued", new=AsyncMock()),
-            patch.object(pull_request_handler.check_run_handler, "set_container_build_queued", new=AsyncMock()),
             patch.object(pull_request_handler, "_process_verified_for_update_or_new_pull_request", new=AsyncMock()),
             patch.object(pull_request_handler.labels_handler, "add_size_label", new=AsyncMock()),
             patch.object(pull_request_handler, "add_pull_request_owner_as_assingee", new=AsyncMock()),
@@ -1698,10 +1694,8 @@ class TestPullRequestHandler:
             patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()),
             patch.object(pull_request_handler, "label_pull_request_by_merge_state", new=AsyncMock()),
             patch.object(pull_request_handler.check_run_handler, "set_merge_check_queued", new=AsyncMock()),
-            patch.object(pull_request_handler.check_run_handler, "set_run_tox_check_queued", new=AsyncMock()),
+            patch.object(pull_request_handler.check_run_handler, "set_check_queued", new=AsyncMock()),
             patch.object(pull_request_handler.check_run_handler, "set_run_pre_commit_check_queued", new=AsyncMock()),
-            patch.object(pull_request_handler.check_run_handler, "set_python_module_install_queued", new=AsyncMock()),
-            patch.object(pull_request_handler.check_run_handler, "set_container_build_queued", new=AsyncMock()),
             patch.object(pull_request_handler, "_process_verified_for_update_or_new_pull_request", new=AsyncMock()),
             patch.object(pull_request_handler.labels_handler, "add_size_label", new=AsyncMock()),
             patch.object(pull_request_handler, "add_pull_request_owner_as_assingee", new=AsyncMock()),

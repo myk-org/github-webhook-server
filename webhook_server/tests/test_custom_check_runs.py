@@ -111,7 +111,7 @@ class TestCheckRunHandlerCustomCheckMethods:
         check_name = "lint"
 
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
-            await check_run_handler.set_custom_check_queued(name=check_name)
+            await check_run_handler.set_check_queued(name=check_name)
             mock_set_status.assert_called_once_with(check_run=check_name, status=QUEUED_STR)
 
     @pytest.mark.asyncio
@@ -120,7 +120,7 @@ class TestCheckRunHandlerCustomCheckMethods:
         check_name = "lint"
 
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
-            await check_run_handler.set_custom_check_in_progress(name=check_name)
+            await check_run_handler.set_check_in_progress(name=check_name)
             mock_set_status.assert_called_once_with(check_run=check_name, status=IN_PROGRESS_STR)
 
     @pytest.mark.asyncio
@@ -130,7 +130,7 @@ class TestCheckRunHandlerCustomCheckMethods:
         output = {"title": "Lint passed", "summary": "All checks passed", "text": "No issues found"}
 
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
-            await check_run_handler.set_custom_check_success(name=check_name, output=output)
+            await check_run_handler.set_check_success(name=check_name, output=output)
             mock_set_status.assert_called_once_with(
                 check_run=check_name,
                 conclusion=SUCCESS_STR,
@@ -143,7 +143,7 @@ class TestCheckRunHandlerCustomCheckMethods:
         check_name = "lint"
 
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
-            await check_run_handler.set_custom_check_success(name=check_name, output=None)
+            await check_run_handler.set_check_success(name=check_name, output=None)
             mock_set_status.assert_called_once_with(
                 check_run=check_name,
                 conclusion=SUCCESS_STR,
@@ -157,7 +157,7 @@ class TestCheckRunHandlerCustomCheckMethods:
         output = {"title": "Security scan failed", "summary": "Vulnerabilities found", "text": "3 critical issues"}
 
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
-            await check_run_handler.set_custom_check_failure(name=check_name, output=output)
+            await check_run_handler.set_check_failure(name=check_name, output=output)
             mock_set_status.assert_called_once_with(
                 check_run=check_name,
                 conclusion=FAILURE_STR,
@@ -170,7 +170,7 @@ class TestCheckRunHandlerCustomCheckMethods:
         check_name = "security-scan"
 
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
-            await check_run_handler.set_custom_check_failure(name=check_name, output=None)
+            await check_run_handler.set_check_failure(name=check_name, output=None)
             mock_set_status.assert_called_once_with(
                 check_run=check_name,
                 conclusion=FAILURE_STR,
@@ -212,9 +212,9 @@ class TestRunnerHandlerCustomCheck:
         """Create a RunnerHandler instance with mocked dependencies."""
         handler = RunnerHandler(mock_github_webhook)
         # Mock check_run_handler methods
-        handler.check_run_handler.set_custom_check_in_progress = AsyncMock()
-        handler.check_run_handler.set_custom_check_success = AsyncMock()
-        handler.check_run_handler.set_custom_check_failure = AsyncMock()
+        handler.check_run_handler.set_check_in_progress = AsyncMock()
+        handler.check_run_handler.set_check_success = AsyncMock()
+        handler.check_run_handler.set_check_failure = AsyncMock()
         handler.check_run_handler.get_check_run_text = Mock(return_value="Mock output text")
         return handler
 
@@ -250,8 +250,8 @@ class TestRunnerHandlerCustomCheck:
             await runner_handler.run_custom_check(pull_request=mock_pull_request, check_config=check_config)
 
             # Verify check run status updates
-            runner_handler.check_run_handler.set_custom_check_in_progress.assert_called_once_with(name="lint")
-            runner_handler.check_run_handler.set_custom_check_success.assert_called_once()
+            runner_handler.check_run_handler.set_check_in_progress.assert_called_once_with(name="lint")
+            runner_handler.check_run_handler.set_check_success.assert_called_once()
 
             # Verify command was executed
             mock_run.assert_called_once()
@@ -279,7 +279,7 @@ class TestRunnerHandlerCustomCheck:
             await runner_handler.run_custom_check(pull_request=mock_pull_request, check_config=check_config)
 
             # Verify failure status was set
-            runner_handler.check_run_handler.set_custom_check_failure.assert_called_once()
+            runner_handler.check_run_handler.set_check_failure.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_run_custom_check_checkout_failure(
@@ -300,7 +300,7 @@ class TestRunnerHandlerCustomCheck:
             await runner_handler.run_custom_check(pull_request=mock_pull_request, check_config=check_config)
 
             # Verify failure status was set due to checkout failure
-            runner_handler.check_run_handler.set_custom_check_failure.assert_called_once()
+            runner_handler.check_run_handler.set_check_failure.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_run_custom_check_command_execution_in_worktree(
@@ -514,8 +514,8 @@ class TestCustomCheckRunsIntegration:
     async def test_custom_checks_execution_workflow(self, mock_github_webhook: Mock, mock_pull_request: Mock) -> None:
         """Test complete workflow of custom check execution."""
         runner_handler = RunnerHandler(mock_github_webhook)
-        runner_handler.check_run_handler.set_custom_check_in_progress = AsyncMock()
-        runner_handler.check_run_handler.set_custom_check_success = AsyncMock()
+        runner_handler.check_run_handler.set_check_in_progress = AsyncMock()
+        runner_handler.check_run_handler.set_check_success = AsyncMock()
         runner_handler.check_run_handler.get_check_run_text = Mock(return_value="Mock output")
 
         check_config = mock_github_webhook.custom_check_runs[0]  # lint check
@@ -536,8 +536,8 @@ class TestCustomCheckRunsIntegration:
             await runner_handler.run_custom_check(pull_request=mock_pull_request, check_config=check_config)
 
             # Verify workflow: in_progress -> execute -> success
-            runner_handler.check_run_handler.set_custom_check_in_progress.assert_called_once()
-            runner_handler.check_run_handler.set_custom_check_success.assert_called_once()
+            runner_handler.check_run_handler.set_check_in_progress.assert_called_once()
+            runner_handler.check_run_handler.set_check_success.assert_called_once()
 
 
 class TestCustomCheckRunsRetestCommand:
@@ -582,8 +582,8 @@ class TestCustomCheckRunsRetestCommand:
     async def test_retest_custom_check_triggers_execution(self, mock_github_webhook: Mock) -> None:
         """Test that /retest custom:name triggers check execution."""
         runner_handler = RunnerHandler(mock_github_webhook)
-        runner_handler.check_run_handler.set_custom_check_in_progress = AsyncMock()
-        runner_handler.check_run_handler.set_custom_check_success = AsyncMock()
+        runner_handler.check_run_handler.set_check_in_progress = AsyncMock()
+        runner_handler.check_run_handler.set_check_success = AsyncMock()
         runner_handler.check_run_handler.get_check_run_text = Mock(return_value="Test output")
 
         mock_pull_request = Mock()
@@ -609,8 +609,8 @@ class TestCustomCheckRunsRetestCommand:
             await runner_handler.run_custom_check(pull_request=mock_pull_request, check_config=check_config)
 
             # Verify check was executed
-            runner_handler.check_run_handler.set_custom_check_in_progress.assert_called_once()
-            runner_handler.check_run_handler.set_custom_check_success.assert_called_once()
+            runner_handler.check_run_handler.set_check_in_progress.assert_called_once()
+            runner_handler.check_run_handler.set_check_success.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_custom_check_name_without_prefix(self) -> None:
@@ -735,7 +735,9 @@ class TestValidateCustomCheckRuns:
 
         # Warning should be logged for missing executable
         mock_github_webhook.logger.warning.assert_any_call(
-            "Custom check 'missing-exec' command executable 'nonexistent_command' not found on server, skipping"
+            "Custom check 'missing-exec' command executable 'nonexistent_command' not found on server. "
+            "Please open an issue to request adding this executable to the container, "
+            "or submit a PR to add it. Skipping check."
         )
 
     def test_multiple_validation_failures(self, mock_github_webhook: Mock) -> None:
@@ -904,8 +906,8 @@ class TestCustomCheckRunsEdgeCases:
     async def test_custom_check_with_long_command(self, mock_github_webhook: Mock) -> None:
         """Test custom check with long multiline command from config."""
         runner_handler = RunnerHandler(mock_github_webhook)
-        runner_handler.check_run_handler.set_custom_check_in_progress = AsyncMock()
-        runner_handler.check_run_handler.set_custom_check_success = AsyncMock()
+        runner_handler.check_run_handler.set_check_in_progress = AsyncMock()
+        runner_handler.check_run_handler.set_check_success = AsyncMock()
         runner_handler.check_run_handler.get_check_run_text = Mock(return_value="Output")
 
         mock_pull_request = Mock()
@@ -933,4 +935,4 @@ class TestCustomCheckRunsEdgeCases:
             await runner_handler.run_custom_check(pull_request=mock_pull_request, check_config=check_config)
 
             # Should succeed with multiline command
-            runner_handler.check_run_handler.set_custom_check_success.assert_called_once()
+            runner_handler.check_run_handler.set_check_success.assert_called_once()

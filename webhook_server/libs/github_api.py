@@ -836,12 +836,15 @@ class GithubWebhook:
                 continue
 
             # Extract the first word as the executable (handle multiline/complex commands)
-            executable = command.strip().split()[0]
+            command_stripped = command.strip()
+            executable = command_stripped.split()[0]
 
             # Check if executable exists on server
             if not shutil.which(executable):
                 self.logger.warning(
-                    f"Custom check '{check_name}' command executable '{executable}' not found on server, skipping"
+                    f"Custom check '{check_name}' command executable '{executable}' not found on server. "
+                    f"Please open an issue to request adding this executable to the container, "
+                    f"or submit a PR to add it. Skipping check."
                 )
                 continue
 

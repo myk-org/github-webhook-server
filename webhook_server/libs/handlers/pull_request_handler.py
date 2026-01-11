@@ -624,23 +624,32 @@ For more information, please refer to the project documentation or contact the m
         )
         setup_tasks.append(self.label_pull_request_by_merge_state(pull_request=pull_request))
         setup_tasks.append(self.check_run_handler.set_merge_check_queued())
-        setup_tasks.append(self.check_run_handler.set_run_tox_check_queued())
-        setup_tasks.append(self.check_run_handler.set_run_pre_commit_check_queued())
-        setup_tasks.append(self.check_run_handler.set_python_module_install_queued())
-        setup_tasks.append(self.check_run_handler.set_container_build_queued())
         setup_tasks.append(self._process_verified_for_update_or_new_pull_request(pull_request=pull_request))
         setup_tasks.append(self.labels_handler.add_size_label(pull_request=pull_request))
         setup_tasks.append(self.add_pull_request_owner_as_assingee(pull_request=pull_request))
 
+        # Queue built-in check runs if configured
+        if self.github_webhook.tox:
+            setup_tasks.append(self.check_run_handler.set_check_queued(name=TOX_STR))
+
+        if self.github_webhook.pre_commit:
+            setup_tasks.append(self.check_run_handler.set_check_queued(name=PRE_COMMIT_STR))
+
+        if self.github_webhook.pypi:
+            setup_tasks.append(self.check_run_handler.set_check_queued(name=PYTHON_MODULE_INSTALL_STR))
+
+        if self.github_webhook.build_and_push_container:
+            setup_tasks.append(self.check_run_handler.set_check_queued(name=BUILD_CONTAINER_STR))
+
         if self.github_webhook.conventional_title:
-            setup_tasks.append(self.check_run_handler.set_conventional_title_queued())
+            setup_tasks.append(self.check_run_handler.set_check_queued(name=CONVENTIONAL_TITLE_STR))
 
         # Queue custom check runs (same as built-in checks)
         # Note: custom checks are validated in GithubWebhook._validate_custom_check_runs()
         # so name is guaranteed to exist
         for custom_check in self.github_webhook.custom_check_runs:
             check_name = custom_check["name"]
-            setup_tasks.append(self.check_run_handler.set_custom_check_queued(name=check_name))
+            setup_tasks.append(self.check_run_handler.set_check_queued(name=check_name))
 
         self.logger.info(f"{self.log_prefix} Executing setup tasks")
         setup_results = await asyncio.gather(*setup_tasks, return_exceptions=True)
