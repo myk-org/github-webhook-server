@@ -325,23 +325,15 @@ properties:
             Commands run in the repository worktree and behave like built-in checks
             (tox, pre-commit, etc.) - if a command is not found, the check will fail.
 
-            Environment Variables:
-            The 'env' field supports explicit variable assignment using 'VAR_NAME=value' format.
-            Each entry must include both the variable name and value separated by '='.
+            Environment variables can be included directly in the command string if needed.
 
             Examples:
               - name: lint
                 command: uv tool run --from ruff ruff check
                 mandatory: true
-                env:
-                  - TOKEN=xyz
-                  - DEBUG=true
               - name: security-scan
-                command: uv tool run --from bandit bandit -r .
+                command: TOKEN=xyz DEBUG=true uv tool run --from bandit bandit -r .
                 mandatory: false
-                env:
-                  - CUSTOM_VAR=custom_value
-                  - ENABLE_SCAN=1
               - name: complex-check
                 command: |
                   python -c "
@@ -357,19 +349,11 @@ properties:
                 description: Unique name for the check run (displayed in GitHub UI)
               command:
                 type: string
-                description: Command to execute in the repository directory
+                description: Command to execute in the repository directory. Environment variables can be included in the command (e.g., VAR=value command args)
               mandatory:
                 type: boolean
                 description: Whether this check must pass for PR to be mergeable. Defaults to true for backward compatibility.
                 default: true
-              env:
-                type: array
-                description: |
-                  Environment variables to pass to the command.
-                  Each entry must be in 'VAR_NAME=value' format.
-                items:
-                  type: string
-                  pattern: "^[^=]+=.+$"
             required:
               - name
               - command

@@ -1,6 +1,5 @@
 import asyncio
 import contextlib
-import os
 import re
 import shutil
 from asyncio import Task
@@ -517,38 +516,12 @@ Your team can configure additional types in the repository settings.
                 output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
                 return await self.check_run_handler.set_check_failure(name=check_name, output=output)
 
-            # Build env dict from env entries (VAR_NAME=value format only)
-            # IMPORTANT: We must start with os.environ.copy() because passing env to
-            # asyncio.create_subprocess_exec() REPLACES the entire environment, not extends it.
-            # Without this, the subprocess wouldn't have PATH, HOME, or other essential variables,
-            # causing commands like 'uv', 'python', etc. to fail with "command not found".
-            env_dict: dict[str, str] | None = None
-            redact_secrets: list[str] = []
-            env_entries = check_config.get("env", [])
-            if env_entries:
-                env_dict = os.environ.copy()
-                for env_entry in env_entries:
-                    if "=" in env_entry:
-                        var_name, var_value = env_entry.split("=", 1)
-                        env_dict[var_name] = var_value
-                        # Extract secret values for redaction (only non-empty values)
-                        if var_value:
-                            redact_secrets.append(var_value)
-                        self.logger.debug(f"{self.log_prefix} Using environment variable '{var_name}'")
-                    else:
-                        self.logger.warning(
-                            f"{self.log_prefix} Invalid environment variable format '{env_entry}': "
-                            "expected 'VAR_NAME=value' format"
-                        )
-
-            # Execute command in worktree directory with env vars
+            # Execute command in worktree directory
             success, out, err = await run_command(
                 command=command,
                 log_prefix=self.log_prefix,
                 mask_sensitive=self.github_webhook.mask_sensitive,
                 cwd=worktree_path,
-                env=env_dict,
-                redact_secrets=redact_secrets if redact_secrets else None,
             )
 
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
