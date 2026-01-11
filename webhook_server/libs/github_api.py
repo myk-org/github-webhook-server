@@ -622,6 +622,12 @@ class GithubWebhook:
             value="pre-commit", return_on_none=False, extra_dict=repository_config
         )
 
+        # Load and validate custom check runs
+        raw_custom_checks = self.config.get_value(
+            value="custom-check-runs", return_on_none=[], extra_dict=repository_config
+        )
+        self.custom_check_runs: list[dict[str, Any]] = self._validate_custom_check_runs(raw_custom_checks)
+
         self.auto_verified_and_merged_users: list[str] = self.config.get_value(
             value="auto-verified-and-merged-users", return_on_none=[], extra_dict=repository_config
         )
@@ -754,6 +760,14 @@ class GithubWebhook:
 
         if self.conventional_title:
             current_pull_request_supported_retest.append(CONVENTIONAL_TITLE_STR)
+
+        # Add custom check runs
+        # Note: custom checks are validated in _validate_custom_check_runs()
+        # so name is guaranteed to exist
+        for custom_check in self.custom_check_runs:
+            check_name = custom_check["name"]
+            current_pull_request_supported_retest.append(check_name)
+
         return current_pull_request_supported_retest
 
     async def cleanup(self) -> None:
@@ -769,6 +783,79 @@ class GithubWebhook:
                 self.logger.debug(f"{self.log_prefix} Cleaned up temp directory: {self.clone_repo_dir}")
             except Exception as ex:
                 self.logger.warning(f"{self.log_prefix} Failed to cleanup temp directory: {ex}")
+
+    def _validate_custom_check_runs(self, raw_checks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Validate custom check runs configuration.
+
+        Validates each custom check and returns only valid ones:
+        - Checks that 'name' and 'command' fields exist
+        - Verifies name doesn't collide with built-in check names
+        - Verifies command executable exists on server using shutil.which()
+        - Logs warnings for invalid checks and skips them
+
+        Args:
+            raw_checks: List of custom check configurations from config
+
+        Returns:
+            List of validated custom check configurations
+        """
+        validated_checks: list[dict[str, Any]] = []
+        seen_names: set[str] = set()
+
+        # Built-in check names that custom checks cannot override
+        BUILTIN_CHECK_NAMES = {
+            TOX_STR,
+            PRE_COMMIT_STR,
+            BUILD_CONTAINER_STR,
+            PYTHON_MODULE_INSTALL_STR,
+            CONVENTIONAL_TITLE_STR,
+        }
+
+        for check in raw_checks:
+            # Validate name field
+            check_name = check.get("name")
+            if not check_name:
+                self.logger.warning("Custom check missing required 'name' field, skipping")
+                continue
+
+            # Check for collision with built-in check names
+            if check_name in BUILTIN_CHECK_NAMES:
+                self.logger.warning(f"Custom check '{check_name}' conflicts with built-in check, skipping")
+                continue
+
+            # Check for duplicate custom check names
+            if check_name in seen_names:
+                self.logger.warning(f"Duplicate custom check name '{check_name}', skipping")
+                continue
+            seen_names.add(check_name)
+
+            # Validate command field
+            command = check.get("command")
+            if not command or not command.strip():
+                self.logger.warning(f"Custom check '{check_name}' missing required 'command' field, skipping")
+                continue
+
+            # Extract the first word as the executable (handle multiline/complex commands)
+            executable = command.strip().split()[0]
+
+            # Check if executable exists on server
+            if not shutil.which(executable):
+                self.logger.warning(
+                    f"Custom check '{check_name}' command executable '{executable}' not found on server, skipping"
+                )
+                continue
+
+            # Valid check - add to list
+            validated_checks.append(check)
+            self.logger.debug(f"Validated custom check '{check_name}' with command '{command}'")
+
+        # Summary logging for user visibility
+        if validated_checks:
+            self.logger.info(f"Loaded {len(validated_checks)} custom check(s): {[c['name'] for c in validated_checks]}")
+        if len(validated_checks) < len(raw_checks):
+            self.logger.warning(f"Skipped {len(raw_checks) - len(validated_checks)} invalid custom check(s)")
+
+        return validated_checks
 
     def __del__(self) -> None:
         """Remove the shared clone directory when the webhook object is destroyed.

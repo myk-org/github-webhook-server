@@ -36,6 +36,7 @@ class TestRunnerHandler:
         mock_webhook.container_build_args = []
         mock_webhook.container_command_args = []
         mock_webhook.ctx = None
+        mock_webhook.custom_check_runs = []
         return mock_webhook
 
     @pytest.fixture

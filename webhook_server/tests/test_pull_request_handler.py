@@ -81,6 +81,7 @@ class TestPullRequestHandler:
         mock_webhook.auto_verify_cherry_picked_prs = True
         mock_webhook.last_commit = Mock()
         mock_webhook.ctx = None
+        mock_webhook.custom_check_runs = []
         return mock_webhook
 
     @pytest.fixture

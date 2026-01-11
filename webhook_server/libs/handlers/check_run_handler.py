@@ -213,6 +213,22 @@ class CheckRunHandler:
             check_run=CHERRY_PICKED_LABEL_PREFIX, conclusion=FAILURE_STR, output=output
         )
 
+    async def set_custom_check_queued(self, name: str) -> None:
+        """Set custom check run to queued status."""
+        await self.set_check_run_status(check_run=name, status=QUEUED_STR)
+
+    async def set_custom_check_in_progress(self, name: str) -> None:
+        """Set custom check run to in_progress status."""
+        await self.set_check_run_status(check_run=name, status=IN_PROGRESS_STR)
+
+    async def set_custom_check_success(self, name: str, output: dict[str, str] | None = None) -> None:
+        """Set custom check run to success."""
+        await self.set_check_run_status(check_run=name, conclusion=SUCCESS_STR, output=output)
+
+    async def set_custom_check_failure(self, name: str, output: dict[str, str] | None = None) -> None:
+        """Set custom check run to failure."""
+        await self.set_check_run_status(check_run=name, conclusion=FAILURE_STR, output=output)
+
     async def set_check_run_status(
         self,
         check_run: str,
@@ -427,6 +443,13 @@ class CheckRunHandler:
 
         if self.github_webhook.conventional_title:
             all_required_status_checks.append(CONVENTIONAL_TITLE_STR)
+
+        # Add all custom checks (same as built-in checks - all are required)
+        # Note: custom checks are validated in GithubWebhook._validate_custom_check_runs()
+        # so name is guaranteed to exist
+        for custom_check in self.github_webhook.custom_check_runs:
+            check_name = custom_check["name"]
+            all_required_status_checks.append(check_name)
 
         _all_required_status_checks = branch_required_status_checks + all_required_status_checks
         self.logger.debug(f"{self.log_prefix} All required status checks: {_all_required_status_checks}")
