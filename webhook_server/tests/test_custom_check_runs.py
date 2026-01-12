@@ -319,6 +319,7 @@ class TestRunnerHandlerCustomCheck:
         """Create a RunnerHandler instance with mocked dependencies."""
         handler = RunnerHandler(mock_github_webhook)
         # Mock check_run_handler methods
+        handler.check_run_handler.is_check_run_in_progress = AsyncMock(return_value=False)
         handler.check_run_handler.set_check_in_progress = AsyncMock()
         handler.check_run_handler.set_check_success = AsyncMock()
         handler.check_run_handler.set_check_failure = AsyncMock()
@@ -482,6 +483,7 @@ class TestCustomCheckRunsIntegration:
     async def test_custom_checks_execution_workflow(self, mock_github_webhook: Mock, mock_pull_request: Mock) -> None:
         """Test complete workflow of custom check execution."""
         runner_handler = RunnerHandler(mock_github_webhook)
+        runner_handler.check_run_handler.is_check_run_in_progress = AsyncMock(return_value=False)
         runner_handler.check_run_handler.set_check_in_progress = AsyncMock()
         runner_handler.check_run_handler.set_check_success = AsyncMock()
         runner_handler.check_run_handler.get_check_run_text = Mock(return_value="Mock output")
@@ -550,6 +552,7 @@ class TestCustomCheckRunsRetestCommand:
     async def test_retest_custom_check_triggers_execution(self, mock_github_webhook: Mock) -> None:
         """Test that /retest custom:name triggers check execution."""
         runner_handler = RunnerHandler(mock_github_webhook)
+        runner_handler.check_run_handler.is_check_run_in_progress = AsyncMock(return_value=False)
         runner_handler.check_run_handler.set_check_in_progress = AsyncMock()
         runner_handler.check_run_handler.set_check_success = AsyncMock()
         runner_handler.check_run_handler.get_check_run_text = Mock(return_value="Test output")
@@ -842,6 +845,8 @@ class TestCustomCheckRunsEdgeCases:
     async def test_custom_check_timeout_expiration(self, mock_github_webhook: Mock) -> None:
         """Test that custom check respects timeout configuration."""
         runner_handler = RunnerHandler(mock_github_webhook)
+        runner_handler.check_run_handler.is_check_run_in_progress = AsyncMock(return_value=False)
+        runner_handler.check_run_handler.set_check_in_progress = AsyncMock()
         runner_handler.check_run_handler.get_check_run_text = Mock(return_value="Timeout")
 
         mock_pull_request = Mock()
@@ -874,6 +879,7 @@ class TestCustomCheckRunsEdgeCases:
     async def test_custom_check_with_long_command(self, mock_github_webhook: Mock) -> None:
         """Test custom check with long multiline command from config."""
         runner_handler = RunnerHandler(mock_github_webhook)
+        runner_handler.check_run_handler.is_check_run_in_progress = AsyncMock(return_value=False)
         runner_handler.check_run_handler.set_check_in_progress = AsyncMock()
         runner_handler.check_run_handler.set_check_success = AsyncMock()
         runner_handler.check_run_handler.get_check_run_text = Mock(return_value="Output")

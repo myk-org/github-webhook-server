@@ -4,6 +4,7 @@ import re
 import shutil
 from asyncio import Task
 from collections.abc import AsyncGenerator, Callable, Coroutine
+from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
@@ -29,6 +30,24 @@ from webhook_server.utils.notification_utils import send_slack_message
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
+
+
+@dataclass(frozen=True, slots=True)
+class CheckConfig:
+    """Configuration for a check run.
+
+    Attributes:
+        name: The name of the check run (e.g., "tox", "pre-commit", or custom check name).
+        command: The command template to execute. Can contain {worktree_path} placeholder.
+        title: The display title for the check run output.
+        use_cwd: If True, execute command with cwd set to worktree_path.
+                 If False, command should include worktree_path in args.
+    """
+
+    name: str
+    command: str
+    title: str
+    use_cwd: bool = False
 
 
 class RunnerHandler:
@@ -170,87 +189,86 @@ class RunnerHandler:
 
         return rc, out, err
 
+    async def run_check(self, pull_request: PullRequest, check_config: CheckConfig) -> None:
+        """Unified check execution method for both built-in and custom checks.
+
+        This method handles the common lifecycle for all command-based checks:
+        1. Set check to in_progress
+        2. Checkout worktree
+        3. Execute command
+        4. Report success or failure
+
+        Args:
+            pull_request: The pull request to run the check on.
+            check_config: Configuration for the check (name, command, title, use_cwd).
+        """
+        if await self.check_run_handler.is_check_run_in_progress(check_run=check_config.name):
+            self.logger.debug(f"{self.log_prefix} Check run is in progress, re-running {check_config.name}.")
+
+        self.logger.info(f"{self.log_prefix} Starting check: {check_config.name}")
+        await self.check_run_handler.set_check_in_progress(name=check_config.name)
+
+        async with self._checkout_worktree(pull_request=pull_request) as (success, worktree_path, out, err):
+            output: dict[str, Any] = {
+                "title": check_config.title,
+                "summary": "",
+                "text": None,
+            }
+
+            if not success:
+                self.logger.error(f"{self.log_prefix} Repository preparation failed for {check_config.name}")
+                output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
+                return await self.check_run_handler.set_check_failure(name=check_config.name, output=output)
+
+            # Build command with worktree path substitution
+            cmd = check_config.command.format(worktree_path=worktree_path)
+            self.logger.debug(f"{self.log_prefix} {check_config.name} command to run: {cmd}")
+
+            # Execute command - use cwd if configured, otherwise command should include paths
+            cwd = worktree_path if check_config.use_cwd else None
+            rc, out, err = await run_command(
+                command=cmd,
+                log_prefix=self.log_prefix,
+                mask_sensitive=self.github_webhook.mask_sensitive,
+                cwd=cwd,
+            )
+
+            output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
+
+            if rc:
+                self.logger.info(f"{self.log_prefix} Check {check_config.name} completed successfully")
+                return await self.check_run_handler.set_check_success(name=check_config.name, output=output)
+            else:
+                self.logger.info(f"{self.log_prefix} Check {check_config.name} failed")
+                return await self.check_run_handler.set_check_failure(name=check_config.name, output=output)
+
     async def run_tox(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.tox:
             self.logger.debug(f"{self.log_prefix} Tox not configured for this repository")
             return
-
-        if await self.check_run_handler.is_check_run_in_progress(check_run=TOX_STR):
-            self.logger.debug(f"{self.log_prefix} Check run is in progress, re-running {TOX_STR}.")
 
         python_ver = (
             f"--python={self.github_webhook.tox_python_version}" if self.github_webhook.tox_python_version else ""
         )
         _tox_tests = self.github_webhook.tox.get(pull_request.base.ref, "")
 
-        await self.check_run_handler.set_check_in_progress(name=TOX_STR)
+        # Build tox command with {worktree_path} placeholder
+        cmd = f"uvx {python_ver} {TOX_STR} --workdir {{worktree_path}} --root {{worktree_path}} -c {{worktree_path}}"
+        if _tox_tests and _tox_tests != "all":
+            tests = _tox_tests.replace(" ", "")
+            cmd += f" -e {tests}"
 
-        async with self._checkout_worktree(pull_request=pull_request) as (success, worktree_path, out, err):
-            # Build tox command with worktree path
-            cmd = f"uvx {python_ver} {TOX_STR} --workdir {worktree_path} --root {worktree_path} -c {worktree_path}"
-            if _tox_tests and _tox_tests != "all":
-                tests = _tox_tests.replace(" ", "")
-                cmd += f" -e {tests}"
-            self.logger.debug(f"{self.log_prefix} Tox command to run: {cmd}")
-
-            output: dict[str, Any] = {
-                "title": "Tox",
-                "summary": "",
-                "text": None,
-            }
-            if not success:
-                self.logger.error(f"{self.log_prefix} Repository preparation failed for tox")
-                output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
-                return await self.check_run_handler.set_check_failure(name=TOX_STR, output=output)
-
-            rc, out, err = await run_command(
-                command=cmd,
-                log_prefix=self.log_prefix,
-                mask_sensitive=self.github_webhook.mask_sensitive,
-            )
-
-            output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
-
-            if rc:
-                return await self.check_run_handler.set_check_success(name=TOX_STR, output=output)
-            else:
-                return await self.check_run_handler.set_check_failure(name=TOX_STR, output=output)
+        check_config = CheckConfig(name=TOX_STR, command=cmd, title="Tox")
+        await self.run_check(pull_request=pull_request, check_config=check_config)
 
     async def run_pre_commit(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.pre_commit:
             self.logger.debug(f"{self.log_prefix} Pre-commit not configured for this repository")
             return
 
-        if await self.check_run_handler.is_check_run_in_progress(check_run=PRE_COMMIT_STR):
-            self.logger.debug(f"{self.log_prefix} Check run is in progress, re-running {PRE_COMMIT_STR}.")
-
-        await self.check_run_handler.set_check_in_progress(name=PRE_COMMIT_STR)
-
-        async with self._checkout_worktree(pull_request=pull_request) as (success, worktree_path, out, err):
-            cmd = f" uvx --directory {worktree_path} {PREK_STR} run --all-files"
-
-            output: dict[str, Any] = {
-                "title": "Pre-Commit",
-                "summary": "",
-                "text": None,
-            }
-            if not success:
-                self.logger.error(f"{self.log_prefix} Repository preparation failed for pre-commit")
-                output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
-                return await self.check_run_handler.set_check_failure(name=PRE_COMMIT_STR, output=output)
-
-            rc, out, err = await run_command(
-                command=cmd,
-                log_prefix=self.log_prefix,
-                mask_sensitive=self.github_webhook.mask_sensitive,
-            )
-
-            output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
-
-            if rc:
-                return await self.check_run_handler.set_check_success(name=PRE_COMMIT_STR, output=output)
-            else:
-                return await self.check_run_handler.set_check_failure(name=PRE_COMMIT_STR, output=output)
+        cmd = f"uvx --directory {{worktree_path}} {PREK_STR} run --all-files"
+        check_config = CheckConfig(name=PRE_COMMIT_STR, command=cmd, title="Pre-Commit")
+        await self.run_check(pull_request=pull_request, check_config=check_config)
 
     async def run_build_container(
         self,
@@ -392,33 +410,9 @@ class RunnerHandler:
         if not self.github_webhook.pypi:
             return
 
-        if await self.check_run_handler.is_check_run_in_progress(check_run=PYTHON_MODULE_INSTALL_STR):
-            self.logger.info(f"{self.log_prefix} Check run is in progress, re-running {PYTHON_MODULE_INSTALL_STR}.")
-
-        self.logger.info(f"{self.log_prefix} Installing python module")
-        await self.check_run_handler.set_check_in_progress(name=PYTHON_MODULE_INSTALL_STR)
-        async with self._checkout_worktree(pull_request=pull_request) as (success, worktree_path, out, err):
-            output: dict[str, Any] = {
-                "title": "Python module installation",
-                "summary": "",
-                "text": None,
-            }
-            if not success:
-                output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
-                return await self.check_run_handler.set_check_failure(name=PYTHON_MODULE_INSTALL_STR, output=output)
-
-            rc, out, err = await run_command(
-                command=f"uvx pip wheel --no-cache-dir -w {worktree_path}/dist {worktree_path}",
-                log_prefix=self.log_prefix,
-                mask_sensitive=self.github_webhook.mask_sensitive,
-            )
-
-            output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
-
-            if rc:
-                return await self.check_run_handler.set_check_success(name=PYTHON_MODULE_INSTALL_STR, output=output)
-
-            return await self.check_run_handler.set_check_failure(name=PYTHON_MODULE_INSTALL_STR, output=output)
+        cmd = "uvx pip wheel --no-cache-dir -w {worktree_path}/dist {worktree_path}"
+        check_config = CheckConfig(name=PYTHON_MODULE_INSTALL_STR, command=cmd, title="Python module installation")
+        await self.run_check(pull_request=pull_request, check_config=check_config)
 
     async def run_conventional_title_check(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.conventional_title:
@@ -489,6 +483,9 @@ Your team can configure additional types in the repository settings.
     ) -> None:
         """Run a custom check defined in repository configuration.
 
+        This method wraps the unified run_check() method for custom checks.
+        Custom checks use cwd mode (execute command in worktree directory).
+
         Note: name and command validation happens in GithubWebhook._validate_custom_check_runs()
         when custom checks are first loaded. Invalid checks are filtered out at that stage.
         """
@@ -496,42 +493,14 @@ Your team can configure additional types in the repository settings.
         check_name = check_config["name"]
         command = check_config["command"]
 
-        self.logger.info(f"{self.log_prefix} Starting custom check: {check_config['name']}")
-
-        await self.check_run_handler.set_check_in_progress(name=check_name)
-
-        async with self._checkout_worktree(pull_request=pull_request) as (
-            success,
-            worktree_path,
-            out,
-            err,
-        ):
-            output: dict[str, Any] = {
-                "title": f"Custom Check: {check_config['name']}",
-                "summary": "",
-                "text": None,
-            }
-
-            if not success:
-                output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
-                return await self.check_run_handler.set_check_failure(name=check_name, output=output)
-
-            # Execute command in worktree directory
-            success, out, err = await run_command(
-                command=command,
-                log_prefix=self.log_prefix,
-                mask_sensitive=self.github_webhook.mask_sensitive,
-                cwd=worktree_path,
-            )
-
-            output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
-
-            if success:
-                self.logger.info(f"{self.log_prefix} Custom check {check_config['name']} completed successfully")
-                return await self.check_run_handler.set_check_success(name=check_name, output=output)
-            else:
-                self.logger.info(f"{self.log_prefix} Custom check {check_config['name']} failed")
-                return await self.check_run_handler.set_check_failure(name=check_name, output=output)
+        # Custom checks run with cwd set to worktree directory
+        unified_config = CheckConfig(
+            name=check_name,
+            command=command,
+            title=f"Custom Check: {check_name}",
+            use_cwd=True,
+        )
+        await self.run_check(pull_request=pull_request, check_config=unified_config)
 
     async def is_branch_exists(self, branch: str) -> Branch:
         return await asyncio.to_thread(self.repository.get_branch, branch)
