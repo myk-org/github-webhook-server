@@ -189,9 +189,9 @@ class PullRequestHandler:
                 )
 
                 if action_labeled:
-                    await self.check_run_handler.set_verify_check_success()
+                    await self.check_run_handler.set_check_success(name=VERIFIED_LABEL_STR)
                 else:
-                    await self.check_run_handler.set_verify_check_queued()
+                    await self.check_run_handler.set_check_queued(name=VERIFIED_LABEL_STR)
 
             if labeled_lower in (WIP_STR, HOLD_LABEL_STR, AUTOMERGE_LABEL_STR):
                 _check_for_merge = True
@@ -630,7 +630,7 @@ For more information, please refer to the project documentation or contact the m
             )
         )
         setup_tasks.append(self.label_pull_request_by_merge_state(pull_request=pull_request))
-        setup_tasks.append(self.check_run_handler.set_merge_check_queued())
+        setup_tasks.append(self.check_run_handler.set_check_queued(name=CAN_BE_MERGED_STR))
         setup_tasks.append(self._process_verified_for_update_or_new_pull_request(pull_request=pull_request))
         setup_tasks.append(self.labels_handler.add_size_label(pull_request=pull_request))
         setup_tasks.append(self.add_pull_request_owner_as_assingee(pull_request=pull_request))
@@ -924,7 +924,7 @@ For more information, please refer to the project documentation or contact the m
                 f"{self.log_prefix} Cherry-picked PR detected and auto-verify-cherry-picked-prs is disabled, "
                 "skipping auto-verification"
             )
-            await self.check_run_handler.set_verify_check_queued()
+            await self.check_run_handler.set_check_queued(name=VERIFIED_LABEL_STR)
             return
 
         if self.github_webhook.parent_committer in self.github_webhook.auto_verified_and_merged_users:
@@ -934,12 +934,12 @@ For more information, please refer to the project documentation or contact the m
                 f"Setting verified label"
             )
             await self.labels_handler._add_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
-            await self.check_run_handler.set_verify_check_success()
+            await self.check_run_handler.set_check_success(name=VERIFIED_LABEL_STR)
         else:
             self.logger.info(f"{self.log_prefix} Processing reset {VERIFIED_LABEL_STR} label on new commit push")
             # Remove verified label
             await self.labels_handler._remove_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
-            await self.check_run_handler.set_verify_check_queued()
+            await self.check_run_handler.set_check_queued(name=VERIFIED_LABEL_STR)
 
     async def add_pull_request_owner_as_assingee(self, pull_request: PullRequest) -> None:
         try:
@@ -982,7 +982,7 @@ For more information, please refer to the project documentation or contact the m
 
         try:
             self.logger.info(f"{self.log_prefix} Check if {CAN_BE_MERGED_STR}.")
-            await self.check_run_handler.set_merge_check_in_progress()
+            await self.check_run_handler.set_check_in_progress(name=CAN_BE_MERGED_STR)
             # Fetch check runs and statuses in parallel (2 API calls → 1 concurrent operation)
             _check_runs, _statuses = await asyncio.gather(
                 asyncio.to_thread(lambda: list(self.github_webhook.last_commit.get_check_runs())),
@@ -1043,7 +1043,7 @@ For more information, please refer to the project documentation or contact the m
 
             if not failure_output:
                 await self.labels_handler._add_label(pull_request=pull_request, label=CAN_BE_MERGED_STR)
-                await self.check_run_handler.set_merge_check_success()
+                await self.check_run_handler.set_check_success(name=CAN_BE_MERGED_STR)
                 self.logger.info(f"{self.log_prefix} Pull request can be merged")
                 if self.ctx:
                     self.ctx.complete_step("check_merge_eligibility", can_merge=True)
@@ -1052,7 +1052,7 @@ For more information, please refer to the project documentation or contact the m
             self.logger.debug(f"{self.log_prefix} cannot be merged: {failure_output}")
             output["text"] = failure_output
             await self.labels_handler._remove_label(pull_request=pull_request, label=CAN_BE_MERGED_STR)
-            await self.check_run_handler.set_merge_check_failure(output=output)
+            await self.check_run_handler.set_check_failure(name=CAN_BE_MERGED_STR, output=output)
             if self.ctx:
                 self.ctx.complete_step("check_merge_eligibility", can_merge=False, reason=failure_output)
 
@@ -1064,7 +1064,7 @@ For more information, please refer to the project documentation or contact the m
             _err = "Failed to check if can be merged, check logs"
             output["text"] = _err
             await self.labels_handler._remove_label(pull_request=pull_request, label=CAN_BE_MERGED_STR)
-            await self.check_run_handler.set_merge_check_failure(output=output)
+            await self.check_run_handler.set_check_failure(name=CAN_BE_MERGED_STR, output=output)
             if self.ctx:
                 self.ctx.fail_step("check_merge_eligibility", ex, traceback.format_exc())
 

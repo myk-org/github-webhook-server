@@ -547,7 +547,7 @@ Your team can configure additional types in the repository settings.
             await asyncio.to_thread(pull_request.create_issue_comment, err_msg)
 
         else:
-            await self.check_run_handler.set_cherry_pick_in_progress()
+            await self.check_run_handler.set_check_in_progress(name=CHERRY_PICKED_LABEL_PREFIX)
             commit_hash = pull_request.merge_commit_sha
             commit_msg_striped = pull_request.title.replace("'", "")
             pull_request_url = pull_request.html_url
@@ -576,7 +576,7 @@ Your team can configure additional types in the repository settings.
                 }
                 if not success:
                     output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
-                    await self.check_run_handler.set_cherry_pick_failure(output=output)
+                    await self.check_run_handler.set_check_failure(name=CHERRY_PICKED_LABEL_PREFIX, output=output)
 
                 for cmd in commands:
                     rc, out, err = await run_command(
@@ -587,7 +587,7 @@ Your team can configure additional types in the repository settings.
                     )
                     if not rc:
                         output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
-                        await self.check_run_handler.set_cherry_pick_failure(output=output)
+                        await self.check_run_handler.set_check_failure(name=CHERRY_PICKED_LABEL_PREFIX, output=output)
                         redacted_out = _redact_secrets(
                             out,
                             [github_token],
@@ -618,7 +618,7 @@ Your team can configure additional types in the repository settings.
 
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
 
-            await self.check_run_handler.set_cherry_pick_success(output=output)
+            await self.check_run_handler.set_check_success(name=CHERRY_PICKED_LABEL_PREFIX, output=output)
             await asyncio.to_thread(
                 pull_request.create_issue_comment, f"Cherry-picked PR {pull_request.title} into {target_branch}"
             )

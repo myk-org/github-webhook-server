@@ -104,7 +104,7 @@ class TestCheckRunHandlerCustomCheckMethods:
 
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_check_queued(name=check_name)
-            mock_set_status.assert_called_once_with(check_run=check_name, status=QUEUED_STR)
+            mock_set_status.assert_called_once_with(check_run=check_name, status=QUEUED_STR, output=None)
 
     @pytest.mark.asyncio
     async def test_set_custom_check_in_progress(self, check_run_handler: CheckRunHandler) -> None:
@@ -276,7 +276,7 @@ class TestCustomCheckMandatoryOption:
             patch.object(pull_request_handler.owners_file_handler, "assign_reviewers", new=AsyncMock()),
             patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()),
             patch.object(pull_request_handler, "label_pull_request_by_merge_state", new=AsyncMock()),
-            patch.object(pull_request_handler.check_run_handler, "set_merge_check_queued", new=AsyncMock()),
+            patch.object(pull_request_handler.check_run_handler, "set_check_queued", new=AsyncMock()),
             patch.object(pull_request_handler, "_process_verified_for_update_or_new_pull_request", new=AsyncMock()),
             patch.object(pull_request_handler.labels_handler, "add_size_label", new=AsyncMock()),
             patch.object(pull_request_handler, "add_pull_request_owner_as_assingee", new=AsyncMock()),

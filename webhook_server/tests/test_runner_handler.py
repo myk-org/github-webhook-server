@@ -655,8 +655,8 @@ class TestRunnerHandler:
         """Test cherry_pick when repository preparation fails."""
         runner_handler.github_webhook.pypi = {"token": "dummy"}
         with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())):
-            with patch.object(runner_handler.check_run_handler, "set_cherry_pick_in_progress") as mock_set_progress:
-                with patch.object(runner_handler.check_run_handler, "set_cherry_pick_failure") as mock_set_failure:
+            with patch.object(runner_handler.check_run_handler, "set_check_in_progress") as mock_set_progress:
+                with patch.object(runner_handler.check_run_handler, "set_check_failure") as mock_set_failure:
                     with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
                         mock_checkout.return_value = AsyncMock()
                         mock_checkout.return_value.__aenter__ = AsyncMock(
@@ -672,8 +672,8 @@ class TestRunnerHandler:
         """Test cherry_pick when git command fails."""
         runner_handler.github_webhook.pypi = {"token": "dummy"}
         with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())):
-            with patch.object(runner_handler.check_run_handler, "set_cherry_pick_in_progress") as mock_set_progress:
-                with patch.object(runner_handler.check_run_handler, "set_cherry_pick_failure") as mock_set_failure:
+            with patch.object(runner_handler.check_run_handler, "set_check_in_progress") as mock_set_progress:
+                with patch.object(runner_handler.check_run_handler, "set_check_failure") as mock_set_failure:
                     with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
                         mock_checkout.return_value = AsyncMock()
                         mock_checkout.return_value.__aenter__ = AsyncMock(
@@ -693,8 +693,8 @@ class TestRunnerHandler:
         """Test cherry_pick with successful execution."""
         runner_handler.github_webhook.pypi = {"token": "dummy"}
         with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())):
-            with patch.object(runner_handler.check_run_handler, "set_cherry_pick_in_progress") as mock_set_progress:
-                with patch.object(runner_handler.check_run_handler, "set_cherry_pick_success") as mock_set_success:
+            with patch.object(runner_handler.check_run_handler, "set_check_in_progress") as mock_set_progress:
+                with patch.object(runner_handler.check_run_handler, "set_check_success") as mock_set_success:
                     with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
                         mock_checkout.return_value = AsyncMock()
                         mock_checkout.return_value.__aenter__ = AsyncMock(
@@ -902,8 +902,8 @@ class TestRunnerHandler:
     async def test_cherry_pick_manual_needed(self, runner_handler, mock_pull_request):
         runner_handler.github_webhook.pypi = {"token": "dummy"}
         with patch.object(runner_handler, "is_branch_exists", new=AsyncMock(return_value=Mock())):
-            with patch.object(runner_handler.check_run_handler, "set_cherry_pick_in_progress") as mock_set_progress:
-                with patch.object(runner_handler.check_run_handler, "set_cherry_pick_failure") as mock_set_failure:
+            with patch.object(runner_handler.check_run_handler, "set_check_in_progress") as mock_set_progress:
+                with patch.object(runner_handler.check_run_handler, "set_check_failure") as mock_set_failure:
                     with patch.object(runner_handler, "_checkout_worktree") as mock_checkout:
                         mock_checkout.return_value = AsyncMock()
                         mock_checkout.return_value.__aenter__ = AsyncMock(

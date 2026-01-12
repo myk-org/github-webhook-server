@@ -325,8 +325,6 @@ properties:
             Commands run in the repository worktree and behave like built-in checks
             (tox, pre-commit, etc.) - if a command is not found, the check will fail.
 
-            Environment variables can be included directly in the command string if needed.
-
             Examples:
               - name: lint
                 command: uv tool run --from ruff ruff check

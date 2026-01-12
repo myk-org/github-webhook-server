@@ -115,25 +115,25 @@ class TestCheckRunHandler:
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_set_verify_check_queued(self, check_run_handler: CheckRunHandler) -> None:
-        """Test setting verify check to queued status."""
+    async def test_set_check_queued_verified(self, check_run_handler: CheckRunHandler) -> None:
+        """Test setting verified check to queued status using generic method."""
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
-            await check_run_handler.set_verify_check_queued()
-            mock_set_status.assert_called_once_with(check_run=VERIFIED_LABEL_STR, status=QUEUED_STR)
+            await check_run_handler.set_check_queued(name=VERIFIED_LABEL_STR)
+            mock_set_status.assert_called_once_with(check_run=VERIFIED_LABEL_STR, status=QUEUED_STR, output=None)
 
     @pytest.mark.asyncio
-    async def test_set_verify_check_success(self, check_run_handler: CheckRunHandler) -> None:
-        """Test setting verify check to success status."""
+    async def test_set_check_success_verified(self, check_run_handler: CheckRunHandler) -> None:
+        """Test setting verified check to success status using generic method."""
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
-            await check_run_handler.set_verify_check_success()
-            mock_set_status.assert_called_once_with(check_run=VERIFIED_LABEL_STR, conclusion=SUCCESS_STR)
+            await check_run_handler.set_check_success(name=VERIFIED_LABEL_STR)
+            mock_set_status.assert_called_once_with(check_run=VERIFIED_LABEL_STR, conclusion=SUCCESS_STR, output=None)
 
     @pytest.mark.asyncio
     async def test_set_check_queued_tox(self, check_run_handler: CheckRunHandler) -> None:
         """Test setting tox check to queued status."""
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_check_queued(name=TOX_STR)
-            mock_set_status.assert_called_once_with(check_run=TOX_STR, status=QUEUED_STR)
+            mock_set_status.assert_called_once_with(check_run=TOX_STR, status=QUEUED_STR, output=None)
 
     @pytest.mark.asyncio
     async def test_set_check_in_progress_tox(self, check_run_handler: CheckRunHandler) -> None:
@@ -163,7 +163,7 @@ class TestCheckRunHandler:
         """Test setting pre-commit check to queued status."""
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_check_queued(name=PRE_COMMIT_STR)
-            mock_set_status.assert_called_once_with(check_run=PRE_COMMIT_STR, status=QUEUED_STR)
+            mock_set_status.assert_called_once_with(check_run=PRE_COMMIT_STR, status=QUEUED_STR, output=None)
 
     @pytest.mark.asyncio
     async def test_set_check_in_progress_pre_commit(self, check_run_handler: CheckRunHandler) -> None:
@@ -203,40 +203,40 @@ class TestCheckRunHandler:
             mock_set_status.assert_called_once_with(check_run=PRE_COMMIT_STR, conclusion=SUCCESS_STR, output=None)
 
     @pytest.mark.asyncio
-    async def test_set_merge_check_queued(self, check_run_handler: CheckRunHandler) -> None:
-        """Test setting merge check to queued status."""
+    async def test_set_check_queued_can_be_merged(self, check_run_handler: CheckRunHandler) -> None:
+        """Test setting can-be-merged check to queued status using generic method."""
         output = {"title": "Merge check", "summary": "Merge summary"}
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
-            await check_run_handler.set_merge_check_queued(output)
+            await check_run_handler.set_check_queued(name=CAN_BE_MERGED_STR, output=output)
             mock_set_status.assert_called_once_with(check_run=CAN_BE_MERGED_STR, status=QUEUED_STR, output=output)
 
     @pytest.mark.asyncio
-    async def test_set_merge_check_queued_no_output(self, check_run_handler: CheckRunHandler) -> None:
-        """Test setting merge check to queued status without output."""
+    async def test_set_check_queued_can_be_merged_no_output(self, check_run_handler: CheckRunHandler) -> None:
+        """Test setting can-be-merged check to queued status without output using generic method."""
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
-            await check_run_handler.set_merge_check_queued()
+            await check_run_handler.set_check_queued(name=CAN_BE_MERGED_STR)
             mock_set_status.assert_called_once_with(check_run=CAN_BE_MERGED_STR, status=QUEUED_STR, output=None)
 
     @pytest.mark.asyncio
-    async def test_set_merge_check_in_progress(self, check_run_handler: CheckRunHandler) -> None:
-        """Test setting merge check to in progress status."""
+    async def test_set_check_in_progress_can_be_merged(self, check_run_handler: CheckRunHandler) -> None:
+        """Test setting can-be-merged check to in progress status using generic method."""
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
-            await check_run_handler.set_merge_check_in_progress()
+            await check_run_handler.set_check_in_progress(name=CAN_BE_MERGED_STR)
             mock_set_status.assert_called_once_with(check_run=CAN_BE_MERGED_STR, status=IN_PROGRESS_STR)
 
     @pytest.mark.asyncio
-    async def test_set_merge_check_success(self, check_run_handler: CheckRunHandler) -> None:
-        """Test setting merge check to success status."""
+    async def test_set_check_success_can_be_merged(self, check_run_handler: CheckRunHandler) -> None:
+        """Test setting can-be-merged check to success status using generic method."""
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
-            await check_run_handler.set_merge_check_success()
-            mock_set_status.assert_called_once_with(check_run=CAN_BE_MERGED_STR, conclusion=SUCCESS_STR)
+            await check_run_handler.set_check_success(name=CAN_BE_MERGED_STR)
+            mock_set_status.assert_called_once_with(check_run=CAN_BE_MERGED_STR, conclusion=SUCCESS_STR, output=None)
 
     @pytest.mark.asyncio
-    async def test_set_merge_check_failure(self, check_run_handler: CheckRunHandler) -> None:
-        """Test setting merge check to failure status."""
+    async def test_set_check_failure_can_be_merged(self, check_run_handler: CheckRunHandler) -> None:
+        """Test setting can-be-merged check to failure status using generic method."""
         output = {"title": "Merge failed", "summary": "Merge summary"}
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
-            await check_run_handler.set_merge_check_failure(output)
+            await check_run_handler.set_check_failure(name=CAN_BE_MERGED_STR, output=output)
             mock_set_status.assert_called_once_with(check_run=CAN_BE_MERGED_STR, conclusion=FAILURE_STR, output=output)
 
     @pytest.mark.asyncio
@@ -244,7 +244,7 @@ class TestCheckRunHandler:
         """Test setting container build check to queued status."""
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_check_queued(name=BUILD_CONTAINER_STR)
-            mock_set_status.assert_called_once_with(check_run=BUILD_CONTAINER_STR, status=QUEUED_STR)
+            mock_set_status.assert_called_once_with(check_run=BUILD_CONTAINER_STR, status=QUEUED_STR, output=None)
 
     @pytest.mark.asyncio
     async def test_set_check_in_progress_container_build(self, check_run_handler: CheckRunHandler) -> None:
@@ -278,7 +278,7 @@ class TestCheckRunHandler:
         """Test setting python module install check to queued status."""
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_check_queued(name=PYTHON_MODULE_INSTALL_STR)
-            mock_set_status.assert_called_once_with(check_run=PYTHON_MODULE_INSTALL_STR, status=QUEUED_STR)
+            mock_set_status.assert_called_once_with(check_run=PYTHON_MODULE_INSTALL_STR, status=QUEUED_STR, output=None)
 
     @pytest.mark.asyncio
     async def test_set_check_in_progress_python_module_install(self, check_run_handler: CheckRunHandler) -> None:
@@ -312,7 +312,7 @@ class TestCheckRunHandler:
         """Test setting conventional title check to queued status."""
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
             await check_run_handler.set_check_queued(name=CONVENTIONAL_TITLE_STR)
-            mock_set_status.assert_called_once_with(check_run=CONVENTIONAL_TITLE_STR, status=QUEUED_STR)
+            mock_set_status.assert_called_once_with(check_run=CONVENTIONAL_TITLE_STR, status=QUEUED_STR, output=None)
 
     @pytest.mark.asyncio
     async def test_set_check_in_progress_conventional_title(self, check_run_handler: CheckRunHandler) -> None:
@@ -342,28 +342,28 @@ class TestCheckRunHandler:
             )
 
     @pytest.mark.asyncio
-    async def test_set_cherry_pick_in_progress(self, check_run_handler: CheckRunHandler) -> None:
-        """Test setting cherry pick check to in progress status."""
+    async def test_set_check_in_progress_cherry_picked(self, check_run_handler: CheckRunHandler) -> None:
+        """Test setting cherry pick check to in progress status using generic method."""
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
-            await check_run_handler.set_cherry_pick_in_progress()
+            await check_run_handler.set_check_in_progress(name=CHERRY_PICKED_LABEL_PREFIX)
             mock_set_status.assert_called_once_with(check_run=CHERRY_PICKED_LABEL_PREFIX, status=IN_PROGRESS_STR)
 
     @pytest.mark.asyncio
-    async def test_set_cherry_pick_success(self, check_run_handler: CheckRunHandler) -> None:
-        """Test setting cherry pick check to success status."""
+    async def test_set_check_success_cherry_picked(self, check_run_handler: CheckRunHandler) -> None:
+        """Test setting cherry pick check to success status using generic method."""
         output = {"title": "Cherry pick successful", "summary": "Cherry pick summary"}
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
-            await check_run_handler.set_cherry_pick_success(output)
+            await check_run_handler.set_check_success(name=CHERRY_PICKED_LABEL_PREFIX, output=output)
             mock_set_status.assert_called_once_with(
                 check_run=CHERRY_PICKED_LABEL_PREFIX, conclusion=SUCCESS_STR, output=output
             )
 
     @pytest.mark.asyncio
-    async def test_set_cherry_pick_failure(self, check_run_handler: CheckRunHandler) -> None:
-        """Test setting cherry pick check to failure status."""
+    async def test_set_check_failure_cherry_picked(self, check_run_handler: CheckRunHandler) -> None:
+        """Test setting cherry pick check to failure status using generic method."""
         output = {"title": "Cherry pick failed", "summary": "Cherry pick summary"}
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
-            await check_run_handler.set_cherry_pick_failure(output)
+            await check_run_handler.set_check_failure(name=CHERRY_PICKED_LABEL_PREFIX, output=output)
             mock_set_status.assert_called_once_with(
                 check_run=CHERRY_PICKED_LABEL_PREFIX, conclusion=FAILURE_STR, output=output
             )

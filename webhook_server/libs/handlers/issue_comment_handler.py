@@ -279,10 +279,10 @@ class IssueCommentHandler:
         elif _command == VERIFIED_LABEL_STR:
             if remove:
                 await self.labels_handler._remove_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
-                await self.check_run_handler.set_verify_check_queued()
+                await self.check_run_handler.set_check_queued(name=VERIFIED_LABEL_STR)
             else:
                 await self.labels_handler._add_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
-                await self.check_run_handler.set_verify_check_success()
+                await self.check_run_handler.set_check_success(name=VERIFIED_LABEL_STR)
 
         elif _command != AUTOMERGE_LABEL_STR:
             await self.labels_handler.label_by_user_comment(

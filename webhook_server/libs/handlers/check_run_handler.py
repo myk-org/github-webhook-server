@@ -12,7 +12,6 @@ from webhook_server.utils.constants import (
     AUTOMERGE_LABEL_STR,
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
-    CHERRY_PICKED_LABEL_PREFIX,
     CONVENTIONAL_TITLE_STR,
     FAILURE_STR,
     IN_PROGRESS_STR,
@@ -101,46 +100,16 @@ class CheckRunHandler:
             self.ctx.complete_step("check_run_handler")
         return True
 
-    async def set_verify_check_queued(self) -> None:
-        return await self.set_check_run_status(check_run=VERIFIED_LABEL_STR, status=QUEUED_STR)
-
-    async def set_verify_check_success(self) -> None:
-        return await self.set_check_run_status(check_run=VERIFIED_LABEL_STR, conclusion=SUCCESS_STR)
-
-    async def set_merge_check_queued(self, output: dict[str, Any] | None = None) -> None:
-        return await self.set_check_run_status(check_run=CAN_BE_MERGED_STR, status=QUEUED_STR, output=output)
-
-    async def set_merge_check_in_progress(self) -> None:
-        return await self.set_check_run_status(check_run=CAN_BE_MERGED_STR, status=IN_PROGRESS_STR)
-
-    async def set_merge_check_success(self) -> None:
-        return await self.set_check_run_status(check_run=CAN_BE_MERGED_STR, conclusion=SUCCESS_STR)
-
-    async def set_merge_check_failure(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(check_run=CAN_BE_MERGED_STR, conclusion=FAILURE_STR, output=output)
-
-    async def set_cherry_pick_in_progress(self) -> None:
-        return await self.set_check_run_status(check_run=CHERRY_PICKED_LABEL_PREFIX, status=IN_PROGRESS_STR)
-
-    async def set_cherry_pick_success(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(
-            check_run=CHERRY_PICKED_LABEL_PREFIX, conclusion=SUCCESS_STR, output=output
-        )
-
-    async def set_cherry_pick_failure(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(
-            check_run=CHERRY_PICKED_LABEL_PREFIX, conclusion=FAILURE_STR, output=output
-        )
-
-    async def set_check_queued(self, name: str) -> None:
+    async def set_check_queued(self, name: str, output: dict[str, Any] | None = None) -> None:
         """Set check run to queued status.
 
         Generic method for setting any check run (built-in or custom) to queued status.
 
         Args:
             name: The name of the check run (e.g., TOX_STR, PRE_COMMIT_STR, or custom check name)
+            output: Optional output dictionary with title, summary, and text fields
         """
-        await self.set_check_run_status(check_run=name, status=QUEUED_STR)
+        await self.set_check_run_status(check_run=name, status=QUEUED_STR, output=output)
 
     async def set_check_in_progress(self, name: str) -> None:
         """Set check run to in_progress status.
