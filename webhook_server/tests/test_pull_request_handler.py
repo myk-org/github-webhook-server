@@ -14,7 +14,7 @@ from webhook_server.utils.constants import (
     CAN_BE_MERGED_STR,
     CHANGED_REQUESTED_BY_LABEL_PREFIX,
     CHERRY_PICK_LABEL_PREFIX,
-    CHERRY_PICKED_LABEL_PREFIX,
+    CHERRY_PICKED_LABEL,
     COMMENTED_BY_LABEL_PREFIX,
     HAS_CONFLICTS_LABEL_STR,
     LGTM_BY_LABEL_PREFIX,
@@ -683,7 +683,7 @@ class TestPullRequestHandler:
 
         mock_pull_request = Mock(spec=PullRequest)
         mock_label = Mock()
-        mock_label.name = CHERRY_PICKED_LABEL_PREFIX
+        mock_label.name = CHERRY_PICKED_LABEL
         mock_pull_request.labels = [mock_label]
 
         with (
@@ -704,7 +704,7 @@ class TestPullRequestHandler:
 
         mock_pull_request = Mock(spec=PullRequest)
         mock_label = Mock()
-        mock_label.name = CHERRY_PICKED_LABEL_PREFIX
+        mock_label.name = CHERRY_PICKED_LABEL
         mock_pull_request.labels = [mock_label]
 
         with (

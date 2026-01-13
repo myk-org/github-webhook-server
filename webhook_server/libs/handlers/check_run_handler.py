@@ -12,7 +12,7 @@ from webhook_server.utils.constants import (
     AUTOMERGE_LABEL_STR,
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
-    CHERRY_PICKED_LABEL_PREFIX,
+    CHERRY_PICKED_LABEL,
     CONVENTIONAL_TITLE_STR,
     FAILURE_STR,
     IN_PROGRESS_STR,
@@ -201,17 +201,13 @@ class CheckRunHandler:
         return await self.set_check_run_status(check_run=CONVENTIONAL_TITLE_STR, conclusion=FAILURE_STR, output=output)
 
     async def set_cherry_pick_in_progress(self) -> None:
-        return await self.set_check_run_status(check_run=CHERRY_PICKED_LABEL_PREFIX, status=IN_PROGRESS_STR)
+        return await self.set_check_run_status(check_run=CHERRY_PICKED_LABEL, status=IN_PROGRESS_STR)
 
     async def set_cherry_pick_success(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(
-            check_run=CHERRY_PICKED_LABEL_PREFIX, conclusion=SUCCESS_STR, output=output
-        )
+        return await self.set_check_run_status(check_run=CHERRY_PICKED_LABEL, conclusion=SUCCESS_STR, output=output)
 
     async def set_cherry_pick_failure(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(
-            check_run=CHERRY_PICKED_LABEL_PREFIX, conclusion=FAILURE_STR, output=output
-        )
+        return await self.set_check_run_status(check_run=CHERRY_PICKED_LABEL, conclusion=FAILURE_STR, output=output)
 
     async def set_check_run_status(
         self,

@@ -12,23 +12,19 @@ from webhook_server.utils.constants import (
     ADD_STR,
     APPROVE_STR,
     APPROVED_BY_LABEL_PREFIX,
-    AUTOMERGE_LABEL_STR,
     BRANCH_LABEL_PREFIX,
-    CAN_BE_MERGED_STR,
     CHANGED_REQUESTED_BY_LABEL_PREFIX,
     CHERRY_PICK_LABEL_PREFIX,
-    CHERRY_PICKED_LABEL_PREFIX,
+    CHERRY_PICKED_LABEL,
     COMMENTED_BY_LABEL_PREFIX,
     DEFAULT_LABEL_COLORS,
     DELETE_STR,
-    HAS_CONFLICTS_LABEL_STR,
     HOLD_LABEL_STR,
+    LABEL_CATEGORY_MAP,
     LGTM_BY_LABEL_PREFIX,
     LGTM_STR,
-    NEEDS_REBASE_LABEL_STR,
     SIZE_LABEL_PREFIX,
     STATIC_LABELS_DICT,
-    VERIFIED_LABEL_STR,
     WIP_STR,
 )
 
@@ -94,20 +90,9 @@ class LabelsHandler:
             )
             return True
 
-        # Map label to its category
-        label_to_category = {
-            VERIFIED_LABEL_STR: "verified",
-            HOLD_LABEL_STR: "hold",
-            WIP_STR: "wip",
-            NEEDS_REBASE_LABEL_STR: "needs-rebase",
-            HAS_CONFLICTS_LABEL_STR: "has-conflicts",
-            CAN_BE_MERGED_STR: "can-be-merged",
-            AUTOMERGE_LABEL_STR: "automerge",
-        }
-
-        # Check static labels
-        if label in label_to_category:
-            return label_to_category[label] in enabled_labels
+        # Check static labels using centralized category map
+        if label in LABEL_CATEGORY_MAP:
+            return LABEL_CATEGORY_MAP[label] in enabled_labels
 
         # Check size labels
         if label.startswith(SIZE_LABEL_PREFIX):
@@ -118,7 +103,7 @@ class LabelsHandler:
             return "branch" in enabled_labels
 
         # Check cherry-pick labels
-        if label.startswith(CHERRY_PICK_LABEL_PREFIX) or label == CHERRY_PICKED_LABEL_PREFIX:
+        if label.startswith(CHERRY_PICK_LABEL_PREFIX) or label == CHERRY_PICKED_LABEL:
             return "cherry-pick" in enabled_labels
 
         # Unknown labels are allowed by default

@@ -34,9 +34,9 @@ async def repository_and_webhook_settings(webhook_secret: str | None = None) -> 
                 )
             )
 
-    for result in as_completed(apis):
-        repository, github_api, api_user = result.result()
-        apis_dict[repository] = {"api": github_api, "user": api_user}
+        for result in as_completed(apis):
+            repository, github_api, api_user = result.result()
+            apis_dict[repository] = {"api": github_api, "user": api_user}
 
     LOGGER.debug(f"Repositories APIs: {apis_dict}")
 

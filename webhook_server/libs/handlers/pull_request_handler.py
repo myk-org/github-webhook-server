@@ -21,7 +21,7 @@ from webhook_server.utils.constants import (
     CAN_BE_MERGED_STR,
     CHANGED_REQUESTED_BY_LABEL_PREFIX,
     CHERRY_PICK_LABEL_PREFIX,
-    CHERRY_PICKED_LABEL_PREFIX,
+    CHERRY_PICKED_LABEL,
     COMMENTED_BY_LABEL_PREFIX,
     CONVENTIONAL_TITLE_STR,
     FAILURE_STR,
@@ -1031,7 +1031,7 @@ For more information, please refer to the project documentation or contact the m
 
         # Check if this is a cherry-picked PR
         labels = await asyncio.to_thread(lambda: list(pull_request.labels))
-        is_cherry_picked = any(label.name == CHERRY_PICKED_LABEL_PREFIX for label in labels)
+        is_cherry_picked = any(label.name == CHERRY_PICKED_LABEL for label in labels)
 
         # If it's a cherry-picked PR and auto-verify is disabled for cherry-picks, skip auto-verification
         if is_cherry_picked and not self.github_webhook.auto_verify_cherry_picked_prs:

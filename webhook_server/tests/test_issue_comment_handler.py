@@ -425,6 +425,72 @@ class TestIssueCommentHandler:
                     mock_reaction.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_user_commands_wip_add_idempotent(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test that adding WIP when title already has WIP: prefix does not prepend again."""
+        mock_pull_request = Mock()
+        mock_pull_request.title = "WIP: Test PR"
+
+        with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
+            with patch.object(
+                issue_comment_handler.labels_handler, "_add_label", new_callable=AsyncMock
+            ) as mock_add_label:
+                mock_add_label.return_value = True  # Label was added (or already existed)
+                with patch.object(mock_pull_request, "edit") as mock_edit:
+                    await issue_comment_handler.user_commands(
+                        pull_request=mock_pull_request, command=WIP_STR, reviewed_user="test-user", issue_comment_id=123
+                    )
+                    mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=WIP_STR)
+                    # Should NOT edit title since it already starts with WIP:
+                    mock_edit.assert_not_called()
+                    mock_reaction.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_user_commands_wip_remove_no_prefix(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test that removing WIP when title has no WIP: prefix does not edit title."""
+        mock_pull_request = Mock()
+        mock_pull_request.title = "Test PR"  # No WIP: prefix
+
+        with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
+            with patch.object(
+                issue_comment_handler.labels_handler, "_remove_label", new_callable=AsyncMock
+            ) as mock_remove_label:
+                mock_remove_label.return_value = True  # Label was removed
+                with patch.object(mock_pull_request, "edit") as mock_edit:
+                    await issue_comment_handler.user_commands(
+                        pull_request=mock_pull_request,
+                        command=f"{WIP_STR} cancel",
+                        reviewed_user="test-user",
+                        issue_comment_id=123,
+                    )
+                    mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=WIP_STR)
+                    # Should NOT edit title since it doesn't start with WIP:
+                    mock_edit.assert_not_called()
+                    mock_reaction.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_user_commands_wip_remove_no_space(self, issue_comment_handler: IssueCommentHandler) -> None:
+        """Test removing WIP when title has WIP: prefix without space after colon."""
+        mock_pull_request = Mock()
+        mock_pull_request.title = "WIP:Test PR"  # No space after colon
+
+        with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
+            with patch.object(
+                issue_comment_handler.labels_handler, "_remove_label", new_callable=AsyncMock
+            ) as mock_remove_label:
+                mock_remove_label.return_value = True  # Label was removed
+                with patch.object(mock_pull_request, "edit") as mock_edit:
+                    await issue_comment_handler.user_commands(
+                        pull_request=mock_pull_request,
+                        command=f"{WIP_STR} cancel",
+                        reviewed_user="test-user",
+                        issue_comment_id=123,
+                    )
+                    mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=WIP_STR)
+                    # Should edit title to remove WIP: (without space)
+                    mock_edit.assert_called_once_with(title="Test PR")
+                    mock_reaction.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_user_commands_hold_unauthorized_user(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test user commands with hold command by unauthorized user."""
         mock_pull_request = Mock()

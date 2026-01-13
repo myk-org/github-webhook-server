@@ -1447,6 +1447,7 @@ class TestGithubWebhook:
         minimal_headers: dict,
         logger: Mock,
         get_value_side_effect: Any,
+        to_thread_sync: Any,
     ) -> None:
         """Test _clone_repository with checkout_ref fetches and checks out the correct branch.
 
@@ -1485,9 +1486,12 @@ class TestGithubWebhook:
                                 executed_commands.append(command)
                                 return (True, "", "")
 
-                            with patch(
-                                "webhook_server.libs.github_api.run_command",
-                                side_effect=mock_run_command,
+                            with (
+                                patch(
+                                    "webhook_server.libs.github_api.run_command",
+                                    side_effect=mock_run_command,
+                                ),
+                                patch("asyncio.to_thread", side_effect=to_thread_sync),
                             ):
                                 await gh._clone_repository(checkout_ref="refs/heads/feature-branch")
 
@@ -1521,6 +1525,7 @@ class TestGithubWebhook:
         minimal_headers: dict,
         logger: Mock,
         get_value_side_effect: Any,
+        to_thread_sync: Any,
     ) -> None:
         """Test _clone_repository fetches base branch before PR ref when pull_request is provided.
 
@@ -1567,9 +1572,12 @@ class TestGithubWebhook:
                                 executed_commands.append(command)
                                 return (True, "", "")
 
-                            with patch(
-                                "webhook_server.libs.github_api.run_command",
-                                side_effect=mock_run_command,
+                            with (
+                                patch(
+                                    "webhook_server.libs.github_api.run_command",
+                                    side_effect=mock_run_command,
+                                ),
+                                patch("asyncio.to_thread", side_effect=to_thread_sync),
                             ):
                                 await gh._clone_repository(pull_request=mock_pr)
 

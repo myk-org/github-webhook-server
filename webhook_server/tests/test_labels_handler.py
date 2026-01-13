@@ -12,7 +12,7 @@ from webhook_server.utils.constants import (
     AUTOMERGE_LABEL_STR,
     BRANCH_LABEL_PREFIX,
     CHERRY_PICK_LABEL_PREFIX,
-    CHERRY_PICKED_LABEL_PREFIX,
+    CHERRY_PICKED_LABEL,
     HOLD_LABEL_STR,
     LGTM_STR,
     SIZE_LABEL_PREFIX,
@@ -1209,7 +1209,7 @@ class TestIsLabelEnabled:
         labels_handler.github_webhook.enabled_labels = {"cherry-pick"}
 
         assert labels_handler.is_label_enabled(f"{CHERRY_PICK_LABEL_PREFIX}v1.0") is True
-        assert labels_handler.is_label_enabled(CHERRY_PICKED_LABEL_PREFIX) is True
+        assert labels_handler.is_label_enabled(CHERRY_PICKED_LABEL) is True
         assert labels_handler.is_label_enabled(VERIFIED_LABEL_STR) is False
 
     def test_unknown_labels_allowed_by_default(self, labels_handler: LabelsHandler) -> None:
