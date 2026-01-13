@@ -327,6 +327,18 @@ class GithubWebhook:
 
             # Fetch only what's needed instead of all refs
             if pull_request:
+                # Fetch the base branch first (needed for checkout)
+                base_ref = await asyncio.to_thread(lambda: pull_request.base.ref)
+                rc, _, err = await run_command(
+                    command=f"{git_cmd} fetch origin {base_ref}",
+                    log_prefix=self.log_prefix,
+                    mask_sensitive=self.mask_sensitive,
+                )
+                if not rc:
+                    redacted_err = redact_output(err)
+                    self.logger.error(f"{self.log_prefix} Failed to fetch base branch {base_ref}: {redacted_err}")
+                    raise RuntimeError(f"Failed to fetch base branch {base_ref}: {redacted_err}")
+
                 # Fetch only this specific PR's ref
                 pr_number = await asyncio.to_thread(lambda: pull_request.number)
                 rc, _, _ = await run_command(

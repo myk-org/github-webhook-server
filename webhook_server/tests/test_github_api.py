@@ -1511,6 +1511,102 @@ class TestGithubWebhook:
                                     f"got: {checkout_commands}"
                                 )
 
+    @pytest.mark.asyncio
+    async def test_clone_repository_fetches_base_branch_for_pr(
+        self,
+        minimal_hook_data: dict,
+        minimal_headers: dict,
+        logger: Mock,
+        get_value_side_effect: Any,
+    ) -> None:
+        """Test _clone_repository fetches base branch before PR ref when pull_request is provided.
+
+        Verifies that when _clone_repository is called with a pull_request:
+        1. git fetch origin {base_ref} is called first (base branch fetch)
+        2. git fetch origin +refs/pull/{pr_number}/head:refs/remotes/origin/pr/{pr_number} is called
+        3. The base branch fetch happens BEFORE the PR ref fetch
+        """
+        with patch("webhook_server.libs.github_api.Config") as mock_config:
+            mock_config.return_value.repository = True
+            mock_config.return_value.repository_local_data.return_value = {}
+            mock_config.return_value.get_value.side_effect = get_value_side_effect
+
+            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+                mock_get_api.return_value = (Mock(), "test-token", "apiuser")
+
+                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
+                    mock_repo = Mock()
+                    mock_repo.clone_url = "https://github.com/org/test-repo.git"
+                    mock_owner = Mock()
+                    mock_owner.login = "test-owner"
+                    mock_repo.owner = mock_owner
+                    mock_get_repo_api.return_value = mock_repo
+
+                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
+                        mock_get_app_api.return_value = Mock()
+
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
+                            mock_color.return_value = "test-repo"
+
+                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
+
+                            # Mock pull request with base.ref = "release-1.0" and number = 123
+                            mock_pr = Mock()
+                            mock_base = Mock()
+                            mock_base.ref = "release-1.0"
+                            mock_pr.base = mock_base
+                            mock_pr.number = 123
+
+                            # Track commands executed in order
+                            executed_commands: list[str] = []
+
+                            async def mock_run_command(command: str, **_kwargs: Any) -> tuple[bool, str, str]:
+                                executed_commands.append(command)
+                                return (True, "", "")
+
+                            with patch(
+                                "webhook_server.libs.github_api.run_command",
+                                side_effect=mock_run_command,
+                            ):
+                                await gh._clone_repository(pull_request=mock_pr)
+
+                                # Verify clone succeeded
+                                assert gh._repo_cloned is True
+
+                                # Find the base branch fetch command
+                                base_fetch_commands = [
+                                    cmd for cmd in executed_commands if "fetch origin release-1.0" in cmd
+                                ]
+                                assert len(base_fetch_commands) == 1, (
+                                    f"Expected exactly one fetch command for base branch release-1.0, "
+                                    f"got: {base_fetch_commands}"
+                                )
+
+                                # Find the PR ref fetch command
+                                pr_fetch_commands = [
+                                    cmd
+                                    for cmd in executed_commands
+                                    if "fetch origin +refs/pull/123/head:refs/remotes/origin/pr/123" in cmd
+                                ]
+                                assert len(pr_fetch_commands) == 1, (
+                                    f"Expected exactly one PR ref fetch command, got: {pr_fetch_commands}"
+                                )
+
+                                # Verify order: base branch fetch should come BEFORE PR ref fetch
+                                base_fetch_index = next(
+                                    i for i, cmd in enumerate(executed_commands) if "fetch origin release-1.0" in cmd
+                                )
+                                pr_fetch_index = next(
+                                    i
+                                    for i, cmd in enumerate(executed_commands)
+                                    if "fetch origin +refs/pull/123/head" in cmd
+                                )
+                                assert base_fetch_index < pr_fetch_index, (
+                                    f"Base branch fetch (index {base_fetch_index}) should come before "
+                                    f"PR ref fetch (index {pr_fetch_index}). "
+                                    f"Commands: {executed_commands}"
+                                )
+
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.libs.github_api.get_github_repo_api")
     @patch("webhook_server.libs.github_api.get_repository_github_app_api")
