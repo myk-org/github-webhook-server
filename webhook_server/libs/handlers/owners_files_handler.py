@@ -108,6 +108,7 @@ class OwnersFileHandler:
         # Run git diff command on cloned repository
         # Quote clone_repo_dir to handle paths with spaces or special characters
         # First try three-dot diff (shows changes since common ancestor)
+        diff_syntax = "..."  # Track which syntax is used for accurate error reporting
         git_diff_command = (
             f"git -C {shlex.quote(self.github_webhook.clone_repo_dir)} diff --name-only {base_sha}...{head_sha}"
         )
@@ -123,6 +124,7 @@ class OwnersFileHandler:
             # If three-dot fails with "no merge base", try two-dot diff
             if not success and "no merge base" in (err or "").lower():
                 self.logger.warning(f"{self.log_prefix} No merge base found, falling back to two-dot diff")
+                diff_syntax = ".."  # Update to reflect the fallback syntax
                 git_diff_command = (
                     f"git -C {shlex.quote(self.github_webhook.clone_repo_dir)} diff --name-only {base_sha}..{head_sha}"
                 )
@@ -136,7 +138,7 @@ class OwnersFileHandler:
             # Check success flag - raise if git diff failed
             if not success:
                 error_msg = (
-                    f"git diff command failed for {base_sha}...{head_sha}. "
+                    f"git diff command failed for {base_sha}{diff_syntax}{head_sha}. "
                     f"stdout: {out.strip() if out else '(empty)'}, "
                     f"stderr: {err.strip() if err else '(empty)'}"
                 )
@@ -159,7 +161,9 @@ class OwnersFileHandler:
 
         except Exception as ex:
             # Wrap unexpected exceptions with context
-            error_msg = f"Unexpected error getting changed files via git diff for {base_sha}...{head_sha}: {ex}"
+            error_msg = (
+                f"Unexpected error getting changed files via git diff for {base_sha}{diff_syntax}{head_sha}: {ex}"
+            )
             self.logger.exception(f"{self.log_prefix} {error_msg}")
             raise RuntimeError(error_msg) from ex
 

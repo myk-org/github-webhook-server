@@ -23,7 +23,7 @@ from webhook_server.utils.constants import (
 
 
 class MockPullRequest:
-    def __init__(self, additions: int | None = 50, deletions: int | None = 10):
+    def __init__(self, additions: int = 50, deletions: int = 10):
         self.additions = additions
         self.deletions = deletions
         self.number = 123
@@ -102,36 +102,6 @@ class TestLabelsHandler:
         result = labels_handler.get_size(pull_request=pull_request)
 
         assert result == f"{SIZE_LABEL_PREFIX}{expected_size}"
-
-    def test_get_size_none_additions(self, labels_handler: LabelsHandler) -> None:
-        """Test size calculation when additions is None."""
-        pull_request = Mock(spec=PullRequest)
-        pull_request.additions = None
-        pull_request.deletions = 10
-
-        result = labels_handler.get_size(pull_request=pull_request)
-
-        assert result.startswith(SIZE_LABEL_PREFIX)
-
-    def test_get_size_none_deletions(self, labels_handler: LabelsHandler) -> None:
-        """Test size calculation when deletions is None."""
-        pull_request = Mock(spec=PullRequest)
-        pull_request.additions = 50
-        pull_request.deletions = None
-
-        result = labels_handler.get_size(pull_request=pull_request)
-
-        assert result.startswith(SIZE_LABEL_PREFIX)
-
-    def test_get_size_both_none(self, labels_handler: LabelsHandler) -> None:
-        """Test size calculation when both additions and deletions are None."""
-        pull_request = Mock(spec=PullRequest)
-        pull_request.additions = None
-        pull_request.deletions = None
-
-        result = labels_handler.get_size(pull_request=pull_request)
-
-        assert result == f"{SIZE_LABEL_PREFIX}XS"
 
     @pytest.mark.asyncio
     async def test_add_label_success(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:

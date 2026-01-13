@@ -778,7 +778,7 @@ class LogViewerController:
         # Sort log files to prioritize JSON webhook files first (primary data source),
         # then other files by modification time (newest first)
         # This ensures webhook data is displayed before internal log files
-        def sort_key(f: Path) -> tuple:
+        def sort_key(f: Path) -> tuple[int, float]:
             is_json_webhook = f.suffix == ".json" and f.name.startswith("webhooks_")
             # JSON webhook files: (0, -mtime) - highest priority, newest first
             # Other files: (1, -mtime) - lower priority, newest first

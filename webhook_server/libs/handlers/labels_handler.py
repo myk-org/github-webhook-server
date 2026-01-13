@@ -86,6 +86,14 @@ class LabelsHandler:
         if enabled_labels is None:
             return True
 
+        # Validate enabled_labels is a set (could be misconfigured)
+        if not isinstance(enabled_labels, set):
+            self.logger.warning(
+                f"{self.log_prefix} enabled_labels is not a set (got {type(enabled_labels).__name__}), "
+                "treating as all labels enabled"
+            )
+            return True
+
         # Map label to its category
         label_to_category = {
             VERIFIED_LABEL_STR: "verified",
@@ -206,6 +214,8 @@ class LabelsHandler:
             return self._get_color_hex(custom_colors[label])
 
         # Check prefix matches for dynamic labels
+        # First-match-wins: iteration order determines which prefix wins
+        # when multiple prefixes could match (e.g., "size-" vs "size-X")
         for prefix, color in custom_colors.items():
             if prefix.endswith("-") and label.startswith(prefix):
                 return self._get_color_hex(color)
@@ -257,8 +267,24 @@ class LabelsHandler:
         if not custom_config:
             return list(STATIC_PR_SIZE_THRESHOLDS)
 
+        # Validate custom_config is a dict (could be misconfigured as list or other type)
+        if not isinstance(custom_config, dict):
+            self.logger.warning(
+                f"{self.log_prefix} pr-size-thresholds config is not a dict "
+                f"(got {type(custom_config).__name__}), using static defaults"
+            )
+            return list(STATIC_PR_SIZE_THRESHOLDS)
+
         thresholds = []
         for label_name, config in custom_config.items():
+            # Validate each config entry is a dict
+            if not isinstance(config, dict):
+                self.logger.warning(
+                    f"{self.log_prefix} pr-size-thresholds entry for '{label_name}' is not a dict "
+                    f"(got {type(config).__name__}), skipping"
+                )
+                continue
+
             threshold = config.get("threshold")
 
             # Convert string "inf" to float("inf") for YAML compatibility
@@ -287,10 +313,8 @@ class LabelsHandler:
 
     def get_size(self, pull_request: PullRequest) -> str:
         """Calculates size label based on additions and deletions."""
-
-        # Handle None values by defaulting to 0
-        additions = pull_request.additions if pull_request.additions is not None else 0
-        deletions = pull_request.deletions if pull_request.deletions is not None else 0
+        additions = pull_request.additions
+        deletions = pull_request.deletions
         size = additions + deletions
         self.logger.debug(f"{self.log_prefix} PR size is {size} (additions: {additions}, deletions: {deletions})")
 

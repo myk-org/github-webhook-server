@@ -511,7 +511,7 @@ def log_rate_limit(rate_limit: RateLimitOverview, api_user: str) -> None:
         logger.warning(msg)
 
 
-def get_future_results(futures: list[Future]) -> None:
+def get_future_results(futures: list[Future[Any]]) -> None:
     """
     Process futures from repository configuration tasks.
 

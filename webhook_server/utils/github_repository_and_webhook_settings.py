@@ -24,7 +24,7 @@ async def repository_and_webhook_settings(webhook_secret: str | None = None) -> 
     config = Config(logger=LOGGER)
     apis_dict: dict[str, dict[str, Any]] = {}
 
-    apis: list = []
+    apis: list[Any] = []
     with ThreadPoolExecutor() as executor:
         for repo, _ in config.root_data["repositories"].items():
             apis.append(

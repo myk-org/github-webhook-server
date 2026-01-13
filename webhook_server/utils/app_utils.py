@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import ipaddress
 import logging
+from ipaddress import IPv4Network, IPv6Network
 from typing import Any
 
 import httpx
@@ -77,7 +78,7 @@ def verify_signature(payload_body: bytes, secret_token: str, signature_header: s
         raise HTTPException(status_code=403, detail="Request signatures didn't match!")
 
 
-async def gate_by_allowlist_ips(request: Request, allowed_ips: tuple[ipaddress._BaseNetwork, ...]) -> None:
+async def gate_by_allowlist_ips(request: Request, allowed_ips: tuple[IPv4Network | IPv6Network, ...]) -> None:
     """Gate access by IP allowlist."""
     if allowed_ips:
         if not request.client or not request.client.host:

@@ -417,7 +417,7 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         self.logger.debug(f"{self.log_prefix} Target tests for re-test: {_target_tests}")
         _not_supported_retests: list[str] = []
         _supported_retests: list[str] = []
-        _retests_to_func_map: dict[str, Callable] = {
+        _retests_to_func_map: dict[str, Callable[..., Any]] = {
             TOX_STR: self.runner_handler.run_tox,
             PRE_COMMIT_STR: self.runner_handler.run_pre_commit,
             BUILD_CONTAINER_STR: self.runner_handler.run_build_container,

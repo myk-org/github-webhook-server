@@ -9,6 +9,7 @@ import shutil
 import tempfile
 import threading
 import traceback
+from asyncio import Task
 from typing import Any
 
 import github
@@ -83,7 +84,7 @@ class GithubWebhook:
         self.hook_data = hook_data
         self.repository_name: str = hook_data["repository"]["name"]
         self.repository_full_name: str = hook_data["repository"]["full_name"]
-        self._bg_tasks: set[asyncio.Task] = set()
+        self._bg_tasks: set[Task[Any]] = set()
         self.parent_committer: str = ""
         self.x_github_delivery: str = headers.get("X-GitHub-Delivery", "")
         self.github_event: str = headers["X-GitHub-Event"]
@@ -603,17 +604,18 @@ class GithubWebhook:
         self.logger.debug(f"Read config for repository {self.repository_name}")
 
         self.github_app_id: str = self.config.get_value(value="github-app-id", extra_dict=repository_config)
-        self.pypi: dict[str, str] = self.config.get_value(value="pypi", extra_dict=repository_config)
+        _pypi = self.config.get_value(value="pypi", extra_dict=repository_config)
+        self.pypi: dict[str, str] = _pypi if isinstance(_pypi, dict) else {}
         self.verified_job: bool = self.config.get_value(
             value="verified-job", return_on_none=True, extra_dict=repository_config
         )
-        self.tox: dict[str, str] = self.config.get_value(value="tox", extra_dict=repository_config)
+        _tox = self.config.get_value(value="tox", extra_dict=repository_config)
+        self.tox: dict[str, str] = _tox if isinstance(_tox, dict) else {}
         self.tox_python_version: str = self.config.get_value(value="tox-python-version", extra_dict=repository_config)
         self.slack_webhook_url: str = self.config.get_value(value="slack-webhook-url", extra_dict=repository_config)
 
-        self.build_and_push_container: dict[str, Any] = self.config.get_value(
-            value="container", return_on_none={}, extra_dict=repository_config
-        )
+        _container = self.config.get_value(value="container", return_on_none={}, extra_dict=repository_config)
+        self.build_and_push_container: dict[str, Any] = _container if isinstance(_container, dict) else {}
         if self.build_and_push_container:
             self.container_repository_username: str = self.build_and_push_container["username"]
             self.container_repository_password: str = self.build_and_push_container["password"]
@@ -639,19 +641,22 @@ class GithubWebhook:
             value="pre-commit", return_on_none=False, extra_dict=repository_config
         )
 
-        self.auto_verified_and_merged_users: list[str] = self.config.get_value(
+        _auto_users = self.config.get_value(
             value="auto-verified-and-merged-users", return_on_none=[], extra_dict=repository_config
         )
+        self.auto_verified_and_merged_users: list[str] = _auto_users if isinstance(_auto_users, list) else []
         self.auto_verify_cherry_picked_prs: bool = self.config.get_value(
             value="auto-verify-cherry-picked-prs", return_on_none=True, extra_dict=repository_config
         )
-        self.can_be_merged_required_labels = self.config.get_value(
+        _required_labels = self.config.get_value(
             value="can-be-merged-required-labels", return_on_none=[], extra_dict=repository_config
         )
+        self.can_be_merged_required_labels: list[str] = _required_labels if isinstance(_required_labels, list) else []
         self.conventional_title: str = self.config.get_value(value="conventional-title", extra_dict=repository_config)
-        self.set_auto_merge_prs: list[str] = self.config.get_value(
+        _auto_merge_prs = self.config.get_value(
             value="set-auto-merge-prs", return_on_none=[], extra_dict=repository_config
         )
+        self.set_auto_merge_prs: list[str] = _auto_merge_prs if isinstance(_auto_merge_prs, list) else []
         self.minimum_lgtm: int = self.config.get_value(
             value="minimum-lgtm", return_on_none=0, extra_dict=repository_config
         )
@@ -665,30 +670,33 @@ class GithubWebhook:
         )
 
         # Load labels configuration
-        global_labels_config: dict[str, Any] = self.config.get_value("labels", return_on_none={}) or {}
-        repo_labels_config: dict[str, Any] = (
-            self.config.get_value("labels", return_on_none={}, extra_dict=repository_config) or {}
-        )
+        _global_labels = self.config.get_value("labels", return_on_none={})
+        global_labels_config: dict[str, Any] = _global_labels if isinstance(_global_labels, dict) else {}
+        _repo_labels = self.config.get_value("labels", return_on_none={}, extra_dict=repository_config)
+        repo_labels_config: dict[str, Any] = _repo_labels if isinstance(_repo_labels, dict) else {}
 
         # Merge global and repo labels config (repo overrides global)
         merged_labels_config = {**global_labels_config, **repo_labels_config}
 
         # enabled-labels: if not set, all labels enabled (None means all enabled)
         self.enabled_labels: set[str] | None = None
-        if "enabled-labels" in merged_labels_config:
-            enabled_set = set(merged_labels_config["enabled-labels"])
-            # Log warning for invalid categories
-            invalid = enabled_set - CONFIGURABLE_LABEL_CATEGORIES
-            if invalid:
-                log_prefix = getattr(self, "log_prefix", "")
-                self.logger.warning(
-                    f"{log_prefix} Invalid label categories in enabled-labels config: {invalid}. "
-                    f"Valid categories: {CONFIGURABLE_LABEL_CATEGORIES}"
-                )
-            self.enabled_labels = enabled_set & CONFIGURABLE_LABEL_CATEGORIES  # Only keep valid categories
+        _enabled_labels = merged_labels_config.get("enabled-labels")
+        if _enabled_labels is not None:
+            if isinstance(_enabled_labels, list):
+                enabled_set = set(_enabled_labels)
+                # Log warning for invalid categories
+                invalid = enabled_set - CONFIGURABLE_LABEL_CATEGORIES
+                if invalid:
+                    log_prefix = getattr(self, "log_prefix", "")
+                    self.logger.warning(
+                        f"{log_prefix} Invalid label categories in enabled-labels config: {invalid}. "
+                        f"Valid categories: {CONFIGURABLE_LABEL_CATEGORIES}"
+                    )
+                self.enabled_labels = enabled_set & CONFIGURABLE_LABEL_CATEGORIES  # Only keep valid categories
 
         # colors: custom label colors (CSS3 color names)
-        self.label_colors: dict[str, str] = merged_labels_config.get("colors", {})
+        _colors = merged_labels_config.get("colors", {})
+        self.label_colors: dict[str, str] = _colors if isinstance(_colors, dict) else {}
 
         self.mask_sensitive = self.config.get_value("mask-sensitive-data", return_on_none=True)
 
