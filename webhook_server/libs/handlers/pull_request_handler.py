@@ -14,6 +14,7 @@ from webhook_server.libs.handlers.labels_handler import LabelsHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.libs.handlers.runner_handler import RunnerHandler
 from webhook_server.utils.constants import (
+    APPROVE_STR,
     APPROVED_BY_LABEL_PREFIX,
     AUTOMERGE_LABEL_STR,
     BRANCH_LABEL_PREFIX,
@@ -29,6 +30,7 @@ from webhook_server.utils.constants import (
     HOLD_LABEL_STR,
     LABELS_SEPARATOR,
     LGTM_BY_LABEL_PREFIX,
+    LGTM_STR,
     NEEDS_REBASE_LABEL_STR,
     PRE_COMMIT_STR,
     PYTHON_MODULE_INSTALL_STR,
@@ -219,7 +221,6 @@ class PullRequestHandler:
 
     def _prepare_welcome_comment(self) -> str:
         self.logger.info(f"{self.log_prefix} Prepare welcome comment")
-        supported_user_labels_str: str = "".join([f" * {label}\n" for label in USER_LABELS_DICT.keys()])
 
         # Check if current user is auto-verified
         is_auto_verified = self.github_webhook.parent_committer in self.github_webhook.auto_verified_and_merged_users
@@ -255,22 +256,17 @@ This pull request will be automatically processed with the following features:{a
 {self._prepare_pre_commit_welcome_line}\
 * **Branch Labeling**: Branch-specific labels are applied to track the target branch
 * **Auto-verification**: Auto-verified users have their PRs automatically marked as verified
+{self._prepare_labels_config_welcome_section}\
 
 ### 📋 Available Commands
 
 #### PR Status Management
-* `/wip` - Mark PR as work in progress (adds WIP: prefix to title)
-* `/wip cancel` - Remove work in progress status
-* `/hold` - Block PR merging (approvers only)
-* `/hold cancel` - Unblock PR merging
-* `/verified` - Mark PR as verified
-* `/verified cancel` - Remove verification status
-* `/reprocess` - Trigger complete PR workflow reprocessing (useful if webhook failed or configuration changed)
+{self._prepare_pr_status_commands_section}
 
 #### Review & Approval
 * `/lgtm` - Approve changes (looks good to me)
 * `/approve` - Approve PR (approvers only)
-* `/automerge` - Enable automatic merging when all requirements are met (maintainers and approvers only)
+{self._prepare_automerge_command_line}\
 * `/assign-reviewers` - Assign reviewers based on OWNERS file
 * `/assign-reviewer @username` - Assign specific reviewer
 * `/check-can-merge` - Check if PR meets merge requirements
@@ -278,9 +274,7 @@ This pull request will be automatically processed with the following features:{a
 #### Testing & Validation
 {self._prepare_retest_welcome_comment}
 {self._prepare_container_operations_welcome_section}\
-#### Cherry-pick Operations
-* `/cherry-pick <branch>` - Schedule cherry-pick to target branch when PR is merged
-  * Multiple branches: `/cherry-pick branch1 branch2 branch3`
+{self._prepare_cherry_pick_section}\
 
 #### Label Management
 * `/<label-name>` - Add a label to the PR
@@ -293,7 +287,7 @@ This PR will be automatically approved when the following conditions are met:
 1. **Approval**: `/approve` from at least one approver
 2. **LGTM Count**: Minimum {self.github_webhook.minimum_lgtm} `/lgtm` from reviewers
 3. **Status Checks**: All required status checks must pass
-4. **No Blockers**: No WIP, hold, or conflict labels
+{self._prepare_no_blockers_requirement}
 5. **Verified**: PR must be marked as verified (if verification is enabled)
 
 ### 📊 Review Process
@@ -307,17 +301,12 @@ This PR will be automatically approved when the following conditions are met:
 <details>
 <summary><strong>Available Labels</strong></summary>
 
-{supported_user_labels_str}
+{self._prepare_available_labels_section}
 </details>
 
 ### 💡 Tips
 
-* **WIP Status**: Use `/wip` when your PR is not ready for review
-* **Verification**: The verified label is automatically removed on each new commit
-* **Cherry-picking**: Cherry-pick labels are processed when the PR is merged
-* **Container Builds**: Container images are automatically tagged with the PR number
-* **Permission Levels**: Some commands require approver permissions
-* **Auto-verified Users**: Certain users have automatic verification and merge privileges
+{self._prepare_tips_section}
 
 For more information, please refer to the project documentation or contact the maintainers.
     """
@@ -381,6 +370,181 @@ For more information, please refer to the project documentation or contact the m
 
 """
         return "\n"
+
+    @property
+    def _prepare_labels_config_welcome_section(self) -> str:
+        """Prepare the labels configuration section for the welcome comment."""
+        enabled_labels = self.github_webhook.enabled_labels
+
+        if enabled_labels is None:
+            return "* **Labels**: All label categories are enabled (default configuration)\n"
+
+        if not enabled_labels:
+            return "* **Labels**: All configurable labels are disabled (only reviewed-by labels are active)\n"
+
+        enabled_list = ", ".join(f"`{label}`" for label in sorted(enabled_labels))
+        return f"* **Labels**: Enabled categories: {enabled_list}\n"
+
+    def _is_user_label_enabled(self, label_category: str) -> bool:
+        """Check if a user label category is enabled.
+
+        Args:
+            label_category: The label category to check (e.g., "wip", "hold", "verified").
+
+        Returns:
+            True if the label is enabled, False otherwise.
+            Always returns True for non-configurable labels (lgtm, approve).
+        """
+        # lgtm and approve are review labels - always enabled
+        if label_category in ("lgtm", "approve"):
+            return True
+
+        enabled_labels = self.github_webhook.enabled_labels
+
+        # If not configured, all labels are enabled
+        if enabled_labels is None:
+            return True
+
+        return label_category in enabled_labels
+
+    @property
+    def _prepare_pr_status_commands_section(self) -> str:
+        """Prepare the PR Status Management commands section for the welcome comment.
+
+        Only shows commands for enabled labels.
+        """
+        commands: list[str] = []
+
+        if self._is_user_label_enabled("wip"):
+            commands.append("* `/wip` - Mark PR as work in progress (adds WIP: prefix to title)")
+            commands.append("* `/wip cancel` - Remove work in progress status")
+
+        if self._is_user_label_enabled("hold"):
+            commands.append("* `/hold` - Block PR merging (approvers only)")
+            commands.append("* `/hold cancel` - Unblock PR merging")
+
+        if self._is_user_label_enabled("verified"):
+            commands.append("* `/verified` - Mark PR as verified")
+            commands.append("* `/verified cancel` - Remove verification status")
+
+        # These commands are always available
+        commands.append(
+            "* `/reprocess` - Trigger complete PR workflow reprocessing "
+            "(useful if webhook failed or configuration changed)"
+        )
+        commands.append("* `/regenerate-welcome` - Regenerate this welcome message")
+
+        return "\n".join(commands)
+
+    @property
+    def _prepare_available_labels_section(self) -> str:
+        """Prepare the Available Labels section for the welcome comment.
+
+        Only shows labels that are enabled.
+        """
+        # Mapping from USER_LABELS_DICT keys to their categories for filtering
+        label_to_category = {
+            HOLD_LABEL_STR: "hold",
+            VERIFIED_LABEL_STR: "verified",
+            WIP_STR: "wip",
+            AUTOMERGE_LABEL_STR: "automerge",
+            LGTM_STR: "lgtm",  # Always enabled
+            APPROVE_STR: "approve",  # Always enabled
+        }
+
+        enabled_user_labels = [
+            label
+            for label in USER_LABELS_DICT.keys()
+            if self._is_user_label_enabled(label_to_category.get(label, label))
+        ]
+
+        if not enabled_user_labels:
+            return "No configurable labels are enabled for this repository."
+
+        return "".join([f" * {label}\n" for label in enabled_user_labels])
+
+    @property
+    def _prepare_tips_section(self) -> str:
+        """Prepare the Tips section for the welcome comment.
+
+        Only shows tips for enabled labels.
+        """
+        tips: list[str] = []
+
+        if self._is_user_label_enabled("wip"):
+            tips.append("* **WIP Status**: Use `/wip` when your PR is not ready for review")
+
+        if self._is_user_label_enabled("verified"):
+            tips.append("* **Verification**: The verified label is automatically removed on each new commit")
+
+        # Cherry-pick tip - check if cherry-pick labels are enabled
+        if self._is_cherry_pick_enabled():
+            tips.append("* **Cherry-picking**: Cherry-pick labels are processed when the PR is merged")
+
+        # Container builds tip - always shown if container builds are configured
+        if self.github_webhook.build_and_push_container:
+            tips.append("* **Container Builds**: Container images are automatically tagged with the PR number")
+
+        # Permission and auto-verified tips are always relevant
+        tips.append("* **Permission Levels**: Some commands require approver permissions")
+        tips.append("* **Auto-verified Users**: Certain users have automatic verification and merge privileges")
+
+        return "\n".join(tips)
+
+    @property
+    def _prepare_no_blockers_requirement(self) -> str:
+        """Prepare the No Blockers merge requirement line.
+
+        Only mentions labels that are enabled.
+        """
+        blockers: list[str] = []
+
+        if self._is_user_label_enabled("wip"):
+            blockers.append("WIP")
+
+        if self._is_user_label_enabled("hold"):
+            blockers.append("hold")
+
+        # Conflict labels (has-conflicts) are always shown since they're fundamental
+        blockers.append("conflict")
+
+        if not blockers:
+            return "4. **No Blockers**: No blocking labels present"
+
+        return f"4. **No Blockers**: No {', '.join(blockers)} labels"
+
+    def _is_cherry_pick_enabled(self) -> bool:
+        """Check if cherry-pick labels are enabled."""
+        enabled_labels = self.github_webhook.enabled_labels
+        if enabled_labels is None:
+            return True
+        return "cherry-pick" in enabled_labels
+
+    @property
+    def _prepare_automerge_command_line(self) -> str:
+        """Prepare the automerge command line for the welcome comment.
+
+        Only shows the command if automerge is enabled.
+        """
+        if self._is_user_label_enabled("automerge"):
+            return (
+                "* `/automerge` - Enable automatic merging when all requirements are met "
+                "(maintainers and approvers only)\n"
+            )
+        return ""
+
+    @property
+    def _prepare_cherry_pick_section(self) -> str:
+        """Prepare the Cherry-pick Operations section for the welcome comment.
+
+        Only shows the section if cherry-pick labels are enabled.
+        """
+        if self._is_cherry_pick_enabled():
+            return """#### Cherry-pick Operations
+* `/cherry-pick <branch>` - Schedule cherry-pick to target branch when PR is merged
+  * Multiple branches: `/cherry-pick branch1 branch2 branch3`
+"""
+        return ""
 
     async def label_all_opened_pull_requests_merge_state_after_merged(self) -> None:
         """
@@ -1155,6 +1319,30 @@ For more information, please refer to the project documentation or contact the m
             )
 
         return await asyncio.to_thread(check_comments)
+
+    async def regenerate_welcome_message(self, pull_request: PullRequest) -> None:
+        """Regenerate and update the welcome message for this PR.
+
+        If a welcome message exists, it will be updated.
+        If no welcome message exists, a new one will be created.
+        """
+        welcome_msg = self._prepare_welcome_comment()
+
+        def find_and_update_welcome_comment() -> bool:
+            """Find existing welcome comment and update it. Returns True if updated, False if not found."""
+            for comment in pull_request.get_issue_comments():
+                if self.github_webhook.issue_url_for_welcome_msg in comment.body:
+                    comment.edit(body=welcome_msg)
+                    return True
+            return False
+
+        updated = await asyncio.to_thread(find_and_update_welcome_comment)
+
+        if updated:
+            self.logger.info(f"{self.log_prefix} Updated existing welcome message")
+        else:
+            self.logger.info(f"{self.log_prefix} Creating new welcome message")
+            await asyncio.to_thread(pull_request.create_issue_comment, body=welcome_msg)
 
     async def _tracking_issue_exists(self, pull_request: PullRequest) -> bool:
         """Check if tracking issue already exists for this PR."""

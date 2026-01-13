@@ -129,26 +129,27 @@ class LabelsHandler:
         self.logger.debug(f"{self.log_prefix} Label {label} not found and cannot be removed")
         return False
 
-    async def _add_label(self, pull_request: PullRequest, label: str) -> None:
+    async def _add_label(self, pull_request: PullRequest, label: str) -> bool:
+        """Add a label to a pull request.
+
+        Returns:
+            True if the label was added successfully, False if skipped.
+        """
         label = label.strip()
         self.logger.debug(f"{self.log_prefix} Adding label {label}")
         if len(label) > 49:
             self.logger.debug(f"{label} is too long, not adding.")
-            return
+            return False
 
         if not self.is_label_enabled(label):
             self.logger.debug(f"{self.log_prefix} Label {label} is disabled by configuration, not adding")
-            return
+            return False
 
         if await self.label_exists_in_pull_request(pull_request=pull_request, label=label):
             self.logger.debug(f"{self.log_prefix} Label {label} already assign")
-            return
+            return False
 
-        if label in STATIC_LABELS_DICT:
-            self.logger.info(f"{self.log_prefix} Adding pull request label {label}")
-            await asyncio.to_thread(pull_request.add_to_labels, label)
-            return
-
+        # Get the color for this label (custom or default)
         color = self._get_label_color(label)
         _with_color_msg = f"repository label {label} with color {color}"
 
@@ -163,7 +164,7 @@ class LabelsHandler:
 
         self.logger.info(f"{self.log_prefix} Adding pull request label {label}")
         await asyncio.to_thread(pull_request.add_to_labels, label)
-        await self.wait_for_label(pull_request=pull_request, label=label, exists=True)
+        return await self.wait_for_label(pull_request=pull_request, label=label, exists=True)
 
     async def wait_for_label(self, pull_request: PullRequest, label: str, exists: bool) -> bool:
         self.logger.debug(f"{self.log_prefix} waiting for label {label} to {'exists' if exists else 'not exists'}")

@@ -11,6 +11,7 @@ from webhook_server.utils.constants import (
     COMMAND_ASSIGN_REVIEWERS_STR,
     COMMAND_CHECK_CAN_MERGE_STR,
     COMMAND_CHERRY_PICK_STR,
+    COMMAND_REGENERATE_WELCOME_STR,
     COMMAND_REPROCESS_STR,
     COMMAND_RETEST_STR,
     HOLD_LABEL_STR,
@@ -441,47 +442,47 @@ class TestIssueCommentHandler:
 
     @pytest.mark.asyncio
     async def test_user_commands_hold_authorized_user_add(self, issue_comment_handler: IssueCommentHandler) -> None:
-        """Test user commands with hold command by authorized user to add."""
+        """Test user commands with hold command by authorized user to add.
+
+        Note: check_if_can_be_merged is NOT called directly here - it's triggered
+        by the 'labeled' webhook event (hook-driven architecture).
+        """
         mock_pull_request = Mock()
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
             with patch.object(
                 issue_comment_handler.labels_handler, "_add_label", new_callable=AsyncMock
             ) as mock_add_label:
-                with patch.object(
-                    issue_comment_handler.pull_request_handler, "check_if_can_be_merged", new_callable=AsyncMock
-                ) as mock_check:
-                    await issue_comment_handler.user_commands(
-                        pull_request=mock_pull_request,
-                        command=HOLD_LABEL_STR,
-                        reviewed_user="approver1",
-                        issue_comment_id=123,
-                    )
-                    mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=HOLD_LABEL_STR)
-                    mock_check.assert_called_once_with(pull_request=mock_pull_request)
-                    mock_reaction.assert_called_once()
+                await issue_comment_handler.user_commands(
+                    pull_request=mock_pull_request,
+                    command=HOLD_LABEL_STR,
+                    reviewed_user="approver1",
+                    issue_comment_id=123,
+                )
+                mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=HOLD_LABEL_STR)
+                mock_reaction.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_user_commands_hold_authorized_user_remove(self, issue_comment_handler: IssueCommentHandler) -> None:
-        """Test user commands with hold command by authorized user to remove."""
+        """Test user commands with hold command by authorized user to remove.
+
+        Note: check_if_can_be_merged is NOT called directly here - it's triggered
+        by the 'unlabeled' webhook event (hook-driven architecture).
+        """
         mock_pull_request = Mock()
 
         with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
             with patch.object(
                 issue_comment_handler.labels_handler, "_remove_label", new_callable=AsyncMock
             ) as mock_remove_label:
-                with patch.object(
-                    issue_comment_handler.pull_request_handler, "check_if_can_be_merged", new_callable=AsyncMock
-                ) as mock_check:
-                    await issue_comment_handler.user_commands(
-                        pull_request=mock_pull_request,
-                        command=f"{HOLD_LABEL_STR} cancel",
-                        reviewed_user="approver1",
-                        issue_comment_id=123,
-                    )
-                    mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=HOLD_LABEL_STR)
-                    mock_check.assert_called_once_with(pull_request=mock_pull_request)
-                    mock_reaction.assert_called_once()
+                await issue_comment_handler.user_commands(
+                    pull_request=mock_pull_request,
+                    command=f"{HOLD_LABEL_STR} cancel",
+                    reviewed_user="approver1",
+                    issue_comment_id=123,
+                )
+                mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=HOLD_LABEL_STR)
+                mock_reaction.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_user_commands_verified_add(self, issue_comment_handler: IssueCommentHandler) -> None:
@@ -940,3 +941,70 @@ class TestIssueCommentHandler:
             mock_reaction.assert_awaited_once_with(
                 pull_request=mock_pull_request, issue_comment_id=456, reaction=REACTIONS.ok
             )
+
+    @pytest.mark.asyncio
+    async def test_user_commands_regenerate_welcome_command_registration(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Test that regenerate-welcome command is in available_commands list."""
+        mock_pull_request = Mock()
+
+        with (
+            patch.object(
+                issue_comment_handler.pull_request_handler, "regenerate_welcome_message", new=AsyncMock()
+            ) as mock_regenerate,
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=COMMAND_REGENERATE_WELCOME_STR,
+                reviewed_user="test-user",
+                issue_comment_id=123,
+            )
+            # Command should be recognized and processed
+            mock_regenerate.assert_awaited_once_with(pull_request=mock_pull_request)
+
+    @pytest.mark.asyncio
+    async def test_user_commands_regenerate_welcome_with_reaction(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Test that reaction is added to comment for regenerate-welcome command."""
+        mock_pull_request = Mock()
+
+        with (
+            patch.object(issue_comment_handler.pull_request_handler, "regenerate_welcome_message", new=AsyncMock()),
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()) as mock_reaction,
+        ):
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=COMMAND_REGENERATE_WELCOME_STR,
+                reviewed_user="test-user",
+                issue_comment_id=456,
+            )
+            # Verify reaction was added with correct comment ID and reaction type
+            mock_reaction.assert_awaited_once_with(
+                pull_request=mock_pull_request, issue_comment_id=456, reaction=REACTIONS.ok
+            )
+
+    @pytest.mark.asyncio
+    async def test_user_commands_regenerate_welcome_with_args_ignored(
+        self, issue_comment_handler: IssueCommentHandler
+    ) -> None:
+        """Test regenerate-welcome command ignores additional arguments."""
+        mock_pull_request = Mock()
+
+        with (
+            patch.object(
+                issue_comment_handler.pull_request_handler, "regenerate_welcome_message", new=AsyncMock()
+            ) as mock_regenerate,
+            patch.object(issue_comment_handler, "create_comment_reaction", new=AsyncMock()),
+        ):
+            # Command with args (should be processed but args ignored)
+            await issue_comment_handler.user_commands(
+                pull_request=mock_pull_request,
+                command=f"{COMMAND_REGENERATE_WELCOME_STR} some-args",
+                reviewed_user="test-user",
+                issue_comment_id=123,
+            )
+            # Verify regenerate was called (args are ignored)
+            mock_regenerate.assert_awaited_once_with(pull_request=mock_pull_request)

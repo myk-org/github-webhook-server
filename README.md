@@ -409,6 +409,85 @@ Invalid color names automatically fall back to `lightgray`.
 Configuration changes take effect immediately without server restart. The webhook
 server re-reads configuration for each incoming webhook event.
 
+### Configurable Labels
+
+The webhook server supports enabling/disabling specific label categories and customizing label colors. This allows repository administrators to control which automation labels are applied to pull requests.
+
+#### Configuration Options
+
+```yaml
+# Global configuration (applies to all repositories)
+labels:
+  enabled-labels:
+    - verified
+    - hold
+    - wip
+    - needs-rebase
+    - has-conflicts
+    - can-be-merged
+    - size
+    - branch
+    - cherry-pick
+    - automerge
+  colors:
+    hold: red
+    verified: green
+    wip: orange
+
+# Repository-specific configuration (overrides global)
+repositories:
+  my-project:
+    name: my-org/my-project
+    labels:
+      enabled-labels:
+        - verified
+        - wip
+        - size
+      colors:
+        verified: lightgreen
+```
+
+#### Available Label Categories
+
+| Category | Labels Applied | Description |
+|----------|---------------|-------------|
+| `verified` | `verified` | Manual verification status |
+| `hold` | `hold` | Block PR merging |
+| `wip` | `wip` | Work in progress status |
+| `needs-rebase` | `needs-rebase` | PR needs rebasing |
+| `has-conflicts` | `has-conflicts` | Merge conflicts detected |
+| `can-be-merged` | `can-be-merged` | PR meets all merge requirements |
+| `size` | `size/XS`, `size/S`, etc. | PR size labels |
+| `branch` | `branch/<name>` | Target branch labels |
+| `cherry-pick` | `cherry-pick/<branch>` | Cherry-pick tracking |
+| `automerge` | `automerge` | Auto-merge enabled |
+
+#### Configuration Rules
+
+- **enabled-labels**: Optional array of label categories to enable
+  - If omitted, ALL label categories are enabled (default behavior)
+  - If empty array `[]`, all configurable labels are disabled
+- **colors**: Optional object mapping label names to CSS3 color names
+  - Supports any valid CSS3 color name (e.g., `red`, `lightblue`, `darkgreen`)
+  - Invalid color names fall back to default colors
+- **reviewed-by labels**: Always enabled (`approved-*`, `lgtm-*`, `changes-requested-*`, `commented-*`)
+  - These are the source of truth for the approval system and cannot be disabled
+- **Hierarchy**: Repository-level configuration overrides global configuration
+- **Real-time Updates**: Changes take effect immediately without server restart
+
+#### Example: Minimal Labels Configuration
+
+```yaml
+# Only enable essential labels
+labels:
+  enabled-labels:
+    - verified
+    - can-be-merged
+    - size
+```
+
+This configuration disables `hold`, `wip`, `needs-rebase`, `has-conflicts`, `branch`, `cherry-pick`, and `automerge` labels.
+
 ### Repository-Level Overrides
 
 Create `.github-webhook-server.yaml` in your repository root to override or extend the global configuration for that specific repository. This file supports all repository-level configuration options.
@@ -427,6 +506,16 @@ set-auto-merge-prs:
   - develop
 pre-commit: true
 conventional-title: "feat,fix,docs"
+
+# Label configuration
+labels:
+  enabled-labels:
+    - verified
+    - hold
+    - wip
+  colors:
+    hold: crimson
+    verified: limegreen
 
 # Custom PR size labels for this repository
 pr-size-thresholds:

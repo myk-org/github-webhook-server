@@ -174,10 +174,19 @@ class TestLabelsHandler:
     async def test_add_label_static_label(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
         """Test _add_label with static label."""
         static_label = next(iter(STATIC_LABELS_DICT.keys()))
-        with patch.object(labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock, return_value=False):
-            await labels_handler._add_label(mock_pull_request, static_label)
-            # Verify label was added
-            mock_pull_request.add_to_labels.assert_called_once_with(static_label)
+        with patch.object(
+            labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock, return_value=False
+        ) as mock_exists:
+            with patch.object(labels_handler, "wait_for_label", new_callable=AsyncMock, return_value=True):
+                with patch("asyncio.to_thread") as mock_to_thread:
+                    # get_label returns label, edit succeeds, add_to_labels succeeds
+                    mock_label = Mock()
+                    mock_to_thread.side_effect = [mock_label, None, None]
+                    await labels_handler._add_label(mock_pull_request, static_label)
+                    # Verify label_exists_in_pull_request was called
+                    mock_exists.assert_called_once()
+                    # Verify to_thread was called for: get_label, edit, add_to_labels
+                    assert mock_to_thread.call_count == 3
 
     @pytest.mark.asyncio
     async def test_add_label_exception_handling(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
@@ -315,15 +324,19 @@ class TestLabelsHandler:
     async def test_add_label_static_label_wait_exception(
         self, labels_handler: LabelsHandler, mock_pull_request: Mock
     ) -> None:
-        """Test _add_label with exception during wait for static label."""
+        """Test _add_label with exception during wait for static label.
+
+        When wait_for_label raises an exception, it should propagate (fail-fast).
+        """
         static_label = next(iter(STATIC_LABELS_DICT.keys()))
         with patch("timeout_sampler.TimeoutWatch") as mock_timeout:
             mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
             with patch("asyncio.sleep", new_callable=AsyncMock):
                 with patch.object(labels_handler, "label_exists_in_pull_request", side_effect=[False, True]):
                     with patch.object(labels_handler, "wait_for_label", side_effect=Exception("Wait failed")):
-                        # Should not raise exception
-                        await labels_handler._add_label(mock_pull_request, static_label)
+                        # Exception should propagate (fail-fast architecture)
+                        with pytest.raises(Exception, match="Wait failed"):
+                            await labels_handler._add_label(mock_pull_request, static_label)
 
     @pytest.mark.asyncio
     async def test_wait_for_label_success(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
