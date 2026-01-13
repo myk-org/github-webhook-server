@@ -12,15 +12,23 @@ from webhook_server.utils.constants import (
     ADD_STR,
     APPROVE_STR,
     APPROVED_BY_LABEL_PREFIX,
+    AUTOMERGE_LABEL_STR,
+    BRANCH_LABEL_PREFIX,
+    CAN_BE_MERGED_STR,
     CHANGED_REQUESTED_BY_LABEL_PREFIX,
+    CHERRY_PICK_LABEL_PREFIX,
+    CHERRY_PICKED_LABEL_PREFIX,
     COMMENTED_BY_LABEL_PREFIX,
+    DEFAULT_LABEL_COLORS,
     DELETE_STR,
-    DYNAMIC_LABELS_DICT,
+    HAS_CONFLICTS_LABEL_STR,
     HOLD_LABEL_STR,
     LGTM_BY_LABEL_PREFIX,
     LGTM_STR,
+    NEEDS_REBASE_LABEL_STR,
     SIZE_LABEL_PREFIX,
     STATIC_LABELS_DICT,
+    VERIFIED_LABEL_STR,
     WIP_STR,
 )
 
@@ -37,6 +45,66 @@ class LabelsHandler:
         self.logger = self.github_webhook.logger
         self.log_prefix: str = self.github_webhook.log_prefix
         self.repository: Repository = self.github_webhook.repository
+
+    def is_label_enabled(self, label: str) -> bool:
+        """Check if a label is enabled based on configuration.
+
+        Args:
+            label: The label name or prefix to check.
+
+        Returns:
+            True if the label is enabled, False otherwise.
+
+        Note:
+            - If enabled_labels is None (not configured), all labels are enabled.
+            - reviewed-by labels (approved-*, lgtm-*, changes-requested-*, commented-*)
+              are always enabled and cannot be disabled.
+        """
+        # reviewed-by labels are always enabled (cannot be disabled)
+        reviewed_by_prefixes = (
+            APPROVED_BY_LABEL_PREFIX,
+            LGTM_BY_LABEL_PREFIX,
+            CHANGED_REQUESTED_BY_LABEL_PREFIX,
+            COMMENTED_BY_LABEL_PREFIX,
+        )
+        if any(label.startswith(prefix) for prefix in reviewed_by_prefixes):
+            return True
+
+        enabled_labels = self.github_webhook.enabled_labels
+
+        # If not configured, all labels are enabled
+        if enabled_labels is None:
+            return True
+
+        # Map label to its category
+        label_to_category = {
+            VERIFIED_LABEL_STR: "verified",
+            HOLD_LABEL_STR: "hold",
+            WIP_STR: "wip",
+            NEEDS_REBASE_LABEL_STR: "needs-rebase",
+            HAS_CONFLICTS_LABEL_STR: "has-conflicts",
+            CAN_BE_MERGED_STR: "can-be-merged",
+            AUTOMERGE_LABEL_STR: "automerge",
+        }
+
+        # Check static labels
+        if label in label_to_category:
+            return label_to_category[label] in enabled_labels
+
+        # Check size labels
+        if label.startswith(SIZE_LABEL_PREFIX):
+            return "size" in enabled_labels
+
+        # Check branch labels
+        if label.startswith(BRANCH_LABEL_PREFIX):
+            return "branch" in enabled_labels
+
+        # Check cherry-pick labels
+        if label.startswith(CHERRY_PICK_LABEL_PREFIX) or label == CHERRY_PICKED_LABEL_PREFIX:
+            return "cherry-pick" in enabled_labels
+
+        # Unknown labels are allowed by default
+        return True
 
     async def label_exists_in_pull_request(self, pull_request: PullRequest, label: str) -> bool:
         return label in await self.pull_request_labels_names(pull_request=pull_request)
@@ -66,6 +134,10 @@ class LabelsHandler:
         self.logger.debug(f"{self.log_prefix} Adding label {label}")
         if len(label) > 49:
             self.logger.debug(f"{label} is too long, not adding.")
+            return
+
+        if not self.is_label_enabled(label):
+            self.logger.debug(f"{self.log_prefix} Label {label} is disabled by configuration, not adding")
             return
 
         if await self.label_exists_in_pull_request(pull_request=pull_request, label=label):
@@ -108,28 +180,42 @@ class LabelsHandler:
     def _get_label_color(self, label: str) -> str:
         """Get the appropriate color for a label.
 
+        Checks configured colors first, then falls back to defaults.
         For size labels with custom thresholds, uses the custom color.
-        For other dynamic labels, uses the DYNAMIC_LABELS_DICT.
-        Falls back to default color if not found.
         """
+        # Check for custom configured colors first
+        custom_colors = self.github_webhook.label_colors
+
+        # Direct match for static labels
+        if label in custom_colors:
+            return self._get_color_hex(custom_colors[label])
+
+        # Check prefix matches for dynamic labels
+        for prefix, color in custom_colors.items():
+            if prefix.endswith("-") and label.startswith(prefix):
+                return self._get_color_hex(color)
+
+        # For size labels, check custom thresholds
         if label.startswith(SIZE_LABEL_PREFIX):
             size_name = label[len(SIZE_LABEL_PREFIX) :]
-
             thresholds = self._get_custom_pr_size_thresholds()
             for _threshold, label_name, color_hex in thresholds:
                 if label_name == size_name:
                     return color_hex
-
-            # If not found in custom thresholds, check static labels dict
-            # (for backward compatibility with static size labels)
+            # Fallback to STATIC_LABELS_DICT for default size labels
             if label in STATIC_LABELS_DICT:
                 return STATIC_LABELS_DICT[label]
 
-        _color = [DYNAMIC_LABELS_DICT[_label] for _label in DYNAMIC_LABELS_DICT if _label in label]
-        if _color:
-            return _color[0]
+        # Check DEFAULT_LABEL_COLORS for static labels
+        if label in DEFAULT_LABEL_COLORS:
+            return DEFAULT_LABEL_COLORS[label]
 
-        return "D4C5F9"
+        # Check DEFAULT_LABEL_COLORS for dynamic label prefixes
+        for prefix, color in DEFAULT_LABEL_COLORS.items():
+            if prefix.endswith("-") and label.startswith(prefix):
+                return color
+
+        return "D4C5F9"  # Default fallback color
 
     def _get_color_hex(self, color_name: str, default_color: str = "lightgray") -> str:
         """Convert CSS3 color name to hex value, with fallback to default."""
@@ -186,7 +272,15 @@ class LabelsHandler:
 
         if not sorted_thresholds:
             self.logger.warning(f"{self.log_prefix} No valid custom thresholds found, using static defaults")
-            return self._get_custom_pr_size_thresholds()  # Recursive call will return static defaults
+            # Return static defaults directly to avoid infinite recursion
+            return [
+                (20, "XS", "ededed"),
+                (50, "S", "0E8A16"),
+                (100, "M", "F09C74"),
+                (300, "L", "F5621C"),
+                (500, "XL", "D93F0B"),
+                (float("inf"), "XXL", "B60205"),
+            ]
 
         return sorted_thresholds
 

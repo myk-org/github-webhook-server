@@ -75,6 +75,25 @@ DYNAMIC_LABELS_DICT: dict[str, str] = {
 
 ALL_LABELS_DICT: dict[str, str] = {**STATIC_LABELS_DICT, **DYNAMIC_LABELS_DICT}
 
+# Default label colors - uses ALL_LABELS_DICT as the source of truth
+# These are used when no custom colors are configured via labels.colors
+DEFAULT_LABEL_COLORS: dict[str, str] = ALL_LABELS_DICT
+
+# All configurable label categories (for enabled-labels config)
+# Note: reviewed-by is NOT in this list because it cannot be disabled
+CONFIGURABLE_LABEL_CATEGORIES: set[str] = {
+    "verified",
+    "hold",
+    "wip",
+    "needs-rebase",
+    "has-conflicts",
+    "can-be-merged",
+    "size",
+    "branch",
+    "cherry-pick",
+    "automerge",
+}
+
 
 class REACTIONS:
     ok: str = "+1"

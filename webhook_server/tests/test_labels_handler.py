@@ -51,6 +51,10 @@ class TestLabelsHandler:
         # This ensures existing tests use static defaults
         webhook.config.get_value.return_value = None
         webhook.ctx = None
+        # enabled_labels: None means all labels are enabled
+        webhook.enabled_labels = None
+        # label_colors: empty dict means use defaults
+        webhook.label_colors = {}
         return webhook
 
     @pytest.fixture
@@ -150,6 +154,20 @@ class TestLabelsHandler:
         with patch.object(labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock, return_value=True):
             await labels_handler._add_label(mock_pull_request, "existing-label")
             # Verify label was not added (already exists)
+            mock_pull_request.add_to_labels.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_add_label_disabled_by_config(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
+        """Test _add_label when label is disabled by configuration."""
+        labels_handler.github_webhook.enabled_labels = {"size"}  # Only size labels enabled
+
+        # Mock label_exists_in_pull_request to return False (label doesn't exist yet)
+        with patch.object(labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock) as mock_exists:
+            mock_exists.return_value = False
+
+            await labels_handler._add_label(mock_pull_request, "hold")
+
+            # Verify label was not added (disabled by config)
             mock_pull_request.add_to_labels.assert_not_called()
 
     @pytest.mark.asyncio
@@ -1130,3 +1148,158 @@ class TestLabelsHandler:
         assert labels_handler._get_label_color("size/S") == "008000"  # green hex
         assert labels_handler._get_label_color("size/M") == "ffa500"  # orange hex
         assert labels_handler._get_label_color("size/XXL") == "ff0000"  # red hex (infinity category)
+
+
+class TestIsLabelEnabled:
+    """Tests for is_label_enabled method."""
+
+    @pytest.fixture
+    def mock_github_webhook(self) -> Mock:
+        """Mock GitHub webhook handler."""
+        webhook = Mock()
+        webhook.repository = Mock()
+        webhook.log_prefix = "[TEST]"
+        webhook.logger = Mock()
+        webhook.config.get_value.return_value = None
+        webhook.ctx = None
+        webhook.enabled_labels = None
+        webhook.label_colors = {}
+        return webhook
+
+    @pytest.fixture
+    def labels_handler(self, mock_github_webhook: Mock) -> LabelsHandler:
+        """Labels handler instance."""
+        return LabelsHandler(github_webhook=mock_github_webhook, owners_file_handler=Mock())
+
+    def test_all_labels_enabled_when_not_configured(self, labels_handler: LabelsHandler) -> None:
+        """When enabled_labels is None, all labels should be enabled."""
+        labels_handler.github_webhook.enabled_labels = None
+
+        assert labels_handler.is_label_enabled("verified") is True
+        assert labels_handler.is_label_enabled("hold") is True
+        assert labels_handler.is_label_enabled("wip") is True
+        assert labels_handler.is_label_enabled("size/M") is True
+        assert labels_handler.is_label_enabled("branch-main") is True
+
+    def test_reviewed_by_labels_always_enabled(self, labels_handler: LabelsHandler) -> None:
+        """reviewed-by labels should always be enabled, even if not in config."""
+        labels_handler.github_webhook.enabled_labels = set()  # Empty set - nothing enabled
+
+        # reviewed-by labels should still be enabled
+        assert labels_handler.is_label_enabled("approved-user1") is True
+        assert labels_handler.is_label_enabled("lgtm-user2") is True
+        assert labels_handler.is_label_enabled("changes-requested-user3") is True
+        assert labels_handler.is_label_enabled("commented-user4") is True
+
+    def test_specific_labels_enabled(self, labels_handler: LabelsHandler) -> None:
+        """Only labels in enabled_labels should be enabled."""
+        labels_handler.github_webhook.enabled_labels = {"verified", "hold", "size"}
+
+        assert labels_handler.is_label_enabled("verified") is True
+        assert labels_handler.is_label_enabled("hold") is True
+        assert labels_handler.is_label_enabled("size/M") is True
+        assert labels_handler.is_label_enabled("wip") is False
+        assert labels_handler.is_label_enabled("needs-rebase") is False
+        assert labels_handler.is_label_enabled("branch-main") is False
+
+    def test_branch_labels_category(self, labels_handler: LabelsHandler) -> None:
+        """Branch labels should be controlled by 'branch' category."""
+        labels_handler.github_webhook.enabled_labels = {"branch"}
+
+        assert labels_handler.is_label_enabled("branch-main") is True
+        assert labels_handler.is_label_enabled("branch-feature-123") is True
+        assert labels_handler.is_label_enabled("verified") is False
+
+    def test_cherry_pick_labels_category(self, labels_handler: LabelsHandler) -> None:
+        """Cherry-pick labels should be controlled by 'cherry-pick' category."""
+        labels_handler.github_webhook.enabled_labels = {"cherry-pick"}
+
+        assert labels_handler.is_label_enabled("cherry-pick-v1.0") is True
+        assert labels_handler.is_label_enabled("CherryPicked") is True
+        assert labels_handler.is_label_enabled("verified") is False
+
+    def test_unknown_labels_allowed_by_default(self, labels_handler: LabelsHandler) -> None:
+        """Unknown labels should be allowed when enabled_labels is set."""
+        labels_handler.github_webhook.enabled_labels = {"verified"}
+
+        # Unknown label should be allowed
+        assert labels_handler.is_label_enabled("custom-label") is True
+
+    def test_empty_enabled_labels_disables_all_except_reviewed_by(self, labels_handler: LabelsHandler) -> None:
+        """Empty enabled_labels should disable all configurable labels."""
+        labels_handler.github_webhook.enabled_labels = set()
+
+        assert labels_handler.is_label_enabled("verified") is False
+        assert labels_handler.is_label_enabled("hold") is False
+        assert labels_handler.is_label_enabled("wip") is False
+        assert labels_handler.is_label_enabled("size/M") is False
+        assert labels_handler.is_label_enabled("branch-main") is False
+        # reviewed-by always enabled
+        assert labels_handler.is_label_enabled("approved-user1") is True
+        assert labels_handler.is_label_enabled("lgtm-user2") is True
+
+    def test_automerge_label_category(self, labels_handler: LabelsHandler) -> None:
+        """Automerge label should be controlled by 'automerge' category."""
+        labels_handler.github_webhook.enabled_labels = {"automerge"}
+
+        assert labels_handler.is_label_enabled("automerge") is True
+        assert labels_handler.is_label_enabled("verified") is False
+
+    def test_size_labels_with_custom_names(self, labels_handler: LabelsHandler) -> None:
+        """Size labels with custom names should still be controlled by 'size' category."""
+        labels_handler.github_webhook.enabled_labels = {"size"}
+
+        assert labels_handler.is_label_enabled("size/XS") is True
+        assert labels_handler.is_label_enabled("size/CustomName") is True
+        assert labels_handler.is_label_enabled("size/Massive") is True
+
+
+class TestCustomLabelColors:
+    """Tests for custom label colors configuration."""
+
+    @pytest.fixture
+    def mock_github_webhook(self) -> Mock:
+        """Mock GitHub webhook handler."""
+        webhook = Mock()
+        webhook.repository = Mock()
+        webhook.log_prefix = "[TEST]"
+        webhook.logger = Mock()
+        webhook.config.get_value.return_value = None
+        webhook.ctx = None
+        webhook.enabled_labels = None
+        webhook.label_colors = {}
+        return webhook
+
+    @pytest.fixture
+    def labels_handler(self, mock_github_webhook: Mock) -> LabelsHandler:
+        """Labels handler instance."""
+        return LabelsHandler(github_webhook=mock_github_webhook, owners_file_handler=Mock())
+
+    def test_custom_color_for_static_label(self, labels_handler: LabelsHandler) -> None:
+        """Custom colors should override defaults for static labels."""
+        labels_handler.github_webhook.label_colors = {"hold": "blue"}
+
+        color = labels_handler._get_label_color("hold")
+        assert color == "0000ff"  # blue in hex
+
+    def test_custom_color_for_dynamic_label_prefix(self, labels_handler: LabelsHandler) -> None:
+        """Custom colors should work for dynamic label prefixes."""
+        labels_handler.github_webhook.label_colors = {"approved-": "purple"}
+
+        color = labels_handler._get_label_color("approved-username")
+        assert color == "800080"  # purple in hex
+
+    def test_fallback_to_default_color(self, labels_handler: LabelsHandler) -> None:
+        """When no custom color, should use default color."""
+        labels_handler.github_webhook.label_colors = {}
+
+        color = labels_handler._get_label_color("hold")
+        assert color == "B60205"  # Default hold color
+
+    def test_invalid_color_name_fallback(self, labels_handler: LabelsHandler) -> None:
+        """Invalid color names should fallback to default."""
+        labels_handler.github_webhook.label_colors = {"hold": "notacolor"}
+
+        color = labels_handler._get_label_color("hold")
+        # Should use lightgray fallback
+        assert color == "d3d3d3"

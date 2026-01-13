@@ -29,6 +29,7 @@ from webhook_server.libs.handlers.push_handler import PushHandler
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
+    CONFIGURABLE_LABEL_CATEGORIES,
     CONVENTIONAL_TITLE_STR,
     OTHER_MAIN_BRANCH,
     PRE_COMMIT_STR,
@@ -646,6 +647,31 @@ class GithubWebhook:
         self.create_issue_for_new_pr: bool = self.config.get_value(
             value="create-issue-for-new-pr", return_on_none=global_create_issue_for_new_pr, extra_dict=repository_config
         )
+
+        # Load labels configuration
+        global_labels_config: dict[str, Any] = self.config.get_value("labels", return_on_none={}) or {}
+        repo_labels_config: dict[str, Any] = (
+            self.config.get_value("labels", return_on_none={}, extra_dict=repository_config) or {}
+        )
+
+        # Merge global and repo labels config (repo overrides global)
+        merged_labels_config = {**global_labels_config, **repo_labels_config}
+
+        # enabled-labels: if not set, all labels enabled (None means all enabled)
+        self.enabled_labels: set[str] | None = None
+        if "enabled-labels" in merged_labels_config:
+            enabled_set = set(merged_labels_config["enabled-labels"])
+            # Log warning for invalid categories
+            invalid = enabled_set - CONFIGURABLE_LABEL_CATEGORIES
+            if invalid:
+                self.logger.warning(
+                    f"{self.log_prefix} Invalid label categories in enabled-labels config: {invalid}. "
+                    f"Valid categories: {CONFIGURABLE_LABEL_CATEGORIES}"
+                )
+            self.enabled_labels = enabled_set & CONFIGURABLE_LABEL_CATEGORIES  # Only keep valid categories
+
+        # colors: custom label colors (CSS3 color names)
+        self.label_colors: dict[str, str] = merged_labels_config.get("colors", {})
 
         self.mask_sensitive = self.config.get_value("mask-sensitive-data", return_on_none=True)
 
