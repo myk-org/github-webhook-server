@@ -155,15 +155,20 @@ class TestLabelsHandler:
             labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock, return_value=False
         ) as mock_exists:
             with patch.object(labels_handler, "wait_for_label", new_callable=AsyncMock, return_value=True):
-                with patch("asyncio.to_thread") as mock_to_thread:
-                    # get_label returns label, edit succeeds, add_to_labels succeeds
-                    mock_label = Mock()
-                    mock_to_thread.side_effect = [mock_label, None, None]
-                    await labels_handler._add_label(mock_pull_request, static_label)
-                    # Verify label_exists_in_pull_request was called
-                    mock_exists.assert_called_once()
-                    # Verify to_thread was called for: get_label, edit, add_to_labels
-                    assert mock_to_thread.call_count == 3
+                # Mock repository.get_label to return a mock label
+                mock_label = Mock()
+                labels_handler.repository.get_label = Mock(return_value=mock_label)
+
+                await labels_handler._add_label(mock_pull_request, static_label)
+
+                # Verify label_exists_in_pull_request was called
+                mock_exists.assert_called_once()
+                # Verify repository.get_label was called to fetch the label
+                labels_handler.repository.get_label.assert_called_once_with(static_label)
+                # Verify the label was edited with the correct color
+                mock_label.edit.assert_called_once()
+                # Verify add_to_labels was called on the pull request
+                mock_pull_request.add_to_labels.assert_called_once_with(static_label)
 
     @pytest.mark.asyncio
     async def test_add_label_exception_handling(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:

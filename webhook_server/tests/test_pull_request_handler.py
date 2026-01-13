@@ -17,6 +17,7 @@ from webhook_server.utils.constants import (
     CHERRY_PICKED_LABEL,
     COMMENTED_BY_LABEL_PREFIX,
     HAS_CONFLICTS_LABEL_STR,
+    HOLD_LABEL_STR,
     LGTM_BY_LABEL_PREFIX,
     NEEDS_REBASE_LABEL_STR,
     TOX_STR,
@@ -406,12 +407,15 @@ class TestPullRequestHandler:
     def test_prepare_no_blockers_requirement_all_enabled(self, pull_request_handler: PullRequestHandler) -> None:
         """Test no blockers requirement when all labels are enabled."""
         # Default: enabled_labels is None, so all are enabled
+        # Mock is_label_enabled to return True for all labels
+        pull_request_handler.labels_handler.is_label_enabled = Mock(return_value=True)
         result = pull_request_handler._prepare_no_blockers_requirement
         assert "No WIP, hold, conflict labels" in result
 
     def test_prepare_no_blockers_requirement_wip_disabled(self, pull_request_handler: PullRequestHandler) -> None:
         """Test no blockers requirement when wip is disabled."""
-        pull_request_handler.github_webhook.enabled_labels = {"hold", "verified"}
+        # Mock is_label_enabled: wip disabled, hold enabled
+        pull_request_handler.labels_handler.is_label_enabled = Mock(side_effect=lambda label: label != WIP_STR)
         result = pull_request_handler._prepare_no_blockers_requirement
         assert "WIP" not in result
         assert "hold" in result
@@ -419,7 +423,8 @@ class TestPullRequestHandler:
 
     def test_prepare_no_blockers_requirement_hold_disabled(self, pull_request_handler: PullRequestHandler) -> None:
         """Test no blockers requirement when hold is disabled."""
-        pull_request_handler.github_webhook.enabled_labels = {"wip", "verified"}
+        # Mock is_label_enabled: hold disabled, wip enabled
+        pull_request_handler.labels_handler.is_label_enabled = Mock(side_effect=lambda label: label != HOLD_LABEL_STR)
         result = pull_request_handler._prepare_no_blockers_requirement
         assert "WIP" in result
         assert "hold" not in result
@@ -427,7 +432,10 @@ class TestPullRequestHandler:
 
     def test_prepare_no_blockers_requirement_both_disabled(self, pull_request_handler: PullRequestHandler) -> None:
         """Test no blockers requirement when both wip and hold are disabled."""
-        pull_request_handler.github_webhook.enabled_labels = {"verified"}
+        # Mock is_label_enabled: both wip and hold disabled
+        pull_request_handler.labels_handler.is_label_enabled = Mock(
+            side_effect=lambda label: label not in (WIP_STR, HOLD_LABEL_STR)
+        )
         result = pull_request_handler._prepare_no_blockers_requirement
         assert "WIP" not in result
         assert "hold" not in result

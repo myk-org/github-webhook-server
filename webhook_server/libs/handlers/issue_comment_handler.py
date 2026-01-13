@@ -265,24 +265,24 @@ class IssueCommentHandler:
 
         elif _command == WIP_STR:
             wip_for_title: str = f"{WIP_STR.upper()}:"
-            wip_for_title_with_space: str = f"{wip_for_title} "
             if remove:
                 label_changed = await self.labels_handler._remove_label(pull_request=pull_request, label=WIP_STR)
                 if label_changed:
                     pr_title = await asyncio.to_thread(lambda: pull_request.title)
-                    # Use slicing to remove only the leading prefix (handles both "WIP:" and "WIP: " forms)
-                    if pr_title.startswith(wip_for_title_with_space):
-                        new_title = pr_title[len(wip_for_title_with_space) :]
+                    # Case-insensitive check and removal of WIP prefix
+                    pr_title_upper = pr_title.upper()
+                    if pr_title_upper.startswith("WIP: "):
+                        new_title = pr_title[5:]  # Remove "WIP: " (5 chars)
                         await asyncio.to_thread(pull_request.edit, title=new_title)
-                    elif pr_title.startswith(wip_for_title):
-                        new_title = pr_title[len(wip_for_title) :]
+                    elif pr_title_upper.startswith("WIP:"):
+                        new_title = pr_title[4:]  # Remove "WIP:" (4 chars)
                         await asyncio.to_thread(pull_request.edit, title=new_title)
             else:
                 label_changed = await self.labels_handler._add_label(pull_request=pull_request, label=WIP_STR)
                 if label_changed:
                     pr_title = await asyncio.to_thread(lambda: pull_request.title)
-                    # Only prepend if prefix is not already there (idempotent)
-                    if not pr_title.startswith(wip_for_title):
+                    # Case-insensitive check: only prepend if prefix is not already there (idempotent)
+                    if not pr_title.upper().startswith("WIP:"):
                         await asyncio.to_thread(pull_request.edit, title=f"{wip_for_title} {pr_title}")
 
         elif _command == HOLD_LABEL_STR:

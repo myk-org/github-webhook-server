@@ -44,10 +44,10 @@ class TestGithubWebhook:
 
     @pytest.fixture
     def push_payload(self) -> dict[str, Any]:
-        """Push webhook payload."""
+        """Push webhook payload for tag push (the only push type that triggers cloning)."""
         return {
             "repository": {"name": "test-repo", "full_name": "my-org/test-repo"},
-            "ref": "refs/heads/main",
+            "ref": "refs/tags/v1.0.0",
             "commits": [{"id": "abc123", "message": "Test commit", "author": {"name": "Test User"}}],
         }
 
@@ -320,7 +320,7 @@ class TestGithubWebhook:
         mock_get_repo: Mock,
         push_payload: dict[str, Any],
     ) -> None:
-        """Test processing push event."""
+        """Test processing tag push event triggers cloning and PushHandler."""
         # Mock GitHub API to prevent network calls
         mock_api = Mock()
         mock_api.rate_limiting = [100, 5000]
@@ -1441,7 +1441,7 @@ class TestGithubWebhook:
                 await webhook._clone_repository(checkout_ref="")
 
     @pytest.mark.asyncio
-    async def test_clone_repository_checkout_ref_fetch_path(
+    async def test_clone_repository_checkout_ref_fetch_path_for_tag(
         self,
         minimal_hook_data: dict,
         minimal_headers: dict,
@@ -1449,11 +1449,13 @@ class TestGithubWebhook:
         get_value_side_effect: Any,
         to_thread_sync: Any,
     ) -> None:
-        """Test _clone_repository with checkout_ref fetches and checks out the correct branch.
+        """Test _clone_repository with checkout_ref fetches and checks out the correct tag.
 
-        Verifies that when checkout_ref="refs/heads/feature-branch" is provided:
-        1. git fetch origin feature-branch is called
-        2. git checkout feature-branch is called
+        Note: checkout_ref is now only used for tags, as branch pushes skip cloning.
+
+        Verifies that when checkout_ref="refs/tags/v1.0.0" is provided:
+        1. git fetch origin refs/tags/v1.0.0:refs/tags/v1.0.0 is called
+        2. git checkout v1.0.0 is called
         """
         with patch("webhook_server.libs.github_api.Config") as mock_config:
             mock_config.return_value.repository = True
@@ -1493,29 +1495,25 @@ class TestGithubWebhook:
                                 ),
                                 patch("asyncio.to_thread", side_effect=to_thread_sync),
                             ):
-                                await gh._clone_repository(checkout_ref="refs/heads/feature-branch")
+                                await gh._clone_repository(checkout_ref="refs/tags/v1.0.0")
 
                                 # Verify clone succeeded
                                 assert gh._repo_cloned is True
 
-                                # Find the fetch command for the branch (uses explicit refspec format)
+                                # Find the fetch command for the tag (uses explicit refspec format)
                                 fetch_commands = [
                                     cmd
                                     for cmd in executed_commands
-                                    if "fetch origin refs/heads/feature-branch:refs/remotes/origin/feature-branch"
-                                    in cmd
+                                    if "fetch origin refs/tags/v1.0.0:refs/tags/v1.0.0" in cmd
                                 ]
                                 assert len(fetch_commands) == 1, (
-                                    f"Expected exactly one fetch command for feature-branch, got: {fetch_commands}"
+                                    f"Expected exactly one fetch command for tag v1.0.0, got: {fetch_commands}"
                                 )
 
-                                # Find the checkout command
-                                checkout_commands = [
-                                    cmd for cmd in executed_commands if "checkout feature-branch" in cmd
-                                ]
+                                # Find the checkout command (tag name without refs/tags/ prefix)
+                                checkout_commands = [cmd for cmd in executed_commands if "checkout v1.0.0" in cmd]
                                 assert len(checkout_commands) == 1, (
-                                    f"Expected exactly one checkout command for feature-branch, "
-                                    f"got: {checkout_commands}"
+                                    f"Expected exactly one checkout command for v1.0.0, got: {checkout_commands}"
                                 )
 
     @pytest.mark.asyncio
@@ -1704,7 +1702,7 @@ class TestGithubWebhook:
     @patch("webhook_server.utils.helpers.get_apis_and_tokes_from_config")
     @patch("webhook_server.libs.config.Config.repository_local_data")
     @patch("webhook_server.libs.github_api.GithubWebhook.add_api_users_to_auto_verified_and_merged_users")
-    async def test_process_push_event_normal_push_not_deletion(
+    async def test_process_push_event_branch_push_skips_clone(
         self,
         mock_auto_verified_prop: Mock,
         mock_repo_local_data: Mock,
@@ -1714,18 +1712,21 @@ class TestGithubWebhook:
         mock_repo_api: Mock,
         mock_get_repo: Mock,
     ) -> None:
-        """Test that normal push event (deleted=False) proceeds with normal processing.
+        """Test that branch push event skips cloning.
+
+        Branch pushes don't require cloning because PushHandler only
+        processes tags (PyPI upload, container build).
 
         Verifies:
-        - Processing continues when hook_data["deleted"] == False
-        - _clone_repository IS called
-        - PushHandler.process_push_webhook_data IS called
+        - _clone_repository is NOT called for branch pushes
+        - PushHandler.process_push_webhook_data is NOT called
+        - Returns None
         """
-        # Normal push payload (no deletion)
-        push_normal_payload = {
+        # Branch push payload
+        push_branch_payload = {
             "repository": {"name": "test-repo", "full_name": "my-org/test-repo"},
             "ref": "refs/heads/main",
-            "deleted": False,  # Explicitly not a deletion
+            "deleted": False,
             "commits": [{"id": "abc123", "message": "Test commit", "author": {"name": "Test User"}}],
         }
 
@@ -1743,22 +1744,25 @@ class TestGithubWebhook:
         mock_api_rate_limit.return_value = (mock_api, "TOKEN", "USER")
         mock_repo_api.return_value = Mock()
         mock_get_repo.return_value = mock_repository
-        mock_get_apis.return_value = []  # Return empty list to skip the problematic property code
+        mock_get_apis.return_value = []
         mock_repo_local_data.return_value = {}
-        mock_process_push.return_value = None
 
-        headers = Headers({"X-GitHub-Event": "push", "X-GitHub-Delivery": "test-normal-push-456"})
-        webhook = GithubWebhook(hook_data=push_normal_payload, headers=headers, logger=Mock())
+        headers = Headers({"X-GitHub-Event": "push", "X-GitHub-Delivery": "test-branch-push-456"})
+        mock_logger = Mock()
+        webhook = GithubWebhook(hook_data=push_branch_payload, headers=headers, logger=mock_logger)
 
-        # Mock _clone_repository to verify it IS called for normal pushes
+        # Mock _clone_repository to verify it is NOT called for branch pushes
         with patch.object(webhook, "_clone_repository", new=AsyncMock(return_value=None)) as mock_clone:
-            await webhook.process()
+            result = await webhook.process()
 
-            # Verify _clone_repository WAS called (normal push should clone)
-            mock_clone.assert_called_once_with(checkout_ref="refs/heads/main")
+            # Verify _clone_repository was NOT called (branch push skips cloning)
+            mock_clone.assert_not_called()
 
-            # Verify PushHandler.process_push_webhook_data was called
-            mock_process_push.assert_called_once()
+            # Verify PushHandler.process_push_webhook_data was NOT called
+            mock_process_push.assert_not_called()
+
+            # Verify return value is None
+            assert result is None
 
     @pytest.mark.asyncio
     async def test_cleanup(

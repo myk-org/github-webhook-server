@@ -350,34 +350,27 @@ class GithubWebhook:
                 if not rc:
                     self.logger.warning(f"{self.log_prefix} Failed to fetch PR {pr_number} ref")
             else:
-                # For push events (tags/branches), use explicit refspecs to avoid ambiguity
-                if checkout_ref:
-                    if checkout_ref.startswith("refs/tags/"):
-                        tag_name = checkout_ref.replace("refs/tags/", "")
-                        fetch_refspec = f"refs/tags/{tag_name}:refs/tags/{tag_name}"
-                    elif checkout_ref.startswith("refs/heads/"):
-                        branch_name = checkout_ref.replace("refs/heads/", "")
-                        fetch_refspec = f"refs/heads/{branch_name}:refs/remotes/origin/{branch_name}"
-                    else:
-                        # Fallback for unexpected ref formats
-                        fetch_refspec = checkout_ref
-                    rc, _, _ = await run_command(
-                        command=f"{git_cmd} fetch origin {fetch_refspec}",
-                        log_prefix=self.log_prefix,
-                        mask_sensitive=self.mask_sensitive,
-                    )
-                    if not rc:
-                        self.logger.warning(f"{self.log_prefix} Failed to fetch ref {checkout_ref}")
+                # For push events (tags only - branch pushes skip cloning)
+                # checkout_ref guaranteed to be non-None by validation at function start
+                assert checkout_ref is not None  # mypy type narrowing
+                tag_name = checkout_ref.replace("refs/tags/", "")
+                fetch_refspec = f"refs/tags/{tag_name}:refs/tags/{tag_name}"
+                rc, _, _ = await run_command(
+                    command=f"{git_cmd} fetch origin {fetch_refspec}",
+                    log_prefix=self.log_prefix,
+                    mask_sensitive=self.mask_sensitive,
+                )
+                if not rc:
+                    self.logger.warning(f"{self.log_prefix} Failed to fetch tag {checkout_ref}")
 
             # Determine checkout target
             if pull_request:
                 checkout_target = await asyncio.to_thread(lambda: pull_request.base.ref)
             else:
-                # For push events: "refs/tags/v11.0.104" → "v11.0.104"
-                #                   "refs/heads/main" → "main"
+                # For push events (tags only - branch pushes skip cloning)
                 # checkout_ref guaranteed to be non-None by validation at function start
                 assert checkout_ref is not None  # mypy type narrowing
-                checkout_target = checkout_ref.replace("refs/tags/", "").replace("refs/heads/", "")
+                checkout_target = checkout_ref.replace("refs/tags/", "")
 
             # Checkout target branch/tag
             rc, _, err = await run_command(
@@ -439,14 +432,24 @@ class GithubWebhook:
                 await self._update_context_metrics()
                 return None
 
-            # Clone repository for push operations (PyPI uploads, container builds)
-            await self._clone_repository(checkout_ref=self.hook_data["ref"])
+            ref = self.hook_data["ref"]
 
-            await PushHandler(github_webhook=self).process_push_webhook_data()
-            token_metrics = await self._get_token_metrics()
-            self.logger.info(
-                f"{self.log_prefix} Webhook processing completed successfully: push - {token_metrics}",
-            )
+            # Only clone for tag pushes - branch pushes don't require cloning
+            # because PushHandler only processes tags (PyPI upload, container build)
+            if ref.startswith("refs/tags/"):
+                await self._clone_repository(checkout_ref=ref)
+                await PushHandler(github_webhook=self).process_push_webhook_data()
+                token_metrics = await self._get_token_metrics()
+                self.logger.info(
+                    f"{self.log_prefix} Webhook processing completed successfully: push - {token_metrics}",
+                )
+            else:
+                self.logger.debug(f"{self.log_prefix} Skipping clone for branch push: {ref}")
+                token_metrics = await self._get_token_metrics()
+                self.logger.info(
+                    f"{self.log_prefix} Webhook processing completed: branch push (skipped) - {token_metrics}",
+                )
+
             await self._update_context_metrics()
             return None
 

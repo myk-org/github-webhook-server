@@ -1,3 +1,6 @@
+import types
+from collections.abc import Mapping
+
 OTHER_MAIN_BRANCH: str = "master"
 TOX_STR: str = "tox"
 PRE_COMMIT_STR: str = "pre-commit"
@@ -51,7 +54,19 @@ USER_LABELS_DICT: dict[str, str] = {
     AUTOMERGE_LABEL_STR: "0E8A16",
 }
 
-# Mapping from label strings to their configuration category names
+# Mapping from exact label strings to their configuration category names.
+#
+# IMPORTANT: This map is for EXACT-MATCH labels only!
+# - Keys must be complete label names (e.g., "hold", "verified", "wip")
+# - These are looked up directly: `if label in LABEL_CATEGORY_MAP`
+#
+# PREFIX-BASED labels are NOT in this map and are handled separately
+# by prefix-matching logic in LabelsHandler.is_label_enabled():
+# - "size" category: labels like "size/XS", "size/M", "size/XXL" (prefix: SIZE_LABEL_PREFIX)
+# - "branch" category: labels like "branch-main", "branch-feature" (prefix: BRANCH_LABEL_PREFIX)
+# - "cherry-pick" category: labels like "cherry-pick-main" (prefix: CHERRY_PICK_LABEL_PREFIX)
+#
+# Do NOT add prefix-based label examples (e.g., "size/XL", "branch-main") to this map.
 LABEL_CATEGORY_MAP: dict[str, str] = {
     HOLD_LABEL_STR: "hold",
     VERIFIED_LABEL_STR: "verified",
@@ -91,7 +106,8 @@ ALL_LABELS_DICT: dict[str, str] = {**STATIC_LABELS_DICT, **DYNAMIC_LABELS_DICT}
 
 # Default label colors - uses ALL_LABELS_DICT as the source of truth
 # These are used when no custom colors are configured via labels.colors
-DEFAULT_LABEL_COLORS: dict[str, str] = ALL_LABELS_DICT
+# Using MappingProxyType to prevent accidental mutation of the shared dict
+DEFAULT_LABEL_COLORS: Mapping[str, str] = types.MappingProxyType(ALL_LABELS_DICT)
 
 # All configurable label categories (for enabled-labels config)
 # Note: reviewed-by is NOT in this list because it cannot be disabled
