@@ -9,7 +9,7 @@ from github import GithubException
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
-from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
+from webhook_server.libs.handlers.check_run_handler import CheckRunHandler, CheckRunOutput
 from webhook_server.libs.handlers.labels_handler import LabelsHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.libs.handlers.runner_handler import RunnerHandler
@@ -631,10 +631,20 @@ For more information, please refer to the project documentation or contact the m
         )
         setup_tasks.append(self.label_pull_request_by_merge_state(pull_request=pull_request))
         setup_tasks.append(self.check_run_handler.set_check_queued(name=CAN_BE_MERGED_STR))
-        setup_tasks.append(self.check_run_handler.set_check_queued(name=TOX_STR))
-        setup_tasks.append(self.check_run_handler.set_check_queued(name=PRE_COMMIT_STR))
-        setup_tasks.append(self.check_run_handler.set_check_queued(name=PYTHON_MODULE_INSTALL_STR))
-        setup_tasks.append(self.check_run_handler.set_check_queued(name=BUILD_CONTAINER_STR))
+
+        # Only queue built-in checks when their corresponding feature is enabled
+        if self.github_webhook.tox:
+            setup_tasks.append(self.check_run_handler.set_check_queued(name=TOX_STR))
+
+        if self.github_webhook.pre_commit:
+            setup_tasks.append(self.check_run_handler.set_check_queued(name=PRE_COMMIT_STR))
+
+        if self.github_webhook.pypi:
+            setup_tasks.append(self.check_run_handler.set_check_queued(name=PYTHON_MODULE_INSTALL_STR))
+
+        if self.github_webhook.build_and_push_container:
+            setup_tasks.append(self.check_run_handler.set_check_queued(name=BUILD_CONTAINER_STR))
+
         setup_tasks.append(self._process_verified_for_update_or_new_pull_request(pull_request=pull_request))
         setup_tasks.append(self.labels_handler.add_size_label(pull_request=pull_request))
         setup_tasks.append(self.add_pull_request_owner_as_assingee(pull_request=pull_request))
@@ -964,7 +974,7 @@ For more information, please refer to the project documentation or contact the m
                 self.ctx.complete_step("check_merge_eligibility", can_merge=False, reason="already_merged")
             return
 
-        output = {
+        output: CheckRunOutput = {
             "title": "Check if can be merged",
             "summary": "",
             "text": None,

@@ -1,5 +1,5 @@
 import asyncio
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
 from github.CheckRun import CheckRun
 from github.CommitStatus import CommitStatus
@@ -26,6 +26,14 @@ from webhook_server.utils.helpers import strip_ansi_codes
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
     from webhook_server.utils.context import WebhookContext
+
+
+class CheckRunOutput(TypedDict, total=False):
+    """TypedDict for check run output parameter."""
+
+    title: str
+    summary: str
+    text: NotRequired[str | None]
 
 
 class CheckRunHandler:
@@ -100,7 +108,7 @@ class CheckRunHandler:
             self.ctx.complete_step("check_run_handler")
         return True
 
-    async def set_check_queued(self, name: str, output: dict[str, Any] | None = None) -> None:
+    async def set_check_queued(self, name: str, output: CheckRunOutput | None = None) -> None:
         """Set check run to queued status.
 
         Generic method for setting any check run (built-in or custom) to queued status.
@@ -121,7 +129,7 @@ class CheckRunHandler:
         """
         await self.set_check_run_status(check_run=name, status=IN_PROGRESS_STR)
 
-    async def set_check_success(self, name: str, output: dict[str, Any] | None = None) -> None:
+    async def set_check_success(self, name: str, output: CheckRunOutput | None = None) -> None:
         """Set check run to success.
 
         Generic method for setting any check run (built-in or custom) to success status.
@@ -132,7 +140,7 @@ class CheckRunHandler:
         """
         await self.set_check_run_status(check_run=name, conclusion=SUCCESS_STR, output=output)
 
-    async def set_check_failure(self, name: str, output: dict[str, Any] | None = None) -> None:
+    async def set_check_failure(self, name: str, output: CheckRunOutput | None = None) -> None:
         """Set check run to failure.
 
         Generic method for setting any check run (built-in or custom) to failure status.
@@ -148,7 +156,7 @@ class CheckRunHandler:
         check_run: str,
         status: str = "",
         conclusion: str = "",
-        output: dict[str, Any] | None = None,
+        output: CheckRunOutput | None = None,
     ) -> None:
         kwargs: dict[str, Any] = {"name": check_run, "head_sha": self.github_webhook.last_commit.sha}
 
@@ -157,6 +165,7 @@ class CheckRunHandler:
 
         if conclusion:
             kwargs["conclusion"] = conclusion
+            kwargs["status"] = "completed"  # Explicitly set status when conclusion is provided
 
         if output:
             kwargs["output"] = output
@@ -164,15 +173,20 @@ class CheckRunHandler:
         msg: str = f"{self.log_prefix} check run {check_run} status: {status or conclusion}"
 
         try:
-            self.logger.debug(f"{self.log_prefix} Set check run status with {kwargs}")
+            self.logger.debug(
+                f"{self.log_prefix} Setting check run for {check_run}, status={status}, conclusion={conclusion}"
+            )
             await asyncio.to_thread(self.github_webhook.repository_by_github_app.create_check_run, **kwargs)
             if conclusion in (SUCCESS_STR, IN_PROGRESS_STR):
                 self.logger.info(msg)
             return
 
-        except Exception as ex:
-            self.logger.debug(f"{self.log_prefix} Failed to set {check_run} check to {status or conclusion}, {ex}")
+        except asyncio.CancelledError:
+            raise  # Always re-raise CancelledError
+        except Exception:
+            self.logger.exception(f"{self.log_prefix} Failed to set check run status for {check_run}")
             kwargs["conclusion"] = FAILURE_STR
+            kwargs["status"] = "completed"
             await asyncio.to_thread(self.github_webhook.repository_by_github_app.create_check_run, **kwargs)
 
     def get_check_run_text(self, err: str, out: str) -> str:
@@ -366,7 +380,8 @@ class CheckRunHandler:
                 check_name = custom_check["name"]
                 all_required_status_checks.append(check_name)
 
-        _all_required_status_checks = branch_required_status_checks + all_required_status_checks
+        # Use ordered deduplication to combine branch and config checks without duplicates
+        _all_required_status_checks = list(dict.fromkeys(branch_required_status_checks + all_required_status_checks))
         self.logger.debug(f"{self.log_prefix} All required status checks: {_all_required_status_checks}")
         self._all_required_status_checks = _all_required_status_checks
         return _all_required_status_checks

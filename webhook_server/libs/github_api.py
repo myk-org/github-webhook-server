@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import re
 import shlex
 import shutil
 import tempfile
@@ -809,13 +810,25 @@ class GithubWebhook:
             BUILD_CONTAINER_STR,
             PYTHON_MODULE_INSTALL_STR,
             CONVENTIONAL_TITLE_STR,
+            CAN_BE_MERGED_STR,
         }
+
+        # Whitelist regex for safe check names: alphanumeric, dots, underscores, hyphens, 1-64 chars
+        safe_check_name_pattern = re.compile(r"^[a-zA-Z0-9._-]{1,64}$")
+
+        # Regex to match env-var assignments (e.g., FOO=bar, MY_VAR=123)
+        env_assign_re = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
         for check in raw_checks:
             # Validate name field
             check_name = check.get("name")
             if not check_name:
                 self.logger.warning("Custom check missing required 'name' field, skipping")
+                continue
+
+            # Validate name contains only safe characters
+            if not safe_check_name_pattern.match(check_name):
+                self.logger.warning(f"Custom check name '{check_name}' contains unsafe characters, skipping")
                 continue
 
             # Check for collision with built-in check names
@@ -835,14 +848,23 @@ class GithubWebhook:
                 self.logger.warning(f"Custom check '{check_name}' missing required 'command' field, skipping")
                 continue
 
-            # Extract the first word as the executable (handle multiline/complex commands)
-            command_stripped = command.strip()
-            executable = command_stripped.split()[0]
+            # Parse command safely using shlex to handle quoting
+            try:
+                tokens = shlex.split(command.strip(), posix=True)
+            except ValueError as ex:
+                self.logger.warning(f"Custom check '{check_name}' has invalid shell quoting ({ex}), skipping")
+                continue
+
+            # Skip leading env-var assignments to find the real executable
+            executable = next((t for t in tokens if not env_assign_re.match(t)), "")
+            if not executable:
+                self.logger.warning(f"Custom check '{check_name}' has no executable, skipping")
+                continue
 
             # Check if executable exists on server
             if not shutil.which(executable):
                 self.logger.warning(
-                    f"Custom check '{check_name}' command executable '{executable}' not found on server. "
+                    f"Custom check '{check_name}' executable '{executable}' not found on server. "
                     f"Please open an issue to request adding this executable to the container, "
                     f"or submit a PR to add it. Skipping check."
                 )
@@ -850,7 +872,8 @@ class GithubWebhook:
 
             # Valid check - add to list
             validated_checks.append(check)
-            self.logger.debug(f"Validated custom check '{check_name}' with command '{command}'")
+            # Don't log raw command - may contain secrets. Only log executable name.
+            self.logger.debug(f"Validated custom check '{check_name}' (executable='{executable}')")
 
         # Summary logging for user visibility
         if validated_checks:

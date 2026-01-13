@@ -13,7 +13,7 @@ from github.Branch import Branch
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
-from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
+from webhook_server.libs.handlers.check_run_handler import CheckRunHandler, CheckRunOutput
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.utils import helpers as helpers_module
 from webhook_server.utils.constants import (
@@ -209,7 +209,7 @@ class RunnerHandler:
         await self.check_run_handler.set_check_in_progress(name=check_config.name)
 
         async with self._checkout_worktree(pull_request=pull_request) as (success, worktree_path, out, err):
-            output: dict[str, Any] = {
+            output: CheckRunOutput = {
                 "title": check_config.title,
                 "summary": "",
                 "text": None,
@@ -221,7 +221,8 @@ class RunnerHandler:
                 return await self.check_run_handler.set_check_failure(name=check_config.name, output=output)
 
             # Build command with worktree path substitution
-            cmd = check_config.command.format(worktree_path=worktree_path)
+            # Use replace() instead of format() to avoid KeyError on other braces in user commands
+            cmd = check_config.command.replace("{worktree_path}", worktree_path)
             self.logger.debug(f"{self.log_prefix} {check_config.name} command to run: {cmd}")
 
             # Execute command - use cwd if configured, otherwise command should include paths
@@ -250,7 +251,9 @@ class RunnerHandler:
         python_ver = (
             f"--python={self.github_webhook.tox_python_version}" if self.github_webhook.tox_python_version else ""
         )
-        _tox_tests = self.github_webhook.tox.get(pull_request.base.ref, "")
+        # Wrap PyGithub property access in asyncio.to_thread to avoid blocking
+        base_ref = await asyncio.to_thread(lambda: pull_request.base.ref)
+        _tox_tests = self.github_webhook.tox.get(base_ref, "")
 
         # Build tox command with {worktree_path} placeholder
         cmd = f"uvx {python_ver} {TOX_STR} --workdir {{worktree_path}} --root {{worktree_path}} -c {{worktree_path}}"
@@ -330,7 +333,7 @@ class RunnerHandler:
             podman_build_cmd: str = f"podman build {build_cmd}"
             self.logger.debug(f"{self.log_prefix} Podman build command to run: {podman_build_cmd}")
 
-            output: dict[str, Any] = {
+            output: CheckRunOutput = {
                 "title": "Build container",
                 "summary": "",
                 "text": None,
@@ -418,7 +421,7 @@ class RunnerHandler:
         if not self.github_webhook.conventional_title:
             return
 
-        output: dict[str, str] = {
+        output: CheckRunOutput = {
             "title": "Conventional Title",
             "summary": "PR title follows Conventional Commits format",
             "text": (
@@ -436,7 +439,8 @@ class RunnerHandler:
         title = pull_request.title
 
         self.logger.debug(f"{self.log_prefix} Conventional title check for title: {title}, allowed: {allowed_names}")
-        if any([re.match(rf"^{re.escape(_name)}(\([^)]+\))?!?: .+", title) for _name in allowed_names]):
+        # Use generator expression instead of list comprehension inside any() for efficiency
+        if any(re.match(rf"^{re.escape(_name)}(\([^)]+\))?!?: .+", title) for _name in allowed_names):
             await self.check_run_handler.set_check_success(name=CONVENTIONAL_TITLE_STR, output=output)
         else:
             output["title"] = "❌ Conventional Title"
@@ -538,7 +542,7 @@ Your team can configure additional types in the repository settings.
                     f"into {target_branch}' -m 'requested-by {requested_by}'\"",
                 ]
 
-                output = {
+                output: CheckRunOutput = {
                     "title": "Cherry-pick details",
                     "summary": "",
                     "text": None,
