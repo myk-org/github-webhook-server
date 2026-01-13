@@ -9,10 +9,8 @@ from unittest.mock import patch
 
 import simple_logger.logger
 
-from webhook_server.utils import helpers  # Imported for side effect: patches simple_logger
+from webhook_server.utils import helpers as _  # noqa: F401 # Imported for side effect: patches simple_logger
 from webhook_server.utils.safe_rotating_handler import SafeRotatingFileHandler
-
-_ = helpers  # Prevent unused import removal
 
 
 class TestSafeRotatingFileHandler:
@@ -94,7 +92,7 @@ class TestSafeRotatingFileHandler:
 
                 def mock_remove(path: str) -> None:
                     if path.endswith(".1"):
-                        raise FileNotFoundError(f"No such file: {path}")
+                        raise FileNotFoundError()
                     return original_remove(path)
 
                 with patch("os.path.exists", side_effect=mock_exists):
@@ -133,7 +131,7 @@ class TestSafeRotatingFileHandler:
 
                 def mock_rename(src: str, dst: str) -> None:
                     if ".1" in src or ".2" in src:
-                        raise FileNotFoundError(f"No such file: {src}")
+                        raise FileNotFoundError()
                     return original_rename(src, dst)
 
                 with patch("os.path.exists", side_effect=mock_exists):
@@ -157,7 +155,7 @@ class TestSafeRotatingFileHandler:
                 backupCount=3,
             )
             try:
-                # Create and immediately delete the log file
+                # Create the log file
                 with open(log_file, "w") as f:
                     f.write("initial content")
 
@@ -165,11 +163,20 @@ class TestSafeRotatingFileHandler:
                 if handler.stream is None:
                     handler.stream = handler._open()
 
-                # Delete the file before rollover
-                os.remove(log_file)
+                # Patch os.path.exists to return False for the base log file,
+                # simulating the scenario where the file was deleted before rollover.
+                # This avoids actually removing the file while handler.stream is open,
+                # which would fail on Windows.
+                original_exists = os.path.exists
 
-                # This should not crash
-                handler.doRollover()
+                def mock_exists(path: str) -> bool:
+                    if path == log_file:
+                        return False  # Simulate base file not existing
+                    return original_exists(path)
+
+                with patch("os.path.exists", side_effect=mock_exists):
+                    # This should not crash
+                    handler.doRollover()
 
                 # Verify handler created a new file
                 assert handler.stream is not None

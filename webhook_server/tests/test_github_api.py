@@ -1198,7 +1198,9 @@ class TestGithubWebhook:
                             mock_pr = Mock()
 
                             # Mock run_command to fail on clone
-                            async def mock_run_command(command: str, **_kwargs: object) -> tuple[bool, str, str]:
+                            async def mock_run_command(
+                                command: str, log_prefix: str, **_kwargs: object
+                            ) -> tuple[bool, str, str]:
                                 if "git clone" in command:
                                     return (False, "", "Permission denied")
                                 return (True, "", "")
@@ -1250,8 +1252,9 @@ class TestGithubWebhook:
                             mock_pr.base = mock_base
 
                             # Mock run_command: succeed for clone/config, fail for checkout
-                            async def mock_run_command(**kwargs: object) -> tuple[bool, str, str]:
-                                command = kwargs.get("command", "")
+                            async def mock_run_command(
+                                command: str, log_prefix: str, **_kwargs: object
+                            ) -> tuple[bool, str, str]:
                                 if "checkout main" in command:
                                     return (False, "", "Branch not found")
                                 return (True, "", "")
@@ -1305,8 +1308,9 @@ class TestGithubWebhook:
                             mock_pr.number = 123
 
                             # Mock run_command: succeed for clone/checkout, fail for config commands only
-                            async def mock_run_command(**kwargs: object) -> tuple[bool, str, str]:
-                                command = kwargs.get("command", "")
+                            async def mock_run_command(
+                                command: str, log_prefix: str, **_kwargs: object
+                            ) -> tuple[bool, str, str]:
                                 if "config user.name" in command or "config user.email" in command:
                                     return (False, "", "Config failed")
                                 return (True, "", "")
@@ -1942,10 +1946,15 @@ class TestGithubWebhook:
 
         # Verify warning was logged about non-string entries
         mock_logger.warning.assert_called()
-        # Get all warning calls and check the first one (non-string entries warning)
+        # Search through all warning calls for the non-string entries warning
         warning_calls = [call[0][0] for call in mock_logger.warning.call_args_list]
-        non_string_warning = warning_calls[0]
-        assert "Non-string entries in enabled-labels were ignored" in non_string_warning
+        non_string_warning = next(
+            (msg for msg in warning_calls if "Non-string entries in enabled-labels were ignored" in msg),
+            None,
+        )
+        assert non_string_warning is not None, (
+            f"Expected warning about non-string entries not found in: {warning_calls}"
+        )
         assert "dict(keys=" in non_string_warning
         assert "list(len=2)" in non_string_warning
         assert "int(" in non_string_warning
