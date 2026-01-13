@@ -107,6 +107,7 @@ class OwnersFileHandler:
 
         # Run git diff command on cloned repository
         # Quote clone_repo_dir to handle paths with spaces or special characters
+        # First try three-dot diff (shows changes since common ancestor)
         git_diff_command = (
             f"git -C {shlex.quote(self.github_webhook.clone_repo_dir)} diff --name-only {base_sha}...{head_sha}"
         )
@@ -118,6 +119,19 @@ class OwnersFileHandler:
                 verify_stderr=False,
                 mask_sensitive=self.github_webhook.mask_sensitive,
             )
+
+            # If three-dot fails with "no merge base", try two-dot diff
+            if not success and "no merge base" in (err or "").lower():
+                self.logger.warning(f"{self.log_prefix} No merge base found, falling back to two-dot diff")
+                git_diff_command = (
+                    f"git -C {shlex.quote(self.github_webhook.clone_repo_dir)} diff --name-only {base_sha}..{head_sha}"
+                )
+                success, out, err = await run_command(
+                    command=git_diff_command,
+                    log_prefix=self.log_prefix,
+                    verify_stderr=False,
+                    mask_sensitive=self.github_webhook.mask_sensitive,
+                )
 
             # Check success flag - raise if git diff failed
             if not success:
