@@ -293,7 +293,7 @@ class GithubWebhook:
             clone_url_with_token = self.repository.clone_url.replace("https://", f"https://{github_token}@")
 
             rc, _, err = await run_command(
-                command=f"git clone {clone_url_with_token} {self.clone_repo_dir}",
+                command=f"git clone --depth 1 {clone_url_with_token} {self.clone_repo_dir}",
                 log_prefix=self.log_prefix,
                 redact_secrets=[github_token],
                 mask_sensitive=self.mask_sensitive,
@@ -325,25 +325,29 @@ class GithubWebhook:
             if not rc:
                 self.logger.warning(f"{self.log_prefix} Failed to configure git user.email")
 
-            # Configure PR fetch to enable origin/pr/* checkouts
-            rc, _, _ = await run_command(
-                command=(
-                    f"{git_cmd} config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
-                ),
-                log_prefix=self.log_prefix,
-                mask_sensitive=self.mask_sensitive,
-            )
-            if not rc:
-                self.logger.warning(f"{self.log_prefix} Failed to configure PR fetch refs")
-
-            # Fetch all refs including PRs
-            rc, _, _ = await run_command(
-                command=f"{git_cmd} remote update",
-                log_prefix=self.log_prefix,
-                mask_sensitive=self.mask_sensitive,
-            )
-            if not rc:
-                self.logger.warning(f"{self.log_prefix} Failed to fetch remote refs")
+            # Fetch only what's needed instead of all refs
+            if pull_request:
+                # Fetch only this specific PR's ref
+                pr_number = await asyncio.to_thread(lambda: pull_request.number)
+                rc, _, _ = await run_command(
+                    command=f"{git_cmd} fetch origin +refs/pull/{pr_number}/head:refs/remotes/origin/pr/{pr_number}",
+                    log_prefix=self.log_prefix,
+                    mask_sensitive=self.mask_sensitive,
+                )
+                if not rc:
+                    self.logger.warning(f"{self.log_prefix} Failed to fetch PR {pr_number} ref")
+            else:
+                # For push events (tags/branches), the ref is already cloned
+                # Just ensure we have the checkout_ref
+                if checkout_ref:
+                    ref_to_fetch = checkout_ref.replace("refs/tags/", "").replace("refs/heads/", "")
+                    rc, _, _ = await run_command(
+                        command=f"{git_cmd} fetch origin {ref_to_fetch}",
+                        log_prefix=self.log_prefix,
+                        mask_sensitive=self.mask_sensitive,
+                    )
+                    if not rc:
+                        self.logger.warning(f"{self.log_prefix} Failed to fetch ref {ref_to_fetch}")
 
             # Determine checkout target
             if pull_request:

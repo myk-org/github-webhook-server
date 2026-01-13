@@ -695,7 +695,7 @@ class TestConfigSchema:
             monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
 
             # Invalid label category should raise a validation error
-            with pytest.raises((ValueError, Exception)):
+            with pytest.raises(ValueError, match=r"Invalid label categories in enabled-labels"):
                 Config()
         finally:
             shutil.rmtree(temp_dir)

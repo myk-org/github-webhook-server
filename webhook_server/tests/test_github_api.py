@@ -1308,8 +1308,9 @@ class TestGithubWebhook:
                                 command = kwargs.get("command", "")
                                 if "config user.name" in command or "config user.email" in command:
                                     return (False, "", "Config failed")
-                                if "config --local --add" in command or "remote update" in command:
-                                    return (False, "", "Config failed")
+                                # Targeted PR fetch (replaced git remote update)
+                                if "fetch origin +refs/pull/" in command:
+                                    return (False, "", "Fetch failed")
                                 return (True, "", "")
 
                             mock_logger = Mock()
@@ -1326,7 +1327,7 @@ class TestGithubWebhook:
 
                                 # Verify warnings were logged for each config failure
                                 warning_calls = [call for call in mock_logger.warning.call_args_list]
-                                assert len(warning_calls) == 4  # user.name, user.email, fetch config, remote update
+                                assert len(warning_calls) == 3  # user.name, user.email, PR fetch
 
     @pytest.mark.asyncio
     async def test_clone_repository_general_exception(
@@ -1438,6 +1439,77 @@ class TestGithubWebhook:
             # Test that calling _clone_repository with empty string raises ValueError
             with pytest.raises(ValueError, match="requires either pull_request or checkout_ref"):
                 await webhook._clone_repository(checkout_ref="")
+
+    @pytest.mark.asyncio
+    async def test_clone_repository_checkout_ref_fetch_path(
+        self,
+        minimal_hook_data: dict,
+        minimal_headers: dict,
+        logger: Mock,
+        get_value_side_effect: Any,
+    ) -> None:
+        """Test _clone_repository with checkout_ref fetches and checks out the correct branch.
+
+        Verifies that when checkout_ref="refs/heads/feature-branch" is provided:
+        1. git fetch origin feature-branch is called
+        2. git checkout feature-branch is called
+        """
+        with patch("webhook_server.libs.github_api.Config") as mock_config:
+            mock_config.return_value.repository = True
+            mock_config.return_value.repository_local_data.return_value = {}
+            mock_config.return_value.get_value.side_effect = get_value_side_effect
+
+            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+                mock_get_api.return_value = (Mock(), "test-token", "apiuser")
+
+                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
+                    mock_repo = Mock()
+                    mock_repo.clone_url = "https://github.com/org/test-repo.git"
+                    mock_owner = Mock()
+                    mock_owner.login = "test-owner"
+                    mock_repo.owner = mock_owner
+                    mock_get_repo_api.return_value = mock_repo
+
+                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
+                        mock_get_app_api.return_value = Mock()
+
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
+                            mock_color.return_value = "test-repo"
+
+                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
+
+                            # Track commands executed
+                            executed_commands: list[str] = []
+
+                            async def mock_run_command(command: str, **_kwargs: Any) -> tuple[bool, str, str]:
+                                executed_commands.append(command)
+                                return (True, "", "")
+
+                            with patch(
+                                "webhook_server.libs.github_api.run_command",
+                                side_effect=mock_run_command,
+                            ):
+                                await gh._clone_repository(checkout_ref="refs/heads/feature-branch")
+
+                                # Verify clone succeeded
+                                assert gh._repo_cloned is True
+
+                                # Find the fetch command for the branch
+                                fetch_commands = [
+                                    cmd for cmd in executed_commands if "fetch origin feature-branch" in cmd
+                                ]
+                                assert len(fetch_commands) == 1, (
+                                    f"Expected exactly one fetch command for feature-branch, got: {fetch_commands}"
+                                )
+
+                                # Find the checkout command
+                                checkout_commands = [
+                                    cmd for cmd in executed_commands if "checkout feature-branch" in cmd
+                                ]
+                                assert len(checkout_commands) == 1, (
+                                    f"Expected exactly one checkout command for feature-branch, "
+                                    f"got: {checkout_commands}"
+                                )
 
     @patch.dict(os.environ, {"WEBHOOK_SERVER_DATA_DIR": "webhook_server/tests/manifests"})
     @patch("webhook_server.libs.github_api.get_github_repo_api")
