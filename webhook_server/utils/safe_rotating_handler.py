@@ -17,7 +17,7 @@ class SafeRotatingFileHandler(RotatingFileHandler):
     gracefully, ensuring logging is not interrupted by missing backup files.
     """
 
-    def doRollover(self) -> None:  # noqa: N802
+    def doRollover(self) -> None:
         """Perform log file rollover with graceful handling of missing files.
 
         Catches FileNotFoundError that can occur when backup files are missing

@@ -736,10 +736,9 @@ class TestGithubWebhook:
             assert result2 is not None
 
     @pytest.mark.asyncio
-    async def test_process_check_run_event(
-        self, minimal_hook_data: dict, minimal_headers: Headers, logger: Mock
-    ) -> None:
+    async def test_process_check_run_event(self) -> None:
         """Test processing check run event."""
+        logger = Mock()
         check_run_data = {
             "action": "completed",
             "repository": {"name": "test-repo", "full_name": "org/test-repo"},
@@ -1391,7 +1390,7 @@ class TestGithubWebhook:
                                 assert "Failed to fetch PR" in str(exc_info.value)
 
                                 # Verify error was logged
-                                error_calls = [call for call in mock_logger.error.call_args_list]
+                                error_calls = list(mock_logger.error.call_args_list)
                                 assert len(error_calls) >= 1
 
     @pytest.mark.asyncio
@@ -1836,7 +1835,6 @@ class TestGithubWebhook:
         self,
         minimal_hook_data: dict,
         minimal_headers: Headers,
-        logger: Mock,
         to_thread_sync: Callable[..., Awaitable[object]],
     ) -> None:
         """Test cleanup method removes temporary directory."""
@@ -1869,7 +1867,6 @@ class TestGithubWebhook:
         self,
         minimal_hook_data: dict,
         minimal_headers: Headers,
-        logger: Mock,
         to_thread_sync: Callable[..., Awaitable[object]],
     ) -> None:
         """Test cleanup method handles exceptions."""

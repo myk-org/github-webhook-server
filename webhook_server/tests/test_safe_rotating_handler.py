@@ -9,8 +9,10 @@ from unittest.mock import patch
 
 import simple_logger.logger
 
-from webhook_server.utils import helpers  # noqa: F401 - import triggers patching
+from webhook_server.utils import helpers  # Imported for side effect: patches simple_logger
 from webhook_server.utils.safe_rotating_handler import SafeRotatingFileHandler
+
+_ = helpers  # Prevent unused import removal
 
 
 class TestSafeRotatingFileHandler:
