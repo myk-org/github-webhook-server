@@ -164,7 +164,7 @@ class LabelsHandler:
             return False
 
         if await self.label_exists_in_pull_request(pull_request=pull_request, label=label):
-            self.logger.debug(f"{self.log_prefix} Label {label} already assign")
+            self.logger.debug(f"{self.log_prefix} Label {label} already assigned")
             return False
 
         # Get the color for this label (custom or default)
@@ -311,10 +311,12 @@ class LabelsHandler:
 
         return sorted_thresholds
 
-    def get_size(self, pull_request: PullRequest) -> str:
+    async def get_size(self, pull_request: PullRequest) -> str:
         """Calculates size label based on additions and deletions."""
-        additions = pull_request.additions
-        deletions = pull_request.deletions
+        additions, deletions = await asyncio.gather(
+            asyncio.to_thread(lambda: pull_request.additions),
+            asyncio.to_thread(lambda: pull_request.deletions),
+        )
         size = additions + deletions
         self.logger.debug(f"{self.log_prefix} PR size is {size} (additions: {additions}, deletions: {deletions})")
 
@@ -336,7 +338,7 @@ class LabelsHandler:
 
     async def add_size_label(self, pull_request: PullRequest) -> None:
         """Add a size label to the pull request based on its additions and deletions."""
-        size_label = self.get_size(pull_request=pull_request)
+        size_label = await self.get_size(pull_request=pull_request)
         self.logger.debug(f"{self.log_prefix} size label is {size_label}")
         if not size_label:
             self.logger.debug(f"{self.log_prefix} Size label not found")

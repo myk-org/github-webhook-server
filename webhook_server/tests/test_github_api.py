@@ -1494,9 +1494,12 @@ class TestGithubWebhook:
                                 # Verify clone succeeded
                                 assert gh._repo_cloned is True
 
-                                # Find the fetch command for the branch
+                                # Find the fetch command for the branch (uses explicit refspec format)
                                 fetch_commands = [
-                                    cmd for cmd in executed_commands if "fetch origin feature-branch" in cmd
+                                    cmd
+                                    for cmd in executed_commands
+                                    if "fetch origin refs/heads/feature-branch:refs/remotes/origin/feature-branch"
+                                    in cmd
                                 ]
                                 assert len(fetch_commands) == 1, (
                                     f"Expected exactly one fetch command for feature-branch, got: {fetch_commands}"

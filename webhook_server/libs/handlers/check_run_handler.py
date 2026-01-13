@@ -286,8 +286,11 @@ class CheckRunHandler:
 
         _hased_str = "*****"
 
-        if self.github_webhook.pypi:
-            _output = _output.replace(self.github_webhook.pypi["token"], _hased_str)
+        pypi_config = self.github_webhook.pypi
+        if isinstance(pypi_config, dict):
+            pypi_token = pypi_config.get("token")
+            if pypi_token:
+                _output = _output.replace(pypi_token, _hased_str)
 
         if getattr(self.github_webhook, "container_repository_username", None):
             _output = _output.replace(self.github_webhook.container_repository_username, _hased_str)

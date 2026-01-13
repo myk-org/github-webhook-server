@@ -64,7 +64,7 @@ def parse_commit_line(line: str) -> dict[str, Any]:
     """Parses a single JSON formatted git log line."""
     try:
         return json_line(line=line)
-    except json.decoder.JSONDecodeError as ex:
+    except json.JSONDecodeError as ex:
         print(f"Error parsing JSON: {line} - {ex}")
         return {}
 
@@ -76,11 +76,8 @@ def categorize_commit(
     if not commit or "title" not in commit:
         return default_category
     title = commit["title"]
-    try:
-        prefix = title.split(":", 1)[0].lower()  # Extract the prefix before the first colon
-        return title_to_type_map.get(prefix, default_category)
-    except IndexError:
-        return default_category
+    prefix = title.split(":", 1)[0].lower()  # Extract the prefix before the first colon
+    return title_to_type_map.get(prefix, default_category)
 
 
 def format_changelog_entry(change: dict[str, Any], section: str) -> str:

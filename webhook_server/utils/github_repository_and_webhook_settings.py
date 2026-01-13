@@ -1,4 +1,4 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from typing import Any
 
 import github
@@ -24,7 +24,7 @@ async def repository_and_webhook_settings(webhook_secret: str | None = None) -> 
     config = Config(logger=LOGGER)
     apis_dict: dict[str, dict[str, Any]] = {}
 
-    apis: list[Any] = []
+    apis: list[Future[tuple[str, github.Github | None, str]]] = []
     with ThreadPoolExecutor() as executor:
         for repo, _ in config.root_data["repositories"].items():
             apis.append(

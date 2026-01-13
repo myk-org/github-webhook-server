@@ -350,17 +350,24 @@ class GithubWebhook:
                 if not rc:
                     self.logger.warning(f"{self.log_prefix} Failed to fetch PR {pr_number} ref")
             else:
-                # For push events (tags/branches), the ref is already cloned
-                # Just ensure we have the checkout_ref
+                # For push events (tags/branches), use explicit refspecs to avoid ambiguity
                 if checkout_ref:
-                    ref_to_fetch = checkout_ref.replace("refs/tags/", "").replace("refs/heads/", "")
+                    if checkout_ref.startswith("refs/tags/"):
+                        tag_name = checkout_ref.replace("refs/tags/", "")
+                        fetch_refspec = f"refs/tags/{tag_name}:refs/tags/{tag_name}"
+                    elif checkout_ref.startswith("refs/heads/"):
+                        branch_name = checkout_ref.replace("refs/heads/", "")
+                        fetch_refspec = f"refs/heads/{branch_name}:refs/remotes/origin/{branch_name}"
+                    else:
+                        # Fallback for unexpected ref formats
+                        fetch_refspec = checkout_ref
                     rc, _, _ = await run_command(
-                        command=f"{git_cmd} fetch origin {ref_to_fetch}",
+                        command=f"{git_cmd} fetch origin {fetch_refspec}",
                         log_prefix=self.log_prefix,
                         mask_sensitive=self.mask_sensitive,
                     )
                     if not rc:
-                        self.logger.warning(f"{self.log_prefix} Failed to fetch ref {ref_to_fetch}")
+                        self.logger.warning(f"{self.log_prefix} Failed to fetch ref {checkout_ref}")
 
             # Determine checkout target
             if pull_request:
@@ -683,7 +690,12 @@ class GithubWebhook:
         _enabled_labels = merged_labels_config.get("enabled-labels")
         if _enabled_labels is not None:
             if isinstance(_enabled_labels, list):
-                enabled_set = set(_enabled_labels)
+                # Filter non-string entries to avoid TypeError from unhashable items (e.g., dicts from YAML mistakes)
+                enabled_set = {x for x in _enabled_labels if isinstance(x, str)}
+                dropped = [x for x in _enabled_labels if not isinstance(x, str)]
+                if dropped:
+                    log_prefix = getattr(self, "log_prefix", "")
+                    self.logger.warning(f"{log_prefix} Non-string entries in enabled-labels were ignored: {dropped}")
                 # Log warning for invalid categories
                 invalid = enabled_set - CONFIGURABLE_LABEL_CATEGORIES
                 if invalid:
@@ -694,9 +706,13 @@ class GithubWebhook:
                     )
                 self.enabled_labels = enabled_set & CONFIGURABLE_LABEL_CATEGORIES  # Only keep valid categories
 
-        # colors: custom label colors (CSS3 color names)
-        _colors = merged_labels_config.get("colors", {})
-        self.label_colors: dict[str, str] = _colors if isinstance(_colors, dict) else {}
+        # colors: deep-merge global defaults with repo overrides
+        _global_colors = global_labels_config.get("colors", {})
+        _repo_colors = repo_labels_config.get("colors", {})
+        global_colors = _global_colors if isinstance(_global_colors, dict) else {}
+        repo_colors = _repo_colors if isinstance(_repo_colors, dict) else {}
+        merged_colors = {**global_colors, **repo_colors}
+        self.label_colors: dict[str, str] = {str(k): str(v) for k, v in merged_colors.items()}
 
         self.mask_sensitive = self.config.get_value("mask-sensitive-data", return_on_none=True)
 

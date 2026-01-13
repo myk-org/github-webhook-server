@@ -241,6 +241,10 @@ class IssueCommentHandler:
             await self.pull_request_handler.process_command_reprocess(pull_request=pull_request)
 
         elif _command == COMMAND_REGENERATE_WELCOME_STR:
+            if not await self.owners_file_handler.is_user_valid_to_run_commands(
+                pull_request=pull_request, reviewed_user=reviewed_user
+            ):
+                return
             self.logger.info(f"{self.log_prefix} Regenerating welcome message")
             await self.pull_request_handler.regenerate_welcome_message(pull_request=pull_request)
 

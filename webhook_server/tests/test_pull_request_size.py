@@ -5,6 +5,7 @@ from webhook_server.tests.conftest import PullRequest
 from webhook_server.utils.constants import SIZE_LABEL_PREFIX
 
 
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "additions, deletions, expected_label",
     [
@@ -17,9 +18,9 @@ from webhook_server.utils.constants import SIZE_LABEL_PREFIX
         (1000, 1, "XXL"),
     ],
 )
-def test_get_size_thresholds(process_github_webhook, owners_file_handler, additions, deletions, expected_label):
+async def test_get_size_thresholds(process_github_webhook, owners_file_handler, additions, deletions, expected_label):
     pull_request = PullRequest(additions=additions, deletions=deletions)
     labels_handler = LabelsHandler(github_webhook=process_github_webhook, owners_file_handler=owners_file_handler)
-    result = labels_handler.get_size(pull_request=pull_request)
+    result = await labels_handler.get_size(pull_request=pull_request)
 
     assert result == f"{SIZE_LABEL_PREFIX}{expected_label}"

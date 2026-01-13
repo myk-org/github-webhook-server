@@ -23,7 +23,7 @@ from webhook_server.utils.constants import (
 
 
 class MockPullRequest:
-    def __init__(self, additions: int = 50, deletions: int = 10):
+    def __init__(self, additions: int = 50, deletions: int = 10) -> None:
         self.additions = additions
         self.deletions = deletions
         self.number = 123
@@ -79,6 +79,7 @@ class TestLabelsHandler:
         """Mock pull request object."""
         return Mock(spec=PullRequest)
 
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "additions,deletions,expected_size",
         [
@@ -91,7 +92,7 @@ class TestLabelsHandler:
             (600, 400, "XXL"),  # Extra extra large changes (500+ total)
         ],
     )
-    def test_get_size_calculation(
+    async def test_get_size_calculation(
         self, labels_handler: LabelsHandler, additions: int, deletions: int, expected_size: str
     ) -> None:
         """Test pull request size calculation with various line counts."""
@@ -99,7 +100,7 @@ class TestLabelsHandler:
         pull_request.additions = additions
         pull_request.deletions = deletions
 
-        result = labels_handler.get_size(pull_request=pull_request)
+        result = await labels_handler.get_size(pull_request=pull_request)
 
         assert result == f"{SIZE_LABEL_PREFIX}{expected_size}"
 
@@ -442,7 +443,8 @@ class TestLabelsHandler:
             mock_remove.assert_not_called()
             mock_add.assert_called_once_with(pull_request=pull_request, label=f"{SIZE_LABEL_PREFIX}M")
 
-    def test_size_threshold_boundaries(self, labels_handler: LabelsHandler) -> None:
+    @pytest.mark.asyncio
+    async def test_size_threshold_boundaries(self, labels_handler: LabelsHandler) -> None:
         """Test size calculation at threshold boundaries."""
         test_cases = [
             (19, 0, "XS"),  # Just under S threshold (20)
@@ -461,7 +463,7 @@ class TestLabelsHandler:
             pull_request = Mock(spec=PullRequest)
             pull_request.additions = additions
             pull_request.deletions = deletions
-            result = labels_handler.get_size(pull_request=pull_request)
+            result = await labels_handler.get_size(pull_request=pull_request)
             assert result == f"{SIZE_LABEL_PREFIX}{expected_size}", (
                 f"Failed for {additions}+{deletions}={additions + deletions}, expected {expected_size}"
             )
@@ -577,7 +579,7 @@ class TestLabelsHandler:
     @pytest.mark.asyncio
     async def test_add_size_label_no_size_label(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
         """Test add_size_label when get_size returns None."""
-        with patch.object(labels_handler, "get_size", return_value=None):
+        with patch.object(labels_handler, "get_size", new_callable=AsyncMock, return_value=None):
             with patch.object(labels_handler, "_add_label") as mock_add:
                 await labels_handler.add_size_label(mock_pull_request)
                 mock_add.assert_not_called()
@@ -889,7 +891,8 @@ class TestLabelsHandler:
         ]
         assert thresholds == expected
 
-    def test_get_size_with_custom_thresholds(self, mock_github_webhook: Mock) -> None:
+    @pytest.mark.asyncio
+    async def test_get_size_with_custom_thresholds(self, mock_github_webhook: Mock) -> None:
         """Test get_size using custom thresholds."""
         # Mock config with custom thresholds
         mock_github_webhook.config.get_value.return_value = {
@@ -913,10 +916,11 @@ class TestLabelsHandler:
             pull_request.additions = additions
             pull_request.deletions = deletions
 
-            result = labels_handler.get_size(pull_request=pull_request)
+            result = await labels_handler.get_size(pull_request=pull_request)
             assert result == expected
 
-    def test_get_size_with_single_custom_threshold(self, mock_github_webhook: Mock) -> None:
+    @pytest.mark.asyncio
+    async def test_get_size_with_single_custom_threshold(self, mock_github_webhook: Mock) -> None:
         """Test get_size with only one custom threshold."""
         # Mock config with single threshold
         mock_github_webhook.config.get_value.return_value = {
@@ -936,7 +940,7 @@ class TestLabelsHandler:
             pull_request.additions = additions
             pull_request.deletions = deletions
 
-            result = labels_handler.get_size(pull_request=pull_request)
+            result = await labels_handler.get_size(pull_request=pull_request)
             assert result == expected
 
     def test_custom_threshold_sorting(self, mock_github_webhook: Mock) -> None:
@@ -1092,7 +1096,8 @@ class TestLabelsHandler:
         for i in range(len(thresholds) - 1):
             assert thresholds[i][0] < thresholds[i + 1][0]
 
-    def test_get_size_with_infinity_threshold(self, mock_github_webhook: Mock) -> None:
+    @pytest.mark.asyncio
+    async def test_get_size_with_infinity_threshold(self, mock_github_webhook: Mock) -> None:
         """Test get_size() method with custom infinity threshold."""
         # Mock config with infinity threshold
         mock_github_webhook.config.get_value.return_value = {
@@ -1117,7 +1122,7 @@ class TestLabelsHandler:
             pull_request.additions = additions
             pull_request.deletions = deletions
 
-            result = labels_handler.get_size(pull_request=pull_request)
+            result = await labels_handler.get_size(pull_request=pull_request)
             assert result == expected, (
                 f"Failed for {additions}+{deletions}={additions + deletions}, expected {expected}"
             )
