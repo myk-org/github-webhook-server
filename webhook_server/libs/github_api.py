@@ -668,8 +668,9 @@ class GithubWebhook:
             # Log warning for invalid categories
             invalid = enabled_set - CONFIGURABLE_LABEL_CATEGORIES
             if invalid:
+                log_prefix = getattr(self, "log_prefix", "")
                 self.logger.warning(
-                    f"{self.log_prefix} Invalid label categories in enabled-labels config: {invalid}. "
+                    f"{log_prefix} Invalid label categories in enabled-labels config: {invalid}. "
                     f"Valid categories: {CONFIGURABLE_LABEL_CATEGORIES}"
                 )
             self.enabled_labels = enabled_set & CONFIGURABLE_LABEL_CATEGORIES  # Only keep valid categories
