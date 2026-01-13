@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import simple_logger.logger
 
+import webhook_server.utils.helpers  # noqa: F401
 from webhook_server.utils.safe_rotating_handler import SafeRotatingFileHandler
 
 

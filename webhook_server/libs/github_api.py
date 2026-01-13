@@ -295,7 +295,7 @@ class GithubWebhook:
             clone_url_with_token = clone_url.replace("https://", f"https://{github_token}@")
 
             rc, _, err = await run_command(
-                command=f"git clone --depth 1 {clone_url_with_token} {self.clone_repo_dir}",
+                command=f"git clone {clone_url_with_token} {self.clone_repo_dir}",
                 log_prefix=self.log_prefix,
                 redact_secrets=[github_token],
                 mask_sensitive=self.mask_sensitive,

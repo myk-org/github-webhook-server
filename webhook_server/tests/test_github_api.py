@@ -1199,6 +1199,7 @@ class TestGithubWebhook:
                             async def mock_run_command(
                                 command: str, log_prefix: str, **_kwargs: object
                             ) -> tuple[bool, str, str]:
+                                del log_prefix  # unused
                                 if "git clone" in command:
                                     return (False, "", "Permission denied")
                                 return (True, "", "")
@@ -1253,6 +1254,7 @@ class TestGithubWebhook:
                             async def mock_run_command(
                                 command: str, log_prefix: str, **_kwargs: object
                             ) -> tuple[bool, str, str]:
+                                del log_prefix  # unused
                                 if "checkout main" in command:
                                     return (False, "", "Branch not found")
                                 return (True, "", "")
@@ -1309,6 +1311,7 @@ class TestGithubWebhook:
                             async def mock_run_command(
                                 command: str, log_prefix: str, **_kwargs: object
                             ) -> tuple[bool, str, str]:
+                                del log_prefix  # unused
                                 if "config user.name" in command or "config user.email" in command:
                                     return (False, "", "Config failed")
                                 return (True, "", "")
@@ -1374,7 +1377,7 @@ class TestGithubWebhook:
                             async def mock_run_command(
                                 command: str, log_prefix: str, **_kwargs: object
                             ) -> tuple[bool, str, str]:
-                                _ = log_prefix  # Unused parameter
+                                del log_prefix  # unused
                                 if "fetch origin +refs/pull/" in command:
                                     return (False, "", "Fetch failed: PR ref not found")
                                 return (True, "", "")
@@ -1500,7 +1503,7 @@ class TestGithubWebhook:
             # Create webhook
             webhook = GithubWebhook(
                 hook_data=minimal_hook_data,
-                headers=Headers(minimal_headers),
+                headers=minimal_headers,
                 logger=logger,
             )
 
