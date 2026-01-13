@@ -35,6 +35,16 @@ from webhook_server.utils.constants import (
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
 
+# Static default PR size thresholds: (threshold, label_name, color_hex)
+STATIC_PR_SIZE_THRESHOLDS: tuple[tuple[int | float, str, str], ...] = (
+    (20, "XS", "ededed"),
+    (50, "S", "0E8A16"),
+    (100, "M", "F09C74"),
+    (300, "L", "F5621C"),
+    (500, "XL", "D93F0B"),
+    (float("inf"), "XXL", "B60205"),
+)
+
 
 class LabelsHandler:
     def __init__(self, github_webhook: "GithubWebhook", owners_file_handler: OwnersFileHandler) -> None:
@@ -242,14 +252,7 @@ class LabelsHandler:
         custom_config = self.github_webhook.config.get_value("pr-size-thresholds", return_on_none=None)
 
         if not custom_config:
-            return [
-                (20, "XS", "ededed"),
-                (50, "S", "0E8A16"),
-                (100, "M", "F09C74"),
-                (300, "L", "F5621C"),
-                (500, "XL", "D93F0B"),
-                (float("inf"), "XXL", "B60205"),
-            ]
+            return list(STATIC_PR_SIZE_THRESHOLDS)
 
         thresholds = []
         for label_name, config in custom_config.items():
@@ -275,14 +278,7 @@ class LabelsHandler:
         if not sorted_thresholds:
             self.logger.warning(f"{self.log_prefix} No valid custom thresholds found, using static defaults")
             # Return static defaults directly to avoid infinite recursion
-            return [
-                (20, "XS", "ededed"),
-                (50, "S", "0E8A16"),
-                (100, "M", "F09C74"),
-                (300, "L", "F5621C"),
-                (500, "XL", "D93F0B"),
-                (float("inf"), "XXL", "B60205"),
-            ]
+            return list(STATIC_PR_SIZE_THRESHOLDS)
 
         return sorted_thresholds
 
