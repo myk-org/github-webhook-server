@@ -291,7 +291,8 @@ class GithubWebhook:
 
         try:
             github_token = self.token
-            clone_url_with_token = self.repository.clone_url.replace("https://", f"https://{github_token}@")
+            clone_url = await asyncio.to_thread(lambda: self.repository.clone_url)
+            clone_url_with_token = clone_url.replace("https://", f"https://{github_token}@")
 
             rc, _, err = await run_command(
                 command=f"git clone --depth 1 {clone_url_with_token} {self.clone_repo_dir}",
@@ -310,8 +311,9 @@ class GithubWebhook:
 
             # Configure git user
             git_cmd = f"git -C {self.clone_repo_dir}"
+            owner_login = await asyncio.to_thread(lambda: self.repository.owner.login)
             rc, _, _ = await run_command(
-                command=f"{git_cmd} config user.name '{self.repository.owner.login}'",
+                command=f"{git_cmd} config user.name '{owner_login}'",
                 log_prefix=self.log_prefix,
                 mask_sensitive=self.mask_sensitive,
             )
@@ -319,7 +321,7 @@ class GithubWebhook:
                 self.logger.warning(f"{self.log_prefix} Failed to configure git user.name")
 
             rc, _, _ = await run_command(
-                command=f"{git_cmd} config user.email '{self.repository.owner.login}@users.noreply.github.com'",
+                command=f"{git_cmd} config user.email '{owner_login}@users.noreply.github.com'",
                 log_prefix=self.log_prefix,
                 mask_sensitive=self.mask_sensitive,
             )
@@ -342,18 +344,19 @@ class GithubWebhook:
 
                 # Fetch only this specific PR's ref
                 pr_number = await asyncio.to_thread(lambda: pull_request.number)
-                rc, _, _ = await run_command(
+                rc, _, err = await run_command(
                     command=f"{git_cmd} fetch origin +refs/pull/{pr_number}/head:refs/remotes/origin/pr/{pr_number}",
                     log_prefix=self.log_prefix,
                     mask_sensitive=self.mask_sensitive,
                 )
                 if not rc:
-                    self.logger.warning(f"{self.log_prefix} Failed to fetch PR {pr_number} ref")
+                    redacted_err = redact_output(err)
+                    self.logger.error(f"{self.log_prefix} Failed to fetch PR {pr_number} ref: {redacted_err}")
+                    raise RuntimeError(f"Failed to fetch PR {pr_number} ref: {redacted_err}")
             else:
                 # For push events (tags only - branch pushes skip cloning)
                 # checkout_ref guaranteed to be non-None by validation at function start
-                assert checkout_ref is not None  # mypy type narrowing
-                tag_name = checkout_ref.replace("refs/tags/", "")
+                tag_name = checkout_ref.replace("refs/tags/", "")  # type: ignore[union-attr]
                 fetch_refspec = f"refs/tags/{tag_name}:refs/tags/{tag_name}"
                 rc, _, _ = await run_command(
                     command=f"{git_cmd} fetch origin {fetch_refspec}",
@@ -369,8 +372,7 @@ class GithubWebhook:
             else:
                 # For push events (tags only - branch pushes skip cloning)
                 # checkout_ref guaranteed to be non-None by validation at function start
-                assert checkout_ref is not None  # mypy type narrowing
-                checkout_target = checkout_ref.replace("refs/tags/", "")
+                checkout_target = checkout_ref.replace("refs/tags/", "")  # type: ignore[union-attr]
 
             # Checkout target branch/tag
             rc, _, err = await run_command(
@@ -697,8 +699,27 @@ class GithubWebhook:
                 enabled_set = {x for x in _enabled_labels if isinstance(x, str)}
                 dropped = [x for x in _enabled_labels if not isinstance(x, str)]
                 if dropped:
+                    # Sanitize dropped items for safe logging (avoid large/untrusted YAML blobs)
+                    max_repr_len = 50
+
+                    def _sanitize_item(item: Any) -> str:
+                        if isinstance(item, dict):
+                            keys = list(item.keys())[:5]
+                            return f"dict(keys={keys})"
+                        elif isinstance(item, list):
+                            return f"list(len={len(item)})"
+                        else:
+                            type_name = type(item).__name__
+                            item_repr = repr(item)
+                            if len(item_repr) > max_repr_len:
+                                item_repr = item_repr[:max_repr_len] + "..."
+                            return f"{type_name}({item_repr})"
+
+                    sanitized_dropped = [_sanitize_item(x) for x in dropped]
                     log_prefix = getattr(self, "log_prefix", "")
-                    self.logger.warning(f"{log_prefix} Non-string entries in enabled-labels were ignored: {dropped}")
+                    self.logger.warning(
+                        f"{log_prefix} Non-string entries in enabled-labels were ignored: {sanitized_dropped}"
+                    )
                 # Log warning for invalid categories
                 invalid = enabled_set - CONFIGURABLE_LABEL_CATEGORIES
                 if invalid:

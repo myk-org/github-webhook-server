@@ -314,8 +314,12 @@ class TestLabelsHandler:
         with patch("timeout_sampler.TimeoutWatch") as mock_timeout:
             mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
             with patch("asyncio.sleep", new_callable=AsyncMock):
-                with patch.object(labels_handler, "label_exists_in_pull_request", side_effect=[False, True]):
-                    with patch.object(labels_handler, "wait_for_label", side_effect=Exception("Wait failed")):
+                with patch.object(
+                    labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock, side_effect=[False, True]
+                ):
+                    with patch.object(
+                        labels_handler, "wait_for_label", new_callable=AsyncMock, side_effect=Exception("Wait failed")
+                    ):
                         # Exception should propagate (fail-fast architecture)
                         with pytest.raises(Exception, match="Wait failed"):
                             await labels_handler._add_label(mock_pull_request, static_label)
@@ -549,8 +553,8 @@ class TestLabelsHandler:
     ) -> None:
         """Test manage_reviewed_by_label with changes_requested state."""
         with (
-            patch.object(labels_handler, "_add_label") as mock_add,
-            patch.object(labels_handler, "_remove_label") as mock_remove,
+            patch.object(labels_handler, "_add_label", new_callable=AsyncMock) as mock_add,
+            patch.object(labels_handler, "_remove_label", new_callable=AsyncMock) as mock_remove,
         ):
             await labels_handler.manage_reviewed_by_label(mock_pull_request, "changes_requested", ADD_STR, "reviewer1")
             mock_add.assert_called_once()
@@ -585,7 +589,7 @@ class TestLabelsHandler:
     async def test_add_size_label_no_size_label(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
         """Test add_size_label when get_size returns None."""
         with patch.object(labels_handler, "get_size", new_callable=AsyncMock, return_value=None):
-            with patch.object(labels_handler, "_add_label") as mock_add:
+            with patch.object(labels_handler, "_add_label", new_callable=AsyncMock) as mock_add:
                 await labels_handler.add_size_label(mock_pull_request)
                 mock_add.assert_not_called()
 
@@ -608,7 +612,9 @@ class TestLabelsHandler:
         mock_pull_request.additions = 10
         mock_pull_request.deletions = 5
         existing_size_label = f"{SIZE_LABEL_PREFIX}L"
-        with patch.object(labels_handler, "pull_request_labels_names", return_value=[existing_size_label]):
+        with patch.object(
+            labels_handler, "pull_request_labels_names", new_callable=AsyncMock, return_value=[existing_size_label]
+        ):
             with patch.object(
                 labels_handler, "_remove_label", new_callable=AsyncMock, side_effect=Exception("Remove failed")
             ):
@@ -643,7 +649,7 @@ class TestLabelsHandler:
         self, labels_handler: LabelsHandler, mock_pull_request: Mock
     ) -> None:
         """Test label_by_user_comment for approve addition."""
-        with patch.object(labels_handler, "manage_reviewed_by_label") as mock_manage:
+        with patch.object(labels_handler, "manage_reviewed_by_label", new_callable=AsyncMock) as mock_manage:
             await labels_handler.label_by_user_comment(
                 pull_request=mock_pull_request,
                 user_requested_label=APPROVE_STR,
@@ -1236,6 +1242,24 @@ class TestIsLabelEnabled:
         # reviewed-by always enabled
         assert labels_handler.is_label_enabled("approved-user1") is True
         assert labels_handler.is_label_enabled("lgtm-user2") is True
+
+    def test_lgtm_and_approve_always_enabled(self, labels_handler: LabelsHandler) -> None:
+        """The exact 'lgtm' and 'approve' labels should always be enabled.
+
+        These are required for the review workflow and cannot be disabled,
+        even when enabled_labels is set to an empty set or doesn't include
+        their categories.
+        """
+        labels_handler.github_webhook.enabled_labels = set()  # Empty - nothing enabled
+
+        # Exact lgtm and approve labels should always be enabled
+        assert labels_handler.is_label_enabled(LGTM_STR) is True
+        assert labels_handler.is_label_enabled(APPROVE_STR) is True
+
+        # Also verify with a restrictive enabled_labels that doesn't include them
+        labels_handler.github_webhook.enabled_labels = {"hold", "verified"}
+        assert labels_handler.is_label_enabled(LGTM_STR) is True
+        assert labels_handler.is_label_enabled(APPROVE_STR) is True
 
     def test_automerge_label_category(self, labels_handler: LabelsHandler) -> None:
         """Automerge label should be controlled by 'automerge' category."""

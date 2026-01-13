@@ -65,6 +65,8 @@ class LabelsHandler:
             - If enabled_labels is None (not configured), all labels are enabled.
             - reviewed-by labels (approved-*, lgtm-*, changes-requested-*, commented-*)
               are always enabled and cannot be disabled.
+            - The exact "lgtm" and "approve" labels are always enabled and cannot be
+              disabled, as they are required for the review workflow.
         """
         # reviewed-by labels are always enabled (cannot be disabled)
         reviewed_by_prefixes = (
@@ -76,18 +78,14 @@ class LabelsHandler:
         if any(label.startswith(prefix) for prefix in reviewed_by_prefixes):
             return True
 
+        # Exact reviewed-by labels are also always enabled
+        if label in (LGTM_STR, APPROVE_STR):
+            return True
+
         enabled_labels = self.github_webhook.enabled_labels
 
         # If not configured, all labels are enabled
         if enabled_labels is None:
-            return True
-
-        # Validate enabled_labels is a set (could be misconfigured)
-        if not isinstance(enabled_labels, set):
-            self.logger.warning(
-                f"{self.log_prefix} enabled_labels is not a set (got {type(enabled_labels).__name__}), "
-                "treating as all labels enabled"
-            )
             return True
 
         # Check static labels using centralized category map

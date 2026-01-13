@@ -102,12 +102,13 @@ DYNAMIC_LABELS_DICT: dict[str, str] = {
     BRANCH_LABEL_PREFIX: "1D76DB",
 }
 
-ALL_LABELS_DICT: dict[str, str] = {**STATIC_LABELS_DICT, **DYNAMIC_LABELS_DICT}
+_ALL_LABELS_DICT: dict[str, str] = {**STATIC_LABELS_DICT, **DYNAMIC_LABELS_DICT}
+ALL_LABELS_DICT: Mapping[str, str] = types.MappingProxyType(_ALL_LABELS_DICT)
 
 # Default label colors - uses ALL_LABELS_DICT as the source of truth
 # These are used when no custom colors are configured via labels.colors
 # Using MappingProxyType to prevent accidental mutation of the shared dict
-DEFAULT_LABEL_COLORS: Mapping[str, str] = types.MappingProxyType(ALL_LABELS_DICT)
+DEFAULT_LABEL_COLORS: Mapping[str, str] = ALL_LABELS_DICT
 
 # All configurable label categories (for enabled-labels config)
 # Note: reviewed-by is NOT in this list because it cannot be disabled

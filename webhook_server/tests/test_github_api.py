@@ -1,6 +1,7 @@
 import asyncio
 import os
 import tempfile
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
@@ -69,27 +70,27 @@ class TestGithubWebhook:
         }
 
     @pytest.fixture
-    def minimal_headers(self) -> dict[str, str]:
-        return {"X-GitHub-Event": "pull_request", "X-GitHub-Delivery": "abc"}
+    def minimal_headers(self) -> Headers:
+        return Headers({"X-GitHub-Event": "pull_request", "X-GitHub-Delivery": "abc"})
 
     @pytest.fixture
     def logger(self):
         return get_logger(name="test")
 
     @pytest.fixture
-    def to_thread_sync(self) -> Any:
+    def to_thread_sync(self) -> Callable[..., Awaitable[object]]:
         """Async helper to make asyncio.to_thread awaitable while executing inline."""
 
-        async def _to_thread_sync(fn: Any, *args: Any, **kwargs: Any) -> Any:
+        async def _to_thread_sync(fn: Callable[..., object], *args: object, **kwargs: object) -> object:
             return fn(*args, **kwargs)
 
         return _to_thread_sync
 
     @pytest.fixture
-    def get_value_side_effect(self) -> Any:
+    def get_value_side_effect(self) -> Callable[..., object]:
         """Side effect function for Config.get_value mock in clone tests."""
 
-        def _get_value_side_effect(value: str, *_args: Any, **_kwargs: Any) -> Any:
+        def _get_value_side_effect(value: str, *_args: object, **_kwargs: object) -> bool | dict[str, object] | None:
             if value == "mask-sensitive-data":
                 return True
             if value == "container":
@@ -225,8 +226,7 @@ class TestGithubWebhook:
         mock_get_repo_api.return_value = Mock()
         mock_get_app_api.return_value = Mock()
         mock_color.return_value = "test-repo"
-        headers = minimal_headers.copy()
-        headers["X-GitHub-Event"] = "ping"
+        headers = Headers({"X-GitHub-Event": "ping", "X-GitHub-Delivery": "abc"})
         gh = GithubWebhook(minimal_hook_data, headers, logger)
         result = asyncio.run(gh.process())
         assert result is None
@@ -736,15 +736,16 @@ class TestGithubWebhook:
             assert result2 is not None
 
     @pytest.mark.asyncio
-    async def test_process_check_run_event(self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock) -> None:
+    async def test_process_check_run_event(
+        self, minimal_hook_data: dict, minimal_headers: Headers, logger: Mock
+    ) -> None:
         """Test processing check run event."""
         check_run_data = {
             "action": "completed",
             "repository": {"name": "test-repo", "full_name": "org/test-repo"},
             "check_run": {"name": "test-check", "head_sha": "abc123", "status": "completed", "conclusion": "success"},
         }
-        headers = minimal_headers.copy()
-        headers["X-GitHub-Event"] = "check_run"
+        headers = Headers({"X-GitHub-Event": "check_run", "X-GitHub-Delivery": "abc"})
 
         with tempfile.TemporaryDirectory() as temp_dir:
             with patch("webhook_server.libs.github_api.Config") as mock_config:
@@ -812,7 +813,7 @@ class TestGithubWebhook:
 
     @pytest.mark.asyncio
     async def test_get_pull_request_by_number(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
+        self, minimal_hook_data: dict, minimal_headers: Headers, logger: Mock
     ) -> None:
         """Test getting pull request by number."""
         with patch("webhook_server.libs.github_api.Config") as mock_config:
@@ -842,7 +843,7 @@ class TestGithubWebhook:
 
     @pytest.mark.asyncio
     async def test_get_pull_request_github_exception(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
+        self, minimal_hook_data: dict, minimal_headers: Headers, logger: Mock
     ) -> None:
         """Test getting pull request with GithubException."""
 
@@ -871,7 +872,7 @@ class TestGithubWebhook:
 
     @pytest.mark.asyncio
     async def test_get_pull_request_by_commit_with_pulls(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
+        self, minimal_hook_data: dict, minimal_headers: Headers, logger: Mock
     ) -> None:
         """Test getting pull request by commit with pulls."""
         commit_data = {
@@ -907,7 +908,7 @@ class TestGithubWebhook:
                             assert result == mock_pr
 
     def test_container_repository_and_tag_with_tag(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
+        self, minimal_hook_data: dict, minimal_headers: Headers, logger: Mock
     ) -> None:
         """Test container_repository_and_tag with provided tag."""
         with patch("webhook_server.libs.github_api.Config") as mock_config:
@@ -933,7 +934,7 @@ class TestGithubWebhook:
                             assert result == "test-repo:v1.0.0"
 
     def test_container_repository_and_tag_with_pull_request(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
+        self, minimal_hook_data: dict, minimal_headers: Headers, logger: Mock
     ) -> None:
         """Test container_repository_and_tag with pull request."""
         with patch("webhook_server.libs.github_api.Config") as mock_config:
@@ -962,7 +963,7 @@ class TestGithubWebhook:
                             assert result == "test-repo:pr-123"
 
     def test_container_repository_and_tag_merged_pr(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
+        self, minimal_hook_data: dict, minimal_headers: Headers, logger: Mock
     ) -> None:
         """Test container_repository_and_tag with merged pull request."""
         with patch("webhook_server.libs.github_api.Config") as mock_config:
@@ -992,7 +993,7 @@ class TestGithubWebhook:
                             assert result == "test-repo:develop"
 
     def test_container_repository_and_tag_no_pull_request(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
+        self, minimal_hook_data: dict, minimal_headers: Headers, logger: Mock
     ) -> None:
         """Test container_repository_and_tag without pull request."""
         with patch("webhook_server.libs.github_api.Config") as mock_config:
@@ -1017,7 +1018,7 @@ class TestGithubWebhook:
                             assert result is None
 
     def test_current_pull_request_supported_retest_property(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
+        self, minimal_hook_data: dict, minimal_headers: Headers, logger: Mock
     ) -> None:
         """Test _current_pull_request_supported_retest property."""
         with patch("webhook_server.libs.github_api.Config") as mock_config:
@@ -1053,7 +1054,7 @@ class TestGithubWebhook:
                             assert "conventional-title" in result
 
     @pytest.mark.asyncio
-    async def test_get_last_commit(self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock) -> None:
+    async def test_get_last_commit(self, minimal_hook_data: dict, minimal_headers: Headers, logger: Mock) -> None:
         """Test _get_last_commit method."""
         with patch("webhook_server.libs.github_api.Config") as mock_config:
             mock_config.return_value.repository = True
@@ -1084,10 +1085,10 @@ class TestGithubWebhook:
     async def test_clone_repository_success(
         self,
         minimal_hook_data: dict,
-        minimal_headers: dict,
+        minimal_headers: Headers,
         logger: Mock,
-        get_value_side_effect: Any,
-        to_thread_sync: Any,
+        get_value_side_effect: Callable[..., object],
+        to_thread_sync: Callable[..., Awaitable[object]],
     ) -> None:
         """Test successful repository clone for PR."""
         with patch("webhook_server.libs.github_api.Config") as mock_config:
@@ -1121,7 +1122,7 @@ class TestGithubWebhook:
                             mock_pr.base = mock_base
 
                             # Mock run_command to succeed for all git operations
-                            async def mock_run_command(*_args: Any, **_kwargs: Any) -> tuple[bool, str, str]:
+                            async def mock_run_command(*_args: object, **_kwargs: object) -> tuple[bool, str, str]:
                                 return (True, "", "")
 
                             with (
@@ -1135,7 +1136,7 @@ class TestGithubWebhook:
 
     @pytest.mark.asyncio
     async def test_clone_repository_already_cloned(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
+        self, minimal_hook_data: dict, minimal_headers: Headers, logger: Mock
     ) -> None:
         """Test early return when repository already cloned."""
         with patch("webhook_server.libs.github_api.Config") as mock_config:
@@ -1169,9 +1170,9 @@ class TestGithubWebhook:
     async def test_clone_repository_clone_failure(
         self,
         minimal_hook_data: dict,
-        minimal_headers: dict,
+        minimal_headers: Headers,
         logger: Mock,
-        get_value_side_effect: Any,
+        get_value_side_effect: Callable[..., object],
     ) -> None:
         """Test RuntimeError raised when git clone fails."""
         with patch("webhook_server.libs.github_api.Config") as mock_config:
@@ -1198,7 +1199,7 @@ class TestGithubWebhook:
                             mock_pr = Mock()
 
                             # Mock run_command to fail on clone
-                            async def mock_run_command(command: str, **_kwargs: Any) -> tuple[bool, str, str]:
+                            async def mock_run_command(command: str, **_kwargs: object) -> tuple[bool, str, str]:
                                 if "git clone" in command:
                                     return (False, "", "Permission denied")
                                 return (True, "", "")
@@ -1213,10 +1214,10 @@ class TestGithubWebhook:
     async def test_clone_repository_checkout_failure(
         self,
         minimal_hook_data: dict,
-        minimal_headers: dict,
+        minimal_headers: Headers,
         logger: Mock,
-        get_value_side_effect: Any,
-        to_thread_sync: Any,
+        get_value_side_effect: Callable[..., object],
+        to_thread_sync: Callable[..., Awaitable[object]],
     ) -> None:
         """Test RuntimeError raised when git checkout fails."""
         with patch("webhook_server.libs.github_api.Config") as mock_config:
@@ -1250,7 +1251,7 @@ class TestGithubWebhook:
                             mock_pr.base = mock_base
 
                             # Mock run_command: succeed for clone/config, fail for checkout
-                            async def mock_run_command(**kwargs: Any) -> tuple[bool, str, str]:
+                            async def mock_run_command(**kwargs: object) -> tuple[bool, str, str]:
                                 command = kwargs.get("command", "")
                                 if "checkout main" in command:
                                     return (False, "", "Branch not found")
@@ -1267,10 +1268,10 @@ class TestGithubWebhook:
     async def test_clone_repository_git_config_warnings(
         self,
         minimal_hook_data: dict,
-        minimal_headers: dict,
+        minimal_headers: Headers,
         logger: Mock,
-        get_value_side_effect: Any,
-        to_thread_sync: Any,
+        get_value_side_effect: Callable[..., object],
+        to_thread_sync: Callable[..., Awaitable[object]],
     ) -> None:
         """Test that git config failures log warnings but don't raise exceptions."""
         with patch("webhook_server.libs.github_api.Config") as mock_config:
@@ -1302,15 +1303,13 @@ class TestGithubWebhook:
                             mock_base = Mock()
                             mock_base.ref = "main"
                             mock_pr.base = mock_base
+                            mock_pr.number = 123
 
-                            # Mock run_command: succeed for clone/checkout, fail for config commands
-                            async def mock_run_command(**kwargs: Any) -> tuple[bool, str, str]:
+                            # Mock run_command: succeed for clone/checkout, fail for config commands only
+                            async def mock_run_command(**kwargs: object) -> tuple[bool, str, str]:
                                 command = kwargs.get("command", "")
                                 if "config user.name" in command or "config user.email" in command:
                                     return (False, "", "Config failed")
-                                # Targeted PR fetch (replaced git remote update)
-                                if "fetch origin +refs/pull/" in command:
-                                    return (False, "", "Fetch failed")
                                 return (True, "", "")
 
                             mock_logger = Mock()
@@ -1327,15 +1326,81 @@ class TestGithubWebhook:
 
                                 # Verify warnings were logged for each config failure
                                 warning_calls = [call for call in mock_logger.warning.call_args_list]
-                                assert len(warning_calls) == 3  # user.name, user.email, PR fetch
+                                assert len(warning_calls) == 2  # user.name, user.email
+
+    @pytest.mark.asyncio
+    async def test_clone_repository_pr_ref_fetch_failure_raises(
+        self,
+        minimal_hook_data: dict,
+        minimal_headers: Headers,
+        logger: Mock,
+        get_value_side_effect: Callable[..., object],
+        to_thread_sync: Callable[..., Awaitable[object]],
+    ) -> None:
+        """Test that PR ref fetch failure raises RuntimeError (fatal error)."""
+        with patch("webhook_server.libs.github_api.Config") as mock_config:
+            mock_config.return_value.repository = True
+            mock_config.return_value.repository_local_data.return_value = {}
+            mock_config.return_value.get_value.side_effect = get_value_side_effect
+
+            with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
+                mock_get_api.return_value = (Mock(), "test-token", "apiuser")
+
+                with patch("webhook_server.libs.github_api.get_github_repo_api") as mock_get_repo_api:
+                    mock_repo = Mock()
+                    mock_repo.clone_url = "https://github.com/org/test-repo.git"
+                    mock_owner = Mock()
+                    mock_owner.login = "test-owner"
+                    mock_repo.owner = mock_owner
+                    mock_get_repo_api.return_value = mock_repo
+
+                    with patch("webhook_server.libs.github_api.get_repository_github_app_api") as mock_get_app_api:
+                        mock_get_app_api.return_value = Mock()
+
+                        with patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix") as mock_color:
+                            mock_color.return_value = "test-repo"
+
+                            gh = GithubWebhook(minimal_hook_data, minimal_headers, logger)
+
+                            # Mock pull request
+                            mock_pr = Mock()
+                            mock_base = Mock()
+                            mock_base.ref = "main"
+                            mock_pr.base = mock_base
+                            mock_pr.number = 456
+
+                            # Mock run_command: succeed for clone, fail for PR ref fetch
+                            async def mock_run_command(**kwargs: object) -> tuple[bool, str, str]:
+                                command = kwargs.get("command", "")
+                                if "fetch origin +refs/pull/" in command:
+                                    return (False, "", "Fetch failed: PR ref not found")
+                                return (True, "", "")
+
+                            mock_logger = Mock()
+
+                            with (
+                                patch("webhook_server.libs.github_api.run_command", side_effect=mock_run_command),
+                                patch("asyncio.to_thread", side_effect=to_thread_sync),
+                                patch.object(gh, "logger", mock_logger),
+                            ):
+                                with pytest.raises(RuntimeError) as exc_info:
+                                    await gh._clone_repository(pull_request=mock_pr)
+
+                                # Verify error message contains PR number and error
+                                assert "456" in str(exc_info.value)
+                                assert "Failed to fetch PR" in str(exc_info.value)
+
+                                # Verify error was logged
+                                error_calls = [call for call in mock_logger.error.call_args_list]
+                                assert len(error_calls) >= 1
 
     @pytest.mark.asyncio
     async def test_clone_repository_general_exception(
         self,
         minimal_hook_data: dict,
-        minimal_headers: dict,
+        minimal_headers: Headers,
         logger: Mock,
-        get_value_side_effect: Any,
+        get_value_side_effect: Callable[..., object],
     ) -> None:
         """Test exception handling during clone operation."""
         with patch("webhook_server.libs.github_api.Config") as mock_config:
@@ -1362,7 +1427,7 @@ class TestGithubWebhook:
                             mock_pr = Mock()
 
                             # Mock run_command to raise an exception
-                            async def mock_run_command(*_args: Any, **_kwargs: Any) -> tuple[bool, str, str]:
+                            async def mock_run_command(*_args: object, **_kwargs: object) -> tuple[bool, str, str]:
                                 raise ValueError("Unexpected error during git operation")
 
                             with (
@@ -1373,7 +1438,7 @@ class TestGithubWebhook:
 
     @pytest.mark.asyncio
     async def test_clone_repository_no_arguments(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock
+        self, minimal_hook_data: dict, minimal_headers: Headers, logger: Mock
     ) -> None:
         """Test _clone_repository raises ValueError when no arguments provided."""
         with patch("webhook_server.libs.github_api.Config") as mock_config:
@@ -1402,7 +1467,7 @@ class TestGithubWebhook:
     async def test_clone_repository_empty_checkout_ref(
         self,
         minimal_hook_data: dict,
-        minimal_headers: dict,
+        minimal_headers: Headers,
         logger: Mock,
         tmp_path: Path,
     ) -> None:
@@ -1444,10 +1509,10 @@ class TestGithubWebhook:
     async def test_clone_repository_checkout_ref_fetch_path_for_tag(
         self,
         minimal_hook_data: dict,
-        minimal_headers: dict,
+        minimal_headers: Headers,
         logger: Mock,
-        get_value_side_effect: Any,
-        to_thread_sync: Any,
+        get_value_side_effect: Callable[..., object],
+        to_thread_sync: Callable[..., Awaitable[object]],
     ) -> None:
         """Test _clone_repository with checkout_ref fetches and checks out the correct tag.
 
@@ -1484,7 +1549,7 @@ class TestGithubWebhook:
                             # Track commands executed
                             executed_commands: list[str] = []
 
-                            async def mock_run_command(command: str, **_kwargs: Any) -> tuple[bool, str, str]:
+                            async def mock_run_command(command: str, **_kwargs: object) -> tuple[bool, str, str]:
                                 executed_commands.append(command)
                                 return (True, "", "")
 
@@ -1500,18 +1565,19 @@ class TestGithubWebhook:
                                 # Verify clone succeeded
                                 assert gh._repo_cloned is True
 
-                                # Find the fetch command for the tag (uses explicit refspec format)
-                                fetch_commands = [
-                                    cmd
-                                    for cmd in executed_commands
-                                    if "fetch origin refs/tags/v1.0.0:refs/tags/v1.0.0" in cmd
-                                ]
+                                # Verify tag fetch command contains the expected refspec
+                                # Using flexible matching to tolerate added git flags
+                                tag_refspec = "refs/tags/v1.0.0:refs/tags/v1.0.0"
+                                fetch_commands = [cmd for cmd in executed_commands if tag_refspec in cmd]
                                 assert len(fetch_commands) == 1, (
-                                    f"Expected exactly one fetch command for tag v1.0.0, got: {fetch_commands}"
+                                    f"Expected exactly one fetch command containing refspec '{tag_refspec}', "
+                                    f"got: {fetch_commands}"
                                 )
 
-                                # Find the checkout command (tag name without refs/tags/ prefix)
-                                checkout_commands = [cmd for cmd in executed_commands if "checkout v1.0.0" in cmd]
+                                # Verify checkout command contains the tag name
+                                checkout_commands = [
+                                    cmd for cmd in executed_commands if "checkout" in cmd and "v1.0.0" in cmd
+                                ]
                                 assert len(checkout_commands) == 1, (
                                     f"Expected exactly one checkout command for v1.0.0, got: {checkout_commands}"
                                 )
@@ -1520,10 +1586,10 @@ class TestGithubWebhook:
     async def test_clone_repository_fetches_base_branch_for_pr(
         self,
         minimal_hook_data: dict,
-        minimal_headers: dict,
+        minimal_headers: Headers,
         logger: Mock,
-        get_value_side_effect: Any,
-        to_thread_sync: Any,
+        get_value_side_effect: Callable[..., object],
+        to_thread_sync: Callable[..., Awaitable[object]],
     ) -> None:
         """Test _clone_repository fetches base branch before PR ref when pull_request is provided.
 
@@ -1566,7 +1632,7 @@ class TestGithubWebhook:
                             # Track commands executed in order
                             executed_commands: list[str] = []
 
-                            async def mock_run_command(command: str, **_kwargs: Any) -> tuple[bool, str, str]:
+                            async def mock_run_command(command: str, **_kwargs: object) -> tuple[bool, str, str]:
                                 executed_commands.append(command)
                                 return (True, "", "")
 
@@ -1582,34 +1648,35 @@ class TestGithubWebhook:
                                 # Verify clone succeeded
                                 assert gh._repo_cloned is True
 
-                                # Find the base branch fetch command
+                                # Verify base branch fetch command contains the branch name
+                                # Using flexible matching to tolerate added git flags
+                                base_branch = "release-1.0"
                                 base_fetch_commands = [
-                                    cmd for cmd in executed_commands if "fetch origin release-1.0" in cmd
+                                    cmd
+                                    for cmd in executed_commands
+                                    if "fetch" in cmd and base_branch in cmd and "refs/pull" not in cmd
                                 ]
                                 assert len(base_fetch_commands) == 1, (
-                                    f"Expected exactly one fetch command for base branch release-1.0, "
+                                    f"Expected exactly one fetch command for base branch '{base_branch}', "
                                     f"got: {base_fetch_commands}"
                                 )
 
-                                # Find the PR ref fetch command
-                                pr_fetch_commands = [
-                                    cmd
-                                    for cmd in executed_commands
-                                    if "fetch origin +refs/pull/123/head:refs/remotes/origin/pr/123" in cmd
-                                ]
+                                # Verify PR ref fetch command contains the expected refspec
+                                pr_refspec = "+refs/pull/123/head:refs/remotes/origin/pr/123"
+                                pr_fetch_commands = [cmd for cmd in executed_commands if pr_refspec in cmd]
                                 assert len(pr_fetch_commands) == 1, (
-                                    f"Expected exactly one PR ref fetch command, got: {pr_fetch_commands}"
+                                    f"Expected exactly one PR ref fetch command containing '{pr_refspec}', "
+                                    f"got: {pr_fetch_commands}"
                                 )
 
                                 # Verify order: base branch fetch should come BEFORE PR ref fetch
+                                # Use index into executed_commands for ordering check
                                 base_fetch_index = next(
-                                    i for i, cmd in enumerate(executed_commands) if "fetch origin release-1.0" in cmd
-                                )
-                                pr_fetch_index = next(
                                     i
                                     for i, cmd in enumerate(executed_commands)
-                                    if "fetch origin +refs/pull/123/head" in cmd
+                                    if "fetch" in cmd and base_branch in cmd and "refs/pull" not in cmd
                                 )
+                                pr_fetch_index = next(i for i, cmd in enumerate(executed_commands) if pr_refspec in cmd)
                                 assert base_fetch_index < pr_fetch_index, (
                                     f"Base branch fetch (index {base_fetch_index}) should come before "
                                     f"PR ref fetch (index {pr_fetch_index}). "
@@ -1766,7 +1833,11 @@ class TestGithubWebhook:
 
     @pytest.mark.asyncio
     async def test_cleanup(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock, to_thread_sync: Any
+        self,
+        minimal_hook_data: dict,
+        minimal_headers: Headers,
+        logger: Mock,
+        to_thread_sync: Callable[..., Awaitable[object]],
     ) -> None:
         """Test cleanup method removes temporary directory."""
         mock_logger = Mock()
@@ -1795,7 +1866,11 @@ class TestGithubWebhook:
 
     @pytest.mark.asyncio
     async def test_cleanup_exception(
-        self, minimal_hook_data: dict, minimal_headers: dict, logger: Mock, to_thread_sync: Any
+        self,
+        minimal_hook_data: dict,
+        minimal_headers: Headers,
+        logger: Mock,
+        to_thread_sync: Callable[..., Awaitable[object]],
     ) -> None:
         """Test cleanup method handles exceptions."""
         mock_logger = Mock()
@@ -1823,3 +1898,61 @@ class TestGithubWebhook:
                                         await gh.cleanup()
 
                                         mock_logger.warning.assert_called()
+
+    @patch("webhook_server.libs.github_api.Config")
+    @patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit")
+    @patch("webhook_server.libs.github_api.get_github_repo_api")
+    @patch("webhook_server.libs.github_api.get_repository_github_app_api")
+    @patch("webhook_server.utils.helpers.get_repository_color_for_log_prefix")
+    def test_enabled_labels_with_non_string_entries_logs_warning(
+        self,
+        mock_color: Mock,
+        mock_get_app_api: Mock,
+        mock_get_repo_api: Mock,
+        mock_get_api: Mock,
+        mock_config: Mock,
+        minimal_hook_data: dict,
+        minimal_headers: Headers,
+    ) -> None:
+        """Test that non-string entries in enabled-labels are sanitized and logged."""
+        mock_logger = Mock()
+
+        # Configure mock to return enabled-labels with non-string items
+        def get_value_side_effect(value: str, *_args: object, **kwargs: object) -> object:
+            if value == "labels":
+                # Return labels config with non-string entries in enabled-labels
+                return {
+                    "enabled-labels": [
+                        "verified",  # Valid string - valid category
+                        {"key1": "val1", "key2": "val2"},  # Dict - should be sanitized
+                        ["nested", "list"],  # List - should be sanitized
+                        12345,  # Integer - should be sanitized
+                    ]
+                }
+            if value == "mask-sensitive-data":
+                return True
+            return kwargs.get("return_on_none")
+
+        mock_config.return_value.repository = True
+        mock_config.return_value.repository_local_data.return_value = {}
+        mock_config.return_value.get_value.side_effect = get_value_side_effect
+        mock_get_api.return_value = (Mock(), "token", "apiuser")
+        mock_get_repo_api.return_value = Mock()
+        mock_get_app_api.return_value = Mock()
+        mock_color.return_value = "test-repo"
+
+        gh = GithubWebhook(minimal_hook_data, minimal_headers, mock_logger)
+
+        # Verify warning was logged about non-string entries
+        mock_logger.warning.assert_called()
+        # Get all warning calls and check the first one (non-string entries warning)
+        warning_calls = [call[0][0] for call in mock_logger.warning.call_args_list]
+        non_string_warning = warning_calls[0]
+        assert "Non-string entries in enabled-labels were ignored" in non_string_warning
+        assert "dict(keys=" in non_string_warning
+        assert "list(len=2)" in non_string_warning
+        assert "int(" in non_string_warning
+
+        # Verify only valid string entries are kept (and filtered to valid categories)
+        assert gh.enabled_labels is not None
+        assert "verified" in gh.enabled_labels
