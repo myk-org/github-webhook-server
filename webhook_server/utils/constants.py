@@ -51,6 +51,16 @@ USER_LABELS_DICT: dict[str, str] = {
     AUTOMERGE_LABEL_STR: "0E8A16",
 }
 
+# Mapping from label strings to their configuration category names
+LABEL_CATEGORY_MAP: dict[str, str] = {
+    HOLD_LABEL_STR: "hold",
+    VERIFIED_LABEL_STR: "verified",
+    WIP_STR: "wip",
+    AUTOMERGE_LABEL_STR: "automerge",
+    LGTM_STR: "lgtm",  # Always enabled
+    APPROVE_STR: "approve",  # Always enabled
+}
+
 STATIC_LABELS_DICT: dict[str, str] = {
     **USER_LABELS_DICT,
     CHERRY_PICKED_LABEL_PREFIX: "1D76DB",

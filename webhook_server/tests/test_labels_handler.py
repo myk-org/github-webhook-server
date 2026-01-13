@@ -9,10 +9,15 @@ from webhook_server.libs.handlers.labels_handler import LabelsHandler
 from webhook_server.utils.constants import (
     ADD_STR,
     APPROVE_STR,
+    AUTOMERGE_LABEL_STR,
+    BRANCH_LABEL_PREFIX,
+    CHERRY_PICK_LABEL_PREFIX,
+    CHERRY_PICKED_LABEL_PREFIX,
     HOLD_LABEL_STR,
     LGTM_STR,
     SIZE_LABEL_PREFIX,
     STATIC_LABELS_DICT,
+    VERIFIED_LABEL_STR,
     WIP_STR,
 )
 
@@ -165,9 +170,10 @@ class TestLabelsHandler:
         with patch.object(labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock) as mock_exists:
             mock_exists.return_value = False
 
-            await labels_handler._add_label(mock_pull_request, "hold")
+            result = await labels_handler._add_label(mock_pull_request, "hold")
 
             # Verify label was not added (disabled by config)
+            assert result is False
             mock_pull_request.add_to_labels.assert_not_called()
 
     @pytest.mark.asyncio
@@ -1188,11 +1194,11 @@ class TestIsLabelEnabled:
         """When enabled_labels is None, all labels should be enabled."""
         labels_handler.github_webhook.enabled_labels = None
 
-        assert labels_handler.is_label_enabled("verified") is True
-        assert labels_handler.is_label_enabled("hold") is True
-        assert labels_handler.is_label_enabled("wip") is True
-        assert labels_handler.is_label_enabled("size/M") is True
-        assert labels_handler.is_label_enabled("branch-main") is True
+        assert labels_handler.is_label_enabled(VERIFIED_LABEL_STR) is True
+        assert labels_handler.is_label_enabled(HOLD_LABEL_STR) is True
+        assert labels_handler.is_label_enabled(WIP_STR) is True
+        assert labels_handler.is_label_enabled(f"{SIZE_LABEL_PREFIX}M") is True
+        assert labels_handler.is_label_enabled(f"{BRANCH_LABEL_PREFIX}main") is True
 
     def test_reviewed_by_labels_always_enabled(self, labels_handler: LabelsHandler) -> None:
         """reviewed-by labels should always be enabled, even if not in config."""
@@ -1208,28 +1214,28 @@ class TestIsLabelEnabled:
         """Only labels in enabled_labels should be enabled."""
         labels_handler.github_webhook.enabled_labels = {"verified", "hold", "size"}
 
-        assert labels_handler.is_label_enabled("verified") is True
-        assert labels_handler.is_label_enabled("hold") is True
-        assert labels_handler.is_label_enabled("size/M") is True
-        assert labels_handler.is_label_enabled("wip") is False
+        assert labels_handler.is_label_enabled(VERIFIED_LABEL_STR) is True
+        assert labels_handler.is_label_enabled(HOLD_LABEL_STR) is True
+        assert labels_handler.is_label_enabled(f"{SIZE_LABEL_PREFIX}M") is True
+        assert labels_handler.is_label_enabled(WIP_STR) is False
         assert labels_handler.is_label_enabled("needs-rebase") is False
-        assert labels_handler.is_label_enabled("branch-main") is False
+        assert labels_handler.is_label_enabled(f"{BRANCH_LABEL_PREFIX}main") is False
 
     def test_branch_labels_category(self, labels_handler: LabelsHandler) -> None:
         """Branch labels should be controlled by 'branch' category."""
         labels_handler.github_webhook.enabled_labels = {"branch"}
 
-        assert labels_handler.is_label_enabled("branch-main") is True
-        assert labels_handler.is_label_enabled("branch-feature-123") is True
-        assert labels_handler.is_label_enabled("verified") is False
+        assert labels_handler.is_label_enabled(f"{BRANCH_LABEL_PREFIX}main") is True
+        assert labels_handler.is_label_enabled(f"{BRANCH_LABEL_PREFIX}feature-123") is True
+        assert labels_handler.is_label_enabled(VERIFIED_LABEL_STR) is False
 
     def test_cherry_pick_labels_category(self, labels_handler: LabelsHandler) -> None:
         """Cherry-pick labels should be controlled by 'cherry-pick' category."""
         labels_handler.github_webhook.enabled_labels = {"cherry-pick"}
 
-        assert labels_handler.is_label_enabled("cherry-pick-v1.0") is True
-        assert labels_handler.is_label_enabled("CherryPicked") is True
-        assert labels_handler.is_label_enabled("verified") is False
+        assert labels_handler.is_label_enabled(f"{CHERRY_PICK_LABEL_PREFIX}v1.0") is True
+        assert labels_handler.is_label_enabled(CHERRY_PICKED_LABEL_PREFIX) is True
+        assert labels_handler.is_label_enabled(VERIFIED_LABEL_STR) is False
 
     def test_unknown_labels_allowed_by_default(self, labels_handler: LabelsHandler) -> None:
         """Unknown labels should be allowed when enabled_labels is set."""
@@ -1242,29 +1248,29 @@ class TestIsLabelEnabled:
         """Empty enabled_labels should disable all configurable labels."""
         labels_handler.github_webhook.enabled_labels = set()
 
-        assert labels_handler.is_label_enabled("verified") is False
-        assert labels_handler.is_label_enabled("hold") is False
-        assert labels_handler.is_label_enabled("wip") is False
-        assert labels_handler.is_label_enabled("size/M") is False
-        assert labels_handler.is_label_enabled("branch-main") is False
+        assert labels_handler.is_label_enabled(VERIFIED_LABEL_STR) is False
+        assert labels_handler.is_label_enabled(HOLD_LABEL_STR) is False
+        assert labels_handler.is_label_enabled(WIP_STR) is False
+        assert labels_handler.is_label_enabled(f"{SIZE_LABEL_PREFIX}M") is False
+        assert labels_handler.is_label_enabled(f"{BRANCH_LABEL_PREFIX}main") is False
         # reviewed-by always enabled
         assert labels_handler.is_label_enabled("approved-user1") is True
         assert labels_handler.is_label_enabled("lgtm-user2") is True
 
     def test_automerge_label_category(self, labels_handler: LabelsHandler) -> None:
         """Automerge label should be controlled by 'automerge' category."""
-        labels_handler.github_webhook.enabled_labels = {"automerge"}
+        labels_handler.github_webhook.enabled_labels = {AUTOMERGE_LABEL_STR}
 
-        assert labels_handler.is_label_enabled("automerge") is True
-        assert labels_handler.is_label_enabled("verified") is False
+        assert labels_handler.is_label_enabled(AUTOMERGE_LABEL_STR) is True
+        assert labels_handler.is_label_enabled(VERIFIED_LABEL_STR) is False
 
     def test_size_labels_with_custom_names(self, labels_handler: LabelsHandler) -> None:
         """Size labels with custom names should still be controlled by 'size' category."""
         labels_handler.github_webhook.enabled_labels = {"size"}
 
-        assert labels_handler.is_label_enabled("size/XS") is True
-        assert labels_handler.is_label_enabled("size/CustomName") is True
-        assert labels_handler.is_label_enabled("size/Massive") is True
+        assert labels_handler.is_label_enabled(f"{SIZE_LABEL_PREFIX}XS") is True
+        assert labels_handler.is_label_enabled(f"{SIZE_LABEL_PREFIX}CustomName") is True
+        assert labels_handler.is_label_enabled(f"{SIZE_LABEL_PREFIX}Massive") is True
 
 
 class TestCustomLabelColors:

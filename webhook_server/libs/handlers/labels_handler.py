@@ -168,7 +168,8 @@ class LabelsHandler:
 
     async def wait_for_label(self, pull_request: PullRequest, label: str, exists: bool) -> bool:
         self.logger.debug(f"{self.log_prefix} waiting for label {label} to {'exists' if exists else 'not exists'}")
-        while TimeoutWatch(timeout=30).remaining_time() > 0:
+        timeout_watch = TimeoutWatch(timeout=30)
+        while timeout_watch.remaining_time() > 0:
             res = await self.label_exists_in_pull_request(pull_request=pull_request, label=label)
             if res == exists:
                 return True

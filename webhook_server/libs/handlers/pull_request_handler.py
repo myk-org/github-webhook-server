@@ -14,7 +14,6 @@ from webhook_server.libs.handlers.labels_handler import LabelsHandler
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.libs.handlers.runner_handler import RunnerHandler
 from webhook_server.utils.constants import (
-    APPROVE_STR,
     APPROVED_BY_LABEL_PREFIX,
     AUTOMERGE_LABEL_STR,
     BRANCH_LABEL_PREFIX,
@@ -28,9 +27,9 @@ from webhook_server.utils.constants import (
     FAILURE_STR,
     HAS_CONFLICTS_LABEL_STR,
     HOLD_LABEL_STR,
+    LABEL_CATEGORY_MAP,
     LABELS_SEPARATOR,
     LGTM_BY_LABEL_PREFIX,
-    LGTM_STR,
     NEEDS_REBASE_LABEL_STR,
     PRE_COMMIT_STR,
     PYTHON_MODULE_INSTALL_STR,
@@ -442,20 +441,10 @@ For more information, please refer to the project documentation or contact the m
 
         Only shows labels that are enabled.
         """
-        # Mapping from USER_LABELS_DICT keys to their categories for filtering
-        label_to_category = {
-            HOLD_LABEL_STR: "hold",
-            VERIFIED_LABEL_STR: "verified",
-            WIP_STR: "wip",
-            AUTOMERGE_LABEL_STR: "automerge",
-            LGTM_STR: "lgtm",  # Always enabled
-            APPROVE_STR: "approve",  # Always enabled
-        }
-
         enabled_user_labels = [
             label
             for label in USER_LABELS_DICT.keys()
-            if self._is_user_label_enabled(label_to_category.get(label, label))
+            if self._is_user_label_enabled(LABEL_CATEGORY_MAP.get(label, label))
         ]
 
         if not enabled_user_labels:
@@ -507,9 +496,6 @@ For more information, please refer to the project documentation or contact the m
 
         # Conflict labels (has-conflicts) are always shown since they're fundamental
         blockers.append("conflict")
-
-        if not blockers:
-            return "4. **No Blockers**: No blocking labels present"
 
         return f"4. **No Blockers**: No {', '.join(blockers)} labels"
 
