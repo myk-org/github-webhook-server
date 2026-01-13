@@ -197,6 +197,9 @@ class LabelsHandler:
         """
         # Check for custom configured colors first
         custom_colors = self.github_webhook.label_colors
+        # Handle misconfigured label_colors (must be dict, not list)
+        if not isinstance(custom_colors, dict):
+            custom_colors = {}
 
         # Direct match for static labels
         if label in custom_colors:
