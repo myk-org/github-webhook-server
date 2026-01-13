@@ -870,9 +870,7 @@ class TestGithubWebhook:
                             assert result is None
 
     @pytest.mark.asyncio
-    async def test_get_pull_request_by_commit_with_pulls(
-        self, minimal_hook_data: dict, minimal_headers: Headers, logger: Mock
-    ) -> None:
+    async def test_get_pull_request_by_commit_with_pulls(self, minimal_headers: Headers, logger: Mock) -> None:
         """Test getting pull request by commit with pulls."""
         commit_data = {
             "repository": {"name": "test-repo", "full_name": "my-org/test-repo"},
@@ -1373,8 +1371,10 @@ class TestGithubWebhook:
                             mock_pr.number = 456
 
                             # Mock run_command: succeed for clone, fail for PR ref fetch
-                            async def mock_run_command(**kwargs: object) -> tuple[bool, str, str]:
-                                command = kwargs.get("command", "")
+                            async def mock_run_command(
+                                command: str, log_prefix: str, **_kwargs: object
+                            ) -> tuple[bool, str, str]:
+                                _ = log_prefix  # Unused parameter
                                 if "fetch origin +refs/pull/" in command:
                                     return (False, "", "Fetch failed: PR ref not found")
                                 return (True, "", "")

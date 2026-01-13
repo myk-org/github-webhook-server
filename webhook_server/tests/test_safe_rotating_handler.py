@@ -9,7 +9,6 @@ from unittest.mock import patch
 
 import simple_logger.logger
 
-from webhook_server.utils import helpers as _  # noqa: F401 # Imported for side effect: patches simple_logger
 from webhook_server.utils.safe_rotating_handler import SafeRotatingFileHandler
 
 
@@ -179,6 +178,40 @@ class TestSafeRotatingFileHandler:
                     handler.doRollover()
 
                 # Verify handler created a new file
+                assert handler.stream is not None
+
+            finally:
+                handler.close()
+
+    def test_rollover_handles_open_failure(self) -> None:
+        """Test rollover handles OSError when opening new log file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_file = os.path.join(tmpdir, "test.log")
+            handler = SafeRotatingFileHandler(
+                filename=log_file,
+                maxBytes=100,
+                backupCount=3,
+            )
+            try:
+                # Create the log file and open the stream
+                with open(log_file, "w") as f:
+                    f.write("initial content")
+                handler.stream = handler._open()
+
+                # Mock _open to raise OSError (e.g., permission denied, disk full)
+                def mock_open() -> None:
+                    raise OSError("Permission denied")
+
+                with patch.object(handler, "_open", side_effect=mock_open):
+                    # This should not crash - stream will be left as None
+                    handler.doRollover()
+
+                # Stream should be None since _open failed
+                assert handler.stream is None
+
+                # Verify handler is still usable - emit() will try to reopen
+                # Restore normal _open behavior for this check
+                handler.stream = handler._open()
                 assert handler.stream is not None
 
             finally:

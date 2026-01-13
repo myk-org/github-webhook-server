@@ -103,4 +103,9 @@ class SafeRotatingFileHandler(RotatingFileHandler):
                 pass
 
         if not self.delay:
-            self.stream = self._open()
+            try:
+                self.stream = self._open()
+            except OSError:
+                # Cannot open new log file - leave stream as None.
+                # FileHandler.emit() will attempt to open on next log entry.
+                pass
