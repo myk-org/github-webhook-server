@@ -706,14 +706,13 @@ class GithubWebhook:
                         if isinstance(item, dict):
                             keys = list(item.keys())[:5]
                             return f"dict(keys={keys})"
-                        elif isinstance(item, list):
+                        if isinstance(item, list):
                             return f"list(len={len(item)})"
-                        else:
-                            type_name = type(item).__name__
-                            item_repr = repr(item)
-                            if len(item_repr) > max_repr_len:
-                                item_repr = item_repr[:max_repr_len] + "..."
-                            return f"{type_name}({item_repr})"
+                        type_name = type(item).__name__
+                        item_repr = repr(item)
+                        if len(item_repr) > max_repr_len:
+                            item_repr = item_repr[:max_repr_len] + "..."
+                        return f"{type_name}({item_repr})"
 
                     sanitized_dropped = [_sanitize_item(x) for x in dropped]
                     log_prefix = getattr(self, "log_prefix", "")
