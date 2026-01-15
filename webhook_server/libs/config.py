@@ -7,6 +7,8 @@ import yaml
 from github.GithubException import UnknownObjectException
 from simple_logger.logger import get_logger
 
+from webhook_server.utils.constants import CONFIGURABLE_LABEL_CATEGORIES
+
 
 class Config:
     def __init__(
@@ -20,6 +22,7 @@ class Config:
         self.repository = repository
         self.exists()
         self.repositories_exists()
+        self.validate_labels_config()
 
     def exists(self) -> None:
         if not os.path.isfile(self.config_path):
@@ -28,6 +31,36 @@ class Config:
     def repositories_exists(self) -> None:
         if not self.root_data.get("repositories"):
             raise ValueError(f"Config {self.config_path} does not have `repositories`")
+
+    def validate_labels_config(self) -> None:
+        """Validate enabled-labels configuration against allowed categories.
+
+        Raises:
+            ValueError: If any label category in enabled-labels is not valid.
+        """
+        data = self.root_data
+
+        # Check global labels config
+        if "labels" in data and "enabled-labels" in data["labels"]:
+            enabled_labels = set(data["labels"]["enabled-labels"])
+            invalid = enabled_labels - CONFIGURABLE_LABEL_CATEGORIES
+            if invalid:
+                raise ValueError(
+                    f"Invalid label categories in enabled-labels: {sorted(invalid)}. "
+                    f"Valid categories: {sorted(CONFIGURABLE_LABEL_CATEGORIES)}"
+                )
+
+        # Check repository-level labels config
+        for repo_name, repo_config in data.get("repositories", {}).items():
+            if isinstance(repo_config, dict) and "labels" in repo_config:
+                if "enabled-labels" in repo_config["labels"]:
+                    enabled_labels = set(repo_config["labels"]["enabled-labels"])
+                    invalid = enabled_labels - CONFIGURABLE_LABEL_CATEGORIES
+                    if invalid:
+                        raise ValueError(
+                            f"Invalid label categories in enabled-labels for repository '{repo_name}': "
+                            f"{sorted(invalid)}. Valid categories: {sorted(CONFIGURABLE_LABEL_CATEGORIES)}"
+                        )
 
     @property
     def root_data(self) -> dict[str, Any]:

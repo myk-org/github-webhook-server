@@ -83,6 +83,39 @@ properties:
     type: boolean
     description: Create a tracking issue for new pull requests (global default)
     default: true
+  labels:
+    type: object
+    description: Configure which labels are enabled and their colors
+    properties:
+      enabled-labels:
+        type: array
+        description: |
+          List of label categories to enable. If not set, all labels are enabled.
+          Categories: verified, hold, wip, needs-rebase, has-conflicts, can-be-merged,
+          size, branch, cherry-pick, automerge.
+          Note: reviewed-by labels (approved-*, lgtm-*, changes-requested-*, commented-*)
+          are always enabled and cannot be disabled.
+        items:
+          type: string
+          enum:
+            - verified
+            - hold
+            - wip
+            - needs-rebase
+            - has-conflicts
+            - can-be-merged
+            - size
+            - branch
+            - cherry-pick
+            - automerge
+      colors:
+        type: object
+        description: |
+          Custom colors for labels (CSS3 color names like 'red', 'green', 'blue').
+          Use label name as key, color as value. For dynamic labels use prefix (e.g., 'approved-', 'branch-').
+        additionalProperties:
+          type: string
+    additionalProperties: false
 
   pr-size-thresholds:
     type: object
@@ -299,6 +332,39 @@ properties:
           type: boolean
           description: Create a tracking issue for new pull requests
           default: true
+        labels:
+          type: object
+          description: Configure which labels are enabled and their colors
+          properties:
+            enabled-labels:
+              type: array
+              description: |
+                List of label categories to enable. If not set, all labels are enabled.
+                Categories: verified, hold, wip, needs-rebase, has-conflicts, can-be-merged,
+                size, branch, cherry-pick, automerge.
+                Note: reviewed-by labels (approved-*, lgtm-*, changes-requested-*, commented-*)
+                are always enabled and cannot be disabled.
+              items:
+                type: string
+                enum:
+                  - verified
+                  - hold
+                  - wip
+                  - needs-rebase
+                  - has-conflicts
+                  - can-be-merged
+                  - size
+                  - branch
+                  - cherry-pick
+                  - automerge
+            colors:
+              type: object
+              description: |
+                Custom colors for labels (CSS3 color names like 'red', 'green', 'blue').
+                Use label name as key, color as value. For dynamic labels use prefix (e.g., 'approved-', 'branch-').
+              additionalProperties:
+                type: string
+          additionalProperties: false
         pr-size-thresholds:
           type: object
           description: Custom PR size thresholds with label names and colors (repository-specific override)

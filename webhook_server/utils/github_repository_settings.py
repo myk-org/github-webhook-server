@@ -251,7 +251,7 @@ def set_repository(
     apis_dict: dict[str, dict[str, Any]],
     branch_protection: dict[str, Any],
     config: Config,
-) -> tuple[bool, str, Callable]:
+) -> tuple[bool, str, Callable[..., Any]]:
     full_repository_name: str = data["name"]
     LOGGER.info(f"Processing repository {full_repository_name}")
     protected_branches: dict[str, Any] = config.get_value(value="protected-branches", return_on_none={})
@@ -276,7 +276,7 @@ def set_repository(
                 LOGGER.warning,
             )
 
-        futures: list[Future] = []
+        futures: list[Future[Any]] = []
 
         with ThreadPoolExecutor() as executor:
             for branch_name, status_checks in protected_branches.items():
@@ -339,7 +339,7 @@ def set_all_in_progress_check_runs_to_queued(repo_config: Config, apis_dict: dic
         BUILD_CONTAINER_STR,
         PRE_COMMIT_STR,
     )
-    futures: list[Future] = []
+    futures: list[Future[Any]] = []
 
     with ThreadPoolExecutor() as executor:
         for repo, data in repo_config.root_data["repositories"].items():
@@ -366,7 +366,7 @@ def set_repository_check_runs_to_queued(
     github_api: Github,
     check_runs: tuple[str],
     api_user: str,
-) -> tuple[bool, str, Callable]:
+) -> tuple[bool, str, Callable[..., Any]]:
     def _set_checkrun_queued(_api: Repository, _pull_request: PullRequest) -> None:
         # Avoid materializing all commits - use single-pass iteration to find last commit
         # This is O(1) memory instead of O(N) for large PRs

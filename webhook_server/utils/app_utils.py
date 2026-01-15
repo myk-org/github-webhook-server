@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import ipaddress
 import logging
+from ipaddress import IPv4Network, IPv6Network
 from typing import Any
 
 import httpx
@@ -77,7 +78,7 @@ def verify_signature(payload_body: bytes, secret_token: str, signature_header: s
         raise HTTPException(status_code=403, detail="Request signatures didn't match!")
 
 
-async def gate_by_allowlist_ips(request: Request, allowed_ips: tuple[ipaddress._BaseNetwork, ...]) -> None:
+async def gate_by_allowlist_ips(request: Request, allowed_ips: tuple[IPv4Network | IPv6Network, ...]) -> None:
     """Gate access by IP allowlist."""
     if allowed_ips:
         if not request.client or not request.client.host:
@@ -176,21 +177,18 @@ def log_webhook_summary(ctx: WebhookContext, logger: logging.Logger, log_prefix:
         raise ValueError("Context completed_at is None - context not completed")
     duration_ms = int((ctx.completed_at - ctx.started_at).total_seconds() * 1000)
 
-    # Build summary of workflow steps - validate required fields
+    # Build summary of workflow steps - handle incomplete steps gracefully
     steps_summary = []
     for step_name, step_data in ctx.workflow_steps.items():
-        if "status" not in step_data:
-            raise ValueError(
-                f"Workflow step '{step_name}' missing 'status' field - ensure complete_step() or fail_step() was called"
-            )
-        if "duration_ms" not in step_data or step_data["duration_ms"] is None:
-            raise ValueError(
-                f"Workflow step '{step_name}' missing or None 'duration_ms' field - "
-                "ensure complete_step() or fail_step() was called"
-            )
-        status = step_data["status"]
-        step_duration_ms = step_data["duration_ms"]
-        steps_summary.append(f"{step_name}:{status}({format_duration(step_duration_ms)})")
+        status = step_data.get("status", "unknown")
+        step_duration_ms = step_data.get("duration_ms")
+
+        # Handle incomplete steps (started but not completed/failed due to exception)
+        if step_duration_ms is None:
+            # Step was started but never completed - mark as incomplete
+            steps_summary.append(f"{step_name}:{status}(incomplete)")
+        else:
+            steps_summary.append(f"{step_name}:{status}({format_duration(step_duration_ms)})")
 
     steps_str = ", ".join(steps_summary) if steps_summary else "no steps recorded"
 

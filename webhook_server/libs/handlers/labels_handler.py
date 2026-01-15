@@ -12,11 +12,15 @@ from webhook_server.utils.constants import (
     ADD_STR,
     APPROVE_STR,
     APPROVED_BY_LABEL_PREFIX,
+    BRANCH_LABEL_PREFIX,
     CHANGED_REQUESTED_BY_LABEL_PREFIX,
+    CHERRY_PICK_LABEL_PREFIX,
+    CHERRY_PICKED_LABEL,
     COMMENTED_BY_LABEL_PREFIX,
+    DEFAULT_LABEL_COLORS,
     DELETE_STR,
-    DYNAMIC_LABELS_DICT,
     HOLD_LABEL_STR,
+    LABEL_CATEGORY_MAP,
     LGTM_BY_LABEL_PREFIX,
     LGTM_STR,
     SIZE_LABEL_PREFIX,
@@ -26,6 +30,16 @@ from webhook_server.utils.constants import (
 
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
+
+# Static default PR size thresholds: (threshold, label_name, color_hex)
+STATIC_PR_SIZE_THRESHOLDS: tuple[tuple[int | float, str, str], ...] = (
+    (20, "XS", "ededed"),
+    (50, "S", "0E8A16"),
+    (100, "M", "F09C74"),
+    (300, "L", "F5621C"),
+    (500, "XL", "D93F0B"),
+    (float("inf"), "XXL", "B60205"),
+)
 
 
 class LabelsHandler:
@@ -37,6 +51,61 @@ class LabelsHandler:
         self.logger = self.github_webhook.logger
         self.log_prefix: str = self.github_webhook.log_prefix
         self.repository: Repository = self.github_webhook.repository
+
+    def is_label_enabled(self, label: str) -> bool:
+        """Check if a label is enabled based on configuration.
+
+        Args:
+            label: The label name or prefix to check.
+
+        Returns:
+            True if the label is enabled, False otherwise.
+
+        Note:
+            - If enabled_labels is None (not configured), all labels are enabled.
+            - reviewed-by labels (approved-*, lgtm-*, changes-requested-*, commented-*)
+              are always enabled and cannot be disabled.
+            - The exact "lgtm" and "approve" labels are always enabled and cannot be
+              disabled, as they are required for the review workflow.
+        """
+        # reviewed-by labels are always enabled (cannot be disabled)
+        reviewed_by_prefixes = (
+            APPROVED_BY_LABEL_PREFIX,
+            LGTM_BY_LABEL_PREFIX,
+            CHANGED_REQUESTED_BY_LABEL_PREFIX,
+            COMMENTED_BY_LABEL_PREFIX,
+        )
+        if any(label.startswith(prefix) for prefix in reviewed_by_prefixes):
+            return True
+
+        # Exact reviewed-by labels are also always enabled
+        if label in (LGTM_STR, APPROVE_STR):
+            return True
+
+        enabled_labels = self.github_webhook.enabled_labels
+
+        # If not configured, all labels are enabled
+        if enabled_labels is None:
+            return True
+
+        # Check static labels using centralized category map
+        if label in LABEL_CATEGORY_MAP:
+            return LABEL_CATEGORY_MAP[label] in enabled_labels
+
+        # Check size labels
+        if label.startswith(SIZE_LABEL_PREFIX):
+            return "size" in enabled_labels
+
+        # Check branch labels
+        if label.startswith(BRANCH_LABEL_PREFIX):
+            return "branch" in enabled_labels
+
+        # Check cherry-pick labels
+        if label.startswith(CHERRY_PICK_LABEL_PREFIX) or label == CHERRY_PICKED_LABEL:
+            return "cherry-pick" in enabled_labels
+
+        # Unknown labels are allowed by default
+        return True
 
     async def label_exists_in_pull_request(self, pull_request: PullRequest, label: str) -> bool:
         return label in await self.pull_request_labels_names(pull_request=pull_request)
@@ -61,22 +130,27 @@ class LabelsHandler:
         self.logger.debug(f"{self.log_prefix} Label {label} not found and cannot be removed")
         return False
 
-    async def _add_label(self, pull_request: PullRequest, label: str) -> None:
+    async def _add_label(self, pull_request: PullRequest, label: str) -> bool:
+        """Add a label to a pull request.
+
+        Returns:
+            True if the label was added successfully, False if skipped.
+        """
         label = label.strip()
         self.logger.debug(f"{self.log_prefix} Adding label {label}")
         if len(label) > 49:
             self.logger.debug(f"{label} is too long, not adding.")
-            return
+            return False
+
+        if not self.is_label_enabled(label):
+            self.logger.debug(f"{self.log_prefix} Label {label} is disabled by configuration, not adding")
+            return False
 
         if await self.label_exists_in_pull_request(pull_request=pull_request, label=label):
-            self.logger.debug(f"{self.log_prefix} Label {label} already assign")
-            return
+            self.logger.debug(f"{self.log_prefix} Label {label} already assigned")
+            return False
 
-        if label in STATIC_LABELS_DICT:
-            self.logger.info(f"{self.log_prefix} Adding pull request label {label}")
-            await asyncio.to_thread(pull_request.add_to_labels, label)
-            return
-
+        # Get the color for this label (custom or default)
         color = self._get_label_color(label)
         _with_color_msg = f"repository label {label} with color {color}"
 
@@ -91,11 +165,12 @@ class LabelsHandler:
 
         self.logger.info(f"{self.log_prefix} Adding pull request label {label}")
         await asyncio.to_thread(pull_request.add_to_labels, label)
-        await self.wait_for_label(pull_request=pull_request, label=label, exists=True)
+        return await self.wait_for_label(pull_request=pull_request, label=label, exists=True)
 
     async def wait_for_label(self, pull_request: PullRequest, label: str, exists: bool) -> bool:
         self.logger.debug(f"{self.log_prefix} waiting for label {label} to {'exists' if exists else 'not exists'}")
-        while TimeoutWatch(timeout=30).remaining_time() > 0:
+        timeout_watch = TimeoutWatch(timeout=30)
+        while timeout_watch.remaining_time() > 0:
             res = await self.label_exists_in_pull_request(pull_request=pull_request, label=label)
             if res == exists:
                 return True
@@ -108,28 +183,47 @@ class LabelsHandler:
     def _get_label_color(self, label: str) -> str:
         """Get the appropriate color for a label.
 
+        Checks configured colors first, then falls back to defaults.
         For size labels with custom thresholds, uses the custom color.
-        For other dynamic labels, uses the DYNAMIC_LABELS_DICT.
-        Falls back to default color if not found.
         """
+        # Check for custom configured colors first
+        custom_colors = self.github_webhook.label_colors
+        # Handle misconfigured label_colors (must be dict, not list)
+        if not isinstance(custom_colors, dict):
+            custom_colors = {}
+
+        # Direct match for static labels
+        if label in custom_colors:
+            return self._get_color_hex(custom_colors[label])
+
+        # Check prefix matches for dynamic labels
+        # First-match-wins: iteration order determines which prefix wins
+        # when multiple prefixes could match (e.g., "size-" vs "size-X")
+        for prefix, color in custom_colors.items():
+            if prefix.endswith("-") and label.startswith(prefix):
+                return self._get_color_hex(color)
+
+        # For size labels, check custom thresholds
         if label.startswith(SIZE_LABEL_PREFIX):
             size_name = label[len(SIZE_LABEL_PREFIX) :]
-
             thresholds = self._get_custom_pr_size_thresholds()
             for _threshold, label_name, color_hex in thresholds:
                 if label_name == size_name:
                     return color_hex
-
-            # If not found in custom thresholds, check static labels dict
-            # (for backward compatibility with static size labels)
+            # Fallback to STATIC_LABELS_DICT for default size labels
             if label in STATIC_LABELS_DICT:
                 return STATIC_LABELS_DICT[label]
 
-        _color = [DYNAMIC_LABELS_DICT[_label] for _label in DYNAMIC_LABELS_DICT if _label in label]
-        if _color:
-            return _color[0]
+        # Check DEFAULT_LABEL_COLORS for static labels
+        if label in DEFAULT_LABEL_COLORS:
+            return DEFAULT_LABEL_COLORS[label]
 
-        return "D4C5F9"
+        # Check DEFAULT_LABEL_COLORS for dynamic label prefixes
+        for prefix, color in DEFAULT_LABEL_COLORS.items():
+            if prefix.endswith("-") and label.startswith(prefix):
+                return color
+
+        return "D4C5F9"  # Default fallback color
 
     def _get_color_hex(self, color_name: str, default_color: str = "lightgray") -> str:
         """Convert CSS3 color name to hex value, with fallback to default."""
@@ -154,17 +248,26 @@ class LabelsHandler:
         custom_config = self.github_webhook.config.get_value("pr-size-thresholds", return_on_none=None)
 
         if not custom_config:
-            return [
-                (20, "XS", "ededed"),
-                (50, "S", "0E8A16"),
-                (100, "M", "F09C74"),
-                (300, "L", "F5621C"),
-                (500, "XL", "D93F0B"),
-                (float("inf"), "XXL", "B60205"),
-            ]
+            return list(STATIC_PR_SIZE_THRESHOLDS)
+
+        # Validate custom_config is a dict (could be misconfigured as list or other type)
+        if not isinstance(custom_config, dict):
+            self.logger.warning(
+                f"{self.log_prefix} pr-size-thresholds config is not a dict "
+                f"(got {type(custom_config).__name__}), using static defaults"
+            )
+            return list(STATIC_PR_SIZE_THRESHOLDS)
 
         thresholds = []
         for label_name, config in custom_config.items():
+            # Validate each config entry is a dict
+            if not isinstance(config, dict):
+                self.logger.warning(
+                    f"{self.log_prefix} pr-size-thresholds entry for '{label_name}' is not a dict "
+                    f"(got {type(config).__name__}), skipping"
+                )
+                continue
+
             threshold = config.get("threshold")
 
             # Convert string "inf" to float("inf") for YAML compatibility
@@ -186,16 +289,17 @@ class LabelsHandler:
 
         if not sorted_thresholds:
             self.logger.warning(f"{self.log_prefix} No valid custom thresholds found, using static defaults")
-            return self._get_custom_pr_size_thresholds()  # Recursive call will return static defaults
+            # Return static defaults directly to avoid infinite recursion
+            return list(STATIC_PR_SIZE_THRESHOLDS)
 
         return sorted_thresholds
 
-    def get_size(self, pull_request: PullRequest) -> str:
+    async def get_size(self, pull_request: PullRequest) -> str:
         """Calculates size label based on additions and deletions."""
-
-        # Handle None values by defaulting to 0
-        additions = pull_request.additions if pull_request.additions is not None else 0
-        deletions = pull_request.deletions if pull_request.deletions is not None else 0
+        additions, deletions = await asyncio.gather(
+            asyncio.to_thread(lambda: pull_request.additions),
+            asyncio.to_thread(lambda: pull_request.deletions),
+        )
         size = additions + deletions
         self.logger.debug(f"{self.log_prefix} PR size is {size} (additions: {additions}, deletions: {deletions})")
 
@@ -217,7 +321,7 @@ class LabelsHandler:
 
     async def add_size_label(self, pull_request: PullRequest) -> None:
         """Add a size label to the pull request based on its additions and deletions."""
-        size_label = self.get_size(pull_request=pull_request)
+        size_label = await self.get_size(pull_request=pull_request)
         self.logger.debug(f"{self.log_prefix} size label is {size_label}")
         if not size_label:
             self.logger.debug(f"{self.log_prefix} Size label not found")

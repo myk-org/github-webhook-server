@@ -33,6 +33,40 @@ auto-verify-cherry-picked-prs: true  # Default: true - automatically verify cher
 
 create-issue-for-new-pr: true  # Global default: create tracking issues for new PRs
 
+# Labels configuration - control which labels are enabled and their colors
+# If not set, all labels are enabled with default colors
+labels:
+  # Optional: List of label categories to enable
+  # If not set, all labels are enabled. If set, only listed categories are enabled.
+  # Note: reviewed-by labels (approved-*, lgtm-*, etc.) are always enabled and cannot be disabled
+  enabled-labels:
+    - verified
+    - hold
+    - wip
+    - needs-rebase
+    - has-conflicts
+    - can-be-merged
+    - size
+    - branch
+    - cherry-pick
+    - automerge
+  # Optional: Custom colors for labels (CSS3 color names)
+  colors:
+    hold: red
+    verified: green
+    wip: orange
+    needs-rebase: darkred
+    has-conflicts: red
+    can-be-merged: limegreen
+    automerge: green
+    # Dynamic label prefixes
+    approved-: green
+    lgtm-: yellowgreen
+    changes-requested-: orange
+    commented-: gold
+    cherry-pick-: coral
+    branch-: royalblue
+
 # Global PR size label configuration (optional)
 # Define custom categories based on total lines changed (additions + deletions)
 # threshold: positive integer or 'inf' for unbounded largest category
@@ -151,6 +185,15 @@ repositories:
 
     minimum-lgtm: 0 # The minimum PR lgtm required before approve the PR
     create-issue-for-new-pr: true # Override global setting: create tracking issues for new PRs (default: true)
+
+    # Repository-specific labels configuration (overrides global)
+    labels:
+      enabled-labels:
+        - verified
+        - hold
+        - size
+      colors:
+        hold: purple
 
     # Repository-specific PR size labels (overrides global configuration)
     pr-size-thresholds:

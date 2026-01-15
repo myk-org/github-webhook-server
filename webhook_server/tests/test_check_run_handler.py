@@ -10,7 +10,7 @@ from webhook_server.libs.handlers.check_run_handler import CheckRunHandler
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
-    CHERRY_PICKED_LABEL_PREFIX,
+    CHERRY_PICKED_LABEL,
     CONVENTIONAL_TITLE_STR,
     FAILURE_STR,
     IN_PROGRESS_STR,
@@ -345,17 +345,17 @@ class TestCheckRunHandler:
     async def test_set_check_in_progress_cherry_picked(self, check_run_handler: CheckRunHandler) -> None:
         """Test setting cherry pick check to in progress status using generic method."""
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
-            await check_run_handler.set_check_in_progress(name=CHERRY_PICKED_LABEL_PREFIX)
-            mock_set_status.assert_called_once_with(check_run=CHERRY_PICKED_LABEL_PREFIX, status=IN_PROGRESS_STR)
+            await check_run_handler.set_check_in_progress(name=CHERRY_PICKED_LABEL)
+            mock_set_status.assert_called_once_with(check_run=CHERRY_PICKED_LABEL, status=IN_PROGRESS_STR)
 
     @pytest.mark.asyncio
     async def test_set_check_success_cherry_picked(self, check_run_handler: CheckRunHandler) -> None:
         """Test setting cherry pick check to success status using generic method."""
         output = {"title": "Cherry pick successful", "summary": "Cherry pick summary"}
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
-            await check_run_handler.set_check_success(name=CHERRY_PICKED_LABEL_PREFIX, output=output)
+            await check_run_handler.set_check_success(name=CHERRY_PICKED_LABEL, output=output)
             mock_set_status.assert_called_once_with(
-                check_run=CHERRY_PICKED_LABEL_PREFIX, conclusion=SUCCESS_STR, output=output
+                check_run=CHERRY_PICKED_LABEL, conclusion=SUCCESS_STR, output=output
             )
 
     @pytest.mark.asyncio
@@ -363,9 +363,9 @@ class TestCheckRunHandler:
         """Test setting cherry pick check to failure status using generic method."""
         output = {"title": "Cherry pick failed", "summary": "Cherry pick summary"}
         with patch.object(check_run_handler, "set_check_run_status") as mock_set_status:
-            await check_run_handler.set_check_failure(name=CHERRY_PICKED_LABEL_PREFIX, output=output)
+            await check_run_handler.set_check_failure(name=CHERRY_PICKED_LABEL, output=output)
             mock_set_status.assert_called_once_with(
-                check_run=CHERRY_PICKED_LABEL_PREFIX, conclusion=FAILURE_STR, output=output
+                check_run=CHERRY_PICKED_LABEL, conclusion=FAILURE_STR, output=output
             )
 
     @pytest.mark.asyncio

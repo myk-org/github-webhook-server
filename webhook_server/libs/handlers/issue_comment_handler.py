@@ -23,6 +23,7 @@ from webhook_server.utils.constants import (
     COMMAND_ASSIGN_REVIEWERS_STR,
     COMMAND_CHECK_CAN_MERGE_STR,
     COMMAND_CHERRY_PICK_STR,
+    COMMAND_REGENERATE_WELCOME_STR,
     COMMAND_REPROCESS_STR,
     COMMAND_RETEST_STR,
     HOLD_LABEL_STR,
@@ -153,6 +154,7 @@ class IssueCommentHandler:
             BUILD_AND_PUSH_CONTAINER_STR,
             COMMAND_ASSIGN_REVIEWER_STR,
             COMMAND_ADD_ALLOWED_USER_STR,
+            COMMAND_REGENERATE_WELCOME_STR,
         ]
 
         command_and_args: list[str] = command.split(" ", 1)
@@ -233,6 +235,14 @@ class IssueCommentHandler:
                 return
             await self.pull_request_handler.process_command_reprocess(pull_request=pull_request)
 
+        elif _command == COMMAND_REGENERATE_WELCOME_STR:
+            if not await self.owners_file_handler.is_user_valid_to_run_commands(
+                pull_request=pull_request, reviewed_user=reviewed_user
+            ):
+                return
+            self.logger.info(f"{self.log_prefix} Regenerating welcome message")
+            await self.pull_request_handler.regenerate_welcome_message(pull_request=pull_request)
+
         elif _command == BUILD_AND_PUSH_CONTAINER_STR:
             if self.github_webhook.build_and_push_container:
                 await self.runner_handler.run_build_container(
@@ -251,13 +261,24 @@ class IssueCommentHandler:
         elif _command == WIP_STR:
             wip_for_title: str = f"{WIP_STR.upper()}:"
             if remove:
-                await self.labels_handler._remove_label(pull_request=pull_request, label=WIP_STR)
-                pr_title = await asyncio.to_thread(lambda: pull_request.title)
-                await asyncio.to_thread(pull_request.edit, title=pr_title.replace(wip_for_title, ""))
+                label_changed = await self.labels_handler._remove_label(pull_request=pull_request, label=WIP_STR)
+                if label_changed:
+                    pr_title = await asyncio.to_thread(lambda: pull_request.title)
+                    # Case-insensitive check and removal of WIP prefix
+                    pr_title_upper = pr_title.upper()
+                    if pr_title_upper.startswith("WIP: "):
+                        new_title = pr_title[5:]  # Remove "WIP: " (5 chars)
+                        await asyncio.to_thread(pull_request.edit, title=new_title)
+                    elif pr_title_upper.startswith("WIP:"):
+                        new_title = pr_title[4:]  # Remove "WIP:" (4 chars)
+                        await asyncio.to_thread(pull_request.edit, title=new_title)
             else:
-                await self.labels_handler._add_label(pull_request=pull_request, label=WIP_STR)
-                pr_title = await asyncio.to_thread(lambda: pull_request.title)
-                await asyncio.to_thread(pull_request.edit, title=f"{wip_for_title} {pr_title}")
+                label_changed = await self.labels_handler._add_label(pull_request=pull_request, label=WIP_STR)
+                if label_changed:
+                    pr_title = await asyncio.to_thread(lambda: pull_request.title)
+                    # Case-insensitive check: only prepend if prefix is not already there (idempotent)
+                    if not pr_title.upper().startswith("WIP:"):
+                        await asyncio.to_thread(pull_request.edit, title=f"{wip_for_title} {pr_title}")
 
         elif _command == HOLD_LABEL_STR:
             if reviewed_user not in self.owners_file_handler.all_pull_request_approvers:
@@ -273,8 +294,6 @@ class IssueCommentHandler:
                     await self.labels_handler._remove_label(pull_request=pull_request, label=HOLD_LABEL_STR)
                 else:
                     await self.labels_handler._add_label(pull_request=pull_request, label=HOLD_LABEL_STR)
-
-                await self.pull_request_handler.check_if_can_be_merged(pull_request=pull_request)
 
         elif _command == VERIFIED_LABEL_STR:
             if remove:

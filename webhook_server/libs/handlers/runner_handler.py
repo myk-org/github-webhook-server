@@ -18,7 +18,7 @@ from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.utils import helpers as helpers_module
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
-    CHERRY_PICKED_LABEL_PREFIX,
+    CHERRY_PICKED_LABEL,
     CONVENTIONAL_TITLE_STR,
     PRE_COMMIT_STR,
     PREK_STR,
@@ -513,14 +513,14 @@ Your team can configure additional types in the repository settings.
         requested_by = reviewed_user or "by target-branch label"
         self.logger.info(f"{self.log_prefix} Cherry-pick requested by user: {requested_by}")
 
-        new_branch_name = f"{CHERRY_PICKED_LABEL_PREFIX}-{pull_request.head.ref}-{shortuuid.uuid()[:5]}"
+        new_branch_name = f"{CHERRY_PICKED_LABEL}-{pull_request.head.ref}-{shortuuid.uuid()[:5]}"
         if not await self.is_branch_exists(branch=target_branch):
             err_msg = f"cherry-pick failed: {target_branch} does not exists"
             self.logger.error(err_msg)
             await asyncio.to_thread(pull_request.create_issue_comment, err_msg)
 
         else:
-            await self.check_run_handler.set_check_in_progress(name=CHERRY_PICKED_LABEL_PREFIX)
+            await self.check_run_handler.set_check_in_progress(name=CHERRY_PICKED_LABEL)
             commit_hash = pull_request.merge_commit_sha
             commit_msg_striped = pull_request.title.replace("'", "")
             pull_request_url = pull_request.html_url
@@ -536,8 +536,8 @@ Your team can configure additional types in the repository settings.
                     f"{git_cmd} cherry-pick {commit_hash}",
                     f"{git_cmd} push origin {new_branch_name}",
                     f'bash -c "{hub_cmd} pull-request -b {target_branch} '
-                    f"-h {new_branch_name} -l {CHERRY_PICKED_LABEL_PREFIX} "
-                    f"-m '{CHERRY_PICKED_LABEL_PREFIX}: [{target_branch}] "
+                    f"-h {new_branch_name} -l {CHERRY_PICKED_LABEL} "
+                    f"-m '{CHERRY_PICKED_LABEL}: [{target_branch}] "
                     f"{commit_msg_striped}' -m 'cherry-pick {pull_request_url} "
                     f"into {target_branch}' -m 'requested-by {requested_by}'\"",
                 ]
@@ -549,7 +549,7 @@ Your team can configure additional types in the repository settings.
                 }
                 if not success:
                     output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
-                    await self.check_run_handler.set_check_failure(name=CHERRY_PICKED_LABEL_PREFIX, output=output)
+                    await self.check_run_handler.set_check_failure(name=CHERRY_PICKED_LABEL, output=output)
 
                 for cmd in commands:
                     rc, out, err = await run_command(
@@ -560,7 +560,7 @@ Your team can configure additional types in the repository settings.
                     )
                     if not rc:
                         output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
-                        await self.check_run_handler.set_check_failure(name=CHERRY_PICKED_LABEL_PREFIX, output=output)
+                        await self.check_run_handler.set_check_failure(name=CHERRY_PICKED_LABEL, output=output)
                         redacted_out = _redact_secrets(
                             out,
                             [github_token],
@@ -591,7 +591,7 @@ Your team can configure additional types in the repository settings.
 
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
 
-            await self.check_run_handler.set_check_success(name=CHERRY_PICKED_LABEL_PREFIX, output=output)
+            await self.check_run_handler.set_check_success(name=CHERRY_PICKED_LABEL, output=output)
             await asyncio.to_thread(
                 pull_request.create_issue_comment, f"Cherry-picked PR {pull_request.title} into {target_branch}"
             )

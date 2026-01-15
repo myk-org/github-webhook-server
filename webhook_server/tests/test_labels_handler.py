@@ -9,16 +9,21 @@ from webhook_server.libs.handlers.labels_handler import LabelsHandler
 from webhook_server.utils.constants import (
     ADD_STR,
     APPROVE_STR,
+    AUTOMERGE_LABEL_STR,
+    BRANCH_LABEL_PREFIX,
+    CHERRY_PICK_LABEL_PREFIX,
+    CHERRY_PICKED_LABEL,
     HOLD_LABEL_STR,
     LGTM_STR,
     SIZE_LABEL_PREFIX,
     STATIC_LABELS_DICT,
+    VERIFIED_LABEL_STR,
     WIP_STR,
 )
 
 
 class MockPullRequest:
-    def __init__(self, additions: int | None = 50, deletions: int | None = 10):
+    def __init__(self, additions: int = 50, deletions: int = 10) -> None:
         self.additions = additions
         self.deletions = deletions
         self.number = 123
@@ -51,6 +56,10 @@ class TestLabelsHandler:
         # This ensures existing tests use static defaults
         webhook.config.get_value.return_value = None
         webhook.ctx = None
+        # enabled_labels: None means all labels are enabled
+        webhook.enabled_labels = None
+        # label_colors: empty dict means use defaults
+        webhook.label_colors = {}
         return webhook
 
     @pytest.fixture
@@ -70,6 +79,7 @@ class TestLabelsHandler:
         """Mock pull request object."""
         return Mock(spec=PullRequest)
 
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "additions,deletions,expected_size",
         [
@@ -82,7 +92,7 @@ class TestLabelsHandler:
             (600, 400, "XXL"),  # Extra extra large changes (500+ total)
         ],
     )
-    def test_get_size_calculation(
+    async def test_get_size_calculation(
         self, labels_handler: LabelsHandler, additions: int, deletions: int, expected_size: str
     ) -> None:
         """Test pull request size calculation with various line counts."""
@@ -90,39 +100,9 @@ class TestLabelsHandler:
         pull_request.additions = additions
         pull_request.deletions = deletions
 
-        result = labels_handler.get_size(pull_request=pull_request)
+        result = await labels_handler.get_size(pull_request=pull_request)
 
         assert result == f"{SIZE_LABEL_PREFIX}{expected_size}"
-
-    def test_get_size_none_additions(self, labels_handler: LabelsHandler) -> None:
-        """Test size calculation when additions is None."""
-        pull_request = Mock(spec=PullRequest)
-        pull_request.additions = None
-        pull_request.deletions = 10
-
-        result = labels_handler.get_size(pull_request=pull_request)
-
-        assert result.startswith(SIZE_LABEL_PREFIX)
-
-    def test_get_size_none_deletions(self, labels_handler: LabelsHandler) -> None:
-        """Test size calculation when deletions is None."""
-        pull_request = Mock(spec=PullRequest)
-        pull_request.additions = 50
-        pull_request.deletions = None
-
-        result = labels_handler.get_size(pull_request=pull_request)
-
-        assert result.startswith(SIZE_LABEL_PREFIX)
-
-    def test_get_size_both_none(self, labels_handler: LabelsHandler) -> None:
-        """Test size calculation when both additions and deletions are None."""
-        pull_request = Mock(spec=PullRequest)
-        pull_request.additions = None
-        pull_request.deletions = None
-
-        result = labels_handler.get_size(pull_request=pull_request)
-
-        assert result == f"{SIZE_LABEL_PREFIX}XS"
 
     @pytest.mark.asyncio
     async def test_add_label_success(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
@@ -153,13 +133,42 @@ class TestLabelsHandler:
             mock_pull_request.add_to_labels.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_add_label_disabled_by_config(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
+        """Test _add_label when label is disabled by configuration."""
+        labels_handler.github_webhook.enabled_labels = {"size"}  # Only size labels enabled
+
+        # Mock label_exists_in_pull_request to return False (label doesn't exist yet)
+        with patch.object(labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock) as mock_exists:
+            mock_exists.return_value = False
+
+            result = await labels_handler._add_label(mock_pull_request, "hold")
+
+            # Verify label was not added (disabled by config)
+            assert result is False
+            mock_pull_request.add_to_labels.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_add_label_static_label(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
         """Test _add_label with static label."""
         static_label = next(iter(STATIC_LABELS_DICT.keys()))
-        with patch.object(labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock, return_value=False):
-            await labels_handler._add_label(mock_pull_request, static_label)
-            # Verify label was added
-            mock_pull_request.add_to_labels.assert_called_once_with(static_label)
+        with patch.object(
+            labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock, return_value=False
+        ) as mock_exists:
+            with patch.object(labels_handler, "wait_for_label", new_callable=AsyncMock, return_value=True):
+                # Mock repository.get_label to return a mock label
+                mock_label = Mock()
+                labels_handler.repository.get_label = Mock(return_value=mock_label)
+
+                await labels_handler._add_label(mock_pull_request, static_label)
+
+                # Verify label_exists_in_pull_request was called
+                mock_exists.assert_called_once()
+                # Verify repository.get_label was called to fetch the label
+                labels_handler.repository.get_label.assert_called_once_with(static_label)
+                # Verify the label was edited with the correct color
+                mock_label.edit.assert_called_once()
+                # Verify add_to_labels was called on the pull request
+                mock_pull_request.add_to_labels.assert_called_once_with(static_label)
 
     @pytest.mark.asyncio
     async def test_add_label_exception_handling(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
@@ -297,15 +306,23 @@ class TestLabelsHandler:
     async def test_add_label_static_label_wait_exception(
         self, labels_handler: LabelsHandler, mock_pull_request: Mock
     ) -> None:
-        """Test _add_label with exception during wait for static label."""
+        """Test _add_label with exception during wait for static label.
+
+        When wait_for_label raises an exception, it should propagate (fail-fast).
+        """
         static_label = next(iter(STATIC_LABELS_DICT.keys()))
         with patch("timeout_sampler.TimeoutWatch") as mock_timeout:
             mock_timeout.return_value.remaining_time.side_effect = [10, 10, 0]
             with patch("asyncio.sleep", new_callable=AsyncMock):
-                with patch.object(labels_handler, "label_exists_in_pull_request", side_effect=[False, True]):
-                    with patch.object(labels_handler, "wait_for_label", side_effect=Exception("Wait failed")):
-                        # Should not raise exception
-                        await labels_handler._add_label(mock_pull_request, static_label)
+                with patch.object(
+                    labels_handler, "label_exists_in_pull_request", new_callable=AsyncMock, side_effect=[False, True]
+                ):
+                    with patch.object(
+                        labels_handler, "wait_for_label", new_callable=AsyncMock, side_effect=Exception("Wait failed")
+                    ):
+                        # Exception should propagate (fail-fast architecture)
+                        with pytest.raises(Exception, match="Wait failed"):
+                            await labels_handler._add_label(mock_pull_request, static_label)
 
     @pytest.mark.asyncio
     async def test_wait_for_label_success(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
@@ -435,7 +452,8 @@ class TestLabelsHandler:
             mock_remove.assert_not_called()
             mock_add.assert_called_once_with(pull_request=pull_request, label=f"{SIZE_LABEL_PREFIX}M")
 
-    def test_size_threshold_boundaries(self, labels_handler: LabelsHandler) -> None:
+    @pytest.mark.asyncio
+    async def test_size_threshold_boundaries(self, labels_handler: LabelsHandler) -> None:
         """Test size calculation at threshold boundaries."""
         test_cases = [
             (19, 0, "XS"),  # Just under S threshold (20)
@@ -454,7 +472,7 @@ class TestLabelsHandler:
             pull_request = Mock(spec=PullRequest)
             pull_request.additions = additions
             pull_request.deletions = deletions
-            result = labels_handler.get_size(pull_request=pull_request)
+            result = await labels_handler.get_size(pull_request=pull_request)
             assert result == f"{SIZE_LABEL_PREFIX}{expected_size}", (
                 f"Failed for {additions}+{deletions}={additions + deletions}, expected {expected_size}"
             )
@@ -535,8 +553,8 @@ class TestLabelsHandler:
     ) -> None:
         """Test manage_reviewed_by_label with changes_requested state."""
         with (
-            patch.object(labels_handler, "_add_label") as mock_add,
-            patch.object(labels_handler, "_remove_label") as mock_remove,
+            patch.object(labels_handler, "_add_label", new_callable=AsyncMock) as mock_add,
+            patch.object(labels_handler, "_remove_label", new_callable=AsyncMock) as mock_remove,
         ):
             await labels_handler.manage_reviewed_by_label(mock_pull_request, "changes_requested", ADD_STR, "reviewer1")
             mock_add.assert_called_once()
@@ -570,8 +588,8 @@ class TestLabelsHandler:
     @pytest.mark.asyncio
     async def test_add_size_label_no_size_label(self, labels_handler: LabelsHandler, mock_pull_request: Mock) -> None:
         """Test add_size_label when get_size returns None."""
-        with patch.object(labels_handler, "get_size", return_value=None):
-            with patch.object(labels_handler, "_add_label") as mock_add:
+        with patch.object(labels_handler, "get_size", new_callable=AsyncMock, return_value=None):
+            with patch.object(labels_handler, "_add_label", new_callable=AsyncMock) as mock_add:
                 await labels_handler.add_size_label(mock_pull_request)
                 mock_add.assert_not_called()
 
@@ -594,7 +612,9 @@ class TestLabelsHandler:
         mock_pull_request.additions = 10
         mock_pull_request.deletions = 5
         existing_size_label = f"{SIZE_LABEL_PREFIX}L"
-        with patch.object(labels_handler, "pull_request_labels_names", return_value=[existing_size_label]):
+        with patch.object(
+            labels_handler, "pull_request_labels_names", new_callable=AsyncMock, return_value=[existing_size_label]
+        ):
             with patch.object(
                 labels_handler, "_remove_label", new_callable=AsyncMock, side_effect=Exception("Remove failed")
             ):
@@ -629,7 +649,7 @@ class TestLabelsHandler:
         self, labels_handler: LabelsHandler, mock_pull_request: Mock
     ) -> None:
         """Test label_by_user_comment for approve addition."""
-        with patch.object(labels_handler, "manage_reviewed_by_label") as mock_manage:
+        with patch.object(labels_handler, "manage_reviewed_by_label", new_callable=AsyncMock) as mock_manage:
             await labels_handler.label_by_user_comment(
                 pull_request=mock_pull_request,
                 user_requested_label=APPROVE_STR,
@@ -882,7 +902,8 @@ class TestLabelsHandler:
         ]
         assert thresholds == expected
 
-    def test_get_size_with_custom_thresholds(self, mock_github_webhook: Mock) -> None:
+    @pytest.mark.asyncio
+    async def test_get_size_with_custom_thresholds(self, mock_github_webhook: Mock) -> None:
         """Test get_size using custom thresholds."""
         # Mock config with custom thresholds
         mock_github_webhook.config.get_value.return_value = {
@@ -906,10 +927,11 @@ class TestLabelsHandler:
             pull_request.additions = additions
             pull_request.deletions = deletions
 
-            result = labels_handler.get_size(pull_request=pull_request)
+            result = await labels_handler.get_size(pull_request=pull_request)
             assert result == expected
 
-    def test_get_size_with_single_custom_threshold(self, mock_github_webhook: Mock) -> None:
+    @pytest.mark.asyncio
+    async def test_get_size_with_single_custom_threshold(self, mock_github_webhook: Mock) -> None:
         """Test get_size with only one custom threshold."""
         # Mock config with single threshold
         mock_github_webhook.config.get_value.return_value = {
@@ -929,7 +951,7 @@ class TestLabelsHandler:
             pull_request.additions = additions
             pull_request.deletions = deletions
 
-            result = labels_handler.get_size(pull_request=pull_request)
+            result = await labels_handler.get_size(pull_request=pull_request)
             assert result == expected
 
     def test_custom_threshold_sorting(self, mock_github_webhook: Mock) -> None:
@@ -1085,7 +1107,8 @@ class TestLabelsHandler:
         for i in range(len(thresholds) - 1):
             assert thresholds[i][0] < thresholds[i + 1][0]
 
-    def test_get_size_with_infinity_threshold(self, mock_github_webhook: Mock) -> None:
+    @pytest.mark.asyncio
+    async def test_get_size_with_infinity_threshold(self, mock_github_webhook: Mock) -> None:
         """Test get_size() method with custom infinity threshold."""
         # Mock config with infinity threshold
         mock_github_webhook.config.get_value.return_value = {
@@ -1110,7 +1133,7 @@ class TestLabelsHandler:
             pull_request.additions = additions
             pull_request.deletions = deletions
 
-            result = labels_handler.get_size(pull_request=pull_request)
+            result = await labels_handler.get_size(pull_request=pull_request)
             assert result == expected, (
                 f"Failed for {additions}+{deletions}={additions + deletions}, expected {expected}"
             )
@@ -1130,3 +1153,176 @@ class TestLabelsHandler:
         assert labels_handler._get_label_color("size/S") == "008000"  # green hex
         assert labels_handler._get_label_color("size/M") == "ffa500"  # orange hex
         assert labels_handler._get_label_color("size/XXL") == "ff0000"  # red hex (infinity category)
+
+
+class TestIsLabelEnabled:
+    """Tests for is_label_enabled method."""
+
+    @pytest.fixture
+    def mock_github_webhook(self) -> Mock:
+        """Mock GitHub webhook handler."""
+        webhook = Mock()
+        webhook.repository = Mock()
+        webhook.log_prefix = "[TEST]"
+        webhook.logger = Mock()
+        webhook.config.get_value.return_value = None
+        webhook.ctx = None
+        webhook.enabled_labels = None
+        webhook.label_colors = {}
+        return webhook
+
+    @pytest.fixture
+    def labels_handler(self, mock_github_webhook: Mock) -> LabelsHandler:
+        """Labels handler instance."""
+        return LabelsHandler(github_webhook=mock_github_webhook, owners_file_handler=Mock())
+
+    def test_all_labels_enabled_when_not_configured(self, labels_handler: LabelsHandler) -> None:
+        """When enabled_labels is None, all labels should be enabled."""
+        labels_handler.github_webhook.enabled_labels = None
+
+        assert labels_handler.is_label_enabled(VERIFIED_LABEL_STR) is True
+        assert labels_handler.is_label_enabled(HOLD_LABEL_STR) is True
+        assert labels_handler.is_label_enabled(WIP_STR) is True
+        assert labels_handler.is_label_enabled(f"{SIZE_LABEL_PREFIX}M") is True
+        assert labels_handler.is_label_enabled(f"{BRANCH_LABEL_PREFIX}main") is True
+
+    def test_reviewed_by_labels_always_enabled(self, labels_handler: LabelsHandler) -> None:
+        """reviewed-by labels should always be enabled, even if not in config."""
+        labels_handler.github_webhook.enabled_labels = set()  # Empty set - nothing enabled
+
+        # reviewed-by labels should still be enabled
+        assert labels_handler.is_label_enabled("approved-user1") is True
+        assert labels_handler.is_label_enabled("lgtm-user2") is True
+        assert labels_handler.is_label_enabled("changes-requested-user3") is True
+        assert labels_handler.is_label_enabled("commented-user4") is True
+
+    def test_specific_labels_enabled(self, labels_handler: LabelsHandler) -> None:
+        """Only labels in enabled_labels should be enabled."""
+        labels_handler.github_webhook.enabled_labels = {"verified", "hold", "size"}
+
+        assert labels_handler.is_label_enabled(VERIFIED_LABEL_STR) is True
+        assert labels_handler.is_label_enabled(HOLD_LABEL_STR) is True
+        assert labels_handler.is_label_enabled(f"{SIZE_LABEL_PREFIX}M") is True
+        assert labels_handler.is_label_enabled(WIP_STR) is False
+        assert labels_handler.is_label_enabled("needs-rebase") is False
+        assert labels_handler.is_label_enabled(f"{BRANCH_LABEL_PREFIX}main") is False
+
+    def test_branch_labels_category(self, labels_handler: LabelsHandler) -> None:
+        """Branch labels should be controlled by 'branch' category."""
+        labels_handler.github_webhook.enabled_labels = {"branch"}
+
+        assert labels_handler.is_label_enabled(f"{BRANCH_LABEL_PREFIX}main") is True
+        assert labels_handler.is_label_enabled(f"{BRANCH_LABEL_PREFIX}feature-123") is True
+        assert labels_handler.is_label_enabled(VERIFIED_LABEL_STR) is False
+
+    def test_cherry_pick_labels_category(self, labels_handler: LabelsHandler) -> None:
+        """Cherry-pick labels should be controlled by 'cherry-pick' category."""
+        labels_handler.github_webhook.enabled_labels = {"cherry-pick"}
+
+        assert labels_handler.is_label_enabled(f"{CHERRY_PICK_LABEL_PREFIX}v1.0") is True
+        assert labels_handler.is_label_enabled(CHERRY_PICKED_LABEL) is True
+        assert labels_handler.is_label_enabled(VERIFIED_LABEL_STR) is False
+
+    def test_unknown_labels_allowed_by_default(self, labels_handler: LabelsHandler) -> None:
+        """Unknown labels should be allowed when enabled_labels is set."""
+        labels_handler.github_webhook.enabled_labels = {"verified"}
+
+        # Unknown label should be allowed
+        assert labels_handler.is_label_enabled("custom-label") is True
+
+    def test_empty_enabled_labels_disables_all_except_reviewed_by(self, labels_handler: LabelsHandler) -> None:
+        """Empty enabled_labels should disable all configurable labels."""
+        labels_handler.github_webhook.enabled_labels = set()
+
+        assert labels_handler.is_label_enabled(VERIFIED_LABEL_STR) is False
+        assert labels_handler.is_label_enabled(HOLD_LABEL_STR) is False
+        assert labels_handler.is_label_enabled(WIP_STR) is False
+        assert labels_handler.is_label_enabled(f"{SIZE_LABEL_PREFIX}M") is False
+        assert labels_handler.is_label_enabled(f"{BRANCH_LABEL_PREFIX}main") is False
+        # reviewed-by always enabled
+        assert labels_handler.is_label_enabled("approved-user1") is True
+        assert labels_handler.is_label_enabled("lgtm-user2") is True
+
+    def test_lgtm_and_approve_always_enabled(self, labels_handler: LabelsHandler) -> None:
+        """The exact 'lgtm' and 'approve' labels should always be enabled.
+
+        These are required for the review workflow and cannot be disabled,
+        even when enabled_labels is set to an empty set or doesn't include
+        their categories.
+        """
+        labels_handler.github_webhook.enabled_labels = set()  # Empty - nothing enabled
+
+        # Exact lgtm and approve labels should always be enabled
+        assert labels_handler.is_label_enabled(LGTM_STR) is True
+        assert labels_handler.is_label_enabled(APPROVE_STR) is True
+
+        # Also verify with a restrictive enabled_labels that doesn't include them
+        labels_handler.github_webhook.enabled_labels = {"hold", "verified"}
+        assert labels_handler.is_label_enabled(LGTM_STR) is True
+        assert labels_handler.is_label_enabled(APPROVE_STR) is True
+
+    def test_automerge_label_category(self, labels_handler: LabelsHandler) -> None:
+        """Automerge label should be controlled by 'automerge' category."""
+        labels_handler.github_webhook.enabled_labels = {AUTOMERGE_LABEL_STR}
+
+        assert labels_handler.is_label_enabled(AUTOMERGE_LABEL_STR) is True
+        assert labels_handler.is_label_enabled(VERIFIED_LABEL_STR) is False
+
+    def test_size_labels_with_custom_names(self, labels_handler: LabelsHandler) -> None:
+        """Size labels with custom names should still be controlled by 'size' category."""
+        labels_handler.github_webhook.enabled_labels = {"size"}
+
+        assert labels_handler.is_label_enabled(f"{SIZE_LABEL_PREFIX}XS") is True
+        assert labels_handler.is_label_enabled(f"{SIZE_LABEL_PREFIX}CustomName") is True
+        assert labels_handler.is_label_enabled(f"{SIZE_LABEL_PREFIX}Massive") is True
+
+
+class TestCustomLabelColors:
+    """Tests for custom label colors configuration."""
+
+    @pytest.fixture
+    def mock_github_webhook(self) -> Mock:
+        """Mock GitHub webhook handler."""
+        webhook = Mock()
+        webhook.repository = Mock()
+        webhook.log_prefix = "[TEST]"
+        webhook.logger = Mock()
+        webhook.config.get_value.return_value = None
+        webhook.ctx = None
+        webhook.enabled_labels = None
+        webhook.label_colors = {}
+        return webhook
+
+    @pytest.fixture
+    def labels_handler(self, mock_github_webhook: Mock) -> LabelsHandler:
+        """Labels handler instance."""
+        return LabelsHandler(github_webhook=mock_github_webhook, owners_file_handler=Mock())
+
+    def test_custom_color_for_static_label(self, labels_handler: LabelsHandler) -> None:
+        """Custom colors should override defaults for static labels."""
+        labels_handler.github_webhook.label_colors = {"hold": "blue"}
+
+        color = labels_handler._get_label_color("hold")
+        assert color == "0000ff"  # blue in hex
+
+    def test_custom_color_for_dynamic_label_prefix(self, labels_handler: LabelsHandler) -> None:
+        """Custom colors should work for dynamic label prefixes."""
+        labels_handler.github_webhook.label_colors = {"approved-": "purple"}
+
+        color = labels_handler._get_label_color("approved-username")
+        assert color == "800080"  # purple in hex
+
+    def test_fallback_to_default_color(self, labels_handler: LabelsHandler) -> None:
+        """When no custom color, should use default color."""
+        labels_handler.github_webhook.label_colors = {}
+
+        color = labels_handler._get_label_color("hold")
+        assert color == "B60205"  # Default hold color
+
+    def test_invalid_color_name_fallback(self, labels_handler: LabelsHandler) -> None:
+        """Invalid color names should fallback to default."""
+        labels_handler.github_webhook.label_colors = {"hold": "notacolor"}
+
+        color = labels_handler._get_label_color("hold")
+        # Should use lightgray fallback
+        assert color == "d3d3d3"

@@ -649,3 +649,81 @@ class TestConfigSchema:
                 assert data["pr-size-thresholds"] == {}
         finally:
             shutil.rmtree(temp_dir)
+
+    def test_labels_configuration_schema(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test labels configuration at global and repository levels."""
+        config_data = {
+            "log-level": "INFO",
+            "github-app-id": 123456,
+            "github-tokens": ["token1"],
+            "webhook-ip": "http://localhost:5000",
+            "labels": {
+                "enabled-labels": ["verified", "hold", "wip", "size"],
+                "colors": {"hold": "red", "verified": "green", "approved-": "blue"},
+            },
+            "repositories": {
+                "test-repo": {
+                    "name": "org/test-repo",
+                    "labels": {
+                        "enabled-labels": ["verified", "size"],
+                        "colors": {"hold": "orange"},
+                    },
+                }
+            },
+        }
+
+        temp_dir = self.create_temp_config_dir_and_data(config_data)
+
+        try:
+            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
+
+            config = Config()
+            # Verify global labels config
+            assert config.root_data["labels"]["enabled-labels"] == ["verified", "hold", "wip", "size"]
+            assert config.root_data["labels"]["colors"]["hold"] == "red"
+            # Verify repository labels config
+            assert config.root_data["repositories"]["test-repo"]["labels"]["enabled-labels"] == ["verified", "size"]
+            assert config.root_data["repositories"]["test-repo"]["labels"]["colors"]["hold"] == "orange"
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_labels_invalid_category_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that invalid label categories are rejected by schema validation."""
+        config_data = {
+            "github-app-id": 123456,
+            "github-tokens": ["token1"],
+            "webhook-ip": "http://localhost:5000",
+            "labels": {"enabled-labels": ["invalid-category"]},
+            "repositories": {"test-repo": {"name": "org/test-repo"}},
+        }
+
+        temp_dir = self.create_temp_config_dir_and_data(config_data)
+
+        try:
+            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
+
+            # Invalid label category should raise a validation error
+            with pytest.raises(ValueError, match=r"Invalid label categories in enabled-labels"):
+                Config()
+        finally:
+            shutil.rmtree(temp_dir)
+
+    def test_labels_empty_enabled_labels(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that empty enabled-labels array is valid configuration."""
+        config_data = {
+            "github-app-id": 123456,
+            "github-tokens": ["token1"],
+            "webhook-ip": "http://localhost:5000",
+            "labels": {"enabled-labels": []},
+            "repositories": {"test-repo": {"name": "org/test-repo"}},
+        }
+
+        temp_dir = self.create_temp_config_dir_and_data(config_data)
+
+        try:
+            monkeypatch.setenv("WEBHOOK_SERVER_DATA_DIR", temp_dir)
+
+            config = Config()
+            assert config.root_data["labels"]["enabled-labels"] == []
+        finally:
+            shutil.rmtree(temp_dir)

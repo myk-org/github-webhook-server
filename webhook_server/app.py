@@ -7,6 +7,7 @@ import traceback
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from ipaddress import IPv4Network, IPv6Network
 from typing import Any
 
 import httpx
@@ -58,11 +59,11 @@ LOG_SERVER_ENABLED: bool = os.environ.get("ENABLE_LOG_SERVER") == "true"
 MCP_SERVER_ENABLED: bool = os.environ.get("ENABLE_MCP_SERVER") == "true"
 
 # Global variables
-ALLOWED_IPS: tuple[ipaddress._BaseNetwork, ...] = ()
+ALLOWED_IPS: tuple[IPv4Network | IPv6Network, ...] = ()
 LOGGER = get_logger_with_params()
 
 _lifespan_http_client: httpx.AsyncClient | None = None
-_background_tasks: set[asyncio.Task] = set()
+_background_tasks: set[asyncio.Task[Any]] = set()
 
 # MCP Globals
 http_transport: Any | None = None
@@ -160,7 +161,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         LOGGER.debug(f"verify_github_ips: {verify_github_ips}, verify_cloudflare_ips: {verify_cloudflare_ips}")
 
         global ALLOWED_IPS
-        networks: set[ipaddress._BaseNetwork] = set()
+        networks: set[IPv4Network | IPv6Network] = set()
 
         if verify_cloudflare_ips:
             try:
