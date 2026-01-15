@@ -14,9 +14,10 @@ from webhook_server.utils.constants import (
     CAN_BE_MERGED_STR,
     CHANGED_REQUESTED_BY_LABEL_PREFIX,
     CHERRY_PICK_LABEL_PREFIX,
-    CHERRY_PICKED_LABEL_PREFIX,
+    CHERRY_PICKED_LABEL,
     COMMENTED_BY_LABEL_PREFIX,
     HAS_CONFLICTS_LABEL_STR,
+    HOLD_LABEL_STR,
     LGTM_BY_LABEL_PREFIX,
     NEEDS_REBASE_LABEL_STR,
     TOX_STR,
@@ -81,6 +82,7 @@ class TestPullRequestHandler:
         mock_webhook.auto_verify_cherry_picked_prs = True
         mock_webhook.last_commit = Mock()
         mock_webhook.ctx = None
+        mock_webhook.enabled_labels = None  # Default: all labels enabled
         return mock_webhook
 
     @pytest.fixture
@@ -402,6 +404,45 @@ class TestPullRequestHandler:
         assert TOX_STR in result
         assert "pre-commit" in result
 
+    def test_prepare_no_blockers_requirement_all_enabled(self, pull_request_handler: PullRequestHandler) -> None:
+        """Test no blockers requirement when all labels are enabled."""
+        # Default: enabled_labels is None, so all are enabled
+        # Mock is_label_enabled to return True for all labels
+        pull_request_handler.labels_handler.is_label_enabled = Mock(return_value=True)
+        result = pull_request_handler._prepare_no_blockers_requirement
+        assert "No WIP, hold, conflict labels" in result
+
+    def test_prepare_no_blockers_requirement_wip_disabled(self, pull_request_handler: PullRequestHandler) -> None:
+        """Test no blockers requirement when wip is disabled."""
+        # Mock is_label_enabled: wip disabled, hold enabled
+        pull_request_handler.labels_handler.is_label_enabled = Mock(side_effect=lambda label: label != WIP_STR)
+        result = pull_request_handler._prepare_no_blockers_requirement
+        assert "WIP" not in result
+        assert "hold" in result
+        assert "conflict" in result
+
+    def test_prepare_no_blockers_requirement_hold_disabled(self, pull_request_handler: PullRequestHandler) -> None:
+        """Test no blockers requirement when hold is disabled."""
+        # Mock is_label_enabled: hold disabled, wip enabled
+        pull_request_handler.labels_handler.is_label_enabled = Mock(side_effect=lambda label: label != HOLD_LABEL_STR)
+        result = pull_request_handler._prepare_no_blockers_requirement
+        assert "WIP" in result
+        assert "hold" not in result
+        assert "conflict" in result
+
+    def test_prepare_no_blockers_requirement_both_disabled(self, pull_request_handler: PullRequestHandler) -> None:
+        """Test no blockers requirement when both wip and hold are disabled."""
+        # Mock is_label_enabled: both wip and hold disabled
+        pull_request_handler.labels_handler.is_label_enabled = Mock(
+            side_effect=lambda label: label not in (WIP_STR, HOLD_LABEL_STR)
+        )
+        result = pull_request_handler._prepare_no_blockers_requirement
+        assert "WIP" not in result
+        assert "hold" not in result
+        assert "conflict" in result
+        # Only conflict should be present
+        assert "No conflict labels" in result
+
     @pytest.mark.asyncio
     async def test_label_all_opened_pull_requests_merge_state_after_merged(
         self, pull_request_handler: PullRequestHandler
@@ -650,7 +691,7 @@ class TestPullRequestHandler:
 
         mock_pull_request = Mock(spec=PullRequest)
         mock_label = Mock()
-        mock_label.name = CHERRY_PICKED_LABEL_PREFIX
+        mock_label.name = CHERRY_PICKED_LABEL
         mock_pull_request.labels = [mock_label]
 
         with (
@@ -671,7 +712,7 @@ class TestPullRequestHandler:
 
         mock_pull_request = Mock(spec=PullRequest)
         mock_label = Mock()
-        mock_label.name = CHERRY_PICKED_LABEL_PREFIX
+        mock_label.name = CHERRY_PICKED_LABEL
         mock_pull_request.labels = [mock_label]
 
         with (
@@ -2000,3 +2041,95 @@ class TestPullRequestHandler:
         pull_request_handler.labels_handler._add_label.assert_called_once_with(
             pull_request=mock_pull_request, label=HAS_CONFLICTS_LABEL_STR
         )
+
+    @pytest.mark.asyncio
+    async def test_regenerate_welcome_message_existing_comment_updated(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test regenerating welcome message when existing welcome comment is found and updated."""
+        # Create a mock existing comment containing the welcome message URL
+        mock_comment = Mock()
+        mock_comment.body = "Some text welcome-message-url more text"
+        mock_comment.edit = Mock()
+        mock_pull_request.get_issue_comments = Mock(return_value=[mock_comment])
+
+        with patch.object(pull_request_handler, "_prepare_welcome_comment", return_value="New welcome message"):
+            await pull_request_handler.regenerate_welcome_message(mock_pull_request)
+
+        # Verify comment.edit was called with new welcome message
+        mock_comment.edit.assert_called_once_with(body="New welcome message")
+        # Verify create_issue_comment was NOT called since existing comment was found
+        mock_pull_request.create_issue_comment.assert_not_called()
+        # Verify logging
+        pull_request_handler.logger.info.assert_called_with("[TEST] Updated existing welcome message")
+
+    @pytest.mark.asyncio
+    async def test_regenerate_welcome_message_no_existing_comment_creates_new(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test regenerating welcome message when no existing welcome comment is found."""
+        # Empty comment list - no welcome message exists
+        mock_pull_request.get_issue_comments = Mock(return_value=[])
+
+        with patch.object(pull_request_handler, "_prepare_welcome_comment", return_value="New welcome message"):
+            await pull_request_handler.regenerate_welcome_message(mock_pull_request)
+
+        # Verify create_issue_comment was called with new welcome message
+        mock_pull_request.create_issue_comment.assert_called_once_with(body="New welcome message")
+        # Verify logging
+        pull_request_handler.logger.info.assert_called_with("[TEST] Creating new welcome message")
+
+    @pytest.mark.asyncio
+    async def test_regenerate_welcome_message_other_comments_not_matched(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test regenerating welcome message ignores comments without welcome URL marker."""
+        # Create comments that don't contain the welcome message URL
+        mock_comment1 = Mock()
+        mock_comment1.body = "Some unrelated comment"
+        mock_comment1.edit = Mock()
+
+        mock_comment2 = Mock()
+        mock_comment2.body = "Another unrelated comment"
+        mock_comment2.edit = Mock()
+
+        mock_pull_request.get_issue_comments = Mock(return_value=[mock_comment1, mock_comment2])
+
+        with patch.object(pull_request_handler, "_prepare_welcome_comment", return_value="New welcome message"):
+            await pull_request_handler.regenerate_welcome_message(mock_pull_request)
+
+        # Verify neither comment was edited
+        mock_comment1.edit.assert_not_called()
+        mock_comment2.edit.assert_not_called()
+        # Verify new comment was created
+        mock_pull_request.create_issue_comment.assert_called_once_with(body="New welcome message")
+
+    @pytest.mark.asyncio
+    async def test_regenerate_welcome_message_finds_correct_comment_among_many(
+        self, pull_request_handler: PullRequestHandler, mock_pull_request: Mock
+    ) -> None:
+        """Test that regenerate finds the correct welcome comment among multiple comments."""
+        # Create multiple comments, only one with the welcome URL
+        mock_comment1 = Mock()
+        mock_comment1.body = "Some unrelated comment"
+        mock_comment1.edit = Mock()
+
+        mock_welcome_comment = Mock()
+        mock_welcome_comment.body = "welcome-message-url\n## Welcome!"
+        mock_welcome_comment.edit = Mock()
+
+        mock_comment3 = Mock()
+        mock_comment3.body = "Another comment"
+        mock_comment3.edit = Mock()
+
+        mock_pull_request.get_issue_comments = Mock(return_value=[mock_comment1, mock_welcome_comment, mock_comment3])
+
+        with patch.object(pull_request_handler, "_prepare_welcome_comment", return_value="Updated welcome"):
+            await pull_request_handler.regenerate_welcome_message(mock_pull_request)
+
+        # Verify only the welcome comment was edited
+        mock_comment1.edit.assert_not_called()
+        mock_welcome_comment.edit.assert_called_once_with(body="Updated welcome")
+        mock_comment3.edit.assert_not_called()
+        # Verify no new comment was created
+        mock_pull_request.create_issue_comment.assert_not_called()

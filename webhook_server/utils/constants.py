@@ -1,3 +1,6 @@
+import types
+from collections.abc import Mapping
+
 OTHER_MAIN_BRANCH: str = "master"
 TOX_STR: str = "tox"
 PRE_COMMIT_STR: str = "pre-commit"
@@ -18,7 +21,7 @@ LGTM_STR: str = "lgtm"
 APPROVE_STR: str = "approve"
 LABELS_SEPARATOR: str = "-"
 CHERRY_PICK_LABEL_PREFIX: str = f"cherry-pick{LABELS_SEPARATOR}"
-CHERRY_PICKED_LABEL_PREFIX: str = "CherryPicked"
+CHERRY_PICKED_LABEL: str = "CherryPicked"
 APPROVED_BY_LABEL_PREFIX: str = f"approved{LABELS_SEPARATOR}"
 LGTM_BY_LABEL_PREFIX: str = f"{LGTM_STR}{LABELS_SEPARATOR}"
 CHANGED_REQUESTED_BY_LABEL_PREFIX: str = f"changes-requested{LABELS_SEPARATOR}"
@@ -37,6 +40,7 @@ COMMAND_CHECK_CAN_MERGE_STR: str = "check-can-merge"
 COMMAND_ASSIGN_REVIEWER_STR: str = "assign-reviewer"
 COMMAND_ADD_ALLOWED_USER_STR: str = "add-allowed-user"
 COMMAND_AUTOMERGE_STR: str = "automerge"
+COMMAND_REGENERATE_WELCOME_STR: str = "regenerate-welcome"
 AUTOMERGE_LABEL_STR: str = "automerge"
 ROOT_APPROVERS_KEY: str = "root-approvers"
 
@@ -50,9 +54,34 @@ USER_LABELS_DICT: dict[str, str] = {
     AUTOMERGE_LABEL_STR: "0E8A16",
 }
 
+# Mapping from exact label strings to their configuration category names.
+#
+# IMPORTANT: This map is for EXACT-MATCH labels only!
+# - Keys must be complete label names (e.g., "hold", "verified", "wip")
+# - These are looked up directly: `if label in LABEL_CATEGORY_MAP`
+#
+# PREFIX-BASED labels are NOT in this map and are handled separately
+# by prefix-matching logic in LabelsHandler.is_label_enabled():
+# - "size" category: labels like "size/XS", "size/M", "size/XXL" (prefix: SIZE_LABEL_PREFIX)
+# - "branch" category: labels like "branch-main", "branch-feature" (prefix: BRANCH_LABEL_PREFIX)
+# - "cherry-pick" category: labels like "cherry-pick-main" (prefix: CHERRY_PICK_LABEL_PREFIX)
+#
+# Do NOT add prefix-based label examples (e.g., "size/XL", "branch-main") to this map.
+LABEL_CATEGORY_MAP: dict[str, str] = {
+    HOLD_LABEL_STR: "hold",
+    VERIFIED_LABEL_STR: "verified",
+    WIP_STR: "wip",
+    AUTOMERGE_LABEL_STR: "automerge",
+    LGTM_STR: "lgtm",  # Always enabled
+    APPROVE_STR: "approve",  # Always enabled
+    NEEDS_REBASE_LABEL_STR: "needs-rebase",
+    HAS_CONFLICTS_LABEL_STR: "has-conflicts",
+    CAN_BE_MERGED_STR: "can-be-merged",
+}
+
 STATIC_LABELS_DICT: dict[str, str] = {
     **USER_LABELS_DICT,
-    CHERRY_PICKED_LABEL_PREFIX: "1D76DB",
+    CHERRY_PICKED_LABEL: "1D76DB",
     f"{SIZE_LABEL_PREFIX}L": "F5621C",
     f"{SIZE_LABEL_PREFIX}M": "F09C74",
     f"{SIZE_LABEL_PREFIX}S": "0E8A16",
@@ -73,7 +102,28 @@ DYNAMIC_LABELS_DICT: dict[str, str] = {
     BRANCH_LABEL_PREFIX: "1D76DB",
 }
 
-ALL_LABELS_DICT: dict[str, str] = {**STATIC_LABELS_DICT, **DYNAMIC_LABELS_DICT}
+_ALL_LABELS_DICT: dict[str, str] = {**STATIC_LABELS_DICT, **DYNAMIC_LABELS_DICT}
+ALL_LABELS_DICT: Mapping[str, str] = types.MappingProxyType(_ALL_LABELS_DICT)
+
+# Default label colors - uses ALL_LABELS_DICT as the source of truth
+# These are used when no custom colors are configured via labels.colors
+# Using MappingProxyType to prevent accidental mutation of the shared dict
+DEFAULT_LABEL_COLORS: Mapping[str, str] = ALL_LABELS_DICT
+
+# All configurable label categories (for enabled-labels config)
+# Note: reviewed-by is NOT in this list because it cannot be disabled
+CONFIGURABLE_LABEL_CATEGORIES: set[str] = {
+    "verified",
+    "hold",
+    "wip",
+    "needs-rebase",
+    "has-conflicts",
+    "can-be-merged",
+    "size",
+    "branch",
+    "cherry-pick",
+    "automerge",
+}
 
 
 class REACTIONS:

@@ -3,11 +3,14 @@
 import datetime
 import hashlib
 import hmac
+from datetime import UTC, timedelta
+from unittest.mock import Mock, patch
 
 import pytest
 from fastapi import HTTPException
 
-from webhook_server.utils.app_utils import format_duration, parse_datetime_string, verify_signature
+from webhook_server.utils.app_utils import format_duration, log_webhook_summary, parse_datetime_string, verify_signature
+from webhook_server.utils.context import WebhookContext
 
 
 class TestVerifySignature:
@@ -132,3 +135,140 @@ class TestFormatDuration:
         """Test format_duration with hours and remaining minutes."""
         assert format_duration(3660000) == "1h1m"
         assert format_duration(5700000) == "1h35m"
+
+
+class TestLogWebhookSummary:
+    """Test suite for log_webhook_summary function."""
+
+    def test_log_webhook_summary_with_complete_steps(self) -> None:
+        """Test log_webhook_summary with fully completed steps."""
+        # Create context with completed_at set
+        start_time = datetime.datetime(2024, 1, 15, 10, 0, 0, tzinfo=UTC)
+        with patch("webhook_server.utils.context.datetime") as mock_dt:
+            mock_dt.now.return_value = start_time
+            ctx = WebhookContext(
+                hook_id="test-hook-1",
+                event_type="pull_request",
+                repository="owner/repo",
+                repository_full_name="owner/repo",
+                pr_number=42,
+            )
+
+        # Start and complete a step
+        with patch("webhook_server.utils.context.datetime") as mock_dt:
+            mock_dt.now.return_value = start_time
+            ctx.start_step("webhook_routing")
+
+        with patch("webhook_server.utils.context.datetime") as mock_dt:
+            mock_dt.now.return_value = start_time + timedelta(seconds=2)
+            ctx.complete_step("webhook_routing")
+
+        # Set completed_at
+        ctx.completed_at = start_time + timedelta(seconds=5)
+
+        # Mock logger
+        mock_logger = Mock()
+
+        # Call the function - should not raise
+        log_webhook_summary(ctx, mock_logger, "[TEST]")
+
+        # Verify logger was called with info level
+        mock_logger.info.assert_called_once()
+        log_message = mock_logger.info.call_args[0][0]
+
+        # Verify log message contains expected information
+        assert "[SUCCESS]" in log_message
+        assert "PR#42" in log_message
+        assert "webhook_routing:completed(2s)" in log_message
+
+    def test_log_webhook_summary_with_incomplete_step(self) -> None:
+        """Test log_webhook_summary handles incomplete steps (started but not completed).
+
+        This tests the bug fix for:
+        ValueError: Workflow step 'webhook_routing' missing or None 'duration_ms' field
+        """
+        # Create context
+        start_time = datetime.datetime(2024, 1, 15, 10, 0, 0, tzinfo=UTC)
+        with patch("webhook_server.utils.context.datetime") as mock_dt:
+            mock_dt.now.return_value = start_time
+            ctx = WebhookContext(
+                hook_id="test-hook-2",
+                event_type="pull_request",
+                repository="owner/repo",
+                repository_full_name="owner/repo",
+            )
+
+        # Start a step but DON'T complete it (simulating exception before complete_step)
+        with patch("webhook_server.utils.context.datetime") as mock_dt:
+            mock_dt.now.return_value = start_time
+            ctx.start_step("webhook_routing")
+
+        # Set completed_at (happens in finally block even on exception)
+        ctx.completed_at = start_time + timedelta(seconds=3)
+        ctx.success = False
+
+        # Mock logger
+        mock_logger = Mock()
+
+        # Call the function - should NOT raise ValueError anymore
+        log_webhook_summary(ctx, mock_logger, "[TEST]")
+
+        # Verify logger was called
+        mock_logger.info.assert_called_once()
+        log_message = mock_logger.info.call_args[0][0]
+
+        # Verify incomplete step is shown as "(incomplete)"
+        assert "[FAILED]" in log_message
+        assert "webhook_routing:started(incomplete)" in log_message
+
+    def test_log_webhook_summary_with_missing_status(self) -> None:
+        """Test log_webhook_summary handles steps with missing status field."""
+        # Create context
+        start_time = datetime.datetime(2024, 1, 15, 10, 0, 0, tzinfo=UTC)
+        with patch("webhook_server.utils.context.datetime") as mock_dt:
+            mock_dt.now.return_value = start_time
+            ctx = WebhookContext(
+                hook_id="test-hook-3",
+                event_type="push",
+                repository="owner/repo",
+                repository_full_name="owner/repo",
+            )
+
+        # Manually add a malformed step (missing status)
+        ctx.workflow_steps["bad_step"] = {"timestamp": start_time.isoformat()}
+
+        # Set completed_at
+        ctx.completed_at = start_time + timedelta(seconds=1)
+
+        # Mock logger
+        mock_logger = Mock()
+
+        # Call the function - should handle gracefully
+        log_webhook_summary(ctx, mock_logger, "[TEST]")
+
+        # Verify logger was called
+        mock_logger.info.assert_called_once()
+        log_message = mock_logger.info.call_args[0][0]
+
+        # Verify missing status defaults to "unknown" and shows as incomplete
+        assert "bad_step:unknown(incomplete)" in log_message
+
+    def test_log_webhook_summary_raises_when_not_completed(self) -> None:
+        """Test log_webhook_summary raises ValueError when completed_at is None."""
+        # Create context without setting completed_at
+        start_time = datetime.datetime(2024, 1, 15, 10, 0, 0, tzinfo=UTC)
+        with patch("webhook_server.utils.context.datetime") as mock_dt:
+            mock_dt.now.return_value = start_time
+            ctx = WebhookContext(
+                hook_id="test-hook-4",
+                event_type="push",
+                repository="owner/repo",
+                repository_full_name="owner/repo",
+            )
+
+        # Mock logger
+        mock_logger = Mock()
+
+        # Call should raise ValueError because completed_at is None
+        with pytest.raises(ValueError, match="Context completed_at is None"):
+            log_webhook_summary(ctx, mock_logger, "[TEST]")

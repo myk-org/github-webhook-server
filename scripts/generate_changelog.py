@@ -3,9 +3,10 @@ import shlex
 import subprocess
 import sys
 from collections import OrderedDict
+from typing import Any
 
 
-def json_line(line: str) -> dict:
+def json_line(line: str) -> dict[str, Any]:
     """
     Format str line to str that can be parsed with json.
 
@@ -59,28 +60,27 @@ def execute_git_log(from_tag: str, to_tag: str) -> str:
         sys.exit(1)
 
 
-def parse_commit_line(line: str) -> dict:
+def parse_commit_line(line: str) -> dict[str, Any]:
     """Parses a single JSON formatted git log line."""
     try:
         return json_line(line=line)
-    except json.decoder.JSONDecodeError as ex:
+    except json.JSONDecodeError as ex:
         print(f"Error parsing JSON: {line} - {ex}")
         return {}
 
 
-def categorize_commit(commit: dict, title_to_type_map: dict, default_category: str = "Other Changes:") -> str:
+def categorize_commit(
+    commit: dict[str, Any], title_to_type_map: dict[str, str], default_category: str = "Other Changes:"
+) -> str:
     """Categorizes a commit based on its title prefix."""
     if not commit or "title" not in commit:
         return default_category
     title = commit["title"]
-    try:
-        prefix = title.split(":", 1)[0].lower()  # Extract the prefix before the first colon
-        return title_to_type_map.get(prefix, default_category)
-    except IndexError:
-        return default_category
+    prefix = title.split(":", 1)[0].lower()  # Extract the prefix before the first colon
+    return title_to_type_map.get(prefix, default_category)
 
 
-def format_changelog_entry(change: dict, section: str) -> str:
+def format_changelog_entry(change: dict[str, Any], section: str) -> str:
     """Formats a single changelog entry."""
     title = change["title"].split(":", 1)[1] if section != "Other Changes:" else change["title"]
     return f"- {title} ({change['commit']}) by {change['author']} on {change['date']}\n"

@@ -15,7 +15,7 @@ from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
 from webhook_server.utils import helpers as helpers_module
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
-    CHERRY_PICKED_LABEL_PREFIX,
+    CHERRY_PICKED_LABEL,
     CONVENTIONAL_TITLE_STR,
     PRE_COMMIT_STR,
     PREK_STR,
@@ -487,7 +487,7 @@ Your team can configure additional types in the repository settings.
         requested_by = reviewed_user or "by target-branch label"
         self.logger.info(f"{self.log_prefix} Cherry-pick requested by user: {requested_by}")
 
-        new_branch_name = f"{CHERRY_PICKED_LABEL_PREFIX}-{pull_request.head.ref}-{shortuuid.uuid()[:5]}"
+        new_branch_name = f"{CHERRY_PICKED_LABEL}-{pull_request.head.ref}-{shortuuid.uuid()[:5]}"
         if not await self.is_branch_exists(branch=target_branch):
             err_msg = f"cherry-pick failed: {target_branch} does not exists"
             self.logger.error(err_msg)
@@ -510,8 +510,8 @@ Your team can configure additional types in the repository settings.
                     f"{git_cmd} cherry-pick {commit_hash}",
                     f"{git_cmd} push origin {new_branch_name}",
                     f'bash -c "{hub_cmd} pull-request -b {target_branch} '
-                    f"-h {new_branch_name} -l {CHERRY_PICKED_LABEL_PREFIX} "
-                    f"-m '{CHERRY_PICKED_LABEL_PREFIX}: [{target_branch}] "
+                    f"-h {new_branch_name} -l {CHERRY_PICKED_LABEL} "
+                    f"-m '{CHERRY_PICKED_LABEL}: [{target_branch}] "
                     f"{commit_msg_striped}' -m 'cherry-pick {pull_request_url} "
                     f"into {target_branch}' -m 'requested-by {requested_by}'\"",
                 ]

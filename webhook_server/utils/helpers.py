@@ -17,6 +17,7 @@ from typing import Any
 from uuid import uuid4
 
 import github
+import simple_logger.logger
 from colorama import Fore
 from github import GithubException
 from github.RateLimitOverview import RateLimitOverview
@@ -26,6 +27,11 @@ from stringcolor import cs
 
 from webhook_server.libs.config import Config
 from webhook_server.libs.exceptions import NoApiTokenError
+from webhook_server.utils.safe_rotating_handler import SafeRotatingFileHandler
+
+# Patch simple_logger to use SafeRotatingFileHandler to prevent crashes
+# when backup log files are missing during rollover
+simple_logger.logger.RotatingFileHandler = SafeRotatingFileHandler
 
 
 def get_logger_with_params(
@@ -511,7 +517,7 @@ def log_rate_limit(rate_limit: RateLimitOverview, api_user: str) -> None:
         logger.warning(msg)
 
 
-def get_future_results(futures: list[Future]) -> None:
+def get_future_results(futures: list[Future[Any]]) -> None:
     """
     Process futures from repository configuration tasks.
 

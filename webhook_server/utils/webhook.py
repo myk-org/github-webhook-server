@@ -20,7 +20,7 @@ def process_github_webhook(
     webhook_ip: str,
     apis_dict: dict[str, dict[str, Any]],
     secret: str | None = None,
-) -> tuple[bool, str, Callable]:
+) -> tuple[bool, str, Callable[..., Any]]:
     full_repository_name: str = data["name"]
     github_api = apis_dict[repository_name].get("api")
     api_user = apis_dict[repository_name].get("user")

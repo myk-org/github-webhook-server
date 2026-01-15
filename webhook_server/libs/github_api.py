@@ -9,6 +9,7 @@ import shutil
 import tempfile
 import threading
 import traceback
+from asyncio import Task
 from typing import Any
 
 import github
@@ -29,6 +30,7 @@ from webhook_server.libs.handlers.push_handler import PushHandler
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
+    CONFIGURABLE_LABEL_CATEGORIES,
     CONVENTIONAL_TITLE_STR,
     OTHER_MAIN_BRANCH,
     PRE_COMMIT_STR,
@@ -82,7 +84,7 @@ class GithubWebhook:
         self.hook_data = hook_data
         self.repository_name: str = hook_data["repository"]["name"]
         self.repository_full_name: str = hook_data["repository"]["full_name"]
-        self._bg_tasks: set[asyncio.Task] = set()
+        self._bg_tasks: set[Task[Any]] = set()
         self.parent_committer: str = ""
         self.x_github_delivery: str = headers.get("X-GitHub-Delivery", "")
         self.github_event: str = headers["X-GitHub-Event"]
@@ -289,7 +291,8 @@ class GithubWebhook:
 
         try:
             github_token = self.token
-            clone_url_with_token = self.repository.clone_url.replace("https://", f"https://{github_token}@")
+            clone_url = await asyncio.to_thread(lambda: self.repository.clone_url)
+            clone_url_with_token = clone_url.replace("https://", f"https://{github_token}@")
 
             rc, _, err = await run_command(
                 command=f"git clone {clone_url_with_token} {self.clone_repo_dir}",
@@ -308,8 +311,9 @@ class GithubWebhook:
 
             # Configure git user
             git_cmd = f"git -C {self.clone_repo_dir}"
+            owner_login = await asyncio.to_thread(lambda: self.repository.owner.login)
             rc, _, _ = await run_command(
-                command=f"{git_cmd} config user.name '{self.repository.owner.login}'",
+                command=f"{git_cmd} config user.name '{owner_login}'",
                 log_prefix=self.log_prefix,
                 mask_sensitive=self.mask_sensitive,
             )
@@ -317,42 +321,58 @@ class GithubWebhook:
                 self.logger.warning(f"{self.log_prefix} Failed to configure git user.name")
 
             rc, _, _ = await run_command(
-                command=f"{git_cmd} config user.email '{self.repository.owner.login}@users.noreply.github.com'",
+                command=f"{git_cmd} config user.email '{owner_login}@users.noreply.github.com'",
                 log_prefix=self.log_prefix,
                 mask_sensitive=self.mask_sensitive,
             )
             if not rc:
                 self.logger.warning(f"{self.log_prefix} Failed to configure git user.email")
 
-            # Configure PR fetch to enable origin/pr/* checkouts
-            rc, _, _ = await run_command(
-                command=(
-                    f"{git_cmd} config --local --add remote.origin.fetch +refs/pull/*/head:refs/remotes/origin/pr/*"
-                ),
-                log_prefix=self.log_prefix,
-                mask_sensitive=self.mask_sensitive,
-            )
-            if not rc:
-                self.logger.warning(f"{self.log_prefix} Failed to configure PR fetch refs")
+            # Fetch only what's needed instead of all refs
+            if pull_request:
+                # Fetch the base branch first (needed for checkout)
+                base_ref = await asyncio.to_thread(lambda: pull_request.base.ref)
+                rc, _, err = await run_command(
+                    command=f"{git_cmd} fetch origin {base_ref}",
+                    log_prefix=self.log_prefix,
+                    mask_sensitive=self.mask_sensitive,
+                )
+                if not rc:
+                    redacted_err = redact_output(err)
+                    self.logger.error(f"{self.log_prefix} Failed to fetch base branch {base_ref}: {redacted_err}")
+                    raise RuntimeError(f"Failed to fetch base branch {base_ref}: {redacted_err}")
 
-            # Fetch all refs including PRs
-            rc, _, _ = await run_command(
-                command=f"{git_cmd} remote update",
-                log_prefix=self.log_prefix,
-                mask_sensitive=self.mask_sensitive,
-            )
-            if not rc:
-                self.logger.warning(f"{self.log_prefix} Failed to fetch remote refs")
+                # Fetch only this specific PR's ref
+                pr_number = await asyncio.to_thread(lambda: pull_request.number)
+                rc, _, err = await run_command(
+                    command=f"{git_cmd} fetch origin +refs/pull/{pr_number}/head:refs/remotes/origin/pr/{pr_number}",
+                    log_prefix=self.log_prefix,
+                    mask_sensitive=self.mask_sensitive,
+                )
+                if not rc:
+                    redacted_err = redact_output(err)
+                    self.logger.error(f"{self.log_prefix} Failed to fetch PR {pr_number} ref: {redacted_err}")
+                    raise RuntimeError(f"Failed to fetch PR {pr_number} ref: {redacted_err}")
+            else:
+                # For push events (tags only - branch pushes skip cloning)
+                # checkout_ref guaranteed to be non-None by validation at function start
+                tag_name = checkout_ref.replace("refs/tags/", "")  # type: ignore[union-attr]
+                fetch_refspec = f"refs/tags/{tag_name}:refs/tags/{tag_name}"
+                rc, _, _ = await run_command(
+                    command=f"{git_cmd} fetch origin {fetch_refspec}",
+                    log_prefix=self.log_prefix,
+                    mask_sensitive=self.mask_sensitive,
+                )
+                if not rc:
+                    self.logger.warning(f"{self.log_prefix} Failed to fetch tag {checkout_ref}")
 
             # Determine checkout target
             if pull_request:
                 checkout_target = await asyncio.to_thread(lambda: pull_request.base.ref)
             else:
-                # For push events: "refs/tags/v11.0.104" → "v11.0.104"
-                #                   "refs/heads/main" → "main"
+                # For push events (tags only - branch pushes skip cloning)
                 # checkout_ref guaranteed to be non-None by validation at function start
-                assert checkout_ref is not None  # mypy type narrowing
-                checkout_target = checkout_ref.replace("refs/tags/", "").replace("refs/heads/", "")
+                checkout_target = checkout_ref.replace("refs/tags/", "")  # type: ignore[union-attr]
 
             # Checkout target branch/tag
             rc, _, err = await run_command(
@@ -414,14 +434,24 @@ class GithubWebhook:
                 await self._update_context_metrics()
                 return None
 
-            # Clone repository for push operations (PyPI uploads, container builds)
-            await self._clone_repository(checkout_ref=self.hook_data["ref"])
+            ref = self.hook_data["ref"]
 
-            await PushHandler(github_webhook=self).process_push_webhook_data()
-            token_metrics = await self._get_token_metrics()
-            self.logger.info(
-                f"{self.log_prefix} Webhook processing completed successfully: push - {token_metrics}",
-            )
+            # Only clone for tag pushes - branch pushes don't require cloning
+            # because PushHandler only processes tags (PyPI upload, container build)
+            if ref.startswith("refs/tags/"):
+                await self._clone_repository(checkout_ref=ref)
+                await PushHandler(github_webhook=self).process_push_webhook_data()
+                token_metrics = await self._get_token_metrics()
+                self.logger.info(
+                    f"{self.log_prefix} Webhook processing completed successfully: push - {token_metrics}",
+                )
+            else:
+                self.logger.debug(f"{self.log_prefix} Skipping clone for branch push: {ref}")
+                token_metrics = await self._get_token_metrics()
+                self.logger.info(
+                    f"{self.log_prefix} Webhook processing completed: branch push (skipped) - {token_metrics}",
+                )
+
             await self._update_context_metrics()
             return None
 
@@ -586,17 +616,18 @@ class GithubWebhook:
         self.logger.debug(f"Read config for repository {self.repository_name}")
 
         self.github_app_id: str = self.config.get_value(value="github-app-id", extra_dict=repository_config)
-        self.pypi: dict[str, str] = self.config.get_value(value="pypi", extra_dict=repository_config)
+        _pypi = self.config.get_value(value="pypi", extra_dict=repository_config)
+        self.pypi: dict[str, str] = _pypi if isinstance(_pypi, dict) else {}
         self.verified_job: bool = self.config.get_value(
             value="verified-job", return_on_none=True, extra_dict=repository_config
         )
-        self.tox: dict[str, str] = self.config.get_value(value="tox", extra_dict=repository_config)
+        _tox = self.config.get_value(value="tox", extra_dict=repository_config)
+        self.tox: dict[str, str] = _tox if isinstance(_tox, dict) else {}
         self.tox_python_version: str = self.config.get_value(value="tox-python-version", extra_dict=repository_config)
         self.slack_webhook_url: str = self.config.get_value(value="slack-webhook-url", extra_dict=repository_config)
 
-        self.build_and_push_container: dict[str, Any] = self.config.get_value(
-            value="container", return_on_none={}, extra_dict=repository_config
-        )
+        _container = self.config.get_value(value="container", return_on_none={}, extra_dict=repository_config)
+        self.build_and_push_container: dict[str, Any] = _container if isinstance(_container, dict) else {}
         if self.build_and_push_container:
             self.container_repository_username: str = self.build_and_push_container["username"]
             self.container_repository_password: str = self.build_and_push_container["password"]
@@ -622,19 +653,22 @@ class GithubWebhook:
             value="pre-commit", return_on_none=False, extra_dict=repository_config
         )
 
-        self.auto_verified_and_merged_users: list[str] = self.config.get_value(
+        _auto_users = self.config.get_value(
             value="auto-verified-and-merged-users", return_on_none=[], extra_dict=repository_config
         )
+        self.auto_verified_and_merged_users: list[str] = _auto_users if isinstance(_auto_users, list) else []
         self.auto_verify_cherry_picked_prs: bool = self.config.get_value(
             value="auto-verify-cherry-picked-prs", return_on_none=True, extra_dict=repository_config
         )
-        self.can_be_merged_required_labels = self.config.get_value(
+        _required_labels = self.config.get_value(
             value="can-be-merged-required-labels", return_on_none=[], extra_dict=repository_config
         )
+        self.can_be_merged_required_labels: list[str] = _required_labels if isinstance(_required_labels, list) else []
         self.conventional_title: str = self.config.get_value(value="conventional-title", extra_dict=repository_config)
-        self.set_auto_merge_prs: list[str] = self.config.get_value(
+        _auto_merge_prs = self.config.get_value(
             value="set-auto-merge-prs", return_on_none=[], extra_dict=repository_config
         )
+        self.set_auto_merge_prs: list[str] = _auto_merge_prs if isinstance(_auto_merge_prs, list) else []
         self.minimum_lgtm: int = self.config.get_value(
             value="minimum-lgtm", return_on_none=0, extra_dict=repository_config
         )
@@ -646,6 +680,63 @@ class GithubWebhook:
         self.create_issue_for_new_pr: bool = self.config.get_value(
             value="create-issue-for-new-pr", return_on_none=global_create_issue_for_new_pr, extra_dict=repository_config
         )
+
+        # Load labels configuration
+        _global_labels = self.config.get_value("labels", return_on_none={})
+        global_labels_config: dict[str, Any] = _global_labels if isinstance(_global_labels, dict) else {}
+        _repo_labels = self.config.get_value("labels", return_on_none={}, extra_dict=repository_config)
+        repo_labels_config: dict[str, Any] = _repo_labels if isinstance(_repo_labels, dict) else {}
+
+        # Merge global and repo labels config (repo overrides global)
+        merged_labels_config = {**global_labels_config, **repo_labels_config}
+
+        # enabled-labels: if not set, all labels enabled (None means all enabled)
+        self.enabled_labels: set[str] | None = None
+        _enabled_labels = merged_labels_config.get("enabled-labels")
+        if _enabled_labels is not None:
+            if isinstance(_enabled_labels, list):
+                # Filter non-string entries to avoid TypeError from unhashable items (e.g., dicts from YAML mistakes)
+                enabled_set = {x for x in _enabled_labels if isinstance(x, str)}
+                dropped = [x for x in _enabled_labels if not isinstance(x, str)]
+                if dropped:
+                    # Sanitize dropped items for safe logging (avoid large/untrusted YAML blobs)
+                    max_repr_len = 50
+
+                    def _sanitize_item(item: Any) -> str:
+                        if isinstance(item, dict):
+                            keys = list(item.keys())[:5]
+                            return f"dict(keys={keys})"
+                        elif isinstance(item, list):
+                            return f"list(len={len(item)})"
+                        else:
+                            type_name = type(item).__name__
+                            item_repr = repr(item)
+                            if len(item_repr) > max_repr_len:
+                                item_repr = item_repr[:max_repr_len] + "..."
+                            return f"{type_name}({item_repr})"
+
+                    sanitized_dropped = [_sanitize_item(x) for x in dropped]
+                    log_prefix = getattr(self, "log_prefix", "")
+                    self.logger.warning(
+                        f"{log_prefix} Non-string entries in enabled-labels were ignored: {sanitized_dropped}"
+                    )
+                # Log warning for invalid categories
+                invalid = enabled_set - CONFIGURABLE_LABEL_CATEGORIES
+                if invalid:
+                    log_prefix = getattr(self, "log_prefix", "")
+                    self.logger.warning(
+                        f"{log_prefix} Invalid label categories in enabled-labels config: {invalid}. "
+                        f"Valid categories: {CONFIGURABLE_LABEL_CATEGORIES}"
+                    )
+                self.enabled_labels = enabled_set & CONFIGURABLE_LABEL_CATEGORIES  # Only keep valid categories
+
+        # colors: deep-merge global defaults with repo overrides
+        _global_colors = global_labels_config.get("colors", {})
+        _repo_colors = repo_labels_config.get("colors", {})
+        global_colors = _global_colors if isinstance(_global_colors, dict) else {}
+        repo_colors = _repo_colors if isinstance(_repo_colors, dict) else {}
+        merged_colors = {**global_colors, **repo_colors}
+        self.label_colors: dict[str, str] = {str(k): str(v) for k, v in merged_colors.items()}
 
         self.mask_sensitive = self.config.get_value("mask-sensitive-data", return_on_none=True)
 
