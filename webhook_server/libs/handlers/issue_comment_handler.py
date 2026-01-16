@@ -161,6 +161,24 @@ class IssueCommentHandler:
         _command = command_and_args[0]
         _args: str = command_and_args[1] if len(command_and_args) > 1 else ""
 
+        # Check if command is allowed on draft PRs
+        is_draft = await asyncio.to_thread(lambda: pull_request.draft)
+        if is_draft:
+            allow_commands_on_draft = self.github_webhook.config.get_value("allow-commands-on-draft-prs")
+            # Empty list means all commands allowed; non-empty list means only those commands
+            if isinstance(allow_commands_on_draft, list) and len(allow_commands_on_draft) > 0:
+                if _command not in allow_commands_on_draft:
+                    self.logger.debug(
+                        f"{self.log_prefix} Command {_command} is not allowed on draft PRs. "
+                        f"Allowed commands: {allow_commands_on_draft}"
+                    )
+                    await asyncio.to_thread(
+                        pull_request.create_issue_comment,
+                        f"Command `/{_command}` is not allowed on draft PRs.\n"
+                        f"Allowed commands on draft PRs: {', '.join(allow_commands_on_draft)}",
+                    )
+                    return
+
         self.logger.debug(
             f"{self.log_prefix} User: {reviewed_user}, Command: {_command}, Command args: {_args or 'None'}"
         )
