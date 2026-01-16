@@ -379,7 +379,7 @@ class CheckRunHandler:
         # Note: custom checks are validated in GithubWebhook._validate_custom_check_runs()
         # so name is guaranteed to exist
         for custom_check in self.github_webhook.custom_check_runs:
-            if custom_check.get("mandatory", True):  # Default to True for backward compatibility
+            if custom_check.get("mandatory", True):
                 check_name = custom_check["name"]
                 all_required_status_checks.append(check_name)
 

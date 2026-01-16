@@ -802,7 +802,6 @@ For more information, please refer to the project documentation or contact the m
             ci_tasks.append(self.runner_handler.run_conventional_title_check(pull_request=pull_request))
 
         # Launch custom check runs (same as built-in checks)
-        # Note: custom checks are validated in GithubWebhook._validate_custom_check_runs()
         for custom_check in self.github_webhook.custom_check_runs:
             ci_tasks.append(
                 self.runner_handler.run_custom_check(
