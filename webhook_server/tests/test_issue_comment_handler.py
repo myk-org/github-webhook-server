@@ -145,7 +145,7 @@ class TestIssueCommentHandler:
         # Track execution order and timing
         execution_events: list[tuple[str, str, float]] = []  # (command, event, timestamp)
 
-        async def mock_command(  # noqa: ARG001
+        async def mock_command(
             pull_request: Mock,
             command: str,
             reviewed_user: str,
