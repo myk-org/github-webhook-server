@@ -416,8 +416,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             return
 
         _target_tests: list[str] = command_args.split()
-        # Strip "custom:" prefix if present (users may type "/retest custom:lint" but we expect "lint")
-        _target_tests = [t[7:] if t.startswith("custom:") else t for t in _target_tests]
         self.logger.debug(f"{self.log_prefix} Target tests for re-test: {_target_tests}")
         _not_supported_retests: list[str] = []
         _supported_retests: list[str] = []
