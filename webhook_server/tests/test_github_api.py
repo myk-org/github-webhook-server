@@ -2079,5 +2079,7 @@ class TestGithubWebhook:
                                 assert "another-check" in check_names
 
                                 # Verify that warning was logged for duplicate
-                                warning_calls = [str(call) for call in mock_logger.warning.call_args_list]
-                                assert any("Duplicate custom check name 'my-check'" in call for call in warning_calls)
+                                warning_messages = [
+                                    call.args[0] for call in mock_logger.warning.call_args_list if call.args
+                                ]
+                                assert any("Duplicate custom check name 'my-check'" in msg for msg in warning_messages)

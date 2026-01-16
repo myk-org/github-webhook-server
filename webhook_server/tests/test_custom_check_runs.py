@@ -15,6 +15,7 @@ The custom check runs feature allows users to define custom checks via YAML conf
 """
 
 import asyncio
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -384,7 +385,7 @@ class TestRunnerHandlerCustomCheck:
     """Test suite for RunnerHandler run_custom_check method."""
 
     @pytest.fixture
-    def mock_github_webhook(self, tmp_path: Any) -> Mock:
+    def mock_github_webhook(self, tmp_path: Path) -> Mock:
         """Create a mock GithubWebhook instance."""
         mock_webhook = Mock()
         mock_webhook.hook_data = {}
@@ -526,7 +527,7 @@ class TestCustomCheckRunsIntegration:
     """Integration tests for custom check runs feature."""
 
     @pytest.fixture
-    def mock_github_webhook(self, tmp_path: Any) -> Mock:
+    def mock_github_webhook(self, tmp_path: Path) -> Mock:
         """Create a mock GithubWebhook instance with custom checks configured."""
         mock_webhook = Mock()
         mock_webhook.hook_data = {
@@ -1022,7 +1023,7 @@ class TestCustomCheckRunsEdgeCases:
     """Test suite for edge cases and error handling in custom check runs."""
 
     @pytest.fixture
-    def mock_github_webhook(self, tmp_path: Any) -> Mock:
+    def mock_github_webhook(self, tmp_path: Path) -> Mock:
         """Create a mock GithubWebhook instance."""
         mock_webhook = Mock()
         mock_webhook.logger = Mock()

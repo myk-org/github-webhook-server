@@ -875,7 +875,7 @@ class GithubWebhook:
             except Exception as ex:
                 self.logger.warning(f"{self.log_prefix} Failed to cleanup temp directory: {ex}")
 
-    def _validate_custom_check_runs(self, raw_checks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _validate_custom_check_runs(self, raw_checks: Any) -> list[dict[str, Any]]:
         """Validate custom check runs configuration.
 
         Validates each custom check and returns only valid ones:
@@ -885,12 +885,23 @@ class GithubWebhook:
         - Logs warnings for invalid checks and skips them
 
         Args:
-            raw_checks: List of custom check configurations from config
+            raw_checks: Custom check configurations from config (should be a list)
 
         Returns:
             List of validated custom check configurations
         """
         validated_checks: list[dict[str, Any]] = []
+
+        # Type guard: ensure raw_checks is a list
+        if not isinstance(raw_checks, list):
+            # Use getattr since log_prefix may not be set during early __init__ calls
+            prefix = getattr(self, "log_prefix", "")
+            self.logger.warning(
+                f"{prefix} Custom checks config is not a list (got {type(raw_checks).__name__}), "
+                "skipping all custom checks"
+            )
+            return validated_checks
+
         seen_names: set[str] = set()
 
         # Built-in check names that custom checks cannot override
@@ -910,6 +921,11 @@ class GithubWebhook:
         env_assign_re = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
         for check in raw_checks:
+            # Type guard: ensure check is a dict before accessing fields
+            if not isinstance(check, dict):
+                self.logger.warning(f"Custom check entry is not a mapping (got {type(check).__name__}), skipping")
+                continue
+
             # Validate name field
             check_name = check.get("name")
             if not check_name:
