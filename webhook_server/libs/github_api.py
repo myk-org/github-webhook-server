@@ -30,6 +30,7 @@ from webhook_server.libs.handlers.pull_request_review_handler import PullRequest
 from webhook_server.libs.handlers.push_handler import PushHandler
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
+    BUILTIN_CHECK_NAMES,
     CAN_BE_MERGED_STR,
     CONFIGURABLE_LABEL_CATEGORIES,
     CONVENTIONAL_TITLE_STR,
@@ -904,16 +905,6 @@ class GithubWebhook:
 
         seen_names: set[str] = set()
 
-        # Built-in check names that custom checks cannot override
-        BUILTIN_CHECK_NAMES = {
-            TOX_STR,
-            PRE_COMMIT_STR,
-            BUILD_CONTAINER_STR,
-            PYTHON_MODULE_INSTALL_STR,
-            CONVENTIONAL_TITLE_STR,
-            CAN_BE_MERGED_STR,
-        }
-
         # Whitelist regex for safe check names: alphanumeric, dots, underscores, hyphens, 1-64 chars
         safe_check_name_pattern = re.compile(r"^[a-zA-Z0-9._-]{1,64}$")
 
@@ -969,13 +960,16 @@ class GithubWebhook:
                 )
                 continue
 
-            if not command.strip():
+            # Strip command once for all subsequent operations
+            command = command.strip()
+
+            if not command:
                 self.logger.warning(f"Custom check '{check_name}' has empty 'command' field, skipping")
                 continue
 
             # Parse command safely using shlex to handle quoting
             try:
-                tokens = shlex.split(command.strip(), posix=True)
+                tokens = shlex.split(command, posix=True)
             except ValueError as ex:
                 self.logger.warning(f"Custom check '{check_name}' has invalid shell quoting ({ex}), skipping")
                 continue

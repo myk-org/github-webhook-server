@@ -400,7 +400,7 @@ properties:
                 mandatory: false
               - name: complex-check
                 command: |
-                  python -c "
+                  uv run python -c "
                   import sys
                   print('Running complex check')
                   sys.exit(0)

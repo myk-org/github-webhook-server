@@ -202,51 +202,65 @@ class RunnerHandler:
             pull_request: The pull request to run the check on.
             check_config: Configuration for the check (name, command, title, use_cwd).
         """
-        if await self.check_run_handler.is_check_run_in_progress(check_run=check_config.name):
-            self.logger.debug(f"{self.log_prefix} Check run is in progress, re-running {check_config.name}.")
+        try:
+            if await self.check_run_handler.is_check_run_in_progress(check_run=check_config.name):
+                self.logger.debug(f"{self.log_prefix} Check run is in progress, re-running {check_config.name}.")
 
-        self.logger.info(f"{self.log_prefix} Starting check: {check_config.name}")
-        await self.check_run_handler.set_check_in_progress(name=check_config.name)
+            self.logger.info(f"{self.log_prefix} Starting check: {check_config.name}")
+            await self.check_run_handler.set_check_in_progress(name=check_config.name)
 
-        async with self._checkout_worktree(pull_request=pull_request) as (success, worktree_path, out, err):
-            output: CheckRunOutput = {
+            async with self._checkout_worktree(pull_request=pull_request) as (success, worktree_path, out, err):
+                output: CheckRunOutput = {
+                    "title": check_config.title,
+                    "summary": "",
+                    "text": None,
+                }
+
+                if not success:
+                    self.logger.error(f"{self.log_prefix} Repository preparation failed for {check_config.name}")
+                    output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
+                    return await self.check_run_handler.set_check_failure(name=check_config.name, output=output)
+
+                # Build command with worktree path substitution
+                # Use replace() instead of format() to avoid KeyError on other braces in user commands
+                cmd = check_config.command.replace("{worktree_path}", worktree_path)
+                # NOTE: Removed debug log of command to prevent secret leakage
+
+                # Execute command - use cwd if configured, otherwise command should include paths
+                cwd = worktree_path if check_config.use_cwd else None
+                try:
+                    rc, out, err = await run_command(
+                        command=cmd,
+                        log_prefix=self.log_prefix,
+                        mask_sensitive=self.github_webhook.mask_sensitive,
+                        cwd=cwd,
+                    )
+                except TimeoutError:
+                    self.logger.error(f"{self.log_prefix} Check {check_config.name} timed out")
+                    output["text"] = "Command execution timed out"
+                    return await self.check_run_handler.set_check_failure(name=check_config.name, output=output)
+
+                output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
+
+                if rc:
+                    self.logger.info(f"{self.log_prefix} Check {check_config.name} completed successfully")
+                    return await self.check_run_handler.set_check_success(name=check_config.name, output=output)
+                else:
+                    self.logger.info(f"{self.log_prefix} Check {check_config.name} failed")
+                    return await self.check_run_handler.set_check_failure(name=check_config.name, output=output)
+
+        except asyncio.CancelledError:
+            self.logger.debug(f"{self.log_prefix} Check {check_config.name} cancelled")
+            raise  # Always re-raise CancelledError
+        except Exception as ex:
+            self.logger.exception(f"{self.log_prefix} Check {check_config.name} failed with unexpected error")
+            error_output: CheckRunOutput = {
                 "title": check_config.title,
-                "summary": "",
-                "text": None,
+                "summary": "Unexpected error during check execution",
+                "text": f"Error: {ex}",
             }
-
-            if not success:
-                self.logger.error(f"{self.log_prefix} Repository preparation failed for {check_config.name}")
-                output["text"] = self.check_run_handler.get_check_run_text(out=out, err=err)
-                return await self.check_run_handler.set_check_failure(name=check_config.name, output=output)
-
-            # Build command with worktree path substitution
-            # Use replace() instead of format() to avoid KeyError on other braces in user commands
-            cmd = check_config.command.replace("{worktree_path}", worktree_path)
-            self.logger.debug(f"{self.log_prefix} {check_config.name} command to run: {cmd}")
-
-            # Execute command - use cwd if configured, otherwise command should include paths
-            cwd = worktree_path if check_config.use_cwd else None
-            try:
-                rc, out, err = await run_command(
-                    command=cmd,
-                    log_prefix=self.log_prefix,
-                    mask_sensitive=self.github_webhook.mask_sensitive,
-                    cwd=cwd,
-                )
-            except TimeoutError:
-                self.logger.error(f"{self.log_prefix} Check {check_config.name} timed out")
-                output["text"] = "Command execution timed out"
-                return await self.check_run_handler.set_check_failure(name=check_config.name, output=output)
-
-            output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
-
-            if rc:
-                self.logger.info(f"{self.log_prefix} Check {check_config.name} completed successfully")
-                return await self.check_run_handler.set_check_success(name=check_config.name, output=output)
-            else:
-                self.logger.info(f"{self.log_prefix} Check {check_config.name} failed")
-                return await self.check_run_handler.set_check_failure(name=check_config.name, output=output)
+            await self.check_run_handler.set_check_failure(name=check_config.name, output=error_output)
+            raise
 
     async def run_tox(self, pull_request: PullRequest) -> None:
         if not self.github_webhook.tox:
@@ -639,6 +653,11 @@ Your team can configure additional types in the repository settings.
             tasks.append(task)
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        for result in results:
-            if isinstance(result, Exception):
-                self.logger.error(f"{self.log_prefix} Async task failed: {result}")
+        for idx, result in enumerate(results):
+            if isinstance(result, asyncio.CancelledError):
+                self.logger.debug(f"{self.log_prefix} Retest task cancelled")
+                raise result  # Re-raise CancelledError
+            elif isinstance(result, BaseException):
+                # Get the test name from supported_retests list for better error messages
+                test_name = supported_retests[idx] if idx < len(supported_retests) else "unknown"
+                self.logger.error(f"{self.log_prefix} Retest '{test_name}' failed: {result}")

@@ -1481,6 +1481,7 @@ class TestGithubWebhook:
         minimal_headers: Headers,
         logger: Mock,
         tmp_path: Path,
+        get_value_side_effect: Callable[..., object],
     ) -> None:
         """Test _clone_repository raises ValueError when checkout_ref is empty string."""
         with (
@@ -1492,12 +1493,6 @@ class TestGithubWebhook:
             # Setup mocks
             mock_config = Mock()
             mock_config.repository_data = {"enabled": True}
-
-            def get_value_side_effect(value: str, *_args: object, **_kwargs: object) -> list[dict[str, object]] | None:
-                if value == "custom-check-runs":
-                    return []
-                return None
-
             mock_config.get_value.side_effect = get_value_side_effect
             mock_config.data_dir = str(tmp_path)
             mock_config_cls.return_value = mock_config

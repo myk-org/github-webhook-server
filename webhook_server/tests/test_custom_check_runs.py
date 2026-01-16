@@ -605,11 +605,7 @@ class TestCustomCheckRunsIntegration:
 class TestCustomCheckRunsRetestCommand:
     """Test suite for /retest command functionality for custom checks.
 
-    Custom checks can be retested using either format:
-    - /retest lint (raw name)
-    - /retest custom:lint (with prefix - normalized to raw name)
-
-    The handler normalizes 'custom:' prefix so both formats work.
+    Custom checks can be retested using just the check name: /retest lint
     """
 
     @pytest.fixture
@@ -625,32 +621,20 @@ class TestCustomCheckRunsRetestCommand:
         return mock_webhook
 
     @pytest.mark.asyncio
-    async def test_retest_custom_check_command_formats(self, mock_github_webhook: Mock) -> None:
-        """Test that custom checks can be retested with both formats.
+    async def test_retest_custom_check_command_format(self, mock_github_webhook: Mock) -> None:
+        """Test that custom checks can be retested using their name directly.
 
-        Both /retest lint and /retest custom:lint should work.
-        The handler strips the 'custom:' prefix if present.
+        /retest lint should work for a custom check named 'lint'.
         """
         for check in mock_github_webhook.custom_check_runs:
             check_name = check["name"]
 
-            # Both formats should be valid
-            raw_format = f"/retest {check_name}"
-            prefixed_format = f"/retest custom:{check_name}"
+            # The retest command should use the check name directly
+            retest_command = f"/retest {check_name}"
+            assert retest_command == f"/retest {check_name}"
 
-            assert raw_format == f"/retest {check_name}"
-            assert prefixed_format == f"/retest custom:{check_name}"
-
-            # After stripping "custom:" prefix, both should result in raw name
-            test_arg_raw = check_name
-            test_arg_prefixed = f"custom:{check_name}"
-            if test_arg_prefixed.startswith("custom:"):
-                normalized_prefixed = test_arg_prefixed[7:]
-            else:
-                normalized_prefixed = test_arg_prefixed
-
-            assert test_arg_raw == check_name
-            assert normalized_prefixed == check_name
+            # Check name should match exactly what's in the config
+            assert check_name in ["lint", "security"]
 
     @pytest.mark.asyncio
     async def test_retest_all_custom_checks(self, mock_github_webhook: Mock) -> None:
@@ -700,26 +684,19 @@ class TestCustomCheckRunsRetestCommand:
             runner_handler.check_run_handler.set_check_success.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_custom_check_name_stored_without_prefix(self) -> None:
-        """Test that custom check names are stored without prefix in config.
+    async def test_custom_check_name_stored_as_configured(self) -> None:
+        """Test that custom check names are stored exactly as configured in YAML.
 
-        The handler normalizes user input (strips 'custom:' prefix),
-        but internally check names are always stored without prefix.
+        Check names should match exactly what's in the YAML config without any prefix.
         """
-        base_name = "lint"
-        check_name = base_name
+        check_name = "lint"
 
         # Custom check names should match exactly what's in YAML config
         assert check_name == "lint"
-        assert not check_name.startswith("custom:")
 
-        # Simulate normalization that happens in process_retest_command
-        user_input_with_prefix = "custom:lint"
-        if user_input_with_prefix.startswith("custom:"):
-            normalized = user_input_with_prefix[7:]
-        else:
-            normalized = user_input_with_prefix
-        assert normalized == "lint"
+        # Verify the name is used directly without modification
+        retest_arg = check_name
+        assert retest_arg == "lint"
 
 
 class TestValidateCustomCheckRuns:
