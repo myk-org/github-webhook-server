@@ -33,6 +33,15 @@ auto-verify-cherry-picked-prs: true  # Default: true - automatically verify cher
 
 create-issue-for-new-pr: true  # Global default: create tracking issues for new PRs
 
+# Commands allowed on draft PRs (optional)
+# If not set: commands are blocked on draft PRs (default behavior)
+# If empty list []: all commands allowed on draft PRs
+# If list with values: only those commands allowed on draft PRs
+# allow-commands-on-draft-prs: []  # Uncomment to allow all commands on draft PRs
+# allow-commands-on-draft-prs:     # Or allow only specific commands:
+#   - build-and-push-container
+#   - retest
+
 # Labels configuration - control which labels are enabled and their colors
 # If not set, all labels are enabled with default colors
 labels:
@@ -185,6 +194,10 @@ repositories:
 
     minimum-lgtm: 0 # The minimum PR lgtm required before approve the PR
     create-issue-for-new-pr: true # Override global setting: create tracking issues for new PRs (default: true)
+
+    # Allow commands on draft PRs (overrides global setting)
+    allow-commands-on-draft-prs:
+      - build-and-push-container  # Allow building containers on draft PRs
 
     # Repository-specific labels configuration (overrides global)
     labels:
