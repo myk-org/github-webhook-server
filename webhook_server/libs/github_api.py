@@ -875,7 +875,7 @@ class GithubWebhook:
             except Exception as ex:
                 self.logger.warning(f"{self.log_prefix} Failed to cleanup temp directory: {ex}")
 
-    def _validate_custom_check_runs(self, raw_checks: Any) -> list[dict[str, Any]]:
+    def _validate_custom_check_runs(self, raw_checks: object) -> list[dict[str, Any]]:
         """Validate custom check runs configuration.
 
         Validates each custom check and returns only valid ones:

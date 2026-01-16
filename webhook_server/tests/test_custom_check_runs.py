@@ -418,16 +418,19 @@ class TestRunnerHandlerCustomCheck:
         return mock_pr
 
     @pytest.mark.asyncio
-    async def test_run_custom_check_success(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
+    async def test_run_custom_check_success(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock, tmp_path: Path
+    ) -> None:
         """Test successful execution of custom check."""
         check_config = {
             "name": "lint",
             "command": "uv tool run --from ruff ruff check",
         }
 
+        worktree = tmp_path / "worktree"
         # Create async context manager mock
         mock_checkout_cm = AsyncMock()
-        mock_checkout_cm.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree", "", ""))
+        mock_checkout_cm.__aenter__ = AsyncMock(return_value=(True, str(worktree), "", ""))
         mock_checkout_cm.__aexit__ = AsyncMock(return_value=None)
 
         with (
@@ -447,16 +450,19 @@ class TestRunnerHandlerCustomCheck:
             mock_run.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_run_custom_check_failure(self, runner_handler: RunnerHandler, mock_pull_request: Mock) -> None:
+    async def test_run_custom_check_failure(
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock, tmp_path: Path
+    ) -> None:
         """Test failed execution of custom check."""
         check_config = {
             "name": "security-scan",
             "command": "uv tool run --from bandit bandit -r .",
         }
 
+        worktree = tmp_path / "worktree"
         # Create async context manager mock
         mock_checkout_cm = AsyncMock()
-        mock_checkout_cm.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree", "", ""))
+        mock_checkout_cm.__aenter__ = AsyncMock(return_value=(True, str(worktree), "", ""))
         mock_checkout_cm.__aexit__ = AsyncMock(return_value=None)
 
         with (
@@ -494,7 +500,7 @@ class TestRunnerHandlerCustomCheck:
 
     @pytest.mark.asyncio
     async def test_run_custom_check_command_execution_in_worktree(
-        self, runner_handler: RunnerHandler, mock_pull_request: Mock
+        self, runner_handler: RunnerHandler, mock_pull_request: Mock, tmp_path: Path
     ) -> None:
         """Test that custom check command is executed in worktree directory."""
         check_config = {
@@ -502,9 +508,10 @@ class TestRunnerHandlerCustomCheck:
             "command": "uv tool run --from build python -m build",
         }
 
+        worktree = tmp_path / "worktree"
         # Create async context manager mock
         mock_checkout_cm = AsyncMock()
-        mock_checkout_cm.__aenter__ = AsyncMock(return_value=(True, "/tmp/test-worktree", "", ""))
+        mock_checkout_cm.__aenter__ = AsyncMock(return_value=(True, str(worktree), "", ""))
         mock_checkout_cm.__aexit__ = AsyncMock(return_value=None)
 
         with (
@@ -520,7 +527,7 @@ class TestRunnerHandlerCustomCheck:
             mock_run.assert_called_once()
             call_args = mock_run.call_args.kwargs
             assert call_args["command"] == "uv tool run --from build python -m build"
-            assert call_args["cwd"] == "/tmp/test-worktree"
+            assert call_args["cwd"] == str(worktree)
 
 
 class TestCustomCheckRunsIntegration:
@@ -562,7 +569,9 @@ class TestCustomCheckRunsIntegration:
         return mock_pr
 
     @pytest.mark.asyncio
-    async def test_custom_checks_execution_workflow(self, mock_github_webhook: Mock, mock_pull_request: Mock) -> None:
+    async def test_custom_checks_execution_workflow(
+        self, mock_github_webhook: Mock, mock_pull_request: Mock, tmp_path: Path
+    ) -> None:
         """Test complete workflow of custom check execution."""
         runner_handler = RunnerHandler(mock_github_webhook)
         runner_handler.check_run_handler.is_check_run_in_progress = AsyncMock(return_value=False)
@@ -572,9 +581,10 @@ class TestCustomCheckRunsIntegration:
 
         check_config = mock_github_webhook.custom_check_runs[0]  # lint check
 
+        worktree = tmp_path / "worktree"
         # Create async context manager mock
         mock_checkout_cm = AsyncMock()
-        mock_checkout_cm.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree", "", ""))
+        mock_checkout_cm.__aenter__ = AsyncMock(return_value=(True, str(worktree), "", ""))
         mock_checkout_cm.__aexit__ = AsyncMock(return_value=None)
 
         with (
@@ -654,7 +664,7 @@ class TestCustomCheckRunsRetestCommand:
         assert len(custom_check_names) == 2
 
     @pytest.mark.asyncio
-    async def test_retest_custom_check_triggers_execution(self, mock_github_webhook: Mock) -> None:
+    async def test_retest_custom_check_triggers_execution(self, mock_github_webhook: Mock, tmp_path: Path) -> None:
         """Test that /retest lint triggers check execution."""
         runner_handler = RunnerHandler(mock_github_webhook)
         runner_handler.check_run_handler.is_check_run_in_progress = AsyncMock(return_value=False)
@@ -670,9 +680,10 @@ class TestCustomCheckRunsRetestCommand:
         # The check config uses raw name (as it appears in custom_check_runs)
         check_config = mock_github_webhook.custom_check_runs[0]
 
+        worktree = tmp_path / "worktree"
         # Create async context manager mock
         mock_checkout_cm = AsyncMock()
-        mock_checkout_cm.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree", "", ""))
+        mock_checkout_cm.__aenter__ = AsyncMock(return_value=(True, str(worktree), "", ""))
         mock_checkout_cm.__aexit__ = AsyncMock(return_value=None)
 
         with (
@@ -1058,11 +1069,12 @@ class TestCustomCheckRunsEdgeCases:
             assert len(result) == 0  # No checks configured at all
 
     @pytest.mark.asyncio
-    async def test_custom_check_timeout_expiration(self, mock_github_webhook: Mock) -> None:
-        """Test that custom check respects timeout configuration."""
+    async def test_custom_check_timeout_expiration(self, mock_github_webhook: Mock, tmp_path: Path) -> None:
+        """Test that timeout should be handled gracefully."""
         runner_handler = RunnerHandler(mock_github_webhook)
         runner_handler.check_run_handler.is_check_run_in_progress = AsyncMock(return_value=False)
         runner_handler.check_run_handler.set_check_in_progress = AsyncMock()
+        runner_handler.check_run_handler.set_check_failure = AsyncMock()
         runner_handler.check_run_handler.get_check_run_text = Mock(return_value="Timeout")
 
         mock_pull_request = Mock()
@@ -1075,9 +1087,10 @@ class TestCustomCheckRunsEdgeCases:
             "command": "uv tool run --from some-package slow-command",
         }
 
+        worktree = tmp_path / "worktree"
         # Create async context manager mock
         mock_checkout_cm = AsyncMock()
-        mock_checkout_cm.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree", "", ""))
+        mock_checkout_cm.__aenter__ = AsyncMock(return_value=(True, str(worktree), "", ""))
         mock_checkout_cm.__aexit__ = AsyncMock(return_value=None)
 
         with (
@@ -1087,12 +1100,17 @@ class TestCustomCheckRunsEdgeCases:
                 new=AsyncMock(side_effect=asyncio.TimeoutError),
             ),
         ):
-            # Should handle timeout gracefully
-            with pytest.raises(asyncio.TimeoutError):
-                await runner_handler.run_custom_check(pull_request=mock_pull_request, check_config=check_config)
+            # Should handle timeout gracefully by reporting failure
+            await runner_handler.run_custom_check(pull_request=mock_pull_request, check_config=check_config)
+
+            # Verify that a failure was reported with timeout-related message
+            runner_handler.check_run_handler.set_check_failure.assert_awaited_once()
+            call_args = runner_handler.check_run_handler.set_check_failure.call_args
+            # Check that the failure message mentions timeout
+            assert "timeout" in str(call_args).lower() or "timed out" in str(call_args).lower()
 
     @pytest.mark.asyncio
-    async def test_custom_check_with_long_command(self, mock_github_webhook: Mock) -> None:
+    async def test_custom_check_with_long_command(self, mock_github_webhook: Mock, tmp_path: Path) -> None:
         """Test custom check with long multiline command from config."""
         runner_handler = RunnerHandler(mock_github_webhook)
         runner_handler.check_run_handler.is_check_run_in_progress = AsyncMock(return_value=False)
@@ -1110,9 +1128,10 @@ class TestCustomCheckRunsEdgeCases:
             "command": "python -c \"\nimport sys\nprint('Running complex check')\nsys.exit(0)\n\"",
         }
 
+        worktree = tmp_path / "worktree"
         # Create async context manager mock
         mock_checkout_cm = AsyncMock()
-        mock_checkout_cm.__aenter__ = AsyncMock(return_value=(True, "/tmp/worktree", "", ""))
+        mock_checkout_cm.__aenter__ = AsyncMock(return_value=(True, str(worktree), "", ""))
         mock_checkout_cm.__aexit__ = AsyncMock(return_value=None)
 
         with (

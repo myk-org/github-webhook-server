@@ -227,12 +227,17 @@ class RunnerHandler:
 
             # Execute command - use cwd if configured, otherwise command should include paths
             cwd = worktree_path if check_config.use_cwd else None
-            rc, out, err = await run_command(
-                command=cmd,
-                log_prefix=self.log_prefix,
-                mask_sensitive=self.github_webhook.mask_sensitive,
-                cwd=cwd,
-            )
+            try:
+                rc, out, err = await run_command(
+                    command=cmd,
+                    log_prefix=self.log_prefix,
+                    mask_sensitive=self.github_webhook.mask_sensitive,
+                    cwd=cwd,
+                )
+            except TimeoutError:
+                self.logger.error(f"{self.log_prefix} Check {check_config.name} timed out")
+                output["text"] = "Command execution timed out"
+                return await self.check_run_handler.set_check_failure(name=check_config.name, output=output)
 
             output["text"] = self.check_run_handler.get_check_run_text(err=err, out=out)
 

@@ -14,6 +14,9 @@ os.environ["WEBHOOK_SERVER_DATA_DIR"] = "webhook_server/tests/manifests"
 os.environ["ENABLE_LOG_SERVER"] = "true"
 from webhook_server.libs.github_api import GithubWebhook
 
+# Test token constant - single source of truth for all test mocks
+TEST_GITHUB_TOKEN = "ghp_testtoken123"  # pragma: allowlist secret
+
 # OWNERS test data - single source of truth for all test fixtures
 # This constant is used by both Repository.get_contents() and owners_files_test_data fixture
 OWNERS_TEST_DATA: dict[str, dict[str, list[str] | bool]] = {

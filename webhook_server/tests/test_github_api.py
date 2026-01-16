@@ -14,6 +14,7 @@ from starlette.datastructures import Headers
 from webhook_server.libs.exceptions import RepositoryNotFoundInConfigError
 from webhook_server.libs.github_api import GithubWebhook
 from webhook_server.libs.handlers.owners_files_handler import OwnersFileHandler
+from webhook_server.tests.conftest import TEST_GITHUB_TOKEN
 
 
 class TestGithubWebhook:
@@ -1976,7 +1977,9 @@ class TestGithubWebhook:
         assert gh.enabled_labels is not None
         assert "verified" in gh.enabled_labels
 
-    def test_validate_custom_check_runs_builtin_collision(self, minimal_hook_data: dict, minimal_headers: dict) -> None:
+    def test_validate_custom_check_runs_builtin_collision(
+        self, minimal_hook_data: dict[str, Any], minimal_headers: Headers
+    ) -> None:
         """Test that custom checks with names colliding with built-in checks are rejected."""
         with patch("webhook_server.libs.github_api.Config") as mock_config:
             mock_config.return_value.repository = True
@@ -2004,7 +2007,7 @@ class TestGithubWebhook:
             mock_config.return_value.get_value.side_effect = get_value_side_effect
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
+                mock_get_api.return_value = (Mock(), TEST_GITHUB_TOKEN, "apiuser")
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api"):
                     with patch("webhook_server.libs.github_api.get_repository_github_app_api"):
@@ -2037,7 +2040,9 @@ class TestGithubWebhook:
                                     for msg in warning_messages
                                 )
 
-    def test_validate_custom_check_runs_duplicate_names(self, minimal_hook_data: dict, minimal_headers: dict) -> None:
+    def test_validate_custom_check_runs_duplicate_names(
+        self, minimal_hook_data: dict[str, Any], minimal_headers: Headers
+    ) -> None:
         """Test that duplicate custom check names are rejected."""
         with patch("webhook_server.libs.github_api.Config") as mock_config:
             mock_config.return_value.repository = True
@@ -2062,7 +2067,7 @@ class TestGithubWebhook:
             mock_config.return_value.get_value.side_effect = get_value_side_effect
 
             with patch("webhook_server.libs.github_api.get_api_with_highest_rate_limit") as mock_get_api:
-                mock_get_api.return_value = (Mock(), "token", "apiuser")
+                mock_get_api.return_value = (Mock(), TEST_GITHUB_TOKEN, "apiuser")
 
                 with patch("webhook_server.libs.github_api.get_github_repo_api"):
                     with patch("webhook_server.libs.github_api.get_repository_github_app_api"):
