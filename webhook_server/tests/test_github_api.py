@@ -2019,21 +2019,22 @@ class TestGithubWebhook:
                                 assert gh.custom_check_runs[0]["name"] == "valid-custom-check"
 
                                 # Verify that warnings were logged for each collision
-                                warning_calls = [str(call) for call in mock_logger.warning.call_args_list]
-                                assert any("'tox' conflicts with built-in check" in call for call in warning_calls)
+                                # Extract actual message strings from call args (first positional argument)
+                                warning_messages = [args[0] for args, _ in mock_logger.warning.call_args_list if args]
+                                assert any("'tox' conflicts with built-in check" in msg for msg in warning_messages)
                                 assert any(
-                                    "'pre-commit' conflicts with built-in check" in call for call in warning_calls
+                                    "'pre-commit' conflicts with built-in check" in msg for msg in warning_messages
                                 )
                                 assert any(
-                                    "'build-container' conflicts with built-in check" in call for call in warning_calls
+                                    "'build-container' conflicts with built-in check" in msg for msg in warning_messages
                                 )
                                 assert any(
-                                    "'python-module-install' conflicts with built-in check" in call
-                                    for call in warning_calls
+                                    "'python-module-install' conflicts with built-in check" in msg
+                                    for msg in warning_messages
                                 )
                                 assert any(
-                                    "'conventional-title' conflicts with built-in check" in call
-                                    for call in warning_calls
+                                    "'conventional-title' conflicts with built-in check" in msg
+                                    for msg in warning_messages
                                 )
 
     def test_validate_custom_check_runs_duplicate_names(self, minimal_hook_data: dict, minimal_headers: dict) -> None:

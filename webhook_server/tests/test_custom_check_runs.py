@@ -855,8 +855,10 @@ class TestValidateCustomCheckRuns:
 
         # Warnings should be logged for whitespace-only commands
         assert mock_github_webhook.logger.warning.call_count >= 3
+        # Whitespace-only commands pass the `if not command:` check (string is truthy)
+        # but fail the `if not command.strip():` check with "empty" message
         mock_github_webhook.logger.warning.assert_any_call(
-            "Custom check 'whitespace-command' missing required 'command' field, skipping"
+            "Custom check 'whitespace-command' has empty 'command' field, skipping"
         )
 
     def test_executable_not_found(self, mock_github_webhook: Mock) -> None:

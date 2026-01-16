@@ -916,6 +916,13 @@ class GithubWebhook:
                 self.logger.warning("Custom check missing required 'name' field, skipping")
                 continue
 
+            # Type guard: ensure name is a string (YAML could have int/list/dict)
+            if not isinstance(check_name, str):
+                self.logger.warning(
+                    f"Custom check 'name' field is not a string (got {type(check_name).__name__}), skipping"
+                )
+                continue
+
             # Validate name contains only safe characters
             if not safe_check_name_pattern.match(check_name):
                 self.logger.warning(f"Custom check name '{check_name}' contains unsafe characters, skipping")
@@ -934,8 +941,20 @@ class GithubWebhook:
 
             # Validate command field
             command = check.get("command")
-            if not command or not command.strip():
+            if not command:
                 self.logger.warning(f"Custom check '{check_name}' missing required 'command' field, skipping")
+                continue
+
+            # Type guard: ensure command is a string (YAML could have int/list/dict)
+            if not isinstance(command, str):
+                self.logger.warning(
+                    f"Custom check '{check_name}' has 'command' field that is not a string "
+                    f"(got {type(command).__name__}), skipping"
+                )
+                continue
+
+            if not command.strip():
+                self.logger.warning(f"Custom check '{check_name}' has empty 'command' field, skipping")
                 continue
 
             # Parse command safely using shlex to handle quoting
