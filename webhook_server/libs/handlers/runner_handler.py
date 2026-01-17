@@ -643,6 +643,7 @@ Your team can configure additional types in the repository settings.
             _retests_to_func_map[check_key] = partial(self.run_custom_check, check_config=custom_check)
 
         tasks: list[Coroutine[Any, Any, Any] | Task[Any]] = []
+        scheduled_tests: list[str] = []
         for _test in supported_retests:
             runner = _retests_to_func_map.get(_test)
             if runner is None:
@@ -651,6 +652,7 @@ Your team can configure additional types in the repository settings.
             self.logger.debug(f"{self.log_prefix} running retest {_test}")
             task = asyncio.create_task(runner(pull_request=pull_request))
             tasks.append(task)
+            scheduled_tests.append(_test)
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for idx, result in enumerate(results):
@@ -658,6 +660,6 @@ Your team can configure additional types in the repository settings.
                 self.logger.debug(f"{self.log_prefix} Retest task cancelled")
                 raise result  # Re-raise CancelledError
             elif isinstance(result, BaseException):
-                # Get the test name from supported_retests list for better error messages
-                test_name = supported_retests[idx] if idx < len(supported_retests) else "unknown"
+                # Get the test name from scheduled_tests list for correct error attribution
+                test_name = scheduled_tests[idx] if idx < len(scheduled_tests) else "unknown"
                 self.logger.error(f"{self.log_prefix} Retest '{test_name}' failed: {result}")
