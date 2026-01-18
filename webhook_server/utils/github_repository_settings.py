@@ -18,6 +18,7 @@ from github.Repository import Repository
 from webhook_server.libs.config import Config
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
+    BUILTIN_CHECK_NAMES,
     CAN_BE_MERGED_STR,
     CONVENTIONAL_TITLE_STR,
     IN_PROGRESS_STR,
@@ -25,7 +26,6 @@ from webhook_server.utils.constants import (
     PYTHON_MODULE_INSTALL_STR,
     QUEUED_STR,
     STATIC_LABELS_DICT,
-    TOX_STR,
 )
 from webhook_server.utils.helpers import (
     get_future_results,
@@ -332,13 +332,6 @@ def set_repository(
 
 
 def set_all_in_progress_check_runs_to_queued(repo_config: Config, apis_dict: dict[str, dict[str, Any]]) -> None:
-    check_runs = (
-        PYTHON_MODULE_INSTALL_STR,
-        CAN_BE_MERGED_STR,
-        TOX_STR,
-        BUILD_CONTAINER_STR,
-        PRE_COMMIT_STR,
-    )
     futures: list[Future[Any]] = []
 
     with ThreadPoolExecutor() as executor:
@@ -351,7 +344,7 @@ def set_all_in_progress_check_runs_to_queued(repo_config: Config, apis_dict: dic
                         "config_": repo_config,
                         "data": data,
                         "github_api": apis_dict[repo]["api"],
-                        "check_runs": check_runs,
+                        "check_runs": BUILTIN_CHECK_NAMES,
                         "api_user": apis_dict[repo]["user"],
                     },
                 )
@@ -364,7 +357,7 @@ def set_repository_check_runs_to_queued(
     config_: Config,
     data: dict[str, Any],
     github_api: Github,
-    check_runs: tuple[str],
+    check_runs: frozenset[str],
     api_user: str,
 ) -> tuple[bool, str, Callable[..., Any]]:
     def _set_checkrun_queued(_api: Repository, _pull_request: PullRequest) -> None:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import traceback
 from asyncio import Task
-from collections.abc import Callable, Coroutine
+from collections.abc import Coroutine
 from typing import TYPE_CHECKING, Any
 
 from github.PullRequest import PullRequest
@@ -17,7 +17,6 @@ from webhook_server.libs.handlers.runner_handler import RunnerHandler
 from webhook_server.utils.constants import (
     AUTOMERGE_LABEL_STR,
     BUILD_AND_PUSH_CONTAINER_STR,
-    BUILD_CONTAINER_STR,
     CHERRY_PICK_LABEL_PREFIX,
     COMMAND_ADD_ALLOWED_USER_STR,
     COMMAND_ASSIGN_REVIEWER_STR,
@@ -27,12 +26,8 @@ from webhook_server.utils.constants import (
     COMMAND_REGENERATE_WELCOME_STR,
     COMMAND_REPROCESS_STR,
     COMMAND_RETEST_STR,
-    CONVENTIONAL_TITLE_STR,
     HOLD_LABEL_STR,
-    PRE_COMMIT_STR,
-    PYTHON_MODULE_INSTALL_STR,
     REACTIONS,
-    TOX_STR,
     USER_LABELS_DICT,
     VERIFIED_LABEL_STR,
     WIP_STR,
@@ -302,17 +297,11 @@ class IssueCommentHandler:
 
         elif _command == VERIFIED_LABEL_STR:
             if remove:
-                label_changed = await self.labels_handler._remove_label(
-                    pull_request=pull_request, label=VERIFIED_LABEL_STR
-                )
-                if label_changed:
-                    await self.check_run_handler.set_verify_check_queued()
+                await self.labels_handler._remove_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
+                await self.check_run_handler.set_check_queued(name=VERIFIED_LABEL_STR)
             else:
-                label_changed = await self.labels_handler._add_label(
-                    pull_request=pull_request, label=VERIFIED_LABEL_STR
-                )
-                if label_changed:
-                    await self.check_run_handler.set_verify_check_success()
+                await self.labels_handler._add_label(pull_request=pull_request, label=VERIFIED_LABEL_STR)
+                await self.check_run_handler.set_check_success(name=VERIFIED_LABEL_STR)
 
         elif _command != AUTOMERGE_LABEL_STR:
             await self.labels_handler.label_by_user_comment(
@@ -430,14 +419,6 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
         self.logger.debug(f"{self.log_prefix} Target tests for re-test: {_target_tests}")
         _not_supported_retests: list[str] = []
         _supported_retests: list[str] = []
-        _retests_to_func_map: dict[str, Callable[..., Any]] = {
-            TOX_STR: self.runner_handler.run_tox,
-            PRE_COMMIT_STR: self.runner_handler.run_pre_commit,
-            BUILD_CONTAINER_STR: self.runner_handler.run_build_container,
-            PYTHON_MODULE_INSTALL_STR: self.runner_handler.run_install_python_module,
-            CONVENTIONAL_TITLE_STR: self.runner_handler.run_conventional_title_check,
-        }
-        self.logger.debug(f"{self.log_prefix} Retest map is {_retests_to_func_map}")
 
         if not _target_tests:
             msg = "No test defined to retest"
@@ -475,16 +456,11 @@ Adding label/s `{" ".join([_cp_label for _cp_label in cp_labels])}` for automati
             await asyncio.to_thread(pull_request.create_issue_comment, msg)
 
         if _supported_retests:
-            tasks: list[Coroutine[Any, Any, Any] | Task[Any]] = []
-            for _test in _supported_retests:
-                self.logger.debug(f"{self.log_prefix} running retest {_test}")
-                task = asyncio.create_task(_retests_to_func_map[_test](pull_request=pull_request))
-                tasks.append(task)
-
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            for result in results:
-                if isinstance(result, Exception):
-                    self.logger.error(f"{self.log_prefix} Async task failed: {result}")
+            # Use runner_handler.run_retests() to avoid duplication
+            await self.runner_handler.run_retests(
+                supported_retests=_supported_retests,
+                pull_request=pull_request,
+            )
 
         if automerge:
             await self.labels_handler._add_label(pull_request=pull_request, label=AUTOMERGE_LABEL_STR)

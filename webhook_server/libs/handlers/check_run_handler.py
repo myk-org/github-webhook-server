@@ -1,5 +1,5 @@
 import asyncio
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
 from github.CheckRun import CheckRun
 from github.CommitStatus import CommitStatus
@@ -12,11 +12,9 @@ from webhook_server.utils.constants import (
     AUTOMERGE_LABEL_STR,
     BUILD_CONTAINER_STR,
     CAN_BE_MERGED_STR,
-    CHERRY_PICKED_LABEL,
     CONVENTIONAL_TITLE_STR,
     FAILURE_STR,
     IN_PROGRESS_STR,
-    PRE_COMMIT_STR,
     PYTHON_MODULE_INSTALL_STR,
     QUEUED_STR,
     SUCCESS_STR,
@@ -28,6 +26,14 @@ from webhook_server.utils.helpers import strip_ansi_codes
 if TYPE_CHECKING:
     from webhook_server.libs.github_api import GithubWebhook
     from webhook_server.utils.context import WebhookContext
+
+
+class CheckRunOutput(TypedDict, total=False):
+    """TypedDict for check run output parameter."""
+
+    title: str
+    summary: str
+    text: NotRequired[str | None]
 
 
 class CheckRunHandler:
@@ -102,119 +108,55 @@ class CheckRunHandler:
             self.ctx.complete_step("check_run_handler")
         return True
 
-    async def set_verify_check_queued(self) -> None:
-        return await self.set_check_run_status(check_run=VERIFIED_LABEL_STR, status=QUEUED_STR)
+    async def set_check_queued(self, name: str, output: CheckRunOutput | None = None) -> None:
+        """Set check run to queued status.
 
-    async def set_verify_check_success(self) -> None:
-        return await self.set_check_run_status(check_run=VERIFIED_LABEL_STR, conclusion=SUCCESS_STR)
+        Generic method for setting any check run (built-in or custom) to queued status.
 
-    async def set_run_tox_check_queued(self) -> None:
-        if not self.github_webhook.tox:
-            self.logger.debug(f"{self.log_prefix} tox is not configured, skipping.")
-            return
+        Args:
+            name: The name of the check run (e.g., TOX_STR, PRE_COMMIT_STR, or custom check name)
+            output: Optional output dictionary with title, summary, and text fields
+        """
+        await self.set_check_run_status(check_run=name, status=QUEUED_STR, output=output)
 
-        return await self.set_check_run_status(check_run=TOX_STR, status=QUEUED_STR)
+    async def set_check_in_progress(self, name: str) -> None:
+        """Set check run to in_progress status.
 
-    async def set_run_tox_check_in_progress(self) -> None:
-        return await self.set_check_run_status(check_run=TOX_STR, status=IN_PROGRESS_STR)
+        Generic method for setting any check run (built-in or custom) to in_progress status.
 
-    async def set_run_tox_check_failure(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(check_run=TOX_STR, conclusion=FAILURE_STR, output=output)
+        Args:
+            name: The name of the check run (e.g., TOX_STR, PRE_COMMIT_STR, or custom check name)
+        """
+        await self.set_check_run_status(check_run=name, status=IN_PROGRESS_STR)
 
-    async def set_run_tox_check_success(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(check_run=TOX_STR, conclusion=SUCCESS_STR, output=output)
+    async def set_check_success(self, name: str, output: CheckRunOutput | None = None) -> None:
+        """Set check run to success.
 
-    async def set_run_pre_commit_check_queued(self) -> None:
-        if not self.github_webhook.pre_commit:
-            self.logger.debug(f"{self.log_prefix} pre-commit is not configured, skipping.")
-            return
+        Generic method for setting any check run (built-in or custom) to success status.
 
-        return await self.set_check_run_status(check_run=PRE_COMMIT_STR, status=QUEUED_STR)
+        Args:
+            name: The name of the check run (e.g., TOX_STR, PRE_COMMIT_STR, or custom check name)
+            output: Optional output dictionary with title, summary, and text fields
+        """
+        await self.set_check_run_status(check_run=name, conclusion=SUCCESS_STR, output=output)
 
-    async def set_run_pre_commit_check_in_progress(self) -> None:
-        return await self.set_check_run_status(check_run=PRE_COMMIT_STR, status=IN_PROGRESS_STR)
+    async def set_check_failure(self, name: str, output: CheckRunOutput | None = None) -> None:
+        """Set check run to failure.
 
-    async def set_run_pre_commit_check_failure(self, output: dict[str, Any] | None = None) -> None:
-        return await self.set_check_run_status(check_run=PRE_COMMIT_STR, conclusion=FAILURE_STR, output=output)
+        Generic method for setting any check run (built-in or custom) to failure status.
 
-    async def set_run_pre_commit_check_success(self, output: dict[str, Any] | None = None) -> None:
-        return await self.set_check_run_status(check_run=PRE_COMMIT_STR, conclusion=SUCCESS_STR, output=output)
-
-    async def set_merge_check_queued(self, output: dict[str, Any] | None = None) -> None:
-        return await self.set_check_run_status(check_run=CAN_BE_MERGED_STR, status=QUEUED_STR, output=output)
-
-    async def set_merge_check_in_progress(self) -> None:
-        return await self.set_check_run_status(check_run=CAN_BE_MERGED_STR, status=IN_PROGRESS_STR)
-
-    async def set_merge_check_success(self) -> None:
-        return await self.set_check_run_status(check_run=CAN_BE_MERGED_STR, conclusion=SUCCESS_STR)
-
-    async def set_merge_check_failure(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(check_run=CAN_BE_MERGED_STR, conclusion=FAILURE_STR, output=output)
-
-    async def set_container_build_queued(self) -> None:
-        if not self.github_webhook.build_and_push_container:
-            self.logger.debug(f"{self.log_prefix} build_and_push_container is not configured, skipping.")
-            return
-
-        return await self.set_check_run_status(check_run=BUILD_CONTAINER_STR, status=QUEUED_STR)
-
-    async def set_container_build_in_progress(self) -> None:
-        return await self.set_check_run_status(check_run=BUILD_CONTAINER_STR, status=IN_PROGRESS_STR)
-
-    async def set_container_build_success(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(check_run=BUILD_CONTAINER_STR, conclusion=SUCCESS_STR, output=output)
-
-    async def set_container_build_failure(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(check_run=BUILD_CONTAINER_STR, conclusion=FAILURE_STR, output=output)
-
-    async def set_python_module_install_queued(self) -> None:
-        if not self.github_webhook.pypi:
-            self.logger.debug(f"{self.log_prefix} pypi is not configured, skipping.")
-            return
-
-        return await self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, status=QUEUED_STR)
-
-    async def set_python_module_install_in_progress(self) -> None:
-        return await self.set_check_run_status(check_run=PYTHON_MODULE_INSTALL_STR, status=IN_PROGRESS_STR)
-
-    async def set_python_module_install_success(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(
-            check_run=PYTHON_MODULE_INSTALL_STR, conclusion=SUCCESS_STR, output=output
-        )
-
-    async def set_python_module_install_failure(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(
-            check_run=PYTHON_MODULE_INSTALL_STR, conclusion=FAILURE_STR, output=output
-        )
-
-    async def set_conventional_title_queued(self) -> None:
-        return await self.set_check_run_status(check_run=CONVENTIONAL_TITLE_STR, status=QUEUED_STR)
-
-    async def set_conventional_title_in_progress(self) -> None:
-        return await self.set_check_run_status(check_run=CONVENTIONAL_TITLE_STR, status=IN_PROGRESS_STR)
-
-    async def set_conventional_title_success(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(check_run=CONVENTIONAL_TITLE_STR, conclusion=SUCCESS_STR, output=output)
-
-    async def set_conventional_title_failure(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(check_run=CONVENTIONAL_TITLE_STR, conclusion=FAILURE_STR, output=output)
-
-    async def set_cherry_pick_in_progress(self) -> None:
-        return await self.set_check_run_status(check_run=CHERRY_PICKED_LABEL, status=IN_PROGRESS_STR)
-
-    async def set_cherry_pick_success(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(check_run=CHERRY_PICKED_LABEL, conclusion=SUCCESS_STR, output=output)
-
-    async def set_cherry_pick_failure(self, output: dict[str, Any]) -> None:
-        return await self.set_check_run_status(check_run=CHERRY_PICKED_LABEL, conclusion=FAILURE_STR, output=output)
+        Args:
+            name: The name of the check run (e.g., TOX_STR, PRE_COMMIT_STR, or custom check name)
+            output: Optional output dictionary with title, summary, and text fields
+        """
+        await self.set_check_run_status(check_run=name, conclusion=FAILURE_STR, output=output)
 
     async def set_check_run_status(
         self,
         check_run: str,
         status: str = "",
         conclusion: str = "",
-        output: dict[str, str] | None = None,
+        output: CheckRunOutput | None = None,
     ) -> None:
         kwargs: dict[str, Any] = {"name": check_run, "head_sha": self.github_webhook.last_commit.sha}
 
@@ -223,6 +165,7 @@ class CheckRunHandler:
 
         if conclusion:
             kwargs["conclusion"] = conclusion
+            kwargs["status"] = "completed"  # Explicitly set status when conclusion is provided
 
         if output:
             kwargs["output"] = output
@@ -230,15 +173,20 @@ class CheckRunHandler:
         msg: str = f"{self.log_prefix} check run {check_run} status: {status or conclusion}"
 
         try:
-            self.logger.debug(f"{self.log_prefix} Set check run status with {kwargs}")
+            self.logger.debug(
+                f"{self.log_prefix} Setting check run for {check_run}, status={status}, conclusion={conclusion}"
+            )
             await asyncio.to_thread(self.github_webhook.repository_by_github_app.create_check_run, **kwargs)
             if conclusion in (SUCCESS_STR, IN_PROGRESS_STR):
                 self.logger.info(msg)
             return
 
-        except Exception as ex:
-            self.logger.debug(f"{self.log_prefix} Failed to set {check_run} check to {status or conclusion}, {ex}")
+        except asyncio.CancelledError:
+            raise  # Always re-raise CancelledError
+        except Exception:
+            self.logger.exception(f"{self.log_prefix} Failed to set check run status for {check_run}")
             kwargs["conclusion"] = FAILURE_STR
+            kwargs["status"] = "completed"
             await asyncio.to_thread(self.github_webhook.repository_by_github_app.create_check_run, **kwargs)
 
     def get_check_run_text(self, err: str, out: str) -> str:
@@ -427,7 +375,16 @@ class CheckRunHandler:
         if self.github_webhook.conventional_title:
             all_required_status_checks.append(CONVENTIONAL_TITLE_STR)
 
-        _all_required_status_checks = branch_required_status_checks + all_required_status_checks
+        # Add mandatory custom checks only (non-mandatory checks still run but don't affect can-be-merged)
+        # Note: custom checks are validated in GithubWebhook._validate_custom_check_runs()
+        # so name is guaranteed to exist
+        for custom_check in self.github_webhook.custom_check_runs:
+            if custom_check.get("mandatory", True):
+                check_name = custom_check["name"]
+                all_required_status_checks.append(check_name)
+
+        # Use ordered deduplication to combine branch and config checks without duplicates
+        _all_required_status_checks = list(dict.fromkeys(branch_required_status_checks + all_required_status_checks))
         self.logger.debug(f"{self.log_prefix} All required status checks: {_all_required_status_checks}")
         self._all_required_status_checks = _all_required_status_checks
         return _all_required_status_checks

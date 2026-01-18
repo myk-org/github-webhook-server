@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import re
 import shlex
 import shutil
 import tempfile
@@ -29,6 +30,7 @@ from webhook_server.libs.handlers.pull_request_review_handler import PullRequest
 from webhook_server.libs.handlers.push_handler import PushHandler
 from webhook_server.utils.constants import (
     BUILD_CONTAINER_STR,
+    BUILTIN_CHECK_NAMES,
     CAN_BE_MERGED_STR,
     CONFIGURABLE_LABEL_CATEGORIES,
     CONVENTIONAL_TITLE_STR,
@@ -653,6 +655,12 @@ class GithubWebhook:
             value="pre-commit", return_on_none=False, extra_dict=repository_config
         )
 
+        # Load and validate custom check runs
+        raw_custom_checks = self.config.get_value(
+            value="custom-check-runs", return_on_none=[], extra_dict=repository_config
+        )
+        self.custom_check_runs: list[dict[str, Any]] = self._validate_custom_check_runs(raw_custom_checks)
+
         _auto_users = self.config.get_value(
             value="auto-verified-and-merged-users", return_on_none=[], extra_dict=repository_config
         )
@@ -844,6 +852,14 @@ class GithubWebhook:
 
         if self.conventional_title:
             current_pull_request_supported_retest.append(CONVENTIONAL_TITLE_STR)
+
+        # Add custom check runs
+        # Note: custom checks are validated in _validate_custom_check_runs()
+        # so name is guaranteed to exist
+        for custom_check in self.custom_check_runs:
+            check_name = custom_check["name"]
+            current_pull_request_supported_retest.append(check_name)
+
         return current_pull_request_supported_retest
 
     async def cleanup(self) -> None:
@@ -859,6 +875,132 @@ class GithubWebhook:
                 self.logger.debug(f"{self.log_prefix} Cleaned up temp directory: {self.clone_repo_dir}")
             except Exception as ex:
                 self.logger.warning(f"{self.log_prefix} Failed to cleanup temp directory: {ex}")
+
+    def _validate_custom_check_runs(self, raw_checks: object) -> list[dict[str, Any]]:
+        """Validate custom check runs configuration.
+
+        Validates each custom check and returns only valid ones:
+        - Checks that 'name' and 'command' fields exist
+        - Verifies name doesn't collide with built-in check names
+        - Verifies command executable exists on server using shutil.which()
+        - Logs warnings for invalid checks and skips them
+
+        Args:
+            raw_checks: Custom check configurations from config (should be a list)
+
+        Returns:
+            List of validated custom check configurations
+        """
+        validated_checks: list[dict[str, Any]] = []
+
+        # Type guard: ensure raw_checks is a list
+        if not isinstance(raw_checks, list):
+            # Use getattr since log_prefix may not be set during early __init__ calls
+            prefix = getattr(self, "log_prefix", "")
+            self.logger.warning(
+                f"{prefix} Custom checks config is not a list (got {type(raw_checks).__name__}), "
+                "skipping all custom checks"
+            )
+            return validated_checks
+
+        seen_names: set[str] = set()
+
+        # Whitelist regex for safe check names: alphanumeric, dots, underscores, hyphens, 1-64 chars
+        safe_check_name_pattern = re.compile(r"^[a-zA-Z0-9._-]{1,64}$")
+
+        # Regex to match env-var assignments (e.g., FOO=bar, MY_VAR=123)
+        env_assign_re = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+        for check in raw_checks:
+            # Type guard: ensure check is a dict before accessing fields
+            if not isinstance(check, dict):
+                self.logger.warning(f"Custom check entry is not a mapping (got {type(check).__name__}), skipping")
+                continue
+
+            # Validate name field
+            check_name = check.get("name")
+            if not check_name:
+                self.logger.warning("Custom check missing required 'name' field, skipping")
+                continue
+
+            # Type guard: ensure name is a string (YAML could have int/list/dict)
+            if not isinstance(check_name, str):
+                self.logger.warning(
+                    f"Custom check 'name' field is not a string (got {type(check_name).__name__}), skipping"
+                )
+                continue
+
+            # Validate name contains only safe characters
+            if not safe_check_name_pattern.match(check_name):
+                self.logger.warning(f"Custom check name '{check_name}' contains unsafe characters, skipping")
+                continue
+
+            # Check for collision with built-in check names
+            if check_name in BUILTIN_CHECK_NAMES:
+                self.logger.warning(f"Custom check '{check_name}' conflicts with built-in check, skipping")
+                continue
+
+            # Check for duplicate custom check names
+            if check_name in seen_names:
+                self.logger.warning(f"Duplicate custom check name '{check_name}', skipping")
+                continue
+            seen_names.add(check_name)
+
+            # Validate command field
+            command = check.get("command")
+            if not command:
+                self.logger.warning(f"Custom check '{check_name}' missing required 'command' field, skipping")
+                continue
+
+            # Type guard: ensure command is a string (YAML could have int/list/dict)
+            if not isinstance(command, str):
+                self.logger.warning(
+                    f"Custom check '{check_name}' has 'command' field that is not a string "
+                    f"(got {type(command).__name__}), skipping"
+                )
+                continue
+
+            # Strip command once for all subsequent operations
+            command = command.strip()
+
+            if not command:
+                self.logger.warning(f"Custom check '{check_name}' has empty 'command' field, skipping")
+                continue
+
+            # Parse command safely using shlex to handle quoting
+            try:
+                tokens = shlex.split(command, posix=True)
+            except ValueError as ex:
+                self.logger.warning(f"Custom check '{check_name}' has invalid shell quoting ({ex}), skipping")
+                continue
+
+            # Skip leading env-var assignments to find the real executable
+            executable = next((t for t in tokens if not env_assign_re.match(t)), "")
+            if not executable:
+                self.logger.warning(f"Custom check '{check_name}' has no executable, skipping")
+                continue
+
+            # Check if executable exists on server
+            if not shutil.which(executable):
+                self.logger.warning(
+                    f"Custom check '{check_name}' executable '{executable}' not found on server. "
+                    f"Please open an issue to request adding this executable to the container, "
+                    f"or submit a PR to add it. Skipping check."
+                )
+                continue
+
+            # Valid check - add to list
+            validated_checks.append(check)
+            # Don't log raw command - may contain secrets. Only log executable name.
+            self.logger.debug(f"Validated custom check '{check_name}' (executable='{executable}')")
+
+        # Summary logging for user visibility
+        if validated_checks:
+            self.logger.info(f"Loaded {len(validated_checks)} custom check(s): {[c['name'] for c in validated_checks]}")
+        if len(validated_checks) < len(raw_checks):
+            self.logger.warning(f"Skipped {len(raw_checks) - len(validated_checks)} invalid custom check(s)")
+
+        return validated_checks
 
     def __del__(self) -> None:
         """Remove the shared clone directory when the webhook object is destroyed.

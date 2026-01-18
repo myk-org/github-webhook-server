@@ -384,3 +384,41 @@ properties:
             required:
               - threshold
             additionalProperties: false
+        custom-check-runs:
+          type: array
+          description: |
+            Custom check runs that execute user-defined commands on PR events.
+            Commands run in the repository worktree and behave like built-in checks
+            (tox, pre-commit, etc.) - if a command is not found, the check will fail.
+
+            Examples:
+              - name: lint
+                command: uv tool run --from ruff ruff check
+                mandatory: true
+              - name: security-scan
+                command: TOKEN=xyz DEBUG=true uv tool run --from bandit bandit -r .
+                mandatory: false
+              - name: complex-check
+                command: |
+                  uv run python -c "
+                  import sys
+                  print('Running complex check')
+                  sys.exit(0)
+                  "
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                description: Unique name for the check run (displayed in GitHub UI)
+              command:
+                type: string
+                description: Command to execute in the repository directory. Environment variables can be included in the command (e.g., VAR=value command args)
+              mandatory:
+                type: boolean
+                description: Whether this check must pass for PR to be mergeable. Defaults to true for backward compatibility.
+                default: true
+            required:
+              - name
+              - command
+            additionalProperties: false
