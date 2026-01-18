@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import re
+import shlex
 import shutil
 from asyncio import Task
 from collections.abc import AsyncGenerator, Callable, Coroutine
@@ -516,10 +517,17 @@ Your team can configure additional types in the repository settings.
         check_name = check_config["name"]
         command = check_config["command"]
 
+        # Wrap command in shell to support shell syntax (env vars, pipes, subshells, etc.)
+        # This is safe for custom checks since they are explicitly user-defined commands.
+        # Using shlex.quote() ensures the command is properly escaped when passed as
+        # a single argument to /bin/sh -c, so shlex.split() produces:
+        # ['/bin/sh', '-c', 'JIRA_TOKEN="xxx" tox -e verify-bugs-are-open-gh']
+        shell_wrapped_command = f"/bin/sh -c {shlex.quote(command)}"
+
         # Custom checks run with cwd set to worktree directory
         unified_config = CheckConfig(
             name=check_name,
-            command=command,
+            command=shell_wrapped_command,
             title=f"Custom Check: {check_name}",
             use_cwd=True,
         )

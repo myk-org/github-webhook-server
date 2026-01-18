@@ -502,7 +502,10 @@ class TestRunnerHandlerCustomCheck:
     async def test_run_custom_check_command_execution_in_worktree(
         self, runner_handler: RunnerHandler, mock_pull_request: Mock, tmp_path: Path
     ) -> None:
-        """Test that custom check command is executed in worktree directory."""
+        """Test that custom check command is executed in worktree directory.
+
+        Custom checks are wrapped in /bin/sh -c to support shell syntax (env vars, pipes, etc.).
+        """
         check_config = {
             "name": "build",
             "command": "uv tool run --from build python -m build",
@@ -523,10 +526,11 @@ class TestRunnerHandlerCustomCheck:
         ):
             await runner_handler.run_custom_check(pull_request=mock_pull_request, check_config=check_config)
 
-            # Verify command is executed with cwd parameter set to worktree
+            # Verify command is wrapped in shell and executed with cwd parameter set to worktree
             mock_run.assert_called_once()
             call_args = mock_run.call_args.kwargs
-            assert call_args["command"] == "uv tool run --from build python -m build"
+            # Command is wrapped in /bin/sh -c to support shell syntax (env vars, pipes, etc.)
+            assert call_args["command"] == "/bin/sh -c 'uv tool run --from build python -m build'"
             assert call_args["cwd"] == str(worktree)
 
 
