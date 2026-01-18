@@ -375,7 +375,7 @@ class CheckRunHandler:
         if self.github_webhook.conventional_title:
             all_required_status_checks.append(CONVENTIONAL_TITLE_STR)
 
-        # Add mandatory custom checks only (default is mandatory=true for backward compatibility)
+        # Add mandatory custom checks only (non-mandatory checks still run but don't affect can-be-merged)
         # Note: custom checks are validated in GithubWebhook._validate_custom_check_runs()
         # so name is guaranteed to exist
         for custom_check in self.github_webhook.custom_check_runs:
