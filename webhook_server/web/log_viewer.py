@@ -704,25 +704,24 @@ class LogViewerController:
         # Sort steps by timestamp and calculate relative times
         steps_list.sort(key=lambda x: x.get("timestamp") or "")
         if steps_list and start_time:
+            # Track current step for error reporting
+            current_step: dict[str, Any] | None = None
+            current_step_ts: str | None = None
             try:
                 base_time = datetime.datetime.fromisoformat(start_time.replace("Z", "+00:00"))
                 for step in steps_list:
-                    step_ts = step.get("timestamp")
-                    if step_ts:
-                        step_time = datetime.datetime.fromisoformat(step_ts.replace("Z", "+00:00"))
+                    current_step = step
+                    current_step_ts = step.get("timestamp")
+                    if current_step_ts:
+                        step_time = datetime.datetime.fromisoformat(current_step_ts.replace("Z", "+00:00"))
                         step["relative_time_ms"] = int((step_time - base_time).total_seconds() * 1000)
             except (ValueError, TypeError) as ex:
                 # Log parse failure for troubleshooting, keep relative_time_ms as 0
-                local_vars = locals()
-                failed_step = local_vars.get("step", {})
-                failed_step_name = failed_step.get("message", "unknown") if failed_step else "unknown"
-                failed_timestamp = local_vars.get("step_ts") or start_time
+                failed_step_name = current_step.get("message", "unknown") if current_step else "unknown"
+                failed_timestamp = current_step_ts or start_time
                 self.logger.debug(
-                    "Failed to parse timestamp for relative time calculation: %s. hook_id=%s, step=%s, timestamp=%s",
-                    ex,
-                    hook_id,
-                    failed_step_name,
-                    failed_timestamp,
+                    f"Failed to parse timestamp for relative time calculation: {ex}. "
+                    f"hook_id={hook_id}, step={failed_step_name}, timestamp={failed_timestamp}",
                 )
 
         return {
@@ -842,10 +841,8 @@ class LogViewerController:
                                 pr_number,
                             )
                             self.logger.info(
-                                "%sExtracted token spend %s directly from message for hook %s",
-                                log_prefix,
-                                token_spend,
-                                hook_id,
+                                f"{log_prefix}Extracted token spend {token_spend} directly from message "
+                                f"for hook {hook_id}",
                             )
                             break
 
