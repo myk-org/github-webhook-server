@@ -839,14 +839,38 @@ function showFlowModal(hookId) {
   fetch(`/logs/api/workflow-steps/${encodeURIComponent(hookId)}`, {
     signal: currentFlowController.signal,
   })
-    .then((response) => {
+    .then(async (response) => {
       if (!response.ok) {
-        if (response.status === 404) {
+        const status = response.status;
+
+        // Try to parse error detail from JSON response
+        let errorDetail = null;
+        try {
+          const errorData = await response.json();
+          errorDetail = errorData.detail;
+        } catch {
+          // JSON parsing failed, use default messages
+        }
+
+        if (status === 404) {
           console.log("No flow data found for hook ID:", hookId);
           showFlowModalError("No workflow data found for this hook");
           return;
+        } else if (status === 400) {
+          const message = errorDetail || "Invalid request";
+          console.error("Bad request for hook ID:", hookId, message);
+          showFlowModalError(message);
+          return;
+        } else if (status >= 500) {
+          console.error("Server error for hook ID:", hookId, errorDetail);
+          showFlowModalError("Server error occurred. Please try again later.");
+          return;
+        } else {
+          const message = errorDetail || `HTTP ${status}: ${response.statusText}`;
+          console.error("Error fetching flow data:", message);
+          showFlowModalError(message);
+          return;
         }
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
       return response.json();
     })

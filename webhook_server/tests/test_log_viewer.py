@@ -101,8 +101,16 @@ class TestLogViewerJSONMethods:
                 "duration_ms": 5000,
             },
             "workflow_steps": {
-                "step1": {"status": "completed", "duration_ms": 1000},
-                "step2": {"status": "completed", "duration_ms": 2000},
+                "step1": {
+                    "timestamp": "2025-01-05T10:00:01.000000Z",
+                    "status": "completed",
+                    "duration_ms": 1000,
+                },
+                "step2": {
+                    "timestamp": "2025-01-05T10:00:03.000000Z",
+                    "status": "completed",
+                    "duration_ms": 2000,
+                },
             },
             "token_spend": 35,
             "success": True,
@@ -267,7 +275,7 @@ class TestLogViewerJSONMethods:
         assert entries[1]["hook_id"] == "old-hook"
 
     async def test_get_workflow_steps_json_returns_workflow_data(self, controller, tmp_path, sample_json_webhook_data):
-        """Test get_workflow_steps_json returns workflow steps for valid hook_id."""
+        """Test get_workflow_steps_json returns workflow steps in frontend-expected format."""
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
@@ -277,17 +285,33 @@ class TestLogViewerJSONMethods:
         # Get workflow steps
         result = await controller.get_workflow_steps_json("test-hook-123")
 
-        # Should return structured workflow data
+        # Should return data in the format expected by the frontend (renderFlowModal)
         assert result["hook_id"] == "test-hook-123"
-        assert result["event_type"] == "pull_request"
-        assert result["action"] == "opened"
-        assert result["repository"] == "org/test-repo"
-        assert result["sender"] == "test-user"
-        assert result["pr"]["number"] == 456
-        assert result["timing"]["duration_ms"] == 5000
-        assert result["steps"] == sample_json_webhook_data["workflow_steps"]
+        assert result["start_time"] == "2025-01-05T10:00:00.000000Z"
+        assert result["total_duration_ms"] == 5000
+        assert result["step_count"] == 2
         assert result["token_spend"] == 35
-        assert result["success"] is True
+
+        # Steps should be an array, not a dict
+        assert isinstance(result["steps"], list)
+        assert len(result["steps"]) == 2
+
+        # Each step should have the expected fields
+        step_names = {step["step_name"] for step in result["steps"]}
+        assert step_names == {"step1", "step2"}
+
+        for step in result["steps"]:
+            assert "message" in step
+            assert "level" in step
+            assert "repository" in step
+            assert step["repository"] == "org/test-repo"
+            assert "event_type" in step
+            assert step["event_type"] == "pull_request"
+            assert "pr_number" in step
+            assert step["pr_number"] == 456
+            assert "task_status" in step
+            assert step["task_status"] == "completed"
+            assert "relative_time_ms" in step
 
     async def test_get_workflow_steps_json_returns_none_for_unknown_hook_id(
         self, controller, tmp_path, sample_json_webhook_data
@@ -320,23 +344,31 @@ class TestLogViewerJSONMethods:
         assert exc.value.status_code == 404
 
     async def test_get_workflow_steps_json_with_error_in_log(self, controller, tmp_path, sample_json_webhook_data):
-        """Test get_workflow_steps_json with webhook that has error."""
+        """Test get_workflow_steps_json with webhook that has error step."""
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
-        # Create JSON log entry with error
-        error_data = sample_json_webhook_data.copy()
-        error_data["success"] = False
-        error_data["error"] = "Test error occurred"
+        # Create JSON log entry with failed step
+        error_data = copy.deepcopy(sample_json_webhook_data)
+        error_data["workflow_steps"]["failed_step"] = {
+            "timestamp": "2025-01-05T10:00:04.000000Z",
+            "status": "failed",
+            "duration_ms": 500,
+            "error": {"type": "ValueError", "message": "Test error occurred"},
+        }
 
         self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [error_data])
 
         # Get workflow steps
         result = await controller.get_workflow_steps_json("test-hook-123")
 
-        # Should include error information
-        assert result["success"] is False
-        assert result["error"] == "Test error occurred"
+        # Should include the failed step with error information
+        assert result["hook_id"] == "test-hook-123"
+        assert result["step_count"] == 3
+        failed_steps = [s for s in result["steps"] if s["task_status"] == "failed"]
+        assert len(failed_steps) == 1
+        assert failed_steps[0]["error"]["message"] == "Test error occurred"
+        assert failed_steps[0]["level"] == "ERROR"
 
     async def test_get_workflow_steps_uses_json_when_available(self, controller, tmp_path, sample_json_webhook_data):
         """Test get_workflow_steps uses JSON logs when available."""
@@ -349,10 +381,12 @@ class TestLogViewerJSONMethods:
         # Get workflow steps (should use JSON, not fall back to text)
         result = await controller.get_workflow_steps("test-hook-123")
 
-        # Should return JSON-based data
+        # Should return data in frontend-expected format
         assert result["hook_id"] == "test-hook-123"
-        assert result["event_type"] == "pull_request"
-        assert "steps" in result
+        assert result["start_time"] == "2025-01-05T10:00:00.000000Z"
+        assert result["total_duration_ms"] == 5000
+        assert result["step_count"] == 2
+        assert isinstance(result["steps"], list)
         assert result["token_spend"] == 35
 
     async def test_get_workflow_steps_falls_back_to_text_logs(self, controller, tmp_path):
@@ -419,7 +453,7 @@ class TestLogViewerJSONMethods:
         # Create minimal JSON log entry
         minimal_data = {
             "hook_id": "minimal-hook",
-            # Missing: event_type, action, sender, pr, workflow_steps, token_spend, success, error
+            # Missing: event_type, action, sender, pr, workflow_steps, token_spend, timing
         }
 
         self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [minimal_data])
@@ -427,18 +461,13 @@ class TestLogViewerJSONMethods:
         # Get workflow steps
         result = await controller.get_workflow_steps_json("minimal-hook")
 
-        # Should handle missing fields with None
+        # Should handle missing fields with defaults in frontend-expected format
         assert result["hook_id"] == "minimal-hook"
-        assert result["event_type"] is None
-        assert result["action"] is None
-        assert result["repository"] is None
-        assert result["sender"] is None
-        assert result["pr"] is None
-        assert result["timing"] is None
-        assert result["steps"] == {}  # Default to empty dict
+        assert result["start_time"] is None  # No timing info
+        assert result["total_duration_ms"] == 0  # Default to 0
+        assert result["step_count"] == 0  # No workflow_steps
+        assert result["steps"] == []  # Empty array (not dict)
         assert result["token_spend"] is None
-        assert result["success"] is None
-        assert result["error"] is None
 
     async def test_stream_json_log_entries_handles_file_read_errors(
         self, controller, tmp_path, sample_json_webhook_data
@@ -493,9 +522,11 @@ class TestLogViewerJSONMethods:
         # Search for middle entry
         result = await controller.get_workflow_steps_json("target-hook")
 
-        # Should find correct entry
+        # Should find correct entry and transform to frontend format
         assert result["hook_id"] == "target-hook"
-        assert result["pr"]["number"] == 200
+        # Verify correct entry was found by checking pr_number in steps
+        for step in result["steps"]:
+            assert step["pr_number"] == 200
 
     async def test_stream_json_log_entries_pretty_printed_format(self, controller, tmp_path):
         """Test _stream_json_log_entries with JSONL format (one JSON object per line)."""

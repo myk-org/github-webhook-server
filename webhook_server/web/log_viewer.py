@@ -554,7 +554,13 @@ class LogViewerController:
             hook_id: The hook ID to get workflow steps for
 
         Returns:
-            Dictionary with workflow steps from JSON log
+            Dictionary with workflow steps in the format expected by the frontend:
+            - hook_id: The hook ID
+            - start_time: ISO timestamp of when processing started
+            - total_duration_ms: Total processing duration in milliseconds
+            - step_count: Number of workflow steps
+            - steps: Array of step objects with timestamp, message, level, etc.
+            - token_spend: Optional token consumption count
 
         Raises:
             HTTPException: 404 if hook ID not found
@@ -563,25 +569,101 @@ class LogViewerController:
             # Search JSON logs for this hook_id
             async for entry in self._stream_json_log_entries(max_files=25, max_entries=50000):
                 if entry.get("hook_id") == hook_id:
-                    # Found the entry - return structured workflow data
-                    return {
-                        "hook_id": hook_id,
-                        "event_type": entry.get("event_type"),
-                        "action": entry.get("action"),
-                        "repository": entry.get("repository"),
-                        "sender": entry.get("sender"),
-                        "pr": entry.get("pr"),
-                        "timing": entry.get("timing"),
-                        "steps": entry.get("workflow_steps") or {},
-                        "token_spend": entry.get("token_spend"),
-                        "success": entry.get("success"),
-                        "error": entry.get("error"),
-                    }
+                    # Found the entry - transform to frontend-expected format
+                    return self._transform_json_entry_to_timeline(entry, hook_id)
 
             raise ValueError(f"No JSON log entry found for hook ID: {hook_id}")
 
         except ValueError as e:
             raise HTTPException(status_code=404, detail=str(e)) from e
+
+    def _transform_json_entry_to_timeline(self, entry: dict[str, Any], hook_id: str) -> dict[str, Any]:
+        """Transform JSON log entry to the timeline format expected by the frontend.
+
+        Converts the workflow_steps dict format from JSON logs into the array format
+        that matches the output of _build_workflow_timeline().
+
+        Args:
+            entry: JSON log entry with workflow_steps dict
+            hook_id: The hook ID for this entry
+
+        Returns:
+            Dictionary in the format expected by renderFlowModal():
+            - hook_id, start_time, total_duration_ms, step_count, steps, token_spend
+        """
+        timing = entry.get("timing") or {}
+        workflow_steps = entry.get("workflow_steps") or {}
+        repository = entry.get("repository")
+        event_type = entry.get("event_type")
+        pr_info = entry.get("pr") or {}
+        pr_number = pr_info.get("number") if pr_info else None
+
+        # Extract timing info
+        start_time = timing.get("started_at")
+        total_duration_ms = timing.get("duration_ms") or 0
+
+        # Transform workflow_steps dict to array format
+        # Sort by timestamp to maintain execution order
+        steps_list = []
+        for step_name, step_data in workflow_steps.items():
+            step_timestamp = step_data.get("timestamp")
+            step_status = step_data.get("status", "unknown")
+            step_duration_ms = step_data.get("duration_ms")
+            step_error = step_data.get("error")
+
+            # Build message from step name and status
+            if step_error:
+                error_msg = step_error.get("message", "") if isinstance(step_error, dict) else str(step_error)
+                message = f"{step_name}: {step_status} - {error_msg}"
+            elif step_duration_ms is not None:
+                message = f"{step_name}: {step_status} ({step_duration_ms}ms)"
+            else:
+                message = f"{step_name}: {step_status}"
+
+            # Determine log level from status
+            level = "INFO"
+            if step_status == "failed":
+                level = "ERROR"
+            elif step_status == "started":
+                level = "DEBUG"
+
+            steps_list.append({
+                "timestamp": step_timestamp,
+                "step_name": step_name,
+                "message": message,
+                "level": level,
+                "repository": repository,
+                "event_type": event_type,
+                "pr_number": pr_number,
+                "task_id": None,
+                "task_type": None,
+                "task_status": step_status,
+                "duration_ms": step_duration_ms,
+                "error": step_error,
+                "relative_time_ms": 0,  # Will be calculated below
+            })
+
+        # Sort steps by timestamp and calculate relative times
+        steps_list.sort(key=lambda x: x.get("timestamp") or "")
+        if steps_list and start_time:
+            try:
+                base_time = datetime.datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+                for step in steps_list:
+                    step_ts = step.get("timestamp")
+                    if step_ts:
+                        step_time = datetime.datetime.fromisoformat(step_ts.replace("Z", "+00:00"))
+                        step["relative_time_ms"] = int((step_time - base_time).total_seconds() * 1000)
+            except (ValueError, TypeError):
+                pass  # Keep relative_time_ms as 0 if parsing fails
+
+        return {
+            "hook_id": hook_id,
+            "start_time": start_time,
+            "total_duration_ms": total_duration_ms,
+            "step_count": len(steps_list),
+            "steps": steps_list,
+            "token_spend": entry.get("token_spend"),
+        }
 
     async def get_workflow_steps(self, hook_id: str) -> dict[str, Any]:
         """Get workflow step timeline data for a specific hook ID.
