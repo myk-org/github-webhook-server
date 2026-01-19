@@ -625,12 +625,12 @@ class LogViewerController:
 
         repository = entry.get("repository")
         event_type = entry.get("event_type")
-        pr_info = entry.get("pr") or {}
+        pr_info = entry.get("pr")
         pr_number = pr_info.get("number") if pr_info else None
 
         # Extract timing info
         start_time = timing["started_at"]
-        total_duration_ms = timing["duration_ms"] or 0
+        total_duration_ms = timing["duration_ms"]
 
         # Transform workflow_steps dict to array format
         # Sort by timestamp to maintain execution order
@@ -697,7 +697,7 @@ class LogViewerController:
             "action": entry.get("action"),
             "repository": repository,
             "sender": entry.get("sender"),
-            "pr": pr_info if pr_info else None,
+            "pr": entry.get("pr"),
             "success": entry.get("success"),
             "error": entry.get("error"),
         }
