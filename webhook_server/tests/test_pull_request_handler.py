@@ -83,6 +83,7 @@ class TestPullRequestHandler:
         mock_webhook.last_commit = Mock()
         mock_webhook.ctx = None
         mock_webhook.enabled_labels = None  # Default: all labels enabled
+        mock_webhook.custom_check_runs = []
         return mock_webhook
 
     @pytest.fixture
@@ -111,17 +112,10 @@ class TestPullRequestHandler:
         handler.labels_handler.wip_or_hold_labels_exists = Mock(return_value=False)
 
         handler.check_run_handler = Mock()
-        handler.check_run_handler.set_verify_check_queued = AsyncMock()
-        handler.check_run_handler.set_verify_check_success = AsyncMock()
-        handler.check_run_handler.set_merge_check_in_progress = AsyncMock()
-        handler.check_run_handler.set_merge_check_success = AsyncMock()
-        handler.check_run_handler.set_merge_check_failure = AsyncMock()
-        handler.check_run_handler.set_merge_check_queued = AsyncMock()
-        handler.check_run_handler.set_run_tox_check_queued = AsyncMock()
-        handler.check_run_handler.set_run_pre_commit_check_queued = AsyncMock()
-        handler.check_run_handler.set_python_module_install_queued = AsyncMock()
-        handler.check_run_handler.set_container_build_queued = AsyncMock()
-        handler.check_run_handler.set_conventional_title_queued = AsyncMock()
+        handler.check_run_handler.set_check_queued = AsyncMock()
+        handler.check_run_handler.set_check_in_progress = AsyncMock()
+        handler.check_run_handler.set_check_success = AsyncMock()
+        handler.check_run_handler.set_check_failure = AsyncMock()
 
         handler.runner_handler = Mock()
         handler.runner_handler.run_container_build = AsyncMock()
@@ -329,10 +323,10 @@ class TestPullRequestHandler:
         pull_request_handler.hook_data["label"] = {"name": VERIFIED_LABEL_STR}
 
         with patch.object(pull_request_handler, "check_if_can_be_merged") as mock_check_merge:
-            with patch.object(pull_request_handler.check_run_handler, "set_verify_check_success") as mock_success:
+            with patch.object(pull_request_handler.check_run_handler, "set_check_success") as mock_success:
                 await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
                 mock_check_merge.assert_called_once_with(pull_request=mock_pull_request)
-                mock_success.assert_called_once()
+                mock_success.assert_called_once_with(name=VERIFIED_LABEL_STR)
 
     @pytest.mark.asyncio
     async def test_process_pull_request_webhook_data_unlabeled_verified(
@@ -343,10 +337,10 @@ class TestPullRequestHandler:
         pull_request_handler.hook_data["label"] = {"name": VERIFIED_LABEL_STR}
 
         with patch.object(pull_request_handler, "check_if_can_be_merged") as mock_check_merge:
-            with patch.object(pull_request_handler.check_run_handler, "set_verify_check_queued") as mock_queued:
+            with patch.object(pull_request_handler.check_run_handler, "set_check_queued") as mock_queued:
                 await pull_request_handler.process_pull_request_webhook_data(mock_pull_request)
                 mock_check_merge.assert_called_once_with(pull_request=mock_pull_request)
-                mock_queued.assert_called_once()
+                mock_queued.assert_called_once_with(name=VERIFIED_LABEL_STR)
 
     @pytest.mark.asyncio
     async def test_set_wip_label_based_on_title_with_wip(
@@ -661,12 +655,12 @@ class TestPullRequestHandler:
     ) -> None:
         """Test processing verified for update or new pull request for auto-verified user."""
         with patch.object(pull_request_handler.labels_handler, "_add_label", new_callable=AsyncMock) as mock_add_label:
-            with patch.object(pull_request_handler.check_run_handler, "set_verify_check_success") as mock_success:
+            with patch.object(pull_request_handler.check_run_handler, "set_check_success") as mock_success:
                 await pull_request_handler._process_verified_for_update_or_new_pull_request(
                     pull_request=mock_pull_request
                 )
                 mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=VERIFIED_LABEL_STR)
-                mock_success.assert_called_once()
+                mock_success.assert_called_once_with(name=VERIFIED_LABEL_STR)
 
     @pytest.mark.asyncio
     async def test_process_verified_for_update_or_new_pull_request_not_auto_verified(
@@ -676,7 +670,7 @@ class TestPullRequestHandler:
         pull_request_handler.github_webhook.parent_committer = "other-user"
 
         with patch.object(pull_request_handler.labels_handler, "_add_label", new_callable=AsyncMock) as mock_add_label:
-            with patch.object(pull_request_handler.check_run_handler, "set_verify_check_success") as mock_success:
+            with patch.object(pull_request_handler.check_run_handler, "set_check_success") as mock_success:
                 await pull_request_handler._process_verified_for_update_or_new_pull_request(
                     pull_request=mock_pull_request
                 )
@@ -697,12 +691,12 @@ class TestPullRequestHandler:
         with (
             patch.object(pull_request_handler.github_webhook, "auto_verify_cherry_picked_prs", True),
             patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label,
-            patch.object(pull_request_handler.check_run_handler, "set_verify_check_success") as mock_set_success,
+            patch.object(pull_request_handler.check_run_handler, "set_check_success") as mock_set_success,
         ):
             await pull_request_handler._process_verified_for_update_or_new_pull_request(mock_pull_request)
             # Should auto-verify since auto_verify_cherry_picked_prs is True and user is in auto_verified list
             mock_add_label.assert_called_once()
-            mock_set_success.assert_called_once()
+            mock_set_success.assert_called_once_with(name=VERIFIED_LABEL_STR)
 
     @pytest.mark.asyncio
     async def test_process_verified_cherry_picked_pr_auto_verify_disabled(
@@ -718,12 +712,12 @@ class TestPullRequestHandler:
         with (
             patch.object(pull_request_handler.github_webhook, "auto_verify_cherry_picked_prs", False),
             patch.object(pull_request_handler.labels_handler, "_add_label") as mock_add_label,
-            patch.object(pull_request_handler.check_run_handler, "set_verify_check_queued") as mock_set_queued,
+            patch.object(pull_request_handler.check_run_handler, "set_check_queued") as mock_set_queued,
         ):
             await pull_request_handler._process_verified_for_update_or_new_pull_request(mock_pull_request)
             # Should NOT auto-verify since auto_verify_cherry_picked_prs is False
             mock_add_label.assert_not_called()
-            mock_set_queued.assert_called_once()
+            mock_set_queued.assert_called_once_with(name=VERIFIED_LABEL_STR)
 
     @pytest.mark.asyncio
     async def test_add_pull_request_owner_as_assingee(
@@ -779,7 +773,7 @@ class TestPullRequestHandler:
                 _owners_data_coroutine(),
             ),
             patch.object(pull_request_handler.github_webhook, "minimum_lgtm", 0),
-            patch.object(pull_request_handler.check_run_handler, "set_merge_check_in_progress", new=AsyncMock()),
+            patch.object(pull_request_handler.check_run_handler, "set_check_in_progress", new=AsyncMock()),
             patch.object(
                 pull_request_handler.check_run_handler,
                 "required_check_in_progress",
@@ -1705,15 +1699,10 @@ class TestPullRequestHandler:
         with (
             patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()),
             patch.object(pull_request_handler, "label_pull_request_by_merge_state", new=AsyncMock()),
-            patch.object(pull_request_handler.check_run_handler, "set_merge_check_queued", new=AsyncMock()),
-            patch.object(pull_request_handler.check_run_handler, "set_run_tox_check_queued", new=AsyncMock()),
-            patch.object(pull_request_handler.check_run_handler, "set_run_pre_commit_check_queued", new=AsyncMock()),
-            patch.object(pull_request_handler.check_run_handler, "set_python_module_install_queued", new=AsyncMock()),
-            patch.object(pull_request_handler.check_run_handler, "set_container_build_queued", new=AsyncMock()),
+            patch.object(pull_request_handler.check_run_handler, "set_check_queued", new=AsyncMock()),
             patch.object(pull_request_handler, "_process_verified_for_update_or_new_pull_request", new=AsyncMock()),
             patch.object(pull_request_handler.labels_handler, "add_size_label", new=AsyncMock()),
             patch.object(pull_request_handler, "add_pull_request_owner_as_assingee", new=AsyncMock()),
-            patch.object(pull_request_handler.check_run_handler, "set_conventional_title_queued", new=AsyncMock()),
             patch.object(pull_request_handler.runner_handler, "run_tox", new=AsyncMock()),
             patch.object(pull_request_handler.runner_handler, "run_pre_commit", new=AsyncMock()),
             patch.object(pull_request_handler.runner_handler, "run_install_python_module", new=AsyncMock()),
@@ -1737,11 +1726,7 @@ class TestPullRequestHandler:
         with (
             patch.object(pull_request_handler.labels_handler, "_add_label", new=AsyncMock()),
             patch.object(pull_request_handler, "label_pull_request_by_merge_state", new=AsyncMock()),
-            patch.object(pull_request_handler.check_run_handler, "set_merge_check_queued", new=AsyncMock()),
-            patch.object(pull_request_handler.check_run_handler, "set_run_tox_check_queued", new=AsyncMock()),
-            patch.object(pull_request_handler.check_run_handler, "set_run_pre_commit_check_queued", new=AsyncMock()),
-            patch.object(pull_request_handler.check_run_handler, "set_python_module_install_queued", new=AsyncMock()),
-            patch.object(pull_request_handler.check_run_handler, "set_container_build_queued", new=AsyncMock()),
+            patch.object(pull_request_handler.check_run_handler, "set_check_queued", new=AsyncMock()),
             patch.object(pull_request_handler, "_process_verified_for_update_or_new_pull_request", new=AsyncMock()),
             patch.object(pull_request_handler.labels_handler, "add_size_label", new=AsyncMock()),
             patch.object(pull_request_handler, "add_pull_request_owner_as_assingee", new=AsyncMock()),

