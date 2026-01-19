@@ -147,7 +147,7 @@ class IssueCommentHandler:
             raise
 
     async def user_commands(
-        self, pull_request: PullRequest, command: str, reviewed_user: str, issue_comment_id: int, is_draft: bool
+        self, pull_request: PullRequest, command: str, reviewed_user: str, issue_comment_id: int, *, is_draft: bool
     ) -> None:
         available_commands: list[str] = [
             COMMAND_RETEST_STR,
