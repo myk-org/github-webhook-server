@@ -40,6 +40,7 @@ class LogViewerController:
 
         Args:
             logger: Logger instance for this controller
+
         """
         self.logger = logger
         self.config = Config(logger=self.logger)
@@ -54,7 +55,7 @@ class LogViewerController:
         close all WebSocket connections and prevent resource leaks.
         """
         self.logger.info(
-            f"Shutting down LogViewerController with {len(self._websocket_connections)} active connections"
+            f"Shutting down LogViewerController with {len(self._websocket_connections)} active connections",
         )
 
         # Create a copy of the connections set to avoid modification during iteration
@@ -66,7 +67,7 @@ class LogViewerController:
                 self.logger.debug("Successfully closed WebSocket connection during shutdown")
             except Exception as e:
                 # Log the error but continue closing other connections
-                self.logger.warning(f"Error closing WebSocket connection during shutdown: {e}")
+                self.logger.warning("Error closing WebSocket connection during shutdown: %s", e)
 
         # Clear the connections set
         self._websocket_connections.clear()
@@ -80,6 +81,7 @@ class LogViewerController:
 
         Raises:
             HTTPException: 500 for other errors
+
         """
         try:
             html_content = await self._get_log_viewer_html()
@@ -143,6 +145,7 @@ class LogViewerController:
 
         Raises:
             HTTPException: 400 for invalid parameters, 500 for file access errors
+
         """
         try:
             # Validate parameters
@@ -176,7 +179,16 @@ class LogViewerController:
 
                 # Apply filters early to reduce memory usage
                 if not self._entry_matches_filters(
-                    entry, hook_id, pr_number, repository, event_type, github_user, level, start_time, end_time, search
+                    entry,
+                    hook_id,
+                    pr_number,
+                    repository,
+                    event_type,
+                    github_user,
+                    level,
+                    start_time,
+                    end_time,
+                    search,
                 ):
                     continue
 
@@ -214,7 +226,7 @@ class LogViewerController:
             self.logger.debug("Operation cancelled")
             raise  # Always re-raise CancelledError
         except ValueError as e:
-            self.logger.warning(f"Invalid parameters for log entries request: {e}")
+            self.logger.warning("Invalid parameters for log entries request: %s", e)
             raise HTTPException(status_code=400, detail=str(e)) from e
         except (OSError, PermissionError) as e:
             self.logger.exception("File access error loading log entries")
@@ -246,6 +258,7 @@ class LogViewerController:
 
         Returns:
             True if entry matches all filters, False otherwise
+
         """
         if hook_id is not None and entry.hook_id != hook_id:
             return False
@@ -302,6 +315,7 @@ class LogViewerController:
 
         Raises:
             HTTPException: 400 for invalid format, 413 if result set too large
+
         """
         try:
             if format_type != "json":
@@ -330,7 +344,16 @@ class LogViewerController:
 
             async for entry in self._stream_log_entries(max_files=25, max_entries=max_entries_to_process):
                 if not self._entry_matches_filters(
-                    entry, hook_id, pr_number, repository, event_type, github_user, level, start_time, end_time, search
+                    entry,
+                    hook_id,
+                    pr_number,
+                    repository,
+                    event_type,
+                    github_user,
+                    level,
+                    start_time,
+                    end_time,
+                    search,
                 ):
                     continue
 
@@ -375,13 +398,12 @@ class LogViewerController:
             raise  # Always re-raise CancelledError
         except ValueError as e:
             if "Result set too large" in str(e):
-                self.logger.warning(f"Export request too large: {e}")
+                self.logger.warning("Export request too large: %s", e)
                 raise HTTPException(status_code=413, detail=str(e)) from e
-            else:
-                self.logger.warning(f"Invalid export parameters: {e}")
-                raise HTTPException(status_code=400, detail=str(e)) from e
+            self.logger.warning("Invalid export parameters: %s", e)
+            raise HTTPException(status_code=400, detail=str(e)) from e
         except Exception as e:
-            self.logger.error(f"Error generating export: {e}")
+            self.logger.error("Error generating export: %s", e)
             raise HTTPException(status_code=500, detail="Export generation failed") from e
 
     async def handle_websocket(
@@ -404,6 +426,7 @@ class LogViewerController:
             event_type: Filter by GitHub event type
             github_user: Filter by GitHub user (api_user)
             level: Filter by log level
+
         """
         await websocket.accept()
         self._websocket_connections.add(websocket)
@@ -446,7 +469,7 @@ class LogViewerController:
         except WebSocketDisconnect:
             self.logger.info("WebSocket client disconnected")
         except Exception as e:
-            self.logger.error(f"Error in WebSocket handler: {e}")
+            self.logger.error("Error in WebSocket handler: %s", e)
             try:
                 await websocket.close(code=1011, reason="Internal server error")
             except Exception:
@@ -465,6 +488,7 @@ class LogViewerController:
 
         Raises:
             HTTPException: 404 if no data found for hook_id
+
         """
         try:
             # Parse hook_id to determine if it's a hook ID or PR number
@@ -504,13 +528,12 @@ class LogViewerController:
             raise  # Always re-raise CancelledError
         except ValueError as e:
             if "No data found" in str(e):
-                self.logger.warning(f"PR flow data not found: {e}")
+                self.logger.warning("PR flow data not found: %s", e)
                 raise HTTPException(status_code=404, detail=str(e)) from e
-            else:
-                self.logger.warning(f"Invalid PR flow hook_id: {e}")
-                raise HTTPException(status_code=400, detail=str(e)) from e
+            self.logger.warning("Invalid PR flow hook_id: %s", e)
+            raise HTTPException(status_code=400, detail=str(e)) from e
         except Exception as e:
-            self.logger.error(f"Error getting PR flow data: {e}")
+            self.logger.error("Error getting PR flow data: %s", e)
             raise HTTPException(status_code=500, detail="Internal server error") from e
 
     def _build_log_prefix_from_context(
@@ -532,6 +555,7 @@ class LogViewerController:
 
         Returns:
             Formatted log prefix string
+
         """
         log_prefix_parts = []
         if repository:
@@ -571,6 +595,7 @@ class LogViewerController:
 
         Raises:
             HTTPException: 404 if hook ID not found
+
         """
         try:
             # Search JSON logs for this hook_id
@@ -609,6 +634,7 @@ class LogViewerController:
             - pr: Pull request info dict with number, title, etc. (or None)
             - success: Boolean indicating if processing succeeded
             - error: Error message if processing failed (or None)
+
         """
         timing = entry.get("timing")
         workflow_steps = entry.get("workflow_steps")
@@ -683,8 +709,19 @@ class LogViewerController:
                     if step_ts:
                         step_time = datetime.datetime.fromisoformat(step_ts.replace("Z", "+00:00"))
                         step["relative_time_ms"] = int((step_time - base_time).total_seconds() * 1000)
-            except (ValueError, TypeError):
-                pass  # Keep relative_time_ms as 0 if parsing fails
+            except (ValueError, TypeError) as ex:
+                # Log parse failure for troubleshooting, keep relative_time_ms as 0
+                local_vars = locals()
+                failed_step = local_vars.get("step", {})
+                failed_step_name = failed_step.get("message", "unknown") if failed_step else "unknown"
+                failed_timestamp = local_vars.get("step_ts") or start_time
+                self.logger.debug(
+                    "Failed to parse timestamp for relative time calculation: %s. hook_id=%s, step=%s, timestamp=%s",
+                    ex,
+                    hook_id,
+                    failed_step_name,
+                    failed_timestamp,
+                )
 
         return {
             "hook_id": hook_id,
@@ -713,6 +750,7 @@ class LogViewerController:
 
         Raises:
             HTTPException: 404 if no steps found for hook ID
+
         """
         try:
             # First try JSON logs (more efficient and complete)
@@ -759,11 +797,15 @@ class LogViewerController:
                 token_spend = entries_with_token_spend[-1].token_spend
                 # Format log message using prepare_log_prefix format so it's parseable and clickable
                 log_prefix = self._build_log_prefix_from_context(
-                    repository, event_type, hook_id, github_user, pr_number
+                    repository,
+                    event_type,
+                    hook_id,
+                    github_user,
+                    pr_number,
                 )
                 self.logger.info(
                     f"{log_prefix}Found token spend {token_spend} for hook {hook_id} "
-                    f"from {len(entries_with_token_spend)} entries"
+                    f"from {len(entries_with_token_spend)} entries",
                 )
             else:
                 # Check if any entries contain "token" or "API calls" in message (for debugging)
@@ -773,12 +815,16 @@ class LogViewerController:
                 if entries_with_token_keywords:
                     # Format log message using prepare_log_prefix format
                     log_prefix = self._build_log_prefix_from_context(
-                        repository, event_type, hook_id, github_user, pr_number
+                        repository,
+                        event_type,
+                        hook_id,
+                        github_user,
+                        pr_number,
                     )
                     self.logger.warning(
                         f"{log_prefix}Found {len(entries_with_token_keywords)} entries with token keywords "
                         f"for hook {hook_id}, but token_spend is None. "
-                        f"Sample: {entries_with_token_keywords[0].message[:150]}"
+                        f"Sample: {entries_with_token_keywords[0].message[:150]}",
                     )
                     # Try to extract token spend directly from the message as fallback
                     for entry in reversed(entries_with_token_keywords):
@@ -787,11 +833,17 @@ class LogViewerController:
                             token_spend = extracted
                             # Format log message using prepare_log_prefix format
                             log_prefix = self._build_log_prefix_from_context(
-                                repository, event_type, hook_id, github_user, pr_number
+                                repository,
+                                event_type,
+                                hook_id,
+                                github_user,
+                                pr_number,
                             )
                             self.logger.info(
-                                f"{log_prefix}Extracted token spend {token_spend} directly from message "
-                                f"for hook {hook_id}"
+                                "%sExtracted token spend %s directly from message for hook %s",
+                                log_prefix,
+                                token_spend,
+                                hook_id,
                             )
                             break
 
@@ -806,13 +858,12 @@ class LogViewerController:
             raise  # Always re-raise CancelledError
         except ValueError as e:
             if "No data found" in str(e) or "No workflow steps found" in str(e):
-                self.logger.warning(f"Workflow steps not found: {e}")
+                self.logger.warning("Workflow steps not found: %s", e)
                 raise HTTPException(status_code=404, detail=str(e)) from e
-            else:
-                self.logger.warning(f"Invalid hook ID: {e}")
-                raise HTTPException(status_code=400, detail=str(e)) from e
+            self.logger.warning("Invalid hook ID: %s", e)
+            raise HTTPException(status_code=400, detail=str(e)) from e
         except Exception as e:
-            self.logger.error(f"Error getting workflow steps: {e}")
+            self.logger.error("Error getting workflow steps: %s", e)
             raise HTTPException(status_code=500, detail="Internal server error") from e
 
     def _build_workflow_timeline(self, workflow_steps: list[LogEntry], hook_id: str) -> dict[str, Any]:
@@ -824,6 +875,7 @@ class LogViewerController:
 
         Returns:
             Dictionary with timeline data structure including task correlation fields
+
         """
         # Sort steps by timestamp
         sorted_steps = sorted(workflow_steps, key=lambda x: x.timestamp)
@@ -865,7 +917,10 @@ class LogViewerController:
         }
 
     async def _stream_log_entries(
-        self, max_files: int = 10, _chunk_size: int = 1000, max_entries: int = 50000
+        self,
+        max_files: int = 10,
+        _chunk_size: int = 1000,
+        max_entries: int = 50000,
     ) -> AsyncGenerator[LogEntry]:
         """Stream log entries from configured log files in chunks to reduce memory usage.
 
@@ -881,11 +936,12 @@ class LogViewerController:
 
         Yields:
             LogEntry objects in timestamp order (newest first)
+
         """
         log_dir = self._get_log_directory()
 
         if not log_dir.exists():
-            self.logger.warning(f"Log directory not found: {log_dir}")
+            self.logger.warning("Log directory not found: %s", log_dir)
             return
 
         # Find all log files including rotated ones and JSON files
@@ -949,10 +1005,12 @@ class LogViewerController:
                 self.logger.debug("Operation cancelled")
                 raise  # Always re-raise CancelledError
             except Exception as e:
-                self.logger.warning(f"Error streaming log file {log_file}: {e}")
+                self.logger.warning("Error streaming log file %s: %s", log_file, e)
 
     async def _stream_json_log_entries(
-        self, max_files: int = 10, max_entries: int = 50000
+        self,
+        max_files: int = 10,
+        max_entries: int = 50000,
     ) -> AsyncGenerator[dict[str, Any]]:
         """Stream raw JSON log entries from webhooks_*.json files.
 
@@ -965,6 +1023,7 @@ class LogViewerController:
 
         Yields:
             Raw JSON dictionaries from log files (newest first)
+
         """
         log_dir = self._get_log_directory()
 
@@ -1006,7 +1065,7 @@ class LogViewerController:
                 self.logger.debug("Operation cancelled")
                 raise  # Always re-raise CancelledError
             except Exception as e:
-                self.logger.warning(f"Error streaming JSON log file {log_file}: {e}")
+                self.logger.warning("Error streaming JSON log file %s: %s", log_file, e)
 
     async def _load_log_entries(self) -> list[LogEntry]:
         """Load log entries using streaming approach for memory efficiency.
@@ -1016,6 +1075,7 @@ class LogViewerController:
 
         Returns:
             List of parsed log entries (limited to prevent memory exhaustion)
+
         """
         # Use streaming with reasonable limits to prevent memory issues
         entries = [entry async for entry in self._stream_log_entries(max_files=10, max_entries=10000)]
@@ -1027,6 +1087,7 @@ class LogViewerController:
 
         Returns:
             Path to log directory
+
         """
         # Use the same log directory as the main application
         log_dir_path = os.path.join(self.config.data_dir, "logs")
@@ -1041,6 +1102,7 @@ class LogViewerController:
         Raises:
             FileNotFoundError: If template file cannot be found
             IOError: If template file cannot be read
+
         """
         template_path = Path(__file__).parent / "templates" / "log_viewer.html"
 
@@ -1048,7 +1110,7 @@ class LogViewerController:
             async with aiofiles.open(template_path, encoding="utf-8") as f:
                 return await f.read()
         except FileNotFoundError:
-            self.logger.exception(f"Log viewer template not found at {template_path}")
+            self.logger.exception("Log viewer template not found at %s", template_path)
             return self._get_fallback_html()
         except OSError:
             self.logger.exception("Failed to read log viewer template")
@@ -1059,6 +1121,7 @@ class LogViewerController:
 
         Returns:
             Basic HTML page with error message
+
         """
         return """<!DOCTYPE html>
 <html lang="en">
@@ -1114,6 +1177,7 @@ class LogViewerController:
 
         Returns:
             JSON content as string
+
         """
         export_data = {
             "export_metadata": {
@@ -1135,6 +1199,7 @@ class LogViewerController:
 
         Returns:
             Dictionary with flow stages and timing data
+
         """
         # Sort entries by timestamp
         sorted_entries = sorted(entries, key=lambda x: x.timestamp)
@@ -1204,6 +1269,7 @@ class LogViewerController:
 
         Returns:
             String representing estimated total log count
+
         """
         try:
             log_dir = self._get_log_directory()
@@ -1228,7 +1294,7 @@ class LogViewerController:
                     estimated_lines = file_size // 200
                     total_estimate += estimated_lines
                 except (OSError, PermissionError) as ex:
-                    self.logger.debug(f"Failed to stat log file {log_file}: {ex}")
+                    self.logger.debug("Failed to stat log file %s: %s", log_file, ex)
                     continue
 
             # If we processed fewer than all files, extrapolate
@@ -1239,11 +1305,10 @@ class LogViewerController:
             # Return formatted string
             if total_estimate > 1000000:
                 return f"{total_estimate // 1000000:.1f}M"
-            elif total_estimate > 1000:
+            if total_estimate > 1000:
                 return f"{total_estimate // 1000:.1f}K"
-            else:
-                return str(total_estimate)
+            return str(total_estimate)
 
         except Exception as e:
-            self.logger.warning(f"Error estimating total log count: {e}")
+            self.logger.warning("Error estimating total log count: %s", e)
             return "Unknown"
