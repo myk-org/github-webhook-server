@@ -664,6 +664,10 @@ class LogViewerController:
         # Sort by timestamp to maintain execution order
         steps_list = []
         for step_name, step_data in workflow_steps.items():
+            # Validate step_data is a dict before accessing its fields
+            if not isinstance(step_data, dict):
+                raise ValueError(f"malformed log: step_data for {step_name} is not a dict")
+
             step_timestamp = step_data.get("timestamp")
             step_status = step_data.get("status", "unknown")
             step_duration_ms = step_data.get("duration_ms")
@@ -1109,7 +1113,7 @@ class LogViewerController:
             async with aiofiles.open(template_path, encoding="utf-8") as f:
                 return await f.read()
         except FileNotFoundError:
-            self.logger.exception("Log viewer template not found at %s", template_path)
+            self.logger.exception(f"Log viewer template not found at {template_path}")
             return self._get_fallback_html()
         except OSError:
             self.logger.exception("Failed to read log viewer template")
@@ -1293,7 +1297,7 @@ class LogViewerController:
                     estimated_lines = file_size // 200
                     total_estimate += estimated_lines
                 except (OSError, PermissionError) as ex:
-                    self.logger.debug("Failed to stat log file %s: %s", log_file, ex)
+                    self.logger.debug(f"Failed to stat log file {log_file}: {ex}")
                     continue
 
             # If we processed fewer than all files, extrapolate
