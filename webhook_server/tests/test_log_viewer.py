@@ -445,29 +445,29 @@ class TestLogViewerJSONMethods:
         # Should find it
         assert result["hook_id"] == "target-hook"
 
-    async def test_get_workflow_steps_json_handles_missing_optional_fields(self, controller, tmp_path):
-        """Test get_workflow_steps_json handles missing optional fields gracefully."""
+    async def test_get_workflow_steps_json_fails_fast_on_missing_required_fields(self, controller, tmp_path):
+        """Test get_workflow_steps_json raises HTTPException when required fields are missing.
+
+        Required fields (timing, workflow_steps) must be present and valid.
+        Missing required fields indicate malformed log data and should fail fast.
+        """
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
-        # Create minimal JSON log entry
+        # Create minimal JSON log entry missing required timing/workflow_steps
         minimal_data = {
             "hook_id": "minimal-hook",
-            # Missing: event_type, action, sender, pr, workflow_steps, token_spend, timing
+            # Missing: timing, workflow_steps (required fields)
         }
 
         self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [minimal_data])
 
-        # Get workflow steps
-        result = await controller.get_workflow_steps_json("minimal-hook")
+        # Should raise HTTPException 404 with clear error about missing timing field
+        with pytest.raises(HTTPException) as exc_info:
+            await controller.get_workflow_steps_json("minimal-hook")
 
-        # Should handle missing fields with defaults in frontend-expected format
-        assert result["hook_id"] == "minimal-hook"
-        assert result["start_time"] is None  # No timing info
-        assert result["total_duration_ms"] == 0  # Default to 0
-        assert result["step_count"] == 0  # No workflow_steps
-        assert result["steps"] == []  # Empty array (not dict)
-        assert result["token_spend"] is None
+        assert exc_info.value.status_code == 404
+        assert "missing or invalid 'timing' field" in exc_info.value.detail
 
     async def test_stream_json_log_entries_handles_file_read_errors(
         self, controller, tmp_path, sample_json_webhook_data

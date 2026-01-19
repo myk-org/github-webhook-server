@@ -561,6 +561,13 @@ class LogViewerController:
             - step_count: Number of workflow steps
             - steps: Array of step objects with timestamp, message, level, etc.
             - token_spend: Optional token consumption count
+            - event_type: GitHub event type (str, e.g., "pull_request", "check_run")
+            - action: Event action (str, e.g., "opened", "synchronize")
+            - repository: Repository name (str, owner/repo format)
+            - sender: GitHub username who triggered the event (str)
+            - pr: Pull request info dict with number, title, etc. (dict or None)
+            - success: Whether processing succeeded (bool)
+            - error: Error message if processing failed (str or None)
 
         Raises:
             HTTPException: 404 if hook ID not found
@@ -603,16 +610,27 @@ class LogViewerController:
             - success: Boolean indicating if processing succeeded
             - error: Error message if processing failed (or None)
         """
-        timing = entry.get("timing") or {}
-        workflow_steps = entry.get("workflow_steps") or {}
+        timing = entry.get("timing")
+        workflow_steps = entry.get("workflow_steps")
+
+        # Fail-fast validation: required fields must be present and non-empty
+        if not timing or not isinstance(timing, dict):
+            raise ValueError(f"Malformed log entry for hook_id {hook_id}: missing or invalid 'timing' field")
+        if not workflow_steps or not isinstance(workflow_steps, dict):
+            raise ValueError(f"Malformed log entry for hook_id {hook_id}: missing or invalid 'workflow_steps' field")
+        if "started_at" not in timing:
+            raise ValueError(f"Malformed log entry for hook_id {hook_id}: timing missing 'started_at' field")
+        if "duration_ms" not in timing:
+            raise ValueError(f"Malformed log entry for hook_id {hook_id}: timing missing 'duration_ms' field")
+
         repository = entry.get("repository")
         event_type = entry.get("event_type")
         pr_info = entry.get("pr") or {}
         pr_number = pr_info.get("number") if pr_info else None
 
         # Extract timing info
-        start_time = timing.get("started_at")
-        total_duration_ms = timing.get("duration_ms") or 0
+        start_time = timing["started_at"]
+        total_duration_ms = timing["duration_ms"] or 0
 
         # Transform workflow_steps dict to array format
         # Sort by timestamp to maintain execution order
@@ -647,8 +665,8 @@ class LogViewerController:
                 "repository": repository,
                 "event_type": event_type,
                 "pr_number": pr_number,
-                "task_id": None,
-                "task_type": None,
+                "task_id": step_data.get("task_id"),
+                "task_type": step_data.get("task_type"),
                 "task_status": step_status,
                 "duration_ms": step_duration_ms,
                 "error": step_error,

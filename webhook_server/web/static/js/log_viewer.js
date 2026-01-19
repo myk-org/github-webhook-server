@@ -853,8 +853,9 @@ function showFlowModal(hookId) {
         }
 
         if (status === 404) {
-          console.log("No flow data found for hook ID:", hookId);
-          showFlowModalError("No workflow data found for this hook");
+          const message = errorDetail || "No workflow data found for this hook";
+          console.log("No flow data found for hook ID:", hookId, message);
+          showFlowModalError(message);
           return;
         } else if (status === 400) {
           const message = errorDetail || "Invalid request";
