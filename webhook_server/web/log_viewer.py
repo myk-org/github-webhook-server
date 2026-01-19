@@ -654,6 +654,9 @@ class LogViewerController:
         repository = entry.get("repository")
         event_type = entry.get("event_type")
         pr_info = entry.get("pr")
+        # Validate pr_info type: None is valid (no PR), dict is valid, anything else is malformed
+        if pr_info is not None and not isinstance(pr_info, dict):
+            raise ValueError(f"Malformed log entry for hook_id {hook_id}: 'pr' field is not a dict")
         pr_number = pr_info.get("number") if pr_info else None
 
         # Extract timing info
@@ -666,7 +669,7 @@ class LogViewerController:
         for step_name, step_data in workflow_steps.items():
             # Validate step_data is a dict before accessing its fields
             if not isinstance(step_data, dict):
-                raise ValueError(f"malformed log: step_data for {step_name} is not a dict")
+                raise ValueError(f"Malformed log entry for hook_id {hook_id}: step_data for {step_name} is not a dict")
 
             step_timestamp = step_data.get("timestamp")
             step_status = step_data.get("status", "unknown")
