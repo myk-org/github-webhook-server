@@ -589,7 +589,19 @@ class LogViewerController:
 
         Returns:
             Dictionary in the format expected by renderFlowModal():
-            - hook_id, start_time, total_duration_ms, step_count, steps, token_spend
+            - hook_id: The webhook delivery ID
+            - start_time: ISO timestamp when processing started
+            - total_duration_ms: Total processing duration in milliseconds
+            - step_count: Number of workflow steps
+            - steps: Array of step objects with timestamp, message, level, etc.
+            - token_spend: Optional token consumption count
+            - event_type: GitHub event type (e.g., "pull_request", "check_run")
+            - action: Event action (e.g., "opened", "synchronize")
+            - repository: Repository name (owner/repo)
+            - sender: GitHub username who triggered the event
+            - pr: Pull request info dict with number, title, etc. (or None)
+            - success: Boolean indicating if processing succeeded
+            - error: Error message if processing failed (or None)
         """
         timing = entry.get("timing") or {}
         workflow_steps = entry.get("workflow_steps") or {}
@@ -663,6 +675,13 @@ class LogViewerController:
             "step_count": len(steps_list),
             "steps": steps_list,
             "token_spend": entry.get("token_spend"),
+            "event_type": event_type,
+            "action": entry.get("action"),
+            "repository": repository,
+            "sender": entry.get("sender"),
+            "pr": pr_info if pr_info else None,
+            "success": entry.get("success"),
+            "error": entry.get("error"),
         }
 
     async def get_workflow_steps(self, hook_id: str) -> dict[str, Any]:
