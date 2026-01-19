@@ -67,7 +67,7 @@ class LogViewerController:
                 self.logger.debug("Successfully closed WebSocket connection during shutdown")
             except Exception as e:
                 # Log the error but continue closing other connections
-                self.logger.warning("Error closing WebSocket connection during shutdown: %s", e)
+                self.logger.warning(f"Error closing WebSocket connection during shutdown: {e}")
 
         # Clear the connections set
         self._websocket_connections.clear()
@@ -226,7 +226,7 @@ class LogViewerController:
             self.logger.debug("Operation cancelled")
             raise  # Always re-raise CancelledError
         except ValueError as e:
-            self.logger.warning("Invalid parameters for log entries request: %s", e)
+            self.logger.warning(f"Invalid parameters for log entries request: {e}")
             raise HTTPException(status_code=400, detail=str(e)) from e
         except (OSError, PermissionError) as e:
             self.logger.exception("File access error loading log entries")
@@ -398,12 +398,12 @@ class LogViewerController:
             raise  # Always re-raise CancelledError
         except ValueError as e:
             if "Result set too large" in str(e):
-                self.logger.warning("Export request too large: %s", e)
+                self.logger.warning(f"Export request too large: {e}")
                 raise HTTPException(status_code=413, detail=str(e)) from e
-            self.logger.warning("Invalid export parameters: %s", e)
+            self.logger.warning(f"Invalid export parameters: {e}")
             raise HTTPException(status_code=400, detail=str(e)) from e
         except Exception as e:
-            self.logger.error("Error generating export: %s", e)
+            self.logger.exception("Error generating export")
             raise HTTPException(status_code=500, detail="Export generation failed") from e
 
     async def handle_websocket(
@@ -468,8 +468,8 @@ class LogViewerController:
 
         except WebSocketDisconnect:
             self.logger.info("WebSocket client disconnected")
-        except Exception as e:
-            self.logger.error("Error in WebSocket handler: %s", e)
+        except Exception:
+            self.logger.exception("Error in WebSocket handler")
             try:
                 await websocket.close(code=1011, reason="Internal server error")
             except Exception:
@@ -528,12 +528,12 @@ class LogViewerController:
             raise  # Always re-raise CancelledError
         except ValueError as e:
             if "No data found" in str(e):
-                self.logger.warning("PR flow data not found: %s", e)
+                self.logger.warning(f"PR flow data not found: {e}")
                 raise HTTPException(status_code=404, detail=str(e)) from e
-            self.logger.warning("Invalid PR flow hook_id: %s", e)
+            self.logger.warning(f"Invalid PR flow hook_id: {e}")
             raise HTTPException(status_code=400, detail=str(e)) from e
         except Exception as e:
-            self.logger.error("Error getting PR flow data: %s", e)
+            self.logger.exception("Error getting PR flow data")
             raise HTTPException(status_code=500, detail="Internal server error") from e
 
     def _build_log_prefix_from_context(
@@ -597,17 +597,19 @@ class LogViewerController:
             HTTPException: 404 if hook ID not found
 
         """
-        try:
-            # Search JSON logs for this hook_id
-            async for entry in self._stream_json_log_entries(max_files=25, max_entries=50000):
-                if entry.get("hook_id") == hook_id:
-                    # Found the entry - transform to frontend-expected format
+        # Search JSON logs for this hook_id
+        async for entry in self._stream_json_log_entries(max_files=25, max_entries=50000):
+            if entry.get("hook_id") == hook_id:
+                # Found the entry - transform to frontend-expected format
+                try:
                     return self._transform_json_entry_to_timeline(entry, hook_id)
+                except ValueError:
+                    # Malformed log entry - log and return 500
+                    self.logger.exception(f"Malformed log entry for hook ID: {hook_id}")
+                    raise HTTPException(status_code=500, detail="Malformed log entry") from None
 
-            raise ValueError(f"No JSON log entry found for hook ID: {hook_id}")
-
-        except ValueError as e:
-            raise HTTPException(status_code=404, detail=str(e)) from e
+        # Hook ID not found in any log file
+        raise HTTPException(status_code=404, detail=f"No JSON log entry found for hook ID: {hook_id}")
 
     def _transform_json_entry_to_timeline(self, entry: dict[str, Any], hook_id: str) -> dict[str, Any]:
         """Transform JSON log entry to the timeline format expected by the frontend.
@@ -858,12 +860,12 @@ class LogViewerController:
             raise  # Always re-raise CancelledError
         except ValueError as e:
             if "No data found" in str(e) or "No workflow steps found" in str(e):
-                self.logger.warning("Workflow steps not found: %s", e)
+                self.logger.warning(f"Workflow steps not found: {e}")
                 raise HTTPException(status_code=404, detail=str(e)) from e
-            self.logger.warning("Invalid hook ID: %s", e)
+            self.logger.warning(f"Invalid hook ID: {e}")
             raise HTTPException(status_code=400, detail=str(e)) from e
         except Exception as e:
-            self.logger.error("Error getting workflow steps: %s", e)
+            self.logger.exception("Error getting workflow steps")
             raise HTTPException(status_code=500, detail="Internal server error") from e
 
     def _build_workflow_timeline(self, workflow_steps: list[LogEntry], hook_id: str) -> dict[str, Any]:
@@ -941,7 +943,7 @@ class LogViewerController:
         log_dir = self._get_log_directory()
 
         if not log_dir.exists():
-            self.logger.warning("Log directory not found: %s", log_dir)
+            self.logger.warning(f"Log directory not found: {log_dir}")
             return
 
         # Find all log files including rotated ones and JSON files
@@ -1005,7 +1007,7 @@ class LogViewerController:
                 self.logger.debug("Operation cancelled")
                 raise  # Always re-raise CancelledError
             except Exception as e:
-                self.logger.warning("Error streaming log file %s: %s", log_file, e)
+                self.logger.warning(f"Error streaming log file {log_file}: {e}")
 
     async def _stream_json_log_entries(
         self,
@@ -1065,7 +1067,7 @@ class LogViewerController:
                 self.logger.debug("Operation cancelled")
                 raise  # Always re-raise CancelledError
             except Exception as e:
-                self.logger.warning("Error streaming JSON log file %s: %s", log_file, e)
+                self.logger.warning(f"Error streaming JSON log file {log_file}: {e}")
 
     async def _load_log_entries(self) -> list[LogEntry]:
         """Load log entries using streaming approach for memory efficiency.
@@ -1304,11 +1306,11 @@ class LogViewerController:
 
             # Return formatted string
             if total_estimate > 1000000:
-                return f"{total_estimate // 1000000:.1f}M"
+                return f"{total_estimate / 1000000:.1f}M"
             if total_estimate > 1000:
-                return f"{total_estimate // 1000:.1f}K"
+                return f"{total_estimate / 1000:.1f}K"
             return str(total_estimate)
 
         except Exception as e:
-            self.logger.warning("Error estimating total log count: %s", e)
+            self.logger.warning(f"Error estimating total log count: {e}")
             return "Unknown"

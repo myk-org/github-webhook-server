@@ -449,7 +449,7 @@ class TestLogViewerJSONMethods:
         """Test get_workflow_steps_json raises HTTPException when required fields are missing.
 
         Required fields (timing, workflow_steps) must be present and valid.
-        Missing required fields indicate malformed log data and should fail fast.
+        Missing required fields indicate malformed log data and should return 500.
         """
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
@@ -462,12 +462,13 @@ class TestLogViewerJSONMethods:
 
         self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [minimal_data])
 
-        # Should raise HTTPException 404 with clear error about missing timing field
+        # Should raise HTTPException 500 for malformed log entry
+        # (distinguishing from 404 "not found" case)
         with pytest.raises(HTTPException) as exc_info:
             await controller.get_workflow_steps_json("minimal-hook")
 
-        assert exc_info.value.status_code == 404
-        assert "missing or invalid 'timing' field" in exc_info.value.detail
+        assert exc_info.value.status_code == 500
+        assert exc_info.value.detail == "Malformed log entry"
 
     async def test_stream_json_log_entries_handles_file_read_errors(
         self, controller, tmp_path, sample_json_webhook_data
