@@ -474,6 +474,14 @@ class GithubWebhook:
             if await asyncio.to_thread(lambda: pull_request.draft):
                 allow_commands_on_draft = self.config.get_value("allow-commands-on-draft-prs")
 
+                # Validate type: must be a list, treat invalid types as None (default-deny)
+                if allow_commands_on_draft is not None and not isinstance(allow_commands_on_draft, list):
+                    self.logger.warning(
+                        f"{self.log_prefix} allow-commands-on-draft-prs has invalid type "
+                        f"{type(allow_commands_on_draft).__name__}, expected list. Treating as not configured."
+                    )
+                    allow_commands_on_draft = None
+
                 # Only allow issue_comment events when config is explicitly set
                 if allow_commands_on_draft is None or self.github_event != "issue_comment":
                     self.logger.debug(f"{self.log_prefix} Pull request is draft, doing nothing")

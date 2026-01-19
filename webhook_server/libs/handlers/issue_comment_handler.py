@@ -90,6 +90,9 @@ class IssueCommentHandler:
 
             # Execute all commands in parallel
             if _user_commands:
+                # Cache draft status once to avoid repeated API calls
+                is_draft = await asyncio.to_thread(lambda: pull_request.draft)
+
                 tasks: list[Coroutine[Any, Any, Any] | Task[Any]] = []
                 for user_command in _user_commands:
                     task = asyncio.create_task(
@@ -98,6 +101,7 @@ class IssueCommentHandler:
                             command=user_command,
                             reviewed_user=user_login,
                             issue_comment_id=self.hook_data["comment"]["id"],
+                            is_draft=is_draft,
                         )
                     )
                     tasks.append(task)
@@ -143,7 +147,7 @@ class IssueCommentHandler:
             raise
 
     async def user_commands(
-        self, pull_request: PullRequest, command: str, reviewed_user: str, issue_comment_id: int
+        self, pull_request: PullRequest, command: str, reviewed_user: str, issue_comment_id: int, is_draft: bool
     ) -> None:
         available_commands: list[str] = [
             COMMAND_RETEST_STR,
@@ -162,7 +166,6 @@ class IssueCommentHandler:
         _args: str = command_and_args[1] if len(command_and_args) > 1 else ""
 
         # Check if command is allowed on draft PRs
-        is_draft = await asyncio.to_thread(lambda: pull_request.draft)
         if is_draft:
             allow_commands_on_draft = self.github_webhook.config.get_value("allow-commands-on-draft-prs")
             # Empty list means all commands allowed; non-empty list means only those commands

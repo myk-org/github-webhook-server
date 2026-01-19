@@ -150,6 +150,7 @@ class TestIssueCommentHandler:
             command: str,
             reviewed_user: str,  # noqa: ARG001
             issue_comment_id: int,  # noqa: ARG001
+            is_draft: bool,  # noqa: ARG001
         ) -> None:
             """Mock command that simulates real work and tracks execution."""
             start_time = time.time()
@@ -237,6 +238,7 @@ class TestIssueCommentHandler:
                 command="unsupported",
                 reviewed_user="test-user",
                 issue_comment_id=123,
+                is_draft=False,
             )
             mock_reaction.assert_not_called()
 
@@ -252,6 +254,7 @@ class TestIssueCommentHandler:
                     command=COMMAND_RETEST_STR,
                     reviewed_user="test-user",
                     issue_comment_id=123,
+                    is_draft=False,
                 )
                 mock_comment.assert_called_once()
                 mock_reaction.assert_not_called()
@@ -268,6 +271,7 @@ class TestIssueCommentHandler:
                     command=COMMAND_ASSIGN_REVIEWER_STR,
                     reviewed_user="test-user",
                     issue_comment_id=123,
+                    is_draft=False,
                 )
                 mock_comment.assert_called_once()
                 mock_reaction.assert_not_called()
@@ -290,6 +294,7 @@ class TestIssueCommentHandler:
                 command=f"{COMMAND_ASSIGN_REVIEWER_STR} reviewer1",
                 reviewed_user="test-user",
                 issue_comment_id=123,
+                is_draft=False,
             )
             mock_add_reviewer.assert_called_once_with(pull_request=mock_pull_request, reviewer="reviewer1")
             mock_reaction.assert_called_once()
@@ -312,6 +317,7 @@ class TestIssueCommentHandler:
                 command=COMMAND_ASSIGN_REVIEWERS_STR,
                 reviewed_user="test-user",
                 issue_comment_id=123,
+                is_draft=False,
             )
             mock_assign.assert_awaited_once_with(pull_request=mock_pull_request)
             mock_reaction.assert_called_once()
@@ -334,6 +340,7 @@ class TestIssueCommentHandler:
                 command=COMMAND_CHECK_CAN_MERGE_STR,
                 reviewed_user="test-user",
                 issue_comment_id=123,
+                is_draft=False,
             )
             mock_check.assert_called_once_with(pull_request=mock_pull_request)
             mock_reaction.assert_called_once()
@@ -356,6 +363,7 @@ class TestIssueCommentHandler:
                 command=f"{COMMAND_CHERRY_PICK_STR} branch1 branch2",
                 reviewed_user="test-user",
                 issue_comment_id=123,
+                is_draft=False,
             )
             mock_cherry_pick.assert_called_once_with(
                 pull_request=mock_pull_request,
@@ -376,6 +384,7 @@ class TestIssueCommentHandler:
                     command=f"{COMMAND_RETEST_STR} tox",
                     reviewed_user="test-user",
                     issue_comment_id=123,
+                    is_draft=False,
                 )
                 mock_retest.assert_called_once_with(
                     pull_request=mock_pull_request,
@@ -402,6 +411,7 @@ class TestIssueCommentHandler:
                 command=f"{BUILD_AND_PUSH_CONTAINER_STR} args",
                 reviewed_user="test-user",
                 issue_comment_id=123,
+                is_draft=False,
             )
             mock_build.assert_called_once_with(
                 push=True,
@@ -425,6 +435,7 @@ class TestIssueCommentHandler:
                         command=BUILD_AND_PUSH_CONTAINER_STR,
                         reviewed_user="test-user",
                         issue_comment_id=123,
+                        is_draft=False,
                     )
                     mock_comment.assert_called_once()
                     mock_reaction.assert_called_once()
@@ -449,6 +460,7 @@ class TestIssueCommentHandler:
                 command=WIP_STR,
                 reviewed_user="test-user",
                 issue_comment_id=123,
+                is_draft=False,
             )
             mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=WIP_STR)
             mock_edit.assert_called_once_with(title="WIP: Test PR")
@@ -474,6 +486,7 @@ class TestIssueCommentHandler:
                 command=f"{WIP_STR} cancel",
                 reviewed_user="test-user",
                 issue_comment_id=123,
+                is_draft=False,
             )
             mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=WIP_STR)
             # Accept both with and without leading space
@@ -502,6 +515,7 @@ class TestIssueCommentHandler:
                     command=WIP_STR,
                     reviewed_user="test-user",
                     issue_comment_id=123,
+                    is_draft=False,
                 )
                 mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=WIP_STR)
                 # Should NOT edit title since it already starts with WIP:
@@ -529,6 +543,7 @@ class TestIssueCommentHandler:
                     command=f"{WIP_STR} cancel",
                     reviewed_user="test-user",
                     issue_comment_id=123,
+                    is_draft=False,
                 )
                 mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=WIP_STR)
                 # Should NOT edit title since it doesn't start with WIP:
@@ -556,6 +571,7 @@ class TestIssueCommentHandler:
                     command=f"{WIP_STR} cancel",
                     reviewed_user="test-user",
                     issue_comment_id=123,
+                    is_draft=False,
                 )
                 mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=WIP_STR)
                 # Should edit title to remove WIP: (without space)
@@ -574,6 +590,7 @@ class TestIssueCommentHandler:
                     command=HOLD_LABEL_STR,
                     reviewed_user="unauthorized-user",
                     issue_comment_id=123,
+                    is_draft=False,
                 )
                 mock_comment.assert_called_once()
                 mock_reaction.assert_called_once()
@@ -600,6 +617,7 @@ class TestIssueCommentHandler:
                 command=HOLD_LABEL_STR,
                 reviewed_user="approver1",
                 issue_comment_id=123,
+                is_draft=False,
             )
             mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=HOLD_LABEL_STR)
             mock_reaction.assert_called_once()
@@ -626,6 +644,7 @@ class TestIssueCommentHandler:
                 command=f"{HOLD_LABEL_STR} cancel",
                 reviewed_user="approver1",
                 issue_comment_id=123,
+                is_draft=False,
             )
             mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=HOLD_LABEL_STR)
             mock_reaction.assert_called_once()
@@ -653,6 +672,7 @@ class TestIssueCommentHandler:
                 command=VERIFIED_LABEL_STR,
                 reviewed_user="test-user",
                 issue_comment_id=123,
+                is_draft=False,
             )
             mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=VERIFIED_LABEL_STR)
             mock_success.assert_called_once_with(name=VERIFIED_LABEL_STR)
@@ -681,6 +701,7 @@ class TestIssueCommentHandler:
                 command=f"{VERIFIED_LABEL_STR} cancel",
                 reviewed_user="test-user",
                 issue_comment_id=123,
+                is_draft=False,
             )
             mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=VERIFIED_LABEL_STR)
             mock_queued.assert_called_once_with(name=VERIFIED_LABEL_STR)
@@ -703,6 +724,7 @@ class TestIssueCommentHandler:
                         command="bug",
                         reviewed_user="test-user",
                         issue_comment_id=123,
+                        is_draft=False,
                     )
                     mock_label.assert_awaited_once_with(
                         pull_request=mock_pull_request,
@@ -1043,6 +1065,7 @@ class TestIssueCommentHandler:
                 command=COMMAND_REPROCESS_STR,
                 reviewed_user="test-user",
                 issue_comment_id=123,
+                is_draft=False,
             )
             # Command should be recognized and processed
             mock_reprocess.assert_awaited_once_with(pull_request=mock_pull_request)
@@ -1071,6 +1094,7 @@ class TestIssueCommentHandler:
                 command=COMMAND_REPROCESS_STR,
                 reviewed_user="approver1",  # From fixture: all_pull_request_approvers
                 issue_comment_id=123,
+                is_draft=False,
             )
             # Verify user validation was called
             mock_is_valid.assert_awaited_once_with(
@@ -1110,6 +1134,7 @@ class TestIssueCommentHandler:
                 command=COMMAND_REPROCESS_STR,
                 reviewed_user="unauthorized-user",
                 issue_comment_id=123,
+                is_draft=False,
             )
             # Verify user validation was called
             mock_is_valid.assert_awaited_once_with(
@@ -1150,6 +1175,7 @@ class TestIssueCommentHandler:
                 command=f"{COMMAND_REPROCESS_STR} some-args",
                 reviewed_user="test-user",
                 issue_comment_id=123,
+                is_draft=False,
             )
             # Verify reprocess was called (args are ignored)
             mock_reprocess.assert_awaited_once_with(pull_request=mock_pull_request)
@@ -1173,6 +1199,7 @@ class TestIssueCommentHandler:
                 command=COMMAND_REPROCESS_STR,
                 reviewed_user="test-user",
                 issue_comment_id=456,
+                is_draft=False,
             )
             # Verify reaction was added with correct comment ID and reaction type
             mock_reaction.assert_awaited_once_with(
@@ -1202,6 +1229,7 @@ class TestIssueCommentHandler:
                 command=COMMAND_REGENERATE_WELCOME_STR,
                 reviewed_user="test-user",
                 issue_comment_id=123,
+                is_draft=False,
             )
             # Command should be recognized and processed
             mock_regenerate.assert_awaited_once_with(pull_request=mock_pull_request)
@@ -1223,6 +1251,7 @@ class TestIssueCommentHandler:
                 command=COMMAND_REGENERATE_WELCOME_STR,
                 reviewed_user="test-user",
                 issue_comment_id=456,
+                is_draft=False,
             )
             # Verify reaction was added with correct comment ID and reaction type
             mock_reaction.assert_awaited_once_with(
@@ -1253,6 +1282,7 @@ class TestIssueCommentHandler:
                 command=f"{COMMAND_REGENERATE_WELCOME_STR} some-args",
                 reviewed_user="test-user",
                 issue_comment_id=123,
+                is_draft=False,
             )
             # Verify regenerate was called (args are ignored)
             mock_regenerate.assert_awaited_once_with(pull_request=mock_pull_request)
@@ -1261,7 +1291,6 @@ class TestIssueCommentHandler:
     async def test_user_commands_draft_pr_command_blocked(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test that commands not in allow-commands-on-draft-prs list are blocked on draft PRs."""
         mock_pull_request = Mock()
-        mock_pull_request.draft = True  # Draft PR
 
         # Configure allow-commands-on-draft-prs to only allow "wip" and "hold"
         issue_comment_handler.github_webhook.config.get_value = Mock(return_value=["wip", "hold"])
@@ -1275,6 +1304,7 @@ class TestIssueCommentHandler:
                 command=COMMAND_CHECK_CAN_MERGE_STR,  # Not in allowed list
                 reviewed_user="test-user",
                 issue_comment_id=123,
+                is_draft=True,  # Draft PR
             )
             # Command should be blocked - comment posted
             mock_comment.assert_called_once()
@@ -1289,7 +1319,6 @@ class TestIssueCommentHandler:
     async def test_user_commands_draft_pr_command_allowed(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test that commands in allow-commands-on-draft-prs list are allowed on draft PRs."""
         mock_pull_request = Mock()
-        mock_pull_request.draft = True  # Draft PR
         mock_pull_request.title = "Test PR"
 
         # Configure allow-commands-on-draft-prs to allow "wip"
@@ -1306,6 +1335,7 @@ class TestIssueCommentHandler:
                 command=WIP_STR,  # In allowed list
                 reviewed_user="test-user",
                 issue_comment_id=123,
+                is_draft=True,  # Draft PR
             )
             # Command should proceed - label added
             mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=WIP_STR)
@@ -1319,7 +1349,6 @@ class TestIssueCommentHandler:
     ) -> None:
         """Test that empty allow-commands-on-draft-prs list allows all commands on draft PRs."""
         mock_pull_request = Mock()
-        mock_pull_request.draft = True  # Draft PR
 
         # Configure allow-commands-on-draft-prs to empty list (allow all)
         issue_comment_handler.github_webhook.config.get_value = Mock(return_value=[])
@@ -1337,6 +1366,7 @@ class TestIssueCommentHandler:
                 command=COMMAND_CHECK_CAN_MERGE_STR,
                 reviewed_user="test-user",
                 issue_comment_id=123,
+                is_draft=True,  # Draft PR
             )
             # Command should proceed
             mock_check.assert_called_once_with(pull_request=mock_pull_request)
@@ -1346,7 +1376,6 @@ class TestIssueCommentHandler:
     async def test_user_commands_non_draft_pr_ignores_config(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test that non-draft PRs ignore allow-commands-on-draft-prs config."""
         mock_pull_request = Mock()
-        mock_pull_request.draft = False  # NOT a draft PR
 
         # Configure allow-commands-on-draft-prs to only allow "wip" (but this should be ignored)
         issue_comment_handler.github_webhook.config.get_value = Mock(return_value=["wip"])
@@ -1364,6 +1393,7 @@ class TestIssueCommentHandler:
                 command=COMMAND_CHECK_CAN_MERGE_STR,  # Would be blocked on draft
                 reviewed_user="test-user",
                 issue_comment_id=123,
+                is_draft=False,  # NOT a draft PR
             )
             # Command should proceed because PR is not a draft
             mock_check.assert_called_once_with(pull_request=mock_pull_request)
