@@ -45,6 +45,7 @@ class TestIssueCommentHandler:
         # Mock config for draft PR command filtering
         mock_webhook.config = Mock()
         mock_webhook.config.get_value = Mock(return_value=None)
+        mock_webhook.custom_check_runs = []
         return mock_webhook
 
     @pytest.fixture
@@ -634,56 +635,44 @@ class TestIssueCommentHandler:
         """Test user commands with verified command to add."""
         mock_pull_request = Mock()
 
-        with (
-            patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction,
-            patch.object(
-                issue_comment_handler.labels_handler,
-                "_add_label",
-                new_callable=AsyncMock,
-            ) as mock_add_label,
-            patch.object(
-                issue_comment_handler.check_run_handler,
-                "set_verify_check_success",
-                new_callable=AsyncMock,
-            ) as mock_success,
-        ):
-            await issue_comment_handler.user_commands(
-                pull_request=mock_pull_request,
-                command=VERIFIED_LABEL_STR,
-                reviewed_user="test-user",
-                issue_comment_id=123,
-            )
-            mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=VERIFIED_LABEL_STR)
-            mock_success.assert_called_once()
-            mock_reaction.assert_called_once()
+        with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
+            with patch.object(
+                issue_comment_handler.labels_handler, "_add_label", new_callable=AsyncMock
+            ) as mock_add_label:
+                with patch.object(
+                    issue_comment_handler.check_run_handler, "set_check_success", new_callable=AsyncMock
+                ) as mock_success:
+                    await issue_comment_handler.user_commands(
+                        pull_request=mock_pull_request,
+                        command=VERIFIED_LABEL_STR,
+                        reviewed_user="test-user",
+                        issue_comment_id=123,
+                    )
+                    mock_add_label.assert_called_once_with(pull_request=mock_pull_request, label=VERIFIED_LABEL_STR)
+                    mock_success.assert_called_once_with(name=VERIFIED_LABEL_STR)
+                    mock_reaction.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_user_commands_verified_remove(self, issue_comment_handler: IssueCommentHandler) -> None:
         """Test user commands with verified command to remove."""
         mock_pull_request = Mock()
 
-        with (
-            patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction,
-            patch.object(
-                issue_comment_handler.labels_handler,
-                "_remove_label",
-                new_callable=AsyncMock,
-            ) as mock_remove_label,
-            patch.object(
-                issue_comment_handler.check_run_handler,
-                "set_verify_check_queued",
-                new_callable=AsyncMock,
-            ) as mock_queued,
-        ):
-            await issue_comment_handler.user_commands(
-                pull_request=mock_pull_request,
-                command=f"{VERIFIED_LABEL_STR} cancel",
-                reviewed_user="test-user",
-                issue_comment_id=123,
-            )
-            mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=VERIFIED_LABEL_STR)
-            mock_queued.assert_called_once()
-            mock_reaction.assert_called_once()
+        with patch.object(issue_comment_handler, "create_comment_reaction") as mock_reaction:
+            with patch.object(
+                issue_comment_handler.labels_handler, "_remove_label", new_callable=AsyncMock
+            ) as mock_remove_label:
+                with patch.object(
+                    issue_comment_handler.check_run_handler, "set_check_queued", new_callable=AsyncMock
+                ) as mock_queued:
+                    await issue_comment_handler.user_commands(
+                        pull_request=mock_pull_request,
+                        command=f"{VERIFIED_LABEL_STR} cancel",
+                        reviewed_user="test-user",
+                        issue_comment_id=123,
+                    )
+                    mock_remove_label.assert_called_once_with(pull_request=mock_pull_request, label=VERIFIED_LABEL_STR)
+                    mock_queued.assert_called_once_with(name=VERIFIED_LABEL_STR)
+                    mock_reaction.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_user_commands_custom_label(self, issue_comment_handler: IssueCommentHandler) -> None:

@@ -126,6 +126,17 @@ CONFIGURABLE_LABEL_CATEGORIES: set[str] = {
 }
 
 
+# Built-in check run names that cannot be overridden by custom checks
+BUILTIN_CHECK_NAMES: frozenset[str] = frozenset({
+    TOX_STR,
+    PRE_COMMIT_STR,
+    BUILD_CONTAINER_STR,
+    PYTHON_MODULE_INSTALL_STR,
+    CONVENTIONAL_TITLE_STR,
+    CAN_BE_MERGED_STR,
+})
+
+
 class REACTIONS:
     ok: str = "+1"
     notok: str = "-1"
