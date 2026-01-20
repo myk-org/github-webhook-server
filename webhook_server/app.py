@@ -100,6 +100,47 @@ def require_log_server_enabled() -> None:
         )
 
 
+async def require_trusted_network(request: Request) -> None:
+    """Dependency to restrict log viewer access to trusted networks only.
+
+    This provides an additional layer of security for log viewer endpoints by
+    checking if the client IP is from a trusted/private network. Currently checks
+    for private IP ranges (RFC 1918), loopback, and link-local addresses.
+
+    Security Warning:
+        This check can be bypassed if the server is behind a reverse proxy that
+        doesn't properly set X-Forwarded-For headers. For production deployments,
+        always deploy log viewer endpoints on trusted networks (VPN, internal network).
+    """
+    client_host = request.client.host if request.client else None
+
+    if not client_host:
+        # No client IP available - deny access
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Unable to determine client IP address.",
+        )
+
+    try:
+        client_ip = ipaddress.ip_address(client_host)
+    except ValueError:
+        # Invalid IP address format - deny access
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Invalid client IP address format.",
+        ) from None
+
+    # Allow private networks (RFC 1918), loopback, and link-local
+    is_trusted = client_ip.is_private or client_ip.is_loopback or client_ip.is_link_local
+
+    if not is_trusted:
+        LOGGER.warning(f"Log viewer access denied from untrusted IP: {client_host}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Log viewer is only accessible from trusted networks.",
+        )
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     global _lifespan_http_client
@@ -1148,7 +1189,7 @@ async def get_workflow_steps(hook_id: str, controller: LogViewerController = con
 @FASTAPI_APP.get(
     "/logs/api/step-logs/{hook_id}/{step_name}",
     operation_id="get_step_logs",
-    dependencies=[Depends(require_log_server_enabled)],
+    dependencies=[Depends(require_log_server_enabled), Depends(require_trusted_network)],
 )
 async def get_step_logs(
     hook_id: str = Path(..., min_length=1, max_length=100),

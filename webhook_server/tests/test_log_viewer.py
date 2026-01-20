@@ -1451,8 +1451,8 @@ class TestLogViewerGetStepLogs:
         assert result["log_count"] == 1
         assert "Within default window" in result["logs"][0]["message"]
 
-    async def test_get_step_logs_handles_invalid_timestamp_gracefully(self, controller, tmp_path):
-        """Test get_step_logs handles invalid step timestamp gracefully."""
+    async def test_get_step_logs_raises_on_invalid_timestamp(self, controller, tmp_path):
+        """Test get_step_logs raises HTTPException for invalid step timestamp."""
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
 
@@ -1477,20 +1477,46 @@ class TestLogViewerGetStepLogs:
 
         self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [webhook_data])
 
-        # Create text log file
-        log_lines = [
-            "2025-01-05T10:00:01.000000 GithubWebhook INFO org/repo "
-            "[pull_request][test-hook-789][user][PR 123]: Log entry",
-        ]
-        self.create_text_log_file(log_dir, "webhook-server.log", log_lines)
+        # Should raise HTTPException 500 for invalid timestamp
+        with pytest.raises(HTTPException) as exc:
+            await controller.get_step_logs("test-hook-789", "step_bad_timestamp")
 
-        result = await controller.get_step_logs("test-hook-789", "step_bad_timestamp")
+        assert exc.value.status_code == 500
+        assert "Invalid timestamp 'invalid-timestamp'" in exc.value.detail
+        assert "step_bad_timestamp" in exc.value.detail
 
-        # Should return step metadata without crashing
-        assert result["step"]["name"] == "step_bad_timestamp"
-        assert result["step"]["timestamp"] == "invalid-timestamp"
-        # Without valid timestamp filtering, it returns logs matching hook_id
-        assert "logs" in result
+    async def test_get_step_logs_raises_on_missing_timestamp(self, controller, tmp_path):
+        """Test get_step_logs raises HTTPException for missing step timestamp."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        # Create webhook data with missing timestamp
+        webhook_data = {
+            "hook_id": "test-hook-missing",
+            "event_type": "pull_request",
+            "repository": "org/repo",
+            "pr": {"number": 123},
+            "timing": {
+                "started_at": "2025-01-05T10:00:00.000000Z",
+                "duration_ms": 5000,
+            },
+            "workflow_steps": {
+                "step_no_timestamp": {
+                    "status": "completed",
+                    "duration_ms": 1000,
+                },
+            },
+        }
+
+        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [webhook_data])
+
+        # Should raise HTTPException 500 for missing timestamp
+        with pytest.raises(HTTPException) as exc:
+            await controller.get_step_logs("test-hook-missing", "step_no_timestamp")
+
+        assert exc.value.status_code == 500
+        assert "has no timestamp" in exc.value.detail
+        assert "step_no_timestamp" in exc.value.detail
 
     async def test_get_step_logs_empty_logs_when_no_entries_in_window(
         self, controller, tmp_path, sample_json_webhook_data

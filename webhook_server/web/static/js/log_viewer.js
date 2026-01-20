@@ -1769,7 +1769,7 @@ function renderStepDetails(step) {
 
   // Status badge
   const statusBadge = document.createElement("span");
-  const status = step.step_status || step.level || "INFO";
+  const status = step.task_status || step.step_status || step.level || "INFO";
   statusBadge.className = `step-details-badge step-status-${status.toLowerCase()}`;
   statusBadge.textContent = status.toUpperCase();
   statusRow.appendChild(statusBadge);
@@ -1810,7 +1810,16 @@ function renderStepDetails(step) {
 
     const errorText = document.createElement("span");
     errorText.className = "step-details-error-text";
-    errorText.textContent = stepError;
+    // Properly handle error objects to avoid "[object Object]"
+    let errorMessage;
+    if (typeof stepError === "string") {
+      errorMessage = stepError;
+    } else if (stepError.message) {
+      errorMessage = stepError.message;
+    } else {
+      errorMessage = JSON.stringify(stepError);
+    }
+    errorText.textContent = errorMessage;
     errorRow.appendChild(errorText);
 
     detailsContainer.appendChild(errorRow);

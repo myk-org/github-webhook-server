@@ -618,16 +618,21 @@ class LogViewerController:
         # Calculate time window
         duration_ms = step_duration_ms if step_duration_ms is not None else self._DEFAULT_STEP_DURATION_MS
 
-        # Parse timestamps for time window filtering
-        step_start: datetime.datetime | None = None
-        step_end: datetime.datetime | None = None
+        # Parse timestamps for time window filtering - fail fast if invalid
+        if not step_timestamp:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Step '{step_name}' has no timestamp - cannot determine log time window",
+            )
 
-        if step_timestamp:
-            try:
-                step_start = datetime.datetime.fromisoformat(step_timestamp.replace("Z", "+00:00"))
-                step_end = step_start + datetime.timedelta(milliseconds=duration_ms)
-            except (ValueError, TypeError) as ex:
-                self.logger.warning(f"Failed to parse step timestamp '{step_timestamp}': {ex}")
+        try:
+            step_start = datetime.datetime.fromisoformat(step_timestamp.replace("Z", "+00:00"))
+            step_end = step_start + datetime.timedelta(milliseconds=duration_ms)
+        except (ValueError, TypeError) as ex:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Invalid timestamp '{step_timestamp}' for step '{step_name}': {ex}",
+            ) from ex
 
         # Collect log entries within the time window
         log_entries: list[dict[str, Any]] = []
@@ -637,10 +642,9 @@ class LogViewerController:
             if not self._entry_matches_filters(entry, hook_id=hook_id):
                 continue
 
-            # Filter by time window if we have valid timestamps
-            if step_start is not None and step_end is not None:
-                if entry.timestamp < step_start or entry.timestamp > step_end:
-                    continue
+            # Filter by time window
+            if entry.timestamp < step_start or entry.timestamp > step_end:
+                continue
 
             log_entries.append(entry.to_dict())
             if len(log_entries) >= self._MAX_STEP_LOGS:
