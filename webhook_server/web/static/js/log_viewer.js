@@ -1747,8 +1747,9 @@ async function showStepLogsInModal(step, logsContainer) {
   currentStepLogsController = new AbortController();
 
   try {
-    // Using full message for precision to avoid ambiguous matches
-    const searchText = step.message;
+    // Use step_name for search (e.g., "webhook_routing") instead of the full message
+    // (e.g., "webhook_routing: completed (2286ms)") which won't match log entries
+    const searchText = step.step_name || step.message;
     const hookId = currentFlowData.hook_id;
 
     const params = new URLSearchParams({
