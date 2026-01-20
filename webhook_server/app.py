@@ -17,6 +17,7 @@ from fastapi import (
     Depends,
     FastAPI,
     HTTPException,
+    Path,
     Query,
     Request,
     Response,
@@ -1142,6 +1143,38 @@ async def get_workflow_steps(hook_id: str, controller: LogViewerController = con
     - Real-time step data for in-progress workflows
     """
     return await get_workflow_steps_core(controller=controller, hook_id=hook_id)
+
+
+@FASTAPI_APP.get(
+    "/logs/api/step-logs/{hook_id}/{step_name}",
+    operation_id="get_step_logs",
+    dependencies=[Depends(require_log_server_enabled)],
+)
+async def get_step_logs(
+    hook_id: str = Path(..., min_length=1, max_length=100),
+    step_name: str = Path(..., min_length=1, max_length=100),
+    controller: LogViewerController = controller_dependency,
+) -> dict[str, Any]:
+    """Retrieve log entries that occurred during a specific workflow step's execution.
+
+    This endpoint provides time-based correlation of log entries with workflow steps,
+    allowing detailed analysis of what happened during each step's execution window.
+
+    Parameters:
+    - hook_id: GitHub webhook delivery ID
+    - step_name: Name of the workflow step (e.g., "clone_repository", "webhook_routing")
+
+    Returns:
+    - step: Metadata about the step (name, status, timestamp, duration_ms, error)
+    - logs: Array of log entries that occurred during the step's execution
+    - log_count: Number of log entries found
+
+    Error Conditions:
+    - 404: Hook ID not found in logs
+    - 404: Step name not found in workflow steps for the given hook ID
+    - 500: Internal server error
+    """
+    return await controller.get_step_logs(hook_id=hook_id, step_name=step_name)
 
 
 @FASTAPI_APP.websocket("/logs/ws")

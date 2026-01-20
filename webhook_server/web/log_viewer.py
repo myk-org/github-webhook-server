@@ -22,6 +22,13 @@ from webhook_server.libs.log_parser import LogEntry, LogFilter, LogParser
 class LogViewerController:
     """Controller for log viewer functionality."""
 
+    # Maximum log entries to return for a single step to prevent unbounded responses
+    _MAX_STEP_LOGS = 500
+
+    # Default time window in milliseconds when step duration is unknown
+    # 60 seconds provides a reasonable maximum window for log correlation
+    _DEFAULT_STEP_DURATION_MS = 60000
+
     # Workflow stage patterns for PR flow analysis
     # These patterns match log messages to identify workflow stages and can be updated
     # when log message formats change without modifying the analysis logic
@@ -567,6 +574,92 @@ class LogViewerController:
         if pr_number:
             log_prefix_parts.append(f"[PR {pr_number}]")
         return " ".join(log_prefix_parts) + ": " if log_prefix_parts else ""
+
+    async def get_step_logs(self, hook_id: str, step_name: str) -> dict[str, Any]:
+        """Get log entries that occurred during a specific workflow step's execution.
+
+        Args:
+            hook_id: The hook ID to get step logs for
+            step_name: The name of the workflow step to get logs for
+
+        Returns:
+            Dictionary with step metadata and associated log entries:
+            - step: The step metadata (name, status, timestamp, duration_ms, error)
+            - logs: Array of log entries that occurred during the step
+            - log_count: Number of logs found
+
+        Raises:
+            HTTPException: 404 if hook_id not found or step_name not found in workflow steps
+
+        """
+        # Get workflow steps data
+        workflow_data = await self.get_workflow_steps_json(hook_id)
+
+        # Find the step with matching step_name
+        steps = workflow_data.get("steps", [])
+        matching_step: dict[str, Any] | None = None
+        for step in steps:
+            if step.get("step_name") == step_name:
+                matching_step = step
+                break
+
+        if matching_step is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Step '{step_name}' not found for hook ID: {hook_id}",
+            )
+
+        # Extract step metadata
+        step_timestamp = matching_step.get("timestamp")
+        step_duration_ms = matching_step.get("duration_ms")
+        step_status = matching_step.get("task_status", "unknown")
+        step_error = matching_step.get("error")
+
+        # Calculate time window
+        duration_ms = step_duration_ms if step_duration_ms is not None else self._DEFAULT_STEP_DURATION_MS
+
+        # Parse timestamps for time window filtering
+        step_start: datetime.datetime | None = None
+        step_end: datetime.datetime | None = None
+
+        if step_timestamp:
+            try:
+                step_start = datetime.datetime.fromisoformat(step_timestamp.replace("Z", "+00:00"))
+                step_end = step_start + datetime.timedelta(milliseconds=duration_ms)
+            except (ValueError, TypeError) as ex:
+                self.logger.warning(f"Failed to parse step timestamp '{step_timestamp}': {ex}")
+
+        # Collect log entries within the time window
+        log_entries: list[dict[str, Any]] = []
+
+        async for entry in self._stream_log_entries(max_files=25, max_entries=50000):
+            # Filter by hook_id
+            if not self._entry_matches_filters(entry, hook_id=hook_id):
+                continue
+
+            # Filter by time window if we have valid timestamps
+            if step_start is not None and step_end is not None:
+                if entry.timestamp < step_start or entry.timestamp > step_end:
+                    continue
+
+            log_entries.append(entry.to_dict())
+            if len(log_entries) >= self._MAX_STEP_LOGS:
+                break
+
+        # Build step metadata for response
+        step_metadata = {
+            "name": step_name,
+            "status": step_status,
+            "timestamp": step_timestamp,
+            "duration_ms": step_duration_ms,
+            "error": step_error,
+        }
+
+        return {
+            "step": step_metadata,
+            "logs": log_entries,
+            "log_count": len(log_entries),
+        }
 
     async def get_workflow_steps_json(self, hook_id: str) -> dict[str, Any]:
         """Get workflow steps directly from JSON logs for a specific hook ID.

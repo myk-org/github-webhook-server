@@ -1247,3 +1247,298 @@ class TestLogViewerHelpers:
         assert "log_entries" in data
         assert data["export_metadata"]["total_entries"] == 1
         assert data["export_metadata"]["filters_applied"] == filters
+
+
+class TestLogViewerGetStepLogs:
+    """Test cases for get_step_logs method."""
+
+    @pytest.fixture
+    def mock_logger(self):
+        """Create a mock logger for testing."""
+        return Mock()
+
+    @pytest.fixture
+    def controller(self, mock_logger, tmp_path):
+        """Create a LogViewerController instance with mocked config."""
+        with patch("webhook_server.web.log_viewer.Config") as mock_config:
+            mock_config_instance = Mock()
+            mock_config_instance.data_dir = str(tmp_path)
+            mock_config.return_value = mock_config_instance
+            return LogViewerController(logger=mock_logger)
+
+    @pytest.fixture
+    def sample_json_webhook_data(self) -> dict:
+        """Create sample JSON webhook log data with workflow steps."""
+        return {
+            "hook_id": "test-hook-123",
+            "event_type": "pull_request",
+            "action": "opened",
+            "repository": "org/test-repo",
+            "sender": "test-user",
+            "pr": {
+                "number": 456,
+                "title": "Test PR",
+                "url": "https://github.com/org/test-repo/pull/456",
+            },
+            "timing": {
+                "started_at": "2025-01-05T10:00:00.000000Z",
+                "completed_at": "2025-01-05T10:00:05.000000Z",
+                "duration_ms": 5000,
+            },
+            "workflow_steps": {
+                "clone_repository": {
+                    "timestamp": "2025-01-05T10:00:01.000000Z",
+                    "status": "completed",
+                    "duration_ms": 1500,
+                },
+                "assign_reviewers": {
+                    "timestamp": "2025-01-05T10:00:02.500000Z",
+                    "status": "completed",
+                    "duration_ms": 800,
+                },
+                "apply_labels": {
+                    "timestamp": "2025-01-05T10:00:03.500000Z",
+                    "status": "failed",
+                    "duration_ms": 200,
+                    "error": {"type": "ValueError", "message": "Label not found"},
+                },
+            },
+            "token_spend": 35,
+            "success": False,
+        }
+
+    def create_json_log_file(self, log_dir: Path, filename: str, entries: list[dict]) -> Path:
+        """Create a test JSON log file with entries."""
+        log_file = log_dir / filename
+        with open(log_file, "w", encoding="utf-8") as f:
+            for entry in entries:
+                f.write(json.dumps(entry) + "\n")
+        return log_file
+
+    def create_text_log_file(self, log_dir: Path, filename: str, log_lines: list[str]) -> Path:
+        """Create a test text log file with log lines."""
+        log_file = log_dir / filename
+        with open(log_file, "w", encoding="utf-8") as f:
+            for line in log_lines:
+                f.write(line + "\n")
+        return log_file
+
+    async def test_get_step_logs_returns_step_metadata_and_logs(self, controller, tmp_path, sample_json_webhook_data):
+        """Test get_step_logs returns step metadata and associated log entries."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        # Create JSON log file
+        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [sample_json_webhook_data])
+
+        # Create text log file with entries during clone_repository step
+        log_lines = [
+            "2025-01-05T10:00:01.100000 GithubWebhook INFO org/test-repo "
+            "[pull_request][test-hook-123][test-user][PR 456]: Cloning repository...",
+            "2025-01-05T10:00:01.500000 GithubWebhook DEBUG org/test-repo "
+            "[pull_request][test-hook-123][test-user][PR 456]: Clone completed",
+            # Entry outside the step time window
+            "2025-01-05T10:00:05.000000 GithubWebhook INFO org/test-repo "
+            "[pull_request][test-hook-123][test-user][PR 456]: Processing complete",
+        ]
+        self.create_text_log_file(log_dir, "webhook-server.log", log_lines)
+
+        # Get logs for clone_repository step
+        result = await controller.get_step_logs("test-hook-123", "clone_repository")
+
+        # Verify step metadata
+        assert result["step"]["name"] == "clone_repository"
+        assert result["step"]["status"] == "completed"
+        assert result["step"]["timestamp"] == "2025-01-05T10:00:01.000000Z"
+        assert result["step"]["duration_ms"] == 1500
+        assert result["step"]["error"] is None
+
+        # Verify logs are within time window (1500ms from step start)
+        assert result["log_count"] == 2
+        assert len(result["logs"]) == 2
+        # Check that both expected messages are present (order may vary due to streaming)
+        log_messages = [log["message"] for log in result["logs"]]
+        assert any("Cloning repository" in msg for msg in log_messages)
+        assert any("Clone completed" in msg for msg in log_messages)
+
+    async def test_get_step_logs_hook_id_not_found(self, controller, tmp_path, sample_json_webhook_data):
+        """Test get_step_logs raises 404 when hook_id is not found."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        # Create JSON log file with different hook_id
+        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [sample_json_webhook_data])
+
+        # Try to get logs for non-existent hook_id
+        with pytest.raises(HTTPException) as exc:
+            await controller.get_step_logs("non-existent-hook", "clone_repository")
+
+        assert exc.value.status_code == 404
+        assert "No JSON log entry found" in str(exc.value.detail)
+
+    async def test_get_step_logs_step_name_not_found(self, controller, tmp_path, sample_json_webhook_data):
+        """Test get_step_logs raises 404 when step_name is not found."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        # Create JSON log file
+        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [sample_json_webhook_data])
+
+        # Try to get logs for non-existent step_name
+        with pytest.raises(HTTPException) as exc:
+            await controller.get_step_logs("test-hook-123", "non_existent_step")
+
+        assert exc.value.status_code == 404
+        assert "Step 'non_existent_step' not found" in str(exc.value.detail)
+
+    async def test_get_step_logs_with_failed_step(self, controller, tmp_path, sample_json_webhook_data):
+        """Test get_step_logs returns error information for failed step."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        # Create JSON log file
+        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [sample_json_webhook_data])
+
+        # Get logs for failed step
+        result = await controller.get_step_logs("test-hook-123", "apply_labels")
+
+        # Verify step metadata includes error
+        assert result["step"]["name"] == "apply_labels"
+        assert result["step"]["status"] == "failed"
+        assert result["step"]["error"]["message"] == "Label not found"
+
+    async def test_get_step_logs_uses_default_duration_when_missing(self, controller, tmp_path):
+        """Test get_step_logs uses 60 second default when duration_ms is missing."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        # Create webhook data with step missing duration_ms
+        webhook_data = {
+            "hook_id": "test-hook-456",
+            "event_type": "pull_request",
+            "repository": "org/repo",
+            "pr": {"number": 789},
+            "timing": {
+                "started_at": "2025-01-05T10:00:00.000000Z",
+                "duration_ms": 5000,
+            },
+            "workflow_steps": {
+                "step_no_duration": {
+                    "timestamp": "2025-01-05T10:00:01.000000Z",
+                    "status": "completed",
+                    # No duration_ms field
+                },
+            },
+        }
+
+        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [webhook_data])
+
+        # Create text log with entry within 60 second default window
+        log_lines = [
+            "2025-01-05T10:00:30.000000 GithubWebhook INFO org/repo "
+            "[pull_request][test-hook-456][user][PR 789]: Within default window",
+            # Entry outside 60 second window
+            "2025-01-05T10:02:00.000000 GithubWebhook INFO org/repo "
+            "[pull_request][test-hook-456][user][PR 789]: Outside window",
+        ]
+        self.create_text_log_file(log_dir, "webhook-server.log", log_lines)
+
+        result = await controller.get_step_logs("test-hook-456", "step_no_duration")
+
+        # Verify default duration is used
+        assert result["step"]["duration_ms"] is None
+        # Should only include entry within 60 second default window
+        assert result["log_count"] == 1
+        assert "Within default window" in result["logs"][0]["message"]
+
+    async def test_get_step_logs_handles_invalid_timestamp_gracefully(self, controller, tmp_path):
+        """Test get_step_logs handles invalid step timestamp gracefully."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        # Create webhook data with invalid timestamp
+        webhook_data = {
+            "hook_id": "test-hook-789",
+            "event_type": "pull_request",
+            "repository": "org/repo",
+            "pr": {"number": 123},
+            "timing": {
+                "started_at": "2025-01-05T10:00:00.000000Z",
+                "duration_ms": 5000,
+            },
+            "workflow_steps": {
+                "step_bad_timestamp": {
+                    "timestamp": "invalid-timestamp",
+                    "status": "completed",
+                    "duration_ms": 1000,
+                },
+            },
+        }
+
+        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [webhook_data])
+
+        # Create text log file
+        log_lines = [
+            "2025-01-05T10:00:01.000000 GithubWebhook INFO org/repo "
+            "[pull_request][test-hook-789][user][PR 123]: Log entry",
+        ]
+        self.create_text_log_file(log_dir, "webhook-server.log", log_lines)
+
+        result = await controller.get_step_logs("test-hook-789", "step_bad_timestamp")
+
+        # Should return step metadata without crashing
+        assert result["step"]["name"] == "step_bad_timestamp"
+        assert result["step"]["timestamp"] == "invalid-timestamp"
+        # Without valid timestamp filtering, it returns logs matching hook_id
+        assert "logs" in result
+
+    async def test_get_step_logs_empty_logs_when_no_entries_in_window(
+        self, controller, tmp_path, sample_json_webhook_data
+    ):
+        """Test get_step_logs returns empty logs when no entries match time window."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        # Create JSON log file
+        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [sample_json_webhook_data])
+
+        # Create text log file with entries outside step time window
+        log_lines = [
+            # Entry before clone_repository step
+            "2025-01-05T09:59:00.000000 GithubWebhook INFO org/test-repo "
+            "[pull_request][test-hook-123][test-user][PR 456]: Before step",
+            # Entry after clone_repository step (step ends at 10:00:02.500)
+            "2025-01-05T10:00:10.000000 GithubWebhook INFO org/test-repo "
+            "[pull_request][test-hook-123][test-user][PR 456]: After step",
+        ]
+        self.create_text_log_file(log_dir, "webhook-server.log", log_lines)
+
+        result = await controller.get_step_logs("test-hook-123", "clone_repository")
+
+        # Should return step metadata with empty logs
+        assert result["step"]["name"] == "clone_repository"
+        assert result["log_count"] == 0
+        assert result["logs"] == []
+
+    async def test_get_step_logs_filters_by_hook_id(self, controller, tmp_path, sample_json_webhook_data):
+        """Test get_step_logs only returns logs matching the hook_id."""
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+
+        # Create JSON log file
+        self.create_json_log_file(log_dir, "webhooks_2025-01-05.json", [sample_json_webhook_data])
+
+        # Create text log file with entries from different hook_ids
+        log_lines = [
+            "2025-01-05T10:00:01.100000 GithubWebhook INFO org/test-repo "
+            "[pull_request][test-hook-123][test-user][PR 456]: Correct hook",
+            "2025-01-05T10:00:01.200000 GithubWebhook INFO org/test-repo "
+            "[pull_request][other-hook-999][other-user][PR 789]: Wrong hook",
+        ]
+        self.create_text_log_file(log_dir, "webhook-server.log", log_lines)
+
+        result = await controller.get_step_logs("test-hook-123", "clone_repository")
+
+        # Should only include entries with matching hook_id
+        assert result["log_count"] == 1
+        assert "Correct hook" in result["logs"][0]["message"]
